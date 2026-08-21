@@ -78,6 +78,14 @@ const PAGES = [
     themes: ["editorial", "studio", "autumn"],
   },
   {
+    id: "chart_api",
+    title: "Charts, called",
+    blurb:
+      "The only page here whose charts came from a program rather than from a specification: each one was built by calling Vela's chart API (gallery/vela/src/VlChart.rgr), and the lines printed above it are the calls that built it — read out of the generating tool's own source, so the code on the page and the code that drew it cannot drift apart. A view's encoding is inherited by its marks, and no channel says what it is: a column of ISO dates is an instant, a column of numbers is a quantity, read off the data.",
+    shows: ["marks and channels, called", "inherited view encoding", "types read off the data", "the calls that drew it"],
+    themes: ["editorial", "studio", "autumn"],
+  },
+  {
     id: "plots",
     title: "Chart types",
     blurb:
@@ -171,6 +179,7 @@ const PAGE_CSS = {
   // scoped chart rules override them and a build with no chart theme still
   // draws the chart the spec described.
   charts: [path.join(HERE, "themes/charts-default.css")],
+  chart_api: [path.join(HERE, "themes/chart_api-default.css")],
   plots: [path.join(HERE, "themes/plots-default.css")],
   more: [path.join(HERE, "themes/more-default.css")],
   views: [path.join(HERE, "themes/views-default.css")],

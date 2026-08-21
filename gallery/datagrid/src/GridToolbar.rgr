@@ -75,8 +75,9 @@ class ToolIcon {
     sfn save:int ()        { return 42 }
     sfn openFile:int ()    { return 43 }
     sfn newFile:int ()     { return 44 }
+    sfn report:int ()      { return 45 }
     ; The border gallery, as opposed to the three one-click border words.
-    sfn borderMore:int ()  { return 45 }
+    sfn borderMore:int ()  { return 46 }
 }
 
 class ToolItem {
@@ -214,6 +215,8 @@ class GridToolbar {
         this.add("edit.find" "" "Find" (ToolIcon.search()))
         this.add("format.conditional" "" "Conditional formatting" (ToolIcon.cond()))
         this.add("data.validation" "" "Data validation" (ToolIcon.validate()))
+        this.addSeparator()
+        this.add("script.run" "" "Run the report script" (ToolIcon.report()))
     }
 
     ; Place the items across the strip. Anything past the right edge is given

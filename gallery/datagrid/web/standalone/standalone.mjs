@@ -209,7 +209,36 @@ function serveFileRequest() {
   }
   if (want === "saveAs") {
     downloadWorkbook();
+    return;
   }
+  if (want === "exportPdf") {
+    downloadReport();
+  }
+}
+
+/** The report the app just rendered, handed over as a .pdf download. */
+function downloadReport() {
+  const raw = web.reportPdfBytes();
+  if (!raw || !(raw instanceof ArrayBuffer) || raw.byteLength === 0) {
+    statusEl.textContent = "report export failed";
+    return;
+  }
+  const name = web.suggestPdfName() || "report.pdf";
+  saveBlob(new Blob([raw], { type: "application/pdf" }), name);
+  statusEl.textContent = "exported " + name;
+}
+
+/** One download, however it was produced. */
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /** Hand the current workbook to the browser as a .xlsx download. */
@@ -223,15 +252,7 @@ function downloadWorkbook() {
   const blob = new Blob([raw], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  saveBlob(blob, name);
   web.markSavedAs(name);
   statusEl.textContent = "saved " + name;
 }

@@ -1,0 +1,393 @@
+; ==============================================================================
+; DbContract - one test suite, every engine.
+; ==============================================================================
+;
+; The value of a database abstraction is not that it compiles against two
+; engines; it is that the same program produces the same answers on both. So
+; the suite is written once, against DBSession only, and every backend is run
+; through it:
+;
+;     rangerdb   NN/NN
+;     sqlite     NN/NN
+;     duckdb     NN/NN
+;
+; A backend that has not implemented something does not get a special case
+; here - either DBSession covers for it (capability fallback) or the test
+; fails, which is exactly the report we want while RangerDB is being built out.
+; ==============================================================================
+
+Import "../src/DBBackend.rgr"
+Import "../src/RangerDB.rgr"
+
+class DbCheck {
+    def passed:int 0
+    def failed:int 0
+    def failures:[string]
+    def label:string ""
+    def verbose:boolean false
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            if verbose {
+                print ("  PASS " + name)
+            }
+        } {
+            failed = (failed + 1)
+            push failures name
+            print ("  FAIL " + label + ": " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def diff:double (got - want)
+        if (diff < 0.0) {
+            diff = (0.0 - diff)
+        }
+        def good:boolean (diff < 0.000001)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class DbContract {
+    sfn tableName:string () {
+        return "contract_sales"
+    }
+
+    ; region:string  country:string  revenue:double  units:int  active:bool
+    sfn columns:[DBColumn] () {
+        def cols:[DBColumn]
+        push cols (DBColumn.createKey("id" 2))
+        push cols (DBColumn.create("region" 4))
+        push cols (DBColumn.create("country" 4))
+        push cols (DBColumn.create("revenue" 3))
+        push cols (DBColumn.create("units" 2))
+        return cols
+    }
+
+    sfn insertRow:int (session:DBSession id:int region:string country:string revenue:double units:int hasRevenue:boolean) {
+        def m:DBMutation (DBMutation.makeInsert((DbContract.tableName())))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("region" (DBValue.fromString(region)))
+        m.withValue("country" (DBValue.fromString(country)))
+        if hasRevenue {
+            m.withValue("revenue" (DBValue.fromDouble(revenue)))
+        } {
+            m.withValue("revenue" (DBValue.nullOf(3)))
+        }
+        m.withValue("units" (DBValue.fromInt(units)))
+        return (session.mutate(m))
+    }
+
+    sfn seed:void (session:DBSession) {
+        DbContract.insertRow(session 1 "Nordics" "Finland" 1240000.0 120 true)
+        DbContract.insertRow(session 2 "Nordics" "Sweden" 980000.0 95 true)
+        DbContract.insertRow(session 3 "Nordics" "Norway" 610000.0 60 true)
+        DbContract.insertRow(session 4 "DACH" "Germany" 1750000.0 210 true)
+        DbContract.insertRow(session 5 "DACH" "Austria" 320000.0 41 true)
+        DbContract.insertRow(session 6 "Baltics" "Estonia" 0.0 12 false)
+    }
+
+    sfn runAll:void (session:DBSession check:DbCheck) {
+        def table:string (DbContract.tableName())
+        check.label = (session.engineName())
+        def caps:DBCapabilities (session.capabilities())
+        print ("== contract: " + (session.engineName()) + " [" + (caps.describe()) + "] ==")
+
+        ; ---------------------------------------------------------- schema --
+        def made:boolean (session.createTable(table (DbContract.columns())))
+        check.ok("createTable" made)
+
+        def names:[string] (session.tableNames())
+        def sawTable:boolean false
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == table) {
+                sawTable = true
+            }
+            i = (i + 1)
+        }
+        check.ok("table is listed" sawTable)
+
+        def cols:[DBColumn] (session.tableColumns(table))
+        check.eqInt("column count" (array_length cols) 5)
+        if ((array_length cols) == 5) {
+            def c0:DBColumn (itemAt cols 0)
+            def c3:DBColumn (itemAt cols 3)
+            check.eqStr("first column name" c0.name "id")
+            check.eqInt("revenue is a double column" c3.kind 3)
+        }
+
+        ; ---------------------------------------------------------- insert --
+        DbContract.seed(session)
+        def all:QuerySpec (QuerySpec.forTable(table))
+        check.eqInt("rows after insert" (session.countRows(all)) 6)
+
+        def scan:DataChunk (session.query(all))
+        check.eqInt("scan row count" scan.rowCount 6)
+        check.eqInt("scan column count" (scan.columnCount()) 5)
+
+        ; ------------------------------------------------------ projection --
+        def proj:QuerySpec (QuerySpec.forTable(table))
+        proj.selectColumn("country")
+        proj.selectColumn("revenue")
+        def projected:DataChunk (session.query(proj))
+        check.eqInt("projection column count" (projected.columnCount()) 2)
+        def pc0:DBColumn (projected.columnAt(0))
+        check.eqStr("projection keeps order" pc0.name "country")
+
+        ; ---------------------------------------------------------- filter --
+        def eqSpec:QuerySpec (QuerySpec.forTable(table))
+        eqSpec.whereIs("region" 0 (DBValue.fromString("Nordics")))
+        def nordics:DataChunk (session.query(eqSpec))
+        check.eqInt("filter =" nordics.rowCount 3)
+
+        def gtSpec:QuerySpec (QuerySpec.forTable(table))
+        gtSpec.whereIs("revenue" 4 (DBValue.fromDouble(900000.0)))
+        def big:DataChunk (session.query(gtSpec))
+        check.eqInt("filter >" big.rowCount 3)
+
+        def twoSpec:QuerySpec (QuerySpec.forTable(table))
+        twoSpec.whereIs("region" 0 (DBValue.fromString("Nordics")))
+        twoSpec.whereIs("revenue" 4 (DBValue.fromDouble(900000.0)))
+        def both:DataChunk (session.query(twoSpec))
+        check.eqInt("filter AND" both.rowCount 2)
+
+        def likeSpec:QuerySpec (QuerySpec.forTable(table))
+        likeSpec.whereIs("country" 6 (DBValue.fromString("land")))
+        def containing:DataChunk (session.query(likeSpec))
+        check.eqInt("filter contains" containing.rowCount 1)
+
+        def prefixSpec:QuerySpec (QuerySpec.forTable(table))
+        prefixSpec.whereIs("country" 7 (DBValue.fromString("Ge")))
+        def prefixed:DataChunk (session.query(prefixSpec))
+        check.eqInt("filter starts with" prefixed.rowCount 1)
+
+        def inSpec:QuerySpec (QuerySpec.forTable(table))
+        def wanted:[DBValue]
+        push wanted (DBValue.fromString("Finland"))
+        push wanted (DBValue.fromString("Austria"))
+        inSpec.filter.add((DBPredicate.inSet("country" wanted)))
+        def inSet:DataChunk (session.query(inSpec))
+        check.eqInt("filter in set" inSet.rowCount 2)
+
+        ; ------------------------------------------------------------ null --
+        def nullSpec:QuerySpec (QuerySpec.forTable(table))
+        nullSpec.filter.add((DBPredicate.nullCheck("revenue" true)))
+        def nulls:DataChunk (session.query(nullSpec))
+        check.eqInt("filter is null" nulls.rowCount 1)
+        if (nulls.rowCount > 0) {
+            def nv:DBValue (nulls.valueAt(0 3))
+            check.ok("null survives the round trip" nv.isNull)
+        }
+        def notNullSpec:QuerySpec (QuerySpec.forTable(table))
+        notNullSpec.filter.add((DBPredicate.nullCheck("revenue" false)))
+        def notNulls:DataChunk (session.query(notNullSpec))
+        check.eqInt("filter is not null" notNulls.rowCount 5)
+
+        ; ------------------------------------------------------------ sort --
+        def sortSpec:QuerySpec (QuerySpec.forTable(table))
+        sortSpec.orderBy("revenue" false)
+        def sorted:DataChunk (session.query(sortSpec))
+        check.eqInt("sort keeps every row" sorted.rowCount 6)
+        if (sorted.rowCount == 6) {
+            def top:string (sorted.stringAt(0 2))
+            check.eqStr("sort desc puts Germany first" top "Germany")
+            def lastRow:int (sorted.rowCount - 1)
+            def bottom:DBValue (sorted.valueAt(lastRow 3))
+            check.ok("nulls sort last descending" bottom.isNull)
+        }
+
+        def twoKey:QuerySpec (QuerySpec.forTable(table))
+        twoKey.orderBy("region" true)
+        twoKey.orderBy("revenue" true)
+        def bySorts:DataChunk (session.query(twoKey))
+        if (bySorts.rowCount == 6) {
+            check.eqStr("two sort keys, first row" (bySorts.stringAt(0 2)) "Estonia")
+            check.eqStr("two sort keys, second row" (bySorts.stringAt(1 2)) "Austria")
+        }
+
+        ; ------------------------------------------------------ pagination --
+        def pageSpec:QuerySpec (QuerySpec.forTable(table))
+        pageSpec.orderBy("id" true)
+        pageSpec.page(2 2)
+        def page:DataChunk (session.query(pageSpec))
+        check.eqInt("page row count" page.rowCount 2)
+        if (page.rowCount == 2) {
+            def firstId:DBValue (page.valueAt(0 0))
+            check.eqInt("page offset" (firstId.asInt()) 3)
+        }
+
+        ; ------------------------------------------------------- aggregate --
+        def aggSpec:QuerySpec (QuerySpec.forTable(table))
+        aggSpec.aggregate(0 "id" "n")
+        aggSpec.aggregate(1 "revenue" "total")
+        aggSpec.aggregate(2 "revenue" "mean")
+        aggSpec.aggregate(3 "revenue" "low")
+        aggSpec.aggregate(4 "revenue" "high")
+        def agg:DataChunk (session.query(aggSpec))
+        check.eqInt("aggregate returns one row" agg.rowCount 1)
+        if (agg.rowCount == 1) {
+            def countVal:DBValue (agg.valueAt(0 0))
+            check.eqInt("COUNT" (countVal.asInt()) 6)
+            check.eqNum("SUM" (agg.doubleAt(0 1)) 4900000.0)
+            check.eqNum("AVG ignores nulls" (agg.doubleAt(0 2)) 980000.0)
+            check.eqNum("MIN" (agg.doubleAt(0 3)) 320000.0)
+            check.eqNum("MAX" (agg.doubleAt(0 4)) 1750000.0)
+        }
+
+        def groupSpec:QuerySpec (QuerySpec.forTable(table))
+        groupSpec.groupOn("region")
+        groupSpec.aggregate(1 "revenue" "total")
+        groupSpec.aggregate(0 "id" "n")
+        groupSpec.orderBy("total" false)
+        def grouped:DataChunk (session.query(groupSpec))
+        check.eqInt("group by region" grouped.rowCount 3)
+        if (grouped.rowCount == 3) {
+            check.eqStr("largest group first" (grouped.stringAt(0 0)) "Nordics")
+            check.eqNum("group SUM" (grouped.doubleAt(0 1)) 2830000.0)
+            def groupCount:DBValue (grouped.valueAt(0 2))
+            check.eqInt("group COUNT" (groupCount.asInt()) 3)
+            check.eqStr("smallest group last" (grouped.stringAt(2 0)) "Baltics")
+        }
+
+        def filteredGroup:QuerySpec (QuerySpec.forTable(table))
+        filteredGroup.whereIs("units" 4 (DBValue.fromInt(50)))
+        filteredGroup.groupOn("region")
+        filteredGroup.aggregate(0 "id" "n")
+        filteredGroup.orderBy("region" true)
+        def fg:DataChunk (session.query(filteredGroup))
+        check.eqInt("filter before group" fg.rowCount 2)
+
+        ; ------------------------------------------------------------- sql --
+        ; The escape hatch, on every engine that has one. RangerDB's SQL is
+        ; RangerSQL parsing into the same QuerySpec the structured API builds,
+        ; so these assertions are the proof that both roads reach one engine.
+        if caps.sqlText {
+            def rows:DataChunk (session.execSql(("SELECT country, revenue FROM " + table + " WHERE region = 'Nordics' ORDER BY revenue DESC")))
+            check.eqInt("sql: filtered select" rows.rowCount 3)
+            if (rows.rowCount == 3) {
+                check.eqStr("sql: ordered" (rows.stringAt(0 0)) "Finland")
+                check.eqInt("sql: projected two columns" (rows.columnCount()) 2)
+            }
+            def grouped2:DataChunk (session.execSql(("SELECT region, SUM(revenue) AS total FROM " + table + " GROUP BY region ORDER BY total DESC")))
+            check.eqInt("sql: group by" grouped2.rowCount 3)
+            if (grouped2.rowCount == 3) {
+                check.eqStr("sql: largest group first" (grouped2.stringAt(0 0)) "Nordics")
+                check.eqNum("sql: group sum" (grouped2.doubleAt(0 1)) 2830000.0)
+            }
+            def counted:DataChunk (session.execSql(("SELECT COUNT(*) AS n FROM " + table)))
+            if (counted.rowCount == 1) {
+                def nv:DBValue (counted.valueAt(0 0))
+                check.eqInt("sql: count(*)" (nv.asInt()) 6)
+            }
+            def liked:DataChunk (session.execSql(("SELECT country FROM " + table + " WHERE country LIKE 'Fin%'")))
+            check.eqInt("sql: like prefix" liked.rowCount 1)
+            def inSet2:DataChunk (session.execSql(("SELECT country FROM " + table + " WHERE country IN ('Finland', 'Austria')")))
+            check.eqInt("sql: in list" inSet2.rowCount 2)
+            def nulls2:DataChunk (session.execSql(("SELECT id FROM " + table + " WHERE revenue IS NULL")))
+            check.eqInt("sql: is null" nulls2.rowCount 1)
+            def paged2:DataChunk (session.execSql(("SELECT id FROM " + table + " ORDER BY id LIMIT 2 OFFSET 2")))
+            check.eqInt("sql: limit and offset" paged2.rowCount 2)
+            if (paged2.rowCount == 2) {
+                def pv:DBValue (paged2.valueAt(0 0))
+                check.eqInt("sql: offset landed" (pv.asInt()) 3)
+            }
+        }
+
+        ; ---------------------------------------------------------- update --
+        def upd:DBMutation (DBMutation.makeUpdate(table))
+        upd.withKey("id" (DBValue.fromInt(3)))
+        upd.withValue("revenue" (DBValue.fromDouble(777000.0)))
+        def touched:int (session.mutate(upd))
+        check.eqInt("update affected one row" touched 1)
+        def checkSpec:QuerySpec (QuerySpec.forTable(table))
+        checkSpec.whereIs("id" 0 (DBValue.fromInt(3)))
+        def updated:DataChunk (session.query(checkSpec))
+        if (updated.rowCount == 1) {
+            check.eqNum("update wrote the value" (updated.doubleAt(0 3)) 777000.0)
+        }
+
+        def missSpec:DBMutation (DBMutation.makeUpdate(table))
+        missSpec.withKey("id" (DBValue.fromInt(999)))
+        missSpec.withValue("revenue" (DBValue.fromDouble(1.0)))
+        check.eqInt("update of a missing row affects nothing" (session.mutate(missSpec)) 0)
+
+        ; ---------------------------------------------------- insert / del --
+        def ins:DBMutation (DBMutation.makeInsert(table))
+        ins.withValue("id" (DBValue.fromInt(7)))
+        ins.withValue("region" (DBValue.fromString("Baltics")))
+        ins.withValue("country" (DBValue.fromString("Latvia")))
+        ins.withValue("revenue" (DBValue.fromDouble(150000.0)))
+        ins.withValue("units" (DBValue.fromInt(20)))
+        check.eqInt("insert affected one row" (session.mutate(ins)) 1)
+        check.eqInt("row count after insert" (session.countRows(all)) 7)
+
+        def del:DBMutation (DBMutation.makeDelete(table))
+        del.withKey("id" (DBValue.fromInt(7)))
+        check.eqInt("delete affected one row" (session.mutate(del)) 1)
+        check.eqInt("row count after delete" (session.countRows(all)) 6)
+
+        def goneSpec:QuerySpec (QuerySpec.forTable(table))
+        goneSpec.whereIs("id" 0 (DBValue.fromInt(7)))
+        def gone:DataChunk (session.query(goneSpec))
+        check.eqInt("deleted row is gone" gone.rowCount 0)
+
+        ; --------------------------------------------------- batch / types --
+        def batch:[DBMutation]
+        def b1:DBMutation (DBMutation.makeUpdate(table))
+        b1.withKey("id" (DBValue.fromInt(1)))
+        b1.withValue("units" (DBValue.fromInt(121)))
+        push batch b1
+        def b2:DBMutation (DBMutation.makeUpdate(table))
+        b2.withKey("id" (DBValue.fromInt(2)))
+        b2.withValue("units" (DBValue.fromInt(96)))
+        push batch b2
+        check.eqInt("batch write-back" (session.mutateAll(batch)) 2)
+
+        def typeSpec:QuerySpec (QuerySpec.forTable(table))
+        typeSpec.whereIs("id" 0 (DBValue.fromInt(1)))
+        def typed:DataChunk (session.query(typeSpec))
+        if (typed.rowCount == 1) {
+            def idv:DBValue (typed.valueAt(0 0))
+            def unitsv:DBValue (typed.valueAt(0 4))
+            def regionv:DBValue (typed.valueAt(0 1))
+            check.eqInt("int stays an int" idv.kind 2)
+            check.eqInt("batch value landed" (unitsv.asInt()) 121)
+            check.eqStr("string stays a string" (regionv.asString()) "Nordics")
+            check.ok("string column is text kind" (regionv.kind == 4))
+        }
+
+        ; ---------------------------------------------------- window / big --
+        def windowSpec:QuerySpec (QuerySpec.forTable(table))
+        windowSpec.orderBy("id" true)
+        def window:DataChunk (session.fetchRange(windowSpec 1 3))
+        check.eqInt("fetchRange row count" window.rowCount 3)
+        if (window.rowCount == 3) {
+            def firstWindowId:DBValue (window.valueAt(0 0))
+            check.eqInt("fetchRange starts where asked" (firstWindowId.asInt()) 2)
+        }
+    }
+}

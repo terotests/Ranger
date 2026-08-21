@@ -1,0 +1,273 @@
+; ==============================================================================
+; GridDbTest - the spreadsheet editing a database, on every engine there is.
+; ==============================================================================
+;
+; The claim being tested is not "the grid can show a query". It is that a cell
+; edited in the sheet reaches the database, that a value the database will not
+; take never stays on screen, that sorting re-runs the query rather than
+; sorting the page, and that all of this is the same program whether the rows
+; came from RangerDB, SQLite or DuckDB.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+Import "../../rangerdb/src/RangerDB.rgr"
+Import "../../rangerdb/src/HostSql.rgr"
+
+class GridDbCheck {
+    def passed:int 0
+    def failed:int 0
+    def engine:string ""
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL [" + engine + "] " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class GridDbTest {
+    sfn tableName:string () {
+        return "sales"
+    }
+
+    sfn seed:void (session:DBSession) {
+        def cols:[DBColumn]
+        push cols (DBColumn.createKey("id" 2))
+        push cols (DBColumn.create("country" 4))
+        push cols (DBColumn.create("revenue" 3))
+        push cols (DBColumn.create("units" 2))
+        session.createTable((GridDbTest.tableName()) cols)
+        GridDbTest.addRow(session 1 "Finland" 1240000.0 120)
+        GridDbTest.addRow(session 2 "Sweden" 980000.0 95)
+        GridDbTest.addRow(session 3 "Norway" 610000.0 60)
+        GridDbTest.addRow(session 4 "Germany" 1750000.0 210)
+    }
+
+    sfn addRow:void (session:DBSession id:int country:string revenue:double units:int) {
+        def m:DBMutation (DBMutation.makeInsert((GridDbTest.tableName())))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("country" (DBValue.fromString(country)))
+        m.withValue("revenue" (DBValue.fromDouble(revenue)))
+        m.withValue("units" (DBValue.fromInt(units)))
+        session.mutate(m)
+    }
+
+    sfn focusCell:void (app:GridApp r:int c:int) {
+        app.sel.anchor.row = r
+        app.sel.anchor.col = c
+        app.sel.active.row = r
+        app.sel.active.col = c
+    }
+
+    sfn typeInto:void (app:GridApp r:int c:int text:string) {
+        GridDbTest.focusCell(app r c)
+        app.beginEdit(text true)
+        app.commitEdit()
+    }
+
+    ; What the database holds for one row, whatever the sheet says.
+    sfn storedText:string (session:DBSession id:int column:string) {
+        def q:QuerySpec (QuerySpec.forTable((GridDbTest.tableName())))
+        q.whereIs("id" 0 (DBValue.fromInt(id)))
+        def chunk:DataChunk (session.query(q))
+        if (chunk.rowCount == 0) {
+            return "<missing>"
+        }
+        def ci:int (chunk.columnIndex(column))
+        if (ci < 0) {
+            return "<no column>"
+        }
+        return (chunk.stringAt(0 ci))
+    }
+
+    sfn runSuite:void (session:DBSession check:GridDbCheck) {
+        check.engine = (session.engineName())
+        print ("== grid over " + check.engine + " ==")
+        GridDbTest.seed(session)
+
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+
+        def spec:QuerySpec (QuerySpec.forTable((GridDbTest.tableName())))
+        spec.orderBy("id" true)
+        def keys:[string]
+        push keys "id"
+        def bound:boolean (app.bindDatabase(session spec keys "DB sales"))
+        check.ok("query became a sheet" bound)
+        check.eqInt("sheet is the active one" app.book.activeIndex 1)
+        check.eqStr("header row" (app.model.getCell(0 1)) "country")
+        check.eqStr("first row" (app.model.getCell(1 1)) "Finland")
+        check.eqStr("numbers are values, not text" (app.model.getCell(1 3)) "120")
+        check.eqInt("rows loaded" app.db.loadedRows 4)
+        check.ok("the sheet is writable" (app.db.readOnly == false))
+
+        ; --- an edit reaches the database ------------------------------------
+        GridDbTest.typeInto(app 2 1 "Sverige")
+        check.eqStr("edit is on the sheet" (app.model.getCell(2 1)) "Sverige")
+        check.eqStr("edit is in the database" (GridDbTest.storedText(session 2 "country")) "Sverige")
+
+        GridDbTest.typeInto(app 2 3 "97")
+        check.eqStr("numeric edit stored" (GridDbTest.storedText(session 2 "units")) "97")
+
+        ; --- a value the column cannot hold never stays -----------------------
+        GridDbTest.typeInto(app 2 3 "ninety seven")
+        check.eqStr("refused edit is undone on the sheet" (app.model.getCell(2 3)) "97")
+        check.eqStr("refused edit never reached the database" (GridDbTest.storedText(session 2 "units")) "97")
+        check.ok("and it said why" ((strlen app.db.status) > 0))
+
+        ; --- a formula over database columns ----------------------------------
+        GridDbTest.typeInto(app 1 5 "=SUM(C2:C5)")
+        check.eqStr("formula over a database column" (app.model.getCell(1 5)) "4580000")
+
+        ; --- sorting re-runs the query ----------------------------------------
+        app.applySort(2 false)
+        check.eqStr("sorted by revenue, highest first" (app.model.getCell(1 1)) "Germany")
+        check.eqInt("sort is one ORDER BY, not two" (array_length app.db.spec.sorts) 1)
+
+        ; --- filtering re-runs the query --------------------------------------
+        GridDbTest.focusCell(app 1 1)
+        app.runCommand("db.filter" "land")
+        check.eqInt("filtered rows" app.db.loadedRows 1)
+        check.eqInt("filtered total" app.db.totalRows 1)
+        check.eqStr("the row that matched" (app.model.getCell(1 1)) "Finland")
+        app.runCommand("db.filter" "")
+        check.eqInt("filter cleared" app.db.loadedRows 4)
+
+        ; --- delete a row from the sheet --------------------------------------
+        GridDbTest.focusCell(app 1 0)
+        app.runCommand("db.row.delete" "")
+        check.eqInt("row count after delete" app.db.loadedRows 3)
+        def first:string (app.model.getCell(1 1))
+        check.ok("the deleted row is gone from the sheet" (first != "Germany"))
+
+        ; --- the blank last row inserts ---------------------------------------
+        def newRow:int (app.db.loadedRows + 1)
+        GridDbTest.typeInto(app newRow 1 "Denmark")
+        check.eqInt("no key yet, so nothing was inserted" app.db.loadedRows 3)
+        GridDbTest.typeInto(app newRow 0 "9")
+        check.eqInt("filling the key inserts the row" app.db.loadedRows 4)
+        check.eqStr("the inserted row is in the database" (GridDbTest.storedText(session 9 "country")) "Denmark")
+
+        ; --- a chart over database rows ---------------------------------------
+        ; A database sheet is an ordinary sheet, so the chart code that has
+        ; never heard of a database plots it. Country labels down the first
+        ; column, revenue across - the same extraction an .xlsx range gets.
+        def ch:GridChart (new GridChart)
+        ch.id = 1
+        ch.r0 = 0
+        ch.c0 = 1
+        ch.r1 = app.db.loadedRows
+        ch.c1 = 2
+        def data:ChartData (new ChartData)
+        check.ok("chart data comes out of the database sheet" (data.extract(app.model ch)))
+        check.eqInt("one revenue series" (data.seriesCount()) 1)
+        check.eqInt("one category per row" (data.catCount()) app.db.loadedRows)
+        check.eqStr("series named by the query column" (itemAt data.series 0) "revenue")
+
+        ; --- a sheet from typed SQL -------------------------------------------
+        ; The query box: RangerSQL parses what was typed and SqlFront plans it
+        ; into the same QuerySpec a sheet built in code uses, so a typed SELECT
+        ; is an ordinary editable database sheet.
+        def typed:string ("SELECT id, country, revenue FROM " + (GridDbTest.tableName()) + " WHERE revenue > 900000 ORDER BY revenue DESC")
+        app.dbSqlText = typed
+        app.openSqlDialog()
+        check.ok("the SQL box opens" app.sqlDialog.visible)
+        app.runSqlFromDialog()
+        check.ok("the typed query became a sheet" (app.db.loadedRows > 0))
+        check.ok("planned into a QuerySpec, not run as raw text" ((app.db.isRawSql()) == false))
+        check.eqStr("header comes from the query" (app.model.getCell(0 1)) "country")
+        check.eqInt("only the selected columns" (array_length app.db.columns) 3)
+        check.eqInt("only the rows the WHERE kept" app.db.loadedRows 2)
+        check.eqStr("ordered by the query" (app.model.getCell(1 1)) "Finland")
+        check.ok("and it is writable, because the key came with it" (app.db.readOnly == false))
+
+        ; An edit on a SQL sheet goes back to the table the query named.
+        GridDbTest.typeInto(app 1 1 "Suomi")
+        check.eqStr("an edit on a SQL sheet reaches the database" (GridDbTest.storedText(session 1 "country")) "Suomi")
+
+        ; The command surface does the same thing, which is how a host drives it.
+        app.runCommand("db.sql" ("SELECT id, country FROM " + (GridDbTest.tableName()) + " ORDER BY id"))
+        check.eqInt("db.sql runs a query" (array_length app.db.columns) 2)
+        check.ok("and it is still a database sheet" (app.dbSheetActive()))
+
+        ; Beyond the planner: an expression in the projection. A host engine
+        ; runs the text; RangerDB says what was in the way instead.
+        def beyond:string ("SELECT id * 2 AS twice FROM " + (GridDbTest.tableName()))
+        def beyondOk:boolean (app.bindDatabaseSql(session beyond "SQL beyond"))
+        if (check.engine == "rangerdb") {
+            check.ok("rangerdb refuses what it cannot plan" (beyondOk == false))
+            check.ok("and names what was in the way" ((strlen app.db.status) > 0))
+        } {
+            check.ok("a host engine runs it as raw SQL" beyondOk)
+            check.ok("and the sheet says it is read only" app.db.readOnly)
+            check.eqStr("the computed column is there" (app.model.getCell(0 0)) "twice")
+        }
+
+        ; --- an aggregate is read only ----------------------------------------
+        def agg:QuerySpec (QuerySpec.forTable((GridDbTest.tableName())))
+        agg.groupOn("country")
+        agg.aggregate(1 "revenue" "total")
+        agg.orderBy("country" true)
+        def noKeys:[string]
+        app.bindDatabase(session agg noKeys "DB totals")
+        check.ok("aggregate sheet is read only" app.db.readOnly)
+        def beforeAgg:string (app.model.getCell(1 1))
+        GridDbTest.typeInto(app 1 1 "999")
+        check.eqStr("an aggregate cell cannot be edited" (app.model.getCell(1 1)) beforeAgg)
+    }
+
+    sfn runHost:int (driver:string check:GridDbCheck) {
+        if ((HostSqlBackend.isAvailable(driver)) == false) {
+            print ("== grid over " + driver + ": not installed, skipped ==")
+            return 0
+        }
+        def backend:HostSqlBackend (HostSqlBackend.forDriver(driver))
+        def session:DBSession (DBSession.over(backend))
+        if ((session.openDb(":memory:")) == false) {
+            print ("== grid over " + driver + ": could not open ==")
+            return 0
+        }
+        GridDbTest.runSuite(session check)
+        session.closeDb()
+        return 1
+    }
+
+    sfn main:void () {
+        def check:GridDbCheck (new GridDbCheck)
+        def backend:RangerDbBackend (new RangerDbBackend)
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        GridDbTest.runSuite(session check)
+        def engines:int 1
+        engines = (engines + (GridDbTest.runHost("sqlite" check)))
+        engines = (engines + (GridDbTest.runHost("duckdb" check)))
+        print ("engines=" + (to_string engines) + " passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

@@ -1,0 +1,177 @@
+; ==============================================================================
+; vela_chart.rgr — charts built by CALLING Vela rather than by writing JSON.
+; ==============================================================================
+;   vela_chart [out-dir]
+;
+; Every chart below is written with `VlChart` — no specification text anywhere
+; in this file — and each one is taken all the way to a drawn SVG through the
+; same path a pasted specification takes:
+;
+;     VlChart → Vega-Lite → VlCompile → Vega → VlRuntime → scene → VlSvg
+;
+; Both halves are written out for each chart: the `.vl.json` the API built and
+; the `.svg` the runtime drew from it. The first is what makes the API
+; checkable by eye — what a caller wrote, and what Vega-Lite it became.
+; ==============================================================================
+
+Import "../src/VlChart.rgr"
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+Import "../src/VlSvg.rgr"
+
+class VelaChartTool {
+
+    ; Quarterly sales and cost for two regions — one dataset, read by every
+    ; chart below. This is the ECharts idea and it is the whole point of
+    ; `VlDataset`: the numbers are a value, and a chart is a way of looking at
+    ; one.
+    sfn quarters:VlDataset () {
+        def d (VlDataset.create())
+        d.row().str("region" "North").str("quarter" "2016-01-01").num("sales" 120.0).num("cost" 82.0)
+        d.row().str("region" "North").str("quarter" "2016-04-01").num("sales" 145.0).num("cost" 91.0)
+        d.row().str("region" "North").str("quarter" "2016-07-01").num("sales" 132.0).num("cost" 88.0)
+        d.row().str("region" "North").str("quarter" "2016-10-01").num("sales" 168.0).num("cost" 99.0)
+        d.row().str("region" "South").str("quarter" "2016-01-01").num("sales" 93.0).num("cost" 71.0)
+        d.row().str("region" "South").str("quarter" "2016-04-01").num("sales" 88.0).num("cost" 66.0)
+        d.row().str("region" "South").str("quarter" "2016-07-01").num("sales" 104.0).num("cost" 74.0)
+        d.row().str("region" "South").str("quarter" "2016-10-01").num("sales" 121.0).num("cost" 80.0)
+        return d
+    }
+
+    ; A bar per region, summed over the year.
+    sfn totals:VlChart () {
+        def rows:VlDataset (VelaChartTool.quarters())
+        def chart (VlChart.create(rows))
+        chart.size(240 180)
+        chart.heading("Sales by region")
+        chart.bar().x("region").keepOrder().y("sales").aggregate("sum").title("total sales")
+        return chart
+    }
+
+    ; Two series over time, and the type of neither channel is stated: the
+    ; quarter column holds ISO dates and the sales column holds numbers.
+    sfn overTime:VlChart () {
+        def rows:VlDataset (VelaChartTool.quarters())
+        def chart (VlChart.create(rows))
+        chart.size(320 180)
+        chart.heading("Sales over the year")
+        chart.line().withPoints(true).x("quarter").y("sales").color("region")
+        return chart
+    }
+
+    ; The view carries the encoding; the two marks inherit it. One set of axes,
+    ; one legend, two marks — which is the thing a `LineChart` class and an
+    ; `AreaChart` class cannot do between them.
+    sfn layered:VlChart () {
+        def rows:VlDataset (VelaChartTool.quarters())
+        def chart (VlChart.create(rows))
+        chart.size(320 180)
+        chart.heading("Sales, filled and drawn")
+        chart.x("quarter").y("sales").color("region")
+        chart.area().markOpacity(0.35)
+        chart.line()
+        return chart
+    }
+
+    ; Grouped bars: a colour and an offset reading the same column.
+    sfn grouped:VlChart () {
+        def rows:VlDataset (VelaChartTool.quarters())
+        def chart (VlChart.create(rows))
+        chart.size(320 180)
+        chart.heading("Sales by quarter and region")
+        chart.bar().x("quarter").type("ordinal").timeUnit("yearquarter").y("sales").color("region").xOffset("region")
+        return chart
+    }
+
+    ; Cost against sales, one point per quarter per region.
+    sfn scatter:VlChart () {
+        def rows:VlDataset (VelaChartTool.quarters())
+        def chart (VlChart.create(rows))
+        chart.size(240 240)
+        chart.heading("Cost against sales")
+        chart.point().filled(true).markSize(80.0).x("cost").y("sales").color("region")
+        return chart
+    }
+
+    ; A margin the data does not have: computed by the runtime, from a
+    ; transform the API wrote and the compiler carries.
+    sfn margins:VlChart () {
+        def rows:VlDataset (VelaChartTool.quarters())
+        def chart (VlChart.create(rows))
+        chart.size(280 180)
+        chart.heading("Margin by quarter")
+        chart.calculate("datum.sales - datum.cost" "margin")
+        chart.filter("datum.margin > 20")
+        chart.bar().x("quarter").type("ordinal").timeUnit("yearquarter").y("margin").aggregate("sum").color("region")
+        return chart
+    }
+
+    ; --- taking one chart all the way to a picture ---------------------------
+    sfn draw:int (chart:VlChart name:string outDir:string) {
+        for chart.errors e:string ei {
+            print ((("  " + name) + ": ") + e)
+        }
+        def errorCount:int (array_length chart.errors)
+        if (errorCount > 0) {
+            return 0
+        }
+
+        def spec:VlJson (chart.toSpec())
+        def w (new VlJsonWriter())
+        def specText:string (w.write(spec))
+        write_file outDir (name + ".vl.json") specText
+
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec(spec))
+        for compiler.errors e:string ei {
+            print ((("  " + name) + ": ") + e)
+        }
+        def compileErrors:int (array_length compiler.errors)
+        if (compileErrors > 0) {
+            return 0
+        }
+
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(vg))
+        for rt.errors e:string ei {
+            print ((("  " + name) + ": ") + e)
+        }
+        def runErrors:int (array_length rt.errors)
+        if (runErrors > 0) {
+            return 0
+        }
+
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def root:VlSceneItem (itemAt scene.items 0)
+        def writer (new VlSvgWriter())
+        def doc:string (writer.writeDocument(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY")) rt.background))
+        write_file outDir (name + ".svg") doc
+        print ((((("  " + name) + ".svg   ") + (to_string (strlen doc))) + " bytes, ") + (to_string (strlen specText)) + " bytes of spec")
+        return 1
+    }
+
+    sfn main:void () {
+        def outDir:string "gallery/vela/bin/chart-api/"
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            outDir = (shell_arg 0)
+        }
+        print ("charts built by calling the API, written to " + outDir)
+
+        def drawn:int 0
+        def totals:VlChart (VelaChartTool.totals())
+        drawn = (drawn + (VelaChartTool.draw(totals "totals" outDir)))
+        def overTime:VlChart (VelaChartTool.overTime())
+        drawn = (drawn + (VelaChartTool.draw(overTime "over_time" outDir)))
+        def layered:VlChart (VelaChartTool.layered())
+        drawn = (drawn + (VelaChartTool.draw(layered "layered" outDir)))
+        def grouped:VlChart (VelaChartTool.grouped())
+        drawn = (drawn + (VelaChartTool.draw(grouped "grouped" outDir)))
+        def scatter:VlChart (VelaChartTool.scatter())
+        drawn = (drawn + (VelaChartTool.draw(scatter "scatter" outDir)))
+        def margins:VlChart (VelaChartTool.margins())
+        drawn = (drawn + (VelaChartTool.draw(margins "margins" outDir)))
+
+        print ((to_string drawn) + " of 6 charts drawn")
+    }
+}

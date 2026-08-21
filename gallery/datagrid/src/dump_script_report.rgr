@@ -1,0 +1,48 @@
+; ==============================================================================
+; dump_script_report — the report preview, as a PNG, and the PDF beside it.
+; ==============================================================================
+;
+; Same picture the window host draws: the app renders its own frame with the
+; preview open, and the framebuffer is written out. The PDF is exported from
+; the same run, so the two artifacts are the same report on two devices.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DumpScriptReport {
+
+    sfn writePng:void (app:GridApp dir:string file:string) {
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+        print ("wrote " + dir + "/" + file)
+    }
+
+    sfn main:void () {
+        def app:GridApp (new GridApp)
+        app.W = 1100
+        app.H = 760
+        app.init("gallery/pdf_writer/assets/fonts")
+        def ok:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if (ok == false) {
+            print ("could not load the fixture: " + app.loadError)
+            return
+        }
+        app.setActiveSheet(0)
+        app.runCommand("script.new" "sales")
+        print ("status: " + app.view.status)
+        DumpScriptReport.writePng(app "gallery/datagrid/artifacts" "script_report.png")
+        app.runCommand("script.page.next" "")
+        DumpScriptReport.writePng(app "gallery/datagrid/artifacts" "script_report_page2.png")
+        app.book.sourcePath = "gallery/datagrid/harness/out/script/report.xlsx"
+        app.hostWritesFiles = false
+        app.runCommand("script.export.pdf" "")
+        print ("status: " + app.view.status)
+    }
+}

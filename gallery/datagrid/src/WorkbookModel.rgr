@@ -4,17 +4,23 @@
 
 Import "SpreadsheetModel.rgr"
 Import "SheetTable.rgr"
+Import "script/GridScript.rgr"
 
 class WorkbookModel {
     def sheets:[SpreadsheetModel]
     def activeIndex:int 0
     def sourcePath:string ""
+    ; Scripts carried by the package (see script/GridScript.rgr). The loader
+    ; fills this from the `ranger/` parts and the writer puts it back, so a
+    ; script is part of the document rather than something beside it.
+    def scripts:[GridScript]
 
     Constructor () {
     }
 
     fn clear:void () {
         clear sheets
+        clear scripts
         activeIndex = 0
         sourcePath = ""
     }
@@ -291,6 +297,48 @@ class WorkbookModel {
             return empty
         }
         return (itemAt sheets activeIndex)
+    }
+
+    ; --- scripts --------------------------------------------------------------
+    fn scriptCount:int () {
+        return (array_length scripts)
+    }
+
+    fn scriptAt:GridScript (i:int) {
+        return (itemAt scripts i)
+    }
+
+    fn scriptIndexOf:int (name:string) {
+        def i:int 0
+        def n:int (array_length scripts)
+        while (i < n) {
+            def s:GridScript (itemAt scripts i)
+            if (s.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Adding a script twice under one name replaces it rather than growing a
+    ; second part that would overwrite the first in the ZIP.
+    fn addScript:void (s:GridScript) {
+        def at:int (this.scriptIndexOf(s.name))
+        if (at >= 0) {
+            set_at scripts at s
+            return
+        }
+        push scripts s
+    }
+
+    fn removeScript:boolean (name:string) {
+        def at:int (this.scriptIndexOf(name))
+        if (at < 0) {
+            return false
+        }
+        remove_index scripts at
+        return true
     }
 
     fn activeName:string () {

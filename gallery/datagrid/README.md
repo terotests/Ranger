@@ -27,11 +27,20 @@ npm run datagrid:xlsx:test
 npm run datagrid:chart:test
 npm run datagrid:export:test
 npm run datagrid:workbook:test
+npm run datagrid:db:test        # a sheet over RangerDB / SQLite / DuckDB
+npm run datagrid:db:demo        # …and a headless session that edits one
+npm run datagrid:db:window      # the editor in a browser window, on a database
+                                #   …Ctrl+Q there opens the SQL box
+npm run datagrid:db:window:smoke  # …the same, checked without a browser
 npm run datagrid:formula:test
 npm run datagrid:formula:array:test
 npm run datagrid:date:test
 npm run datagrid:formula:workbook:test
 npm run datagrid:formula:bench
+npm run datagrid:script:test
+npm run datagrid:script:smoke
+npm run datagrid:script:editor:test
+npm run datagrid:editor:web:test
 npm run datagrid:artifacts
 npm run datagrid:xlsx:fixtures
 npm run datagrid:bench -- 100000
@@ -178,6 +187,140 @@ second and re-uploading a picture it had already drawn.
   `sparse100k`, `styles-showcase` (FortuneSheet-shaped border/font/format matrix)
 - Oracles: openpyxl semantic; LibreOffice visual + formula CSV when available
 - Bench: `datagrid:bench`, `datagrid:formula:bench`
+
+## Database sheets
+
+A sheet whose rows are a database query, and whose edits are `UPDATE`s. The
+engine is not named anywhere in the grid: it comes in as a `DBSession` from
+[`gallery/rangerdb`](../rangerdb/README.md), and the same sheet works over
+RangerDB (pure Ranger), SQLite or DuckDB.
+
+```text
+   query result                        edited cell
+        │                                   │
+  GridDbSource.loadInto             GridDbSource.cellEdited
+        │                                   │
+  SpreadsheetModel   <-- the grid -->   DBMutation -> DBSession -> engine
+```
+
+```ranger
+def keys:[string]
+push keys "id"
+app.bindDatabase(session spec keys "DB sales")
+```
+
+The sheet is an ordinary `SpreadsheetModel`, so every formula, format, chart
+and .xlsx export keeps working over it — `=SUM(C2:C5)` sums a database column,
+and a workbook can hold an .xlsx sheet next to a live table.
+
+Three rules, each of which is a bug if it is missing:
+
+1. **No key columns, no writing.** A result with no identity for its rows (an
+   aggregate, a join, a `SELECT` that dropped the key) is read only and says
+   so, instead of writing an `UPDATE` that matches whatever it matches.
+2. **A refused value never stays on the sheet.** Text typed into a numeric
+   column, or a write the engine rejected, puts the loaded value back: a cell
+   showing something the database does not hold is a lie the next formula
+   believes.
+3. **Sorting and filtering re-run the query.** Sorting the loaded page would
+   order one screen of a million rows and call it sorted. `db.filter`,
+   `db.page.next` and the header sort all rebuild the `QuerySpec` and ask the
+   engine again.
+
+The blank row after the last one inserts, once its key columns have something
+in them. `db.row.delete` deletes. `db.refresh` re-runs. With
+`db.autoCommit = false` the edits collect instead, and `db.commit` writes them
+in one transaction where the engine has them.
+
+### Opening the editor on a database
+
+```bash
+npm run datagrid:db:window                      # DuckDB if installed, else SQLite, else RangerDB
+npm run datagrid:db:window:sqlite               # or name the engine
+RANGERDB_ENGINE=rangerdb npm run datagrid:db:window
+```
+
+Same WebGL window as `datagrid:window`, except the sheet is a query: the host
+opens the engine, seeds a demo `sales` table if it is empty, and binds it. Type
+in a cell and the `UPDATE` happens while you watch — the status bar names the
+engine that took it.
+
+The server takes `--db <engine>`, `--db-dsn` (default `:memory:` — point it at
+a file to open a real database), `--db-table` and `--db-rows`:
+
+```bash
+npm run datagrid:db:module
+node gallery/datagrid/web/serve.mjs --open --db duckdb   --db-dsn ./sales.duckdb --db-table sales
+```
+
+`npm run datagrid:db:window:smoke` runs that host with no browser at all: it
+asks for the scene the browser would draw, posts the same click/type/Enter
+events the browser posts, and checks that the edit is in the next scene, that
+the app says the database took it, and that a bad value never reaches the
+cell. It passes on all three engines.
+
+### The SQL box
+
+**Ctrl+Q** opens a query box inside the editor. What you type is parsed by
+[RangerSQL](../rangersql/README.md) and planned by `SqlFront` into the same
+`QuerySpec` a sheet built in code uses — so a typed `SELECT` is an ordinary
+**editable** database sheet: sort, filter, write-back and formulas all keep
+working on it.
+
+![The SQL query box over a database sheet](artifacts/db_sql_box.png)
+
+A statement beyond the planner (a join, a subquery, an expression in the
+projection) still runs — it is handed to the engine as text — and the sheet
+says `raw SQL result: read only, edit the query instead`, because a result with
+no row identity has nothing to write an edit back to. On RangerDB, whose SQL
+*is* the planner, such a statement is refused with the reason instead.
+
+The same thing is a command, which is how a host or a test drives it:
+
+```bash
+curl -s localhost:8766/command -d '{"id":"db.sql","arg":"SELECT country, revenue FROM sales ORDER BY revenue DESC LIMIT 10"}'
+```
+
+`npm run datagrid:db:window:smoke` opens the box the way a person does — the
+command, then text events, then Enter — and checks the query became a sheet.
+
+`npm run datagrid:db:test` runs all of it over all three engines (134/134), and
+`npm run datagrid:db:demo` is a headless session that seeds a table, edits a
+cell through the UI, reads the new value back out of the database, has one
+edit refused, sorts (which re-runs the query) and leaves this behind:
+
+![A workbook sheet whose rows come from DuckDB](artifacts/db_sheet.png)
+
+## Text stays inside its box
+
+Every component that draws editable or truncated text asks the same three
+questions, and every component that answered them for itself got them slightly
+wrong. `gallery/evg/EVGTextFit.rgr` answers them once:
+
+```text
+field width
+|<------------------------->|
+SELECT id, country, revenue FROM sales WHERE revenue > 900000
+                     ^ caret
+->  the window that fits AND contains the caret, and where the caret
+    sits inside it
+```
+
+Clipping is not enough on its own: the software painter honours a clip
+rectangle **per draw call**, so a text command whose origin is inside the box is
+drawn whole and runs out the other side — which is exactly what a long query in
+the SQL box did, across the panel and over the sheet behind it. Text that must
+not escape a box has to be **cut** to the box, on every backend.
+
+`EVGWindow`'s input control, the grid's cell labels and the formula field all
+go through it now, and the display-list primitives (`addRect`, `addFrame`,
+`addText`, `addClip`) live on `EVGDisplayList` itself, so a dialog and the grid
+behind it cannot drift into two encodings of the same command.
+
+`npm run datagrid:textfit:test` checks it on the display list rather than on
+the picture: for every piece of text that starts inside a panel, does it end
+inside it too? (It fails on the code from before the fix — that is what makes
+it a test.)
 
 ## Editing
 
@@ -631,6 +774,97 @@ result negative, so **every archive the repository has ever written had wrong
 CRCs**. Our own reader ignores CRCs and never noticed; Python's `zipfile`
 refuses the file outright. The same bug lived in a second copy of `CRC32.rgr`
 under `game_engine`, and both are fixed.
+
+## Reports: a script inside the workbook
+
+The workbook can carry a **script**, and the script can print. Press the last
+toolbar button (or run `script.new` from the palette) and the editor writes a
+starter report into the workbook, runs it, and shows the page:
+
+![A report over the Sales sheet, previewed in the editor](artifacts/script_report.png)
+
+That is not a screenshot of a PDF viewer. The script is TSX, evaluated by
+`ComponentEngine` — the TypeScript interpreter from
+[`gallery/pdf_writer`](../pdf_writer) — and what it returns is an **EVG**
+document. The preview is that document's own display list, copied into the
+grid's with a scale and an offset, and `Ctrl+P` hands the same tree to
+`EVGPDFRenderer`. Preview and print are one run measured with one set of fonts.
+
+```tsx
+function render() {
+  const rows = sheetText("Sales");          // as the grid displays them
+  const total = cell("Sales!B5");           // formulas give computed values
+  const live  = query("select * from orders where total > 100");   // if bound
+  return (
+    <Print><Section><Page>
+      <View flexDirection="column">
+        <Label fontSize="22px" fontWeight="bold">{param("sheet")}</Label>
+        {rows.map(…)}
+      </View>
+    </Page></Section></Print>
+  );
+}
+```
+
+The script travels **in the .xlsx**. An OPC package may carry parts its reader
+does not understand, so the source sits at `ranger/summary.tsx` inside the ZIP,
+next to `xl/`, with its content type declared. The loader reads it, the writer
+puts it back, and Excel opens the same file as an ordinary spreadsheet and
+ignores it — this is not a macro, and it is not `.xlsm`. (Excel will drop the
+part if Excel saves the file.)
+
+A **database sheet is a sheet**: the database layer loads query results into
+the same model, so a report over a live table is the same report, unchanged.
+`query()` is the other direction — a report running its own SQL — and it is a
+seam a host fills, answering "no database is bound" until one does.
+
+Full API, layout rules and limits: [`docs/SCRIPTING.md`](docs/SCRIPTING.md).
+
+```bash
+npm run datagrid:script:test       # engine, data API, .xlsx round trip
+npm run datagrid:script:smoke      # the app's own commands, headless
+npm run datagrid:script:artifacts  # the picture above, and the PDF
+```
+
+### The script editor
+
+The scripts have an editor, and it is the same picture on every backend:
+
+![The code editor, painted on the CPU](artifacts/code_editor_syntax.png)
+
+A JavaScript / JSX lexer, a gutter with line numbers, a current-line band,
+selection, undo — painted into an **EVG display list**, which means it runs on
+WebGL 2 in a browser, on OpenGL in a native SDL2 binary, and on the CPU with no
+window at all, from one source.
+
+```bash
+npm run datagrid:editor:open       # build, serve, open a browser at :8001
+npm run datagrid:editor:open -- --file thing.tsx   # …with a file from disk in it
+npm run datagrid:editor:sdl        # Ranger → C++ → SDL2 + OpenGL binary
+npm run datagrid:editor:web:test   # headless Chrome types into it: 12 checks
+npm run datagrid:editor:keys:test  # Playwright, real key events: 43 checks
+npm run datagrid:editor:compare    # the same keys, beside CodeMirror 6
+npm run datagrid:editor:sdl:smoke  # 20 frames through OpenGL, headless
+```
+
+It is meant to be usable without a mouse: focus lives in a hidden `<textarea>`
+mirroring the caret's line (so a screen reader has something to read and IME,
+dead keys and paste all work), the canvas is `aria-hidden`, and Escape arms the
+way out of the Tab key so the editor is not a keyboard trap. **CodeMirror 6 is
+the reference** — the compare bench gives both editors the same document and
+the same key presses and prints where each caret landed: 19 of 19 steps agree.
+
+Errors are underlined, and **which errors** is a plugin's business, not the
+editor's: `EditorLanguage` is the seam, `JsLanguage` checks TSX with the very
+parser `ComponentEngine` will run the script with, and `RangerLanguage` checks
+`.rgr` files with its own lexer and its own lints. It is the Language Server
+idea with the server taken out — a plugin is a class, `registry.add` is the
+installation, and nothing has to be running for it to work, which is what lets
+the same editor do it in a browser tab and inside a native SDL binary.
+
+The text model is [`gallery/text_editor`](../text_editor)'s — buffer, selection
+and layout — rather than a third one written for this. Details, keys and what
+is deliberately missing: [`docs/CODE_EDITOR.md`](docs/CODE_EDITOR.md).
 
 ## Charts
 

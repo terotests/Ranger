@@ -1,0 +1,296 @@
+; ==============================================================================
+; GridScriptEngine.rgr — the script, the pages, the PDF
+; ==============================================================================
+;
+;   script (TSX)            the workbook
+;        │                       │
+;        └──► ComponentEngine ◄──┘   evaluates the script, JSX becomes elements
+;                  │
+;                  ▼
+;             EVG element tree  (Print → Section → Page → View/Label/…)
+;                  │
+;         ┌────────┴─────────┐
+;         ▼                  ▼
+;    EVGLayout          EVGPDFRenderer
+;    EVGDisplayList     PDF bytes
+;    (the preview)      (the export)
+;
+; The preview and the export are the same document measured the same way: one
+; EVGFontSetup, one measurer, one element tree. That is the point of doing it
+; here rather than drawing a "preview" by hand — what the screen shows is the
+; page, not an impression of it.
+;
+; Pagination copies EVGPDFRenderer's rules deliberately (section decides the
+; sheet size and the margin, every `page` inside it is laid out on its own), so
+; the preview breaks where the PDF breaks.
+; ==============================================================================
+
+Import "GridScript.rgr"
+Import "GridScriptData.rgr"
+Import "../WorkbookModel.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/core/EVGPDFRenderer.rgr"
+Import "../../../pdf_writer/src/fonts/EVGFontSetup.rgr"
+Import "../../../pdf_writer/src/fonts/FontManager.rgr"
+Import "../../../evg/EVGElement.rgr"
+Import "../../../evg/EVGLayout.rgr"
+
+; One page of a report: the element that was laid out, and the sheet it was
+; laid out for. Margin is kept because the page content starts inside it — the
+; PDF applies it as a translation and so does the preview.
+class GridScriptPage {
+    def element:EVGElement (EVGElement.createDiv())
+    def width:double 595.0
+    def height:double 842.0
+    def margin:double 40.0
+
+    Constructor () {
+    }
+}
+
+class GridScriptResult {
+    def ok:boolean false
+    def error:string ""
+    def root:EVGElement (EVGElement.createDiv())
+    def pages:[GridScriptPage]
+    ; Whatever the script said with log(), plus anything the run wants to tell
+    ; the user that is not an error.
+    def messages:[string]
+
+    Constructor () {
+    }
+
+    fn pageCount:int () {
+        return (array_length pages)
+    }
+
+    fn pageAt:GridScriptPage (i:int) {
+        return (itemAt pages i)
+    }
+}
+
+class GridScriptEngine {
+    ; Where the fonts are. Empty means EVGFontSetup's own search, which finds
+    ; the repository copy when the editor is run from the checkout.
+    def fontsDir:string ""
+    ; Directories a script may import components and images from.
+    def assetPaths:string ""
+    ; The directory a script's relative imports resolve against — normally the
+    ; folder the workbook was opened from.
+    def basePath:string "./"
+    def defaultPageWidth:double 595.0
+    def defaultPageHeight:double 842.0
+    def lastError:string ""
+    def bridge:GridScriptBridge (new GridScriptBridge)
+    def fonts:EVGFontSetup (new EVGFontSetup)
+    def fontsReady:boolean false
+
+    Constructor () {
+    }
+
+    fn setQuery:void (q:GridScriptQuery) {
+        bridge.setQuery(q)
+    }
+
+    ; Faces are loaded once per engine: a report re-run after an edit should
+    ; not re-read a dozen TTF files.
+    fn ensureFonts:void () {
+        if fontsReady {
+            return
+        }
+        fonts.init(basePath fontsDir)
+        fontsReady = true
+    }
+
+    fn measurer:TTFTextMeasurer () {
+        this.ensureFonts()
+        def fm:FontManager (fonts.getManager())
+        def m:TTFTextMeasurer (new TTFTextMeasurer(fm))
+        return m
+    }
+
+    ; --- running ---------------------------------------------------------------
+    fn run:GridScriptResult (script:GridScript book:WorkbookModel) {
+        def result:GridScriptResult (new GridScriptResult)
+        lastError = ""
+        if ((strlen script.source) == 0) {
+            result.error = ("script '" + script.name + "' is empty")
+            lastError = result.error
+            return result
+        }
+        bridge.attach(book)
+        def active:string (book.activeName())
+        bridge.defaultSheet = active
+        bridge.setParam("sheet" active)
+        bridge.setParam("workbook" book.sourcePath)
+        bridge.setParam("script" script.name)
+        clear bridge.messages
+
+        def eng:ComponentEngine (new ComponentEngine())
+        eng.quiet = true
+        eng.setBasePath(basePath)
+        if ((strlen assetPaths) > 0) {
+            eng.setAssetPaths(assetPaths)
+        }
+        eng.pageWidth = defaultPageWidth
+        eng.pageHeight = defaultPageHeight
+        eng.setNativeBridge(bridge)
+        def root:EVGElement (eng.parse(script.source))
+        def i:int 0
+        def mn:int (array_length bridge.messages)
+        while (i < mn) {
+            push result.messages (itemAt bridge.messages i)
+            i = (i + 1)
+        }
+        ; A script with no render(), or one that returned nothing, comes back
+        ; as a bare empty element. Saying so is the whole error handling this
+        ; engine has: ComponentEngine reports its own parse trouble on the
+        ; console, and what reaches here is simply "there is no document".
+        def empty:boolean ((root.getChildCount()) == 0)
+        if empty {
+            if ((strlen root.textContent) == 0) {
+                result.error = ("script '" + script.name + "' produced nothing to draw — is there a render() that returns JSX?")
+                lastError = result.error
+                return result
+            }
+        }
+        result.root = root
+        this.paginate(root result)
+        result.ok = true
+        return result
+    }
+
+    ; --- pagination ------------------------------------------------------------
+    fn collectSections:void (el:EVGElement out:[EVGElement]) {
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            def child:EVGElement (el.getChild(i))
+            if (child.tagName == "section") {
+                push out child
+            }
+            this.collectSections(child out)
+            i = (i + 1)
+        }
+    }
+
+    fn collectPages:void (el:EVGElement out:[EVGElement]) {
+        if (el.tagName == "page") {
+            push out el
+        }
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            def child:EVGElement (el.getChild(i))
+            this.collectPages(child out)
+            i = (i + 1)
+        }
+    }
+
+    fn sectionWidth:double (section:EVGElement) {
+        if section.width.isSet {
+            return section.width.pixels
+        }
+        return defaultPageWidth
+    }
+
+    fn sectionHeight:double (section:EVGElement) {
+        if section.height.isSet {
+            return section.height.pixels
+        }
+        return defaultPageHeight
+    }
+
+    fn sectionMargin:double (section:EVGElement) {
+        def m:EVGUnit section.box.marginTop
+        if m.isSet {
+            return m.pixels
+        }
+        return 40.0
+    }
+
+    fn paginate:void (root:EVGElement result:GridScriptResult) {
+        def lay:EVGLayout (new EVGLayout())
+        lay.setMeasurer((this.measurer()))
+        def sections:[EVGElement]
+        this.collectSections(root sections)
+        def si:int 0
+        def sn:int (array_length sections)
+        while (si < sn) {
+            def section:EVGElement (itemAt sections si)
+            def w:double (this.sectionWidth(section))
+            def h:double (this.sectionHeight(section))
+            def margin:double (this.sectionMargin(section))
+            def contentW:double (w - (margin * 2.0))
+            def contentH:double (h - (margin * 2.0))
+            def pages:[EVGElement]
+            this.collectPages(section pages)
+            def pi:int 0
+            def pn:int (array_length pages)
+            while (pi < pn) {
+                def pg:EVGElement (itemAt pages pi)
+                lay.setPageSize(contentW contentH)
+                pg.resetLayoutState()
+                ; Same four writes the PDF renderer makes before laying a page
+                ; out: the sheet decides the box, not the page's own CSS.
+                pg.width.pixels = contentW
+                pg.width.value = contentW
+                pg.width.unitType = 0
+                pg.width.isSet = true
+                pg.height.pixels = contentH
+                pg.height.value = contentH
+                pg.height.unitType = 0
+                pg.height.isSet = true
+                lay.layout(pg)
+                def out:GridScriptPage (new GridScriptPage)
+                out.element = pg
+                out.width = w
+                out.height = h
+                out.margin = margin
+                push result.pages out
+                pi = (pi + 1)
+            }
+            si = (si + 1)
+        }
+        if ((array_length result.pages) > 0) {
+            return
+        }
+        ; A script that returned plain JSX without Print/Section/Page still has
+        ; something to show: one default page, laid out as it is.
+        lay.setPageSize(defaultPageWidth defaultPageHeight)
+        root.resetLayoutState()
+        lay.layout(root)
+        def only:GridScriptPage (new GridScriptPage)
+        only.element = root
+        only.width = defaultPageWidth
+        only.height = defaultPageHeight
+        only.margin = 0.0
+        push result.pages only
+    }
+
+    ; --- export ----------------------------------------------------------------
+    ; The same tree, through the PDF renderer. It lays the pages out again with
+    ; the measurer given here, which is the measurer the preview used.
+    fn toPdf:buffer (result:GridScriptResult) {
+        if (result.ok == false) {
+            lastError = result.error
+            return (buffer_alloc 0)
+        }
+        this.ensureFonts()
+        def renderer:EVGPDFRenderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(defaultPageWidth defaultPageHeight)
+        renderer.setFontManager((fonts.getManager()))
+        renderer.setBaseDir(basePath)
+        if ((strlen assetPaths) > 0) {
+            renderer.setAssetPaths(assetPaths)
+        }
+        renderer.setMeasurer((this.measurer()))
+        return (renderer.render(result.root))
+    }
+
+    fn runToPdf:buffer (script:GridScript book:WorkbookModel) {
+        def result:GridScriptResult (this.run(script book))
+        return (this.toPdf(result))
+    }
+}

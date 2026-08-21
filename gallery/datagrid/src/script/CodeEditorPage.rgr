@@ -1,0 +1,504 @@
+; ==============================================================================
+; CodeEditorPage.rgr — the code editor, on its own page, on both backends
+; ==============================================================================
+;
+; The editor is a panel that paints into a display list. This is the smallest
+; thing that can hold one: a header, the panel, a status bar, and the input
+; loop. It exists so the editor can be looked at and typed into WITHOUT a
+; spreadsheet around it — and so the same page can be run twice, once through
+; WebGL in a browser and once through SDL2 + OpenGL as a native binary, from
+; one source.
+;
+;   CodeEditorPage.buildDisplayList()  ──►  EVGDisplayList
+;                                             ├─ evg-webgl.js      (browser)
+;                                             ├─ EvgGlPainter      (SDL2 + GL)
+;                                             └─ SoftPainter       (CPU, tests)
+;
+; Nothing below the display list is in this file, and nothing above it is in
+; the hosts: `web/code_editor_web.rgr` and `platform/sdl/code_editor_sdl.rgr`
+; both do the same three things — make a page, feed it UIInput, draw its list.
+; ==============================================================================
+
+Import "ScriptEditor.rgr"
+Import "GridScript.rgr"
+Import "lang/EditorLanguage.rgr"
+Import "lang/JsLanguage.rgr"
+Import "lang/RangerLanguage.rgr"
+Import "../SoftPainter.rgr"
+Import "../GridImages.rgr"
+Import "../../../game_engine/framebuffer.rgr"
+Import "../../../game_engine/ui/UIContext.rgr"
+Import "../../../game_engine/ui/UIInput.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+Import "../../../evg/EVGColor.rgr"
+
+class CodeEditorPage {
+    def editor:ScriptEditor (new ScriptEditor)
+    def canvas:SoftCanvas (new SoftCanvas)
+    def ctx:UIContext (new UIContext)
+    def painter:SoftPainter (new SoftPainter)
+    def images:GridImages (new GridImages)
+    def input:UIInput (new UIInput)
+    def W:int 1000
+    def H:int 700
+    def headerH:int 30
+    def statusH:int 24
+    def frame:int 0
+    def status:string ""
+    def docName:string "report.tsx"
+    def sample:int 0
+    ; How long the last full re-lex took, in microseconds. A code editor that
+    ; re-lexes the whole document on every keystroke is fine until it is not,
+    ; and the only honest way to know which one this is, is to print the
+    ; number. Milliseconds would read 0 for every document worth typing into.
+    def lexUs:int 0
+    def lastCmds:int 0
+    def fontFamily:string "Open Sans"
+    ; The installed language plugins. THIS is the whole installation step: a
+    ; host that wants a third language constructs it and adds it here, and
+    ; nothing else in the editor changes. Nothing is spawned, connected to or
+    ; serialized — see lang/EditorLanguage.rgr for why that is deliberate.
+    def languages:LanguageRegistry (new LanguageRegistry)
+
+    def bg:EVGColor (EVGColor.rgb(15 16 22))
+    def barBg:EVGColor (EVGColor.rgb(30 32 44))
+    def barText:EVGColor (EVGColor.rgb(196 205 226))
+    def barMuted:EVGColor (EVGColor.rgb(118 128 154))
+    def accent:EVGColor (EVGColor.rgb(122 162 247))
+
+    Constructor () {
+    }
+
+    ; --- starting up ----------------------------------------------------------
+    fn init:void (w:int h:int fontDir:string) {
+        W = w
+        H = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.addFontDir(fontDir)
+        def ok:boolean (ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Regular.ttf"))
+        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.fm.loadFont("Noto_Sans/NotoSans-Regular.ttf")
+        if (ok == false) {
+            status = "bitmap-font fallback"
+        } {
+            status = "ready"
+        }
+        painter.attach(canvas ctx images W H)
+        this.installLanguages()
+        this.loadSample(0)
+    }
+
+    ; The browser has no directory to read faces from: the page fetches them
+    ; and hands over the bytes.
+    fn initBare:void (w:int h:int) {
+        W = w
+        H = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        painter.attach(canvas ctx images W H)
+        status = "no fonts yet"
+        this.installLanguages()
+        this.loadSample(0)
+    }
+
+    fn addFont:boolean (family:string data:buffer) {
+        def ok:boolean (ctx.tr.loadFontBytes(family data))
+        if ok {
+            status = "ready"
+        }
+        return ok
+    }
+
+    fn addFace:boolean (data:buffer) {
+        return (ctx.tr.addFaceBytes(data))
+    }
+
+    fn resize:void (w:int h:int) {
+        if (w < 240) {
+            return
+        }
+        if (h < 200) {
+            return
+        }
+        W = w
+        H = h
+        canvas.init(w h)
+        ctx.attach(canvas)
+        ctx.tr.clearCache()
+        painter.attach(canvas ctx images W H)
+    }
+
+    fn raw:buffer () {
+        return (canvas.raw())
+    }
+
+    ; --- languages -------------------------------------------------------------
+    fn installLanguages:void () {
+        if ((languages.count()) > 0) {
+            return
+        }
+        languages.add((new JsLanguage))
+        languages.add((new RangerLanguage))
+    }
+
+    ; Pick by file name and hand it to the editor. A document nothing claims
+    ; gets the base plugin, which complains about nothing — an unknown file
+    ; type is not an error.
+    fn applyLanguage:void () {
+        def lang:EditorLanguage (languages.forFile(docName))
+        editor.setLanguage(lang)
+    }
+
+    fn languageId:string () {
+        return (editor.language.id())
+    }
+
+    ; --- documents ------------------------------------------------------------
+    ; Two of them, because a highlighter is only ever wrong on the case nobody
+    ; put in front of it: one real report script, and one page of nothing but
+    ; awkward tokens.
+    fn loadSample:void (which:int) {
+        sample = which
+        if (which == 1) {
+            docName = "syntax.tsx"
+            editor.init((CodeEditorPage.syntaxSampler()))
+        } {
+            if (which == 2) {
+                docName = "broken.tsx"
+                editor.init((CodeEditorPage.brokenSampler()))
+            } {
+                if (which == 3) {
+                    docName = "sample.rgr"
+                    editor.init((CodeEditorPage.rangerSampler()))
+                } {
+                    docName = "report.tsx"
+                    editor.init((GridScript.starter("Sales")))
+                }
+            }
+        }
+        this.applyLanguage()
+        editor.focused = true
+        def problems:int (editor.problemCount())
+        status = ("loaded " + docName + " · " + (this.languageId()))
+        if (problems > 0) {
+            status = (status + " · " + (to_string problems) + " problem(s)")
+        }
+    }
+
+    fn nextSample:void () {
+        def next:int (sample + 1)
+        if (next > 3) {
+            next = 0
+        }
+        this.loadSample(next)
+    }
+
+    fn text:string () {
+        return (editor.text())
+    }
+
+    fn setText:void (src:string) {
+        editor.init(src)
+        docName = "untitled.tsx"
+        this.applyLanguage()
+    }
+
+    fn setNamedText:void (name:string src:string) {
+        editor.init(src)
+        if ((strlen name) > 0) {
+            docName = name
+        }
+        this.applyLanguage()
+    }
+
+    sfn syntaxSampler:string () {
+        def out:string ""
+        str_append out "// Every token kind this lexer knows, on one page.\n"
+        str_append out "/* A block comment\n"
+        str_append out "   that runs over three lines\n"
+        str_append out "   and closes here. */\n"
+        str_append out "const NAME = 'single';\n"
+        str_append out "const other = \"double \\\" escaped\";\n"
+        str_append out "const tpl = `template ${NAME} with ${1 + 2}`;\n"
+        str_append out "let n = 42, f = 12.5, hex = 0x1f, exp = 1e9;\n"
+        str_append out "\n"
+        str_append out "function totals(rows) {\n"
+        str_append out "  let sum = 0;\n"
+        str_append out "  for (let i = 1; i < rows.length; i++) {\n"
+        str_append out "    if (rows[i][1] > 0 && rows[i][0] != null) {\n"
+        str_append out "      sum += rows[i][1];\n"
+        str_append out "    }\n"
+        str_append out "  }\n"
+        str_append out "  return sum;\n"
+        str_append out "}\n"
+        str_append out "\n"
+        str_append out "function render() {\n"
+        str_append out "  const rows = sheetText('Sales');\n"
+        str_append out "  const total = formatNumber(totals(sheetRows('Sales')), '#,##0.00');\n"
+        str_append out "  log('rows: ' + rows.length);\n"
+        str_append out "  return (\n"
+        str_append out "    <Print>\n"
+        str_append out "      <Section>\n"
+        str_append out "        <Page>\n"
+        str_append out "          <View flexDirection='column' padding='16px'>\n"
+        str_append out "            <Label fontSize='22px' fontWeight='bold'>{param('sheet')}</Label>\n"
+        str_append out "            <Label width={120} color=\"#7aa2f7\">Total {total}</Label>\n"
+        str_append out "          </View>\n"
+        str_append out "        </Page>\n"
+        str_append out "      </Section>\n"
+        str_append out "    </Print>\n"
+        str_append out "  );\n"
+        str_append out "}\n"
+        return out
+    }
+
+    ; A document with real mistakes in it, so the page shows what a diagnostic
+    ; looks like without anyone having to type one.
+    sfn brokenSampler:string () {
+        def out:string ""
+        str_append out "// Three mistakes, on purpose. The squiggles are the language plugin's.\n"
+        str_append out "const rows = sheetRows('Sales');\n"
+        str_append out "\n"
+        str_append out "function totals(rows) {\n"
+        str_append out "  let sum = 0;\n"
+        str_append out "  for (let i = 1; i < rows.length; i++ {\n"
+        str_append out "    sum += rows[i][1];\n"
+        str_append out "  }\n"
+        str_append out "  return sum;\n"
+        str_append out "}\n"
+        return out
+    }
+
+    ; …and one in another language entirely, which is the point of there being
+    ; a registry rather than a JavaScript checker wired into the editor.
+    sfn rangerSampler:string () {
+        def out:string ""
+        str_append out "; Ranger, checked by a different plugin through the same seam.\n"
+        str_append out "class Report {\n"
+        str_append out "    def rows:[string]\n"
+        str_append out "\n"
+        str_append out "    fn total:int () {\n"
+        str_append out "        def n:int (array_length rows)\n"
+        str_append out "        return this.countOf(n)\n"
+        str_append out "    }\n"
+        str_append out "\n"
+        str_append out "    fn countOf:int (n:int) {\n"
+        str_append out "        (this.log(n))\n"
+        str_append out "        return (n + 1\n"
+        str_append out "    }\n"
+        str_append out "}\n"
+        return out
+    }
+
+    ; --- input ----------------------------------------------------------------
+    fn editorTop:int () {
+        return headerH
+    }
+
+    fn editorHeight:int () {
+        def h:int ((H - headerH) - statusH)
+        if (h < 40) {
+            return 40
+        }
+        return h
+    }
+
+    fn update:void (inp:UIInput) {
+        editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
+        if inp.pointerPressed {
+            if (editor.insideRect(inp.pointerX inp.pointerY)) {
+                editor.pointerDown(ctx.tr inp.pointerX inp.pointerY inp.shiftDown)
+            }
+        } {
+            if inp.pointerDown {
+                if editor.focused {
+                    editor.pointerDrag(ctx.tr inp.pointerX inp.pointerY)
+                }
+            }
+        }
+        if (inp.scrollDelta != 0) {
+            editor.scrollBy(inp.scrollDelta)
+        }
+        if inp.ctrlDown {
+            def t:string inp.textInput
+            def ti:int 0
+            def tn:int (strlen t)
+            while (ti < tn) {
+                def ch:int (charAt t ti)
+                ; The page's own two chords; everything else is the editor's.
+                if ((ch == 101) || (ch == 69)) {
+                    this.jumpToNextProblem()
+                } {
+                if ((ch == 107) || (ch == 75)) {
+                    this.nextSample()
+                } {
+                    if ((ch == 108) || (ch == 76)) {
+                        this.loadSample(sample)
+                    } {
+                        editor.handleCtrlChar(ch)
+                    }
+                }
+                }
+                ti = (ti + 1)
+            }
+        } {
+            if (inp.hasText()) {
+                editor.handleText(inp.textInput)
+            }
+        }
+        def ki:int 0
+        def kn:int (inp.keyCount())
+        while (ki < kn) {
+            def key:int (inp.keyAt(ki))
+            editor.handleKey(key inp.shiftDown inp.ctrlDown)
+            ki = (ki + 1)
+        }
+    }
+
+    fn jumpToNextProblem:void () {
+        def moved:boolean (editor.goToNextProblem())
+        if (moved == false) {
+            status = "no problems"
+            return
+        }
+        def d:EditorDiagnostic (editor.problemOnLine(editor.sel.caret.line))
+        if (d.line >= 0) {
+            status = (d.label())
+        }
+    }
+
+    ; --- painting -------------------------------------------------------------
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushText:void (dl:EVGDisplayList s:string x:double y:double size:double col:EVGColor) {
+        if ((strlen s) == 0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (ctx.tr.measureWidth(s size))
+        c.h = (ctx.tr.lineHeight(size))
+        c.text = s
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; Re-lex now rather than inside the paint, so the time it took is a number
+    ; this page can show rather than a shrug.
+    fn syncTokens:void () {
+        def before:int editor.tokenVersion
+        if (before == editor.buf.version) {
+            return
+        }
+        def t0:double (wall_clock_ms)
+        editor.ensureTokens()
+        def t1:double (wall_clock_ms)
+        def took:double ((t1 - t0) * 1000.0)
+        lexUs = (to_int took)
+    }
+
+    fn tokenCount:int () {
+        def n:int 0
+        def i:int 0
+        def cnt:int (array_length editor.lines)
+        while (i < cnt) {
+            def line:CodeTokenLine (itemAt editor.lines i)
+            n = (n + (line.count()))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn buildDisplayList:EVGDisplayList () {
+        this.syncTokens()
+        def dl:EVGDisplayList (new EVGDisplayList)
+        this.pushRect(dl 0.0 0.0 (to_double W) (to_double H) bg)
+
+        ; header
+        this.pushRect(dl 0.0 0.0 (to_double W) (to_double headerH) barBg)
+        this.pushRect(dl 0.0 (to_double (headerH - 1)) (to_double W) 1.0 (EVGColor.rgb(48 52 70)))
+        this.pushText(dl docName 12.0 7.0 13.0 barText)
+        def nameW:int (to_int (ctx.tr.measureWidth(docName 13.0)))
+        def hint:string "Ctrl+K next sample · Ctrl+L reload · Ctrl+Z undo · Ctrl+A select all"
+        this.pushText(dl hint (to_double (nameW + 28)) 8.0 12.0 barMuted)
+
+        editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
+        editor.paint(dl ctx.tr frame)
+
+        ; status
+        def sy:int (H - statusH)
+        this.pushRect(dl 0.0 (to_double sy) (to_double W) (to_double statusH) barBg)
+        this.pushRect(dl 0.0 (to_double sy) (to_double W) 1.0 (EVGColor.rgb(48 52 70)))
+        def caret:string ("L" + (to_string (editor.sel.caret.line + 1)) + ":" + (to_string (editor.sel.caret.col + 1)))
+        this.pushText(dl caret 12.0 (to_double (sy + 5)) 12.0 accent)
+        def lineCount:int (editor.buf.lineCount())
+        def toks:int (this.tokenCount())
+        def problems:int (editor.problemCount())
+        def info:string ((to_string lineCount) + " lines · " + (to_string toks) + " tokens · lex " + (to_string lexUs) + " us · " + (to_string lastCmds) + " draw cmds")
+        if (problems > 0) {
+            info = (info + " · " + (to_string problems) + " problem(s)")
+        }
+        info = (info + " · check " + (to_string editor.diagnoseUs) + " us")
+        if editor.quickOnly {
+            ; Said out loud: what is on screen is the fast pass, and the full
+            ; one is waiting for the typing to stop.
+            info = (info + " (fast pass)")
+        }
+        this.pushText(dl info 84.0 (to_double (sy + 5)) 12.0 barMuted)
+        ; The complaint about the line the caret is on, in the colour of its
+        ; severity — a message that stays out of the way until it is wanted.
+        def here:EditorDiagnostic (editor.problemOnLine(editor.sel.caret.line))
+        def right:string status
+        if (here.line >= 0) {
+            right = (here.message)
+        }
+        if ((strlen right) > 0) {
+            def rightCol:EVGColor barMuted
+            if (here.line >= 0) {
+                rightCol = (editor.theme.forSeverity(here.severity))
+            }
+            def rw:int (to_int (ctx.tr.measureWidth(right 12.0)))
+            this.pushText(dl right (to_double ((W - rw) - 12)) (to_double (sy + 5)) 12.0 rightCol)
+        }
+        lastCmds = (dl.count())
+        frame = (frame + 1)
+        return dl
+    }
+
+    ; CPU present path — tests, PNG artifacts, and an SDL host with no GL.
+    fn render:void () {
+        def dl:EVGDisplayList (this.buildDisplayList())
+        canvas.clear((bg.red()) (bg.green()) (bg.blue()))
+        ; `attach`, not `begin`: begin gives the painter a surface of its own,
+        ; and the pixels this page hands back are the ones on ITS canvas.
+        painter.attach(canvas ctx images W H)
+        painter.fontFamily = fontFamily
+        painter.draw(dl)
+    }
+
+    fn sceneJson:string () {
+        def dl:EVGDisplayList (this.buildDisplayList())
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double W))) + ",\"height\":" + (EVGDisplayList.num((to_double H))) + ",\"list\":" + body + "}")
+    }
+}

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger code editor — WebGL</title>
+    <style>
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./fonts/OpenSans-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./fonts/OpenSans-Bold.ttf") format("truetype");
+        font-weight: 700;
+        font-style: normal;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #0d0e13;
+        color: #c4cde2;
+        font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }
+      header {
+        display: flex;
+        gap: 18px;
+        align-items: baseline;
+        padding: 10px 16px;
+        border-bottom: 1px solid #23252f;
+      }
+      header h1 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0;
+        color: #e2e8f5;
+      }
+      header span {
+        color: #6b7590;
+      }
+      header strong {
+        color: #7aa2f7;
+        font-weight: 600;
+      }
+      main {
+        padding: 16px;
+      }
+      .stage {
+        position: relative;
+        width: max-content;
+      }
+      canvas {
+        display: block;
+        border: 1px solid #23252f;
+        border-radius: 4px;
+        outline: none;
+      }
+      /* The accessible element is the textarea, not the canvas: a canvas has
+         no text for a screen reader to read and no caret for it to follow.
+         It is invisible but NOT display:none — that would make it
+         unfocusable, which is the whole point of it. */
+      .a11y-input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 2px;
+        height: 2px;
+        padding: 0;
+        border: 0;
+        resize: none;
+        overflow: hidden;
+        opacity: 0;
+        color: transparent;
+        background: transparent;
+        caret-color: transparent;
+        pointer-events: none;
+      }
+      /* Focus is on the textarea, so the ring has to be drawn by its parent —
+         without it, a keyboard user cannot tell the editor has the keyboard. */
+      .stage:focus-within canvas {
+        border-color: #7aa2f7;
+        box-shadow: 0 0 0 2px rgba(122, 162, 247, 0.35);
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      footer {
+        padding: 0 16px 20px;
+        color: #6b7590;
+        max-width: 900px;
+      }
+      code {
+        color: #9ece6a;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Ranger code editor</h1>
+      <span>backend <strong id="backend">…</strong></span>
+      <span>cmds <strong id="cmds">0</strong></span>
+      <span>fps <strong id="fps">0</strong></span>
+      <span>state <strong id="status">starting…</strong></span>
+    </header>
+    <main>
+      <div class="stage" id="stage">
+        <canvas id="screen" width="1000" height="700" aria-hidden="true"></canvas>
+        <textarea
+          id="a11y"
+          class="a11y-input"
+          role="textbox"
+          aria-multiline="true"
+          aria-label="Ranger code editor"
+          aria-describedby="keyhelp"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          wrap="off"
+        ></textarea>
+      </div>
+      <p id="keyhelp" class="sr-only">
+        Type to edit. Arrow keys move the caret, Control with left or right
+        moves by word, Control with Home or End goes to the start or end of the
+        document. Tab inserts two spaces; press Escape and then Tab to move
+        focus out of the editor.
+      </p>
+      <div id="live" class="sr-only" aria-live="polite" role="status"></div>
+    </main>
+    <pre id="selftest" style="margin:0 16px;color:#7dcfff"></pre>
+    <footer>
+      <p>
+        The editor is Ranger, compiled to JavaScript; the picture is an
+        <b>EVG display list</b> drawn by <code>gl/evg-webgl.js</code> on WebGL 2.
+        The same page compiles to C++ and draws through OpenGL in the SDL
+        binary — <code>npm run datagrid:editor:sdl</code>.
+      </p>
+      <p>
+        Click to place the caret, drag to select, type. <b>Ctrl+K</b> switches
+        between the report script and the syntax sampler, <b>Ctrl+L</b> reloads
+        it, <b>Ctrl+Z</b> / <b>Ctrl+Y</b> undo and redo, <b>Ctrl+A</b> selects
+        all. Paste works.
+      </p>
+    </footer>
+    <script
+      src="./code_editor_web.js"
+      onerror="window.__engineMissing='code_editor_web.js'"
+    ></script>
+    <script type="module" src="./editor.mjs"></script>
+  </body>
+</html>

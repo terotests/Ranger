@@ -35,6 +35,7 @@
 
 Import "../SpreadsheetModel.rgr"
 Import "../WorkbookModel.rgr"
+Import "../script/GridScript.rgr"
 Import "../CellStyle.rgr"
 Import "../DataValidation.rgr"
 Import "../RichText.rgr"
@@ -837,16 +838,40 @@ class XlsxWriter {
         ; A table part needs its own override — the `xml` default above names
         ; it plain XML, and a reader that believes that finds no table.
         def tn:int 0
-        def si:int 0
-        while (si < (book.sheetCount())) {
-            def sh:SpreadsheetModel (book.sheetAt(si))
+        def ti:int 0
+        while (ti < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(ti))
             tn = (tn + (sh.tableCount()))
-            si = (si + 1)
+            ti = (ti + 1)
         }
         def t:int 0
         while (t < tn) {
             str_append out ("<Override PartName=\"/xl/tables/table" + (to_string (t + 1)) + ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml\"/>")
             t = (t + 1)
+        }
+        ; A part whose extension has no content type makes the package invalid,
+        ; so the script extensions are declared — and only when a script is
+        ; actually there, so an ordinary workbook comes out byte-identical to
+        ; what it was before scripts existed.
+        def si:int 0
+        def sn:int (book.scriptCount())
+        def sawTsx:boolean false
+        def sawJs:boolean false
+        while (si < sn) {
+            def sc:GridScript (book.scriptAt(si))
+            def ext:string (GridScript.extensionOfPart(sc.part))
+            if (ext == ".js") {
+                sawJs = true
+            } {
+                sawTsx = true
+            }
+            si = (si + 1)
+        }
+        if sawTsx {
+            str_append out "<Default Extension=\"tsx\" ContentType=\"text/plain\"/>"
+        }
+        if sawJs {
+            str_append out "<Default Extension=\"js\" ContentType=\"text/plain\"/>"
         }
         str_append out "</Types>"
         return out
@@ -929,7 +954,25 @@ class XlsxWriter {
             tableSeen = (tableSeen + (sh.tableCount()))
             i = (i + 1)
         }
+        this.packScripts(book z)
         return true
+    }
+
+    ; The scripts the package carried in, written back where they were. A part
+    ; that arrived as `ranger/x.js` leaves as `ranger/x.js`; one made in the
+    ; editor gets the default `.tsx` name.
+    fn packScripts:void (book:WorkbookModel z:ZipWriter) {
+        def i:int 0
+        def n:int (book.scriptCount())
+        while (i < n) {
+            def sc:GridScript (book.scriptAt(i))
+            def part:string sc.part
+            if ((strlen part) == 0) {
+                part = (GridScript.partFor(sc.name))
+            }
+            XlsxWriter.addPart(z part sc.source)
+            i = (i + 1)
+        }
     }
 
     ; Write the whole workbook. `dir` and `name` are what ZipWriter's own save
