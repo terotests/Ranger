@@ -59,11 +59,14 @@
 <header>
   <h1>Vela — chart API, live</h1>
   <p>
-    Jokainen rivi alla lähetetään <b>oikealle metodille</b> Rangerilla kirjoitetussa
-    <code>VlChart</code>-rajapinnassa, tässä selaimessa: kutsuista syntyy Vega-Lite-arvo,
-    joka menee <code>VlCompile</code>&nbsp;→&nbsp;<code>VlRuntime</code>&nbsp;→&nbsp;<code>VlSvg</code>
+    <b>JavaScript kutsuu suoraan</b> Rangerilla kirjoitettua, selaimeen käännettyä
+    <code>VlChart</code>-rajapintaa: <code>chart.bar().x("region")</code> on
+    <code>VlChart.bar()</code> ja <code>VlChartMark.x(…)</code>, ja kutsuista syntyy
+    Vega-Lite-arvo, joka menee <code>VlCompile</code>&nbsp;→&nbsp;<code>VlRuntime</code>&nbsp;→&nbsp;<code>VlSvg</code>
     -ketjun läpi kuvaksi. Sivulla ei ole yhtään kaaviokirjastoa — vain tämän
     repositorion kääntämä koodi.
+    Vaihda <b>Ranger</b>-tilaan nähdäksesi saman API:n sen omalla kielellä: sama
+    koodi piirtää kummallakin saman kuvan, merkilleen.
     <a href="../index.html">Takaisin showcaseen</a>
   </p>
 </header>
@@ -73,6 +76,8 @@
     <section>
       <div class="head">
         <span>API-kutsut</span>
+        <button type="button" data-lang="js" aria-pressed="true">JavaScript</button>
+        <button type="button" data-lang="rgr">Ranger</button>
         <span class="grow"></span>
         <button type="button" data-preset="bar">Pylväät</button>
         <button type="button" data-preset="line">Aikasarja</button>
@@ -113,44 +118,93 @@
 <script>
 const PRESETS = {
   bar: {
-    code: `chart.size(320 200)
+    js: `chart.size(320, 200);
+chart.heading("Myynti alueittain");
+const bars = chart.bar();
+bars.x("region").keepOrder();
+bars.y("sales").aggregate("sum").title("myynti");`,
+    rgr: `chart.size(320 200)
 chart.heading("Myynti alueittain")
 def bars (chart.bar())
 bars.x("region").keepOrder()
 bars.y("sales").aggregate("sum").title("myynti")`,
-    data: null,
   },
   line: {
-    code: `chart.size(320 190)
+    js: `chart.size(320, 190);
+const line = chart.line();
+line.withPoints(true);
+line.x("quarter").y("sales").color("region");`,
+    rgr: `chart.size(320 190)
 def line (chart.line())
 line.withPoints(true)
 line.x("quarter").y("sales").color("region")`,
-    data: null,
   },
   layer: {
-    code: `chart.size(320 190)
+    js: `chart.size(320, 190);
+chart.x("quarter").y("sales").color("region");
+chart.area().markOpacity(0.35);
+chart.line();`,
+    rgr: `chart.size(320 190)
 chart.x("quarter").y("sales").color("region")
 chart.area().markOpacity(0.35)
 chart.line()`,
-    data: null,
   },
   grouped: {
-    code: `chart.size(320 190)
+    js: `chart.size(320, 190);
+const bars = chart.bar();
+bars.x("quarter").timeUnit("yearquarter").type("ordinal");
+bars.y("sales").color("region").xOffset("region");`,
+    rgr: `chart.size(320 190)
 def bars (chart.bar())
 bars.x("quarter").timeUnit("yearquarter").type("ordinal")
 bars.y("sales").color("region").xOffset("region")`,
-    data: null,
   },
   donut: {
-    code: `chart.size(240 240)
+    js: `chart.size(240, 240);
+const wedges = chart.arc();
+wedges.innerRadius(52);
+wedges.theta("sales").aggregate("sum");
+wedges.color("region");`,
+    rgr: `chart.size(240 240)
 def wedges (chart.arc())
 wedges.innerRadius(52)
 wedges.theta("sales").aggregate("sum")
 wedges.color("region")`,
-    data: null,
+  },
+  heat: {
+    js: `chart.size(300, 150);
+const cells = chart.rect();
+cells.x("quarter").timeUnit("yearquarter").type("ordinal");
+cells.y("region");
+cells.color("sales").aggregate("sum").scheme("blues");`,
+    rgr: `chart.size(300 150)
+def cells (chart.rect())
+cells.x("quarter").timeUnit("yearquarter").type("ordinal")
+cells.y("region")
+cells.color("sales").aggregate("sum").scheme("blues")`,
+  },
+  rose: {
+    js: `chart.size(220, 220);
+const wedges = chart.arc();
+wedges.theta("quarter").timeUnit("yearquarter").type("nominal");
+wedges.radius("sales");
+wedges.color("region");`,
+    rgr: `chart.size(220 220)
+def wedges (chart.arc())
+wedges.theta("quarter").timeUnit("yearquarter").type("nominal")
+wedges.radius("sales")
+wedges.color("region")`,
   },
   pareto: {
-    code: `chart.size(300 180)
+    js: `chart.size(300, 180);
+chart.independent("y");
+const bars = chart.bar();
+bars.x("region").keepOrder().y("sales").aggregate("sum");
+const trend = chart.line();
+trend.withPoints(true);
+trend.x("region").keepOrder();
+trend.y("cost").aggregate("mean").axisOrient("right");`,
+    rgr: `chart.size(300 180)
 chart.independent("y")
 def bars (chart.bar())
 bars.x("region").keepOrder().y("sales").aggregate("sum")
@@ -158,23 +212,6 @@ def trend (chart.line())
 trend.withPoints(true)
 trend.x("region").keepOrder()
 trend.y("cost").aggregate("mean").axisOrient("right")`,
-    data: null,
-  },
-  rose: {
-    code: `chart.size(220 220)
-def wedges (chart.arc())
-wedges.theta("quarter").timeUnit("yearquarter").type("nominal")
-wedges.radius("sales")
-wedges.color("region")`,
-    data: null,
-  },
-  heat: {
-    code: `chart.size(300 150)
-def cells (chart.rect())
-cells.x("quarter").timeUnit("yearquarter").type("ordinal")
-cells.y("region")
-cells.color("sales").aggregate("sum").scheme("blues")`,
-    data: null,
   },
 };
 
@@ -197,18 +234,41 @@ const vega = document.getElementById("vega");
 const status = document.getElementById("status");
 const cols = document.getElementById("cols");
 
+let language = "js";
+let preset = "bar";
+
+// Counting the calls, and nothing else: every method still runs on the
+// compiled object itself. The proxy is what lets the JavaScript side report
+// the same "7 kutsua" the Ranger interpreter reports, without either side
+// pretending to be the other.
+function counted(target, seen) {
+  if (!target || typeof target !== "object") return target;
+  if (seen.has(target)) return seen.get(target);
+  const proxy = new Proxy(target, {
+    get(object, name) {
+      const value = object[name];
+      if (typeof value !== "function") return value;
+      return (...args) => {
+        counted.calls += 1;
+        return counted(value.apply(object, args), seen);
+      };
+    },
+  });
+  seen.set(target, proxy);
+  return proxy;
+}
+
+function runJavaScript(code, chart) {
+  counted.calls = 0;
+  const fn = new Function("chart", "\"use strict\";\n" + code);
+  fn(counted(chart, new WeakMap()));
+  return counted.calls;
+}
+
 function render() {
   if (typeof VelaChartApi === "undefined") {
     status.className = "bad";
     status.textContent = "vela_chart_api.js ei latautunut";
-    return;
-  }
-  let answer;
-  try {
-    answer = JSON.parse(VelaChartApi.render(code.value, data.value));
-  } catch (err) {
-    status.className = "bad";
-    status.textContent = "kutsu kaatui: " + err.message;
     return;
   }
   try {
@@ -219,11 +279,33 @@ function render() {
   } catch (err) {
     cols.textContent = "";
   }
+
+  let answer;
+  if (language === "rgr") {
+    try {
+      answer = JSON.parse(VelaChartApi.render(code.value, data.value));
+    } catch (err) {
+      return fail("kutsu kaatui: " + err.message);
+    }
+  } else {
+    // JavaScript: the reader's own code, calling the compiled API directly.
+    const chart = VelaChartApi.newChart(data.value);
+    if (chart.errors.length) return fail(chart.errors.join("\n"));
+    let calls = 0;
+    try {
+      calls = runJavaScript(code.value, chart);
+    } catch (err) {
+      return fail(String(err));
+    }
+    try {
+      answer = JSON.parse(VelaChartApi.draw(chart, calls));
+    } catch (err) {
+      return fail("piirto kaatui: " + err.message);
+    }
+  }
+
   if (!answer.ok) {
-    status.className = "bad";
-    status.textContent = (answer.errors || ["(ei sanonut mitään)"]).join("\n");
-    chart.innerHTML = "";
-    return;
+    return fail((answer.errors || ["(ei sanonut mitään)"]).join("\n"));
   }
   status.className = "good";
   status.innerHTML = `<b>${answer.calls}</b> kutsua · <b>${answer.rows}</b> riviä · `
@@ -234,18 +316,39 @@ function render() {
   vega.textContent = answer.vega;
 }
 
+function fail(message) {
+  status.className = "bad";
+  status.textContent = message;
+  chart.innerHTML = "";
+}
+
 let timer = null;
 function schedule() {
   window.clearTimeout(timer);
   timer = window.setTimeout(render, 180);
 }
 
+function load(which) {
+  preset = which;
+  code.value = PRESETS[which][language];
+  render();
+}
+
 for (const button of document.querySelectorAll("[data-preset]")) {
+  button.addEventListener("click", () => load(button.dataset.preset));
+}
+
+for (const button of document.querySelectorAll("[data-lang]")) {
   button.addEventListener("click", () => {
-    const preset = PRESETS[button.dataset.preset];
-    code.value = preset.code;
-    if (preset.data) data.value = preset.data;
-    render();
+    if (language === button.dataset.lang) return;
+    language = button.dataset.lang;
+    for (const other of document.querySelectorAll("[data-lang]")) {
+      other.setAttribute("aria-pressed", String(other.dataset.lang === language));
+    }
+    // The same chart, said in the other language. What a reader typed is not
+    // translated — a Ranger call is not JavaScript and pretending otherwise
+    // would be the one dishonest thing this page could do.
+    load(preset);
   });
 }
 
@@ -264,9 +367,8 @@ for (const button of document.querySelectorAll("[data-view]")) {
 code.addEventListener("input", schedule);
 data.addEventListener("input", schedule);
 
-code.value = PRESETS.bar.code;
 data.value = DATA;
-render();
+load("bar");
 </script>
 </body>
 </html>

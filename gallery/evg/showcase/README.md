@@ -23,10 +23,14 @@ source tree and one stylesheet.
 Everything else here is drawn ahead of time and published as a file.
 [`chart-api/`](../../vela/web/chart_api.html) **runs**: it loads Vela's chart
 API — compiled from `gallery/vela/tools/vela_chart_web.rgr` to a browser bundle
-— and dispatches the lines a reader types to the real `VlChart` methods,
-redrawing as they edit. A PDF proves the API built a chart once on a build
-machine; this is what proves the API still runs where the reader is.
-`npm run showcase:api` opens it in Chromium and checks exactly that.
+— and calls it with what a reader types, redrawing as they edit. The page
+speaks **JavaScript** first: the bundle publishes the compiled `VlChart`,
+`VlChartMark` and `VlDataset`, and `chart.bar().x("region")` in the editor is
+those classes' own methods, with no binding layer in between. **Ranger** is the
+second tab, through a small dispatcher, and the same chart in either language
+draws the same SVG byte for byte. A PDF proves the API built a chart once on a
+build machine; this is what proves the API still runs where the reader is.
+`npm run showcase:api` opens it in Chromium and checks all of it — 22 checks.
 
 ### Eight pages are generated
 

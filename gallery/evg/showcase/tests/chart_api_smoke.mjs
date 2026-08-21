@@ -9,14 +9,16 @@
  * `dist/chart-api/` in a real browser and checks, through the page rather than
  * around it:
  *
- *   1. the default script draws an SVG with real geometry in it,
+ *   1. the default script — JavaScript — draws an SVG with real geometry,
  *   2. every preset draws a DIFFERENT chart, and the status line reports the
- *      calls the interpreter dispatched and the commands the runtime produced,
- *   3. a method the API does not have is refused BY NAME rather than ignored,
- *   4. editing the DATA redraws the chart — which is what tells a live page
+ *      calls that were dispatched and the commands the runtime produced,
+ *   3. the SAME chart written in Ranger draws the SAME SVG, byte for byte,
+ *      which is the claim the two-language page makes,
+ *   4. a method the API does not have is refused BY NAME in both languages,
+ *   5. editing the DATA redraws the chart — which is what tells a live page
  *      from a picture of one,
- *   5. the Vega-Lite the calls built is on the page beside the drawing,
- *   6. and nothing threw: a page error or a console error fails the run.
+ *   6. the Vega-Lite the calls built is on the page beside the drawing,
+ *   7. and nothing threw: a page error or a console error fails the run.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -86,6 +88,10 @@ function check(name, ok, detail = "") {
 await page.goto(`http://127.0.0.1:${port}/chart-api/`, { waitUntil: "load" });
 await page.waitForFunction(() => document.querySelector("#chart svg") !== null, null, { timeout: 15000 });
 
+const startsIn = await page.evaluate(() =>
+  document.querySelector('[data-lang="js"]').getAttribute("aria-pressed"));
+check("the page opens in JavaScript", startsIn === "true", `aria-pressed=${startsIn}`);
+
 const first = await page.evaluate(() => ({
   paths: document.querySelectorAll("#chart svg path").length,
   texts: document.querySelectorAll("#chart svg text").length,
@@ -114,26 +120,64 @@ for (const preset of presets) {
 check("the presets are not the same picture", new Set(shapes.values()).size === presets.length,
   `${new Set(shapes.values()).size} of ${presets.length} distinct`);
 
-// A method the API does not have is refused by name.
+// The same charts in Ranger: the other language, the same engine, and the
+// claim the page makes is that they draw the same picture.
+await page.click('[data-lang="rgr"]');
+await page.waitForTimeout(200);
+let identical = 0;
+for (const name of presets) {
+  await page.click(`[data-preset="${name}"]`);
+  await page.waitForTimeout(150);
+  const drawn = await page.evaluate(() => ({
+    svg: document.querySelector("#chart svg")?.outerHTML || "",
+    bad: document.getElementById("status").className === "bad",
+    code: document.getElementById("code").value,
+  }));
+  const same = drawn.svg === shapes.get(name);
+  if (same) identical += 1;
+  if (!same || drawn.bad) {
+    check(`preset ${name} in Ranger draws what JavaScript drew`, false,
+      drawn.bad ? drawn.code.split("\n")[0] : "different picture");
+  }
+}
+check("every preset draws the same picture in both languages", identical === presets.length,
+  `${identical} of ${presets.length}`);
+check("and the Ranger source is not the JavaScript",
+  !(await page.evaluate(() => document.getElementById("code").value)).includes(";"),
+  "no semicolons in the Ranger form");
+
+// A method the API does not have is refused by name — in Ranger by the
+// interpreter, in JavaScript by JavaScript itself.
 await page.fill("#code", 'chart.size(200 150)\nchart.colour("region")');
 await page.waitForTimeout(300);
 const refused = await page.evaluate(() => ({
   bad: document.getElementById("status").className === "bad",
   text: document.getElementById("status").textContent,
 }));
-check("an unknown method is refused by name", refused.bad && /no method 'colour'/.test(refused.text),
+check("an unknown method is refused by name (Ranger)", refused.bad && /no method 'colour'/.test(refused.text),
   refused.text.trim());
+
+await page.click('[data-lang="js"]');
+await page.waitForTimeout(150);
+await page.fill("#code", 'chart.size(200, 150);\nchart.colour("region");');
+await page.waitForTimeout(300);
+const refusedJs = await page.evaluate(() => ({
+  bad: document.getElementById("status").className === "bad",
+  text: document.getElementById("status").textContent,
+}));
+check("and in JavaScript", refusedJs.bad && /colour is not a function/.test(refusedJs.text),
+  refusedJs.text.trim());
 
 // A column the data does not have is refused too — the API's own check,
 // running in the browser.
-await page.fill("#code", 'chart.size(200 150)\nchart.bar().x("region").y("profit")');
+await page.fill("#code", 'chart.size(200, 150);\nchart.bar().x("region").y("profit");');
 await page.waitForTimeout(300);
 const unknownColumn = await page.evaluate(() => document.getElementById("status").textContent);
 check("an unknown column is refused", /no column called 'profit'/.test(unknownColumn), unknownColumn.trim());
 
 // Editing the DATA redraws: this is the difference between a live page and a
 // picture of one.
-await page.fill("#code", 'chart.size(300 180)\nchart.bar().x("region").keepOrder().y("sales").aggregate("sum")');
+await page.fill("#code", 'chart.size(300, 180);\nchart.bar().x("region").keepOrder().y("sales").aggregate("sum");');
 await page.waitForTimeout(300);
 const before = await page.evaluate(() => document.querySelector("#chart svg").outerHTML);
 await page.fill("#data", JSON.stringify([

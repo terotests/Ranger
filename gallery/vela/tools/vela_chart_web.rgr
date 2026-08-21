@@ -76,6 +76,15 @@ class VlChartScript {
         return s
     }
 
+    ; …or over a chart somebody else made, which is how the page hands the
+    ; same chart to either language.
+    sfn create2:VlChartScript (chart:VlChart) {
+        def s (new VlChartScript())
+        s.data = chart.data
+        s.chart = chart
+        return s
+    }
+
     ; The map is written through a method because a field assigned into a
     ; local loses the type the map wants.
     fn keepMark:void (key:string mark:VlChartMark) {
@@ -856,15 +865,19 @@ class VlChartScript {
 ; ------------------------------------------------------------------------------
 class VelaChartApi {
 
-    sfn render:string (script:string dataText:string) {
-        def out:VlJson (VlJson.objectValue())
-        def errors:VlJson (VlJson.arrayValue())
-
+    ; A chart over the rows the page holds, ready to be called. JavaScript on
+    ; the page calls the SAME compiled methods this file's interpreter calls —
+    ; `chart.bar().x("region")` is `VlChart.bar()` and `VlChartMark.x(…)`
+    ; either way — so the page hands one of these to whichever language the
+    ; reader chose and asks `draw` for the picture afterwards.
+    sfn newChart:VlChart (dataText:string) {
+        def data (VlDataset.create())
+        def chart:VlChart (VlChart.create(data))
         def parser (new VlJsonParser())
         def rows:VlJson (parser.parse(dataText))
         if (! parser.ok) {
-            push errors.arr (VlJson.stringValue(("the data is not valid JSON: " + parser.err)))
-            return (VelaChartApi.failure(out errors))
+            chart.error(("the data is not valid JSON: " + parser.err))
+            return chart
         }
         def values:VlJson rows
         if (rows.isObject()) {
@@ -874,13 +887,26 @@ class VelaChartApi {
             values = (rows.get("values"))
         }
         if (! (values.isArray())) {
-            push errors.arr (VlJson.stringValue("the data has to be an array of rows"))
+            chart.error("the data has to be an array of rows")
+            return chart
+        }
+        data.fromValues(values)
+        return chart
+    }
+
+    sfn render:string (script:string dataText:string) {
+        def out:VlJson (VlJson.objectValue())
+        def errors:VlJson (VlJson.arrayValue())
+
+        def chart:VlChart (VelaChartApi.newChart(dataText))
+        for chart.errors de:string dei {
+            push errors.arr (VlJson.stringValue(de))
+        }
+        if ((array_length chart.errors) > 0) {
             return (VelaChartApi.failure(out errors))
         }
-        def data (VlDataset.create())
-        data.fromValues(values)
 
-        def runner:VlChartScript (VlChartScript.create(data))
+        def runner:VlChartScript (VlChartScript.create2(chart))
         runner.run(script)
         for runner.errors e:string ei {
             push errors.arr (VlJson.stringValue(e))
@@ -888,8 +914,14 @@ class VelaChartApi {
         if ((array_length runner.errors) > 0) {
             return (VelaChartApi.failure(out errors))
         }
+        return (VelaChartApi.draw(chart runner.calls))
+    }
 
-        def chart:VlChart runner.chart
+    ; The other half, for a caller that did its own calling: a chart in, a
+    ; drawn chart out.
+    sfn draw:string (chart:VlChart calls:int) {
+        def out:VlJson (VlJson.objectValue())
+        def errors:VlJson (VlJson.arrayValue())
         def spec:VlJson (chart.toSpec())
         for chart.errors ce:string cei {
             push errors.arr (VlJson.stringValue(ce))
@@ -936,8 +968,9 @@ class VelaChartApi {
         out.setMember("svg" (VlJson.stringValue(doc)))
         out.setMember("spec" (VlJson.stringValue(specText)))
         out.setMember("vega" (VlJson.stringValue(vegaText)))
-        out.setMember("calls" (VlJson.intValue(runner.calls)))
-        out.setMember("rows" (VlJson.intValue((data.count()))))
+        out.setMember("calls" (VlJson.intValue(calls)))
+        def rowCount:int (chart.data.count())
+        out.setMember("rows" (VlJson.intValue(rowCount)))
         out.setMember("commands" (VlJson.intValue((list.count()))))
         out.setMember("warnings" warnings)
         return (writer.write(out))
