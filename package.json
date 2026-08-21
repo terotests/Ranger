@@ -507,6 +507,7 @@
     "test:esconformance": "vitest run --config tests/vitest.esconformance.config.ts",
     "datagrid:sdl": "bash gallery/datagrid/platform/sdl/build.sh",
     "datagrid:sdl:run": "bash gallery/datagrid/platform/sdl/build.sh --run",
+    "datagrid:sdl:a11y": "bash gallery/datagrid/platform/sdl/build.sh && SDL_VIDEODRIVER=dummy ./tmp/datagrid-sdl/datagrid_sdl gallery/datagrid/fixtures/business-workbook.xlsx 2 --a11y",
     "datagrid:sdl:smoke": "bash gallery/datagrid/platform/sdl/build.sh && SDL_VIDEODRIVER=dummy ./tmp/datagrid-sdl/datagrid_sdl gallery/datagrid/fixtures/sales.xlsx 20 --save",
     "datagrid:save:bench": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/bench/save_bench.rgr -d=./gallery/datagrid/bin -o=save_bench.js -nodecli && node ./gallery/datagrid/bin/save_bench.js",
     "datagrid:save:test": "bash gallery/datagrid/tools/run_save_speed_test.sh",

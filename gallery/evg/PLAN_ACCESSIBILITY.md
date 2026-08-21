@@ -4,10 +4,10 @@ How a WebGL or SDL2+OpenGL program built out of EVG could be made usable by
 NVDA, JAWS, VoiceOver and Orca — and why the answer is a second list beside the
 display list rather than anything in the renderer.
 
-Status: **phases 1–3 are built and tested**; the design below is what they were
-built from. What exists now, and how to try it with a screen reader, is in
-[§12](#12-what-is-built). The native adapter (§7) and the declarative side (§4)
-are still design.
+Status: **phases 1–3 are built and tested** in the browser
+([§12](#12-what-is-built)); the **macOS native bridge is written but has not run
+on a Mac** ([§13](#13-the-native-host-macos)). The declarative side (§4) and the
+other two desktop platforms are still design.
 
 ---
 
@@ -360,8 +360,9 @@ well — the tree is text.
 | 4 | The cell editor as a real `<input>`, for IME, dictation and braille entry | not done — see §12 |
 | 5 | Keyboard completeness and a visible focus ring, audited rather than assumed | not done, and it is what phase 6 should wait for |
 | 6 | Declarative side: `role` / `aria-*` on `EVGElement` + `JSXToEVG`, defaults per tag, showcase pages, `EVGHTMLRenderer` parity | not done |
-| 7 | AccessKit adapter behind the SDL2 host | not done — the tree it needs now exists and is proven in a browser |
-| 8 | Tagged PDF from the same tree | not done |
+| 7 | Native macOS: `dgfx_a11y.mm`, NSAccessibility elements over the SDL2 window | **written, unverified** — see §13 |
+| 8 | Windows (UIA) and Linux (AT-SPI2), most likely via AccessKit | not done |
+| 9 | Tagged PDF from the same tree | not done |
 
 The honest summary: the renderer needs no changes at all, the browser host needs
 a new file and a change to who owns focus, and the native host needs a bounded
@@ -448,3 +449,80 @@ macOS-specific.
   Only the standalone build does.
 - **Nothing is emitted for charts and images** beyond the panel they sit in, and
   a chart is a picture with no alternative text.
+
+---
+
+## 13. The native host (macOS)
+
+The browser mirror proved the tree; the SDL2 + OpenGL build is the second
+consumer of it, and the one that shows whether the seam was worth having. It
+was: the app side did not change at all.
+
+```text
+GridApp ─┬─ EVGDisplayList ─► EvgGlPainter ─► OpenGL           the picture
+         └─ a11yJson()     ─► dgfx_a11y.mm ─► NSAccessibility   what it means
+```
+
+Three files, mirroring the existing `dgfx_menu` pattern exactly:
+
+| File | What |
+| --- | --- |
+| [`dgfx_a11y.h`](../datagrid/platform/sdl/dgfx_a11y.h) | Four C functions: is anything listening, publish a tree, take a press, reset |
+| [`dgfx_a11y.mm`](../datagrid/platform/sdl/dgfx_a11y.mm) | macOS: `NSJSONSerialization` → one `NSAccessibilityElement` per node under the window's content view |
+| [`dgfx_a11y_stub.cpp`](../datagrid/platform/sdl/dgfx_a11y_stub.cpp) | Everywhere else: says nobody is listening, so nothing is built |
+
+Why macOS first, other than the machine being to hand: the build **already
+links AppKit**, for the real `NSMenu` in `dgfx_menu.mm`. NSAccessibility is in
+that same framework, so the platform half needed no new dependency — the file
+next to it and one more line in `build.sh`.
+
+Decisions worth naming, because each is a way this normally goes wrong:
+
+- **The JSON is the interface.** The bridge takes the same string the browser
+  page parses. That is one serialization for both hosts, and it means the
+  native side has no opinion at all about what a spreadsheet is.
+- **Elements are reused by node id**, as in the browser. This is what the stable
+  ids buy: rebuilding the element VoiceOver is sitting on throws its cursor back
+  to the top of the window, and nothing looks wrong on screen.
+- **Nothing is built when nothing is listening.** `dgfx_a11y_active()` reads
+  VoiceOver's own state (`NSWorkspace.isVoiceOverEnabled`), so an ordinary run
+  pays nothing; `DGFX_A11Y=1` forces it on for Accessibility Inspector.
+- **A press comes back as a point**, not a command, and the host presses the app
+  there. Same decision as the browser, for the same reason: no second table of
+  what each thing does, and a button that moved is still pressed correctly.
+- **Focus is posted only when the app's focus moves.** Posting
+  `NSAccessibilityFocusedUIElementChangedNotification` every frame interrupts
+  the reader mid-sentence, over and over.
+- **Coordinates are converted once**, in `screenRect`: the tree is in window
+  points with y down, NSAccessibility wants screen points with y up. This is the
+  line most likely to need adjusting on a multi-display setup.
+
+### What is verified, and what is not
+
+Running here (Linux container, no GPU, no macOS):
+
+```bash
+npm run datagrid:sdl        # Ranger → C++ → SDL2 + OpenGL binary
+npm run datagrid:sdl:a11y   # …and print the tree it produces
+```
+
+- The whole app **compiles to C++ and links**, with the a11y model, the emission
+  and the operators in it.
+- The binary **runs** (`SDL_VIDEODRIVER=dummy`) and prints the same tree the
+  browser gets — 541 lines of roles, names and rectangles — which is the claim
+  "the model is portable" being checked rather than asserted.
+- The **Linux stub path** builds and is what that run used.
+
+Not verified: `dgfx_a11y.mm` itself. It has never been compiled — there is no
+AppKit here — so expect a round of compiler errors on a Mac before it works,
+and treat the VoiceOver behaviour as unproven until someone hears it.
+
+### One thing this found
+
+The native build was **broken before any of this**: `evggl_clip` and
+`evggl_clip_off` were added to `evg_gl_native.h` but not to the mirrored
+`extern "C"` block in `gfx_datagrid_sdl.rgr` that the generated C++ actually
+sees, so the link failed on two symbols. Nobody noticed because the container
+has no SDL2 and the build was never run here. Two declarations fixed it. It is
+the same failure mode the display list exists to prevent, one layer down: two
+copies of a list, and only one of them was updated.
