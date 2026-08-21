@@ -1,0 +1,146 @@
+; ==============================================================================
+; ScriptEditorTest — the lexer says what a run of characters is, and the
+; editor does what a key press means.
+; ==============================================================================
+;
+; Both halves are checked without a screen: the lexer hands back spans, and the
+; editor hands back text. What a colour LOOKS like is not testable here and is
+; not the part that breaks — what breaks is a lexer that loses its state across
+; a line, and an edit that puts the caret in the wrong place.
+; ==============================================================================
+
+Import "../src/script/JsTokens.rgr"
+Import "../src/script/ScriptEditor.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class ScriptEditorTest {
+
+    ; The kind the lexer gave the token starting at `at`, or -1.
+    sfn kindAt:int (line:JsTokenLine at:int) {
+        def i:int 0
+        def n:int (line.count())
+        while (i < n) {
+            def t:JsToken (line.at(i))
+            if (t.start == at) {
+                return t.kind
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn textOf:string (src:string line:JsTokenLine index:int) {
+        def t:JsToken (line.at(index))
+        def stop:int (t.start + t.len)
+        return (substring src t.start stop)
+    }
+
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== the lexer =="
+        def lx:JsTokenizer (new JsTokenizer)
+        def src:string "const rows = sheetRows('Sales'); // read the sheet"
+        def line:JsTokenLine (lx.tokenizeLine(src))
+        c.eqInt("const is a keyword" (ScriptEditorTest.kindAt(line 0)) (JsTokenKind.keyword()))
+        c.eqInt("rows is an identifier" (ScriptEditorTest.kindAt(line 6)) (JsTokenKind.ident()))
+        c.eqInt("sheetRows is a builtin" (ScriptEditorTest.kindAt(line 13)) (JsTokenKind.builtin()))
+        c.eqInt("'Sales' is text" (ScriptEditorTest.kindAt(line 23)) (JsTokenKind.text()))
+        c.eqInt("the comment runs to the end" (ScriptEditorTest.kindAt(line 33)) (JsTokenKind.comment()))
+
+        def numLine:JsTokenLine (lx.tokenizeLine("let x = 12.5 + 0x1f;"))
+        c.eqInt("a number is a number" (ScriptEditorTest.kindAt(numLine 8)) (JsTokenKind.number()))
+        c.eqInt("so is a hex one" (ScriptEditorTest.kindAt(numLine 15)) (JsTokenKind.number()))
+
+        print "== JSX, without a parser =="
+        def jsx:JsTokenLine (lx.tokenizeLine("  <Label width='90px' fontWeight={w}>{v}</Label>"))
+        c.eqInt("an opening tag" (ScriptEditorTest.kindAt(jsx 2)) (JsTokenKind.tag()))
+        c.eqInt("width is an attribute" (ScriptEditorTest.kindAt(jsx 9)) (JsTokenKind.attr()))
+        c.eqInt("fontWeight too" (ScriptEditorTest.kindAt(jsx 22)) (JsTokenKind.attr()))
+        def cmp:JsTokenLine (lx.tokenizeLine("if (i < rows.length) { }"))
+        c.eqInt("but a comparison is punctuation" (ScriptEditorTest.kindAt(cmp 6)) (JsTokenKind.punct()))
+        def eq:JsTokenLine (lx.tokenizeLine("if (a == b) { }"))
+        c.eqInt("and == is not an attribute" (ScriptEditorTest.kindAt(eq 4)) (JsTokenKind.ident()))
+
+        print "== state that outlives a line =="
+        def lines:[string] ([] _:string ( "a = 1; /* opens" "still inside" "closes */ b = 2;" ))
+        def out:[JsTokenLine] (lx.tokenize(lines))
+        c.eqInt("three lines in, three out" (array_length out) 3)
+        def l1:JsTokenLine (itemAt out 1)
+        c.eqInt("the whole middle line is comment" (l1.count()) 1)
+        c.eqInt("and it knows it" (ScriptEditorTest.kindAt(l1 0)) (JsTokenKind.comment()))
+        def l2:JsTokenLine (itemAt out 2)
+        c.eqInt("code resumes after the close" (ScriptEditorTest.kindAt(l2 10)) (JsTokenKind.ident()))
+
+        print "== the editor =="
+        def ed:ScriptEditor (new ScriptEditor)
+        ed.init("function render() {\n  return 1;\n}\n")
+        c.eqInt("lines counted" (ed.buf.lineCount()) 4)
+        c.ok("nothing typed yet" (ed.dirty == false))
+
+        ; Type at the end of the first line: Enter keeps the indent, and opens
+        ; one more level after a `{`.
+        ed.moveCaret(0 19 false)
+        ed.insertNewline()
+        c.eqStr("a new line, indented" (ed.buf.lineAt(1)) "  ")
+        ed.handleText("const x = 1;")
+        c.eqStr("typed after the indent" (ed.buf.lineAt(1)) "  const x = 1;")
+        c.ok("and the script is dirty now" ed.dirty)
+
+        ed.backspace()
+        c.eqStr("backspace takes one" (ed.buf.lineAt(1)) "  const x = 1")
+        ed.undo()
+        c.ok("undo puts it back" ((ed.buf.lineAt(1)) == "  const x = 1;"))
+
+        ed.selectAll()
+        c.ok("select all reaches the end" ((ed.sel.isCollapsed()) == false))
+        ed.insert("x")
+        c.eqInt("and typing replaces everything" (ed.buf.lineCount()) 1)
+        c.eqStr("with what was typed" (ed.text()) "x")
+
+        print "== tokens follow the text =="
+        ed.init("const a = 1;")
+        ed.ensureTokens()
+        def first:JsTokenLine (ed.tokensFor(0))
+        c.eqInt("lexed on demand" (ScriptEditorTest.kindAt(first 0)) (JsTokenKind.keyword()))
+        def v1:int ed.tokenVersion
+        ed.ensureTokens()
+        c.eqInt("and not re-lexed for nothing" ed.tokenVersion v1)
+        ed.moveCaret(0 12 false)
+        ed.handleText(" // note")
+        ed.ensureTokens()
+        c.ok("re-lexed after an edit" (ed.tokenVersion != v1))
+        def again:JsTokenLine (ed.tokensFor(0))
+        c.eqInt("and the comment is there" (ScriptEditorTest.kindAt(again 13)) (JsTokenKind.comment()))
+
+        print ""
+        print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILED"
+            return
+        }
+        print "OK"
+    }
+}

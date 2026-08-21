@@ -1,0 +1,609 @@
+; ==============================================================================
+; ScriptEditor.rgr — a code editor panel, drawn into the grid's display list
+; ==============================================================================
+;
+; The text model is not written here. `gallery/text_editor` already has a
+; buffer with undo, a selection with codepoint-aware movement, and a layout
+; that measures with a real TTF and hit-tests a click back to a column — so
+; this uses those three and adds what a CODE editor needs on top: tokens with
+; colours, a gutter with line numbers, a current-line band, and typing that
+; keeps its indent.
+;
+; It paints into the display list it is given, at the rectangle it is given,
+; with the TEXT RENDERER IT IS GIVEN — the grid's own. That is what makes it a
+; panel rather than an application: no canvas of its own, no font of its own,
+; no frame of its own. The same list goes to SoftCanvas on a desktop host and
+; to WebGL in a browser, so the editor is on the GPU for free.
+;
+; Every token is positioned by `layout.caretPixelX`, the same call the caret
+; and the selection use, rather than by adding up token widths as it goes: two
+; ways of measuring the same prefix is how a caret ends up half a character
+; away from the letter it is supposed to be in front of.
+; ==============================================================================
+
+Import "JsTokens.rgr"
+Import "../../../text_editor/src/EditorBuffer.rgr"
+Import "../../../text_editor/src/EditorSelection.rgr"
+Import "../../../text_editor/src/EditorLayout.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+Import "../../../evg/EVGColor.rgr"
+Import "../../../evg/EVGCodepoint.rgr"
+Import "../../../game_engine/ui/UIContext.rgr"
+Import "../../../game_engine/ui/UIInput.rgr"
+
+class ScriptEditorTheme {
+    def bg:EVGColor (EVGColor.rgb(26 27 38))
+    def gutterBg:EVGColor (EVGColor.rgb(22 22 30))
+    def gutterText:EVGColor (EVGColor.rgb(59 66 97))
+    def gutterActive:EVGColor (EVGColor.rgb(115 122 162))
+    def currentLine:EVGColor (EVGColor.rgb(31 34 51))
+    def selection:EVGColor (EVGColor.rgba(47 75 124 0.75))
+    def caret:EVGColor (EVGColor.rgb(122 162 247))
+    def border:EVGColor (EVGColor.rgb(41 46 66))
+    ; Token colours.
+    def plain:EVGColor (EVGColor.rgb(192 202 245))
+    def keyword:EVGColor (EVGColor.rgb(187 154 247))
+    def builtin:EVGColor (EVGColor.rgb(125 207 255))
+    def number:EVGColor (EVGColor.rgb(255 158 100))
+    def text:EVGColor (EVGColor.rgb(158 206 106))
+    def comment:EVGColor (EVGColor.rgb(86 95 137))
+    def punct:EVGColor (EVGColor.rgb(137 221 255))
+    def tag:EVGColor (EVGColor.rgb(247 118 142))
+    def attr:EVGColor (EVGColor.rgb(224 175 104))
+
+    Constructor () {
+    }
+
+    fn forKind:EVGColor (kind:int) {
+        if (kind == (JsTokenKind.keyword())) {
+            return keyword
+        }
+        if (kind == (JsTokenKind.builtin())) {
+            return builtin
+        }
+        if (kind == (JsTokenKind.number())) {
+            return number
+        }
+        if (kind == (JsTokenKind.text())) {
+            return text
+        }
+        if (kind == (JsTokenKind.comment())) {
+            return comment
+        }
+        if (kind == (JsTokenKind.punct())) {
+            return punct
+        }
+        if (kind == (JsTokenKind.tag())) {
+            return tag
+        }
+        if (kind == (JsTokenKind.attr())) {
+            return attr
+        }
+        return plain
+    }
+}
+
+class ScriptEditor {
+    def buf:EditorBuffer (new EditorBuffer)
+    def sel:EditorSelection (new EditorSelection)
+    def layout:EditorLayout (new EditorLayout)
+    def theme:ScriptEditorTheme (new ScriptEditorTheme)
+    def lexer:JsTokenizer (new JsTokenizer)
+    def lines:[JsTokenLine]
+    ; The buffer version the tokens were made from. Re-lexing 200 lines is
+    ; cheap, doing it sixty times a second because nothing changed is not.
+    def tokenVersion:int -1
+    def focused:boolean true
+    def fontFamily:string "Open Sans"
+    ; Bumped by whoever edits; the owner reads it to know the script is dirty.
+    def dirty:boolean false
+
+    Constructor () {
+    }
+
+    fn init:void (source:string) {
+        buf.setText(source)
+        sel.setCaret(0 0)
+        sel.collapseToCaret()
+        layout.scrollLine = 0
+        layout.fontSize = 13.0
+        layout.showLineNumbers = true
+        tokenVersion = -1
+        dirty = false
+    }
+
+    fn text:string () {
+        return (buf.getText())
+    }
+
+    fn setBounds:void (bx:int by:int bw:int bh:int) {
+        layout.setBounds(bx by bw bh)
+    }
+
+    fn insideRect:boolean (px:int py:int) {
+        if (px < layout.x) {
+            return false
+        }
+        if (py < layout.y) {
+            return false
+        }
+        def right:int (layout.x + layout.w)
+        if (px >= right) {
+            return false
+        }
+        def bottom:int (layout.y + layout.h)
+        return (py < bottom)
+    }
+
+    ; --- tokens ---------------------------------------------------------------
+    fn ensureTokens:void () {
+        if (tokenVersion == buf.version) {
+            return
+        }
+        lines = (lexer.tokenize(buf.lines))
+        tokenVersion = buf.version
+    }
+
+    fn tokensFor:JsTokenLine (line:int) {
+        if (line < 0) {
+            def none:JsTokenLine (new JsTokenLine)
+            return none
+        }
+        if (line >= (array_length lines)) {
+            def none2:JsTokenLine (new JsTokenLine)
+            return none2
+        }
+        return (itemAt lines line)
+    }
+
+    ; --- painting -------------------------------------------------------------
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push dl.cmds c
+    }
+
+    fn popClip:void (dl:EVGDisplayList) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push dl.cmds c
+    }
+
+    fn pushText:void (dl:EVGDisplayList tr:UITextRenderer s:string x:double y:double size:double col:EVGColor) {
+        if ((strlen s) == 0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = (tr.measureWidth(s size))
+        c.h = (tr.lineHeight(size))
+        c.text = s
+        c.fontFamily = fontFamily
+        c.fontSize = size
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn paint:void (dl:EVGDisplayList tr:UITextRenderer frame:int) {
+        layout.syncMetrics(tr)
+        layout.clampScroll(buf)
+        this.ensureTokens()
+        def x0:double (to_double layout.x)
+        def y0:double (to_double layout.y)
+        def w0:double (to_double layout.w)
+        def h0:double (to_double layout.h)
+        this.pushRect(dl x0 y0 w0 h0 theme.bg)
+        this.pushRect(dl x0 y0 (to_double layout.gutterW) h0 theme.gutterBg)
+        this.pushClip(dl x0 y0 w0 h0)
+
+        def first:int (layout.firstVisible())
+        def last:int (layout.lastVisible(buf))
+        def caretLine:int sel.caret.line
+
+        ; The line the caret is on, banded across the text area — the one piece
+        ; of chrome that makes a wall of code navigable.
+        if (sel.isCollapsed()) {
+            if ((caretLine >= first) && (caretLine <= last)) {
+                def bandY:double (to_double (layout.caretPixelY(caretLine)))
+                def bandX:double (to_double (layout.x + layout.gutterW))
+                def bandW:double (to_double (layout.w - layout.gutterW))
+                this.pushRect(dl bandX bandY bandW (to_double layout.lineHeight) theme.currentLine)
+            }
+        } {
+            this.paintSelection(dl tr first last)
+        }
+
+        def li:int first
+        while (li <= last) {
+            def ty:int (layout.caretPixelY(li))
+            def num:string (to_string (li + 1))
+            def numSize:double (layout.fontSize * 0.85)
+            def nw:int (to_int (tr.measureWidth(num numSize)))
+            def nx:int (((layout.x + layout.gutterW) - nw) - 8)
+            def numCol:EVGColor theme.gutterText
+            if (li == caretLine) {
+                numCol = theme.gutterActive
+            }
+            this.pushText(dl tr num (to_double nx) (to_double (ty + 2)) numSize numCol)
+            this.paintLine(dl tr li ty)
+            li = (li + 1)
+        }
+
+        ; Caret: on for half a second, off for half a second, at 60 fps.
+        if focused {
+            if ((caretLine >= first) && (caretLine <= last)) {
+                def phase:int (idiv frame 30)
+                def on:int (phase - ((idiv phase 2) * 2))
+                if (on == 0) {
+                    def cx:int (layout.caretPixelX(tr buf caretLine sel.caret.col))
+                    def cy:int (layout.caretPixelY(caretLine))
+                    this.pushRect(dl (to_double cx) (to_double cy) 2.0 (to_double layout.lineHeight) theme.caret)
+                }
+            }
+        }
+        this.popClip(dl)
+        def edge:EVGDrawCmd (new EVGDrawCmd)
+        edge.kind = 1
+        edge.x = x0
+        edge.y = y0
+        edge.w = w0
+        edge.h = h0
+        edge.thickness = 1.0
+        edge.r = (theme.border.red())
+        edge.g = (theme.border.green())
+        edge.b = (theme.border.blue())
+        edge.a = (theme.border.alpha())
+        push dl.cmds edge
+    }
+
+    fn paintSelection:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def line:int a.line
+        while (line <= b.line) {
+            if ((line >= first) && (line <= last)) {
+                def s:string (buf.lineAt(line))
+                def len:int (strlen s)
+                def c0:int 0
+                def c1:int len
+                if (line == a.line) {
+                    c0 = a.col
+                }
+                if (line == b.line) {
+                    c1 = b.col
+                }
+                if (c0 < 0) {
+                    c0 = 0
+                }
+                if (c1 > len) {
+                    c1 = len
+                }
+                if (c1 < c0) {
+                    c1 = c0
+                }
+                def x0:int (layout.caretPixelX(tr buf line c0))
+                def x1:int (layout.caretPixelX(tr buf line c1))
+                if (line < b.line) {
+                    ; A selection that continues onto the next line covers the
+                    ; newline too, or a block selection looks like ragged bars.
+                    x1 = (x1 + 6)
+                }
+                def rw:int (x1 - x0)
+                if (rw < 2) {
+                    rw = 2
+                }
+                def sy:int (layout.caretPixelY(line))
+                this.pushRect(dl (to_double x0) (to_double sy) (to_double rw) (to_double layout.lineHeight) theme.selection)
+            }
+            line = (line + 1)
+        }
+    }
+
+    fn paintLine:void (dl:EVGDisplayList tr:UITextRenderer line:int ty:int) {
+        def s:string (buf.lineAt(line))
+        if ((strlen s) == 0) {
+            return
+        }
+        def toks:JsTokenLine (this.tokensFor(line))
+        def n:int (toks.count())
+        if (n == 0) {
+            def plainX:int (layout.caretPixelX(tr buf line 0))
+            this.pushText(dl tr s (to_double plainX) (to_double ty) layout.fontSize theme.plain)
+            return
+        }
+        def i:int 0
+        while (i < n) {
+            def t:JsToken (toks.at(i))
+            def stop:int (t.start + t.len)
+            def part:string (substring s t.start stop)
+            def px:int (layout.caretPixelX(tr buf line t.start))
+            def col:EVGColor (theme.forKind(t.kind))
+            this.pushText(dl tr part (to_double px) (to_double ty) layout.fontSize col)
+            i = (i + 1)
+        }
+    }
+
+    ; --- editing --------------------------------------------------------------
+    fn markEdited:void (p:EditorPos) {
+        sel.setCaret(p.line p.col)
+        sel.collapseToCaret()
+        layout.preferCol = sel.caret.col
+        layout.ensureCaretVisible(buf sel)
+        dirty = true
+    }
+
+    fn moveCaret:void (line:int col:int extend:boolean) {
+        def p:EditorPos (EditorPos.create(line col))
+        buf.clampPos(p)
+        sel.setCaret(p.line p.col)
+        if (extend == false) {
+            sel.collapseToCaret()
+        }
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn deleteSelection:boolean () {
+        if (sel.isCollapsed()) {
+            return false
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        def p:EditorPos (buf.deleteRange(a.line a.col b.line b.col))
+        this.markEdited(p)
+        return true
+    }
+
+    fn insert:void (s:string) {
+        this.deleteSelection()
+        def p:EditorPos (buf.insertText(sel.caret.line sel.caret.col s))
+        this.markEdited(p)
+    }
+
+    ; Enter keeps the indent it found, and opens one more level after a line
+    ; that ends in `{`, `(` or `[` — the smallest amount of help that stops a
+    ; script from drifting left as it is written.
+    fn insertNewline:void () {
+        this.deleteSelection()
+        def line:string (buf.lineAt(sel.caret.line))
+        def indent:string ""
+        def i:int 0
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            if (ch == 32) {
+                indent = (indent + " ")
+            } {
+                if (ch == 9) {
+                    indent = (indent + "  ")
+                } {
+                    break
+                }
+            }
+            i = (i + 1)
+        }
+        def upto:string (substring line 0 sel.caret.col)
+        def trimmed:string (trim upto)
+        def tn:int (strlen trimmed)
+        if (tn > 0) {
+            def lastCh:int (charAt trimmed (tn - 1))
+            if ((lastCh == 123) || (lastCh == 40)) {
+                indent = (indent + "  ")
+            }
+            if (lastCh == 91) {
+                indent = (indent + "  ")
+            }
+        }
+        def opened:string ("\n" + indent)
+        this.insert(opened)
+    }
+
+    fn backspace:void () {
+        if (this.deleteSelection()) {
+            return
+        }
+        def line:int sel.caret.line
+        def col:int sel.caret.col
+        if (col == 0) {
+            if (line == 0) {
+                return
+            }
+            def prevLen:int (strlen (buf.lineAt(line - 1)))
+            def p:EditorPos (buf.deleteRange((line - 1) prevLen line 0))
+            this.markEdited(p)
+            return
+        }
+        def before:EditorPos (buf.moveCodepoint(line col -1))
+        def p2:EditorPos (buf.deleteRange(before.line before.col line col))
+        this.markEdited(p2)
+    }
+
+    fn deleteForward:void () {
+        if (this.deleteSelection()) {
+            return
+        }
+        def line:int sel.caret.line
+        def col:int sel.caret.col
+        def len:int (strlen (buf.lineAt(line)))
+        if (col >= len) {
+            if (line >= ((buf.lineCount()) - 1)) {
+                return
+            }
+            def p:EditorPos (buf.deleteRange(line col (line + 1) 0))
+            this.markEdited(p)
+            return
+        }
+        def after:EditorPos (buf.moveCodepoint(line col 1))
+        def p2:EditorPos (buf.deleteRange(line col after.line after.col))
+        this.markEdited(p2)
+    }
+
+    fn moveVertical:void (delta:int extend:boolean) {
+        def want:int layout.preferCol
+        if (want < sel.caret.col) {
+            want = sel.caret.col
+        }
+        def line:int (sel.caret.line + delta)
+        if (line < 0) {
+            line = 0
+        }
+        def maxLine:int ((buf.lineCount()) - 1)
+        if (line > maxLine) {
+            line = maxLine
+        }
+        def len:int (strlen (buf.lineAt(line)))
+        def col:int want
+        if (col > len) {
+            col = len
+        }
+        def keep:int want
+        this.moveCaret(line col extend)
+        layout.preferCol = keep
+    }
+
+    fn selectAll:void () {
+        sel.selectAll(buf)
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn undo:void () {
+        def p:EditorPos (buf.undo())
+        this.markEdited(p)
+    }
+
+    fn redo:void () {
+        def p:EditorPos (buf.redo())
+        this.markEdited(p)
+    }
+
+    ; --- input ----------------------------------------------------------------
+    fn handleKey:boolean (key:int shift:boolean ctrl:boolean) {
+        if (key == (UIKey.left())) {
+            def p:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col -1))
+            this.moveCaret(p.line p.col shift)
+            layout.preferCol = sel.caret.col
+            return true
+        }
+        if (key == (UIKey.right())) {
+            def p2:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col 1))
+            this.moveCaret(p2.line p2.col shift)
+            layout.preferCol = sel.caret.col
+            return true
+        }
+        if (key == (UIKey.up())) {
+            this.moveVertical(-1 shift)
+            return true
+        }
+        if (key == (UIKey.down())) {
+            this.moveVertical(1 shift)
+            return true
+        }
+        if (key == (UIKey.pageUp())) {
+            def step:int (layout.visibleLineCount())
+            this.moveVertical((0 - step) shift)
+            return true
+        }
+        if (key == (UIKey.pageDown())) {
+            def step2:int (layout.visibleLineCount())
+            this.moveVertical(step2 shift)
+            return true
+        }
+        if (key == (UIKey.home())) {
+            this.moveCaret(sel.caret.line 0 shift)
+            layout.preferCol = 0
+            return true
+        }
+        if (key == (UIKey.end())) {
+            def len:int (strlen (buf.lineAt(sel.caret.line)))
+            this.moveCaret(sel.caret.line len shift)
+            layout.preferCol = len
+            return true
+        }
+        if (key == (UIKey.backspace())) {
+            this.backspace()
+            return true
+        }
+        if (key == (UIKey.del())) {
+            this.deleteForward()
+            return true
+        }
+        if (key == (UIKey.enter())) {
+            this.insertNewline()
+            return true
+        }
+        if (key == (UIKey.tab())) {
+            this.insert("  ")
+            return true
+        }
+        return false
+    }
+
+    ; Ctrl-chords the editor answers itself. Run and Save belong to the window
+    ; around it, which is why they are not here.
+    fn handleCtrlChar:boolean (ch:int) {
+        if ((ch == 97) || (ch == 65)) {
+            this.selectAll()
+            return true
+        }
+        if ((ch == 122) || (ch == 90)) {
+            this.undo()
+            return true
+        }
+        if ((ch == 121) || (ch == 89)) {
+            this.redo()
+            return true
+        }
+        return false
+    }
+
+    fn handleText:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        this.insert(s)
+        return true
+    }
+
+    fn pointerDown:void (tr:UITextRenderer px:int py:int extend:boolean) {
+        focused = true
+        def hit:EditorPos (layout.hitTest(tr buf px py))
+        this.moveCaret(hit.line hit.col extend)
+        layout.preferCol = sel.caret.col
+        if (extend == false) {
+            sel.setAnchor(hit.line hit.col)
+        }
+    }
+
+    fn pointerDrag:void (tr:UITextRenderer px:int py:int) {
+        def hit:EditorPos (layout.hitTest(tr buf px py))
+        this.moveCaret(hit.line hit.col true)
+    }
+
+    fn scrollBy:void (notches:int) {
+        layout.scrollByLines(buf (0 - notches))
+    }
+}
