@@ -180,6 +180,8 @@ bind("edgetype", (e) => app.setEdgeType(e.target.value));
 bind("bg", (e) => app.setBackgroundVariant(Number(e.target.value)));
 bind("theme", (e) => app.setTheme(e.target.value));
 bind("snap", (e) => app.setSnap(e.target.checked));
+bind("rulers", (e) => app.setRulers(e.target.checked));
+bind("bridges", (e) => app.setBridges(e.target.checked));
 document.getElementById("fit").addEventListener("click", () => app.fitView());
 
 document.getElementById("svg").addEventListener("click", () => {
@@ -284,6 +286,8 @@ function syncControls() {
   document.getElementById("notation").value = app.editor.view.notation;
   document.getElementById("theme").value = app.editor.view.theme.name;
   connectBtn.classList.toggle("on", app.connectMode());
+  document.getElementById("rulers").checked = app.editor.view.showRulers;
+  document.getElementById("bridges").checked = app.editor.view.bridgeEdges;
   syncSelection();
 }
 

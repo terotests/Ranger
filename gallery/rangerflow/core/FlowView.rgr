@@ -41,8 +41,20 @@ class FlowView {
     def showBackground:boolean true
     def showMinimap:boolean true
     def showControls:boolean true
+    ; A horizontal and a vertical scale down the edges of the surface, in flow
+    ; units. What they are for is not decoration: a diagram that will be
+    ; printed has a size, and a reader placing a box 40 units from another one
+    ; needs to see the 40.
+    def showRulers:boolean false
+    def rulerSize:double 18.0
     def showPorts:boolean true
     def culling:boolean true
+    ; Where two lines cross, one hops over the other. Off for a diagram with
+    ; no crossings to speak of costs nothing; on, it is the only honest answer
+    ; to a crossing the router could not remove — two lines meeting at a point
+    ; are ambiguous about whether they join, and a hop says they do not.
+    def bridgeEdges:boolean true
+    def bridgeRadius:double 4.5
     ; "crowfoot" | "uml" | "plain" — how a relationship's cardinality is drawn.
     def notation:string "crowfoot"
 
@@ -66,6 +78,11 @@ class FlowView {
     def editText:string ""
     def editCaret:int 0
     def editCaretOn:boolean true
+
+    ; Screen-space segments of every edge, and where each edge's run ends, so
+    ; a line can be told what it is allowed to hop over.
+    def bridgeSegs:[double]
+    def bridgeEnds:[int]
 
     ; what the last build did, for the benchmark harness
     def drawnNodes:int 0
@@ -440,6 +457,9 @@ class FlowView {
         if showMinimap {
             this.paintMinimap(sc)
         }
+        if showRulers {
+            this.paintRulers(sc)
+        }
         if showControls {
             this.paintControls(sc)
         }
@@ -608,18 +628,71 @@ class FlowView {
     }
 
     ; --------------------------------------------------------------- edges ---
+    ; Every line is turned into screen points BEFORE any of them is drawn,
+    ; because a line cannot hop over another one it has not seen yet. Each
+    ; edge is then allowed to hop only over the ones before it in the list, so
+    ; a crossing gets exactly one bridge rather than two lines both jumping and
+    ; the crossing reading as a knot.
     fn paintEdges:void (sc:FlowScene) {
+        clear bridgeSegs
+        clear bridgeEnds
+        if bridgeEdges {
+            def b:int 0
+            while (b < (graph.edgeCount())) {
+                def be:FlowEdge (graph.edgeAt(b))
+                if (be.hidden == false) {
+                    this.collectEdgeSegments(be)
+                }
+                push bridgeEnds (array_length bridgeSegs)
+                b = (b + 1)
+            }
+        }
         def k:int 0
         while (k < (graph.edgeCount())) {
             def e:FlowEdge (graph.edgeAt(k))
             if (e.hidden == false) {
-                this.paintEdge(sc e)
+                this.paintEdge(sc e k)
             }
             k = (k + 1)
         }
     }
 
-    fn paintEdge:void (sc:FlowScene e:FlowEdge) {
+    ; The screen-space segments of one edge, appended to the store.
+    fn collectEdgeSegments:void (e:FlowEdge) {
+        if (e.sourceIndex < 0) { return }
+        if (e.targetIndex < 0) { return }
+        def path:EdgePath (EdgeRouter.route(graph e))
+        path.flatten(8)
+        def n:int (path.pointCount())
+        def i:int 1
+        while (i < n) {
+            push bridgeSegs (this.sx((path.px((i - 1)))))
+            push bridgeSegs (this.sy((path.py((i - 1)))))
+            push bridgeSegs (this.sx((path.px(i))))
+            push bridgeSegs (this.sy((path.py(i))))
+            i = (i + 1)
+        }
+    }
+
+    ; Everything drawn before this edge, which is what it may hop over.
+    fn segmentsBefore:[double] (index:int) {
+        def out:[double]
+        if (index <= 0) {
+            return out
+        }
+        if (index > (array_length bridgeEnds)) {
+            return out
+        }
+        def upto:int (itemAt bridgeEnds (index - 1))
+        def i:int 0
+        while (i < upto) {
+            push out (itemAt bridgeSegs i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn paintEdge:void (sc:FlowScene e:FlowEdge index:int) {
         if (e.sourceIndex < 0) { return }
         if (e.targetIndex < 0) { return }
         def path:EdgePath (EdgeRouter.route(graph e))
@@ -636,6 +709,12 @@ class FlowView {
             push pts (this.sx((path.px(i))))
             push pts (this.sy((path.py(i))))
             i = (i + 1)
+        }
+        if bridgeEdges {
+            def before:[double] (this.segmentsBefore(index))
+            if ((array_length before) >= 4) {
+                pts = (EdgeRouter.bridgePolyline(pts before (this.sl(bridgeRadius))))
+            }
         }
         def col:string theme.edgeColor
         if ((strlen e.strokeColor) > 0) { col = e.strokeColor }
@@ -808,7 +887,7 @@ class FlowView {
         }
         if ((FlowShapes.isPlain(n.shape)) == false) {
             if ((FlowShapes.isDecorated(n.shape)) == false) {
-                def ring:[double] (FlowShapes.outline(n.shape x y w h))
+                def ring:[double] (FlowShapes.outlineCustom(n.shape x y w h n.shapePoints))
                 def poly:SceneItem (sc.polygon(ring fill))
                 poly.stroke = border
                 poly.strokeWidth = bw
@@ -909,13 +988,22 @@ class FlowView {
         if (size < 5.0) {
             return
         }
-        ; How much of the box the shape actually leaves to write in. A diamond
-        ; has only its middle; a parallelogram loses both slanted ends.
-        def room:double (w - (this.sl(16.0)))
+        ; How much of the box the shape actually leaves to write in, and where
+        ; in it the room is. A diamond has only its middle; a right triangle's
+        ; middle is on the hypotenuse, so its text sits lower and to the left.
+        def room:double (FlowShapes.labelRoom(n.shape w h))
         def tall:double (h - (this.sl(10.0)))
         if (n.shape == "diamond") {
-            room = (w * 0.62)
             tall = (h * 0.55)
+        }
+        if (n.shape == "triangle") {
+            tall = (h * 0.4)
+        }
+        if (n.shape == "triangledown") {
+            tall = (h * 0.4)
+        }
+        if (n.shape == "righttriangle") {
+            tall = (h * 0.4)
         }
         if (n.shape == "parallelogram") {
             room = (w - ((FlowShapes.slantOf(w h)) * 2.0))
@@ -937,8 +1025,8 @@ class FlowView {
         }
         def text:string (this.textFor(tag n.label))
         def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesFor(tall size))))
-        def cx:double (x + (w * 0.5))
-        def cy:double (y + (h * 0.5))
+        def cx:double (FlowShapes.labelCX(n.shape x y w h))
+        def cy:double (FlowShapes.labelCY(n.shape x y w h))
         this.paintEditField(sc tag cx cy lay room)
         def top:double (this.paintBlock(sc lay cx cy theme.nodeText tag false))
         this.paintCaret(sc tag lay cx top false)
@@ -1127,6 +1215,80 @@ class FlowView {
         if (badge == "fk")  { return "FK" }
         if (badge == "idx") { return "IX" }
         return badge
+    }
+
+    ; -------------------------------------------------------------- rulers --
+    ; Ticks at a round number of flow units, chosen so they never crowd: the
+    ; step goes 10, 20, 50, 100, 200 … as the zoom drops, which is the same
+    ; 1-2-5 progression a chart axis uses and for the same reason.
+    fn paintRulers:void (sc:FlowScene) {
+        def band:double rulerSize
+        def step:double (FlowView.tickStep(viewport.zoom))
+        def size:double 9.0
+        ; The two bands themselves, and the little square where they meet.
+        def top:SceneItem (sc.rect(0.0 0.0 width band theme.panelFill))
+        top.tag = "chrome"
+        def left:SceneItem (sc.rect(0.0 0.0 band height theme.panelFill))
+        left.tag = "chrome"
+        def edgeA:SceneItem (sc.rect(0.0 (band - 1.0) width 1.0 theme.panelBorder))
+        edgeA.tag = "chrome"
+        def edgeB:SceneItem (sc.rect((band - 1.0) 0.0 1.0 height theme.panelBorder))
+        edgeB.tag = "chrome"
+
+        ; Horizontal: walk flow units, not screen pixels, so the numbers are
+        ; the model's and the spacing is whatever the zoom makes it.
+        def fromX:double (viewport.toFlowX(band))
+        def toX:double (viewport.toFlowX(width))
+        def x:double (FlowView.floorTo(fromX step))
+        while (x < toX) {
+            def sxv:double (this.sx(x))
+            if (sxv >= band) {
+                def tick:SceneItem (sc.rect(sxv (band - 6.0) 1.0 5.0 theme.minimapNode))
+                tick.tag = "chrome"
+                if (size >= 5.0) {
+                    def lbl:string (to_string (to_int x))
+                    def t:SceneItem (sc.text(lbl (sxv + 3.0) 3.0 40.0 size theme.nodeMutedText))
+                    t.fontFamily = theme.fontFamily
+                    t.tag = "chrome"
+                }
+            }
+            x = (x + step)
+        }
+        def fromY:double (viewport.toFlowY(band))
+        def toY:double (viewport.toFlowY(height))
+        def y:double (FlowView.floorTo(fromY step))
+        while (y < toY) {
+            def syv:double (this.sy(y))
+            if (syv >= band) {
+                def tick2:SceneItem (sc.rect((band - 6.0) syv 5.0 1.0 theme.minimapNode))
+                tick2.tag = "chrome"
+                if (size >= 5.0) {
+                    def lbl2:string (to_string (to_int y))
+                    def t2:SceneItem (sc.text(lbl2 2.0 (syv + 2.0) (band - 4.0) size theme.nodeMutedText))
+                    t2.fontFamily = theme.fontFamily
+                    t2.tag = "chrome"
+                }
+            }
+            y = (y + step)
+        }
+    }
+
+    ; 1-2-5, the progression that keeps a tick label round at any zoom.
+    sfn tickStep:double (zoom:double) {
+        def want:double 80.0
+        def unit:double (want / zoom)
+        def step:double 1.0
+        while (step < unit) {
+            if ((step * 2.0) >= unit) { return (step * 2.0) }
+            if ((step * 5.0) >= unit) { return (step * 5.0) }
+            step = (step * 10.0)
+        }
+        return step
+    }
+
+    sfn floorTo:double (v:double step:double) {
+        def q:int (floor (v / step))
+        return ((to_double q) * step)
     }
 
     ; --------------------------------------------------------------- ports ---

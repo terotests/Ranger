@@ -309,6 +309,9 @@ class FlowNode {
     ; rectangle every table and class has always been; a flowchart's meaning
     ; lives here, because a decision that is not a diamond is not a decision.
     def shape:string "rect"
+    ; For `shape = "polygon"`: the ring, in unit coordinates across the box.
+    ; Empty for every other shape, which knows its own.
+    def shapePoints:[double]
     def sourcePosition:int 1
     def targetPosition:int 3
 
@@ -610,7 +613,15 @@ class FlowNode {
     ; Inside the SHAPE, not inside the bounding box: the corner beside a
     ; diamond looks like empty canvas and has to behave like it.
     fn holdsPoint:boolean (px:double py:double) {
+        if (shape == "polygon") {
+            def ring:[double] (this.outline())
+            return (FlowShapes.holds(ring px py))
+        }
         return (FlowShapes.holdsShape(shape x y width height px py))
+    }
+
+    fn outline:[double] () {
+        return (FlowShapes.outlineCustom(shape x y width height shapePoints))
     }
 
     fn syncFromModel:void () {

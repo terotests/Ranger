@@ -46,6 +46,19 @@ class FlowShape {
     sfn ellipse:string ()       { return "ellipse" }
     sfn circle:string ()        { return "circle" }
     sfn note:string ()          { return "note" }
+    sfn triangle:string ()      { return "triangle" }
+    sfn rightTriangle:string () { return "righttriangle" }
+    sfn pentagon:string ()      { return "pentagon" }
+    sfn heptagon:string ()      { return "heptagon" }
+    sfn octagon:string ()       { return "octagon" }
+    sfn decagon:string ()       { return "decagon" }
+    sfn plus:string ()          { return "plus" }
+    sfn star:string ()          { return "star" }
+    ; An outline the caller supplies, as unit coordinates in 0..1 scaled to the
+    ; node's box — Syncfusion's `Polygon`, JointJS's `standard.Polygon`.
+    sfn polygon:string ()       { return "polygon" }
+    sfn triangleDown:string ()  { return "triangledown" }
+    sfn pentagonDown:string ()  { return "pentagondown" }
     ; A rectangle with a bar down each side: "this step is defined elsewhere".
     sfn predefined:string ()    { return "predefined" }
 }
@@ -72,6 +85,30 @@ class FlowShapes {
         if (shape == "predefined") { return true }
         if (shape == "note") { return true }
         return false
+    }
+
+    ; The outline, with a caller-supplied ring for "polygon". The unit points
+    ; are 0..1 across the box, so the same shape scales with the node instead
+    ; of being redefined every time it is resized.
+    sfn outlineCustom:[double] (shape:string x:double y:double w:double h:double unit:[double]) {
+        if (shape == "polygon") {
+            def out:[double]
+            def n:int (idiv (array_length unit) 2)
+            if (n < 3) {
+                return (FlowShapes.outline("rect" x y w h))
+            }
+            def i:int 0
+            while (i < n) {
+                def ux:double (itemAt unit (i * 2))
+                def uyAt:int ((i * 2) + 1)
+                def uy:double (itemAt unit uyAt)
+                push out (x + (w * ux))
+                push out (y + (h * uy))
+                i = (i + 1)
+            }
+            return out
+        }
+        return (FlowShapes.outline(shape x y w h))
     }
 
     ; The outline, as x0 y0 x1 y1 … in the order a pen would draw it.
@@ -116,6 +153,105 @@ class FlowShapes {
             push pts b
             push pts x
             push pts b
+            return pts
+        }
+        if (shape == "triangle") {
+            push pts cx
+            push pts y
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "triangledown") {
+            push pts x
+            push pts y
+            push pts r
+            push pts y
+            push pts cx
+            push pts b
+            return pts
+        }
+        if (shape == "pentagondown") {
+            ; The off-page connector: a box with a point at the bottom.
+            def notch:double (h * 0.28)
+            push pts x
+            push pts y
+            push pts r
+            push pts y
+            push pts r
+            push pts (b - notch)
+            push pts cx
+            push pts b
+            push pts x
+            push pts (b - notch)
+            return pts
+        }
+        if (shape == "righttriangle") {
+            push pts x
+            push pts y
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "plus") {
+            ; A cross whose arms are a third of the box, which is the
+            ; proportion that still reads as a plus at a small size.
+            def aw:double (w * 0.33)
+            def ah:double (h * 0.33)
+            def lx:double (x + ((w - aw) * 0.5))
+            def rx:double (lx + aw)
+            def ty:double (y + ((h - ah) * 0.5))
+            def by:double (ty + ah)
+            push pts lx
+            push pts y
+            push pts rx
+            push pts y
+            push pts rx
+            push pts ty
+            push pts r
+            push pts ty
+            push pts r
+            push pts by
+            push pts rx
+            push pts by
+            push pts rx
+            push pts b
+            push pts lx
+            push pts b
+            push pts lx
+            push pts by
+            push pts x
+            push pts by
+            push pts x
+            push pts ty
+            push pts lx
+            push pts ty
+            return pts
+        }
+        if (shape == "star") {
+            ; Five points, the inner radius at the ratio that makes a star
+            ; rather than a pentagon with dents.
+            FlowShapes.starInto(pts cx cy (w * 0.5) (h * 0.5) 5 0.42)
+            return pts
+        }
+        if (shape == "pentagon") {
+            FlowShapes.regularInto(pts cx cy (w * 0.5) (h * 0.5) 5)
+            return pts
+        }
+        if (shape == "heptagon") {
+            FlowShapes.regularInto(pts cx cy (w * 0.5) (h * 0.5) 7)
+            return pts
+        }
+        if (shape == "octagon") {
+            FlowShapes.regularInto(pts cx cy (w * 0.5) (h * 0.5) 8)
+            return pts
+        }
+        if (shape == "decagon") {
+            FlowShapes.regularInto(pts cx cy (w * 0.5) (h * 0.5) 10)
             return pts
         }
         if (shape == "hexagon") {
@@ -258,6 +394,42 @@ class FlowShapes {
         }
     }
 
+    ; An n-sided polygon inscribed in the box, first vertex at the top. The
+    ; radii are the box's own, so a pentagon in a wide box is a wide pentagon
+    ; rather than a circle's worth of unused space.
+    sfn regularInto:void (pts:[double] cx:double cy:double rx:double ry:double sides:int) {
+        def step:double (6.283185307179586 / (to_double sides))
+        def start:double -1.5707963267948966
+        def i:int 0
+        while (i < sides) {
+            def a:double (start + ((to_double i) * step))
+            push pts (cx + (rx * (cos a)))
+            push pts (cy + (ry * (sin a)))
+            i = (i + 1)
+        }
+    }
+
+    ; A star: `points` outer vertices with an inner vertex between each pair,
+    ; at `inner` of the radius.
+    sfn starInto:void (pts:[double] cx:double cy:double rx:double ry:double points:int inner:double) {
+        def total:int (points * 2)
+        def step:double (6.283185307179586 / (to_double total))
+        def start:double -1.5707963267948966
+        def i:int 0
+        while (i < total) {
+            def a:double (start + ((to_double i) * step))
+            def fx:double rx
+            def fy:double ry
+            if ((i % 2) == 1) {
+                fx = (rx * inner)
+                fy = (ry * inner)
+            }
+            push pts (cx + (fx * (cos a)))
+            push pts (cy + (fy * (sin a)))
+            i = (i + 1)
+        }
+    }
+
     sfn ellipseInto:void (pts:[double] cx:double cy:double rx:double ry:double steps:int) {
         def i:int 0
         while (i < steps) {
@@ -347,6 +519,52 @@ class FlowShapes {
         if (px > (x + w)) { return false }
         if (py > (y + h)) { return false }
         return true
+    }
+
+    ; ------------------------------------------------------------- labels ---
+    ; Where the text goes. For most shapes that is the middle of the box, but
+    ; a triangle's middle is half outside it — the centre of a right triangle
+    ; sits exactly on the hypotenuse — so the ones that taper get their text
+    ; where the room is.
+    sfn labelCX:double (shape:string x:double y:double w:double h:double) {
+        if (shape == "righttriangle") {
+            return (x + (w * 0.36))
+        }
+        return (x + (w * 0.5))
+    }
+
+    sfn labelCY:double (shape:string x:double y:double w:double h:double) {
+        if (shape == "triangle") {
+            return (y + (h * 0.66))
+        }
+        if (shape == "triangledown") {
+            return (y + (h * 0.36))
+        }
+        if (shape == "righttriangle") {
+            return (y + (h * 0.72))
+        }
+        if (shape == "pentagondown") {
+            return (y + (h * 0.42))
+        }
+        return (y + (h * 0.5))
+    }
+
+    ; How wide the text may be where it is put. A taper leaves less room the
+    ; further from the wide end you go.
+    sfn labelRoom:double (shape:string w:double h:double) {
+        if (shape == "triangle")       { return (w * 0.58) }
+        if (shape == "triangledown")   { return (w * 0.58) }
+        if (shape == "righttriangle")  { return (w * 0.5) }
+        if (shape == "diamond")        { return (w * 0.62) }
+        if (shape == "star")           { return (w * 0.5) }
+        if (shape == "plus")           { return (w * 0.33) }
+        if (shape == "pentagon")       { return (w * 0.72) }
+        if (shape == "heptagon")       { return (w * 0.8) }
+        if (shape == "octagon")        { return (w * 0.82) }
+        if (shape == "decagon")        { return (w * 0.86) }
+        if (shape == "circle")         { return (w * 0.72) }
+        if (shape == "ellipse")        { return (w * 0.78) }
+        return (w - 16.0)
     }
 
     ; --------------------------------------------------------------- ports ---

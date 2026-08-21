@@ -49,8 +49,20 @@ class FlowKind {
     sfn preparation:string () { return "preparation" }
     sfn connector:string ()   { return "connector" }
     sfn note:string ()        { return "note" }
+    ; Three more from ISO 5807 that the shape library can now draw.
+    sfn merge:string ()       { return "merge" }
+    sfn extract:string ()     { return "extract" }
+    sfn summing:string ()     { return "summing" }
+    sfn offPage:string ()     { return "offpage" }
 
     sfn shapeFor:string (kind:string) {
+        ; A merge is a triangle pointing down, an extract one pointing up —
+        ; the two halves of the same idea, and the reason both are in the
+        ; standard.
+        if (kind == "merge")       { return "triangledown" }
+        if (kind == "extract")     { return "triangle" }
+        if (kind == "summing")     { return "circle" }
+        if (kind == "offpage")     { return "pentagondown" }
         if (kind == "terminator")  { return "stadium" }
         if (kind == "decision")    { return "diamond" }
         if (kind == "io")          { return "parallelogram" }

@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 358 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 399 assertions: model, forces, router, editor, SQL, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -38,8 +38,9 @@ npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
 npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
-npm run rangerflow:web:test    # …or run all seven demos in headless Chrome
+npm run rangerflow:web:test    # …or run all nine demos in headless Chrome
 npm run rangerflow:parity      # score it against React Flow — see below
+npm run rangerflow:rivals      # …and against JointJS and Syncfusion
 npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
 ```
 
@@ -58,6 +59,8 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
+| [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
+| [`?scenario=radial`](http://localhost:8080/?scenario=radial) | the same graph as a radial tree, a generation per ring |
 
 Drag to pan, wheel to zoom, shift-drag to box select, drag a handle to connect,
 `Delete`, `Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen,
@@ -272,6 +275,7 @@ truth. A host without one (the SDL window, the test suite) types through
 | Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |
 | | `layout/LayeredLayout.rgr` | dummy-vertex chains, so long edges are ordered, given room, and drawn round what is between their ends |
 | | `layout/OrthoRouter.rgr` | an orthogonal visibility grid and a bend-charging Dijkstra, run as a repair pass for whatever the layout never saw |
+| | `layout/TreeLayouts.rgr` | the radial tree and the mind map: measure a subtree, then hand it the share it earned |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |
 | | `domains/flowchart/*` | the ATK chart: kinds, branch labels, and which shape each kind is |
@@ -545,6 +549,65 @@ point at, which is the whole point of a field-level port.
 A hand-placed route sets `FlowEdge.pinnedRoute`, and after that the lane pass,
 the repair pass and the layout all leave it alone: overruling the reader is
 worse than a crossing. Undo puts the routing back in the router's hands.
+
+## The other two, measured differently
+
+React Flow can be an oracle: it is MIT, it is on npm, and the harness asks
+**its own functions** the questions RangerFlow is asked. Neither JointJS nor
+Syncfusion works that way, and `npm run rangerflow:rivals` says so at the top of
+its own output rather than quietly scoring them the same way:
+
+| | Licence | Oracle | What is scored |
+| --- | --- | --- | --- |
+| React Flow | MIT | **yes** | pixels of difference, and behaviour |
+| JointJS 4 | MPL-2.0 | possible, not built | its published feature list |
+| Syncfusion EJ2 | commercial | **no** — not installed, not run | its published feature list |
+
+Syncfusion's npm package says `SEE LICENSE IN license`. It is not installed
+here and not used to compute anything; its rows are quoted from its own **Key
+features** list and the enumerations in its public source, because the
+denominator has to be their claim about themselves. For JointJS an oracle
+*would* be possible — it is not built because the families worth comparing that
+way are already measured against React Flow to two thousandths of a pixel.
+
+|  | before | after |
+| --- | ---: | ---: |
+| JointJS 4 | 29/48 (60%) | **32/48 (67%)** |
+| Syncfusion EJ2 | 38.5/62 (62%) | **49.5/63 (79%)** |
+
+The meter is what drove the work, and what it found was worth having:
+
+- **Nine more shapes** — triangle, right triangle, plus, star, and the regular
+  polygons from pentagon to decagon, plus an outline the caller supplies
+  (`shapePoints`, unit coordinates across the box). The probe checks that
+  **the point a label is drawn at is inside the shape**, which caught the right
+  triangle: the centre of its box sits exactly on the hypotenuse, so its text
+  was half outside itself.
+- **Line jumps** — where two lines cross, one hops over the other. JointJS
+  calls it the `jumpover` connector, Syncfusion calls it connector bridging,
+  and it is the only honest answer to a crossing you cannot route away: two
+  lines meeting at a point are ambiguous about whether they join, and a hop
+  says they do not. Done on the flattened polyline in the coordinates it is
+  drawn in, so every backend gets it.
+- **A radial tree and a mind map** — `layout/TreeLayouts.rgr`. Both are the
+  same two passes: measure what each subtree needs, then hand each child the
+  share it earned. The ring radii and the level gaps are *measured* from the
+  boxes rather than picked, because thirteen boxes a hundred and sixty wide do
+  not fit on a circle of radius a hundred and seventy however tidy the number.
+- **A JSON reader** — a diagram you can save and not open is a diagram you have
+  lost. Writing it exposed the defect the writer had all along: `toJson` never
+  wrote an edge's **label**, so a saved flowchart came back with every `kyllä`
+  gone, silently.
+- **Data binding** — a flat array of records each naming its own parent, which
+  is what `dataSourceSettings` means and what a REST call gives you.
+- **Rulers** — a scale in flow units down two edges of the surface, ticked on
+  the 1-2-5 progression a chart axis uses.
+
+What is still missing is listed in [`docs/RIVALS.md`](docs/RIVALS.md) as `todo`
+rather than left out: rotation, BPMN and UML-activity notations, a context
+menu, tooltips, PNG/JPEG encoders, drag-and-drop from the palette, image
+elements, and JointJS's metro and one-side routers. A `todo` row means we do
+not have it — there is no row there that means "probably fine".
 
 ## Parity is measured, not claimed
 

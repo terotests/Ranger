@@ -15,6 +15,7 @@ Import "../layout/ForceLayout.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
+Import "../layout/TreeLayouts.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
@@ -81,6 +82,10 @@ class RangerFlowTest {
         RangerFlowTest.testFlowchart(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
+        RangerFlowTest.testTreeLayouts(c)
+        RangerFlowTest.testLineJumps(c)
+        RangerFlowTest.testSerialization(c)
+        RangerFlowTest.testDataBinding(c)
         RangerFlowTest.testTextFitting(c)
         RangerFlowTest.testInPlaceEditing(c)
         RangerFlowTest.testSideHandles(c)
@@ -1260,7 +1265,254 @@ class RangerFlowTest {
         c.eqInt("one node at a time" (g.nodeCount()) 2)
     }
 
-    ; ---------------------------------------------------- text fitting -------
+    ; ------------------------------------------------------ tree layouts -----
+    sfn testTreeLayouts:void (c:Checker) {
+        c.section("radial and mind map")
+        def g (new FlowGraph)
+        def root:FlowNode (g.node("r" "root" 0.0 0.0))
+        root.width = 140.0
+        root.height = 50.0
+        def b:int 0
+        while (b < 3) {
+            def bid:string ("b" + (to_string b))
+            def bn:FlowNode (g.node(bid bid 0.0 0.0))
+            bn.width = 130.0
+            bn.height = 44.0
+            g.connect("r" bid)
+            def l:int 0
+            while (l < 2) {
+                def lid:string ((bid + "-") + (to_string l))
+                def ln:FlowNode (g.node(lid lid 0.0 0.0))
+                ln.width = 120.0
+                ln.height = 40.0
+                g.connect(bid lid)
+                l = (l + 1)
+            }
+            b = (b + 1)
+        }
+        g.reindex()
+
+        ; The tree is FOUND, not declared: a graph has edges, not parents.
+        def t:FlowTree (FlowTree.of(g ""))
+        c.eqInt("the root is the node nothing points at" t.root (g.indexOfNode("r")))
+        c.eqInt("every node is reached" (array_length t.order) (g.nodeCount()))
+        c.eqInt("a branch is one step from the root" (itemAt t.depth (g.indexOfNode("b0"))) 1)
+        c.eqInt("and a leaf is two" (itemAt t.depth (g.indexOfNode("b0-0"))) 2)
+        c.eqInt("the root has three children" (t.childCount(t.root)) 3)
+
+        def rad:RadialLayout (RadialLayout.of(g))
+        rad.rootId = "r"
+        c.eqInt("the radial layout places everything but the root" (rad.run()) 9)
+        c.near("with the root at the centre" (root.centerX()) 0.0 0.001)
+        c.near("in both axes" (root.centerY()) 0.0 0.001)
+        def near:FlowNode (g.nodeById("b0"))
+        def far:FlowNode (g.nodeById("b0-0"))
+        def dNear:double (RangerFlowTest.distBetween(near root))
+        def dFar:double (RangerFlowTest.distBetween(far root))
+        c.ok(("each generation is on a wider ring (" + (to_string dNear) + " then " + (to_string dFar) + ")") (dFar > dNear))
+        c.eqInt("and no box is drawn over another" (RangerFlowTest.overlapCount(g)) 0)
+
+        ; …and the same graph as a mind map.
+        def mind:MindMapLayout (MindMapLayout.of(g))
+        mind.rootId = "r"
+        c.eqInt("the mind map places everything but the root" (mind.run()) 9)
+        def left:int 0
+        def right:int 0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (n.id != "r") {
+                if ((n.centerX()) > 0.0) { right = (right + 1) }
+                if ((n.centerX()) < 0.0) { left = (left + 1) }
+            }
+            i = (i + 1)
+        }
+        c.ok(("both sides of the root are used (" + (to_string left) + " left, " + (to_string right) + " right)") (left > 0))
+        c.ok("and neither is empty" (right > 0))
+        c.eqInt("no box is drawn over another here either" (RangerFlowTest.overlapCount(g)) 0)
+        ; A child is always further out than its parent, which is the one thing
+        ; that makes a mind map readable outwards.
+        def wrongWay:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            def pa:FlowNode (g.nodeAt(e.sourceIndex))
+            def ch:FlowNode (g.nodeAt(e.targetIndex))
+            if ((fabs (ch.centerX())) <= (fabs (pa.centerX()))) {
+                wrongWay = (wrongWay + 1)
+            }
+            k = (k + 1)
+        }
+        c.eqInt("every child is further from the middle than its parent" wrongWay 0)
+    }
+
+    sfn distBetween:double (a:FlowNode b:FlowNode) {
+        def dx:double ((a.centerX()) - (b.centerX()))
+        def dy:double ((a.centerY()) - (b.centerY()))
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    sfn overlapCount:int (g:FlowGraph) {
+        def n:int 0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def a:FlowNode (g.nodeAt(i))
+            def ra:FlowRect (a.rect())
+            def j:int (i + 1)
+            while (j < (g.nodeCount())) {
+                def b:FlowNode (g.nodeAt(j))
+                def rb:FlowRect (b.rect())
+                if ((ra.overlapArea(rb)) > 0.0) {
+                    n = (n + 1)
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ------------------------------------------------------- line jumps ------
+    ; Two lines meeting at a point are ambiguous about whether they join. A hop
+    ; says they do not — JointJS's `jumpover`, Syncfusion's connector bridging.
+    sfn testLineJumps:void (c:Checker) {
+        c.section("line jumps")
+        def line:[double]
+        push line 0.0
+        push line 50.0
+        push line 200.0
+        push line 50.0
+        def cross:[double]
+        push cross 100.0
+        push cross 0.0
+        push cross 100.0
+        push cross 100.0
+        def hopped:[double] (EdgeRouter.bridgePolyline(line cross 6.0))
+        def n:int (idiv (array_length hopped) 2)
+        c.ok(("the hop adds points (got " + (to_string n) + ")") (n > 2))
+        c.near("the line still starts where it did" (itemAt hopped 0) 0.0 0.001)
+        c.near("and ends where it did" (itemAt hopped ((n - 1) * 2)) 200.0 0.001)
+        ; The bulge is at the crossing, and it is a real bulge.
+        def away:double 0.0
+        def atX:double 0.0
+        def i:int 0
+        while (i < n) {
+            def yAt:int ((i * 2) + 1)
+            def off:double (fabs ((itemAt hopped yAt) - 50.0))
+            if (off > away) {
+                away = off
+                atX = (itemAt hopped (i * 2))
+            }
+            i = (i + 1)
+        }
+        c.ok(("the hop leaves the line (got " + (to_string away) + ")") (away > 4.0))
+        c.near("right where the other line crosses" atX 100.0 8.0)
+
+        ; A line with nothing to cross is left exactly as it was.
+        def alone:[double]
+        def none:[double] (EdgeRouter.bridgePolyline(line alone 6.0))
+        c.eqInt("a line that crosses nothing is untouched" (idiv (array_length none) 2) 2)
+
+        ; Two crossings, two hops.
+        def twoCross:[double]
+        push twoCross 60.0
+        push twoCross 0.0
+        push twoCross 60.0
+        push twoCross 100.0
+        push twoCross 140.0
+        push twoCross 0.0
+        push twoCross 140.0
+        push twoCross 100.0
+        def twice:[double] (EdgeRouter.bridgePolyline(line twoCross 6.0))
+        def bumps:int 0
+        def k:int 1
+        while (k < (idiv (array_length twice) 2)) {
+            def prevAt:int (((k - 1) * 2) + 1)
+            def curAt:int ((k * 2) + 1)
+            def wasOn:boolean ((fabs ((itemAt twice prevAt) - 50.0)) < 0.001)
+            def isOff:boolean ((fabs ((itemAt twice curAt) - 50.0)) > 0.001)
+            if wasOn {
+                if isOff {
+                    bumps = (bumps + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        c.eqInt("two crossings make two hops" bumps 2)
+    }
+
+    ; ------------------------------------------------------ serialization ----
+    sfn testSerialization:void (c:Checker) {
+        c.section("saving and opening a diagram")
+        def g (new FlowGraph)
+        def t:FlowNode (g.node("customers" "customers" 40.0 80.0))
+        t.width = 210.0
+        t.shape = (FlowShape.rect())
+        def sec:FlowSection (t.addSection(""))
+        def row:FlowRow (FlowRow.create("pk" "id" "INTEGER" "PK"))
+        row.portId = "customers.id"
+        sec.addRow(row)
+        t.layoutCompartments()
+        def d:FlowNode (g.node("check" "Luotto ok?" 400.0 80.0))
+        d.width = 160.0
+        d.height = 90.0
+        d.shape = (FlowShape.diamond())
+        def e:FlowEdge (g.connect("customers" "check"))
+        e.edgeType = "smoothstep"
+        e.label = "kyllä"
+        g.reindex()
+
+        def json:string (FlowGraphJson.toJson(g))
+        def back:FlowGraph (FlowGraphJson.fromJson(json))
+        c.eqInt("every node comes back" (back.nodeCount()) 2)
+        c.eqInt("and every edge" (back.edgeCount()) 1)
+        def bt:FlowNode (back.nodeById("customers"))
+        c.eqStr("with its label" bt.label "customers")
+        c.near("its position" bt.x 40.0 0.001)
+        c.near("and its size" bt.width 210.0 0.001)
+        c.eqInt("its compartments" (bt.totalRowCount()) 1)
+        def brow:FlowRow (FlowUndo.rowOf(bt 0))
+        c.eqStr("row and all" brow.text "id")
+        c.eqStr("with the port the row owns" brow.portId "customers.id")
+        def bd:FlowNode (back.nodeById("check"))
+        c.eqStr("a shape survives being saved" bd.shape "diamond")
+        def be:FlowEdge (back.edgeAt(0))
+        c.eqStr("and so does an edge's label" be.label "kyllä")
+        c.eqStr("from" be.source "customers")
+        c.eqStr("to" be.target "check")
+
+        ; Nonsense in gives an empty graph rather than a crash.
+        def junk:FlowGraph (FlowGraphJson.fromJson("not json at all"))
+        c.eqInt("junk reads as an empty diagram" (junk.nodeCount()) 0)
+    }
+
+    ; ------------------------------------------------------- data binding ----
+    ; The shape every diagram library means by it: a flat array of records,
+    ; each naming its own parent.
+    sfn testDataBinding:void (c:Checker) {
+        c.section("data binding")
+        def src:string "[{\"id\":\"1\",\"parentId\":\"\",\"name\":\"Aino\"},{\"id\":\"2\",\"parentId\":\"1\",\"name\":\"Markus\"},{\"id\":\"3\",\"parentId\":\"1\",\"name\":\"Riikka\"},{\"id\":\"4\",\"parentId\":\"2\",\"name\":\"Sanna\"}]"
+        def g:FlowGraph (FlowGraphJson.fromDataSource(src "id" "parentId" "name"))
+        c.eqInt("a record becomes a node" (g.nodeCount()) 4)
+        c.eqInt("and a parent becomes an edge" (g.edgeCount()) 3)
+        def n2:FlowNode (g.nodeById("2"))
+        c.eqStr("the label comes from the field that was named" n2.label "Markus")
+        c.eqInt("and the node is connectable" (array_length n2.ports) 4)
+        ; The root has no parent, so it has no incoming edge.
+        def incoming:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.target == "1") { incoming = (incoming + 1) }
+            k = (k + 1)
+        }
+        c.eqInt("the record with no parent has nothing pointing at it" incoming 0)
+        ; …and it lays out like any other graph.
+        def mind:MindMapLayout (MindMapLayout.of(g))
+        c.eqInt("a bound graph lays out" (mind.run()) 3)
+    }
+
+    ; ---------------------------------------------------- text fitting -------    ; ---------------------------------------------------- text fitting -------
     ; Wrap, then shrink, then cut. A label that does not fit has three answers
     ; and they are tried in that order, because an ellipsis is an admission and
     ; the other two are not.

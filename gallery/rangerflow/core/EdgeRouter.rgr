@@ -834,6 +834,168 @@ class EdgeRouter {
         return out
     }
 
+    ; ------------------------------------------------------------ bridges ---
+    ; Where two lines cross, one hops over the other — JointJS calls it the
+    ; `jumpover` connector, Syncfusion calls it connector bridging, and it is
+    ; the only honest answer to a crossing you cannot route away. Two lines
+    ; meeting at a point are ambiguous: a reader cannot tell whether they join.
+    ; A hop says they do not.
+    ;
+    ; Done on the FLATTENED polyline, in the coordinates it will be drawn in,
+    ; so a bridge is the same size on screen at any zoom and every backend gets
+    ; it — a bridge that only the GPU drew would be a diagram that means
+    ; something different in print.
+    ;
+    ; `others` is a flat list of x1 y1 x2 y2 quads: the segments this line is
+    ; allowed to hop over. Only one line of a pair should be given the other,
+    ; or they would both hop and the crossing would look like a knot.
+    sfn bridgePolyline:[double] (pts:[double] others:[double] radius:double) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return pts
+        }
+        if ((array_length others) < 4) {
+            return pts
+        }
+        def out:[double]
+        push out (itemAt pts 0)
+        push out (itemAt pts 1)
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt pts ayAt)
+            def bx:double (itemAt pts (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt pts byAt)
+            def dx:double (bx - ax)
+            def dy:double (by - ay)
+            def len:double (sqrt ((dx * dx) + (dy * dy)))
+            if (len > 0.0001) {
+                ; Every crossing on this segment, as a distance along it.
+                def hits:[double] (EdgeRouter.crossingsAlong(ax ay bx by others))
+                EdgeRouter.sortDoubles(hits)
+                def ux:double (dx / len)
+                def uy:double (dy / len)
+                def walked:double 0.0
+                def k:int 0
+                while (k < (array_length hits)) {
+                    def at:double (itemAt hits k)
+                    ; Too close to an end, or to the last hop, and the arc
+                    ; would poke out of the line rather than sit on it.
+                    def okHere:boolean true
+                    if (at < (radius + 1.0)) { okHere = false }
+                    if (at > (len - (radius + 1.0))) { okHere = false }
+                    if (at < (walked + (radius * 2.0))) { okHere = false }
+                    if okHere {
+                        def from:double (at - radius)
+                        def to:double (at + radius)
+                        push out (ax + (ux * from))
+                        push out (ay + (uy * from))
+                        EdgeRouter.arcOver(out ax ay ux uy at radius)
+                        push out (ax + (ux * to))
+                        push out (ay + (uy * to))
+                        walked = to
+                    }
+                    k = (k + 1)
+                }
+            }
+            push out bx
+            push out by
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The half-circle itself, bulging to the left of the direction of travel.
+    ; Which side does not matter as long as it is always the same one: two
+    ; hops on the same line bulging opposite ways read as a wobble.
+    sfn arcOver:void (out:[double] ax:double ay:double ux:double uy:double at:double radius:double) {
+        def cx:double (ax + (ux * at))
+        def cy:double (ay + (uy * at))
+        def nx:double (0.0 - uy)
+        def ny:double ux
+        def steps:int 7
+        def i:int 1
+        while (i < steps) {
+            def t:double ((to_double i) / (to_double steps))
+            def a:double (3.141592653589793 * (1.0 - t))
+            def along:double (0.0 - (radius * (cos a)))
+            def outw:double (radius * (sin a))
+            push out ((cx + (ux * along)) + (nx * outw))
+            push out ((cy + (uy * along)) + (ny * outw))
+            i = (i + 1)
+        }
+    }
+
+    ; Distances along a b→ segment at which it properly crosses one of the
+    ; others. Touching at an endpoint is not a crossing, so the straddle test
+    ; is strict on both sides — the same rule `EdgeOverlap` counts by.
+    sfn crossingsAlong:[double] (ax:double ay:double bx:double by:double others:[double]) {
+        def out:[double]
+        def quads:int (idiv (array_length others) 4)
+        def i:int 0
+        while (i < quads) {
+            def cx:double (itemAt others (i * 4))
+            def cyAt:int ((i * 4) + 1)
+            def cy:double (itemAt others cyAt)
+            def dxAt:int ((i * 4) + 2)
+            def dx:double (itemAt others dxAt)
+            def dyAt:int ((i * 4) + 3)
+            def dy:double (itemAt others dyAt)
+            def d1:double (EdgeRouter.side(cx cy dx dy ax ay))
+            def d2:double (EdgeRouter.side(cx cy dx dy bx by))
+            def d3:double (EdgeRouter.side(ax ay bx by cx cy))
+            def d4:double (EdgeRouter.side(ax ay bx by dx dy))
+            def crosses:boolean true
+            if ((d1 * d2) >= 0.0) { crosses = false }
+            if ((d3 * d4) >= 0.0) { crosses = false }
+            if crosses {
+                def denom:double (d1 - d2)
+                if ((fabs denom) > 0.000001) {
+                    def t:double (d1 / denom)
+                    def sx:double (bx - ax)
+                    def sy:double (by - ay)
+                    push out (t * (sqrt ((sx * sx) + (sy * sy))))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn side:double (ax:double ay:double bx:double by:double px:double py:double) {
+        return (((bx - ax) * (py - ay)) - ((by - ay) * (px - ax)))
+    }
+
+    sfn sortDoubles:void (arr:[double]) {
+        def n:int (array_length arr)
+        def i:int 1
+        while (i < n) {
+            def v:double (itemAt arr i)
+            def j:int (i - 1)
+            def at:int 0
+            def settled:boolean false
+            while (j >= 0) {
+                if (settled == false) {
+                    if ((itemAt arr j) > v) {
+                        set_at arr (j + 1) (itemAt arr j)
+                        j = (j - 1)
+                    } {
+                        at = (j + 1)
+                        settled = true
+                        j = -1
+                    }
+                }
+            }
+            if (settled == false) {
+                at = 0
+            }
+            set_at arr at v
+            i = (i + 1)
+        }
+    }
+
     ; A corner list, turned into a path with the turns rounded. React Flow's
     ; `getBend`, and the one place it lives: the stepped router, the corridor
     ; router and the layered layout's routed edges all hand their corners here

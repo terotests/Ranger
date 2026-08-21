@@ -21,6 +21,8 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/business/BusinessCharts.rgr"
+Import "../layout/TreeLayouts.rgr"
+Import "../export/FlowExport.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/ForceLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
@@ -160,6 +162,12 @@ class RangerFlowWeb {
         }
         if (name == "process") {
             return (this.loadProcess())
+        }
+        if (name == "mindmap") {
+            return (this.loadMindMap())
+        }
+        if (name == "radial") {
+            return (this.loadRadial())
         }
         return (this.loadSqlFixture())
     }
@@ -337,6 +345,51 @@ class RangerFlowWeb {
         editor.pinWhileDragging = false
         status = "a flowchart — drag a line from the middle to route it by hand"
         return true
+    }
+
+    ; ------------------------------------------------------- tree layouts ---
+    ; A mind map and a radial tree from the SAME graph, which is the point: a
+    ; layout is a way of reading a hierarchy, not a kind of diagram. The graph
+    ; is built the way a real one would be — a flat array of records naming
+    ; their own parents, which is what a REST call gives you.
+    fn treeSource:string () {
+        return "[{\"id\":\"rf\",\"parent\":\"\",\"name\":\"RangerFlow\"},{\"id\":\"core\",\"parent\":\"rf\",\"name\":\"Core\"},{\"id\":\"model\",\"parent\":\"core\",\"name\":\"Graph model\"},{\"id\":\"shapes\",\"parent\":\"core\",\"name\":\"Shapes\"},{\"id\":\"text\",\"parent\":\"core\",\"name\":\"Text fitting\"},{\"id\":\"lay\",\"parent\":\"rf\",\"name\":\"Layout\"},{\"id\":\"layered\",\"parent\":\"lay\",\"name\":\"Layered\"},{\"id\":\"force\",\"parent\":\"lay\",\"name\":\"Force\"},{\"id\":\"radial\",\"parent\":\"lay\",\"name\":\"Radial\"},{\"id\":\"mind\",\"parent\":\"lay\",\"name\":\"Mind map\"},{\"id\":\"route\",\"parent\":\"rf\",\"name\":\"Routing\"},{\"id\":\"lanes\",\"parent\":\"route\",\"name\":\"Lanes\"},{\"id\":\"ortho\",\"parent\":\"route\",\"name\":\"Grid router\"},{\"id\":\"jump\",\"parent\":\"route\",\"name\":\"Line jumps\"},{\"id\":\"out\",\"parent\":\"rf\",\"name\":\"Output\"},{\"id\":\"gl\",\"parent\":\"out\",\"name\":\"WebGL\"},{\"id\":\"pdf\",\"parent\":\"out\",\"name\":\"PDF\"},{\"id\":\"svg\",\"parent\":\"out\",\"name\":\"SVG\"}]"
+    }
+
+    fn loadMindMap:boolean () {
+        def g:FlowGraph (FlowGraphJson.fromDataSource((this.treeSource()) "id" "parent" "name"))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        def m:MindMapLayout (MindMapLayout.of(graph))
+        m.rootId = "rf"
+        m.run()
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " solmua — mind map, haarat tasapainossa juuren molemmin puolin")
+        return true
+    }
+
+    fn loadRadial:boolean () {
+        def g:FlowGraph (FlowGraphJson.fromDataSource((this.treeSource()) "id" "parent" "name"))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        def r:RadialLayout (RadialLayout.of(graph))
+        r.rootId = "rf"
+        r.run()
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " solmua — säteittäinen puu, sukupolvi per kehä")
+        return true
+    }
+
+    fn setRulers:void (on:boolean) {
+        editor.view.showRulers = on
+    }
+
+    fn setBridges:void (on:boolean) {
+        editor.view.bridgeEdges = on
     }
 
     ; ------------------------------------------------- business and ATK ----

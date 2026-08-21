@@ -94,6 +94,14 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Organisation chart | ✓ | `domains/business/`: units coloured, matrix reports dashed |
 | Swimlane process | ✓ | `domains/business/`: lanes as group nodes with real parenting — drag the lane, the steps follow |
 | Sub-flows / parenting | ✓ | `node.parentId`; a dragged parent carries its children (probe `subFlowDrag`) |
+| Node shapes: triangle, star, plus, regular polygons | ✓ | added to close the gap the Syncfusion meter measured |
+| Caller-supplied outline | ✓ | `node.shapePoints`, unit coordinates across the box |
+| Line jumps / connector bridging | ✓ | JointJS `jumpover`, Syncfusion `connector-bridging` |
+| Radial tree layout | ✓ | `layout/TreeLayouts.rgr`; ring radii measured from the boxes |
+| Mind map layout | ✓ | branches balanced by the room each needs, not by count |
+| Read a diagram back from JSON | ✓ | `FlowGraphJson.fromJson` |
+| Data binding from a flat array | ✓ | `FlowGraphJson.fromDataSource`, id/parentId |
+| Rulers | ✓ | a scale in flow units, 1-2-5 ticks |
 | Label wrapping | ✓ | breaks at a space onto up to three lines, source-position based so the caret stays exact |
 | Autofit (shrink to fit) | ✓ | the size comes down in steps to 68% of the base before anything is cut |
 | Truncation with an ellipsis | ✓ | last resort only, after wrap and autofit have run out |
