@@ -21,6 +21,7 @@ Import "FormulaFunctions.rgr"
 
 class FormulaNode {
     ; 0 num 1 str 2 bool 3 cell 4 range 5 unary 6 binary 7 call 8 err
+    ; 9 structured reference — `Table1[[#This Row],[CategoryID]]`
     def kind:int 0
     def num:double 0.0
     def text:string ""
@@ -37,6 +38,41 @@ class FormulaNode {
     def op:string ""
     def fnName:string ""
     def kids:[FormulaNode]
+    ; --- structured reference (kind 9) ----------------------------------------
+    ; Held as it was WRITTEN and resolved at evaluation time, not at parse
+    ; time, for two reasons that both matter.
+    ;
+    ; The parser does not know the tables — they belong to the workbook — and
+    ; `#This Row` does not have an answer until you know which cell is asking.
+    ; And a structured reference is not translated when a formula is copied:
+    ; that is the entire point of it, since `[#This Row]` re-anchors itself on
+    ; whatever row it lands on. Keeping the text means a copy, a save and a
+    ; round trip all give back the same reference rather than a rewritten one.
+    ;
+    ; `tableItem` is the specifier, folded to lower case ("#this row",
+    ; "#headers", "#totals", "#data", "#all") or "" for none. `tableCol2` is
+    ; set only for a span, `Table1[[Amount]:[Price]]`.
+    def tableName:string ""
+    def tableItem:string ""
+    def tableCol1:string ""
+    def tableCol2:string ""
+    ; True where the reference was written with the `@` shorthand, so
+    ; serializing gives back what the file said rather than the other spelling.
+    def tableAtSign:boolean false
+
+    Constructor () {
+    }
+}
+
+; Where a structured reference lands, once a workbook has been consulted.
+; `err` is empty when it landed anywhere at all.
+class TableRange {
+    def err:string ""
+    def sheetIdx:int 0
+    def r0:int 0
+    def c0:int 0
+    def r1:int 0
+    def c1:int 0
 
     Constructor () {
     }
@@ -378,6 +414,231 @@ class FormulaParser {
         return n
     }
 
+    ; --- structured references ------------------------------------------------
+    ; `Table1[Amount]`, `Table1[[#This Row],[CategoryID]]`, `Table1[@Amount]`,
+    ; `Table1[[Amount]:[Price]]`, `Table1[#All]`.
+    ;
+    ; The grammar is small but the bracketing is fiddly: the OUTER brackets
+    ; wrap everything, and a reference naming more than one thing wraps each of
+    ; them in brackets of their own and separates them with a comma. So
+    ; `Table1[Amount]` and `Table1[[Amount]]` are the same reference written
+    ; two ways, and both have to read.
+    ;
+    ; Inside a name, `'` escapes a character that would otherwise be syntax —
+    ; a column genuinely called "#Amount" is written `['#Amount]`. Rare, and
+    ; cheap to honour.
+    fn parseStructured:FormulaNode (tableName:string) {
+        def n:FormulaNode (new FormulaNode)
+        n.kind = 9
+        n.tableName = tableName
+        def inner:string (this.readBracketed())
+        if (ok == false) {
+            def e:FormulaNode (new FormulaNode)
+            e.kind = 8
+            e.text = "#VALUE!"
+            return e
+        }
+        def parts:[string]
+        FormulaParser.splitTopLevel(inner parts)
+        def i:int 0
+        while (i < (array_length parts)) {
+            def raw:string (itemAt parts i)
+            def piece:string (FormulaParser.stripOuterBrackets(raw))
+            if ((strlen piece) > 0) {
+                if ((charAt piece 0) == 64) {
+                    ; `@Amount` — the 2010 spelling of "this row, that column".
+                    n.tableItem = "#this row"
+                    n.tableAtSign = true
+                    def rest:string (substring piece 1 (strlen piece))
+                    rest = (FormulaParser.stripOuterBrackets(rest))
+                    if ((strlen rest) > 0) {
+                        n.tableCol1 = (FormulaParser.unescapeColumn(rest))
+                    }
+                } {
+                    if ((charAt piece 0) == 35) {
+                        n.tableItem = (to_lowercase piece)
+                    } {
+                        ; A column, or a span of them: `[Amount]:[Price]`.
+                        def cut:int (FormulaParser.topLevelColon(raw))
+                        if (cut >= 0) {
+                            def a:string (FormulaParser.stripOuterBrackets((substring raw 0 cut)))
+                            def b:string (FormulaParser.stripOuterBrackets((substring raw (cut + 1) (strlen raw))))
+                            n.tableCol1 = (FormulaParser.unescapeColumn(a))
+                            n.tableCol2 = (FormulaParser.unescapeColumn(b))
+                        } {
+                            n.tableCol1 = (FormulaParser.unescapeColumn(piece))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; From a `[` to its matching `]`, returning what is between them. Nesting
+    ; is counted so the outer bracket of `[[#This Row],[Col]]` closes last.
+    fn readBracketed:string () {
+        if ((this.peek()) != 91) {
+            ok = false
+            err = "#VALUE!"
+            return ""
+        }
+        this.next()
+        def start:int pos
+        def depth:int 1
+        while (pos < len) {
+            def ch:int (charAt src pos)
+            if (ch == 39) {
+                ; An escape takes the next character with it, whatever it is.
+                pos = (pos + 2)
+                continue
+            }
+            if (ch == 91) {
+                depth = (depth + 1)
+            }
+            if (ch == 93) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    def inner:string (substring src start pos)
+                    pos = (pos + 1)
+                    return inner
+                }
+            }
+            pos = (pos + 1)
+        }
+        ok = false
+        err = "#VALUE!"
+        return ""
+    }
+
+    ; Split on commas that are not inside brackets.
+    sfn splitTopLevel:void (s:string out:[string]) {
+        def depth:int 0
+        def start:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 39) {
+                i = (i + 2)
+                continue
+            }
+            if (ch == 91) {
+                depth = (depth + 1)
+            }
+            if (ch == 93) {
+                depth = (depth - 1)
+            }
+            if ((ch == 44) && (depth == 0)) {
+                push out (substring s start i)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        push out (substring s start n)
+    }
+
+    ; The position of a `:` that is not inside brackets, or -1.
+    sfn topLevelColon:int (s:string) {
+        def depth:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 39) {
+                i = (i + 2)
+                continue
+            }
+            if (ch == 91) {
+                depth = (depth + 1)
+            }
+            if (ch == 93) {
+                depth = (depth - 1)
+            }
+            if ((ch == 58) && (depth == 0)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `[Amount]` → `Amount`; anything else is handed back untouched. Only one
+    ; layer comes off, and only when the brackets wrap the WHOLE piece — in
+    ; `[Amount]:[Price]` they do not.
+    sfn stripOuterBrackets:string (s:string) {
+        def a:int 0
+        def b:int (strlen s)
+        while (a < b) {
+            def ch:int (charAt s a)
+            if ((ch == 32) || (ch == 9)) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        while (b > a) {
+            def ch2:int (charAt s (b - 1))
+            if ((ch2 == 32) || (ch2 == 9)) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        if ((b - a) < 2) {
+            return (substring s a b)
+        }
+        if ((charAt s a) != 91) {
+            return (substring s a b)
+        }
+        ; Only if this `[` is closed by the LAST character.
+        def depth:int 0
+        def i:int a
+        while (i < b) {
+            def ch3:int (charAt s i)
+            if (ch3 == 39) {
+                i = (i + 2)
+                continue
+            }
+            if (ch3 == 91) {
+                depth = (depth + 1)
+            }
+            if (ch3 == 93) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    if (i == (b - 1)) {
+                        return (substring s (a + 1) (b - 1))
+                    }
+                    return (substring s a b)
+                }
+            }
+            i = (i + 1)
+        }
+        return (substring s a b)
+    }
+
+    ; `'` before a character means the character, not the syntax.
+    sfn unescapeColumn:string (s:string) {
+        if ((indexOf s "'") < 0) {
+            return s
+        }
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch == 39) && ((i + 1) < n)) {
+                str_append out (substring s (i + 1) (i + 2))
+                i = (i + 2)
+            } {
+                str_append out (substring s i (i + 1))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
     fn parseNameOrRef:FormulaNode () {
         ; Optional Sheet! prefix
         def sheet:string ""
@@ -408,6 +669,15 @@ class FormulaParser {
             }
             ident = (substring src start pos)
             this.skipWs()
+        }
+        ; A structured reference: `Table1[...]`. Checked before the function
+        ; call, because a `[` can only ever start one of these, and after the
+        ; sheet prefix, because `Sheet1!Table1[...]` is not a thing — a table
+        ; name is already workbook-wide.
+        if ((this.peek()) == 91) {
+            if ((strlen sheet) == 0) {
+                return (this.parseStructured(ident))
+            }
         }
         ; function call?
         if ((this.peek()) == 40) {
@@ -718,6 +988,13 @@ class FormulaParser {
     }
 
     ; Shift relative refs by (dx, dy). Absolute flags stay fixed.
+    ; Fill and copy: shift the references that are written as positions.
+    ;
+    ; A structured reference (kind 9) is deliberately NOT among them. It names
+    ; a table and a column, and `[#This Row]` re-anchors itself on whatever row
+    ; it lands on — shifting it would be shifting a name. That is the whole
+    ; reason people write them, and it falls out of this function touching only
+    ; kinds 3 and 4.
     sfn translateNode:void (n:FormulaNode dx:int dy:int) {
         if ((n.kind == 3) || (n.kind == 4)) {
             if (n.absRow == false) {
@@ -987,7 +1264,100 @@ class FormulaParser {
             }
             return (out + ")")
         }
+        if (n.kind == 9) {
+            return (FormulaParser.serializeTableRef(n))
+        }
         return ""
+    }
+
+    ; A structured reference, written back the way the file spelled it. Which
+    ; spelling that is matters more than it looks: `Table1[@Amount]` and
+    ; `Table1[[#This Row],[Amount]]` mean the same thing, Excel 2007 wrote the
+    ; second and Excel writes the first, and a round trip that swapped one for
+    ; the other would rewrite formulas in a file it was only asked to open.
+    sfn serializeTableRef:string (n:FormulaNode) {
+        def out:string n.tableName
+        str_append out "["
+        def hasItem:boolean ((strlen n.tableItem) > 0)
+        def hasCol:boolean ((strlen n.tableCol1) > 0)
+        def hasSpan:boolean ((strlen n.tableCol2) > 0)
+        if (n.tableAtSign && hasCol) {
+            str_append out "@"
+            str_append out (FormulaParser.escapeColumn(n.tableCol1))
+            str_append out "]"
+            return out
+        }
+        def needBrackets:boolean false
+        if (hasItem && hasCol) {
+            needBrackets = true
+        }
+        if hasSpan {
+            needBrackets = true
+        }
+        if hasItem {
+            if needBrackets {
+                str_append out "["
+                str_append out (FormulaParser.itemLabel(n.tableItem))
+                str_append out "]"
+            } {
+                str_append out (FormulaParser.itemLabel(n.tableItem))
+            }
+        }
+        if (hasItem && hasCol) {
+            str_append out ","
+        }
+        if hasCol {
+            if needBrackets {
+                str_append out "["
+                str_append out (FormulaParser.escapeColumn(n.tableCol1))
+                str_append out "]"
+            } {
+                str_append out (FormulaParser.escapeColumn(n.tableCol1))
+            }
+        }
+        if hasSpan {
+            str_append out ":["
+            str_append out (FormulaParser.escapeColumn(n.tableCol2))
+            str_append out "]"
+        }
+        str_append out "]"
+        return out
+    }
+
+    ; Specifiers are held folded so comparisons are simple, and written back in
+    ; the capitalisation Excel uses.
+    sfn itemLabel:string (item:string) {
+        if (item == "#this row") {
+            return "#This Row"
+        }
+        if (item == "#headers") {
+            return "#Headers"
+        }
+        if (item == "#totals") {
+            return "#Totals"
+        }
+        if (item == "#data") {
+            return "#Data"
+        }
+        if (item == "#all") {
+            return "#All"
+        }
+        return item
+    }
+
+    sfn escapeColumn:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch == 91) || (ch == 93) || (ch == 35) || (ch == 39) || (ch == 64)) {
+                str_append out "'"
+            }
+            str_append out (substring s i (i + 1))
+            i = (i + 1)
+        }
+        return out
     }
 
     ; Translate a formula string by (dx, dy); returns "" on parse failure.
@@ -1022,6 +1392,14 @@ class FormulaEngine {
     ; Instrumentation for workbook-scale recalc demos / benches.
     def dirtyMarked:int 0
     def recalculated:int 0
+    ; Which cell is being looked at. Only `[#This Row]` needs it — a structured
+    ; reference is the one kind of reference whose meaning depends on where it
+    ; is written — and threading two more arguments through every level of a
+    ; recursive evaluator to serve one node kind would be paid for by every
+    ; other kind. Set at the two entry points that know: `evalOne`, and
+    ; `registerFormula` before it collects dependencies.
+    def curRow:int 0
+    def curCol:int 0
 
     Constructor () {
     }
@@ -1097,6 +1475,11 @@ class FormulaEngine {
         this.pruneDeps(key)
         def ast:FormulaNode (parser.parse(expr))
         def depList:[string]
+        ; `[#This Row]` resolves against the cell holding the formula, and
+        ; dependencies are worked out here rather than at evaluation time, so
+        ; this is the other place that has to say which cell that is.
+        curRow = row
+        curCol = col
         this.collectDeps(ast sheetIdx depList)
         def joined:string ""
         def i:int 0
@@ -1179,6 +1562,27 @@ class FormulaEngine {
     }
 
     fn collectDeps:void (n:FormulaNode sheetIdx:int out:[string]) {
+        if (n.kind == 9) {
+            ; A structured reference depends on the cells it resolves to, and
+            ; nothing else can work out which those are. Without this the
+            ; formula computes correctly the first time and then never again:
+            ; editing an amount inside the table would leave every
+            ; `=SUM(Table1[Amount])` showing what it said before.
+            def tr:TableRange (this.resolveTableRef(n))
+            if ((strlen tr.err) > 0) {
+                return
+            }
+            def rr:int tr.r0
+            while (rr <= tr.r1) {
+                def cc:int tr.c0
+                while (cc <= tr.c1) {
+                    push out (this.cellKey(tr.sheetIdx rr cc))
+                    cc = (cc + 1)
+                }
+                rr = (rr + 1)
+            }
+            return
+        }
         if (n.kind == 3) {
             def si:int sheetIdx
             if ((strlen n.sheet) > 0) {
@@ -1528,6 +1932,8 @@ class FormulaEngine {
             set calcStatus key "unsupported"
             return
         }
+        curRow = row
+        curCol = col
         def v:FormulaValue (this.evalNode(ast si))
         recalculated = (recalculated + 1)
         def _eV:boolean (v.isError())
@@ -1611,6 +2017,117 @@ class FormulaEngine {
         }
     }
 
+    ; --- structured references --------------------------------------------------
+    ; Where `Table1[[#This Row],[CategoryID]]` actually points, given the
+    ; workbook and the cell doing the asking.
+    ;
+    ; The errors are Excel's, and each says something different:
+    ;   #NAME?  there is no table by that name
+    ;   #REF!   the table has no such column, or no header / totals row to ask
+    ;           about
+    ;   #VALUE! `[#This Row]` from a row the table does not cover — the
+    ;           reference is well formed, it just has nothing to point at here
+    fn resolveTableRef:TableRange (n:FormulaNode) {
+        def out:TableRange (new TableRange)
+        def si:int (book.tableIndexByName(n.tableName))
+        if (si < 0) {
+            out.err = "#NAME?"
+            return out
+        }
+        def t:SheetTable (book.tableByName(n.tableName))
+        out.sheetIdx = si
+
+        ; Columns first: a named column narrows the rectangle sideways, and a
+        ; span names both ends of it.
+        def c0:int t.c0
+        def c1:int t.c1
+        if ((strlen n.tableCol1) > 0) {
+            def i1:int (t.columnIndex(n.tableCol1))
+            if (i1 < 0) {
+                out.err = "#REF!"
+                return out
+            }
+            c0 = (t.c0 + i1)
+            c1 = c0
+            if ((strlen n.tableCol2) > 0) {
+                def i2:int (t.columnIndex(n.tableCol2))
+                if (i2 < 0) {
+                    out.err = "#REF!"
+                    return out
+                }
+                c1 = (t.c0 + i2)
+                if (c1 < c0) {
+                    def sw:int c0
+                    c0 = c1
+                    c1 = sw
+                }
+            }
+        }
+
+        ; Then rows, from the item specifier. No specifier means the data.
+        def r0:int (t.dataR0())
+        def r1:int (t.dataR1())
+        def item:string n.tableItem
+        if (item == "#all") {
+            r0 = t.r0
+            r1 = t.r1
+        }
+        if (item == "#headers") {
+            if ((t.hasHeader()) == false) {
+                out.err = "#REF!"
+                return out
+            }
+            r0 = t.r0
+            r1 = t.r0
+        }
+        if (item == "#totals") {
+            if ((t.hasTotals()) == false) {
+                out.err = "#REF!"
+                return out
+            }
+            r0 = t.r1
+            r1 = t.r1
+        }
+        if (item == "#this row") {
+            if ((t.containsRow(curRow)) == false) {
+                out.err = "#VALUE!"
+                return out
+            }
+            r0 = curRow
+            r1 = curRow
+        }
+        if (r1 < r0) {
+            ; A table with a header and no data rows: asking for the data is
+            ; asking for nothing, which is an empty reference rather than an
+            ; error, so it reads as blank.
+            r1 = r0
+        }
+        out.r0 = r0
+        out.c0 = c0
+        out.r1 = r1
+        out.c1 = c1
+        return out
+    }
+
+    ; The resolved rectangle as an ordinary cell or range node, so everything
+    ; downstream — reading, spilling, array arithmetic — treats a structured
+    ; reference exactly as it treats `$A$2:$A$5`, which it is.
+    fn tableRefAsNode:FormulaNode (tr:TableRange) {
+        def n:FormulaNode (new FormulaNode)
+        n.sheet = ""
+        n.row = tr.r0
+        n.col = tr.c0
+        n.row2 = tr.r1
+        n.col2 = tr.c1
+        n.kind = 4
+        if (tr.r0 == tr.r1) {
+            if (tr.c0 == tr.c1) {
+                n.kind = 3
+            }
+        }
+        return n
+    }
+
     fn evalNode:FormulaValue (n:FormulaNode sheetIdx:int) {
         if (n.kind == 8) {
             return (FormulaValue.fromError(n.text))
@@ -1655,6 +2172,17 @@ class FormulaEngine {
         }
         if (n.kind == 7) {
             return (this.evalCall(n sheetIdx))
+        }
+        if (n.kind == 9) {
+            def tr:TableRange (this.resolveTableRef(n))
+            if ((strlen tr.err) > 0) {
+                return (FormulaValue.fromError(tr.err))
+            }
+            def rn:FormulaNode (this.tableRefAsNode(tr))
+            if (rn.kind == 3) {
+                return (this.readCell("" tr.sheetIdx rn.row rn.col))
+            }
+            return (this.rangeArray(rn tr.sheetIdx))
         }
         return (FormulaValue.blank())
     }

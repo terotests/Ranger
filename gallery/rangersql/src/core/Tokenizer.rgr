@@ -1,0 +1,634 @@
+; ==============================================================================
+; SqlTokenizer - text in, tokens out, dialect-aware.
+; ==============================================================================
+;
+; There is one tokenizer, not one per dialect. What differs between engines -
+; which quote characters open an identifier, whether backslash escapes a string,
+; what a bind parameter looks like - is asked of the Dialect, so adding MySQL
+; is a few answers rather than a second copy of this file.
+;
+;     SELECT foo.bar, SUM(price) FROM orders WHERE price >= 10
+;
+;     word(SELECT,kw) word(foo) . word(bar) , word(SUM,kw) ( word(price) )
+;     word(FROM,kw) word(orders) word(WHERE,kw) word(price) >= number(10)
+;
+; Comments are skipped but counted: a corpus line that only fails because it
+; carries a comment is a different fact from one the grammar cannot parse.
+; ==============================================================================
+
+Import "Token.rgr"
+Import "../dialects/Dialect.rgr"
+
+class SqlTokenizer {
+    def dialect:SqlDialect (new SqlDialect)
+    def tokens:[SqlToken]
+    def keywords:[string:boolean]
+    def keywordsReady:boolean false
+    def error:string ""
+    def commentCount:int 0
+
+    Constructor () {
+    }
+
+    sfn forDialect:SqlTokenizer (dialect:SqlDialect) {
+        def t:SqlTokenizer (new SqlTokenizer)
+        t.dialect = dialect
+        return t
+    }
+
+    ; The words the parser reacts to. A word that is not here is an ordinary
+    ; identifier, which is why `SELECT count FROM t` works.
+    fn ensureKeywords:void () {
+        if keywordsReady {
+            return
+        }
+        keywordsReady = true
+        def list:[string]
+        push list "SELECT"
+        push list "FROM"
+        push list "WHERE"
+        push list "GROUP"
+        push list "HAVING"
+        push list "ORDER"
+        push list "BY"
+        push list "LIMIT"
+        push list "OFFSET"
+        push list "JOIN"
+        push list "INNER"
+        push list "LEFT"
+        push list "RIGHT"
+        push list "FULL"
+        push list "OUTER"
+        push list "CROSS"
+        push list "NATURAL"
+        push list "ON"
+        push list "USING"
+        push list "AS"
+        push list "AND"
+        push list "OR"
+        push list "NOT"
+        push list "IS"
+        push list "NULL"
+        push list "IN"
+        push list "LIKE"
+        push list "ILIKE"
+        push list "RLIKE"
+        push list "BETWEEN"
+        push list "CASE"
+        push list "WHEN"
+        push list "THEN"
+        push list "ELSE"
+        push list "END"
+        push list "CAST"
+        push list "DISTINCT"
+        push list "ALL"
+        push list "UNION"
+        push list "INTERSECT"
+        push list "EXCEPT"
+        push list "WITH"
+        push list "EXISTS"
+        push list "TRUE"
+        push list "FALSE"
+        push list "ASC"
+        push list "DESC"
+        push list "NULLS"
+        push list "FIRST"
+        push list "LAST"
+        push list "OVER"
+        push list "PARTITION"
+        push list "INTERVAL"
+        push list "AT"
+        push list "TIME"
+        push list "ZONE"
+        push list "FILTER"
+        push list "WITHIN"
+        push list "SET"
+        push list "VALUES"
+        push list "INTO"
+        push list "INSERT"
+        push list "UPDATE"
+        push list "DELETE"
+        push list "CREATE"
+        push list "DROP"
+        push list "ALTER"
+        push list "TABLE"
+        push list "VIEW"
+        push list "INDEX"
+        push list "RECURSIVE"
+        push list "RETURNING"
+        push list "OVERWRITE"
+        def n:int (array_length list)
+        def i:int 0
+        while (i < n) {
+            set keywords (itemAt list i) true
+            i = (i + 1)
+        }
+    }
+
+    fn isKeyword:boolean (upper:string) {
+        this.ensureKeywords()
+        return (has keywords upper)
+    }
+
+    sfn isDigit:boolean (c:int) {
+        if (c < 48) {
+            return false
+        }
+        return (c <= 57)
+    }
+
+    sfn isAlpha:boolean (c:int) {
+        if (c == 95) {
+            return true
+        }
+        if (c >= 65) {
+            if (c <= 90) {
+                return true
+            }
+        }
+        if (c >= 97) {
+            if (c <= 122) {
+                return true
+            }
+        }
+        ; Anything above ASCII is a name character: a column may be called
+        ; hyvä, and refusing that is a bug rather than a simplification.
+        return (c > 127)
+    }
+
+    sfn isWordChar:boolean (c:int) {
+        if (SqlTokenizer.isDigit(c)) {
+            return true
+        }
+        return (SqlTokenizer.isAlpha(c))
+    }
+
+    fn push2:void (kind:int text:string quote:int start:int line:int) {
+        def t:SqlToken (new SqlToken)
+        t.kind = kind
+        t.text = text
+        t.upper = (to_uppercase text)
+        t.quote = quote
+        t.start = start
+        t.line = line
+        if (kind == 1) {
+            t.keyword = (this.isKeyword(t.upper))
+        }
+        push tokens t
+    }
+
+    fn tokenize:[SqlToken] (sql:string) {
+        clear tokens
+        error = ""
+        commentCount = 0
+        def n:int (strlen sql)
+        def i:int 0
+        def line:int 1
+        while (i < n) {
+            def c:int (charAt sql i)
+            if (c == 10) {
+                line = (line + 1)
+                i = (i + 1)
+            } {
+                if (c <= 32) {
+                    i = (i + 1)
+                } {
+                    def consumed:int (this.scanOne(sql i n line))
+                    if (consumed <= 0) {
+                        if ((strlen error) == 0) {
+                            error = ("unexpected character at " + (to_string i))
+                        }
+                        i = n
+                    } {
+                        i = (i + consumed)
+                    }
+                }
+            }
+        }
+        this.push2(0 "" 0 n line)
+        return tokens
+    }
+
+    ; How many characters one token (or comment) takes, or 0 on a character
+    ; nothing here understands.
+    fn scanOne:int (sql:string start:int n:int line:int) {
+        def c:int (charAt sql start)
+        ; -- line comment
+        if (c == 45) {
+            if ((start + 1) < n) {
+                if ((charAt sql (start + 1)) == 45) {
+                    def j:int (start + 2)
+                    while (j < n) {
+                        if ((charAt sql j) == 10) {
+                            break
+                        }
+                        j = (j + 1)
+                    }
+                    commentCount = (commentCount + 1)
+                    this.push2(7 (substring sql start j) 0 start line)
+                    return (j - start)
+                }
+            }
+        }
+        ; /* block comment */
+        if (c == 47) {
+            if ((start + 1) < n) {
+                if ((charAt sql (start + 1)) == 42) {
+                    def j2:int (start + 2)
+                    while (j2 < n) {
+                        if ((charAt sql j2) == 42) {
+                            if ((j2 + 1) < n) {
+                                if ((charAt sql (j2 + 1)) == 47) {
+                                    j2 = (j2 + 2)
+                                    break
+                                }
+                            }
+                        }
+                        j2 = (j2 + 1)
+                    }
+                    commentCount = (commentCount + 1)
+                    this.push2(7 (substring sql start j2) 0 start line)
+                    return (j2 - start)
+                }
+            }
+        }
+        ; 'string literal'
+        if (c == 39) {
+            return (this.scanString(sql start n line))
+        }
+        ; quoted identifiers, per dialect
+        if (this.dialect.opensQuotedName(c)) {
+            return (this.scanQuotedName(sql start n line))
+        }
+        ; numbers, including .5
+        if (SqlTokenizer.isDigit(c)) {
+            return (this.scanNumber(sql start n line))
+        }
+        if (c == 46) {
+            if ((start + 1) < n) {
+                if (SqlTokenizer.isDigit((charAt sql (start + 1)))) {
+                    return (this.scanNumber(sql start n line))
+                }
+            }
+        }
+        ; words
+        if (SqlTokenizer.isAlpha(c)) {
+            def j3:int start
+            while (j3 < n) {
+                if ((SqlTokenizer.isWordChar((charAt sql j3))) == false) {
+                    break
+                }
+                j3 = (j3 + 1)
+            }
+            def word:string (substring sql start j3)
+            ; A string prefixed by a letter is still a string: x'ff', E'\n',
+            ; N'text'. The prefix is kept so the generator writes it back.
+            if (j3 < n) {
+                if ((charAt sql j3) == 39) {
+                    if ((strlen word) <= 2) {
+                        def consumed:int (this.scanString(sql j3 n line))
+                        if (consumed > 0) {
+                            def lastTok:SqlToken (itemAt tokens ((array_length tokens) - 1))
+                            lastTok.prefix = word
+                            return ((j3 - start) + consumed)
+                        }
+                    }
+                }
+            }
+            this.push2(1 word 0 start line)
+            return (j3 - start)
+        }
+        ; bind parameters
+        if (c == 63) {
+            this.push2(6 "?" 0 start line)
+            return 1
+        }
+        if (c == 36) {
+            def j4:int (start + 1)
+            while (j4 < n) {
+                if ((SqlTokenizer.isWordChar((charAt sql j4))) == false) {
+                    break
+                }
+                j4 = (j4 + 1)
+            }
+            this.push2(6 (substring sql start j4) 0 start line)
+            return (j4 - start)
+        }
+        if (c == 64) {
+            def j5:int (start + 1)
+            while (j5 < n) {
+                if ((SqlTokenizer.isWordChar((charAt sql j5))) == false) {
+                    break
+                }
+                j5 = (j5 + 1)
+            }
+            if (j5 > (start + 1)) {
+                this.push2(6 (substring sql start j5) 0 start line)
+                return (j5 - start)
+            }
+        }
+        ; operators, longest first
+        def three:string ""
+        if ((start + 3) <= n) {
+            three = (substring sql start (start + 3))
+        }
+        if (three == "->>") {
+            this.push2(5 three 0 start line)
+            return 3
+        }
+        def two:string ""
+        if ((start + 2) <= n) {
+            two = (substring sql start (start + 2))
+        }
+        if ((strlen two) == 2) {
+            if (SqlTokenizer.isTwoCharOperator(two)) {
+                this.push2(5 two 0 start line)
+                return 2
+            }
+        }
+        if (SqlTokenizer.isSingleCharOperator(c)) {
+            this.push2(5 (strfromcode c) 0 start line)
+            return 1
+        }
+        return 0
+    }
+
+    sfn isTwoCharOperator:boolean (two:string) {
+        if (two == "<=") {
+            return true
+        }
+        if (two == ">=") {
+            return true
+        }
+        if (two == "<>") {
+            return true
+        }
+        if (two == "!=") {
+            return true
+        }
+        if (two == "||") {
+            return true
+        }
+        if (two == "::") {
+            return true
+        }
+        if (two == "->") {
+            return true
+        }
+        if (two == ":=") {
+            return true
+        }
+        if (two == "<<") {
+            return true
+        }
+        if (two == ">>") {
+            return true
+        }
+        return false
+    }
+
+    sfn isSingleCharOperator:boolean (c:int) {
+        if (c == 40) {
+            return true
+        }
+        if (c == 41) {
+            return true
+        }
+        if (c == 44) {
+            return true
+        }
+        if (c == 46) {
+            return true
+        }
+        if (c == 59) {
+            return true
+        }
+        if (c == 43) {
+            return true
+        }
+        if (c == 45) {
+            return true
+        }
+        if (c == 42) {
+            return true
+        }
+        if (c == 47) {
+            return true
+        }
+        if (c == 37) {
+            return true
+        }
+        if (c == 61) {
+            return true
+        }
+        if (c == 60) {
+            return true
+        }
+        if (c == 62) {
+            return true
+        }
+        if (c == 126) {
+            return true
+        }
+        if (c == 38) {
+            return true
+        }
+        if (c == 124) {
+            return true
+        }
+        if (c == 94) {
+            return true
+        }
+        if (c == 58) {
+            return true
+        }
+        if (c == 91) {
+            return true
+        }
+        if (c == 93) {
+            return true
+        }
+        if (c == 123) {
+            return true
+        }
+        if (c == 125) {
+            return true
+        }
+        return false
+    }
+
+    ; 'it''s' - the doubled quote is the escape, and the token carries the
+    ; value rather than the source, so the generator re-escapes for its own
+    ; dialect instead of copying somebody else's quoting.
+    fn scanString:int (sql:string start:int n:int line:int) {
+        def value:string ""
+        def i:int (start + 1)
+        def closed:boolean false
+        while (i < n) {
+            def c:int (charAt sql i)
+            if (c == 39) {
+                if ((i + 1) < n) {
+                    if ((charAt sql (i + 1)) == 39) {
+                        value = (value + "'")
+                        i = (i + 2)
+                    } {
+                        closed = true
+                        i = (i + 1)
+                        break
+                    }
+                } {
+                    closed = true
+                    i = (i + 1)
+                    break
+                }
+            } {
+                if (c == 92) {
+                    if (this.dialect.backslashEscapes()) {
+                        if ((i + 1) < n) {
+                            value = (value + (strfromcode 92) + (strfromcode (charAt sql (i + 1))))
+                            i = (i + 2)
+                        } {
+                            value = (value + (strfromcode c))
+                            i = (i + 1)
+                        }
+                    } {
+                        value = (value + (strfromcode c))
+                        i = (i + 1)
+                    }
+                } {
+                    value = (value + (strfromcode c))
+                    i = (i + 1)
+                }
+            }
+        }
+        if (closed == false) {
+            error = ("unterminated string at " + (to_string start))
+            return 0
+        }
+        this.push2(3 value 39 start line)
+        return (i - start)
+    }
+
+    fn scanQuotedName:int (sql:string start:int n:int line:int) {
+        def open:int (charAt sql start)
+        def close:int (this.dialect.closingQuote(open))
+        def value:string ""
+        def i:int (start + 1)
+        def closed:boolean false
+        while (i < n) {
+            def c:int (charAt sql i)
+            if (c == close) {
+                if (close == open) {
+                    if ((i + 1) < n) {
+                        if ((charAt sql (i + 1)) == close) {
+                            value = (value + (strfromcode close))
+                            i = (i + 2)
+                        } {
+                            closed = true
+                            i = (i + 1)
+                            break
+                        }
+                    } {
+                        closed = true
+                        i = (i + 1)
+                        break
+                    }
+                } {
+                    closed = true
+                    i = (i + 1)
+                    break
+                }
+            } {
+                value = (value + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        if (closed == false) {
+            error = ("unterminated quoted name at " + (to_string start))
+            return 0
+        }
+        this.push2(2 value open start line)
+        return (i - start)
+    }
+
+    ; 1  1.  1.0  .5  1E2  1E+2  1.12e-10  0x1f
+    fn scanNumber:int (sql:string start:int n:int line:int) {
+        def i:int start
+        if ((charAt sql i) == 48) {
+            if ((i + 1) < n) {
+                def x:int (charAt sql (i + 1))
+                if (x == 120) {
+                    i = (i + 2)
+                    while (i < n) {
+                        def h:int (charAt sql i)
+                        def isHex:boolean (SqlTokenizer.isDigit(h))
+                        if (h >= 97) {
+                            if (h <= 102) {
+                                isHex = true
+                            }
+                        }
+                        if (h >= 65) {
+                            if (h <= 70) {
+                                isHex = true
+                            }
+                        }
+                        if (isHex == false) {
+                            break
+                        }
+                        i = (i + 1)
+                    }
+                    this.push2(4 (substring sql start i) 0 start line)
+                    return (i - start)
+                }
+            }
+        }
+        while (i < n) {
+            if ((SqlTokenizer.isDigit((charAt sql i))) == false) {
+                break
+            }
+            i = (i + 1)
+        }
+        if (i < n) {
+            if ((charAt sql i) == 46) {
+                i = (i + 1)
+                while (i < n) {
+                    if ((SqlTokenizer.isDigit((charAt sql i))) == false) {
+                        break
+                    }
+                    i = (i + 1)
+                }
+            }
+        }
+        if (i < n) {
+            def e:int (charAt sql i)
+            if (e == 101) {
+                e = 69
+            }
+            if (e == 69) {
+                def j:int (i + 1)
+                if (j < n) {
+                    def sign:int (charAt sql j)
+                    if (sign == 43) {
+                        j = (j + 1)
+                    }
+                    if (sign == 45) {
+                        j = (j + 1)
+                    }
+                }
+                def digits:int 0
+                while (j < n) {
+                    if ((SqlTokenizer.isDigit((charAt sql j))) == false) {
+                        break
+                    }
+                    digits = (digits + 1)
+                    j = (j + 1)
+                }
+                if (digits > 0) {
+                    i = j
+                }
+            }
+        }
+        this.push2(4 (substring sql start i) 0 start line)
+        return (i - start)
+    }
+}

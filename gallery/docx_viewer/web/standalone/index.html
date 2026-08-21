@@ -54,12 +54,16 @@
         <span>status: <strong id="status">starting…</strong></span>
         <span>backend: <strong id="backend">—</strong></span>
         <span>cmds: <strong id="cmds">—</strong></span>
+        <!-- Which build this is: the hash build.sh put on every file the
+             page loads. A page that looks unfixed is usually a page the
+             browser kept from last time. -->
+        <span>build: <strong id="build">__BUILD__</strong></span>
         <label>open a .docx <input id="file" type="file" accept=".docx" /></label>
       </div>
     </div>
     <!-- The compiled engine. A missing file here is silent — the tag 404s and
          the module below runs anyway — so it says so out loud. -->
-    <script src="./docx_web.js" onerror="window.__engineMissing = 'docx_web.js'"></script>
+    <script src="./docx_web.js?v=__BUILD__" onerror="window.__engineMissing = 'docx_web.js'"></script>
     <!-- And if the MODULE never runs at all — its first line imports
          ./gl/evg-webgl.js, which is not in the source directory either — the
          page just sits there with nothing in the console but a 404. This
@@ -83,6 +87,6 @@
         }, 1200);
       });
     </script>
-    <script type="module" src="./standalone.mjs"></script>
+    <script type="module" src="./standalone.mjs?v=__BUILD__"></script>
   </body>
 </html>

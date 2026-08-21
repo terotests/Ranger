@@ -1,0 +1,183 @@
+; ==============================================================================
+; GridScript.rgr — a script that travels inside the workbook
+; ==============================================================================
+;
+; An .xlsx is a ZIP package, and OPC lets a package carry parts nobody but its
+; author understands. So a script does not live beside the workbook in some
+; sidecar file that goes missing when the workbook is mailed on: it lives in
+; the package, under `ranger/`, and the loader and the writer both know about
+; it. Excel opens such a file as an ordinary spreadsheet and ignores the part
+; (it will drop it if IT saves the file — see docs/SCRIPTING.md); this editor
+; reads it, runs it and writes it back.
+;
+;   report.xlsx
+;     [Content_Types].xml     <- Default Extension="tsx" declared here
+;     xl/…                    the spreadsheet, exactly as before
+;     ranger/summary.tsx      the script
+;
+; This file is only the record and the naming rules; running one is
+; GridScriptEngine, and reading the workbook from inside one is GridScriptData.
+; ==============================================================================
+
+class GridScript {
+    ; What the UI calls it, and what the part is named after: "summary".
+    def name:string ""
+    ; The script itself — TSX evaluated by ComponentEngine.
+    def source:string ""
+    ; The package part it came from / goes back to: "ranger/summary.tsx".
+    def part:string ""
+
+    Constructor () {
+    }
+
+    sfn create:GridScript (name:string source:string) {
+        def s:GridScript (new GridScript)
+        s.name = name
+        s.source = source
+        s.part = (GridScript.partFor(name))
+        return s
+    }
+
+    sfn partFor:string (name:string) {
+        return ("ranger/" + name + ".tsx")
+    }
+
+    sfn hasPrefix:boolean (s:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen s) < n) {
+            return false
+        }
+        def head:string (substring s 0 n)
+        return (head == prefix)
+    }
+
+    sfn hasSuffix:boolean (s:string suffix:string) {
+        def n:int (strlen suffix)
+        def len:int (strlen s)
+        if (len < n) {
+            return false
+        }
+        def tail:string (substring s (len - n) len)
+        return (tail == suffix)
+    }
+
+    ; Which package entries are scripts. Two extensions, because a report is
+    ; TSX and a plain transform is not obliged to be.
+    sfn isScriptPart:boolean (path:string) {
+        if ((GridScript.hasPrefix(path "ranger/")) == false) {
+            return false
+        }
+        if (GridScript.hasSuffix(path ".tsx")) {
+            return true
+        }
+        return (GridScript.hasSuffix(path ".js"))
+    }
+
+    ; "ranger/summary.tsx" -> "summary"
+    sfn nameOfPart:string (path:string) {
+        def start:int 0
+        def i:int 0
+        def n:int (strlen path)
+        while (i < n) {
+            def ch:int (charAt path i)
+            if (ch == 47) {
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        def end:int n
+        def j:int start
+        while (j < n) {
+            def ch2:int (charAt path j)
+            if (ch2 == 46) {
+                end = j
+            }
+            j = (j + 1)
+        }
+        if (end < start) {
+            end = n
+        }
+        return (substring path start end)
+    }
+
+    ; The extension the part name should keep, so a `.js` script written back
+    ; does not silently become `.tsx`.
+    sfn extensionOfPart:string (path:string) {
+        if (GridScript.hasSuffix(path ".js")) {
+            return ".js"
+        }
+        return ".tsx"
+    }
+
+    ; What "New report script" puts in the workbook: a report over the sheet
+    ; the user is looking at, written the way the docs say to write one — the
+    ; data comes from the workbook, the columns size themselves, and the whole
+    ; thing is short enough to read before editing.
+    ; What "New report script" puts in the workbook: a report over the sheet
+    ; the user is looking at, paginated, written the way the docs say to
+    ; write one — the data comes from the workbook, the columns size
+    ; themselves, and it is short enough to read before editing it.
+    sfn starter:string (sheetName:string) {
+        def out:string ""
+        str_append out "// A report over the '"
+        str_append out sheetName
+        str_append out "' sheet.\n"
+        str_append out "// Run it with the Report button; Ctrl+P writes the PDF.\n"
+        str_append out "// Everything it prints is read from the workbook: sheetText() gives the\n"
+        str_append out "// cells as the grid displays them, number formats and all.\n"
+        str_append out "const SHEET = '"
+        str_append out sheetName
+        str_append out "';\n"
+        str_append out "const ROWS_PER_PAGE = 30;\n"
+        str_append out "const INK = '#1f2933';\n"
+        str_append out "const MUTED = '#7b8794';\n"
+        str_append out "\n"
+        str_append out "function line(values, weight, background) {\n"
+        str_append out "  const cells = [];\n"
+        str_append out "  // A hair under an even split: 100% exactly, plus the row's own padding,\n"
+        str_append out "  // is wider than the row, and the last column wraps onto a second line.\n"
+        str_append out "  const w = (96 / values.length) + '%';\n"
+        str_append out "  for (let c = 0; c < values.length; c++) {\n"
+        str_append out "    cells.push(<Label width={w} fontSize='10px' fontWeight={weight} color={INK}>{values[c]}</Label>);\n"
+        str_append out "  }\n"
+        str_append out "  return (<View flexDirection='row' padding='4px' backgroundColor={background}>{cells}</View>);\n"
+        str_append out "}\n"
+        str_append out "\n"
+        str_append out "function page(rows, first, pageNo, pageCount) {\n"
+        str_append out "  const body = [];\n"
+        str_append out "  for (let k = 0; k < ROWS_PER_PAGE; k++) {\n"
+        str_append out "    const i = first + k;\n"
+        str_append out "    if (i < rows.length) {\n"
+        str_append out "      let bg = '#ffffff';\n"
+        str_append out "      if (k % 2 == 1) { bg = '#f4f7fa'; }\n"
+        str_append out "      body.push(line(rows[i], 'normal', bg));\n"
+        str_append out "    }\n"
+        str_append out "  }\n"
+        str_append out "  return (\n"
+        str_append out "    <Page>\n"
+        str_append out "      <View flexDirection='column'>\n"
+        str_append out "        <Label fontSize='22px' fontWeight='bold' color={INK}>{SHEET}</Label>\n"
+        str_append out "        <Label fontSize='10px' color={MUTED} marginBottom='12px'>{rows.length - 1} rows from the workbook</Label>\n"
+        str_append out "        {line(rows[0], 'bold', '#e8edf3')}\n"
+        str_append out "        {body}\n"
+        str_append out "        <Label fontSize='9px' color={MUTED} marginTop='10px'>page {pageNo} of {pageCount}</Label>\n"
+        str_append out "      </View>\n"
+        str_append out "    </Page>\n"
+        str_append out "  );\n"
+        str_append out "}\n"
+        str_append out "\n"
+        str_append out "function render() {\n"
+        str_append out "  const rows = sheetText(SHEET);\n"
+        str_append out "  const dataRows = rows.length - 1;\n"
+        str_append out "  let pageCount = 0;\n"
+        str_append out "  for (let i = 0; i < dataRows; i += ROWS_PER_PAGE) { pageCount = pageCount + 1; }\n"
+        str_append out "  if (pageCount < 1) { pageCount = 1; }\n"
+        str_append out "  const pages = [];\n"
+        str_append out "  for (let p = 0; p < pageCount; p++) {\n"
+        str_append out "    pages.push(page(rows, 1 + (p * ROWS_PER_PAGE), p + 1, pageCount));\n"
+        str_append out "  }\n"
+        str_append out "  return (<Print><Section>{pages}</Section></Print>);\n"
+        str_append out "}\n"
+        return out
+    }
+}

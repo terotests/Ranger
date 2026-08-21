@@ -1,0 +1,801 @@
+; ==============================================================================
+; RangerDB - a small columnar engine written in Ranger.
+; ==============================================================================
+;
+; Not a DuckDB clone. DuckDB is a parser, a binder, a logical and a physical
+; planner, an optimizer, vectorized execution, storage, transactions, spilling
+; and indexes; cloning it is a project measured in years. What is worth having
+; in Ranger is the SHAPE of it, at the scale a spreadsheet needs:
+;
+;     Table
+;       RowGroup 0    id[]  name[]  revenue[]
+;       RowGroup 1    id[]  name[]  revenue[]
+;       ...
+;
+; Storage is columnar and chunked, so
+;
+;     SELECT SUM(revenue) WHERE country = 'FI'
+;
+; reads the country vector and the revenue vector and never touches the other
+; eight columns - and it reads them a row group at a time, so a scan of ten
+; million rows does not build ten million row objects.
+;
+; What this deliberately does NOT have yet, in the order it will matter:
+; indexes (every lookup is a scan), joins, a SQL parser (QuerySpec is the
+; interface), a page cache or a WAL (persistence is a whole-table text
+; snapshot, see DbWire.rgr). Each is a milestone in README.md rather than a
+; hidden gap.
+; ==============================================================================
+
+Import "DataChunk.rgr"
+Import "DBQuery.rgr"
+Import "DBOps.rgr"
+Import "DBBackend.rgr"
+Import "DbWire.rgr"
+Import "SqlFront.rgr"
+
+class RdbTable {
+    def name:string ""
+    def columns:[DBColumn]
+    ; One DataChunk per row group. This is the storage, not a copy of it.
+    def groups:[DataChunk]
+    ; Tombstones, flat over (group * groupSize + offset). A delete does not
+    ; move any other row: nothing here holds a row's address but this index.
+    def alive:[boolean]
+    def deadInGroup:[int]
+    def groupSize:int 1024
+    def totalRows:int 0
+    def liveRows:int 0
+
+    Constructor () {
+    }
+
+    sfn create:RdbTable (name:string columns:[DBColumn]) {
+        def t:RdbTable (new RdbTable)
+        t.name = name
+        def n:int (array_length columns)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt columns i)
+            push t.columns (c.copy())
+            i = (i + 1)
+        }
+        return t
+    }
+
+    fn columnIndex:int (name:string) {
+        def n:int (array_length columns)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt columns i)
+            if (c.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn columnCount:int () {
+        return (array_length columns)
+    }
+
+    fn groupCount:int () {
+        return (array_length groups)
+    }
+
+    ; An empty chunk shaped like this table (or like a subset of it).
+    fn shapeFor:DataChunk (wanted:[int]) {
+        def out:DataChunk (new DataChunk)
+        def n:int (array_length wanted)
+        if (n == 0) {
+            def m:int (array_length columns)
+            def j:int 0
+            while (j < m) {
+                def c0:DBColumn (itemAt columns j)
+                out.addColumn((c0.copy()))
+                j = (j + 1)
+            }
+            return out
+        }
+        def i:int 0
+        while (i < n) {
+            def ci:int (itemAt wanted i)
+            def c:DBColumn (itemAt columns ci)
+            out.addColumn((c.copy()))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn newGroup:DataChunk () {
+        def g:DataChunk (new DataChunk)
+        def n:int (array_length columns)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt columns i)
+            g.addColumn((c.copy()))
+            i = (i + 1)
+        }
+        push groups g
+        push deadInGroup 0
+        return g
+    }
+
+    fn appendRow:int (values:[DBValue]) {
+        def gi:int ((array_length groups) - 1)
+        def needNew:boolean false
+        if (gi < 0) {
+            needNew = true
+        } {
+            def last:DataChunk (itemAt groups gi)
+            if (last.rowCount >= groupSize) {
+                needNew = true
+            }
+        }
+        if needNew {
+            this.newGroup()
+            gi = ((array_length groups) - 1)
+        }
+        def g:DataChunk (itemAt groups gi)
+        g.appendRow(values)
+        push alive true
+        def rowId:int totalRows
+        totalRows = (totalRows + 1)
+        liveRows = (liveRows + 1)
+        return rowId
+    }
+
+    fn isAlive:boolean (rowId:int) {
+        if (rowId < 0) {
+            return false
+        }
+        if (rowId >= (array_length alive)) {
+            return false
+        }
+        return (itemAt alive rowId)
+    }
+
+    fn groupOf:int (rowId:int) {
+        return (idiv rowId groupSize)
+    }
+
+    fn offsetOf:int (rowId:int) {
+        def gi:int (idiv rowId groupSize)
+        return (rowId - (gi * groupSize))
+    }
+
+    fn valueAt:DBValue (rowId:int col:int) {
+        def gi:int (this.groupOf(rowId))
+        if (gi >= (array_length groups)) {
+            return (new DBValue)
+        }
+        def g:DataChunk (itemAt groups gi)
+        return (g.valueAt((this.offsetOf(rowId)) col))
+    }
+
+    fn setValueAt:void (rowId:int col:int v:DBValue) {
+        def gi:int (this.groupOf(rowId))
+        if (gi >= (array_length groups)) {
+            return
+        }
+        def g:DataChunk (itemAt groups gi)
+        def vec:ValueVector (g.vectorAt(col))
+        vec.setValueAt((this.offsetOf(rowId)) v)
+    }
+
+    fn deleteRow:void (rowId:int) {
+        if ((this.isAlive(rowId)) == false) {
+            return
+        }
+        set_at alive rowId false
+        liveRows = (liveRows - 1)
+        def gi:int (this.groupOf(rowId))
+        if (gi < (array_length deadInGroup)) {
+            set_at deadInGroup gi ((itemAt deadInGroup gi) + 1)
+        }
+    }
+
+    ; One row group, as a chunk of only the columns asked for.
+    ;
+    ; With no deleted rows this SHARES the stored vectors - the scan costs a
+    ; few pushes whatever the row count is. With tombstones present the group
+    ; is compacted into a fresh chunk, which is the price of a delete and is
+    ; paid by the group that took it, not by the table.
+    fn scanGroup:DataChunk (groupIndex:int wanted:[int]) {
+        def out:DataChunk (new DataChunk)
+        if (groupIndex < 0) {
+            return out
+        }
+        if (groupIndex >= (array_length groups)) {
+            return out
+        }
+        def g:DataChunk (itemAt groups groupIndex)
+        def picks:[int]
+        def nw:int (array_length wanted)
+        if (nw == 0) {
+            def m:int (array_length columns)
+            def j:int 0
+            while (j < m) {
+                push picks j
+                j = (j + 1)
+            }
+        } {
+            def k:int 0
+            while (k < nw) {
+                push picks (itemAt wanted k)
+                k = (k + 1)
+            }
+        }
+        def dead:int 0
+        if (groupIndex < (array_length deadInGroup)) {
+            dead = (itemAt deadInGroup groupIndex)
+        }
+        def np:int (array_length picks)
+        if (dead == 0) {
+            def i:int 0
+            while (i < np) {
+                def ci:int (itemAt picks i)
+                def col:DBColumn (g.columnAt(ci))
+                out.shareColumn(col (g.vectorAt(ci)))
+                i = (i + 1)
+            }
+            out.rowCount = g.rowCount
+            return out
+        }
+        def i2:int 0
+        while (i2 < np) {
+            def ci2:int (itemAt picks i2)
+            def col2:DBColumn (g.columnAt(ci2))
+            out.addColumn((col2.copy()))
+            i2 = (i2 + 1)
+        }
+        def base:int (groupIndex * groupSize)
+        def r:int 0
+        while (r < g.rowCount) {
+            if (this.isAlive((base + r))) {
+                def c:int 0
+                while (c < np) {
+                    def src:ValueVector (g.vectorAt((itemAt picks c)))
+                    def dst:ValueVector (out.vectorAt(c))
+                    dst.appendFrom(src r)
+                    c = (c + 1)
+                }
+                out.rowCount = (out.rowCount + 1)
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; Every live row of the table as one chunk - what persistence and small
+    ; tables want, and what a big query never asks for.
+    fn wholeTable:DataChunk () {
+        def wanted:[int]
+        def out:DataChunk (this.shapeFor(wanted))
+        def gn:int (array_length groups)
+        def gi:int 0
+        while (gi < gn) {
+            def chunk:DataChunk (this.scanGroup(gi wanted))
+            def r:int 0
+            while (r < chunk.rowCount) {
+                out.appendRowFrom(chunk r)
+                r = (r + 1)
+            }
+            gi = (gi + 1)
+        }
+        return out
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The engine: tables, and one execution pipeline over them.
+; ------------------------------------------------------------------------------
+class RangerDbEngine {
+    def tables:[RdbTable]
+    def tableIndex:[string:int]
+    def scannedRows:int 0
+    def scannedColumns:int 0
+
+    Constructor () {
+    }
+
+    fn createTable:RdbTable (name:string columns:[DBColumn]) {
+        def existing:int (this.indexOfTable(name))
+        if (existing >= 0) {
+            def old:RdbTable (itemAt tables existing)
+            return old
+        }
+        def t:RdbTable (RdbTable.create(name columns))
+        set tableIndex name (array_length tables)
+        push tables t
+        return t
+    }
+
+    fn dropTable:boolean (name:string) {
+        def idx:int (this.indexOfTable(name))
+        if (idx < 0) {
+            return false
+        }
+        remove_index tables idx
+        ; The map holds positions, so the ones after the hole moved - and the
+        ; dropped name has to leave it. Rebuilding is the portable way: not
+        ; every Ranger target has a "remove this key" operator.
+        def rebuilt:[string:int]
+        tableIndex = rebuilt
+        def n:int (array_length tables)
+        def i:int 0
+        while (i < n) {
+            def t:RdbTable (itemAt tables i)
+            set tableIndex t.name i
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn indexOfTable:int (name:string) {
+        def found@(optional):int (get tableIndex name)
+        if (null? found) {
+            return -1
+        }
+        return (unwrap found)
+    }
+
+    fn hasTable:boolean (name:string) {
+        return ((this.indexOfTable(name)) >= 0)
+    }
+
+    fn tableNamed:RdbTable (name:string) {
+        def idx:int (this.indexOfTable(name))
+        if (idx < 0) {
+            def empty:[DBColumn]
+            return (RdbTable.create(name empty))
+        }
+        return (itemAt tables idx)
+    }
+
+    fn tableNames:[string] () {
+        def out:[string]
+        def n:int (array_length tables)
+        def i:int 0
+        while (i < n) {
+            def t:RdbTable (itemAt tables i)
+            push out t.name
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Insert by column name, so a caller does not have to know the table's
+    ; declaration order and a missing column is null rather than a shift.
+    fn insertNamed:int (table:string names:[string] values:[DBValue]) {
+        if ((this.hasTable(table)) == false) {
+            return -1
+        }
+        def t:RdbTable (this.tableNamed(table))
+        def row:[DBValue]
+        def nc:int (array_length t.columns)
+        def i:int 0
+        while (i < nc) {
+            def col:DBColumn (itemAt t.columns i)
+            def v:DBValue (DBValue.nullOf(col.kind))
+            def j:int 0
+            def nn:int (array_length names)
+            while (j < nn) {
+                if ((itemAt names j) == col.name) {
+                    if (j < (array_length values)) {
+                        v = (itemAt values j)
+                    }
+                }
+                j = (j + 1)
+            }
+            push row v
+            i = (i + 1)
+        }
+        return (t.appendRow(row))
+    }
+
+    fn insertRow:int (table:string values:[DBValue]) {
+        if ((this.hasTable(table)) == false) {
+            return -1
+        }
+        def t:RdbTable (this.tableNamed(table))
+        return (t.appendRow(values))
+    }
+
+    ; Which columns a spec actually reads. Everything else stays on disk /
+    ; in the other vectors and is never touched - the whole reason to store
+    ; columns separately.
+    fn neededColumns:[int] (t:RdbTable spec:QuerySpec) {
+        def wanted:[int]
+        def nc:int (array_length t.columns)
+        if ((array_length spec.columns) == 0) {
+            if ((spec.hasAggregates()) == false) {
+                ; Everything, in declaration order.
+                return wanted
+            }
+        }
+        def mask:[boolean]
+        def m:int 0
+        while (m < nc) {
+            push mask false
+            m = (m + 1)
+        }
+        def i:int 0
+        def n:int (array_length spec.columns)
+        while (i < n) {
+            def ci:int (t.columnIndex((itemAt spec.columns i)))
+            if (ci >= 0) {
+                set_at mask ci true
+            }
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length spec.filter.predicates)
+        while (i < n) {
+            def p:DBPredicate (itemAt spec.filter.predicates i)
+            def pi:int (t.columnIndex(p.column))
+            if (pi >= 0) {
+                set_at mask pi true
+            }
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length spec.sorts)
+        while (i < n) {
+            def s:DBSort (itemAt spec.sorts i)
+            def si:int (t.columnIndex(s.column))
+            if (si >= 0) {
+                set_at mask si true
+            }
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length spec.groupBy)
+        while (i < n) {
+            def gi:int (t.columnIndex((itemAt spec.groupBy i)))
+            if (gi >= 0) {
+                set_at mask gi true
+            }
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length spec.aggregates)
+        while (i < n) {
+            def a:DBAggregate (itemAt spec.aggregates i)
+            def ai:int (t.columnIndex(a.column))
+            if (ai >= 0) {
+                set_at mask ai true
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < nc) {
+            if (itemAt mask k) {
+                push wanted k
+            }
+            k = (k + 1)
+        }
+        if ((array_length wanted) == 0) {
+            ; COUNT(*) reads no column at all; keep one so the scan still
+            ; produces rows to count.
+            if (nc > 0) {
+                push wanted 0
+            }
+        }
+        return wanted
+    }
+
+    ; ------------------------------------------------------------- execute --
+    ;   scan (pruned, one row group at a time)
+    ;        -> filter        (per chunk)
+    ;        -> aggregate     (streaming, never materialises the rows)
+    ;      or -> collect      (then sort, project, limit)
+    fn execSpec:DataChunk (spec:QuerySpec) {
+        scannedRows = 0
+        scannedColumns = 0
+        if ((this.hasTable(spec.table)) == false) {
+            return (new DataChunk)
+        }
+        def t:RdbTable (this.tableNamed(spec.table))
+        def wanted:[int] (this.neededColumns(t spec))
+        scannedColumns = (array_length wanted)
+        if (scannedColumns == 0) {
+            scannedColumns = (array_length t.columns)
+        }
+        def gn:int (t.groupCount())
+        if (spec.hasAggregates()) {
+            def shape:DataChunk (t.shapeFor(wanted))
+            def acc:AggState (new AggState)
+            acc.begin(shape spec.groupBy spec.aggregates)
+            def gi:int 0
+            while (gi < gn) {
+                def chunk:DataChunk (t.scanGroup(gi wanted))
+                scannedRows = (scannedRows + chunk.rowCount)
+                def kept:DataChunk (DBOps.filterChunk(chunk spec.filter))
+                acc.consume(kept)
+                gi = (gi + 1)
+            }
+            def grouped:DataChunk (acc.finish())
+            def sortedG:DataChunk (DBOps.sortChunk(grouped spec.sorts))
+            return (DBOps.limitChunk(sortedG spec.offset spec.limit))
+        }
+        def out:DataChunk (t.shapeFor(wanted))
+        def canStop:boolean false
+        def stopAfter:int 0
+        ; No sort means the scan can stop as soon as the page is full - the
+        ; grid asking for rows 12000..12060 of an unsorted table does not read
+        ; the tail of the table.
+        if ((array_length spec.sorts) == 0) {
+            if (spec.limit > 0) {
+                canStop = true
+                stopAfter = (spec.offset + spec.limit)
+            }
+        }
+        def gi2:int 0
+        while (gi2 < gn) {
+            def chunk2:DataChunk (t.scanGroup(gi2 wanted))
+            scannedRows = (scannedRows + chunk2.rowCount)
+            def kept2:DataChunk (DBOps.filterChunk(chunk2 spec.filter))
+            def r:int 0
+            while (r < kept2.rowCount) {
+                out.appendRowFrom(kept2 r)
+                r = (r + 1)
+            }
+            if canStop {
+                if (out.rowCount >= stopAfter) {
+                    gi2 = gn
+                }
+            }
+            gi2 = (gi2 + 1)
+        }
+        def sorted:DataChunk (DBOps.sortChunk(out spec.sorts))
+        def projected:DataChunk (DBOps.projectChunk(sorted spec.columns))
+        return (DBOps.limitChunk(projected spec.offset spec.limit))
+    }
+
+    fn countRows:int (spec:QuerySpec) {
+        if ((this.hasTable(spec.table)) == false) {
+            return 0
+        }
+        def t:RdbTable (this.tableNamed(spec.table))
+        if (spec.filter.isEmpty()) {
+            return t.liveRows
+        }
+        def counting:QuerySpec (spec.copy())
+        clear counting.sorts
+        clear counting.columns
+        counting.offset = 0
+        counting.limit = 0
+        def chunk:DataChunk (this.execSpec(counting))
+        return chunk.rowCount
+    }
+
+    ; ------------------------------------------------------------- mutate ---
+    fn applyMutation:int (m:DBMutation) {
+        if ((this.hasTable(m.table)) == false) {
+            return 0
+        }
+        def t:RdbTable (this.tableNamed(m.table))
+        if (m.kind == 0) {
+            def id:int (this.insertNamed(m.table m.setColumns m.setValues))
+            if (id < 0) {
+                return 0
+            }
+            return 1
+        }
+        def f:DBFilter (m.keyFilter())
+        if (f.isEmpty()) {
+            return 0
+        }
+        def hits:[int] (this.rowsMatching(t f))
+        def n:int (array_length hits)
+        if (m.kind == 2) {
+            def i:int 0
+            while (i < n) {
+                t.deleteRow((itemAt hits i))
+                i = (i + 1)
+            }
+            return n
+        }
+        def nc:int (array_length m.setColumns)
+        def j:int 0
+        while (j < n) {
+            def rowId:int (itemAt hits j)
+            def c:int 0
+            while (c < nc) {
+                def colName:string (itemAt m.setColumns c)
+                def ci:int (t.columnIndex(colName))
+                if (ci >= 0) {
+                    t.setValueAt(rowId ci (itemAt m.setValues c))
+                }
+                c = (c + 1)
+            }
+            j = (j + 1)
+        }
+        return n
+    }
+
+    ; Row ids matching a filter. Ids rather than rows: an update has to write
+    ; back into the storage, and a scanned chunk may be a copy of it.
+    fn rowsMatching:[int] (t:RdbTable f:DBFilter) {
+        def out:[int]
+        def gn:int (t.groupCount())
+        def gi:int 0
+        while (gi < gn) {
+            def g:DataChunk (itemAt t.groups gi)
+            def base:int (gi * t.groupSize)
+            def r:int 0
+            while (r < g.rowCount) {
+                def rowId:int (base + r)
+                if (t.isAlive(rowId)) {
+                    if (f.matchesRow(g r)) {
+                        push out rowId
+                    }
+                }
+                r = (r + 1)
+            }
+            gi = (gi + 1)
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------- persistence --
+    ; A whole-table snapshot, as text. Not a page cache and not a WAL: writing
+    ; a new file and renaming it over the old one is atomic enough for a single
+    ; writer, and it is honest about being a snapshot.
+    fn saveTableText:string (table:string) {
+        if ((this.hasTable(table)) == false) {
+            return ""
+        }
+        def t:RdbTable (this.tableNamed(table))
+        def chunk:DataChunk (t.wholeTable())
+        return (DbWire.encodeChunk(table chunk))
+    }
+
+    fn loadTableText:boolean (text:string) {
+        def name:string (DbWire.decodeName(text))
+        if ((strlen name) == 0) {
+            return false
+        }
+        def chunk:DataChunk (DbWire.decodeChunk(text))
+        def cols:[DBColumn]
+        def cn:int (chunk.columnCount())
+        def i:int 0
+        while (i < cn) {
+            push cols (chunk.columnAt(i))
+            i = (i + 1)
+        }
+        this.dropTable(name)
+        def t:RdbTable (this.createTable(name cols))
+        def r:int 0
+        while (r < chunk.rowCount) {
+            def row:[DBValue]
+            def c:int 0
+            while (c < cn) {
+                push row (chunk.valueAt(r c))
+                c = (c + 1)
+            }
+            t.appendRow(row)
+            r = (r + 1)
+        }
+        return true
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The backend face of the engine.
+; ------------------------------------------------------------------------------
+class RangerDbBackend {
+    Extends(DBBackend)
+
+    def engine:RangerDbEngine (new RangerDbEngine)
+
+    Constructor () {
+    }
+
+    fn engineName:string () {
+        return "rangerdb"
+    }
+
+    fn capabilities:DBCapabilities () {
+        def c:DBCapabilities (new DBCapabilities)
+        c.filterPushdown = true
+        c.sortPushdown = true
+        c.aggregatePushdown = true
+        c.pagination = true
+        c.projection = true
+        c.writes = true
+        c.rowCounts = true
+        c.streaming = true
+        ; SQL arrives through RangerSQL and is planned into the same
+        ; QuerySpec the structured API builds - see SqlFront.rgr. What is
+        ; still missing is transactions, and saying so here is what lets
+        ; DBSession cover for it.
+        c.sqlText = true
+        c.transactions = false
+        return c
+    }
+
+    fn openDb:boolean (dsn:string) {
+        return true
+    }
+
+    fn closeDb:void () {
+    }
+
+    fn tableNames:[string] () {
+        return (engine.tableNames())
+    }
+
+    fn tableColumns:[DBColumn] (table:string) {
+        def out:[DBColumn]
+        if ((engine.hasTable(table)) == false) {
+            return out
+        }
+        def t:RdbTable (engine.tableNamed(table))
+        def n:int (array_length t.columns)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt t.columns i)
+            push out (c.copy())
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn createTable:boolean (table:string columns:[DBColumn]) {
+        errorText = ""
+        engine.createTable(table columns)
+        return true
+    }
+
+    ; Every operation that succeeds clears the error, because `lastError` means
+    ; "what went wrong with the last thing", not "the last thing that ever went
+    ; wrong". A stale message from a refused SQL statement was enough to make
+    ; the next perfectly good query look like a failure to its caller.
+    fn execSpec:DataChunk (spec:QuerySpec) {
+        errorText = ""
+        return (engine.execSpec(spec))
+    }
+
+    fn countRows:int (spec:QuerySpec) {
+        errorText = ""
+        return (engine.countRows(spec))
+    }
+
+    ; SQL is a front end over the same execution, not a second engine: the
+    ; statement becomes a QuerySpec or a DBMutation and takes the ordinary
+    ; path from there.
+    fn execSql:DataChunk (sql:string) {
+        def plan:SqlPlan (SqlFront.plan(sql))
+        if ((strlen plan.error) > 0) {
+            errorText = plan.error
+            return (new DataChunk)
+        }
+        errorText = ""
+        if (plan.isQuery()) {
+            return (engine.execSpec(plan.spec))
+        }
+        if (plan.isMutation()) {
+            def affected:int (engine.applyMutation(plan.mutation))
+            def out:DataChunk (new DataChunk)
+            def vec:ValueVector (out.addColumn((DBColumn.create("rdb_affected" 2))))
+            vec.appendInt(affected)
+            out.rowCount = 1
+            return out
+        }
+        errorText = "nothing to run"
+        return (new DataChunk)
+    }
+
+    fn applyMutation:int (mutation:DBMutation) {
+        def n:int (engine.applyMutation(mutation))
+        if (n == 0) {
+            errorText = "no rows matched"
+        } {
+            errorText = ""
+        }
+        return n
+    }
+}

@@ -5,62 +5,15 @@
 ; Sufficient for the viewer subset: paragraphs, runs, text, rPr/pPr attrs.
 ; ==============================================================================
 
+Import "../../ooxml/OoxmlText.rgr"
+
 class WordXml {
+    ; One decoder for all three OOXML readers. This one used to know only the
+    ; five named entities, so a document written with `&#228;` showed the user
+    ; the digits, and it copied a character at a time, which is quadratic
+    ; where a string is mutable.
     sfn decodeEntities:string (s:string) {
-        def out:string ""
-        def i:int 0
-        def n:int (strlen s)
-        while (i < n) {
-            if ((charAt s i) == 38) {
-                ; &
-                if ((i + 3) < n) {
-                    if ((substring s i (i + 4)) == "&lt;") {
-                        out = (out + "<")
-                        i = (i + 4)
-                    } {
-                        if ((substring s i (i + 4)) == "&gt;") {
-                            out = (out + ">")
-                            i = (i + 4)
-                        } {
-                            if ((i + 4) < n) {
-                                if ((substring s i (i + 5)) == "&amp;") {
-                                    out = (out + "&")
-                                    i = (i + 5)
-                                } {
-                                    if ((i + 5) < n) {
-                                        if ((substring s i (i + 6)) == "&quot;") {
-                                            out = (out + "\"")
-                                            i = (i + 6)
-                                        } {
-                                            if ((substring s i (i + 6)) == "&apos;") {
-                                                out = (out + "'")
-                                                i = (i + 6)
-                                            } {
-                                                out = (out + (substring s i (i + 1)))
-                                                i = (i + 1)
-                                            }
-                                        }
-                                    } {
-                                        out = (out + (substring s i (i + 1)))
-                                        i = (i + 1)
-                                    }
-                                }
-                            } {
-                                out = (out + (substring s i (i + 1)))
-                                i = (i + 1)
-                            }
-                        }
-                    }
-                } {
-                    out = (out + (substring s i (i + 1)))
-                    i = (i + 1)
-                }
-            } {
-                out = (out + (substring s i (i + 1)))
-                i = (i + 1)
-            }
-        }
-        return out
+        return (OoxmlText.decodeEntities(s))
     }
 
     sfn attr:string (tag:string name:string) {
@@ -95,16 +48,22 @@ class WordXml {
         return ""
     }
 
+    ; `indexOfFrom`, not `indexOf` over a tail SUBSTRING. The difference does
+    ; not show on the fixtures: `(indexOf (substring xml i n) open)` copies
+    ; everything from i to the end of the document before looking at any of it,
+    ; so one search costs the length of what is left. The body walk searches
+    ; three times per paragraph, which made opening a 20,000-paragraph document
+    ; a 4.6-million-character copy sixty thousand times over — 58 seconds, for
+    ; a file the spreadsheet's loader would have read in well under one.
     sfn findNext:int (xml:string tagName:string from:int) {
         def open:string ("<" + tagName)
         def i:int from
         def n:int (strlen xml)
         while (i < n) {
-            def j:int (indexOf (substring xml i n) open)
+            def j:int (indexOfFrom xml open i)
             if (j < 0) {
                 return -1
             }
-            j = (i + j)
             def after:int (j + (strlen open))
             if (after >= n) {
                 return -1
@@ -155,12 +114,11 @@ class WordXml {
         def i:int from
         def n:int (strlen xml)
         while (i < n) {
-            def cpos:int (indexOf (substring xml i n) close)
+            def cpos:int (indexOfFrom xml close i)
             def opos:int (WordXml.findNext(xml tagName i))
             if (cpos < 0) {
                 return -1
             }
-            cpos = (i + cpos)
             if ((opos >= 0) && (opos < cpos)) {
                 ; nested open
                 def oe:int (WordXml.elementEnd(xml tagName opos))

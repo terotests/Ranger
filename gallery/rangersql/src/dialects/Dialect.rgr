@@ -1,0 +1,178 @@
+; ==============================================================================
+; SqlDialect - what differs between engines, in one place.
+; ==============================================================================
+;
+; The tokenizer, the parser and the generator are shared; a dialect answers the
+; handful of questions where engines disagree. That is the difference between
+; "four SQL parsers" and "one SQL parser that reads four dialects", and it is
+; why adding MySQL below is thirty lines rather than a second tokenizer.
+;
+;     SQLite      IFNULL(a, 0)          "quoted"    'it''s'
+;     Postgres    COALESCE(a, 0)        "quoted"    'it''s'
+;     MySQL       IFNULL(a, 0)          `quoted`    'it\'s' too
+; ==============================================================================
+
+class SqlDialect {
+    Constructor () {
+    }
+
+    ; A method rather than a field, so a subclass states its name by overriding
+    ; rather than by writing into a field it inherited.
+    fn dialectName:string () {
+        return "generic"
+    }
+
+    ; --- reading ---------------------------------------------------------------
+    ; Does this character open a quoted identifier?
+    fn opensQuotedName:boolean (c:int) {
+        if (c == 34) {
+            return true
+        }
+        return (c == 96)
+    }
+
+    fn closingQuote:int (open:int) {
+        if (open == 91) {
+            return 93
+        }
+        return open
+    }
+
+    ; Is a backslash inside a string an escape, or an ordinary character?
+    fn backslashEscapes:boolean () {
+        return false
+    }
+
+    ; --- writing ---------------------------------------------------------------
+    fn quoteOpen:string () {
+        return (strfromcode 34)
+    }
+
+    fn quoteClose:string () {
+        return (strfromcode 34)
+    }
+
+    ; The name this dialect knows a function by. Where engines merely spell the
+    ; same idea differently, the translation belongs here and the AST stays the
+    ; one both of them mean.
+    fn functionFor:string (upperName:string) {
+        return upperName
+    }
+
+    ; ORDER BY x NULLS LAST - Postgres and modern SQLite have it, MySQL does not.
+    fn supportsNullsOrdering:boolean () {
+        return true
+    }
+
+    ; Some engines print LIMIT 20 OFFSET 10, some accept LIMIT 10, 20 as well;
+    ; the AST holds limit and offset either way.
+    fn writesOffsetBeforeLimit:boolean () {
+        return false
+    }
+}
+
+class SqliteDialect {
+    Extends(SqlDialect)
+
+    Constructor () {
+    }
+
+    fn dialectName:string () {
+        return "sqlite"
+    }
+
+    fn opensQuotedName:boolean (c:int) {
+        if (c == 34) {
+            return true
+        }
+        if (c == 96) {
+            return true
+        }
+        ; SQLite also takes [bracketed] names, from its Access ancestry.
+        return (c == 91)
+    }
+
+    fn functionFor:string (upperName:string) {
+        ; SQLite has no COALESCE-only world: both spellings exist, and IFNULL
+        ; is the one its own documentation uses for two arguments.
+        if (upperName == "COALESCE") {
+            return "IFNULL"
+        }
+        return upperName
+    }
+}
+
+class PostgresDialect {
+    Extends(SqlDialect)
+
+    Constructor () {
+    }
+
+    fn dialectName:string () {
+        return "postgres"
+    }
+
+    fn functionFor:string (upperName:string) {
+        ; Postgres has no IFNULL at all - a query that used it would fail on
+        ; the server rather than in the parser, which is the whole point of
+        ; translating it here.
+        if (upperName == "IFNULL") {
+            return "COALESCE"
+        }
+        return upperName
+    }
+}
+
+class MysqlDialect {
+    Extends(SqlDialect)
+
+    Constructor () {
+    }
+
+    fn dialectName:string () {
+        return "mysql"
+    }
+
+    fn opensQuotedName:boolean (c:int) {
+        if (c == 96) {
+            return true
+        }
+        return (c == 34)
+    }
+
+    fn backslashEscapes:boolean () {
+        return true
+    }
+
+    fn quoteOpen:string () {
+        return (strfromcode 96)
+    }
+
+    fn quoteClose:string () {
+        return (strfromcode 96)
+    }
+
+    fn supportsNullsOrdering:boolean () {
+        return false
+    }
+}
+
+class SqlDialects {
+    ; The name a caller passes to Sql.parse / Sql.transpile.
+    sfn byName:SqlDialect (name:string) {
+        def lower:string (to_lowercase name)
+        if (lower == "sqlite") {
+            return (new SqliteDialect)
+        }
+        if (lower == "postgres") {
+            return (new PostgresDialect)
+        }
+        if (lower == "postgresql") {
+            return (new PostgresDialect)
+        }
+        if (lower == "mysql") {
+            return (new MysqlDialect)
+        }
+        return (new SqlDialect)
+    }
+}

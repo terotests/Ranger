@@ -1,0 +1,351 @@
+; ==============================================================================
+; ValueVector / DataChunk - the unit every engine hands back and every consumer
+; reads.
+; ==============================================================================
+;
+; The important decision in this file is that a result is delivered a CHUNK at
+; a time and stored COLUMN by column, not a row at a time.
+;
+;     bad                      better
+;     DB -> row -> row -> row  DB -> DataChunk(1024 rows) -> DataChunk -> ...
+;
+; A row-at-a-time API forces every layer above it to allocate one object per
+; row, and forces a columnar engine (DuckDB, RangerDB) to take its columns
+; apart just so the next layer can put them back together. A chunk of column
+; vectors is what DuckDB's own execution format is, what a DataGrid page wants,
+; and what a chart series already is.
+;
+;     DataChunk
+;       columns[]   descriptors
+;       vectors[]   one ValueVector per column
+;       rowCount
+;
+; A ValueVector is a tagged array rather than a class hierarchy: Ranger's
+; targets differ in how much they enjoy virtual dispatch, and a vector is read
+; in the innermost loop of every scan.
+; ==============================================================================
+
+Import "DBValue.rgr"
+
+class ValueVector {
+    def kind:int 4
+    def nulls:[boolean]
+    def ints:[int]
+    def doubles:[double]
+    def strings:[string]
+    def bools:[boolean]
+    def count:int 0
+
+    Constructor () {
+    }
+
+    sfn create:ValueVector (kind:int) {
+        def v:ValueVector (new ValueVector)
+        v.kind = kind
+        return v
+    }
+
+    fn clearVector:void () {
+        clear nulls
+        clear ints
+        clear doubles
+        clear strings
+        clear bools
+        count = 0
+    }
+
+    fn appendNull:void () {
+        push nulls true
+        this.pushSlot()
+        count = (count + 1)
+    }
+
+    ; Every array stays the same length as the vector, so index i means the
+    ; same row in all of them and a null carries a harmless zero.
+    fn pushSlot:void () {
+        if (kind == 4) {
+            push strings ""
+            return
+        }
+        if (kind == 2) {
+            push ints 0
+            return
+        }
+        if (kind == 1) {
+            push bools false
+            return
+        }
+        push doubles 0.0
+    }
+
+    fn appendValue:void (v:DBValue) {
+        if v.isNull {
+            this.appendNull()
+            return
+        }
+        push nulls false
+        if (kind == 4) {
+            push strings (v.asString())
+            count = (count + 1)
+            return
+        }
+        if (kind == 2) {
+            push ints (v.asInt())
+            count = (count + 1)
+            return
+        }
+        if (kind == 1) {
+            push bools (v.asBool())
+            count = (count + 1)
+            return
+        }
+        push doubles (v.asDouble())
+        count = (count + 1)
+    }
+
+    fn appendInt:void (value:int) {
+        def v:DBValue (DBValue.fromInt(value))
+        this.appendValue(v)
+    }
+
+    fn appendDouble:void (value:double) {
+        def v:DBValue (DBValue.fromDouble(value))
+        this.appendValue(v)
+    }
+
+    fn appendString:void (value:string) {
+        def v:DBValue (DBValue.fromString(value))
+        this.appendValue(v)
+    }
+
+    fn appendBool:void (value:boolean) {
+        def v:DBValue (DBValue.fromBool(value))
+        this.appendValue(v)
+    }
+
+    fn isNullAt:boolean (row:int) {
+        if (row < 0) {
+            return true
+        }
+        if (row >= (array_length nulls)) {
+            return true
+        }
+        return (itemAt nulls row)
+    }
+
+    fn valueAt:DBValue (row:int) {
+        if (this.isNullAt(row)) {
+            return (DBValue.nullOf(kind))
+        }
+        if (kind == 4) {
+            return (DBValue.fromString((itemAt strings row)))
+        }
+        if (kind == 2) {
+            return (DBValue.fromInt((itemAt ints row)))
+        }
+        if (kind == 1) {
+            return (DBValue.fromBool((itemAt bools row)))
+        }
+        def d:double (itemAt doubles row)
+        if (kind == 5) {
+            return (DBValue.fromDate(d))
+        }
+        if (kind == 6) {
+            return (DBValue.fromTimestamp(d))
+        }
+        return (DBValue.fromDouble(d))
+    }
+
+    ; Fast paths for the loops that do not want a DBValue per row.
+    fn doubleAt:double (row:int) {
+        if (this.isNullAt(row)) {
+            return 0.0
+        }
+        if (kind == 4) {
+            def num@(optional):double (str2double (itemAt strings row))
+            if (null? num) {
+                return 0.0
+            }
+            return (unwrap num)
+        }
+        if (kind == 2) {
+            return (to_double (itemAt ints row))
+        }
+        if (kind == 1) {
+            def bv:boolean (itemAt bools row)
+            if bv {
+                return 1.0
+            }
+            return 0.0
+        }
+        return (itemAt doubles row)
+    }
+
+    fn stringAt:string (row:int) {
+        def v:DBValue (this.valueAt(row))
+        return (v.asString())
+    }
+
+    fn setValueAt:void (row:int v:DBValue) {
+        if (row < 0) {
+            return
+        }
+        if (row >= count) {
+            return
+        }
+        set_at nulls row v.isNull
+        if (kind == 4) {
+            set_at strings row (v.asString())
+            return
+        }
+        if (kind == 2) {
+            set_at ints row (v.asInt())
+            return
+        }
+        if (kind == 1) {
+            set_at bools row (v.asBool())
+            return
+        }
+        set_at doubles row (v.asDouble())
+    }
+
+    ; Copy one row out of another vector of the same kind. This is the whole
+    ; body of Filter and Sort: they never re-encode a value, they move it.
+    fn appendFrom:void (src:ValueVector row:int) {
+        def v:DBValue (src.valueAt(row))
+        this.appendValue(v)
+    }
+}
+
+class DataChunk {
+    def columns:[DBColumn]
+    def vectors:[ValueVector]
+    def rowCount:int 0
+
+    Constructor () {
+    }
+
+    fn addColumn:ValueVector (col:DBColumn) {
+        push columns col
+        def v:ValueVector (ValueVector.create(col.kind))
+        push vectors v
+        return v
+    }
+
+    fn columnCount:int () {
+        return (array_length columns)
+    }
+
+    fn columnIndex:int (name:string) {
+        def n:int (array_length columns)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt columns i)
+            if (c.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn columnAt:DBColumn (index:int) {
+        if (index < 0) {
+            return (new DBColumn)
+        }
+        if (index >= (array_length columns)) {
+            return (new DBColumn)
+        }
+        return (itemAt columns index)
+    }
+
+    fn vectorAt:ValueVector (index:int) {
+        if (index < 0) {
+            return (ValueVector.create(4))
+        }
+        if (index >= (array_length vectors)) {
+            return (ValueVector.create(4))
+        }
+        return (itemAt vectors index)
+    }
+
+    ; Take a column that already exists somewhere else, without copying it.
+    ; This is what makes a scan cheap: a row group's stored vector IS the
+    ; scanned chunk's vector, so reading one column of a ten-column table
+    ; touches one tenth of the data and copies none of it. The borrowed vector
+    ; must not be written through the chunk - operators here never do.
+    fn shareColumn:void (col:DBColumn vec:ValueVector) {
+        push columns col
+        push vectors vec
+    }
+
+    fn valueAt:DBValue (row:int col:int) {
+        def v:ValueVector (this.vectorAt(col))
+        return (v.valueAt(row))
+    }
+
+    fn stringAt:string (row:int col:int) {
+        def v:ValueVector (this.vectorAt(col))
+        return (v.stringAt(row))
+    }
+
+    fn doubleAt:double (row:int col:int) {
+        def v:ValueVector (this.vectorAt(col))
+        return (v.doubleAt(row))
+    }
+
+    ; An empty chunk with the same columns - what an operator writes into.
+    fn shapeCopy:DataChunk () {
+        def out:DataChunk (new DataChunk)
+        def n:int (array_length columns)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt columns i)
+            out.addColumn((c.copy()))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn appendRow:void (values:[DBValue]) {
+        def n:int (array_length vectors)
+        def i:int 0
+        while (i < n) {
+            def vec:ValueVector (itemAt vectors i)
+            if (i < (array_length values)) {
+                vec.appendValue((itemAt values i))
+            } {
+                vec.appendNull()
+            }
+            i = (i + 1)
+        }
+        rowCount = (rowCount + 1)
+    }
+
+    fn appendRowFrom:void (src:DataChunk row:int) {
+        def n:int (array_length vectors)
+        def i:int 0
+        while (i < n) {
+            def dst:ValueVector (itemAt vectors i)
+            def s:ValueVector (src.vectorAt(i))
+            dst.appendFrom(s row)
+            i = (i + 1)
+        }
+        rowCount = (rowCount + 1)
+    }
+
+    ; Debug / test rendering: one row as tab separated text.
+    fn rowText:string (row:int) {
+        def out:string ""
+        def n:int (array_length vectors)
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                out = (out + "\t")
+            }
+            out = (out + (this.stringAt(row i)))
+            i = (i + 1)
+        }
+        return out
+    }
+}

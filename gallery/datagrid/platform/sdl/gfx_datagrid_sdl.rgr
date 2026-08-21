@@ -252,7 +252,18 @@ static void dgfx_pump() {
             g_dgfx_wheel_y += wy;
             g_dgfx_wheel_x += wx;
         }
-        if (ev.type == SDL_KEYDOWN && ev.key.repeat == 0) {
+        // Auto-repeat included, deliberately. `ev.key.repeat` is set on the
+        // events the OS generates while a key is held down, and dropping them
+        // meant holding an arrow moved the selection exactly once — while the
+        // same build repeated ordinary TYPING, because SDL_TEXTINPUT below is
+        // sent for repeats too. Both browser hosts have always passed repeats
+        // through, so this was the native build disagreeing with the other
+        // two about a key nobody had let go of.
+        //
+        // The delay before the first repeat and the rate after it are the
+        // OS's, which is the whole point: they are a preference the user set
+        // once, in one place, for every program on the machine.
+        if (ev.type == SDL_KEYDOWN) {
             int mapped = dgfx_map_key(ev.key.keysym.sym);
             if (mapped != DGFX_KEY_NONE) {
                 g_dgfx_keys.push_back(mapped);
@@ -772,6 +783,20 @@ static void dgfx_close() {
     dgfx_evg_rect _:void (x:double y:double w:double h:double r:double g:double b:double a:double radius:double) {
         templates {
             cpp ( "evggl_rect((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "), (float)(" (e 5) "), (float)(" (e 6) "), (float)(" (e 7) "), (float)(" (e 8) "), (float)(" (e 9) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    ; The clip in force from here on, as a scissor. The caller has already
+    ; intersected it with any enclosing clip.
+    dgfx_evg_clip _:void (x:double y:double w:double h:double) {
+        templates {
+            cpp ( "evggl_clip((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_clip_off _:void () {
+        templates {
+            cpp ( "evggl_clip_off()" )
             es6 ( "undefined" )
         }
     }

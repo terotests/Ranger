@@ -8,7 +8,9 @@ Import "XlsxSharedStrings.rgr"
 Import "XlsxWorksheet.rgr"
 Import "XlsxDrawing.rgr"
 Import "XlsxStyles.rgr"
+Import "XlsxTable.rgr"
 Import "../WorkbookModel.rgr"
+Import "../script/GridScript.rgr"
 Import "../CellStyle.rgr"
 Import "../FormulaEngine.rgr"
 
@@ -190,6 +192,26 @@ class XlsxLoader {
                     }
                 }
             }
+            ; Tables. A sheet can carry several, each behind a relationship of
+            ; its own, and their names are what formulas like
+            ; `Table1[[#This Row],[CategoryID]]` are written against — so a
+            ; workbook whose tables were not read is a workbook where those
+            ; formulas can only sit there as text.
+            def tableTargets:[string]
+            XlsxTable.tableTargets(parser.relsXml tableTargets)
+            def tt:int 0
+            while (tt < (array_length tableTargets)) {
+                def tablePath:string (XlsxLoader.resolveRelPath(info.path (itemAt tableTargets tt)))
+                def tableXml:string (pkg.entryText(tablePath))
+                if ((strlen tableXml) > 0) {
+                    def tbl:SheetTable (XlsxTable.parse(tableXml))
+                    if ((strlen tbl.name) > 0) {
+                        XlsxTable.fillColumnsFromSheet(tbl sheet)
+                        sheet.addTable(tbl)
+                    }
+                }
+                tt = (tt + 1)
+            }
             sheet.setStylesFrom(sty.styles)
             ; Only now can a row be measured: until the style table is on the
             ; sheet, every cell reports the default size rather than its own.
@@ -208,8 +230,30 @@ class XlsxLoader {
             firstVisible = 0
         }
         book.setActive(firstVisible)
+        this.loadScripts(pkg book)
         engine.attach(book)
         engine.rebuildAll()
         return true
+    }
+
+    ; Scripts ride along in the package under `ranger/`. Nothing here parses
+    ; them — the part is read as text and handed to the workbook, so a build
+    ; that never opens the script engine still round-trips the script.
+    fn loadScripts:void (pkg:XlsxPackage book:WorkbookModel) {
+        def names:[string] (pkg.listFiles())
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            def path:string (itemAt names i)
+            if (GridScript.isScriptPart(path)) {
+                def src:string (pkg.entryText(path))
+                def sc:GridScript (new GridScript)
+                sc.name = (GridScript.nameOfPart(path))
+                sc.source = src
+                sc.part = path
+                book.addScript(sc)
+            }
+            i = (i + 1)
+        }
     }
 }

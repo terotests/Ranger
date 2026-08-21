@@ -209,7 +209,36 @@ function serveFileRequest() {
   }
   if (want === "saveAs") {
     downloadWorkbook();
+    return;
   }
+  if (want === "exportPdf") {
+    downloadReport();
+  }
+}
+
+/** The report the app just rendered, handed over as a .pdf download. */
+function downloadReport() {
+  const raw = web.reportPdfBytes();
+  if (!raw || !(raw instanceof ArrayBuffer) || raw.byteLength === 0) {
+    statusEl.textContent = "report export failed";
+    return;
+  }
+  const name = web.suggestPdfName() || "report.pdf";
+  saveBlob(new Blob([raw], { type: "application/pdf" }), name);
+  statusEl.textContent = "exported " + name;
+}
+
+/** One download, however it was produced. */
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /** Hand the current workbook to the browser as a .xlsx download. */
@@ -223,15 +252,7 @@ function downloadWorkbook() {
   const blob = new Blob([raw], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.style.display = "none";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  saveBlob(blob, name);
   web.markSavedAs(name);
   statusEl.textContent = "saved " + name;
 }
@@ -554,6 +575,64 @@ async function selftest() {
   web.run("edit.copy", "");
   ok("copying bumped the counter", (web.copySeq() | 0) > seq0);
   ok("with text to paste", (web.app.clipboardTsv || "").length > 0);
+
+  // A label that is too wide for its cell may run into an EMPTY neighbour and
+  // must stop at an occupied one. This is the display list, not the pixels —
+  // the clip rectangle the TEXT command is wrapped in — because a clip the
+  // renderer honours is worth nothing if the list never asked for one. The
+  // WebGL backend's half is covered by the scissor stack it draws runs with.
+  web.run("nav.goto", "A9");
+  const wide = "A label far too wide for one column";
+  web.text(wide, false, false);
+  web.key("enter", false, false);
+  web.run("nav.goto", "B9");
+  web.text("taken", false, false);
+  web.key("enter", false, false);
+  await draw();
+  const spillScene = JSON.parse(web.scene()).list.cmds;
+  const clipFor = (text) => {
+    let clip = null;
+    for (const c of spillScene) {
+      if (c.k === 4) clip = c;
+      if (c.k === 3 && c.text === text) return clip;
+    }
+    return null;
+  };
+  const wideClip = clipFor(wide);
+  const colA = web.app.model.colWidth(0) | 0;
+  ok("the wide label is drawn", !!wideClip);
+  ok(
+    "and clipped to its own cell, because B9 has something in it",
+    !!wideClip && wideClip.w <= colA + 2
+  );
+
+  // The border gallery: the toolbar's Borders… button and `format.border`
+  // with no argument are the same command, and it must open a window here
+  // exactly as it does in the native build.
+  web.run("nav.goto", "D9");
+  const beforeBorders = JSON.parse(web.scene()).list.cmds.length;
+  web.run("format.border", "");
+  await draw();
+  ok("the border gallery opened", web.app.borderDialog.visible === true);
+  ok(
+    "and put a window on the screen",
+    JSON.parse(web.scene()).list.cmds.length > beforeBorders
+  );
+  web.app.borderDialog.setChecked(1001, false);
+  web.app.borderDialog.setChecked(1002, true);
+  web.app.borderDialog.setChecked(1003, false);
+  web.app.borderDialog.setChecked(1004, false);
+  web.app.borderDialog.selectRadio(1012);
+  web.app.borderDialog.selectRadio(1034);
+  web.app.syncBorderDialog();
+  ok("the spec is what its controls say", web.app.borderSpecFromDialog() === "spec:B:medium:#C00000");
+  web.app.applyBorderDialog();
+  await draw();
+  const bordered = web.app.model.getCellStyle(8, 3);
+  ok("applying it gave the cell the bottom it asked for", bordered.borderBottom.has() === true);
+  ok("in the line it asked for", bordered.borderBottom.style === "medium");
+  ok("in the colour it asked for", bordered.borderBottom.rgb === "#C00000");
+  web.run("edit.undo", "");
 
   // A chart, which is the deepest path in the app: selection → Vela → EVG.
   web.run("nav.goto", "B3");

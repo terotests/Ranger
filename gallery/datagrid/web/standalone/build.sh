@@ -103,5 +103,39 @@ cp "$FONT_SRC/Josefin_Sans/JosefinSans-BoldItalic.ttf" "$OUT/fonts/JosefinSans-B
 # to the app, exactly as it does with a file the user picks.
 cp gallery/datagrid/fixtures/business-workbook.xlsx "$OUT/business-workbook.xlsx"
 
+# --- the build stamp ---------------------------------------------------------
+# A rebuilt page that a browser will not fetch is indistinguishable from a page
+# that was never fixed, and that is exactly what happens here: nothing in this
+# output carries a cache header, `python3 -m http.server` sends none, and a
+# two-megabyte script tag with no version on it is the kind of thing a browser
+# holds on to. So every file the page loads gets `?v=<hash of the build>` — the
+# URL changes only when the bytes do — and the same stamp is printed in the
+# page's own status bar, so "which build am I looking at" is a thing you read
+# rather than a thing you guess.
+STAMP=$(node -e "
+  const fs = require('fs'), crypto = require('crypto');
+  const h = crypto.createHash('sha1');
+  for (const f of ['$OUT/datagrid_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js']) {
+    h.update(fs.readFileSync(f));
+  }
+  process.stdout.write(h.digest('hex').slice(0, 10));
+")
+node -e "
+  const fs = require('fs');
+  const stamp = '$STAMP';
+  const html = fs.readFileSync('$OUT/index.html', 'utf8').split('__BUILD__').join(stamp);
+  fs.writeFileSync('$OUT/index.html', html);
+  // standalone.mjs imports the renderer itself, so that one needs the query
+  // written into the module rather than onto a tag.
+  const mjs = fs.readFileSync('$OUT/standalone.mjs', 'utf8')
+    .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp);
+  fs.writeFileSync('$OUT/standalone.mjs', mjs);
+" || exit 1
+if grep -q "__BUILD__" "$OUT/index.html"; then
+  echo "the build stamp was not written into $OUT/index.html" >&2
+  exit 1
+fi
+
 printf '  %s\n' "$OUT/index.html" "$OUT/datagrid_web.js" "$OUT/standalone.mjs"
+echo "build $STAMP"
 echo "open it with:  python3 -m http.server -d $OUT 8000"

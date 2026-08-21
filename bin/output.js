@@ -39670,7 +39670,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           wr.out("):", true);
                           wr.indent(1);
+                          let wroteSuper = false;
                           if ( typeof(parentClass) != "undefined" ) {
+                            wroteSuper = true;
                             if ( parentClass.has_constructor ) {
                               const parentConstr = parentClass.constructor_fn;
                               wr.out("super().__init__(", false);
@@ -39691,6 +39693,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out(("self._rg_kind = \"" + cl.name) + "\"", true);
                           }
                           let hasContent = needsKind;
+                          if ( wroteSuper ) {
+                            hasContent = true;
+                          }
                           for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
                             var pvar = cl.variables[i_2];
                             await this.writeVarInitDef(pvar.node, ctx, wr);
@@ -39701,8 +39706,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.newline();
                             const subCtx = constr_1.fnCtx;
                             subCtx.is_function = true;
+                            const lineBefore = wr.lineNumber;
+                            const colBefore = wr.currentLine.length;
                             await this.WalkNode(constr_1.fnBody, subCtx, wr);
-                            hasContent = true;
+                            if ( wr.lineNumber != lineBefore ) {
+                              hasContent = true;
+                            }
+                            if ( (wr.currentLine.length) != colBefore ) {
+                              hasContent = true;
+                            }
                           }
                           if ( hasContent == false ) {
                             wr.out("pass", true);

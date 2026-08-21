@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# One sentence, three formats, two string models.
+#
+# Each fixture carries the same line twice — as real UTF-8 bytes and as numeric
+# character references — because a reader can get either spelling wrong on its
+# own, and a file holding both turns a silent difference into two lines that do
+# not match. PowerPoint failed the first spelling on the JavaScript target
+# (parts were never decoded as UTF-8) and Word and PowerPoint both failed the
+# second on every target (numeric entities were unknown), so neither half of
+# this run is redundant.
+#
+#   npm run ooxml:package:test
+set -euo pipefail
+cd "$(cd "$(dirname "$0")/../../.." && pwd)"
+
+export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
+SRC=gallery/ooxml/tests/OoxmlPackageTest.rgr
+OUT=tmp/ooxml-package
+mkdir -p "$OUT" tmp gallery/ooxml/bin
+
+echo "==> JavaScript"
+node bin/output.js -es6 "$SRC" -d=gallery/ooxml/bin -o=OoxmlPackageTest.js -nodecli > "$OUT/js.log" 2>&1 || {
+  tail -20 "$OUT/js.log"; echo "Ranger -> JS failed" >&2; exit 1; }
+# The compiler can report [FAIL] and still exit 0, and the stale build from the
+# last run would then be what gets tested.
+if grep -q '\[FAIL\]' "$OUT/js.log"; then
+  grep -A2 '\[FAIL\]' "$OUT/js.log" | head -20
+  echo "Ranger -> JS failed" >&2
+  exit 1
+fi
+node gallery/ooxml/bin/OoxmlPackageTest.js | tee "$OUT/js.out"
+grep -q "ALL PASS" "$OUT/js.out" || { echo "JavaScript run failed" >&2; exit 1; }
+
+CXX=""
+for cc in g++ clang++; do
+  if command -v "$cc" >/dev/null 2>&1; then CXX="$cc"; break; fi
+done
+if [ -z "$CXX" ]; then
+  echo
+  echo "==> C++  SKIPPED — no g++ or clang++ on PATH."
+  echo "    The half of this test that can see a byte-versus-character bug did not run."
+  exit 0
+fi
+
+echo
+echo "==> C++ ($CXX)"
+node bin/output.js -l=cpp "$SRC" -nodecli -d="$OUT" -o=OoxmlPackageTest.cpp > "$OUT/cpp.log" 2>&1 || {
+  tail -20 "$OUT/cpp.log"; echo "Ranger -> C++ failed" >&2; exit 1; }
+if grep -q '\[FAIL\]' "$OUT/cpp.log"; then
+  grep -A2 '\[FAIL\]' "$OUT/cpp.log" | head -20
+  echo "Ranger -> C++ failed" >&2
+  exit 1
+fi
+cp gallery/invaders/variant.hpp "$OUT/variant.hpp"
+"$CXX" -std=c++17 -I "$OUT" -o "$OUT/ooxmlpackage" "$OUT/OoxmlPackageTest.cpp"
+"$OUT/ooxmlpackage" | tee "$OUT/cpp.out"
+grep -q "ALL PASS" "$OUT/cpp.out" || { echo "C++ run failed" >&2; exit 1; }
+
+echo
+echo "one sentence, read identically out of .xlsx, .docx and .pptx, on both targets"

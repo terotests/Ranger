@@ -1,0 +1,349 @@
+; ==============================================================================
+; JsTokens.rgr — enough JavaScript to colour it
+; ==============================================================================
+;
+; A code editor needs to know what a run of characters IS before it can decide
+; what colour to draw it. This is that, and no more: a lexer that walks a line
+; at a time, carries the two states that outlive a line (a block comment and a
+; template literal), and hands back spans.
+;
+; It is deliberately not a parser. Nothing here builds a tree, resolves a name
+; or reports an error — ComponentEngine does all three when the script runs,
+; and a second, disagreeing opinion about what the source means is worse than
+; no opinion at all. What this file gets wrong shows up as a colour, never as
+; behaviour.
+;
+; JSX is handled with two local rules rather than a mode: `<Name` and `</Name`
+; are tag names, and an identifier followed by `=` is an attribute. That is a
+; lie in the general case (`a < b`, `x = 1`) and true in every line of a report
+; script, which is what it is for. `<` before a space or a digit stays
+; punctuation, so `i < rows.length` keeps its colour.
+; ==============================================================================
+
+Import "lang/CodeTokens.rgr"
+
+class JsTokenizer {
+    ; Carried between lines: 0 code, 1 inside /* … */, 2 inside `…`
+    def state:int 0
+
+    Constructor () {
+    }
+
+    sfn isDigit:boolean (ch:int) {
+        if (ch < 48) {
+            return false
+        }
+        return (ch <= 57)
+    }
+
+    sfn isIdentStart:boolean (ch:int) {
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        if (ch == 95) {
+            return true
+        }
+        if (ch == 36) {
+            return true
+        }
+        ; Anything above ASCII is a letter as far as this is concerned: a
+        ; variable named `hintaТ` should not split into three tokens.
+        return (ch > 127)
+    }
+
+    sfn isIdentChar:boolean (ch:int) {
+        if (JsTokenizer.isIdentStart(ch)) {
+            return true
+        }
+        return (JsTokenizer.isDigit(ch))
+    }
+
+    sfn isUpper:boolean (ch:int) {
+        if (ch < 65) {
+            return false
+        }
+        return (ch <= 90)
+    }
+
+    sfn wordIn:boolean (word:string list:[string]) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            def w:string (itemAt list i)
+            if (w == word) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn keywords:[string] () {
+        return ([] _:string ( "const" "let" "var" "function" "return" "if" "else" "for" "while" "do" "break" "continue" "new" "typeof" "instanceof" "in" "of" "class" "extends" "import" "export" "from" "as" "default" "switch" "case" "this" "delete" "void" "try" "catch" "finally" "throw" "async" "await" "yield" "true" "false" "null" "undefined" ))
+    }
+
+    ; The workbook API plus the handful of JavaScript globals a report reaches
+    ; for. Colouring these differently is the cheapest documentation there is:
+    ; a name that lights up is a name the engine knows.
+    sfn builtins:[string] () {
+        return ([] _:string ( "sheetNames" "sheetCount" "sheetRows" "sheetText" "usedRows" "usedCols" "cell" "text" "range" "rangeText" "param" "query" "hasDatabase" "formatNumber" "log" "render" "Math" "JSON" "Number" "String" "Array" "Object" "Boolean" "Date" "parseInt" "parseFloat" "isNaN" "console" ))
+    }
+
+    fn reset:void () {
+        state = 0
+    }
+
+    ; Every line of the document, in order. State is carried, so this must see
+    ; the lines from the top — which is what the editor does after each edit.
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        state = 0
+        def out:[CodeTokenLine]
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            push out (this.tokenizeLine((itemAt lines i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn tokenizeLine:CodeTokenLine (line:string) {
+        def out:CodeTokenLine (new CodeTokenLine)
+        def n:int (strlen line)
+        def i:int 0
+        def kw:[string] (JsTokenizer.keywords())
+        def bi:[string] (JsTokenizer.builtins())
+        while (i < n) {
+            if (state == 1) {
+                ; Inside a block comment: everything to `*/` or to the end.
+                def endAt:int (this.findBlockEnd(line i))
+                def stop:int endAt
+                if (endAt < 0) {
+                    stop = n
+                } {
+                    state = 0
+                    stop = (endAt + 2)
+                }
+                push out.tokens (CodeToken.create(i (stop - i) (CodeTokenKind.comment())))
+                i = stop
+                continue
+            }
+            if (state == 2) {
+                def tEnd:int (this.findTemplateEnd(line i))
+                def tStop:int tEnd
+                if (tEnd < 0) {
+                    tStop = n
+                } {
+                    state = 0
+                    tStop = (tEnd + 1)
+                }
+                push out.tokens (CodeToken.create(i (tStop - i) (CodeTokenKind.text())))
+                i = tStop
+                continue
+            }
+            def ch:int (charAt line i)
+            if (ch == 32) {
+                i = (i + 1)
+                continue
+            }
+            if (ch == 9) {
+                i = (i + 1)
+                continue
+            }
+            ; // line comment
+            if (ch == 47) {
+                def next:int (this.charOr(line (i + 1)))
+                if (next == 47) {
+                    push out.tokens (CodeToken.create(i (n - i) (CodeTokenKind.comment())))
+                    i = n
+                    continue
+                }
+                if (next == 42) {
+                    state = 1
+                    def bEnd:int (this.findBlockEnd(line (i + 2)))
+                    def bStop:int bEnd
+                    if (bEnd < 0) {
+                        bStop = n
+                    } {
+                        state = 0
+                        bStop = (bEnd + 2)
+                    }
+                    push out.tokens (CodeToken.create(i (bStop - i) (CodeTokenKind.comment())))
+                    i = bStop
+                    continue
+                }
+            }
+            ; strings
+            if ((ch == 34) || (ch == 39)) {
+                def sEnd:int (this.findQuoteEnd(line (i + 1) ch))
+                def sStop:int sEnd
+                if (sEnd < 0) {
+                    sStop = n
+                } {
+                    sStop = (sEnd + 1)
+                }
+                push out.tokens (CodeToken.create(i (sStop - i) (CodeTokenKind.text())))
+                i = sStop
+                continue
+            }
+            if (ch == 96) {
+                state = 2
+                def qEnd:int (this.findTemplateEnd(line (i + 1)))
+                def qStop:int qEnd
+                if (qEnd < 0) {
+                    qStop = n
+                } {
+                    state = 0
+                    qStop = (qEnd + 1)
+                }
+                push out.tokens (CodeToken.create(i (qStop - i) (CodeTokenKind.text())))
+                i = qStop
+                continue
+            }
+            if (JsTokenizer.isDigit(ch)) {
+                def numEnd:int (this.readNumber(line i))
+                push out.tokens (CodeToken.create(i (numEnd - i) (CodeTokenKind.number())))
+                i = numEnd
+                continue
+            }
+            ; <Tag  /  </Tag
+            if (ch == 60) {
+                def after:int (this.charOr(line (i + 1)))
+                def nameAt:int (i + 1)
+                if (after == 47) {
+                    nameAt = (i + 2)
+                }
+                def nameCh:int (this.charOr(line nameAt))
+                if (JsTokenizer.isIdentStart(nameCh)) {
+                    def tagEnd:int (this.readIdent(line nameAt))
+                    push out.tokens (CodeToken.create(i (tagEnd - i) (CodeTokenKind.tag())))
+                    i = tagEnd
+                    continue
+                }
+            }
+            ; `/>` and `>` closing a tag read as tag rather than as arithmetic.
+            if (ch == 62) {
+                push out.tokens (CodeToken.create(i 1 (CodeTokenKind.tag())))
+                i = (i + 1)
+                continue
+            }
+            if (JsTokenizer.isIdentStart(ch)) {
+                def idEnd:int (this.readIdent(line i))
+                def word:string (substring line i idEnd)
+                def kind:int (CodeTokenKind.ident())
+                if (JsTokenizer.wordIn(word kw)) {
+                    kind = (CodeTokenKind.keyword())
+                } {
+                    if (JsTokenizer.wordIn(word bi)) {
+                        kind = (CodeTokenKind.builtin())
+                    } {
+                        if (this.isAttributeAt(line idEnd)) {
+                            kind = (CodeTokenKind.attr())
+                        }
+                    }
+                }
+                push out.tokens (CodeToken.create(i (idEnd - i) kind))
+                i = idEnd
+                continue
+            }
+            push out.tokens (CodeToken.create(i 1 (CodeTokenKind.punct())))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn charOr:int (line:string at:int) {
+        if (at < 0) {
+            return 0
+        }
+        if (at >= (strlen line)) {
+            return 0
+        }
+        return (charAt line at)
+    }
+
+    ; `name=` is an attribute; `name ==` is a comparison. One character of
+    ; lookahead is the whole difference.
+    fn isAttributeAt:boolean (line:string at:int) {
+        def ch:int (this.charOr(line at))
+        if (ch != 61) {
+            return false
+        }
+        def after:int (this.charOr(line (at + 1)))
+        return (after != 61)
+    }
+
+    fn readIdent:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            if ((JsTokenizer.isIdentChar(ch)) == false) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn readNumber:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            def ok:boolean (JsTokenizer.isDigit(ch))
+            if (ch == 46) {
+                ok = true
+            }
+            if ((ch >= 97) && (ch <= 122)) {
+                ok = true
+            }
+            if ((ch >= 65) && (ch <= 90)) {
+                ok = true
+            }
+            if (ok == false) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn findBlockEnd:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < (n - 1)) {
+            def a:int (charAt line i)
+            def b:int (charAt line (i + 1))
+            if ((a == 42) && (b == 47)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn findQuoteEnd:int (line:string from:int quote:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            if (ch == 92) {
+                i = (i + 2)
+                continue
+            }
+            if (ch == quote) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn findTemplateEnd:int (line:string from:int) {
+        return (this.findQuoteEnd(line from 96))
+    }
+}

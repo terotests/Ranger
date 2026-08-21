@@ -1,0 +1,256 @@
+; ==============================================================================
+; TableRefTest — structured references, from the file to the answer.
+; ==============================================================================
+;
+; `=Table1[[#This Row],[CategoryID]]` is ordinary Excel and used to load here as
+; text that never calculated: nothing read `xl/tables/*.xml`, so nothing knew
+; what `Table1` was or which column `[CategoryID]` named.
+;
+; Three things have to hold, and each can break without the others noticing:
+;
+;   THE PART IS READ. Name, rectangle, header and totals counts, column names.
+;   `headerRowCount` is the one that bites — absent means ONE, not none, and
+;   getting it backwards turns the header row into data and moves every other
+;   row up by one.
+;
+;   THE SPELLING IS UNDERSTOOD. `[Amount]`, `[[#This Row],[Amount]]`,
+;   `[@Amount]`, `[[Amount]:[Price]]`, `[#All]`, `[#Headers]`, `[#Totals]`,
+;   `[#Data]` — and the file decides which of them it wrote, so all of them
+;   have to read and all of them have to write back out unchanged.
+;
+;   IT DEPENDS ON WHAT IT READS. A structured reference that computes once and
+;   never again looks right until somebody edits a number inside the table.
+;
+;   npm run datagrid:tables:test
+; ==============================================================================
+
+Import "../src/xlsx/XlsxLoader.rgr"
+Import "../src/FormulaEngine.rgr"
+Import "../src/xlsx/XlsxWriter.rgr"
+
+class TableCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class TableRefTest {
+    ; Parse a formula and write it back, which is what a copy, a fill and a
+    ; save all do to it.
+    sfn roundTrip:string (expr:string) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        return (FormulaParser.serializeNode(ast))
+    }
+
+    ; What one formula comes to, evaluated as if it sat at (row, col) on sheet 0.
+    sfn valueAt:string (book:WorkbookModel expr:string row:int col:int) {
+        def sheet:SpreadsheetModel (book.sheetAt(0))
+        sheet.setFormula(row col expr)
+        def engine:FormulaEngine (new FormulaEngine)
+        engine.attach(book)
+        engine.rebuildAll()
+        return (sheet.getCell(row col))
+    }
+
+    sfn main:void () {
+        def c:TableCheck (new TableCheck)
+        print "== TableRefTest =="
+
+        def book:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        def ok:boolean (loader.loadPath("gallery/datagrid/fixtures/tables.xlsx" book))
+        c.ok("the workbook opened" ok)
+        if (ok == false) {
+            print ("  " + loader.lastError)
+            print "FAILURES"
+            return
+        }
+
+        print "-- the table part --"
+        def sales:SpreadsheetModel (book.sheetAt(0))
+        c.eqInt("one table on Sales" (sales.tableCount()) 1)
+        def t1:SheetTable (sales.tableAt(0))
+        c.eqStr("its name" t1.name "Table1")
+        c.eqInt("first row" t1.r0 0)
+        c.eqInt("last row" t1.r1 4)
+        c.eqInt("first column" t1.c0 0)
+        c.eqInt("last column" t1.c1 3)
+        c.eqInt("a header row, which is what an absent count means" t1.headerRowCount 1)
+        c.eqInt("no totals row" t1.totalsRowCount 0)
+        c.eqInt("four columns" (t1.columnCount()) 4)
+        c.eqStr("named in order" (t1.columnAt(1)) "CategoryID")
+        c.eqStr("including one with a space in it" (t1.columnAt(3)) "Unit Price")
+        c.eqInt("data starts under the header" (t1.dataR0()) 1)
+        c.eqInt("and ends at the last row" (t1.dataR1()) 4)
+        c.eqInt("a column is found by name" (t1.columnIndex("Amount")) 2)
+        c.eqInt("without caring about case" (t1.columnIndex("amount")) 2)
+        c.eqInt("or about surrounding space" (t1.columnIndex(" Amount ")) 2)
+        c.eqInt("a name no column has" (t1.columnIndex("Nope")) -1)
+
+        def people:SpreadsheetModel (book.sheetAt(1))
+        c.eqInt("one table on People" (people.tableCount()) 1)
+        def t2:SheetTable (people.tableAt(0))
+        c.eqStr("its name" t2.name "Staff")
+        c.eqInt("it has a totals row" t2.totalsRowCount 1)
+        c.eqInt("so its last DATA row is one above the last" (t2.dataR1()) 3)
+        c.eqInt("while the table still ends where it ends" t2.r1 4)
+
+        print "-- a table name is workbook-wide --"
+        c.ok("Table1 is found" (book.hasTable("Table1")))
+        c.ok("and so is Staff, from anywhere" (book.hasTable("Staff")))
+        c.ok("case does not matter" (book.hasTable("staff")))
+        c.ok("a table nobody made is not" ((book.hasTable("Nope")) == false))
+        def found:SheetTable (book.tableByName("staff"))
+        c.eqStr("the lookup answers with the table" found.name "Staff")
+        c.eqInt("and says which sheet it is on" (book.tableIndexByName("staff")) 1)
+
+        print "-- every spelling reads, and writes back as it was --"
+        c.eqStr("a column" (TableRefTest.roundTrip("=Table1[Amount]")) "Table1[Amount]")
+        c.eqStr("this row, the long way" (TableRefTest.roundTrip("=Table1[[#This Row],[CategoryID]]")) "Table1[[#This Row],[CategoryID]]")
+        c.eqStr("this row, the short way" (TableRefTest.roundTrip("=Table1[@Amount]")) "Table1[@Amount]")
+        c.eqStr("a span of columns" (TableRefTest.roundTrip("=Table1[[Amount]:[Unit Price]]")) "Table1[[Amount]:[Unit Price]]")
+        c.eqStr("the whole table" (TableRefTest.roundTrip("=Table1[#All]")) "Table1[#All]")
+        c.eqStr("the header row" (TableRefTest.roundTrip("=Table1[#Headers]")) "Table1[#Headers]")
+        c.eqStr("one column's header" (TableRefTest.roundTrip("=Table1[[#Headers],[Amount]]")) "Table1[[#Headers],[Amount]]")
+        c.eqStr("the data" (TableRefTest.roundTrip("=Table1[#Data]")) "Table1[#Data]")
+        c.eqStr("inside a function" (TableRefTest.roundTrip("=SUM(Table1[Amount])")) "SUM(Table1[Amount])")
+        c.eqStr("in arithmetic" (TableRefTest.roundTrip("=Table1[@Amount]*2")) "Table1[@Amount]*2")
+        ; A column called `#Amount` is written `['#Amount]`; the quote is an
+        ; escape, not part of the name.
+        c.eqStr("an escaped name survives the trip" (TableRefTest.roundTrip("=Table1['#Amount]")) "Table1['#Amount]")
+
+        print "-- and they come to the right numbers --"
+        c.eqStr("this row, on row 2" (TableRefTest.valueAt(book "Table1[[#This Row],[CategoryID]]" 1 9)) "10")
+        c.eqStr("this row, on row 4" (TableRefTest.valueAt(book "Table1[[#This Row],[CategoryID]]" 3 9)) "10")
+        c.eqStr("the @ spelling agrees with it" (TableRefTest.valueAt(book "Table1[@CategoryID]" 1 9)) "10")
+        c.eqStr("a column, summed" (TableRefTest.valueAt(book "SUM(Table1[Amount])" 1 10)) "835")
+        c.eqStr("a column, counted" (TableRefTest.valueAt(book "COUNT(Table1[ProductID])" 1 11)) "4")
+        c.eqStr("a column with a space in its name" (TableRefTest.valueAt(book "Table1[[#This Row],[Unit Price]]" 4 9)) "41")
+        c.eqStr("a span of two columns" (TableRefTest.valueAt(book "SUM(Table1[[Amount]:[Unit Price]])" 1 12)) "900.75")
+        c.eqStr("a header cell" (TableRefTest.valueAt(book "Table1[[#Headers],[Amount]]" 1 13)) "Amount")
+        ; #All includes the header, which is text, so COUNT sees only numbers.
+        c.eqStr("#Data counts the data" (TableRefTest.valueAt(book "COUNT(Table1[[#Data],[Amount]])" 1 14)) "4")
+        c.eqStr("#All takes the header in too" (TableRefTest.valueAt(book "COUNTA(Table1[[#All],[Amount]])" 1 15)) "5")
+
+        print "-- a table on another sheet, reached by name --"
+        c.eqStr("summed from Sales" (TableRefTest.valueAt(book "SUM(Staff[Hours])" 6 9)) "114")
+        ; The totals row is not data: COUNT sees three people, not four.
+        c.eqStr("and its totals row is not one of the data rows" (TableRefTest.valueAt(book "COUNT(Staff[Hours])" 6 10)) "3")
+        c.eqStr("#All reaches it" (TableRefTest.valueAt(book "COUNT(Staff[[#All],[Hours]])" 6 11)) "4")
+        c.eqStr("and so does #Totals" (TableRefTest.valueAt(book "Staff[[#Totals],[Hours]]" 6 12)) "114")
+
+        print "-- what goes wrong, and what it says --"
+        c.eqStr("no table by that name" (TableRefTest.valueAt(book "Nope[Amount]" 1 16)) "#NAME?")
+        c.eqStr("no column by that name" (TableRefTest.valueAt(book "Table1[Nope]" 1 17)) "#REF!")
+        ; Row 20 is nowhere near the table, so there is no "this row" to take.
+        c.eqStr("this row, from outside the table" (TableRefTest.valueAt(book "Table1[[#This Row],[Amount]]" 19 9)) "#VALUE!")
+        c.eqStr("a header row a table does not have" (TableRefTest.valueAt(book "Table1[[#Totals],[Amount]]" 1 18)) "#REF!")
+
+        print "-- it depends on what it reads --"
+        ; The one that a first-run-only implementation passes and a working one
+        ; has to keep passing: change an amount, and the sum has to follow.
+        def engine:FormulaEngine (new FormulaEngine)
+        engine.attach(book)
+        sales.setFormula(1 19 "SUM(Table1[Amount])")
+        engine.rebuildAll()
+        c.eqStr("the sum, before" (sales.getCell(1 19)) "835")
+        sales.setCellRaw(1 2 "1100")
+        engine.syncCell(0 1 2)
+        engine.recalcDirty()
+        c.eqStr("and after an amount changed" (sales.getCell(1 19)) "1835")
+        ; Editing OUTSIDE the table must not disturb it.
+        sales.setCellRaw(30 0 "unrelated")
+        engine.syncCell(0 30 0)
+        engine.recalcDirty()
+        c.eqStr("an edit elsewhere leaves it alone" (sales.getCell(1 19)) "1835")
+
+        print "-- a column name that is not ASCII --"
+        ; Built here rather than added to the fixture, because what is being
+        ; checked is the NAME matching and not the file.
+        def acc:SheetTable (new SheetTable)
+        acc.name = "Kirjanpito"
+        acc.r0 = 0
+        acc.c0 = 0
+        acc.r1 = 3
+        acc.c1 = 1
+        acc.headerRowCount = 1
+        def aName:string "M"
+        str_append aName (strfromcode 228)
+        str_append aName (strfromcode 228)
+        str_append aName "r"
+        str_append aName (strfromcode 228)
+        push acc.columns "Tunnus"
+        push acc.columns aName
+        c.eqInt("an accented column is found by its own name" (acc.columnIndex(aName)) 1)
+        c.eqInt("with space around it" (acc.columnIndex((" " + aName + " "))) 1)
+        c.eqInt("and a name it does not have is not" (acc.columnIndex("Muu")) -1)
+        ; Folding is `to_lowercase`, which is ASCII-only on the C++ target — a
+        ; byte-wise tolower leaves the two bytes of "ä" alone. So ASCII case is
+        ; ignored on both targets and non-ASCII case is honoured on neither
+        ; reliably; this pins the half that IS the same, which is the half
+        ; every real file depends on.
+        c.eqInt("ASCII case is ignored" (acc.columnIndex("TUNNUS")) 0)
+        c.eqStr("folding trims and lowercases ASCII" (SheetTable.fold("  Unit Price ")) "unit price")
+
+        print "-- and the table survives being written back out --"
+        ; Without this the feature is half of one: open a file with a table,
+        ; save it, and the table is gone — along with every formula that named
+        ; it, which then reads #NAME? in a file that was only ever opened.
+        def fresh:WorkbookModel (new WorkbookModel)
+        def l2:XlsxLoader (new XlsxLoader)
+        def reload0:boolean (l2.loadPath("gallery/datagrid/fixtures/tables.xlsx" fresh))
+        c.ok("the fixture opened again" reload0)
+        def w:XlsxWriter (new XlsxWriter)
+        def wrote:boolean (w.write(fresh "gallery/datagrid/harness/out/export" "tables-roundtrip.xlsx"))
+        c.ok("and wrote" wrote)
+        def back:WorkbookModel (new WorkbookModel)
+        def l3:XlsxLoader (new XlsxLoader)
+        def reread:boolean (l3.loadPath("gallery/datagrid/harness/out/export/tables-roundtrip.xlsx" back))
+        c.ok("and read back" reread)
+        if reread {
+            def bs:SpreadsheetModel (back.sheetAt(0))
+            c.eqInt("the table came back with it" (bs.tableCount()) 1)
+            def bt:SheetTable (bs.tableAt(0))
+            c.eqStr("under its own name" bt.name "Table1")
+            c.eqInt("the same rectangle" bt.r1 4)
+            c.eqInt("the same columns" (bt.columnCount()) 4)
+            c.eqStr("named the same" (bt.columnAt(3)) "Unit Price")
+            c.ok("the second table too" (back.hasTable("Staff")))
+            def bt2:SheetTable (back.tableByName("Staff"))
+            c.eqInt("with its totals row" bt2.totalsRowCount 1)
+            ; The point of all of it: a formula naming the table still works.
+            def bsheet:SpreadsheetModel (back.sheetAt(0))
+            bsheet.setFormula(1 20 "SUM(Table1[Amount])")
+            def e2:FormulaEngine (new FormulaEngine)
+            e2.attach(back)
+            e2.rebuildAll()
+            c.eqStr("and a formula naming it still calculates" (bsheet.getCell(1 20)) "835")
+        }
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

@@ -434,6 +434,13 @@ class UIContext {
         tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))
     }
 
+    ; The same, cut to a rectangle. See `UITextRenderer.drawLineClipped`: a
+    ; clip that only decides whether to draw a string at all lets a label run
+    ; across its neighbours and off the window.
+    fn textClipped:void (s:string x:int y:int size:double col:EVGColor cx0:int cy0:int cx1:int cy1:int) {
+        tr.drawLineClipped(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)) cx0 cy0 cx1 cy1)
+    }
+
     ; A line of text turned about the centre of its own box, which is the same
     ; anchor every EVG backend rotates about — so a label lands in the same
     ; place here as it does in the browser. Positive degrees turn clockwise, as
