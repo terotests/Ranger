@@ -150,6 +150,22 @@ try {
   must("with the columns the query asked for", queried.includes("revenue"));
   must("and the box reports the engine", queried.includes("rows"));
 
+  // Where the next run goes is a choice, and the box says which sheet it is
+  // about to replace. The sheet a query made is named after the table it
+  // queries rather than "SQL": the launcher's own sheet is "DB sales", so
+  // this one is plain `sales`.
+  must("the box offers to replace this sheet", queried.includes("Update replaces the sheet you are on: sales"));
+  must("and Update is a button", queried.includes("Update"));
+  must("beside the one that adds a tab", queried.includes("New sheet"));
+
+  // Running again from the box re-runs into that sheet. If it made a new one
+  // each time, a third `sales` tab would be on screen.
+  await post({ type: "key", key: "enter" });
+  await sleep(400);
+  const again = (await scene()) || queried;
+  must("a second run does not add another sheet", !again.includes("sales2"));
+  must("and the box is still about the same sheet", again.includes("Update replaces the sheet you are on: sales"));
+
   // The same thing through the command surface, with the query as its argument.
   const status = await command("db.sql", "SELECT country FROM sales ORDER BY country LIMIT 5");
   must("db.sql is a command a host can run", status === 200);
