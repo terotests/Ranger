@@ -1,0 +1,155 @@
+; ==============================================================================
+; RangerSqlTest - the tokenizer, the tree, the generator and one transpile.
+; ==============================================================================
+;
+; The identity corpus says how MUCH SQL round-trips. This says what the pieces
+; are supposed to do, in the small, so a failure points at a file rather than
+; at a percentage.
+; ==============================================================================
+
+Import "../src/core/Sql.rgr"
+
+class SqlCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got  [" + got + "]")
+            print ("       want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class RangerSqlTest {
+    sfn roundTrip:string (sql:string) {
+        return (Sql.format(sql))
+    }
+
+    sfn main:void () {
+        def c:SqlCheck (new SqlCheck)
+
+        print "== tokenizer =="
+        def tk:SqlTokenizer (new SqlTokenizer)
+        def tokens:[SqlToken] (tk.tokenize("SELECT foo.bar, SUM(price) FROM orders WHERE price >= 10"))
+        c.eqInt("token count, EOF included" (array_length tokens) 16)
+        def t0:SqlToken (itemAt tokens 0)
+        c.ok("SELECT is a keyword" t0.keyword)
+        def t1:SqlToken (itemAt tokens 1)
+        c.ok("foo is not a keyword" (t1.keyword == false))
+        c.eqStr("identifier text" t1.text "foo")
+        def quoted:[SqlToken] (tk.tokenize("SELECT \"a b\" FROM t"))
+        def q1:SqlToken (itemAt quoted 1)
+        c.eqInt("quoted name is its own kind" q1.kind 2)
+        c.eqStr("quotes are not part of the name" q1.text "a b")
+        def strings:[SqlToken] (tk.tokenize("SELECT 'it''s'"))
+        def s1:SqlToken (itemAt strings 1)
+        c.eqStr("doubled quote is one quote" s1.text "it's")
+        def numbers:[SqlToken] (tk.tokenize("SELECT 1.12e-10, 0x1f, .5"))
+        def n1:SqlToken (itemAt numbers 1)
+        c.eqStr("exponent is one token" n1.text "1.12e-10")
+
+        print "== precedence =="
+        c.eqStr("multiplication first" (RangerSqlTest.roundTrip("SELECT 1 + 2 * 3")) "SELECT 1 + 2 * 3")
+        c.eqStr("parentheses are kept" (RangerSqlTest.roundTrip("SELECT (1 + 2) * 3")) "SELECT (1 + 2) * 3")
+        c.eqStr("AND binds tighter than OR" (RangerSqlTest.roundTrip("SELECT a OR b AND c")) "SELECT a OR b AND c")
+        c.eqStr("BETWEEN does not swallow AND" (RangerSqlTest.roundTrip("SELECT x BETWEEN 1 AND 2 AND y")) "SELECT x BETWEEN 1 AND 2 AND y")
+
+        print "== the tree =="
+        def parsed:SqlParseResult (Sql.parse("SELECT a + 1 AS z FROM foo"))
+        c.ok("it parsed" (parsed.okResult()))
+        def json:string (parsed.toJson())
+        c.ok("the tree is a select" (DbTextTest.hasSub(json "\"type\":\"select\"")))
+        c.ok("with an alias in it" (DbTextTest.hasSub(json "\"type\":\"alias\"")))
+        c.ok("over a binary +" (DbTextTest.hasSub(json "\"text\":\"+\"")))
+        def cols:[int] (parsed.ast.findKind(parsed.root (SqlKind.column())))
+        c.eqInt("one column reference" (array_length cols) 1)
+
+        print "== SELECT =="
+        def full:string "SELECT u.name, SUM(o.price) AS total FROM users AS u JOIN orders AS o ON o.user_id = u.id WHERE u.active = 1 GROUP BY u.name HAVING SUM(o.price) > 100 ORDER BY total DESC LIMIT 10"
+        c.eqStr("the whole shape survives" (RangerSqlTest.roundTrip(full)) full)
+        c.eqStr("distinct" (RangerSqlTest.roundTrip("SELECT DISTINCT a FROM t")) "SELECT DISTINCT a FROM t")
+        c.eqStr("count star" (RangerSqlTest.roundTrip("SELECT COUNT(*) FROM t")) "SELECT COUNT(*) FROM t")
+        c.eqStr("count distinct" (RangerSqlTest.roundTrip("SELECT COUNT(DISTINCT a) FROM t")) "SELECT COUNT(DISTINCT a) FROM t")
+        c.eqStr("case" (RangerSqlTest.roundTrip("SELECT CASE WHEN x > 1 THEN 1 ELSE 0 END")) "SELECT CASE WHEN x > 1 THEN 1 ELSE 0 END")
+        c.eqStr("cast" (RangerSqlTest.roundTrip("SELECT CAST(a AS INT) FROM t")) "SELECT CAST(a AS INT) FROM t")
+        c.eqStr("subquery" (RangerSqlTest.roundTrip("SELECT * FROM (SELECT 1) AS x")) "SELECT * FROM (SELECT 1) AS x")
+        c.eqStr("union" (RangerSqlTest.roundTrip("SELECT 1 UNION ALL SELECT 2")) "SELECT 1 UNION ALL SELECT 2")
+        c.eqStr("cte" (RangerSqlTest.roundTrip("WITH x AS (SELECT 1) SELECT * FROM x")) "WITH x AS (SELECT 1) SELECT * FROM x")
+        c.eqStr("window" (RangerSqlTest.roundTrip("SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) FROM t")) "SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) FROM t")
+        c.eqStr("comment stays" (RangerSqlTest.roundTrip("SELECT a /* x */, b")) "SELECT a /* x */, b")
+
+        print "== write statements =="
+        c.eqStr("insert values" (RangerSqlTest.roundTrip("INSERT INTO foo (a, b) VALUES (1, 2), (3, 4)")) "INSERT INTO foo (a, b) VALUES (1, 2), (3, 4)")
+        c.eqStr("insert select" (RangerSqlTest.roundTrip("INSERT INTO foo SELECT * FROM bar")) "INSERT INTO foo SELECT * FROM bar")
+        c.eqStr("update" (RangerSqlTest.roundTrip("UPDATE t SET a = 1, b = 2 WHERE id = 3")) "UPDATE t SET a = 1, b = 2 WHERE id = 3")
+        c.eqStr("delete" (RangerSqlTest.roundTrip("DELETE FROM t WHERE id = 3")) "DELETE FROM t WHERE id = 3")
+
+        print "== dialects =="
+        ; The point of a common tree: the same query, written for two engines.
+        c.eqStr("sqlite IFNULL becomes postgres COALESCE" (Sql.transpile("SELECT IFNULL(a, 0) FROM t" "sqlite" "postgres")) "SELECT COALESCE(a, 0) FROM t")
+        c.eqStr("and back again" (Sql.transpile("SELECT COALESCE(a, 0) FROM t" "postgres" "sqlite")) "SELECT IFNULL(a, 0) FROM t")
+        c.eqStr("mysql LIMIT offset, count is the same two numbers" (Sql.transpile("SELECT a FROM t LIMIT 10, 20" "mysql" "postgres")) "SELECT a FROM t LIMIT 20 OFFSET 10")
+        c.eqStr("mysql quotes with backticks" (Sql.transpile("SELECT \"a b\" FROM t" "postgres" "mysql")) ("SELECT " + (strfromcode 96) + "a b" + (strfromcode 96) + " FROM t"))
+        c.eqStr("mysql has no NULLS LAST" (Sql.transpile("SELECT a FROM t ORDER BY a DESC NULLS LAST" "postgres" "mysql")) "SELECT a FROM t ORDER BY a DESC")
+        c.eqStr("postgres cast shorthand becomes CAST" (Sql.transpile("SELECT x::INT FROM t" "postgres" "sqlite")) "SELECT CAST(x AS INT) FROM t")
+
+        print "== errors =="
+        def bad:SqlParseResult (Sql.parse("SELECT FROM"))
+        c.ok("a broken query does not parse" ((bad.okResult()) == false))
+        c.ok("and says where" ((strlen bad.error) > 0))
+        def bad2:SqlParseResult (Sql.parse("SELECT a FROM t WHERE"))
+        c.ok("an unfinished WHERE does not parse" ((bad2.okResult()) == false))
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
+
+class DbTextTest {
+    sfn hasSub:boolean (hay:string needle:string) {
+        def hl:int (strlen hay)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (hl < nl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            if ((substring hay i (i + nl)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

@@ -1,0 +1,107 @@
+; ==============================================================================
+; SqlToken - what the tokenizer produces.
+; ==============================================================================
+;
+; One flat token type list rather than SQLGlot's several hundred TokenTypes:
+; the parser asks "is this the word JOIN" by comparing text, and the tokenizer
+; only has to classify what a thing IS - a name, a quoted name, a string, a
+; number, an operator, a bind parameter.
+;
+; `upper` is carried beside `text` because keyword matching happens on every
+; token and uppercasing the same word twenty times is the kind of thing that
+; makes a parser slow on the targets without a JIT.
+; ==============================================================================
+
+class SqlTokenKind {
+    ; A comment is a token like any other; the parser attaches it to whatever
+    ; it was written next to rather than throwing it away.
+    sfn commentText:int () {
+        return 7
+    }
+    sfn endOfInput:int () {
+        return 0
+    }
+    ; A bare word: an identifier, or a keyword - `keyword` says which.
+    sfn word:int () {
+        return 1
+    }
+    ; "x" / `x` / [x] - always an identifier, never a keyword.
+    sfn quotedName:int () {
+        return 2
+    }
+    sfn stringLiteral:int () {
+        return 3
+    }
+    sfn numberLiteral:int () {
+        return 4
+    }
+    sfn punctuation:int () {
+        return 5
+    }
+    sfn bindParameter:int () {
+        return 6
+    }
+
+    sfn kindName:string (kind:int) {
+        if (kind == 1) {
+            return "word"
+        }
+        if (kind == 2) {
+            return "quoted"
+        }
+        if (kind == 3) {
+            return "string"
+        }
+        if (kind == 4) {
+            return "number"
+        }
+        if (kind == 5) {
+            return "punct"
+        }
+        if (kind == 6) {
+            return "param"
+        }
+        if (kind == 7) {
+            return "comment"
+        }
+        return "eof"
+    }
+}
+
+class SqlToken {
+    def kind:int 0
+    ; The value: an identifier without its quotes, a string without its quotes,
+    ; a number as written, an operator as written.
+    def text:string ""
+    def upper:string ""
+    def keyword:boolean false
+    ; Which quote character opened it (34 " / 96 ` / 91 [), 0 when unquoted.
+    def quote:int 0
+    ; N'abc', x'ff', E'\n' - the letters in front of a string literal, kept
+    ; separate from its value so the generator writes them back rather than
+    ; making them part of the text.
+    def prefix:string ""
+    def start:int 0
+    def line:int 1
+
+    Constructor () {
+    }
+
+    fn isWord:boolean (word:string) {
+        if (kind != 1) {
+            return false
+        }
+        return (upper == word)
+    }
+
+    fn isPunct:boolean (symbol:string) {
+        if (kind != 5) {
+            return false
+        }
+        return (text == symbol)
+    }
+
+    fn describe:string () {
+        return ((SqlTokenKind.kindName(kind)) + "(" + text + ")")
+    }
+}
