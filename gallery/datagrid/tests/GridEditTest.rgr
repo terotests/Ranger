@@ -7,6 +7,7 @@
 ; ==============================================================================
 
 Import "../src/GridApp.rgr"
+Import "../src/xlsx/XlsxWorksheet.rgr"
 
 class EditChecker {
     def passed:int 0
@@ -2764,6 +2765,76 @@ class GridEditTest {
         up.addScroll(3)
         vScroll.update(up)
         c.ok("wheel up decreases scrollY" (vScroll.grid.scrollY < midY))
+
+        print "== freezing panes does not decide what a heading is =="
+        ; Sorting a column marked the column and moved nothing, on a real file,
+        ; and the reason was two steps back from the sorter: `sortedOrder` took
+        ; `model.freezeRows` as the number of heading rows. Freeze nine rows —
+        ; or open a file whose split pane was read as a freeze — and every row
+        ; you could see was a heading, so every row stayed where it was.
+        ;
+        ; Where the window is pinned is a view decision, taken for reading.
+        ; Which rows are a heading is a fact about the data. A frozen FIRST row
+        ; is worth honouring, because it is a heading nearly every time; past
+        ; the first, freezing says nothing.
+        def frozenSort:GridApp (new GridApp)
+        frozenSort.init("gallery/pdf_writer/assets/fonts")
+        frozenSort.model.clearSheet()
+        frozenSort.model.resize(10 3)
+        frozenSort.model.setCellRaw(0 0 "Unit")
+        def fsVals:[string] ([] "Research" "Manufacturing" "Corporate" "Accounting" "Speciality")
+        def fsr:int 1
+        while (fsr <= 5) {
+            frozenSort.model.setCellRaw(fsr 0 (itemAt fsVals (fsr - 1)))
+            fsr = (fsr + 1)
+        }
+        frozenSort.model.freezeRows = 9
+        frozenSort.sheetView.markDirty()
+        frozenSort.sheetView.rebuild()
+        frozenSort.applySort(0 true)
+        c.eqStr("the heading stays put" (frozenSort.model.getCell(0 0)) "Unit")
+        c.eqStr("and the body sorted anyway" (frozenSort.model.getCell(1 0)) "Accounting")
+        c.eqStr("all of it" (frozenSort.model.getCell(2 0)) "Corporate")
+        c.eqStr("in order" (frozenSort.model.getCell(5 0)) "Speciality")
+
+        ; A frozen first row on data that says nothing about itself — no bold,
+        ; no fill, text over text — is still treated as the heading it almost
+        ; certainly is.
+        def frozenOne:GridApp (new GridApp)
+        frozenOne.init("gallery/pdf_writer/assets/fonts")
+        frozenOne.model.clearSheet()
+        frozenOne.model.resize(6 2)
+        frozenOne.model.setCellRaw(0 0 "Zebra")
+        frozenOne.model.setCellRaw(1 0 "Mango")
+        frozenOne.model.setCellRaw(2 0 "Apple")
+        frozenOne.model.setCellRaw(3 0 "Cherry")
+        frozenOne.model.freezeRows = 1
+        frozenOne.sheetView.markDirty()
+        frozenOne.sheetView.rebuild()
+        frozenOne.applySort(0 true)
+        c.eqStr("a frozen first row is a heading" (frozenOne.model.getCell(0 0)) "Zebra")
+        c.eqStr("and the rest sorted under it" (frozenOne.model.getCell(1 0)) "Apple")
+
+        print "== a split pane is not a freeze, and its numbers are not rows =="
+        ; `xSplit` / `ySplit` are counts of rows and columns when the pane says
+        ; `state="frozen"`, and TWIPS — twentieths of a point — when it says
+        ; `state="split"` or says nothing. Read without looking, a sheet split
+        ; a third of the way down reports two thousand frozen rows.
+        def paneXml:string "<worksheet><sheetViews><sheetView><pane xSplit=\"1440\" ySplit=\"2160\" topLeftCell=\"B5\"/></sheetView></sheetViews><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>x</t></is></c></row></sheetData></worksheet>"
+        def paneModel:SpreadsheetModel (new SpreadsheetModel)
+        def paneParser:XlsxWorksheet (new XlsxWorksheet)
+        def paneSst:[string]
+        paneParser.parse(paneXml paneModel paneSst)
+        c.eqInt("a split pane freezes no rows" paneModel.freezeRows 0)
+        c.eqInt("and no columns" paneModel.freezeCols 0)
+
+        def frozenXml:string "<worksheet><sheetViews><sheetView><pane xSplit=\"2\" ySplit=\"1\" topLeftCell=\"C2\" state=\"frozen\"/></sheetView></sheetViews><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>x</t></is></c></row></sheetData></worksheet>"
+        def frozenModel:SpreadsheetModel (new SpreadsheetModel)
+        def frozenParser:XlsxWorksheet (new XlsxWorksheet)
+        def frozenSst:[string]
+        frozenParser.parse(frozenXml frozenModel frozenSst)
+        c.eqInt("a frozen pane still freezes its rows" frozenModel.freezeRows 1)
+        c.eqInt("and its columns" frozenModel.freezeCols 2)
 
         print "== a held key repeats: every event moves the selection =="
         ; The delay before the first repeat and the rate after it belong to the
