@@ -2337,13 +2337,17 @@ class GridView {
             return
         }
         if (k == (ToolIcon.borderMore())) {
-            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 8)) 14.0 14.0 1.0 ink)
-            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 1)) 14.0 1.0 ink)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 8)) 1.0 14.0 ink)
-            ; The chevron that says "there is more behind this one".
-            this.pushRect(dl (to_double (cx + 2)) (to_double (cy + 6)) 6.0 1.0 dim)
-            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 7)) 4.0 1.0 dim)
-            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 8)) 2.0 1.0 dim)
+            ; A smaller all-borders box, with room under it for the chevron
+            ; that says there is a window behind this one. Drawn at the same
+            ; size as the button beside it, the chevron landed ON the box's
+            ; bottom edge and could not be seen at all.
+            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 8)) 12.0 12.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 3)) 12.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 8)) 1.0 12.0 ink)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy + 5)) 7.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 2)) (to_double (cy + 6)) 5.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 7)) 3.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 8)) 1.0 1.0 ink)
             return
         }
         if (k == (ToolIcon.borderNone())) {
