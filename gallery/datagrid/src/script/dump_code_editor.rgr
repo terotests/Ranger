@@ -38,6 +38,12 @@ class DumpCodeEditor {
         page.nextSample()
         page.status = "SoftCanvas"
         DumpCodeEditor.writePng(page "gallery/datagrid/artifacts" "code_editor_syntax.png")
+        ; …and the two documents that have something wrong with them, which is
+        ; the only way to photograph a diagnostic.
+        page.loadSample(2)
+        DumpCodeEditor.writePng(page "gallery/datagrid/artifacts" "code_editor_problems.png")
+        page.loadSample(3)
+        DumpCodeEditor.writePng(page "gallery/datagrid/artifacts" "code_editor_ranger.png")
         print ("lines=" + (to_string (page.editor.buf.lineCount())) + " tokens=" + (to_string (page.tokenCount())) + " lex=" + (to_string page.lexUs) + "us")
     }
 }

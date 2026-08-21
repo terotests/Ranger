@@ -1,0 +1,58 @@
+; ==============================================================================
+; CodeTokens.rgr — what a coloured run of characters is, in no language
+; ==============================================================================
+;
+; The record every lexer produces and the editor paints. It names KINDS, not
+; JavaScript: a keyword is a keyword in Ranger too, and a plugin for a third
+; language should not have to invent a fourth token type to say "this bit is a
+; string".
+;
+; A kind the painter does not know would simply be drawn plain, so a language
+; may use as few of these as it likes.
+; ==============================================================================
+
+class CodeTokenKind {
+    sfn plain:int ()   { return 0 }
+    sfn ident:int ()   { return 1 }
+    sfn keyword:int () { return 2 }
+    sfn builtin:int () { return 3 }
+    sfn number:int ()  { return 4 }
+    sfn text:int ()    { return 5 }
+    sfn comment:int () { return 6 }
+    sfn punct:int ()   { return 7 }
+    sfn tag:int ()     { return 8 }
+    sfn attr:int ()    { return 9 }
+}
+
+class CodeToken {
+    def start:int 0
+    def len:int 0
+    def kind:int 0
+
+    Constructor () {
+    }
+
+    sfn create:CodeToken (start:int len:int kind:int) {
+        def t:CodeToken (new CodeToken)
+        t.start = start
+        t.len = len
+        t.kind = kind
+        return t
+    }
+}
+
+class CodeTokenLine {
+    def tokens:[CodeToken]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length tokens)
+    }
+
+    fn at:CodeToken (i:int) {
+        return (itemAt tokens i)
+    }
+}
+

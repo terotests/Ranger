@@ -118,11 +118,45 @@ class CodeEditorWeb {
 
     ; A file the host fetched: the text, and what to call it in the header.
     fn setDocumentNamed:void (name:string src:string) {
-        page.setText(src)
-        if ((strlen name) > 0) {
-            page.docName = name
+        ; Named first, THEN loaded: the name is what picks the language plugin,
+        ; and a document diagnosed as JavaScript because it arrived before its
+        ; own name is a .rgr file full of imaginary errors.
+        page.setNamedText(name src)
+        page.status = ("opened " + name + " · " + (page.languageId()))
+    }
+
+    fn languageId:string () {
+        return (page.languageId())
+    }
+
+    fn problemCount:int () {
+        return (page.editor.problemCount())
+    }
+
+    ; How long the last full check took, and whether what is shown is the fast
+    ; pass alone — the two numbers that say whether a language plugin is
+    ; affordable on this document.
+    fn diagnoseMicros:int () {
+        return page.editor.diagnoseUs
+    }
+
+    fn fastPassOnly:boolean () {
+        return page.editor.quickOnly
+    }
+
+    ; The problems, flattened for a host that wants to list them: one line per
+    ; diagnostic, "line|col|severity|source|message".
+    fn problemLines:[string] () {
+        def out:[string]
+        def n:int (page.editor.problemCount())
+        def i:int 0
+        while (i < n) {
+            def d:EditorDiagnostic (page.editor.problemAt(i))
+            def row:string ((to_string d.line) + "|" + (to_string d.col) + "|" + (to_string d.severity) + "|" + d.source + "|" + d.message)
+            push out row
+            i = (i + 1)
         }
-        page.status = ("opened " + name)
+        return out
     }
 
     fn nextSample:void () {

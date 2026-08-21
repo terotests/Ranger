@@ -21,6 +21,9 @@
 
 Import "ScriptEditor.rgr"
 Import "GridScript.rgr"
+Import "lang/EditorLanguage.rgr"
+Import "lang/JsLanguage.rgr"
+Import "lang/RangerLanguage.rgr"
 Import "../SoftPainter.rgr"
 Import "../GridImages.rgr"
 Import "../../../game_engine/framebuffer.rgr"
@@ -51,6 +54,11 @@ class CodeEditorPage {
     def lexUs:int 0
     def lastCmds:int 0
     def fontFamily:string "Open Sans"
+    ; The installed language plugins. THIS is the whole installation step: a
+    ; host that wants a third language constructs it and adds it here, and
+    ; nothing else in the editor changes. Nothing is spawned, connected to or
+    ; serialized — see lang/EditorLanguage.rgr for why that is deliberate.
+    def languages:LanguageRegistry (new LanguageRegistry)
 
     def bg:EVGColor (EVGColor.rgb(15 16 22))
     def barBg:EVGColor (EVGColor.rgb(30 32 44))
@@ -77,6 +85,7 @@ class CodeEditorPage {
             status = "ready"
         }
         painter.attach(canvas ctx images W H)
+        this.installLanguages()
         this.loadSample(0)
     }
 
@@ -89,6 +98,7 @@ class CodeEditorPage {
         ctx.attach(canvas)
         painter.attach(canvas ctx images W H)
         status = "no fonts yet"
+        this.installLanguages()
         this.loadSample(0)
     }
 
@@ -123,6 +133,27 @@ class CodeEditorPage {
         return (canvas.raw())
     }
 
+    ; --- languages -------------------------------------------------------------
+    fn installLanguages:void () {
+        if ((languages.count()) > 0) {
+            return
+        }
+        languages.add((new JsLanguage))
+        languages.add((new RangerLanguage))
+    }
+
+    ; Pick by file name and hand it to the editor. A document nothing claims
+    ; gets the base plugin, which complains about nothing — an unknown file
+    ; type is not an error.
+    fn applyLanguage:void () {
+        def lang:EditorLanguage (languages.forFile(docName))
+        editor.setLanguage(lang)
+    }
+
+    fn languageId:string () {
+        return (editor.language.id())
+    }
+
     ; --- documents ------------------------------------------------------------
     ; Two of them, because a highlighter is only ever wrong on the case nobody
     ; put in front of it: one real report script, and one page of nothing but
@@ -133,16 +164,31 @@ class CodeEditorPage {
             docName = "syntax.tsx"
             editor.init((CodeEditorPage.syntaxSampler()))
         } {
-            docName = "report.tsx"
-            editor.init((GridScript.starter("Sales")))
+            if (which == 2) {
+                docName = "broken.tsx"
+                editor.init((CodeEditorPage.brokenSampler()))
+            } {
+                if (which == 3) {
+                    docName = "sample.rgr"
+                    editor.init((CodeEditorPage.rangerSampler()))
+                } {
+                    docName = "report.tsx"
+                    editor.init((GridScript.starter("Sales")))
+                }
+            }
         }
+        this.applyLanguage()
         editor.focused = true
-        status = ("loaded " + docName)
+        def problems:int (editor.problemCount())
+        status = ("loaded " + docName + " · " + (this.languageId()))
+        if (problems > 0) {
+            status = (status + " · " + (to_string problems) + " problem(s)")
+        }
     }
 
     fn nextSample:void () {
         def next:int (sample + 1)
-        if (next > 1) {
+        if (next > 3) {
             next = 0
         }
         this.loadSample(next)
@@ -155,6 +201,15 @@ class CodeEditorPage {
     fn setText:void (src:string) {
         editor.init(src)
         docName = "untitled.tsx"
+        this.applyLanguage()
+    }
+
+    fn setNamedText:void (name:string src:string) {
+        editor.init(src)
+        if ((strlen name) > 0) {
+            docName = name
+        }
+        this.applyLanguage()
     }
 
     sfn syntaxSampler:string () {
@@ -198,6 +253,44 @@ class CodeEditorPage {
         return out
     }
 
+    ; A document with real mistakes in it, so the page shows what a diagnostic
+    ; looks like without anyone having to type one.
+    sfn brokenSampler:string () {
+        def out:string ""
+        str_append out "// Three mistakes, on purpose. The squiggles are the language plugin's.\n"
+        str_append out "const rows = sheetRows('Sales');\n"
+        str_append out "\n"
+        str_append out "function totals(rows) {\n"
+        str_append out "  let sum = 0;\n"
+        str_append out "  for (let i = 1; i < rows.length; i++ {\n"
+        str_append out "    sum += rows[i][1];\n"
+        str_append out "  }\n"
+        str_append out "  return sum;\n"
+        str_append out "}\n"
+        return out
+    }
+
+    ; …and one in another language entirely, which is the point of there being
+    ; a registry rather than a JavaScript checker wired into the editor.
+    sfn rangerSampler:string () {
+        def out:string ""
+        str_append out "; Ranger, checked by a different plugin through the same seam.\n"
+        str_append out "class Report {\n"
+        str_append out "    def rows:[string]\n"
+        str_append out "\n"
+        str_append out "    fn total:int () {\n"
+        str_append out "        def n:int (array_length rows)\n"
+        str_append out "        return this.countOf(n)\n"
+        str_append out "    }\n"
+        str_append out "\n"
+        str_append out "    fn countOf:int (n:int) {\n"
+        str_append out "        (this.log(n))\n"
+        str_append out "        return (n + 1\n"
+        str_append out "    }\n"
+        str_append out "}\n"
+        return out
+    }
+
     ; --- input ----------------------------------------------------------------
     fn editorTop:int () {
         return headerH
@@ -234,6 +327,9 @@ class CodeEditorPage {
             while (ti < tn) {
                 def ch:int (charAt t ti)
                 ; The page's own two chords; everything else is the editor's.
+                if ((ch == 101) || (ch == 69)) {
+                    this.jumpToNextProblem()
+                } {
                 if ((ch == 107) || (ch == 75)) {
                     this.nextSample()
                 } {
@@ -242,6 +338,7 @@ class CodeEditorPage {
                     } {
                         editor.handleCtrlChar(ch)
                     }
+                }
                 }
                 ti = (ti + 1)
             }
@@ -256,6 +353,18 @@ class CodeEditorPage {
             def key:int (inp.keyAt(ki))
             editor.handleKey(key inp.shiftDown inp.ctrlDown)
             ki = (ki + 1)
+        }
+    }
+
+    fn jumpToNextProblem:void () {
+        def moved:boolean (editor.goToNextProblem())
+        if (moved == false) {
+            status = "no problems"
+            return
+        }
+        def d:EditorDiagnostic (editor.problemOnLine(editor.sel.caret.line))
+        if (d.line >= 0) {
+            status = (d.label())
         }
     }
 
@@ -313,7 +422,7 @@ class CodeEditorPage {
         def i:int 0
         def cnt:int (array_length editor.lines)
         while (i < cnt) {
-            def line:JsTokenLine (itemAt editor.lines i)
+            def line:CodeTokenLine (itemAt editor.lines i)
             n = (n + (line.count()))
             i = (i + 1)
         }
@@ -344,12 +453,32 @@ class CodeEditorPage {
         this.pushText(dl caret 12.0 (to_double (sy + 5)) 12.0 accent)
         def lineCount:int (editor.buf.lineCount())
         def toks:int (this.tokenCount())
+        def problems:int (editor.problemCount())
         def info:string ((to_string lineCount) + " lines · " + (to_string toks) + " tokens · lex " + (to_string lexUs) + " us · " + (to_string lastCmds) + " draw cmds")
+        if (problems > 0) {
+            info = (info + " · " + (to_string problems) + " problem(s)")
+        }
+        info = (info + " · check " + (to_string editor.diagnoseUs) + " us")
+        if editor.quickOnly {
+            ; Said out loud: what is on screen is the fast pass, and the full
+            ; one is waiting for the typing to stop.
+            info = (info + " (fast pass)")
+        }
         this.pushText(dl info 84.0 (to_double (sy + 5)) 12.0 barMuted)
+        ; The complaint about the line the caret is on, in the colour of its
+        ; severity — a message that stays out of the way until it is wanted.
+        def here:EditorDiagnostic (editor.problemOnLine(editor.sel.caret.line))
         def right:string status
+        if (here.line >= 0) {
+            right = (here.message)
+        }
         if ((strlen right) > 0) {
+            def rightCol:EVGColor barMuted
+            if (here.line >= 0) {
+                rightCol = (editor.theme.forSeverity(here.severity))
+            }
             def rw:int (to_int (ctx.tr.measureWidth(right 12.0)))
-            this.pushText(dl right (to_double ((W - rw) - 12)) (to_double (sy + 5)) 12.0 barMuted)
+            this.pushText(dl right (to_double ((W - rw) - 12)) (to_double (sy + 5)) 12.0 rightCol)
         }
         lastCmds = (dl.count())
         frame = (frame + 1)

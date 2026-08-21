@@ -20,50 +20,7 @@
 ; punctuation, so `i < rows.length` keeps its colour.
 ; ==============================================================================
 
-class JsTokenKind {
-    sfn plain:int ()   { return 0 }
-    sfn ident:int ()   { return 1 }
-    sfn keyword:int () { return 2 }
-    sfn builtin:int () { return 3 }
-    sfn number:int ()  { return 4 }
-    sfn text:int ()    { return 5 }
-    sfn comment:int () { return 6 }
-    sfn punct:int ()   { return 7 }
-    sfn tag:int ()     { return 8 }
-    sfn attr:int ()    { return 9 }
-}
-
-class JsToken {
-    def start:int 0
-    def len:int 0
-    def kind:int 0
-
-    Constructor () {
-    }
-
-    sfn create:JsToken (start:int len:int kind:int) {
-        def t:JsToken (new JsToken)
-        t.start = start
-        t.len = len
-        t.kind = kind
-        return t
-    }
-}
-
-class JsTokenLine {
-    def tokens:[JsToken]
-
-    Constructor () {
-    }
-
-    fn count:int () {
-        return (array_length tokens)
-    }
-
-    fn at:JsToken (i:int) {
-        return (itemAt tokens i)
-    }
-}
+Import "lang/CodeTokens.rgr"
 
 class JsTokenizer {
     ; Carried between lines: 0 code, 1 inside /* … */, 2 inside `…`
@@ -141,9 +98,9 @@ class JsTokenizer {
 
     ; Every line of the document, in order. State is carried, so this must see
     ; the lines from the top — which is what the editor does after each edit.
-    fn tokenize:[JsTokenLine] (lines:[string]) {
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
         state = 0
-        def out:[JsTokenLine]
+        def out:[CodeTokenLine]
         def i:int 0
         def n:int (array_length lines)
         while (i < n) {
@@ -153,8 +110,8 @@ class JsTokenizer {
         return out
     }
 
-    fn tokenizeLine:JsTokenLine (line:string) {
-        def out:JsTokenLine (new JsTokenLine)
+    fn tokenizeLine:CodeTokenLine (line:string) {
+        def out:CodeTokenLine (new CodeTokenLine)
         def n:int (strlen line)
         def i:int 0
         def kw:[string] (JsTokenizer.keywords())
@@ -170,7 +127,7 @@ class JsTokenizer {
                     state = 0
                     stop = (endAt + 2)
                 }
-                push out.tokens (JsToken.create(i (stop - i) (JsTokenKind.comment())))
+                push out.tokens (CodeToken.create(i (stop - i) (CodeTokenKind.comment())))
                 i = stop
                 continue
             }
@@ -183,7 +140,7 @@ class JsTokenizer {
                     state = 0
                     tStop = (tEnd + 1)
                 }
-                push out.tokens (JsToken.create(i (tStop - i) (JsTokenKind.text())))
+                push out.tokens (CodeToken.create(i (tStop - i) (CodeTokenKind.text())))
                 i = tStop
                 continue
             }
@@ -200,7 +157,7 @@ class JsTokenizer {
             if (ch == 47) {
                 def next:int (this.charOr(line (i + 1)))
                 if (next == 47) {
-                    push out.tokens (JsToken.create(i (n - i) (JsTokenKind.comment())))
+                    push out.tokens (CodeToken.create(i (n - i) (CodeTokenKind.comment())))
                     i = n
                     continue
                 }
@@ -214,7 +171,7 @@ class JsTokenizer {
                         state = 0
                         bStop = (bEnd + 2)
                     }
-                    push out.tokens (JsToken.create(i (bStop - i) (JsTokenKind.comment())))
+                    push out.tokens (CodeToken.create(i (bStop - i) (CodeTokenKind.comment())))
                     i = bStop
                     continue
                 }
@@ -228,7 +185,7 @@ class JsTokenizer {
                 } {
                     sStop = (sEnd + 1)
                 }
-                push out.tokens (JsToken.create(i (sStop - i) (JsTokenKind.text())))
+                push out.tokens (CodeToken.create(i (sStop - i) (CodeTokenKind.text())))
                 i = sStop
                 continue
             }
@@ -242,13 +199,13 @@ class JsTokenizer {
                     state = 0
                     qStop = (qEnd + 1)
                 }
-                push out.tokens (JsToken.create(i (qStop - i) (JsTokenKind.text())))
+                push out.tokens (CodeToken.create(i (qStop - i) (CodeTokenKind.text())))
                 i = qStop
                 continue
             }
             if (JsTokenizer.isDigit(ch)) {
                 def numEnd:int (this.readNumber(line i))
-                push out.tokens (JsToken.create(i (numEnd - i) (JsTokenKind.number())))
+                push out.tokens (CodeToken.create(i (numEnd - i) (CodeTokenKind.number())))
                 i = numEnd
                 continue
             }
@@ -262,37 +219,37 @@ class JsTokenizer {
                 def nameCh:int (this.charOr(line nameAt))
                 if (JsTokenizer.isIdentStart(nameCh)) {
                     def tagEnd:int (this.readIdent(line nameAt))
-                    push out.tokens (JsToken.create(i (tagEnd - i) (JsTokenKind.tag())))
+                    push out.tokens (CodeToken.create(i (tagEnd - i) (CodeTokenKind.tag())))
                     i = tagEnd
                     continue
                 }
             }
             ; `/>` and `>` closing a tag read as tag rather than as arithmetic.
             if (ch == 62) {
-                push out.tokens (JsToken.create(i 1 (JsTokenKind.tag())))
+                push out.tokens (CodeToken.create(i 1 (CodeTokenKind.tag())))
                 i = (i + 1)
                 continue
             }
             if (JsTokenizer.isIdentStart(ch)) {
                 def idEnd:int (this.readIdent(line i))
                 def word:string (substring line i idEnd)
-                def kind:int (JsTokenKind.ident())
+                def kind:int (CodeTokenKind.ident())
                 if (JsTokenizer.wordIn(word kw)) {
-                    kind = (JsTokenKind.keyword())
+                    kind = (CodeTokenKind.keyword())
                 } {
                     if (JsTokenizer.wordIn(word bi)) {
-                        kind = (JsTokenKind.builtin())
+                        kind = (CodeTokenKind.builtin())
                     } {
                         if (this.isAttributeAt(line idEnd)) {
-                            kind = (JsTokenKind.attr())
+                            kind = (CodeTokenKind.attr())
                         }
                     }
                 }
-                push out.tokens (JsToken.create(i (idEnd - i) kind))
+                push out.tokens (CodeToken.create(i (idEnd - i) kind))
                 i = idEnd
                 continue
             }
-            push out.tokens (JsToken.create(i 1 (JsTokenKind.punct())))
+            push out.tokens (CodeToken.create(i 1 (CodeTokenKind.punct())))
             i = (i + 1)
         }
         return out

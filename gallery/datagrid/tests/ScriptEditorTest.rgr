@@ -11,6 +11,8 @@
 
 Import "../src/script/JsTokens.rgr"
 Import "../src/script/ScriptEditor.rgr"
+Import "../src/script/lang/JsLanguage.rgr"
+Import "../src/script/lang/RangerLanguage.rgr"
 
 class Checker {
     def passed:int 0
@@ -38,11 +40,11 @@ class Checker {
 class ScriptEditorTest {
 
     ; The kind the lexer gave the token starting at `at`, or -1.
-    sfn kindAt:int (line:JsTokenLine at:int) {
+    sfn kindAt:int (line:CodeTokenLine at:int) {
         def i:int 0
         def n:int (line.count())
         while (i < n) {
-            def t:JsToken (line.at(i))
+            def t:CodeToken (line.at(i))
             if (t.start == at) {
                 return t.kind
             }
@@ -51,8 +53,8 @@ class ScriptEditorTest {
         return -1
     }
 
-    sfn textOf:string (src:string line:JsTokenLine index:int) {
-        def t:JsToken (line.at(index))
+    sfn textOf:string (src:string line:CodeTokenLine index:int) {
+        def t:CodeToken (line.at(index))
         def stop:int (t.start + t.len)
         return (substring src t.start stop)
     }
@@ -63,36 +65,36 @@ class ScriptEditorTest {
         print "== the lexer =="
         def lx:JsTokenizer (new JsTokenizer)
         def src:string "const rows = sheetRows('Sales'); // read the sheet"
-        def line:JsTokenLine (lx.tokenizeLine(src))
-        c.eqInt("const is a keyword" (ScriptEditorTest.kindAt(line 0)) (JsTokenKind.keyword()))
-        c.eqInt("rows is an identifier" (ScriptEditorTest.kindAt(line 6)) (JsTokenKind.ident()))
-        c.eqInt("sheetRows is a builtin" (ScriptEditorTest.kindAt(line 13)) (JsTokenKind.builtin()))
-        c.eqInt("'Sales' is text" (ScriptEditorTest.kindAt(line 23)) (JsTokenKind.text()))
-        c.eqInt("the comment runs to the end" (ScriptEditorTest.kindAt(line 33)) (JsTokenKind.comment()))
+        def line:CodeTokenLine (lx.tokenizeLine(src))
+        c.eqInt("const is a keyword" (ScriptEditorTest.kindAt(line 0)) (CodeTokenKind.keyword()))
+        c.eqInt("rows is an identifier" (ScriptEditorTest.kindAt(line 6)) (CodeTokenKind.ident()))
+        c.eqInt("sheetRows is a builtin" (ScriptEditorTest.kindAt(line 13)) (CodeTokenKind.builtin()))
+        c.eqInt("'Sales' is text" (ScriptEditorTest.kindAt(line 23)) (CodeTokenKind.text()))
+        c.eqInt("the comment runs to the end" (ScriptEditorTest.kindAt(line 33)) (CodeTokenKind.comment()))
 
-        def numLine:JsTokenLine (lx.tokenizeLine("let x = 12.5 + 0x1f;"))
-        c.eqInt("a number is a number" (ScriptEditorTest.kindAt(numLine 8)) (JsTokenKind.number()))
-        c.eqInt("so is a hex one" (ScriptEditorTest.kindAt(numLine 15)) (JsTokenKind.number()))
+        def numLine:CodeTokenLine (lx.tokenizeLine("let x = 12.5 + 0x1f;"))
+        c.eqInt("a number is a number" (ScriptEditorTest.kindAt(numLine 8)) (CodeTokenKind.number()))
+        c.eqInt("so is a hex one" (ScriptEditorTest.kindAt(numLine 15)) (CodeTokenKind.number()))
 
         print "== JSX, without a parser =="
-        def jsx:JsTokenLine (lx.tokenizeLine("  <Label width='90px' fontWeight={w}>{v}</Label>"))
-        c.eqInt("an opening tag" (ScriptEditorTest.kindAt(jsx 2)) (JsTokenKind.tag()))
-        c.eqInt("width is an attribute" (ScriptEditorTest.kindAt(jsx 9)) (JsTokenKind.attr()))
-        c.eqInt("fontWeight too" (ScriptEditorTest.kindAt(jsx 22)) (JsTokenKind.attr()))
-        def cmp:JsTokenLine (lx.tokenizeLine("if (i < rows.length) { }"))
-        c.eqInt("but a comparison is punctuation" (ScriptEditorTest.kindAt(cmp 6)) (JsTokenKind.punct()))
-        def eq:JsTokenLine (lx.tokenizeLine("if (a == b) { }"))
-        c.eqInt("and == is not an attribute" (ScriptEditorTest.kindAt(eq 4)) (JsTokenKind.ident()))
+        def jsx:CodeTokenLine (lx.tokenizeLine("  <Label width='90px' fontWeight={w}>{v}</Label>"))
+        c.eqInt("an opening tag" (ScriptEditorTest.kindAt(jsx 2)) (CodeTokenKind.tag()))
+        c.eqInt("width is an attribute" (ScriptEditorTest.kindAt(jsx 9)) (CodeTokenKind.attr()))
+        c.eqInt("fontWeight too" (ScriptEditorTest.kindAt(jsx 22)) (CodeTokenKind.attr()))
+        def cmp:CodeTokenLine (lx.tokenizeLine("if (i < rows.length) { }"))
+        c.eqInt("but a comparison is punctuation" (ScriptEditorTest.kindAt(cmp 6)) (CodeTokenKind.punct()))
+        def eq:CodeTokenLine (lx.tokenizeLine("if (a == b) { }"))
+        c.eqInt("and == is not an attribute" (ScriptEditorTest.kindAt(eq 4)) (CodeTokenKind.ident()))
 
         print "== state that outlives a line =="
         def lines:[string] ([] _:string ( "a = 1; /* opens" "still inside" "closes */ b = 2;" ))
-        def out:[JsTokenLine] (lx.tokenize(lines))
+        def out:[CodeTokenLine] (lx.tokenize(lines))
         c.eqInt("three lines in, three out" (array_length out) 3)
-        def l1:JsTokenLine (itemAt out 1)
+        def l1:CodeTokenLine (itemAt out 1)
         c.eqInt("the whole middle line is comment" (l1.count()) 1)
-        c.eqInt("and it knows it" (ScriptEditorTest.kindAt(l1 0)) (JsTokenKind.comment()))
-        def l2:JsTokenLine (itemAt out 2)
-        c.eqInt("code resumes after the close" (ScriptEditorTest.kindAt(l2 10)) (JsTokenKind.ident()))
+        c.eqInt("and it knows it" (ScriptEditorTest.kindAt(l1 0)) (CodeTokenKind.comment()))
+        def l2:CodeTokenLine (itemAt out 2)
+        c.eqInt("code resumes after the close" (ScriptEditorTest.kindAt(l2 10)) (CodeTokenKind.ident()))
 
         print "== the editor =="
         def ed:ScriptEditor (new ScriptEditor)
@@ -151,10 +153,14 @@ class ScriptEditorTest {
         c.ok("and the selection is still open" ((kb.sel.isCollapsed()) == false))
 
         print "== tokens follow the text =="
+        ; With a language plugin installed. Without one the editor draws plain
+        ; text on purpose — an unknown file should not be coloured as if it
+        ; were understood.
+        ed.setLanguage((new JsLanguage))
         ed.init("const a = 1;")
         ed.ensureTokens()
-        def first:JsTokenLine (ed.tokensFor(0))
-        c.eqInt("lexed on demand" (ScriptEditorTest.kindAt(first 0)) (JsTokenKind.keyword()))
+        def first:CodeTokenLine (ed.tokensFor(0))
+        c.eqInt("lexed on demand" (ScriptEditorTest.kindAt(first 0)) (CodeTokenKind.keyword()))
         def v1:int ed.tokenVersion
         ed.ensureTokens()
         c.eqInt("and not re-lexed for nothing" ed.tokenVersion v1)
@@ -162,8 +168,83 @@ class ScriptEditorTest {
         ed.handleText(" // note")
         ed.ensureTokens()
         c.ok("re-lexed after an edit" (ed.tokenVersion != v1))
-        def again:JsTokenLine (ed.tokensFor(0))
-        c.eqInt("and the comment is there" (ScriptEditorTest.kindAt(again 13)) (JsTokenKind.comment()))
+        def again:CodeTokenLine (ed.tokensFor(0))
+        c.eqInt("and the comment is there" (ScriptEditorTest.kindAt(again 13)) (CodeTokenKind.comment()))
+
+        print "== a language plugin says what is wrong =="
+        def js:JsLanguage (new JsLanguage)
+        c.eqStr("it knows its name" (js.id()) "javascript")
+        c.ok("and which files are its own" (js.handlesFile("report.tsx")))
+        c.ok("but not another language's" ((js.handlesFile("thing.rgr")) == false))
+
+        def clean:[EditorDiagnostic] (js.diagnose("function render() {\n  return 1;\n}\n"))
+        c.eqInt("a good document has no problems" (array_length clean) 0)
+        c.ok("and it was really parsed, not skipped" js.parsedLastRun)
+
+        def unclosed:[EditorDiagnostic] (js.diagnose("function render() {\n  return 1;\n"))
+        c.eqInt("an unclosed brace is one problem" (array_length unclosed) 1)
+        def ub:EditorDiagnostic (itemAt unclosed 0)
+        c.eqInt("reported where it was OPENED" ub.line 0)
+        c.eqInt("at its column" ub.col 18)
+        c.eqInt("as an error" ub.severity (DiagnosticSeverity.error()))
+        c.eqStr("by the plugin that found it" ub.source "javascript")
+
+        def stray:[EditorDiagnostic] (js.diagnose("const a = 1;\n}\n"))
+        c.ok("a stray closer is caught too" ((array_length stray) > 0))
+        def sd:EditorDiagnostic (itemAt stray 0)
+        c.eqInt("on its own line" sd.line 1)
+
+        ; A document that is structurally fine but does not parse: the second
+        ; pass, the real parser, the one ComponentEngine will use.
+        def bad:[EditorDiagnostic] (js.diagnose("const = 1;\n"))
+        c.ok("the parser catches what the lexer cannot" ((array_length bad) > 0))
+        def pd:EditorDiagnostic (itemAt bad 0)
+        c.eqInt("with a line" pd.line 0)
+        c.ok("and something to say" ((strlen pd.message) > 4))
+
+        print "== and another plugin, for another language =="
+        def rg:RangerLanguage (new RangerLanguage)
+        c.eqStr("its own name" (rg.id()) "ranger")
+        c.ok("its own files" (rg.handlesFile("Thing.rgr")))
+        def rgClean:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:int () {\n        return (this.g())\n    }\n}\n"))
+        c.eqInt("clean Ranger is clean" (array_length rgClean) 0)
+        def rgOpen:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:int () {\n        return (1 + 2\n    }\n"))
+        c.ok("an unclosed paren is a problem" ((array_length rgOpen) > 0))
+        def rgWarn:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:int () {\n        return this.g()\n    }\n}\n"))
+        c.eqInt("a returned bare call is a warning" (array_length rgWarn) 1)
+        def rw:EditorDiagnostic (itemAt rgWarn 0)
+        c.eqInt("on the return line" rw.line 2)
+        c.eqInt("as a warning, not an error" rw.severity (DiagnosticSeverity.warning()))
+        def rgRecv:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:void () {\n        (this.g()).x()\n    }\n}\n"))
+        c.ok("so is a statement starting with a receiver" ((array_length rgRecv) > 0))
+
+        print "== the registry picks by file name =="
+        def reg:LanguageRegistry (new LanguageRegistry)
+        reg.add(js)
+        reg.add(rg)
+        def pick1:EditorLanguage (reg.forFile("summary.tsx"))
+        c.eqStr("a .tsx goes to the javascript plugin" (pick1.id()) "javascript")
+        def pick2:EditorLanguage (reg.forFile("GridApp.rgr"))
+        c.eqStr("a .rgr goes to the ranger one" (pick2.id()) "ranger")
+        def pick3:EditorLanguage (reg.forFile("notes.txt"))
+        c.eqStr("and an unknown file complains about nothing" (pick3.id()) "text")
+        def byId:EditorLanguage (reg.byId("ranger"))
+        c.eqStr("plugins can be found by id" (byId.id()) "ranger")
+
+        print "== the editor shows them, and forgets them when fixed =="
+        def ed2:ScriptEditor (new ScriptEditor)
+        ed2.setLanguage(js)
+        ed2.init("function render() {\n  return 1;\n")
+        c.eqInt("one problem to start with" (ed2.problemCount()) 1)
+        c.ok("the line knows it has one" (ed2.hasProblemOnLine(0)))
+        c.ok("another line does not" ((ed2.hasProblemOnLine(1)) == false))
+        ed2.moveCaret(1 11 false)
+        ed2.handleText("}")
+        c.eqInt("and closing it clears the complaint" (ed2.problemCount()) 0)
+        ed2.moveCaret(0 0 false)
+        ed2.handleText("{")
+        c.ok("breaking it again brings one back" ((ed2.problemCount()) > 0))
+        c.ok("and the caret can be sent to it" (ed2.goToNextProblem()))
 
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))

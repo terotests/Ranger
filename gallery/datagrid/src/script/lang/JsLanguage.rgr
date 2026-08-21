@@ -1,0 +1,231 @@
+; ==============================================================================
+; JsLanguage.rgr — JavaScript / TSX, checked by the parser that will run it
+; ==============================================================================
+;
+; Two passes, and the order matters.
+;
+; STRUCTURE, from the lexer. A bracket with no partner, a string with no end, a
+; block comment with no `*/`. These are cheap, they have exact positions, and
+; they are the errors a document has WHILE IT IS BEING TYPED — half of them
+; exist for one keystroke.
+;
+; THE PARSE, from `TSParserSimple` — the same parser `ComponentEngine` runs the
+; script with. That is the point: what the editor underlines is what the engine
+; will refuse, rather than a second opinion from a second grammar that agrees
+; with the first one most of the time. The parser reports its first diagnostic
+; with a position (`firstErrorLine` / `firstErrorCol`), recovers, and carries
+; on; we take that one.
+;
+; The parse runs under a LINE BUDGET. It is a full parse on every change, and
+; on a large document that is milliseconds per keystroke — so above the budget
+; the structural pass stands alone, and the editor says so rather than quietly
+; going quiet.
+; ==============================================================================
+
+Import "EditorLanguage.rgr"
+Import "EditorDiagnostic.rgr"
+Import "../JsTokens.rgr"
+Import "../../../../ts_parser/ts_parser_simple.rgr"
+
+class JsLanguage {
+    Extends(EditorLanguage)
+
+    ; Above this many lines, only the structural pass runs.
+    def maxParseLines:int 4000
+    ; Microseconds the last full parse took, for whoever wants to show it.
+    def parseUs:int 0
+    def parsedLastRun:boolean false
+    def lexer:JsTokenizer (new JsTokenizer)
+
+    Constructor () {
+    }
+
+    fn id:string () {
+        return "javascript"
+    }
+
+    fn label:string () {
+        return "JavaScript / TSX"
+    }
+
+    fn handlesFile:boolean (name:string) {
+        if (EditorLanguage.hasSuffix(name ".tsx")) {
+            return true
+        }
+        if (EditorLanguage.hasSuffix(name ".ts")) {
+            return true
+        }
+        if (EditorLanguage.hasSuffix(name ".jsx")) {
+            return true
+        }
+        if (EditorLanguage.hasSuffix(name ".js")) {
+            return true
+        }
+        return (EditorLanguage.hasSuffix(name ".mjs"))
+    }
+
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        return (lexer.tokenize(lines))
+    }
+
+    ; What the lexer alone can be sure of. Cheap enough for every keystroke.
+    fn quickDiagnose:[EditorDiagnostic] (lines:[string]) {
+        def out:[EditorDiagnostic]
+        this.structure(lines out)
+        return out
+    }
+
+    fn diagnose:[EditorDiagnostic] (source:string) {
+        def out:[EditorDiagnostic]
+        def lines:[string] (EditorLanguage.linesOf(source))
+        this.structure(lines out)
+        parsedLastRun = false
+        if ((array_length out) > 0) {
+            ; A document with an unclosed brace parses as nonsense; the second
+            ; opinion would be a cascade of positions inside code that is fine.
+            return out
+        }
+        if ((array_length lines) > maxParseLines) {
+            return out
+        }
+        this.parse(source out)
+        return out
+    }
+
+    ; --- pass one: what the lexer can be sure about ----------------------------
+    fn structure:void (lines:[string] out:[EditorDiagnostic]) {
+        def toks:[CodeTokenLine] (lexer.tokenize(lines))
+        ; Open brackets, as three parallel stacks: what, and where.
+        def stackCh:[int]
+        def stackLine:[int]
+        def stackCol:[int]
+        def li:int 0
+        def n:int (array_length toks)
+        while (li < n) {
+            def text:string (itemAt lines li)
+            def line:CodeTokenLine (itemAt toks li)
+            def ti:int 0
+            def tn:int (line.count())
+            while (ti < tn) {
+                def t:CodeToken (line.at(ti))
+                if (t.kind == (CodeTokenKind.punct())) {
+                    def ch:int (charAt text t.start)
+                    if (JsLanguage.isOpen(ch)) {
+                        push stackCh ch
+                        push stackLine li
+                        push stackCol t.start
+                    }
+                    if (JsLanguage.isClose(ch)) {
+                        def depth:int (array_length stackCh)
+                        if (depth == 0) {
+                            push out (EditorDiagnostic.span(li t.start (t.start + 1) (DiagnosticSeverity.error()) ("stray '" + (strfromcode ch) + "' — nothing opened here") "javascript"))
+                        } {
+                            def openCh:int (itemAt stackCh (depth - 1))
+                            def want:int (JsLanguage.closerFor(openCh))
+                            if (want != ch) {
+                                def msg:string ((("'" + (strfromcode ch)) + "' closes a '") + (strfromcode openCh) + "' — expected '" + (strfromcode want) + "'")
+                                push out (EditorDiagnostic.span(li t.start (t.start + 1) (DiagnosticSeverity.error()) msg "javascript"))
+                            }
+                            removeLast stackCh
+                            removeLast stackLine
+                            removeLast stackCol
+                        }
+                    }
+                }
+                ti = (ti + 1)
+            }
+            li = (li + 1)
+        }
+        ; Whatever is still open at the end of the document is missing its
+        ; partner, and the useful place to say so is where it was OPENED.
+        def rest:int (array_length stackCh)
+        if (rest > 0) {
+            def openCh:int (itemAt stackCh (rest - 1))
+            def atLine:int (itemAt stackLine (rest - 1))
+            def atCol:int (itemAt stackCol (rest - 1))
+            def msg2:string ((("'" + (strfromcode openCh)) + "' is never closed"))
+            push out (EditorDiagnostic.span(atLine atCol (atCol + 1) (DiagnosticSeverity.error()) msg2 "javascript"))
+        }
+        ; The lexer carries two states past the end of a line; either of them
+        ; still open at the end of the document is an unterminated literal.
+        if (lexer.state == 1) {
+            def last:int ((array_length lines) - 1)
+            def lastLen:int (strlen (itemAt lines last))
+            push out (EditorDiagnostic.span(last 0 lastLen (DiagnosticSeverity.error()) "block comment is never closed — /* with no */" "javascript"))
+        }
+        if (lexer.state == 2) {
+            def last2:int ((array_length lines) - 1)
+            def lastLen2:int (strlen (itemAt lines last2))
+            push out (EditorDiagnostic.span(last2 0 lastLen2 (DiagnosticSeverity.error()) "template literal is never closed — ` with no `" "javascript"))
+        }
+    }
+
+    sfn isOpen:boolean (ch:int) {
+        if (ch == 40) {
+            return true
+        }
+        if (ch == 91) {
+            return true
+        }
+        return (ch == 123)
+    }
+
+    sfn isClose:boolean (ch:int) {
+        if (ch == 41) {
+            return true
+        }
+        if (ch == 93) {
+            return true
+        }
+        return (ch == 125)
+    }
+
+    sfn closerFor:int (open:int) {
+        if (open == 40) {
+            return 41
+        }
+        if (open == 91) {
+            return 93
+        }
+        return 125
+    }
+
+    ; --- pass two: the parser the engine will use ------------------------------
+    fn parse:void (source:string out:[EditorDiagnostic]) {
+        def t0:double (wall_clock_ms)
+        def lex:TSLexer (new TSLexer(source))
+        def tokens:[Token] (lex.tokenize())
+        def parser:TSParserSimple (new TSParserSimple)
+        ; A diagnostic on stdout is no use to a page with no console open, and
+        ; it is printed once per keystroke. The host reads the fields instead.
+        parser.setQuiet(true)
+        parser.initParser(tokens)
+        parser.tsxMode = true
+        def ast:TSNode (parser.parseProgram())
+        def t1:double (wall_clock_ms)
+        def took:double ((t1 - t0) * 1000.0)
+        parseUs = (to_int took)
+        parsedLastRun = true
+        if (parser.errorCount == 0) {
+            return
+        }
+        def line:int parser.firstErrorLine
+        def col:int parser.firstErrorCol
+        ; The parser counts from one; the editor counts from zero.
+        if (line > 0) {
+            line = (line - 1)
+        } {
+            line = 0
+        }
+        if (col > 0) {
+            col = (col - 1)
+        } {
+            col = 0
+        }
+        def msg:string (parser.firstError())
+        if ((strlen msg) == 0) {
+            msg = "the script does not parse"
+        }
+        push out (EditorDiagnostic.span(line col (col + 1) (DiagnosticSeverity.error()) msg "javascript"))
+    }
+}

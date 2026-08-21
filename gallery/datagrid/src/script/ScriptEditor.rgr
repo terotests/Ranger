@@ -21,7 +21,9 @@
 ; away from the letter it is supposed to be in front of.
 ; ==============================================================================
 
-Import "JsTokens.rgr"
+Import "lang/EditorLanguage.rgr"
+Import "lang/CodeTokens.rgr"
+Import "lang/EditorDiagnostic.rgr"
 Import "../../../text_editor/src/EditorBuffer.rgr"
 Import "../../../text_editor/src/EditorSelection.rgr"
 Import "../../../text_editor/src/EditorLayout.rgr"
@@ -51,33 +53,43 @@ class ScriptEditorTheme {
     def punct:EVGColor (EVGColor.rgb(137 221 255))
     def tag:EVGColor (EVGColor.rgb(247 118 142))
     def attr:EVGColor (EVGColor.rgb(224 175 104))
+    ; Diagnostics.
+    def errorInk:EVGColor (EVGColor.rgb(247 118 142))
+    def warningInk:EVGColor (EVGColor.rgb(224 175 104))
 
     Constructor () {
     }
 
+    fn forSeverity:EVGColor (severity:int) {
+        if (severity == (DiagnosticSeverity.error())) {
+            return errorInk
+        }
+        return warningInk
+    }
+
     fn forKind:EVGColor (kind:int) {
-        if (kind == (JsTokenKind.keyword())) {
+        if (kind == (CodeTokenKind.keyword())) {
             return keyword
         }
-        if (kind == (JsTokenKind.builtin())) {
+        if (kind == (CodeTokenKind.builtin())) {
             return builtin
         }
-        if (kind == (JsTokenKind.number())) {
+        if (kind == (CodeTokenKind.number())) {
             return number
         }
-        if (kind == (JsTokenKind.text())) {
+        if (kind == (CodeTokenKind.text())) {
             return text
         }
-        if (kind == (JsTokenKind.comment())) {
+        if (kind == (CodeTokenKind.comment())) {
             return comment
         }
-        if (kind == (JsTokenKind.punct())) {
+        if (kind == (CodeTokenKind.punct())) {
             return punct
         }
-        if (kind == (JsTokenKind.tag())) {
+        if (kind == (CodeTokenKind.tag())) {
             return tag
         }
-        if (kind == (JsTokenKind.attr())) {
+        if (kind == (CodeTokenKind.attr())) {
             return attr
         }
         return plain
@@ -89,8 +101,7 @@ class ScriptEditor {
     def sel:EditorSelection (new EditorSelection)
     def layout:EditorLayout (new EditorLayout)
     def theme:ScriptEditorTheme (new ScriptEditorTheme)
-    def lexer:JsTokenizer (new JsTokenizer)
-    def lines:[JsTokenLine]
+    def lines:[CodeTokenLine]
     ; The buffer version the tokens were made from. Re-lexing 200 lines is
     ; cheap, doing it sixty times a second because nothing changed is not.
     def tokenVersion:int -1
@@ -98,6 +109,24 @@ class ScriptEditor {
     def fontFamily:string "Open Sans"
     ; Bumped by whoever edits; the owner reads it to know the script is dirty.
     def dirty:boolean false
+    ; The language plugin that says what is wrong with this document, and what
+    ; it last said. Nothing here knows what a syntax error IS — see
+    ; lang/EditorLanguage.rgr.
+    def language:EditorLanguage (new EditorLanguage)
+    def diagnostics:[EditorDiagnostic]
+    ; Two clocks, because there are two passes. The cheap one runs on every
+    ; change; the expensive one waits for a pause once it has proved expensive.
+    def quickVersion:int -1
+    def diagVersion:int -1
+    def diagnoseUs:int 0
+    ; Over this, the full pass stops running on the keystroke path and waits
+    ; for the typing to stop. 8 ms is about half a frame.
+    def diagnoseBudgetUs:int 8000
+    def idleMs:double 350.0
+    def lastEditMs:double 0.0
+    ; True while what is shown came from the cheap pass alone — the status bar
+    ; can say so rather than implying the document has been fully checked.
+    def quickOnly:boolean false
 
     Constructor () {
     }
@@ -165,22 +194,129 @@ class ScriptEditor {
         return (py < bottom)
     }
 
+    ; --- diagnostics -----------------------------------------------------------
+    fn setLanguage:void (lang:EditorLanguage) {
+        language = lang
+        tokenVersion = -1
+        diagVersion = -1
+        quickVersion = -1
+        diagnoseUs = 0
+        clear diagnostics
+    }
+
+    ; Re-run the plugin when, and only when, the document changed. The same
+    ; rule the tokens follow, for the same reason: a plugin that parses is not
+    ; free, and nothing has changed sixty times a second.
+    fn ensureDiagnostics:void () {
+        ; The cheap pass, on every change. A bracket that has just lost its
+        ; partner should be underlined while the finger is still on the key.
+        if (quickVersion != buf.version) {
+            diagnostics = (language.quickDiagnose(buf.lines))
+            quickVersion = buf.version
+            quickOnly = true
+        }
+        if (diagVersion == buf.version) {
+            return
+        }
+        ; The full pass, if it can be afforded. "Afforded" is measured, not
+        ; declared: a plugin that answered quickly last time is asked again
+        ; immediately, and one that did not waits for a gap in the typing.
+        def now:double (wall_clock_ms)
+        def idleFor:double (now - lastEditMs)
+        def cheap:boolean (diagnoseUs <= diagnoseBudgetUs)
+        if (cheap == false) {
+            if (idleFor < idleMs) {
+                return
+            }
+        }
+        def t0:double (wall_clock_ms)
+        diagnostics = (language.diagnose((buf.getText())))
+        def t1:double (wall_clock_ms)
+        def took:double ((t1 - t0) * 1000.0)
+        diagnoseUs = (to_int took)
+        diagVersion = buf.version
+        quickOnly = false
+    }
+
+    fn problemCount:int () {
+        this.ensureDiagnostics()
+        return (array_length diagnostics)
+    }
+
+    fn problemAt:EditorDiagnostic (i:int) {
+        return (itemAt diagnostics i)
+    }
+
+    ; The first complaint about this line, or a blank one. The status bar shows
+    ; it for the line the caret is on, which is how a message stays out of the
+    ; way until it is wanted.
+    fn problemOnLine:EditorDiagnostic (line:int) {
+        this.ensureDiagnostics()
+        def i:int 0
+        def n:int (array_length diagnostics)
+        while (i < n) {
+            def d:EditorDiagnostic (itemAt diagnostics i)
+            if (d.coversLine(line)) {
+                return d
+            }
+            i = (i + 1)
+        }
+        def blank:EditorDiagnostic (new EditorDiagnostic)
+        blank.line = -1
+        return blank
+    }
+
+    fn hasProblemOnLine:boolean (line:int) {
+        def d:EditorDiagnostic (this.problemOnLine(line))
+        return (d.line >= 0)
+    }
+
+    ; Caret to the next complaint, wrapping. F8 in every other editor.
+    fn goToNextProblem:boolean () {
+        this.ensureDiagnostics()
+        def n:int (array_length diagnostics)
+        if (n == 0) {
+            return false
+        }
+        def here:int sel.caret.line
+        def best:int -1
+        def i:int 0
+        while (i < n) {
+            def d:EditorDiagnostic (itemAt diagnostics i)
+            if (d.line > here) {
+                if (best < 0) {
+                    best = i
+                }
+            }
+            i = (i + 1)
+        }
+        if (best < 0) {
+            best = 0
+        }
+        def target:EditorDiagnostic (itemAt diagnostics best)
+        this.moveCaret(target.line target.col false)
+        layout.preferCol = sel.caret.col
+        layout.ensureCaretVisible(buf sel)
+        return true
+    }
+
     ; --- tokens ---------------------------------------------------------------
     fn ensureTokens:void () {
         if (tokenVersion == buf.version) {
             return
         }
-        lines = (lexer.tokenize(buf.lines))
+        ; Through the plugin: the editor does not know which lexer that is.
+        lines = (language.tokenize(buf.lines))
         tokenVersion = buf.version
     }
 
-    fn tokensFor:JsTokenLine (line:int) {
+    fn tokensFor:CodeTokenLine (line:int) {
         if (line < 0) {
-            def none:JsTokenLine (new JsTokenLine)
+            def none:CodeTokenLine (new CodeTokenLine)
             return none
         }
         if (line >= (array_length lines)) {
-            def none2:JsTokenLine (new JsTokenLine)
+            def none2:CodeTokenLine (new CodeTokenLine)
             return none2
         }
         return (itemAt lines line)
@@ -241,6 +377,7 @@ class ScriptEditor {
         layout.syncMetrics(tr)
         layout.clampScroll(buf)
         this.ensureTokens()
+        this.ensureDiagnostics()
         def x0:double (to_double layout.x)
         def y0:double (to_double layout.y)
         def w0:double (to_double layout.w)
@@ -282,6 +419,11 @@ class ScriptEditor {
             li = (li + 1)
         }
 
+        ; Diagnostics over the text: a squiggle under the span and a mark in
+        ; the gutter, so a problem below the fold is still visible as a colour
+        ; in the margin.
+        this.paintDiagnostics(dl tr first last)
+
         ; Caret: on for half a second, off for half a second, at 60 fps.
         if focused {
             if ((caretLine >= first) && (caretLine <= last)) {
@@ -307,6 +449,83 @@ class ScriptEditor {
         edge.b = (theme.border.blue())
         edge.a = (theme.border.alpha())
         push dl.cmds edge
+    }
+
+    ; A wave, drawn as rectangles rather than a font glyph or a path: every
+    ; backend this editor runs on can draw a rectangle, and the SDL binary has
+    ; no shape library at all.
+    fn paintSquiggle:void (dl:EVGDisplayList x0:double y:double x1:double col:EVGColor) {
+        def x:double x0
+        def step:double 3.0
+        def up:boolean true
+        while (x < x1) {
+            def dy:double 0.0
+            if (up == false) {
+                dy = 2.0
+            }
+            def w:double step
+            def over:double ((x + w) - x1)
+            if (over > 0.0) {
+                w = (w - over)
+            }
+            if (w > 0.5) {
+                this.pushRect(dl x (y + dy) w 1.0 col)
+            }
+            up = (up == false)
+            x = (x + step)
+        }
+    }
+
+    fn paintDiagnostics:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
+        def i:int 0
+        def n:int (array_length diagnostics)
+        while (i < n) {
+            def d:EditorDiagnostic (itemAt diagnostics i)
+            def col:EVGColor (theme.forSeverity(d.severity))
+            def dl0:int d.line
+            def dl1:int d.endLine
+            def line:int dl0
+            while (line <= dl1) {
+                if ((line >= first) && (line <= last)) {
+                    def text:string (buf.lineAt(line))
+                    def len:int (strlen text)
+                    def c0:int 0
+                    def c1:int len
+                    if (line == dl0) {
+                        c0 = d.col
+                    }
+                    if (line == dl1) {
+                        c1 = d.endCol
+                    }
+                    if (c1 > len) {
+                        c1 = len
+                    }
+                    if (c1 <= c0) {
+                        ; A zero-width complaint still has to be visible, so it
+                        ; underlines the character it points at.
+                        c1 = (c0 + 1)
+                        if (c1 > len) {
+                            c0 = len
+                            c1 = (len + 1)
+                        }
+                    }
+                    def x0:int (layout.caretPixelX(tr buf line c0))
+                    def x1:int (layout.caretPixelX(tr buf line c1))
+                    def wide:double ((to_double x1) - (to_double x0))
+                    if (wide < 6.0) {
+                        x1 = (x0 + 6)
+                    }
+                    def yBase:double (to_double ((layout.caretPixelY(line)) + layout.lineHeight - 3))
+                    this.paintSquiggle(dl (to_double x0) yBase (to_double x1) col)
+                    ; The gutter mark.
+                    def gx:double (to_double (layout.x + 4))
+                    def gy:double (to_double ((layout.caretPixelY(line)) + 5))
+                    this.pushRect(dl gx gy 3.0 (to_double (layout.lineHeight - 10)) col)
+                }
+                line = (line + 1)
+            }
+            i = (i + 1)
+        }
     }
 
     fn paintSelection:void (dl:EVGDisplayList tr:UITextRenderer first:int last:int) {
@@ -358,7 +577,7 @@ class ScriptEditor {
         if ((strlen s) == 0) {
             return
         }
-        def toks:JsTokenLine (this.tokensFor(line))
+        def toks:CodeTokenLine (this.tokensFor(line))
         def n:int (toks.count())
         if (n == 0) {
             def plainX:int (layout.caretPixelX(tr buf line 0))
@@ -367,7 +586,7 @@ class ScriptEditor {
         }
         def i:int 0
         while (i < n) {
-            def t:JsToken (toks.at(i))
+            def t:CodeToken (toks.at(i))
             def stop:int (t.start + t.len)
             def part:string (substring s t.start stop)
             def px:int (layout.caretPixelX(tr buf line t.start))
@@ -379,6 +598,7 @@ class ScriptEditor {
 
     ; --- editing --------------------------------------------------------------
     fn markEdited:void (p:EditorPos) {
+        lastEditMs = (wall_clock_ms)
         sel.setCaret(p.line p.col)
         sel.collapseToCaret()
         layout.preferCol = sel.caret.col

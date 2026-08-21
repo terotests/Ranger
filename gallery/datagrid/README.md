@@ -652,6 +652,14 @@ way out of the Tab key so the editor is not a keyboard trap. **CodeMirror 6 is
 the reference** — the compare bench gives both editors the same document and
 the same key presses and prints where each caret landed: 19 of 19 steps agree.
 
+Errors are underlined, and **which errors** is a plugin's business, not the
+editor's: `EditorLanguage` is the seam, `JsLanguage` checks TSX with the very
+parser `ComponentEngine` will run the script with, and `RangerLanguage` checks
+`.rgr` files with its own lexer and its own lints. It is the Language Server
+idea with the server taken out — a plugin is a class, `registry.add` is the
+installation, and nothing has to be running for it to work, which is what lets
+the same editor do it in a browser tab and inside a native SDL binary.
+
 The text model is [`gallery/text_editor`](../text_editor)'s — buffer, selection
 and layout — rather than a third one written for this. Details, keys and what
 is deliberately missing: [`docs/CODE_EDITOR.md`](docs/CODE_EDITOR.md).

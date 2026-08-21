@@ -321,7 +321,73 @@ async function main() {
     s = await state(page);
     check("Ctrl+Z undoes it", !s.text.includes("// pasted line"));
 
+    console.log("\n== the language plugin, in the browser ==");
+    await page.evaluate(() => window.__editorWeb.setDocumentNamed("broken.tsx", "function f() {\n  return 1;\n"));
+    await page.waitForTimeout(120);
+    let diag = await page.evaluate(() => ({
+      lang: window.__editorWeb.languageId(),
+      count: window.__editorWeb.problemCount(),
+      lines: window.__editorWeb.problemLines(),
+    }));
+    check("a .tsx is diagnosed by the javascript plugin", diag.lang === "javascript", diag.lang);
+    check("and its unclosed brace is found", diag.count === 1, JSON.stringify(diag.lines));
+    check("with a line, a column and a source", /^0\|13\|0\|javascript\|/.test(diag.lines[0] || ""), diag.lines[0]);
+
+    // The squiggle has to REACH the picture, not just the model. The page
+    // redraws on its own frame, so this waits for the drawing rather than
+    // guessing how long one takes.
+    const countSquiggles = () =>
+      page.evaluate(() =>
+        (window.__editorDoc ? window.__editorDoc.list.cmds : []).filter(
+          // The wave is 3px-wide, 1px-tall rectangles in the error colour.
+          (c) => c.k === 0 && c.h === 1 && c.c && c.c[0] === 247 && c.c[1] === 118,
+        ).length,
+      );
+    const drawn = await page
+      .waitForFunction(
+        () =>
+          (window.__editorDoc ? window.__editorDoc.list.cmds : []).filter(
+            (c) => c.k === 0 && c.h === 1 && c.c && c.c[0] === 247 && c.c[1] === 118,
+          ).length >= 2,
+        null,
+        { timeout: 5000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    check("and it is drawn as a squiggle", drawn, await countSquiggles());
+    // …and marked in the gutter, which is what makes a problem below the fold
+    // findable at all.
+    const gutter = await page.evaluate(() =>
+      (window.__editorDoc ? window.__editorDoc.list.cmds : []).some(
+        (c) => c.k === 0 && c.w === 3 && c.h > 5 && c.c && c.c[0] === 247 && c.x < 12,
+      ),
+    );
+    check("and marked in the gutter", gutter);
+
+    await page.evaluate(() => window.__editorWeb.setDocumentNamed("thing.rgr", "class A {\n  fn f:int () {\n    return this.g()\n  }\n}\n"));
+    await page.waitForTimeout(120);
+    diag = await page.evaluate(() => ({
+      lang: window.__editorWeb.languageId(),
+      count: window.__editorWeb.problemCount(),
+      lines: window.__editorWeb.problemLines(),
+    }));
+    check("a .rgr goes to the other plugin", diag.lang === "ranger", diag.lang);
+    check("which has its own opinion", diag.count === 1 && (diag.lines[0] || "").includes("ranger"), JSON.stringify(diag.lines));
+    check("as a warning, not an error", (diag.lines[0] || "").split("|")[2] === "1", diag.lines[0]);
+
+    await page.evaluate(() => window.__editorWeb.setDocumentNamed("notes.txt", "just words\n"));
+    await page.waitForTimeout(120);
+    diag = await page.evaluate(() => ({
+      lang: window.__editorWeb.languageId(),
+      count: window.__editorWeb.problemCount(),
+    }));
+    check("and an unknown file is left alone", diag.lang === "text" && diag.count === 0, diag.lang);
+
     console.log("\n== and it is still drawing ==");
+    // Back to a real document: the checks below are about the scene, and the
+    // one left open by the plugin section is a single line of prose.
+    await page.evaluate(() => window.__editorWeb.nextSample());
+    await page.waitForTimeout(200);
     s = await state(page);
     check("the scene survived all of that", s.cmds > 100, s.cmds);
     check("still in colour", s.colours >= 4, s.colours);

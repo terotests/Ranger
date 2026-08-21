@@ -1,0 +1,173 @@
+; ==============================================================================
+; EditorLanguage.rgr — the seam a language plugs into
+; ==============================================================================
+;
+; The editor knows how to draw a squiggle under a range. It does not know what
+; a syntax error is, and it must not: JavaScript is one answer, Ranger is a
+; different one, and a third language should not need the editor to change.
+;
+; So: a plugin answers three questions.
+;
+;     id()               what it calls itself
+;     handlesFile(name)  is this document mine?
+;     diagnose(source)   what is wrong with it, as ranges
+;
+; This is the Language Server idea with the server taken out. Nothing here
+; spawns a process, opens a socket or serializes JSON — a plugin is a class in
+; the same binary, and `LanguageRegistry.add` is the whole installation step.
+; That is a deliberate limit rather than a stage: the editor runs in a browser
+; tab and inside a native SDL binary as well as under Node, and two of those
+; three have nowhere to run a server. When one is wanted later, the seam is
+; already the right shape — `diagnose` becomes a request and the record it
+; returns is already an LSP diagnostic.
+;
+; What a plugin must not do is take long. `diagnose` runs on the document as it
+; is being typed, so a plugin that cannot answer in a millisecond should answer
+; with less: the JavaScript one parses under a line budget and falls back to
+; structural checks above it.
+; ==============================================================================
+
+Import "EditorDiagnostic.rgr"
+Import "CodeTokens.rgr"
+
+class EditorLanguage {
+    Constructor () {
+    }
+
+    fn id:string () {
+        return "text"
+    }
+
+    fn label:string () {
+        return "Plain text"
+    }
+
+    ; By file name, because that is what a host knows before it has read the
+    ; document. A plugin that wants to sniff the content can look at the source
+    ; in `diagnose` and return nothing.
+    fn handlesFile:boolean (name:string) {
+        return false
+    }
+
+    ; The full pass. It may be expensive — a real parse, a type check, a
+    ; compiler — and the editor will keep it off the keystroke path when it is.
+    fn diagnose:[EditorDiagnostic] (source:string) {
+        def none:[EditorDiagnostic]
+        return none
+    }
+
+    ; The pass that is allowed to run on every keystroke. A plugin whose full
+    ; answer is already cheap can point this at the same code; one that parses
+    ; should answer here with whatever it can be sure of without parsing.
+    ;
+    ; Two speeds rather than one, because the alternative is a slow plugin
+    ; making the editor slow: measured on a 2 000-line document, a full
+    ; JavaScript parse per keystroke cost 72 ms, and the structural pass 1 ms.
+    fn quickDiagnose:[EditorDiagnostic] (lines:[string]) {
+        def none:[EditorDiagnostic]
+        return none
+    }
+
+    ; What the text IS, for the painter. The base answer is "one plain run per
+    ; line", which is what an unknown file should look like: readable, and
+    ; obviously not claiming to understand itself.
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        def out:[CodeTokenLine]
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            def text:string (itemAt lines i)
+            def line:CodeTokenLine (new CodeTokenLine)
+            def len:int (strlen text)
+            if (len > 0) {
+                push line.tokens (CodeToken.create(0 len (CodeTokenKind.plain())))
+            }
+            push out line
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- helpers every plugin needs --------------------------------------------
+    sfn hasSuffix:boolean (s:string suffix:string) {
+        def n:int (strlen suffix)
+        def len:int (strlen s)
+        if (len < n) {
+            return false
+        }
+        def tail:string (substring s (len - n) len)
+        return (tail == suffix)
+    }
+
+    ; A source string as lines, the way the editor holds it — so a plugin that
+    ; works line by line does not each invent its own splitter.
+    sfn linesOf:[string] (source:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen source)
+        while (i < n) {
+            def ch:int (charAt source i)
+            if (ch == 10) {
+                push out cur
+                cur = ""
+            } {
+                if (ch != 13) {
+                    str_append cur (strfromcode ch)
+                }
+            }
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+}
+
+; The installed plugins, in the order they were added. First one that claims a
+; file gets it; a document nothing claims gets the fallback, which complains
+; about nothing.
+class LanguageRegistry {
+    def plugins:[EditorLanguage]
+    def none:EditorLanguage (new EditorLanguage)
+
+    Constructor () {
+    }
+
+    fn add:void (lang:EditorLanguage) {
+        push plugins lang
+    }
+
+    fn count:int () {
+        return (array_length plugins)
+    }
+
+    fn at:EditorLanguage (i:int) {
+        return (itemAt plugins i)
+    }
+
+    fn byId:EditorLanguage (id:string) {
+        def i:int 0
+        def n:int (array_length plugins)
+        while (i < n) {
+            def lang:EditorLanguage (itemAt plugins i)
+            if ((lang.id()) == id) {
+                return lang
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
+    fn forFile:EditorLanguage (name:string) {
+        def i:int 0
+        def n:int (array_length plugins)
+        while (i < n) {
+            def lang:EditorLanguage (itemAt plugins i)
+            if (lang.handlesFile(name)) {
+                return lang
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+}

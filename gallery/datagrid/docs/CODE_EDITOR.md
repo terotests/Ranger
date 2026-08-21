@@ -122,6 +122,94 @@ collapse it *and* move on a character, where every text field collapses to the
 edge and stops. Three rows went red, the fix was six lines, and the unit test
 holds it now.
 
+## Languages are plugins
+
+The editor knows how to colour a run of characters and how to draw a squiggle
+under a range. It does not know what JavaScript is, and it must not — Ranger is
+a different answer, and a third language should not need the editor to change.
+
+```text
+                       ScriptEditor
+                            │  tokenize(lines)   diagnose(source)
+                            ▼
+                      EditorLanguage            ← the seam
+                            ▲
+        ┌───────────────────┼───────────────────┐
+   JsLanguage          RangerLanguage      (yours)
+   JsTokenizer         RangerTokenizer
+   TSParserSimple      bracket + lint
+```
+
+This is the Language Server idea with **the server taken out**. Nothing spawns
+a process, opens a socket or serializes a request: a plugin is a class in the
+same binary and `registry.add(new MyLanguage)` is the whole installation step.
+That is a deliberate limit rather than a stage — the editor runs in a browser
+tab and inside a native SDL binary as well as under Node, and two of those
+three have nowhere to run a server. When one is wanted later, the seam is
+already the right shape: `diagnose` becomes a request, and what it returns is
+already an LSP diagnostic — a range, a severity, a message and a source.
+
+```ranger
+class MyLanguage {
+    Extends(EditorLanguage)
+    fn id:string ()                     { return "mylang" }
+    fn handlesFile:boolean (name:string) { return (EditorLanguage.hasSuffix(name ".my")) }
+    fn tokenize:[CodeTokenLine] (lines:[string])  { … }   ; colours
+    fn quickDiagnose:[EditorDiagnostic] (lines:[string]) { … }   ; every keystroke
+    fn diagnose:[EditorDiagnostic] (source:string)       { … }   ; when it can be afforded
+}
+page.languages.add((new MyLanguage))
+```
+
+### The two that ship
+
+**`JsLanguage`** checks JavaScript / TSX in two passes. The structural one comes
+from the lexer — a bracket with no partner, a string with no end, a block
+comment with no `*/` — and it has exact positions and is cheap enough to run on
+every keystroke, which matters because half of those errors exist for one
+keypress. The second pass is **`TSParserSimple`: the same parser
+`ComponentEngine` will run the script with**. That is the point of it. What the
+editor underlines is what the engine will refuse, rather than a second opinion
+from a second grammar that agrees most of the time. The parser reports its first
+diagnostic with a position, recovers, and carries on.
+
+**`RangerLanguage`** shares no code with it. Its comments start with `;`, its
+keywords are `def` and `fn`, and in an S-expression language a bracket that
+never closes is not one error among many — it is nearly the whole category. It
+also flags the two mistakes `AGENTS.md` says cost this repository the most
+time: a returned call without its own parentheses, and a statement starting
+with a parenthesised receiver. It is a **lint, not the compiler**; wiring the
+Ranger compiler in would give real type errors and cost two megabytes of
+frontend and a second per keystroke, and when that is wanted it arrives as
+another plugin next to this one. That is what the registry is for.
+
+### Diagnostics have two speeds
+
+A plugin that parses is not free, and the bench found out exactly how not-free:
+a full JavaScript parse on every keystroke cost **72 ms** on a 2 000-line
+document, against 1 ms for the structural pass. So the seam has two entry
+points and the editor decides between them by **measuring**, not by asking:
+
+- `quickDiagnose` runs on every change;
+- `diagnose` runs immediately while it keeps answering in under 8 ms, and once
+  it does not, waits for a gap in the typing.
+
+The status bar says `check … us`, and `(fast pass)` while the full answer is
+still pending, so a slow plugin is visible rather than merely slow. With that
+in place the same 2 000-line insert benchmark went from **75.8 ms to 5.8 ms**
+per keystroke, against CodeMirror's 3.5 ms.
+
+### What it looks like
+
+![Two problems in a TSX document](../artifacts/code_editor_problems.png)
+
+![The same seam, checking Ranger](../artifacts/code_editor_ranger.png)
+
+A gutter mark in the severity's colour, a squiggle under the span, and the
+message for the caret's line in the status bar — out of the way until the caret
+is on it. **Ctrl+E** jumps to the next problem. In the browser page **Ctrl+K**
+cycles the samples, two of which are wrong on purpose.
+
 ## The lexer is not a parser
 
 `JsTokens` knows keywords, identifiers, the workbook API's own names, numbers,
@@ -158,9 +246,11 @@ tab.
 
 ## What it is not, yet
 
-No word wrap, no folding, no multiple cursors, no search, no decoration layer
-(the painter reads the token stream directly), no clipboard on the native host,
-no IME.
+No word wrap, no folding, no multiple cursors, no search, no clipboard on the
+native host, no IME. Diagnostics have their own painting rather than a general
+decoration layer — when a second thing wants to mark a range (search hits, a
+runtime error from a script that ran), that layer is the next thing to build,
+and the diagnostic record is already the right shape to feed it.
 
 Two of those are *decisions* rather than tasks, and both are cheaper now than
 later:
