@@ -191,6 +191,15 @@ class PptxEditorShots {
         PptxEditorShots.shot(app9 "09_slide_panel.png")
         app9.pointer(tx9 ((app9.panelThumbY(1)) + 4) false false true)
 
+        ; 10 — the deck re-themed, with the speaker's notes under the slide
+        def app10:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app10.gotoSlide(1)
+        app10.runCommand("theme.palette" "forest")
+        app10.runCommand("notes.set" "Open with the three numbers, then hand over for the demo. Two minutes, no more.")
+        app10.runCommand("notes.edit" "")
+        app10.editor.setCaretPos(0 24 false)
+        PptxEditorShots.shot(app10 "10_theme_and_notes.png")
+
         print "done"
     }
 }

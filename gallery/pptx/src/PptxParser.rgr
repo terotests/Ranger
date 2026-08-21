@@ -1077,6 +1077,49 @@ class PptxParser {
         return hit
     }
 
+    ; The speaker's notes, which live in a part of their own that the slide
+    ; points at. Only the body placeholder is notes — a notes slide also holds
+    ; a thumbnail of the slide and its number, and neither is anything anyone
+    ; typed.
+    fn parseNotes:void (slide:PptxSlide) {
+        def part:string (pkg.findRelationshipByType(slide.partPath "/notesSlide"))
+        if ((strlen part) == 0) {
+            return
+        }
+        slide.notesPart = part
+        def xml:string (pkg.readXml(part))
+        if ((strlen xml) == 0) {
+            return
+        }
+        def root@(optional):PptxXmlNode (xmlParser.parse(xml))
+        if (null? root) {
+            return
+        }
+        def doc:PptxXmlNode (unwrap root)
+        def tree@(optional):PptxXmlNode (doc.find("spTree"))
+        if (null? tree) {
+            return
+        }
+        def shapes:[PptxXmlNode] ((unwrap tree).childrenNamed("sp"))
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sp:PptxXmlNode (itemAt shapes i)
+            def shape:PptxShape (this.parseShape(sp))
+            def isBody:boolean false
+            if (shape.isPlaceholder) {
+                if (shape.phType == "body") {
+                    isBody = true
+                }
+            }
+            if isBody {
+                slide.notes = shape
+                slide.notes.inherited = false
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
     fn parseSlide:PptxSlide (partPath:string width:double height:double) {
         def slide (new PptxSlide())
         slide.partPath = partPath
@@ -1113,6 +1156,7 @@ class PptxParser {
         }
         ; Layout relationship
         slide.layoutPart = (pkg.findRelationshipByType(partPath "/slideLayout"))
+        this.parseNotes(slide)
         return slide
     }
 

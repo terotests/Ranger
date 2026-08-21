@@ -37,6 +37,12 @@ class PptxResolver {
         def hex:string (theme.colorOf(key))
         def out:PptxColor (PptxColor.srgbOf(hex))
         out.alpha = c.alpha
+        ; Where the colour CAME FROM is kept, not just what it resolved to.
+        ; Painting only ever reads `srgb`, so this costs nothing to draw — and
+        ; it is the whole of what re-theming a deck needs: every colour that
+        ; came from the palette can be asked to resolve again from a new one.
+        out.isScheme = true
+        out.scheme = c.scheme
         return out
     }
 

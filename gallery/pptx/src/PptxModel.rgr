@@ -256,10 +256,22 @@ class PptxSlide {
     def bg:PptxColor (new PptxColor())
     def layoutPart:string ""
     def masterPart:string ""
+    ; The speaker's notes, as a shape rather than a string: everything that
+    ; knows how to lay out, measure, caret and edit a shape's text then works
+    ; on them without knowing what notes are.
+    def notes:PptxShape (new PptxShape())
+    def notesPart:string ""
 
     Constructor () {
         def s:[PptxShape]
         shapes = s
+    }
+
+    fn notesText:string () {
+        if (notes.hasText == false) {
+            return ""
+        }
+        return (notes.text.plainText())
     }
 }
 

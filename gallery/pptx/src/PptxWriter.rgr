@@ -52,6 +52,10 @@ class PptxWriter {
     ; relationship part names those and not every picture in the deck.
     def slideMediaUse:[int]
     def slideChartUse:[int]
+    ; The notes part this slide will point at, if it has any notes.
+    def slideNotesPath:string ""
+    def notesPaths:[string]
+    def notesBodies:[string]
     ; Parts of the package being written over, when there is one.
     def sourceParts:[string:boolean]
     def overMode:boolean false
@@ -414,6 +418,10 @@ class PptxWriter {
         charts = c
         def cp:[string]
         chartPaths = cp
+        def np:[string]
+        notesPaths = np
+        def nb:[string]
+        notesBodies = nb
         def sp:[string:boolean]
         sourceParts = sp
         overMode = false
@@ -425,6 +433,7 @@ class PptxWriter {
         slideMediaUse = mu
         def cu:[int]
         slideChartUse = cu
+        slideNotesPath = ""
     }
 
     fn noteMediaUse:void (idx:int) {
@@ -668,6 +677,33 @@ class PptxWriter {
         return (out + "</a:tbl></a:graphicData></a:graphic></p:graphicFrame>")
     }
 
+    ; --- notes ---------------------------------------------------------------
+    ;
+    ; The speaker's notes live in a part of their own, which the slide points
+    ; at. Only the body placeholder is what anyone typed — the rest of a notes
+    ; slide is a picture of the slide and its number.
+    sfn notesXml:string (notes:PptxShape) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notes xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree>"
+        out = (out + "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>")
+        out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes Placeholder\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/>")
+        out = (out + (PptxWriter.bodyXml(notes.text)))
+        return (out + "</p:sp></p:spTree></p:cSld></p:notes>")
+    }
+
+    sfn notesRelsXml:string (slidePath:string) {
+        def target:string (PptxWriter.relTargetFrom("ppt/notesSlides" slidePath))
+        return ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rIdSlide\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"" + target + "\"/></Relationships>")
+    }
+
+    fn noteSlide:void (slide:PptxSlide path:string) {
+        if ((strlen (slide.notesText())) == 0) {
+            return
+        }
+        push notesPaths path
+        push notesBodies (PptxWriter.notesXml(slide.notes))
+        slideNotesPath = path
+    }
+
     ; --- parts ---------------------------------------------------------------
 
     fn slideXml:string (slide:PptxSlide) {
@@ -699,6 +735,10 @@ class PptxWriter {
     ; about it, and the pictures and charts THIS slide uses — not every one in
     ; the deck.
     fn slideRelsXmlFor:string (layoutTarget:string keep:[OpcRelationship]) {
+        def notesRel:string ""
+        if ((strlen slideNotesPath) > 0) {
+            notesRel = ("<Relationship Id=\"rIdNotes\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide\" Target=\"" + (PptxWriter.relTargetFrom("ppt/slides" slideNotesPath)) + "\"/>")
+        }
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
         if ((strlen layoutTarget) > 0) {
             out = (out + "<Relationship Id=\"rIdLayout\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"" + layoutTarget + "\"/>")
@@ -723,7 +763,7 @@ class PptxWriter {
             out = (out + "<Relationship Id=\"rIdChart" + (to_string (cidx + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"" + (PptxWriter.relTargetFrom("ppt/slides" cpath)) + "\"/>")
             j = (j + 1)
         }
-        return (out + "</Relationships>")
+        return (out + notesRel + "</Relationships>")
     }
 
     ; --- charts --------------------------------------------------------------
@@ -860,6 +900,11 @@ class PptxWriter {
             out = (out + "<Override PartName=\"/ppt/charts/chart" + (to_string (j + 1)) + ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>")
             j = (j + 1)
         }
+        def n:int 0
+        while (n < (array_length notesPaths)) {
+            out = (out + "<Override PartName=\"/" + (itemAt notesPaths n) + "\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>")
+            n = (n + 1)
+        }
         return (out + "</Types>")
     }
 
@@ -926,6 +971,7 @@ class PptxWriter {
         while (i < (array_length pres.slides)) {
             def slide:PptxSlide (itemAt pres.slides i)
             push slideBodies (this.slideXml(slide))
+            this.noteSlide(slide ("ppt/notesSlides/notesSlide" + (to_string (i + 1)) + ".xml"))
             def keep:[OpcRelationship]
             push slideRels (this.slideRelsXmlFor("../slideLayouts/slideLayout1.xml" keep))
             i = (i + 1)
@@ -955,6 +1001,13 @@ class PptxWriter {
         while (c < (array_length charts)) {
             this.addXml((itemAt chartPaths c) (itemAt charts c))
             c = (c + 1)
+        }
+        def n:int 0
+        while (n < (array_length notesPaths)) {
+            def npath:string (itemAt notesPaths n)
+            this.addXml(npath (itemAt notesBodies n))
+            this.addXml((OpcPackage.relsPathFor(npath)) (PptxWriter.notesRelsXml(("ppt/slides/slide" + (to_string (n + 1)) + ".xml"))))
+            n = (n + 1)
         }
         this.addXml("[Content_Types].xml" (this.contentTypesXml(pres)))
     }
@@ -1026,6 +1079,22 @@ class PptxWriter {
             }
             if rewrite {
                 def body:string (this.slideXml(slide2))
+                def notesPath:string slide2.notesPart
+                if ((strlen (slide2.notesText())) > 0) {
+                    if ((strlen notesPath) == 0) {
+                        def takenNotes:[string:boolean]
+                        def ni:int 0
+                        while (ni < (array_length notesPaths)) {
+                            set takenNotes (itemAt notesPaths ni) true
+                            ni = (ni + 1)
+                        }
+                        notesPath = (this.freePart("ppt/notesSlides/notesSlide" ".xml" takenNotes))
+                    }
+                    ; The model learns where its notes went, so a second save
+                    ; rewrites that part rather than inventing another one.
+                    slide2.notesPart = notesPath
+                    this.noteSlide(slide2 notesPath)
+                }
                 def keep:[OpcRelationship]
                 def layoutTarget:string ""
                 if (isNew == false) {
@@ -1044,6 +1113,17 @@ class PptxWriter {
                         }
                         if ((indexOf rel.type "/chart") >= 0) {
                             drop = true
+                        }
+                        ; The notes are named again from what the slide holds,
+                        ; and a layout the editor changed is named again too.
+                        if ((indexOf rel.type "/notesSlide") >= 0) {
+                            drop = true
+                        }
+                        if ((indexOf rel.type "/slideLayout") >= 0) {
+                            if ((strlen slide2.layoutPart) > 0) {
+                                drop = true
+                                layoutTarget = (PptxWriter.relTargetFrom("ppt/slides" slide2.layoutPart))
+                            }
                         }
                         if (drop == false) {
                             push keep rel
@@ -1132,6 +1212,31 @@ class PptxWriter {
                 push newParts m.path
             }
             mi = (mi + 1)
+        }
+        def nwi:int 0
+        while (nwi < (array_length notesPaths)) {
+            def npath2:string (itemAt notesPaths nwi)
+            this.addXml(npath2 (itemAt notesBodies nwi))
+            set written npath2 true
+            push newParts npath2
+            def nrels:string (OpcPackage.relsPathFor(npath2))
+            def owner:string ""
+            def oi:int 0
+            while (oi < (array_length pres.slides)) {
+                def cand:PptxSlide (itemAt pres.slides oi)
+                if (cand.notesPart == npath2) {
+                    owner = (itemAt slidePaths oi)
+                }
+                oi = (oi + 1)
+            }
+            if ((strlen owner) == 0) {
+                if (nwi < (array_length slidePaths)) {
+                    owner = (itemAt slidePaths nwi)
+                }
+            }
+            this.addXml(nrels (PptxWriter.notesRelsXml(owner)))
+            set written nrels true
+            nwi = (nwi + 1)
         }
         def chi:int 0
         while (chi < (array_length charts)) {
@@ -1344,6 +1449,9 @@ class PptxWriter {
         }
         if ((indexOf part "ppt/charts/chart") == 0) {
             return "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+        }
+        if ((indexOf part "ppt/notesSlides/notesSlide") == 0) {
+            return "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
         }
         return ""
     }

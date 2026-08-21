@@ -50,6 +50,9 @@ class PptxWriterTest {
         this.testEditedDeck()
         this.testLockRoundTrip()
         this.testFlipRoundTrip()
+        this.testNotesRoundTrip()
+        this.testNotesOverExistingDeck()
+        this.testThemeInFile()
         this.testSaveOver()
         this.testSaveOverStructure()
         print ""
@@ -529,6 +532,117 @@ class PptxWriterTest {
         this.check("and did not become a vertical one" (one.flipV == false))
         this.check("the vertical mirror survived" two.flipV)
         this.check("beside its rotation" (this.near(two.rotation 30.0)))
+        p2.close()
+    }
+
+    fn testNotesRoundTrip:void () {
+        print "--- the speaker's notes are in the file ---"
+        def pres (new PptxPresentation())
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        def a (new PptxShape())
+        a.x = 40.0
+        a.y = 40.0
+        a.width = 200.0
+        a.height = 80.0
+        a.hasXfrm = true
+        a.fill = (PptxColor.srgbOf("4472C4"))
+        push slide.shapes a
+        push pres.slides slide
+        def second (new PptxSlide())
+        second.width = 720.0
+        second.height = 540.0
+        push pres.slides second
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(0)
+        ed.setNotes("Open with the numbers\nThen the demo")
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "notes.pptx")
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "notes.pptx"))
+        this.check("a deck with notes opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s1:PptxSlide (itemAt back.slides 0)
+        this.check("the notes came back" ((s1.notesText()) == "Open with the numbers\nThen the demo"))
+        this.check("and the slide points at them" ((strlen s1.notesPart) > 0))
+        def s2:PptxSlide (itemAt back.slides 1)
+        this.check("a slide with none has none" ((s2.notesText()) == ""))
+        this.check("and no part for them" ((strlen s2.notesPart) == 0))
+        p2.close()
+    }
+
+    fn testNotesOverExistingDeck:void () {
+        print "--- notes added to a deck that had none ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "04-multi.pptx")) == false) {
+            this.check("open 04-multi" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(1)
+        ed.setNotes("Said out loud, not on the slide")
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-notes.pptx")
+        parser.close()
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "over-notes.pptx"))
+        this.check("the kept-package deck opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt back.slides 1)
+        this.check("the notes are on the slide they were typed on" ((s2.notesText()) == "Said out loud, not on the slide"))
+        def s1:PptxSlide (itemAt back.slides 0)
+        this.check("and not on the other one" ((s1.notesText()) == ""))
+        p2.close()
+    }
+
+    fn testThemeInFile:void () {
+        print "--- a re-themed deck keeps its palette ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "07-theme-fills.pptx")) == false) {
+            this.check("open 07-theme-fills" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.applyPalette("berry")
+        def wanted:string (ed.themeColor("accent1"))
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "themed.pptx")
+        parser.close()
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "themed.pptx"))
+        this.check("the themed deck opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        this.check("the palette is in the theme part" ((back.theme.colorOf("accent1")) == wanted))
+        ; A shape that took its colour from the palette resolves to the new one
+        ; when the file is read again.
+        def s1:PptxSlide (itemAt back.slides 0)
+        def matched:boolean false
+        def i:int 0
+        while (i < (array_length s1.shapes)) {
+            def sh:PptxShape (itemAt s1.shapes i)
+            if (sh.fill.isSet) {
+                if (sh.fill.srgb == wanted) {
+                    matched = true
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("and a themed shape came back in it" matched)
         p2.close()
     }
 

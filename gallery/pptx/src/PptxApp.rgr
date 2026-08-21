@@ -75,6 +75,8 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
         this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
         this.addSeparator()
+        this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
+        this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.cond()))
         this.add("slide.add" "" "New slide" (ToolIcon.newFile()))
         this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.insertRow()))
         this.add("slide.delete" "" "Delete slide" (ToolIcon.deleteRow()))
@@ -141,6 +143,9 @@ class PptxApp {
     def dragMoved:boolean false
     def modShift:boolean false
     def modCtrl:boolean false
+    ; The speaker's notes, under the slide.
+    def notesVisible:boolean true
+    def notesH:int 92
     ; The slide panel: the deck down the left-hand side.
     def panelW:int 150
     def panelVisible:boolean true
@@ -166,7 +171,7 @@ class PptxApp {
         toolbar.build()
         toolbar.editOn = editMode
         toolbarH = (toolbar.heightFor(W))
-        view.chromeH = (toolbarH + statusH)
+        view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
         view.chromeW = (this.panelWidth())
         this.registerCommands()
     }
@@ -197,6 +202,13 @@ class PptxApp {
         commands.add("edit.flip.h" "Flip across" "Arrange" "")
         commands.add("edit.flip.v" "Flip down" "Arrange" "")
         commands.add("view.panel" "Show the slides" "View" "")
+        commands.add("view.notes" "Show the notes" "View" "")
+        commands.add("notes.edit" "Write in the notes" "View" "")
+        commands.addArg("notes.set" "Set the notes" "View" "")
+        commands.addArg("theme.palette" "Recolour the deck" "Design" "")
+        commands.addArg("theme.color" "Set a theme colour" "Design" "")
+        commands.addArg("slide.layout" "Pick a layout" "Design" "")
+        commands.addArg("slide.background" "Slide background" "Design" "")
         commands.add("view.grid" "Snap to the grid" "View" "")
         commands.add("view.snap" "Snap to the shapes" "View" "")
         commands.add("edit.front" "Bring to front" "Arrange" "")
@@ -461,7 +473,7 @@ class PptxApp {
         W = nw
         H = nh
         toolbarH = (toolbar.heightFor(W))
-        view.chromeH = (toolbarH + statusH)
+        view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
         view.chromeW = (this.panelWidth())
         view.resize(W H)
     }
@@ -585,7 +597,11 @@ class PptxApp {
             this.pollDialogs()
             return true
         }
-        ; The panel is beside the slide, so it is asked before the slide is.
+        ; The notes are under the slide and the panel beside it, so both are
+        ; asked before the slide is.
+        if (this.notesPointer(px py pressed down released)) {
+            return true
+        }
         if (this.panelPointer(px py pressed down released)) {
             return true
         }
@@ -716,6 +732,9 @@ class PptxApp {
         }
         if editMode {
             this.paintEditOverlay(framed)
+        }
+        this.paintNotes(framed)
+        if editMode {
             this.paintCaret(framed)
         }
         toolbarView.attach(view.ctx view.fontFamily)
@@ -1072,7 +1091,7 @@ class PptxApp {
         def s:PptxSlide (unwrap slide)
         def sc:double (this.ptScale())
         def hpx:double (s.height * sc)
-        def avail:double (to_double ((H - toolbarH) - statusH))
+        def avail:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
         def dy:double ((avail - hpx) * 0.5)
         if (dy < 0.0) {
             return top
@@ -1320,7 +1339,7 @@ class PptxApp {
         if (py < toolbarH) {
             return false
         }
-        if (py >= (H - statusH)) {
+        if (py >= ((H - statusH) - (this.notesHeight()))) {
             return false
         }
         def sx:double (this.screenToSlideX(px))
@@ -1608,6 +1627,45 @@ class PptxApp {
         if (id == "edit.lock") {
             def locked:boolean (editor.selectionLocked())
             return (editor.setLocked((locked == false)))
+        }
+        if (id == "view.notes") {
+            notesVisible = (notesVisible == false)
+            view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
+            if (notesVisible == false) {
+                if (editor.isEditingNotes()) {
+                    editor.endTextEdit()
+                }
+            }
+            return true
+        }
+        if (id == "notes.edit") {
+            notesVisible = true
+            view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
+            return (editor.editNotes())
+        }
+        if (id == "notes.set") {
+            return (editor.setNotes(arg))
+        }
+        if (id == "theme.palette") {
+            return (editor.applyPalette(arg))
+        }
+        if (id == "theme.color") {
+            def cut:int (indexOf arg ":")
+            if (cut < 0) {
+                return false
+            }
+            def slot:string (substring arg 0 cut)
+            def hex:string (substring arg (cut + 1) (strlen arg))
+            return (editor.setThemeColor(slot hex))
+        }
+        if (id == "slide.layout") {
+            return (editor.applyLayout(arg))
+        }
+        if (id == "slide.background") {
+            if ((strlen arg) == 0) {
+                return (editor.clearSlideBackground())
+            }
+            return (editor.setSlideBackground(arg))
         }
         if (id == "view.panel") {
             panelVisible = (panelVisible == false)
@@ -2072,7 +2130,14 @@ class PptxApp {
 
     fn lineBoxesFor:[PptxTextLine] (sh:PptxShape) {
         def box:PptxEditRect (this.shapeScreenBox(sh))
-        view.converter.setScale(((this.ptScale()) / (96.0 / 72.0)))
+        return (this.lineBoxesIn(sh box (this.ptScale())))
+    }
+
+    ; The same layout, in a box of the host's choosing at a scale of its own —
+    ; which is what lets the notes strip be edited by the same caret as a
+    ; shape, without the notes pretending to be on the slide.
+    fn lineBoxesIn:[PptxTextLine] (sh:PptxShape box:PptxEditRect scale:double) {
+        view.converter.setScale((scale / (96.0 / 72.0)))
         return (view.converter.lineBoxes(sh box.x box.y box.w box.h))
     }
 
@@ -2080,6 +2145,10 @@ class PptxApp {
     ; painter measured with — so the caret is where the glyphs are, on the
     ; second line of a wrapped paragraph as much as on the first.
     fn caretXOnLine:double (sh:PptxShape line:PptxTextLine col:int) {
+        return (this.caretXOnLineAt(sh line col (this.ptScale())))
+    }
+
+    fn caretXOnLineAt:double (sh:PptxShape line:PptxTextLine col:int scale:double) {
         def body:PptxTextBody sh.text
         if (line.para >= (array_length body.paragraphs)) {
             return line.x
@@ -2092,11 +2161,18 @@ class PptxApp {
         if (at > line.endCol) {
             at = line.endCol
         }
-        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure (this.ptScale()))))
+        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure scale)))
     }
 
     fn caretRect:PptxEditRect (sh:PptxShape pos:PptxTextPos) {
-        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        if (editor.isEditingNotes()) {
+            return (this.caretRectIn(sh pos (this.notesTextRect()) (this.notesScale())))
+        }
+        return (this.caretRectIn(sh pos (this.shapeScreenBox(sh)) (this.ptScale())))
+    }
+
+    fn caretRectIn:PptxEditRect (sh:PptxShape pos:PptxTextPos box:PptxEditRect scale:double) {
+        def lines:[PptxTextLine] (this.lineBoxesIn(sh box scale))
         if ((array_length lines) == 0) {
             def fallback:PptxEditRect (this.shapeScreenBox(sh))
             return (PptxEditRect.of(fallback.x fallback.y 2.0 (fallback.h * 0.5)))
@@ -2106,15 +2182,19 @@ class PptxApp {
             idx = 0
         }
         def line:PptxTextLine (itemAt lines idx)
-        def x:double (this.caretXOnLine(sh line pos.col))
+        def x:double (this.caretXOnLineAt(sh line pos.col scale))
         return (PptxEditRect.of(x line.y 2.0 line.h))
     }
 
     ; The inverse: a click lands on a line, and then on the column whose edge
     ; is nearest to it.
     fn caretFromPoint:PptxTextPos (sh:PptxShape px:int py:int) {
+        return (this.caretFromPointIn(sh px py (this.shapeScreenBox(sh)) (this.ptScale())))
+    }
+
+    fn caretFromPointIn:PptxTextPos (sh:PptxShape px:int py:int box:PptxEditRect scale:double) {
         def out:PptxTextPos (PptxTextPos.of(0 0))
-        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        def lines:[PptxTextLine] (this.lineBoxesIn(sh box scale))
         if ((array_length lines) == 0) {
             return out
         }
@@ -2128,7 +2208,7 @@ class PptxApp {
         def bestDist:double 1000000.0
         def col:int line.startCol
         while (col <= line.endCol) {
-            def cx:double (this.caretXOnLine(sh line col))
+            def cx:double (this.caretXOnLineAt(sh line col scale))
             def d:double (fabs (cx - fx))
             if (d < bestDist) {
                 bestDist = d
@@ -2205,7 +2285,13 @@ class PptxApp {
             return
         }
         def sh:PptxShape (unwrap hit)
-        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        def caretBox:PptxEditRect (this.shapeScreenBox(sh))
+        def caretScale:double (this.ptScale())
+        if (editor.isEditingNotes()) {
+            caretBox = (this.notesTextRect())
+            caretScale = (this.notesScale())
+        }
+        def lines:[PptxTextLine] (this.lineBoxesIn(sh caretBox caretScale))
         if ((editor.textSelectionEmpty()) == false) {
             def a:PptxTextPos editor.anchor
             def b:PptxTextPos editor.caret
@@ -2252,8 +2338,8 @@ class PptxApp {
                             to = end.col
                         }
                     }
-                    def x0:double (this.caretXOnLine(sh line from))
-                    def x1:double (this.caretXOnLine(sh line to))
+                    def x0:double (this.caretXOnLineAt(sh line from caretScale))
+                    def x1:double (this.caretXOnLineAt(sh line to caretScale))
                     def wsel:double (x1 - x0)
                     if (wsel < 2.0) {
                         wsel = 2.0
@@ -2454,7 +2540,7 @@ class PptxApp {
         }
         def w:int (this.panelWidth())
         def top:double (to_double toolbarH)
-        def height:double (to_double ((H - toolbarH) - statusH))
+        def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
         dl.addRect(0.0 top (to_double w) height (EVGColor.rgb(32 36 47)))
         dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
         def n:int (this.slideCount())
@@ -2500,6 +2586,107 @@ class PptxApp {
                 def dropY:int (((toolbarH + 10) + (panelDropAt * (this.panelStep()))) - panelScroll - 4)
                 dl.addRect((to_double tx) (to_double dropY) (to_double tw) 2.0 (EVGColor.rgb(232 84 120)))
             }
+        }
+    }
+
+
+    ; --- the notes strip ------------------------------------------------------
+    ;
+    ; The speaker's notes, under the slide, edited by the same caret that edits
+    ; a shape — because they ARE a shape, one that is not on the slide. The
+    ; strip is just the box that shape is laid out in.
+
+    fn notesHeight:int () {
+        if (notesVisible == false) {
+            return 0
+        }
+        return notesH
+    }
+
+    fn notesScale:double () {
+        ; Readable at any zoom: the notes are not part of the picture, so they
+        ; do not shrink with it.
+        return 1.0
+    }
+
+    fn notesRect:PptxEditRect () {
+        def x:double (to_double (this.panelWidth()))
+        def h:double (to_double (this.notesHeight()))
+        def y:double (to_double ((H - statusH) - (this.notesHeight())))
+        return (PptxEditRect.of(x y ((to_double W) - x) h))
+    }
+
+    fn notesTextRect:PptxEditRect () {
+        def r:PptxEditRect (this.notesRect())
+        return (PptxEditRect.of((r.x + 10.0) (r.y + 20.0) (r.w - 20.0) (r.h - 26.0)))
+    }
+
+    fn notesPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (notesVisible == false) {
+            return false
+        }
+        def r:PptxEditRect (this.notesRect())
+        def fx:double (to_double px)
+        def fy:double (to_double py)
+        if (fy < r.y) {
+            return false
+        }
+        if (fy >= (r.y + r.h)) {
+            return false
+        }
+        if (fx < r.x) {
+            return false
+        }
+        if pressed {
+            this.syncEditor()
+            if ((editor.isEditingNotes()) == false) {
+                editor.editNotes()
+            }
+            def hit@(optional):PptxShape (editor.notesShape())
+            if (!null? hit) {
+                def sh:PptxShape (unwrap hit)
+                def at:PptxTextPos (this.caretFromPointIn(sh px py (this.notesTextRect()) (this.notesScale())))
+                editor.setCaretPos(at.para at.col modShift)
+            }
+            return true
+        }
+        return true
+    }
+
+    fn paintNotes:void (dl:EVGDisplayList) {
+        if (notesVisible == false) {
+            return
+        }
+        def r:PptxEditRect (this.notesRect())
+        dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(246 247 250)))
+        dl.addRect(r.x r.y r.w 1.0 theme.line)
+        def label:string "Notes"
+        if (editor.isEditingNotes()) {
+            label = "Notes — typing"
+        }
+        toolbarView.pushText(dl label (r.x + 10.0) (r.y + 4.0) 11.0 theme.dim)
+        def hit@(optional):PptxShape (editor.notesShape())
+        if (null? hit) {
+            return
+        }
+        def sh:PptxShape (unwrap hit)
+        if ((strlen (sh.text.plainText())) == 0) {
+            if ((editor.isEditingNotes()) == false) {
+                toolbarView.pushText(dl "Click here to write what you will say" (r.x + 10.0) (r.y + 24.0) 12.0 (EVGColor.rgb(150 155 165)))
+                return
+            }
+        }
+        def box:PptxEditRect (this.notesTextRect())
+        def lines:[PptxTextLine] (this.lineBoxesIn(sh box (this.notesScale())))
+        def li:int 0
+        while (li < (array_length lines)) {
+            def line:PptxTextLine (itemAt lines li)
+            if (line.y < ((r.y + r.h) - 4.0)) {
+                def text:string (PptxTextLayout.paraText((itemAt sh.text.paragraphs line.para)))
+                def piece:string (substring text line.startCol line.endCol)
+                toolbarView.pushText(dl piece line.x line.y line.size (EVGColor.rgb(40 44 58)))
+            }
+            li = (li + 1)
         }
     }
 

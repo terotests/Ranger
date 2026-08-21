@@ -92,6 +92,10 @@ class PptxEditorTest {
         this.testGrid()
         this.testFlip()
         this.testFormatPainter()
+        this.testLayouts()
+        this.testTheme()
+        this.testBackground()
+        this.testNotes()
         this.testHistoryLimit()
         this.testRealDeck()
         print ""
@@ -847,6 +851,161 @@ class PptxEditorTest {
             def bs:PptxShape (unwrap before)
             this.check("undo takes the paint off" (bs.fill.srgb != "C00000"))
         }
+    }
+
+
+    ; --- the document, not the slide ------------------------------------------
+
+    fn testTheme:void () {
+        print "--- re-theming ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ; A shape whose colour came from the palette, the way a real deck's do.
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def themed (new PptxColor())
+        themed.isSet = true
+        themed.isScheme = true
+        themed.scheme = "accent1"
+        themed.srgb = "4472C4"
+        a.fill = themed
+        ; …and one that was picked by hand, which must not move.
+        def b:PptxShape (itemAt slide.shapes 2)
+        b.fill = (PptxColor.srgbOf("123456"))
+        deck.theme.setColor("accent1" "4472C4")
+        ed.attach(deck)
+        this.check("the deck starts on its own palette" ((ed.themeColor("accent1")) == "4472C4"))
+        this.check("a palette applies" (ed.applyPalette("forest")))
+        this.check("the theme took it" ((ed.themeColor("accent1")) == "217346"))
+        def after@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? after) {
+            def sh:PptxShape (unwrap after)
+            this.check("a palette colour followed the theme" (sh.fill.srgb == "217346"))
+            this.check("and still knows where it came from" (sh.fill.scheme == "accent1"))
+        }
+        def other@(optional):PptxShape (ed.findShape(b.editId))
+        if (!null? other) {
+            def sh2:PptxShape (unwrap other)
+            this.check("a colour picked by hand did not move" (sh2.fill.srgb == "123456"))
+        }
+        this.check("one slot can be set on its own" (ed.setThemeColor("accent1" "FF0000")))
+        def again@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? again) {
+            def sh3:PptxShape (unwrap again)
+            this.check("and that followed too" (sh3.fill.srgb == "FF0000"))
+        }
+        this.check("undo puts the palette back" (ed.undo()))
+        def back@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? back) {
+            def sh4:PptxShape (unwrap back)
+            this.check("and the colour with it" (sh4.fill.srgb == "217346"))
+        }
+        this.check("an unknown palette is the default one" (ed.applyPalette("no-such-palette")))
+        this.check("which is Office's" ((ed.themeColor("accent2")) == "ED7D31"))
+        this.check("there are palettes to choose from" ((array_length (PptxEditor.paletteNames())) >= 4))
+    }
+
+    fn testBackground:void () {
+        print "--- the slide's background ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        this.check("set it" (ed.setSlideBackground("FFF2CC")))
+        this.check("it took" (slide.bg.srgb == "FFF2CC"))
+        this.check("a scheme background" (ed.setSlideBackgroundScheme("accent2")))
+        this.check("resolves through the theme" (slide.bg.isScheme))
+        this.check("and follows a re-theme" ((strlen slide.bg.srgb) == 6))
+        def was:string slide.bg.srgb
+        ed.applyPalette("berry")
+        this.check("the background moved with the palette" (slide.bg.srgb != was))
+        this.check("clear it" (ed.clearSlideBackground()))
+        this.check("and it is unset" ((slide.bg.isSet) == false))
+        ed.undo()
+        def slideNow:PptxSlide (itemAt deck.slides 0)
+        this.check("undo brings the background back" (slideNow.bg.isSet))
+    }
+
+    fn testNotes:void () {
+        print "--- the speaker's notes ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        this.check("a slide starts with none" ((ed.notesText()) == ""))
+        this.check("set them" (ed.setNotes("Remember the numbers"))) 
+        this.check("they read back" ((ed.notesText()) == "Remember the numbers"))
+        ; The notes are a shape, so the caret works on them — and they are not
+        ; on the slide, so editing them selects nothing.
+        this.check("the caret can go there" (ed.editNotes()))
+        this.check("and it knows it is in the notes" (ed.isEditingNotes()))
+        this.check("nothing on the slide is selected" ((ed.selectionCount()) == 0))
+        ed.typeAtCaret("!")
+        this.check("typing lands in the notes" ((ed.notesText()) == "Remember the numbers!"))
+        ed.moveCaretBy("home" false)
+        ed.typeAtCaret("PS: ")
+        this.check("and the caret moves in them" ((ed.notesText()) == "PS: Remember the numbers!"))
+        ed.endTextEdit()
+        this.check("editing ends" ((ed.isEditingNotes()) == false))
+        ed.undo()
+        this.check("undo takes the typing back" ((ed.notesText()) != "PS: Remember the numbers!"))
+        ; Notes belong to their own slide.
+        ed.addSlide()
+        this.check("a new slide has none" ((ed.notesText()) == ""))
+        ed.setNotes("second")
+        ed.gotoSlide(0)
+        this.check("and the first slide kept its own" ((ed.notesText()) != "second"))
+    }
+
+
+    fn testLayouts:void () {
+        print "--- picking a layout ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open the business deck" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        def parts:[string] (ed.layoutParts())
+        this.check("the deck has layouts to pick from" ((array_length parts) > 1))
+        if ((array_length parts) < 2) {
+            return
+        }
+        ed.gotoSlide(1)
+        def was:string (ed.slideLayout())
+        this.check("the slide is on one of them" ((strlen was) > 0))
+        ; Pick the other one.
+        def other:string (itemAt parts 0)
+        if (other == was) {
+            other = (itemAt parts 1)
+        }
+        def authoredBefore:int (array_length (ed.editableShapes()))
+        this.check("apply it" (ed.applyLayout(other)))
+        this.check("the slide says so" ((ed.slideLayout()) == other))
+        this.check("what the slide itself declares is untouched" ((array_length (ed.editableShapes())) == authoredBefore))
+        ; The chrome came from the new layout: every inherited shape has an id
+        ; of its own, and there is some.
+        def slide:PptxSlide (itemAt pres.slides 1)
+        def inherited:int 0
+        def ids:boolean true
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if sh.inherited {
+                inherited = (inherited + 1)
+                if (sh.editId == 0) {
+                    ids = false
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("the new layout brought chrome with it" (inherited > 0))
+        this.check("and every piece of it has an id" ids)
+        this.check("undo puts the old layout back" (ed.undo()))
+        this.check("and says so" ((ed.slideLayout()) == was))
+        this.check("an unknown layout is refused" ((ed.applyLayout("ppt/slideLayouts/nope.xml")) == false))
+        parser.close()
     }
 
 }

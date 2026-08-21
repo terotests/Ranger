@@ -101,6 +101,11 @@ window pixel becomes one:
 - [x] Insert box / ellipse / text box / picture, delete, duplicate
 - [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
       on a shape's text
+- [x] **The document, not the slide**: re-theme a deck from a palette (every
+      colour that came from the palette follows, and every colour picked by
+      hand stays), pick a layout for a slide, set its background, and write the
+      speaker's **notes** in a strip under it — which is the same caret,
+      because the notes are a shape that is not on the slide
 - [x] Slides: add, duplicate, delete, reorder — and a **slide panel** down the
       left whose thumbnails are the slides' own scenes at a small scale, with
       click to go, drag to reorder and the wheel to scroll

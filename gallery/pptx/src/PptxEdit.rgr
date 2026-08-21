@@ -19,6 +19,7 @@
 
 Import "PptxModel.rgr"
 Import "PptxTextEdit.rgr"
+Import "PptxResolver.rgr"
 
 ; A rectangle in slide points. Ranger returns one value; a bounding box is four.
 class PptxEditRect {
@@ -253,6 +254,8 @@ class PptxClone {
         sl.bg = (PptxClone.color(src.bg))
         sl.layoutPart = src.layoutPart
         sl.masterPart = src.masterPart
+        sl.notes = (PptxClone.shape(src.notes))
+        sl.notesPart = src.notesPart
         def i:int 0
         while (i < (array_length src.shapes)) {
             def sh:PptxShape (itemAt src.shapes i)
@@ -334,6 +337,8 @@ class PptxEditor {
     ; Never reused, so a revision names one state of one slide even after an
     ; undo has thrown a later one away.
     def nextRevision:int 0
+    ; For re-resolving a palette colour; the same mapping the loader used.
+    def resolver:PptxResolver (new PptxResolver())
 
     Constructor () {
     }
@@ -365,6 +370,7 @@ class PptxEditor {
                 this.assignIdTo(sh)
                 i = (i + 1)
             }
+            this.assignIdTo(slide.notes)
             si = (si + 1)
         }
     }
@@ -462,6 +468,11 @@ class PptxEditor {
                 return hit
             }
             i = (i + 1)
+        }
+        ; The notes are a shape too, and not one on the slide.
+        if (s.notes.editId == id) {
+            def notesHit@(optional):PptxShape s.notes
+            return notesHit
         }
         def __missing@(optional):PptxShape
         return __missing
@@ -743,7 +754,19 @@ class PptxEditor {
             i = (i + 1)
         }
         doc.slides = slides
-        slideIndex = snap.slideIndex
+        ; Stay on the slide you are looking at. The snapshot remembers which
+        ; slide the step was taken on, and that is the fallback — undoing a
+        ; deleted slide has to go back to it — but undoing an edit should not
+        ; move the deck under you the way it did when the answer was always
+        ; the snapshot's own index.
+        def want:int slideIndex
+        if (want >= (array_length doc.slides)) {
+            want = snap.slideIndex
+        }
+        if (want < 0) {
+            want = snap.slideIndex
+        }
+        slideIndex = want
         if (slideIndex >= (array_length doc.slides)) {
             slideIndex = ((array_length doc.slides) - 1)
         }
@@ -2752,6 +2775,349 @@ class PptxEditor {
         }
         this.pushSnapshot("format")
         return true
+    }
+
+
+    ; --- the theme ------------------------------------------------------------
+    ;
+    ; A deck's colours mostly come from its palette, and the resolver keeps
+    ; that provenance now, so re-theming is: put a new palette in the theme and
+    ; ask every colour that came from one to resolve again.
+
+    sfn paletteNames:[string] () {
+        return ([] _:string ( "office" "forest" "berry" "slate" "sunset" ))
+    }
+
+    sfn paletteColors:[string] (name:string) {
+        ; dk1 lt1 dk2 lt2 accent1..6 hlink folHlink
+        if (name == "forest") {
+            return ([] _:string ( "1E2B22" "FFFFFF" "375845" "EAF2EC" "217346" "6BA644" "9BC53D" "C7D96A" "2F6F5E" "48A9A6" "1F6F54" "6B7C74" ))
+        }
+        if (name == "berry") {
+            return ([] _:string ( "2B1A22" "FFFFFF" "5A2B3F" "F6EAF0" "B0295E" "E0518A" "F08CB4" "8E44AD" "C2185B" "6A1B4D" "AD1457" "7B5E6B" ))
+        }
+        if (name == "slate") {
+            return ([] _:string ( "1B1F24" "FFFFFF" "36414D" "EDF1F5" "3D5A80" "5C82B2" "98C1D9" "6C7A89" "2F4858" "8FA6B8" "2C5F8A" "6E7B87" ))
+        }
+        if (name == "sunset") {
+            return ([] _:string ( "2A1B12" "FFFFFF" "5A3924" "FBEEE4" "E4572E" "F5A623" "F2C14E" "C1440E" "8C3503" "A44A3F" "D2691E" "8B6F5E" ))
+        }
+        return ([] _:string ( "000000" "FFFFFF" "44546A" "E7E6E6" "4472C4" "ED7D31" "A5A5A5" "FFC000" "5B9BD5" "70AD47" "0563C1" "954F72" ))
+    }
+
+    fn applyPalette:boolean (name:string) {
+        def cols:[string] (PptxEditor.paletteColors(name))
+        if ((array_length cols) < 12) {
+            return false
+        }
+        def slots:[string] ([] _:string ( "dk1" "lt1" "dk2" "lt2" "accent1" "accent2" "accent3" "accent4" "accent5" "accent6" "hlink" "folHlink" ))
+        def i:int 0
+        while (i < (array_length slots)) {
+            doc.theme.setColor((itemAt slots i) (itemAt cols i))
+            i = (i + 1)
+        }
+        this.retheme()
+        this.pushSnapshot(("theme " + name))
+        return true
+    }
+
+    fn setThemeColor:boolean (slot:string hex:string) {
+        if ((strlen slot) == 0) {
+            return false
+        }
+        doc.theme.setColor(slot hex)
+        this.retheme()
+        this.pushSnapshot("theme colour")
+        return true
+    }
+
+    ; Every colour in the deck that came from the palette, resolved again —
+    ; including the master and layout sheets, so a layout applied afterwards
+    ; arrives in the new colours too.
+    fn retheme:void () {
+        def si:int 0
+        while (si < (array_length doc.slides)) {
+            def slide:PptxSlide (itemAt doc.slides si)
+            this.rethemeColor(slide.bg)
+            def i:int 0
+            while (i < (array_length slide.shapes)) {
+                this.rethemeShape((itemAt slide.shapes i))
+                i = (i + 1)
+            }
+            this.rethemeShape(slide.notes)
+            slide.dirty = true
+            nextRevision = (nextRevision + 1)
+            slide.revision = nextRevision
+            si = (si + 1)
+        }
+        def mkeys:[string] (keys doc.masters)
+        def mi:int 0
+        while (mi < (array_length mkeys)) {
+            def sheet@(optional):PptxSheet (get doc.masters (itemAt mkeys mi))
+            if (!null? sheet) {
+                this.rethemeSheet((unwrap sheet))
+            }
+            mi = (mi + 1)
+        }
+        def lkeys:[string] (keys doc.layouts)
+        def li:int 0
+        while (li < (array_length lkeys)) {
+            def lsheet@(optional):PptxSheet (get doc.layouts (itemAt lkeys li))
+            if (!null? lsheet) {
+                this.rethemeSheet((unwrap lsheet))
+            }
+            li = (li + 1)
+        }
+    }
+
+    fn rethemeSheet:void (sheet:PptxSheet) {
+        this.rethemeColor(sheet.bg)
+        def i:int 0
+        while (i < (array_length sheet.shapes)) {
+            this.rethemeShape((itemAt sheet.shapes i))
+            i = (i + 1)
+        }
+    }
+
+    fn rethemeShape:void (shape:PptxShape) {
+        this.rethemeColor(shape.fill)
+        this.rethemeColor(shape.line)
+        this.rethemeColor(shape.fillGrad.c1)
+        this.rethemeColor(shape.fillGrad.c2)
+        this.rethemeColor(shape.shadow.color)
+        this.rethemeColor(shape.text.defColor)
+        def pi:int 0
+        while (pi < (array_length shape.text.paragraphs)) {
+            def para:PptxParagraph (itemAt shape.text.paragraphs pi)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                this.rethemeColor(((itemAt para.runs ri).color))
+                ri = (ri + 1)
+            }
+            pi = (pi + 1)
+        }
+        def ci:int 0
+        while (ci < (array_length shape.tableCells)) {
+            this.rethemeColor(((itemAt shape.tableCells ci).fill))
+            ci = (ci + 1)
+        }
+        def k:int 0
+        while (k < (array_length shape.children)) {
+            this.rethemeShape((itemAt shape.children k))
+            k = (k + 1)
+        }
+    }
+
+    fn rethemeColor:void (c:PptxColor) {
+        if (c.isSet == false) {
+            return
+        }
+        if (c.isScheme == false) {
+            return
+        }
+        def key:string (resolver.mapSchemeName(c.scheme))
+        c.srgb = (doc.theme.colorOf(key))
+    }
+
+    fn themeColor:string (slot:string) {
+        return (doc.theme.colorOf(slot))
+    }
+
+    ; --- the layout -----------------------------------------------------------
+
+    fn layoutParts:[string] () {
+        return (keys doc.layouts)
+    }
+
+    fn slideLayout:string () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return ""
+        }
+        return ((unwrap slide).layoutPart)
+    }
+
+    ; Picking a layout swaps the chrome the slide inherits — the master's, then
+    ; the new layout's — and leaves everything the slide itself declares where
+    ; it is. It is the same merge the resolver does at load, done again with a
+    ; different layout.
+    fn applyLayout:boolean (part:string) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def sheet@(optional):PptxSheet (get doc.layouts part)
+        if (null? sheet) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        def layout:PptxSheet (unwrap sheet)
+        def authored:[PptxShape]
+        def i:int 0
+        while (i < (array_length s.shapes)) {
+            def sh:PptxShape (itemAt s.shapes i)
+            if (sh.inherited == false) {
+                push authored sh
+            }
+            i = (i + 1)
+        }
+        def merged:[PptxShape]
+        def master@(optional):PptxSheet (get doc.masters s.masterPart)
+        if (null? master) {
+            def mkeys:[string] (keys doc.masters)
+            if ((array_length mkeys) > 0) {
+                master = (get doc.masters (itemAt mkeys 0))
+            }
+        }
+        if (!null? master) {
+            def ms:PptxSheet (unwrap master)
+            def mi:int 0
+            while (mi < (array_length ms.shapes)) {
+                def mshape:PptxShape (itemAt ms.shapes mi)
+                if (mshape.isPlaceholder == false) {
+                    def mc:PptxShape (PptxClone.shape(mshape))
+                    mc.inherited = true
+                    this.assignIdTo(mc)
+                    push merged mc
+                }
+                mi = (mi + 1)
+            }
+        }
+        def li:int 0
+        while (li < (array_length layout.shapes)) {
+            def lshape:PptxShape (itemAt layout.shapes li)
+            if (lshape.isPlaceholder == false) {
+                def lc:PptxShape (PptxClone.shape(lshape))
+                lc.inherited = true
+                this.assignIdTo(lc)
+                push merged lc
+            }
+            li = (li + 1)
+        }
+        def j:int 0
+        while (j < (array_length authored)) {
+            push merged (itemAt authored j)
+            j = (j + 1)
+        }
+        s.shapes = merged
+        s.layoutPart = part
+        if (layout.bg.isSet) {
+            if (s.bg.isSet == false) {
+                s.bg = (PptxClone.color(layout.bg))
+            }
+        }
+        this.clearSelection()
+        this.pushSnapshot("layout")
+        return true
+    }
+
+    ; --- the slide's own background -------------------------------------------
+
+    fn setSlideBackground:boolean (hex:string) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        s.bg = (PptxColor.srgbOf(hex))
+        this.pushSnapshot("background")
+        return true
+    }
+
+    fn setSlideBackgroundScheme:boolean (scheme:string) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        def c (new PptxColor())
+        c.isSet = true
+        c.isScheme = true
+        c.scheme = scheme
+        c.srgb = (doc.theme.colorOf((resolver.mapSchemeName(scheme))))
+        s.bg = c
+        this.pushSnapshot("background")
+        return true
+    }
+
+    fn clearSlideBackground:boolean () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        def none (new PptxColor())
+        s.bg = none
+        this.pushSnapshot("background")
+        return true
+    }
+
+    ; --- the notes ------------------------------------------------------------
+
+    fn notesShape@(optional):PptxShape () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            def __none@(optional):PptxShape
+            return __none
+        }
+        def s:PptxSlide (unwrap slide)
+        if (s.notes.editId == 0) {
+            this.assignIdTo(s.notes)
+        }
+        s.notes.hasText = true
+        if ((array_length s.notes.text.paragraphs) == 0) {
+            def para (new PptxParagraph())
+            push s.notes.text.paragraphs para
+        }
+        def hit@(optional):PptxShape s.notes
+        return hit
+    }
+
+    fn notesText:string () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return ""
+        }
+        return ((unwrap slide).notesText())
+    }
+
+    fn setNotes:boolean (text:string) {
+        def hit@(optional):PptxShape (this.notesShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        PptxEditor.setBodyText(sh.text text)
+        this.pushSnapshot("notes")
+        return true
+    }
+
+    fn editNotes:boolean () {
+        def hit@(optional):PptxShape (this.notesShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        ; The notes are not on the slide, so editing them is not a selection:
+        ; the caret goes there without anything being picked up.
+        this.clearSelection()
+        editingId = sh.editId
+        def end:PptxTextPos (PptxTextEdit.docEnd(sh.text))
+        caret = end
+        anchor = (end.copy())
+        return true
+    }
+
+    fn isEditingNotes:boolean () {
+        if (editingId <= 0) {
+            return false
+        }
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        return (s.notes.editId == editingId)
     }
 
 }
