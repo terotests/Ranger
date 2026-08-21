@@ -110,6 +110,11 @@ what the reference draws. Building it found three defects in the engine — a
 quarter label that read `2016 Qq`, a grouped bar chart that drew twenty-pixel
 bars in a plot of stated width, and the key to a see-through area drawn solid.
 
+It has a page of its own on the [EVG showcase](https://terotests.github.io/Ranger/evg/)
+— *Charts, called* — where each chart is printed together with the calls that
+built it, read out of the generating tool's own source so the two cannot drift
+apart. It is the only page there that no specification was written for.
+
 [**CHART_API.md**](CHART_API.md) is the design: what was taken from AntV G2,
 Observable Plot, Vega-Lite and ECharts, the whole surface, how it is checked,
 and what is not there yet.
@@ -1077,6 +1082,7 @@ gallery/vela/
 │   ├── vela_compile.rgr  CLI: a Vega-Lite spec → a Vega one
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
 │   ├── vela_chart.rgr    charts built by CALLING the API, drawn to SVG
+│   ├── vela_chart_page.rgr  the same, as a showcase page that prints the calls
 │   ├── vela_web.rgr      the same, with no file system: for the browser
 │   └── reference/        the harness that compares against official Vega
 ├── web/                  paste a specification, see what it draws

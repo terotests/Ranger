@@ -9,6 +9,9 @@
 # other page.
 #
 #   charts  the six chart types most people mean by "a chart"
+#   chart_api  the charts no specification was written for: each one built by
+#           CALLING gallery/vela/src/VlChart.rgr, with the calls printed beside
+#           the chart they drew
 #   plots   the rest, and the features only some charts have: a size legend
 #           whose rows are all different heights, a stroke legend, a log axis,
 #           two marks in one plot, and a text mark
@@ -44,6 +47,7 @@ VARIANTS=gallery/vela/tests/specs/variants
 TABLES=gallery/vela/tests/specs/tables
 DRAWING=gallery/vela/tests/specs
 PAGE=gallery/evg/showcase/pages/charts.tsx
+API_PAGE=gallery/evg/showcase/pages/chart_api.tsx
 PLOTS_PAGE=gallery/evg/showcase/pages/plots.tsx
 MORE_PAGE=gallery/evg/showcase/pages/more.tsx
 VIEWS_PAGE=gallery/evg/showcase/pages/views.tsx
@@ -115,5 +119,19 @@ node "$BIN/vela_evg.js" "$DRAWING_PAGE" --title=Piirto --compact \
   "$DRAWING/curves.vg.json"         "Interpolaatiot" \
   "$DRAWING/paint_channels.vg.json" "Katkoviiva, pyöristys, läpinäkyvyys" \
   "$DRAWING/text_placement.vg.json" "Tekstin ankkurointi"
+
+# The page with no specification behind it: every chart built by calling the
+# API, and the calls printed beside the chart. The tool reads its own source
+# for those lines, so it is given the path rather than left to guess it.
+log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 \
+  ./gallery/vela/tools/vela_chart_page.rgr -d="$BIN" -o=vela_chart_page.js -nodecli 2>&1)
+if echo "$log" | grep -q "Compilation FAILED"; then
+  echo "$log" | grep -A3 "\[FAIL\]" | head -40
+  echo "FAILED to compile gallery/vela/tools/vela_chart_page.rgr" >&2
+  exit 1
+fi
+
+node "$BIN/vela_chart_page.js" "$API_PAGE" --title=Kaavio-API \
+  --source=gallery/vela/tools/vela_chart_page.rgr
 
 echo "render them with:  npm run showcase"

@@ -237,6 +237,34 @@ npm run vela:chart:check                        # and hold them to official Vega
 bash gallery/vela/tests/run_cpp.sh              # the same, from a native binary
 ```
 
+## A page that prints the calls that drew it
+
+`tools/vela_chart_page.rgr` writes
+[`gallery/evg/showcase/pages/chart_api.tsx`](../evg/showcase/pages/chart_api.tsx),
+which the EVG showcase renders to PDF, PNG, HTML and WebGL under three themes
+like any other page — *Charts, called* on
+[the published gallery](https://terotests.github.io/Ranger/evg/). It is the
+only page there that no specification was written for.
+
+Each chart is printed with the calls that built it, and those lines are not a
+transcription: they are read out of the tool's own source at the markers around
+each chart's own calls, so a changed call changes the printed line with it.
+Without the source the tool refuses to write the page at all — a page claiming
+to show the code that ran is worse than no page if the code is stale.
+
+One thing had to be worked around to get there, and it is worth writing down
+because anyone printing code on an EVG page will hit it: **JSX text is
+tokenised as if it were code**, so a double quote in it opens a string and
+`x("region")` came out as `x(region )`. A line therefore goes onto the page as
+a string *literal* in an expression container — `{"x(\"region\")"}` — which is
+the one place the parser keeps a quote.
+
+```bash
+npm run vela:showcase   # regenerate the page (and the specification-fed ones)
+npm run showcase        # render every page to PDF, PNG and HTML
+npm run showcase:gl     # …and check the GPU backend drew it too
+```
+
 ## What building it found
 
 A new front door is a harness: it reaches the engine along a path nothing else

@@ -18,10 +18,11 @@ Each page is rendered under **two themes** — the generated chart pages under
 print target), PNG (the raster preview) and HTML (the debug view) — from one
 source tree and one stylesheet.
 
-### Six pages are generated
+### Eight pages are generated
 
-`pages/charts.tsx`, `plots.tsx`, `more.tsx`, `views.tsx`, `variants.tsx` and
-`tables.tsx` are written by a tool, not by hand: `npm run vela:showcase` runs a set of Vega specifications
+`pages/charts.tsx`, `plots.tsx`, `more.tsx`, `views.tsx`, `variants.tsx`,
+`tables.tsx`, `drawing.tsx` and `chart_api.tsx` are written by a tool, not by
+hand: `npm run vela:showcase` runs a set of Vega specifications
 through the [Vela](../../vela/README.md) runtime and emits the paths and labels
 they produce, together with a stylesheet each.
 
@@ -35,6 +36,18 @@ a stack centred on a common line, a calendar on an axis, and a box plot whose
 quartiles are computed. **More than one chart** is the multi-view grammar: a
 trellis by column, by row, and wrapped onto a grid whose shape is computed from
 the data, plus two plots concatenated.
+
+**Charts, called** is the only page here that no specification was written
+for. Every chart on it is built by CALLING Vela's chart API
+([`VlChart.rgr`](../../vela/src/VlChart.rgr)), and the lines printed above each
+chart are the calls that built it — read out of
+[`vela_chart_page.rgr`](../../vela/tools/vela_chart_page.rgr)'s own source at
+the markers around each chart's calls, so the code the page shows and the code
+that drew the page cannot drift apart. It is also the page that says what the
+API is for: a view's encoding is inherited by its marks, so an area and the
+line over it are two marks with one set of axes, and no channel on the page
+states its type — a column of ISO dates is an instant and a column of numbers
+is a quantity, read off the data.
 
 **Variants** is the same marks drawn a different way — bars that go down as well
 as up, bars on their side, a bar between two values rather than from a baseline,
