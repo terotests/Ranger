@@ -508,8 +508,15 @@ export function renderDisplayList(gl, doc, opts = {}) {
       // page paints out of order.
       flush();
       const uv = coverUV(t.w, t.h, c.w, c.h);
+      // Mirrored is the same quad read the other way round: aUV is
+      // (u0,v0,u1,v1) and the fragment mixes between them, so swapping the
+      // ends flips the picture without touching the geometry.
+      const u0 = c.fx ? uv[2] : uv[0];
+      const u1 = c.fx ? uv[0] : uv[2];
+      const v0 = c.fy ? uv[3] : uv[1];
+      const v1 = c.fy ? uv[1] : uv[3];
       rects.push(c.x, c.y, c.w, c.h);
-      uvs.push(uv[0], uv[1], uv[2], uv[3]);
+      uvs.push(u0, v0, u1, v1);
       shapes.push(c.r || 0, 0, MODE.IMAGE);
       rots.push(((c.rot || 0) * Math.PI) / 180);
       colors.push(1, 1, 1, 1);

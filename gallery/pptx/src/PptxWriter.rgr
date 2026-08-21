@@ -274,6 +274,12 @@ class PptxWriter {
         if ((shape.rotation > 0.001) || (shape.rotation < -0.001)) {
             rot = (" rot=\"" + (PptxWriter.deg60k(shape.rotation)) + "\"")
         }
+        if shape.flipH {
+            rot = (rot + " flipH=\"1\"")
+        }
+        if shape.flipV {
+            rot = (rot + " flipV=\"1\"")
+        }
         def out:string ("<a:xfrm" + rot + "><a:off x=\"" + (PptxWriter.emu(shape.x)) + "\" y=\"" + (PptxWriter.emu(shape.y)) + "\"/><a:ext cx=\"" + (PptxWriter.emu(shape.width)) + "\" cy=\"" + (PptxWriter.emu(shape.height)) + "\"/>")
         if withChild {
             def cw:double shape.chW
@@ -540,7 +546,11 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Shape " + (to_string id))
         }
-        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>")
+        def locks:string "<p:cNvSpPr/>"
+        if shape.locked {
+            locks = "<p:cNvSpPr><a:spLocks noMove=\"1\" noResize=\"1\" noRot=\"1\"/></p:cNvSpPr>"
+        }
+        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/>" + locks + "<p:nvPr/></p:nvSpPr><p:spPr>")
         out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
         out = (out + (PptxWriter.geomXml(shape)))
         out = (out + (PptxWriter.fillXml(shape)))

@@ -86,6 +86,12 @@ class PptxEditorTest {
         this.testSlides()
         this.testTyping()
         this.testDragSeam()
+        this.testMarquee()
+        this.testClipboard()
+        this.testLocking()
+        this.testGrid()
+        this.testFlip()
+        this.testFormatPainter()
         this.testHistoryLimit()
         this.testRealDeck()
         print ""
@@ -604,6 +610,242 @@ class PptxEditorTest {
             def m:PptxShape (unwrap back)
             this.check("undo after a live drag restores the press" (this.near(m.x 100.0)))
             this.check("and the size it was pressed at" (this.near(m.width 200.0)))
+        }
+    }
+
+
+    fn testMarquee:void () {
+        print "--- a rubber band ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        ; A band over both.
+        this.check("a band takes what it touches" ((ed.selectInRect(80.0 80.0 400.0 300.0 false)) == 2))
+        this.check("both are selected" ((ed.selectionCount()) == 2))
+        ; A band that touches only one.
+        ed.selectInRect(80.0 80.0 60.0 60.0 false)
+        this.check("a smaller band takes one" ((ed.selectionCount()) == 1))
+        this.check("and it is the one it touched" (ed.isSelected(a.editId)))
+        ; A band drawn backwards is the same band.
+        ed.selectInRect(480.0 380.0 (0.0 - 400.0) (0.0 - 300.0) false)
+        this.check("a band drawn upwards works too" ((ed.selectionCount()) == 2))
+        ; Empty canvas takes nothing, and the chrome is never taken.
+        ed.selectInRect(600.0 40.0 40.0 40.0 false)
+        this.check("a band over nothing takes nothing" ((ed.selectionCount()) == 0))
+        this.check("a band over the whole slide skips the chrome" ((ed.selectInRect(0.0 0.0 720.0 540.0 false)) == 2))
+        this.check("b was in it" (ed.isSelected(b.editId)))
+        ; Additive keeps what was there.
+        ed.select(a.editId)
+        ed.selectInRect(290.0 190.0 140.0 80.0 true)
+        this.check("an additive band adds" ((ed.selectionCount()) == 2))
+    }
+
+    fn testClipboard:void () {
+        print "--- copy, cut, paste ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        this.check("nothing on the clipboard yet" ((ed.clipboardCount()) == 0))
+        this.check("pasting nothing does nothing" ((ed.pasteClipboard(true)) == false))
+        ed.select(a.editId)
+        this.check("copy takes one" ((ed.copySelection()) == 1))
+        this.check("the clipboard has it" ((ed.clipboardCount()) == 1))
+        this.check("the slide still has both" ((array_length (ed.editableShapes())) == 2))
+        this.check("paste puts it down" (ed.pasteClipboard(true)))
+        this.check("three shapes now" ((array_length (ed.editableShapes())) == 3))
+        this.check("and the pasted one is selected" ((ed.selectionCount()) == 1))
+        def pastedId:int (itemAt ed.selection 0)
+        this.check("it is a new shape, not the old one" (pastedId != a.editId))
+        def pasted@(optional):PptxShape (ed.findShape(pastedId))
+        if (!null? pasted) {
+            def ps:PptxShape (unwrap pasted)
+            this.check("offset from the original" (this.near(ps.x (a.x + 10.0))))
+        }
+        ; Pasting again makes another, from the same clipboard.
+        ed.pasteClipboard(true)
+        this.check("pasting again makes another" ((array_length (ed.editableShapes())) == 4))
+        ; On another slide it lands where it was.
+        ed.addSlide()
+        this.check("a new slide is empty" ((array_length (ed.editableShapes())) == 0))
+        ed.pasteClipboard(false)
+        this.check("pasting on another slide works" ((array_length (ed.editableShapes())) == 1))
+        def onTwo:PptxShape (itemAt (ed.editableShapes()) 0)
+        this.check("and keeps its place" (this.near(onTwo.x a.x)))
+        ; Cut removes what it took.
+        ed.gotoSlide(0)
+        def before:int (array_length (ed.editableShapes()))
+        ed.select(a.editId)
+        this.check("cut takes one" ((ed.cutSelection()) == 1))
+        this.check("and the slide is one shorter" ((array_length (ed.editableShapes())) == (before - 1)))
+        this.check("undo brings it back" (ed.undo()))
+    }
+
+    fn testLocking:void () {
+        print "--- locking ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        this.check("not locked to begin with" ((ed.selectionLocked()) == false))
+        this.check("lock it" (ed.setLocked(true)))
+        def locked@(optional):PptxShape (ed.findShape(a.editId))
+        this.check("the shape says so" (!null? locked))
+        if (null? locked) {
+            return
+        }
+        def ls:PptxShape (unwrap locked)
+        this.check("selection reports it" (ed.selectionLocked()))
+        def x0:double ls.x
+        ed.moveSelection(30.0 30.0)
+        this.check("a locked shape does not move" (this.near(ls.x x0)))
+        ed.resizeSelection(4 40.0 40.0)
+        this.check("nor resize" (this.near(ls.width 200.0)))
+        ed.rotateSelection(45.0)
+        this.check("nor rotate" (this.near(ls.rotation 0.0)))
+        this.check("nor delete" ((ed.deleteSelection()) == false))
+        this.check("but it can still be selected" (ed.isSelected(ls.editId)))
+        ed.setLocked(false)
+        ed.moveSelection(30.0 0.0)
+        def freed@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? freed) {
+            def fs:PptxShape (unwrap freed)
+            this.check("unlocked, it moves again" (this.near(fs.x (x0 + 30.0))))
+        }
+        ; A locked shape in a mixed selection holds still while the others move.
+        def b:PptxShape (itemAt (ed.editableShapes()) 1)
+        ed.select(a.editId)
+        ed.setLocked(true)
+        ed.addToSelection(b.editId)
+        def bx:double b.x
+        def ax:double ((itemAt (ed.editableShapes()) 0).x)
+        ed.moveSelection(25.0 0.0)
+        def shapesNow:[PptxShape] (ed.editableShapes())
+        this.check("the locked one stayed" (this.near(((itemAt shapesNow 0).x) ax)))
+        this.check("the free one moved" (this.near(((itemAt shapesNow 1).x) (bx + 25.0))))
+    }
+
+    fn testGrid:void () {
+        print "--- the grid ---"
+        this.check("a step rounds to the nearest" (this.near((PptxEditor.snapToStep(11.0 9.0)) 9.0)))
+        this.check("upwards too" (this.near((PptxEditor.snapToStep(14.0 9.0)) 18.0)))
+        def negStep:double (PptxEditor.snapToStep((0.0 - 11.0) 9.0))
+        this.check("and negatives" (this.near(negStep (0.0 - 9.0))))
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ; Away from its neighbour, so only the grid is near.
+        a.x = 500.0
+        a.y = 400.0
+        ed.select(a.editId)
+        ed.setGrid(true)
+        ed.gridPt = 10.0
+        ed.moveSelectionSnapped(2.0 0.0)
+        def moved@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? moved) {
+            def ms:PptxShape (unwrap moved)
+            this.check("a small drag lands on the grid" (this.near(ms.x 500.0)))
+        }
+        ed.setGrid(false)
+        ed.moveSelectionSnapped(2.0 0.0)
+        def free@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? free) {
+            def fs:PptxShape (unwrap free)
+            this.check("with the grid off it goes where it was pushed" (this.near(fs.x 502.0)))
+        }
+    }
+
+
+    fn testFlip:void () {
+        print "--- mirroring ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        ed.select(a.editId)
+        this.check("nothing is mirrored to begin with" ((a.flipH == false) && (a.flipV == false)))
+        this.check("flip across" (ed.flipSelection(true)))
+        this.check("it took" a.flipH)
+        this.check("and only across" (a.flipV == false))
+        this.check("the box did not move" (this.near(a.x 100.0)))
+        this.check("nor change size" (this.near(a.width 200.0)))
+        ed.flipSelection(true)
+        this.check("flipping again puts it back" (a.flipH == false))
+        ed.flipSelection(false)
+        this.check("flip down" a.flipV)
+        ed.undo()
+        def back@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? back) {
+            def bs:PptxShape (unwrap back)
+            this.check("undo unmirrors it" (bs.flipV == false))
+        }
+        ; A locked shape does not mirror either.
+        def c@(optional):PptxShape (ed.findShape(a.editId))
+        if (!null? c) {
+            def cs:PptxShape (unwrap c)
+            ed.select(cs.editId)
+            ed.setLocked(true)
+            ed.flipSelection(true)
+            this.check("a locked shape does not mirror" (cs.flipH == false))
+        }
+    }
+
+    fn testFormatPainter:void () {
+        print "--- the format painter ---"
+        def ed (new PptxEditor())
+        def deck:PptxPresentation (this.buildDeck())
+        ed.attach(deck)
+        def slide:PptxSlide (itemAt deck.slides 0)
+        def a:PptxShape (itemAt slide.shapes 1)
+        def b:PptxShape (itemAt slide.shapes 2)
+        this.check("nothing picked up yet" ((ed.hasFormat()) == false))
+        this.check("and nothing to paint" ((ed.applyFormat()) == false))
+        ; Dress the first shape up.
+        ed.select(a.editId)
+        ed.setFillHex("C00000")
+        ed.setLineHex("203864" 3.0)
+        ed.setShapeText(a.editId "Styled")
+        ed.setTextBold(true)
+        ed.setTextSizePt(28.0)
+        ed.setTextColorHex("FFFFFF")
+        ed.setTextAlign("ctr")
+        this.check("pick the formatting up" (ed.copyFormat()))
+        this.check("the editor is holding it" (ed.hasFormat()))
+        ; Paint it onto the other one, which has text of its own.
+        ed.select(b.editId)
+        ed.setShapeText(b.editId "Plain")
+        this.check("paint it on" (ed.applyFormat()))
+        def painted@(optional):PptxShape (ed.findShape(b.editId))
+        this.check("the target is there" (!null? painted))
+        if (null? painted) {
+            return
+        }
+        def ps:PptxShape (unwrap painted)
+        this.check("the fill came across" (ps.fill.srgb == "C00000"))
+        this.check("the outline too" (ps.line.srgb == "203864"))
+        this.check("and its width" (this.near(ps.lineWidthPt 3.0)))
+        def para:PptxParagraph (itemAt ps.text.paragraphs 0)
+        def run:PptxTextRun (itemAt para.runs 0)
+        this.check("the text is bold now" run.bold)
+        this.check("and the size came across" (this.near(run.fontSizePt 28.0)))
+        this.check("and the colour" (run.color.srgb == "FFFFFF"))
+        this.check("and the alignment" (para.align == "ctr"))
+        this.check("but the words are the target's own" ((ps.text.plainText()) == "Plain"))
+        this.check("and its geometry is untouched" ((this.near(ps.x 300.0)) && (this.near(ps.width 120.0))))
+        ed.undo()
+        def before@(optional):PptxShape (ed.findShape(b.editId))
+        if (!null? before) {
+            def bs:PptxShape (unwrap before)
+            this.check("undo takes the paint off" (bs.fill.srgb != "C00000"))
         }
     }
 

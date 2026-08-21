@@ -88,6 +88,12 @@ class PptxParser {
             def rot:double (?? rd 0.0)
             shape.rotation = (PptxUnits.rotToDeg(rot))
         }
+        if ((xfrm.attr("flipH")) == "1") {
+            shape.flipH = true
+        }
+        if ((xfrm.attr("flipV")) == "1") {
+            shape.flipV = true
+        }
         def off@(optional):PptxXmlNode (xfrm.firstChild("off"))
         if (!null? off) {
             def o:PptxXmlNode (unwrap off)
@@ -671,6 +677,26 @@ class PptxParser {
             def cNv@(optional):PptxXmlNode (nvn.firstChild("cNvPr"))
             if (!null? cNv) {
                 shape.name = ((unwrap cNv).attr("name"))
+            }
+            ; `a:spLocks` is how a deck says a shape is not to be dragged.
+            ; Any of the three we care about counts as locked, because an
+            ; editor that let you move a shape it refuses to resize would be
+            ; the worst of both.
+            def sp2@(optional):PptxXmlNode (nvn.firstChild("cNvSpPr"))
+            if (!null? sp2) {
+                def locks@(optional):PptxXmlNode ((unwrap sp2).firstChild("spLocks"))
+                if (!null? locks) {
+                    def ln:PptxXmlNode (unwrap locks)
+                    if ((ln.attr("noMove")) == "1") {
+                        shape.locked = true
+                    }
+                    if ((ln.attr("noResize")) == "1") {
+                        shape.locked = true
+                    }
+                    if ((ln.attr("noSelect")) == "1") {
+                        shape.locked = true
+                    }
+                }
             }
         }
         this.parsePlaceholderAttrs(sp shape)

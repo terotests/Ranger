@@ -408,6 +408,49 @@ async function selftest() {
     await draw();
   }
 
+  // Direct manipulation: a rubber band over the slide, the clipboard, and the
+  // grid — all through the same command surface a toolbar button uses.
+  {
+    web.run("edit.toggle", "");
+    if (!web.editing()) web.run("edit.toggle", "");
+    web.run("shape.rect", "");
+    await draw();
+    // Where the shape is, in window pixels, so the band can start on empty
+    // canvas beside it rather than at a guessed corner — the toolbar wraps to
+    // as many rows as the width needs, so "near the top" is not empty.
+    const box = JSON.parse(web.selectionBox());
+    const x0 = Math.max(1, Math.round(box.x - 60));
+    // Only just above it: the toolbar wraps to as many rows as it needs, so a
+    // point far above the shape is a point on the toolbar, and a press there
+    // turns the page instead of starting a band.
+    const y0 = Math.round(box.y - 12);
+    const x1 = Math.round(box.x + box.w + 40);
+    const y1 = Math.round(box.y + box.h + 40);
+    web.pointerAt(x0, y0, true, true, false);
+    ok("a press beside the shape drops the selection", (web.selectionCount() | 0) === 0);
+    web.pointerAt(Math.round((x0 + x1) / 2), Math.round((y0 + y1) / 2), false, true, false);
+    web.pointerAt(x1, y1, false, true, false);
+    web.pointerAt(x1, y1, false, false, true);
+    await draw();
+    // The deck under it has shapes of its own, so the band takes those too —
+    // which is the point of a band.
+    ok("and a band picks up everything it touched", (web.selectionCount() | 0) >= 1);
+    ok("copy is a command", web.run("edit.copy", ""));
+    ok("paste is a command", web.run("edit.paste", ""));
+    await draw();
+    ok("pasting kept a selection", (web.selectionCount() | 0) >= 1);
+    const before = JSON.parse(web.scene()).list.cmds.length;
+    ok("the grid turns on", web.run("view.grid", ""));
+    await draw();
+    ok("and it is drawn", JSON.parse(web.scene()).list.cmds.length > before);
+    web.run("view.grid", "");
+    web.run("edit.undo", "");
+    web.run("edit.undo", "");
+    web.run("edit.undo", "");
+    web.run("edit.toggle", "");
+    await draw();
+  }
+
   // Saving: the page can write the package it is showing, and the proof is
   // that the page can open what it just wrote.
   {

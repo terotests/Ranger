@@ -145,6 +145,42 @@ class PptxEditorShots {
         app7.editor.setCaretPos(0 44 true)
         PptxEditorShots.shot(app7 "07_wrapped_selection.png")
 
+        ; 8 — the grid on, a shape turned by its handle, and a mirrored picture
+        def app8:PptxApp (PptxEditorShots.open("18-image-mixed.pptx"))
+        app8.runCommand("edit.toggle" "")
+        app8.runCommand("view.grid" "")
+        def shapes8:[PptxShape] (app8.editor.editableShapes())
+        def picked8:int 0
+        def firstPic:int 0
+        def si8:int 0
+        while (si8 < (array_length shapes8)) {
+            def cand8:PptxShape (itemAt shapes8 si8)
+            if (cand8.kind == 1) {
+                if (firstPic == 0) {
+                    firstPic = cand8.editId
+                }
+            }
+            if (cand8.kind == 0) {
+                if (picked8 == 0) {
+                    picked8 = cand8.editId
+                }
+            }
+            si8 = (si8 + 1)
+        }
+        if (firstPic > 0) {
+            app8.editor.select(firstPic)
+            app8.runCommand("edit.flip.h" "")
+        }
+        if (picked8 > 0) {
+            app8.editor.select(picked8)
+            app8.editor.setSelectionRotation(20.0)
+        } {
+            if (firstPic > 0) {
+                app8.editor.select(firstPic)
+            }
+        }
+        PptxEditorShots.shot(app8 "08_grid_rotate_flip.png")
+
         print "done"
     }
 }

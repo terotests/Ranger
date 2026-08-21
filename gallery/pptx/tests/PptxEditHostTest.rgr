@@ -59,6 +59,50 @@ class PptxEditHostTest {
         return (itemAt shapes 0)
     }
 
+    sfn countFlipped:int (dl:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (dl.count())) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 2) {
+                if (c.flipH) {
+                    n = (n + 1)
+                }
+                if (c.flipV) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn copyOf:buffer (src:buffer) {
+        def n:int (buffer_length src)
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (buffer_get src i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn sameBytes:boolean (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if (n != (buffer_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get a i) != (buffer_get b i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
     sfn near:boolean (a:double b:double tol:double) {
         def d:double (fabs (a - b))
         return (d < tol)
@@ -269,6 +313,102 @@ class PptxEditHostTest {
                 def bare2:EVGDisplayList (app6.buildFrame())
                 c.ok("a wrapped selection is drawn" ((painted.count()) > (bare2.count())))
             }
+        }
+
+        print "-- a rubber band, a rotation handle and a lock --"
+        def app7:PptxApp (PptxEditHostTest.buildDeck("02-shapes.pptx"))
+        app7.runCommand("edit.toggle" "")
+        def all7:[PptxShape] (app7.editor.editableShapes())
+        c.ok("the fixture has shapes to band over" ((array_length all7) >= 2))
+        if ((array_length all7) >= 2) {
+            ; A drag from an empty corner across everything.
+            def bandStartX:int (PptxEditHostTest.screenX(app7 2.0))
+            def bandStartY:int (PptxEditHostTest.screenY(app7 2.0))
+            def slideWpt:double (app7.slideW())
+            def slideHpt:double (app7.slideH())
+            def bandEndX:int (PptxEditHostTest.screenX(app7 (slideWpt - 4.0)))
+            def bandEndY:int (PptxEditHostTest.screenY(app7 (slideHpt - 4.0)))
+            app7.pointer(bandStartX bandStartY true true false)
+            c.ok("a press on empty canvas starts a band" (app7.dragMode == 3))
+            app7.pointer((idiv (bandStartX + bandEndX) 2) (idiv (bandStartY + bandEndY) 2) false true false)
+            app7.pointer(bandEndX bandEndY false true false)
+            app7.pointer(bandEndX bandEndY false false true)
+            c.ok("and letting go selects what it touched" ((app7.editor.selectionCount()) == (array_length all7)))
+            c.ok("the band is gone afterwards" (app7.dragMode == 0))
+            ; The rotation handle sits above the selection box.
+            def one:PptxShape (itemAt all7 0)
+            app7.editor.select(one.editId)
+            def sb:PptxEditRect (app7.shapeScreenBox(one))
+            def rotX:int (to_int (sb.x + (sb.w * 0.5)))
+            def rotY:int (to_int (app7.rotateHandleY(sb.y)))
+            c.ok("the rotation handle is the ninth" ((app7.handleAt(rotX rotY)) == 8))
+            app7.pointer(rotX rotY true true false)
+            c.ok("dragging it is a rotation, not a resize" (app7.dragMode == 4))
+            def sideX:int (to_int (sb.x + sb.w + 40.0))
+            def sideY:int (to_int (sb.y + (sb.h * 0.5)))
+            app7.pointer(sideX sideY false true false)
+            app7.pointer(sideX sideY false false true)
+            def turned@(optional):PptxShape (app7.editor.findShape(one.editId))
+            if (!null? turned) {
+                def ts:PptxShape (unwrap turned)
+                c.ok("the shape turned toward the pointer" ((fabs (ts.rotation - 90.0)) < 6.0))
+            }
+            c.ok("and it is one history step" (app7.runCommand("edit.undo" "")))
+            ; A locked selection draws no handles.
+            app7.editor.select(one.editId)
+            def unlockedCount:int ((app7.buildFrame()).count())
+            app7.runCommand("edit.lock" "")
+            c.ok("the lock command locks" (app7.editor.selectionLocked()))
+            def lockedCount:int ((app7.buildFrame()).count())
+            c.ok("a locked shape shows no handles" (lockedCount < unlockedCount))
+            app7.runCommand("edit.lock" "")
+            c.ok("and unlocks again" ((app7.editor.selectionLocked()) == false))
+            ; Copy and paste through the command surface.
+            def before7:int (array_length (app7.editor.editableShapes()))
+            c.ok("copy is a command" (app7.runCommand("edit.copy" "")))
+            c.ok("paste is a command" (app7.runCommand("edit.paste" "")))
+            c.ok("and it put one down" ((array_length (app7.editor.editableShapes())) == (before7 + 1)))
+            ; The grid is a command too, and it draws.
+            def plain7:int ((app7.buildFrame()).count())
+            app7.runCommand("view.grid" "")
+            c.ok("the grid turns on" app7.editor.gridEnabled)
+            c.ok("and it is drawn" (((app7.buildFrame()).count()) > plain7))
+            app7.runCommand("view.grid" "")
+        }
+
+        print "-- a mirrored picture, and the format painter --"
+        def app8:PptxApp (PptxEditHostTest.buildDeck("16-image-png.pptx"))
+        app8.runCommand("edit.toggle" "")
+        def pics:[PptxShape] (app8.editor.editableShapes())
+        def picId:int 0
+        def pi:int 0
+        while (pi < (array_length pics)) {
+            def cand:PptxShape (itemAt pics pi)
+            if (cand.kind == 1) {
+                if (picId == 0) {
+                    picId = cand.editId
+                }
+            }
+            pi = (pi + 1)
+        }
+        c.ok("the fixture has a picture" (picId > 0))
+        if (picId > 0) {
+            app8.editor.select(picId)
+            ; The flags reach the display list, which is what both backends read.
+            def plainList:EVGDisplayList (app8.buildFrame())
+            def mirroredBefore:int (PptxEditHostTest.countFlipped(plainList))
+            c.ok("nothing is mirrored yet" (mirroredBefore == 0))
+            c.ok("flip it across" (app8.runCommand("edit.flip.h" "")))
+            def flippedList:EVGDisplayList (app8.buildFrame())
+            c.ok("the picture command carries the mirror" ((PptxEditHostTest.countFlipped(flippedList)) == 1))
+            ; And the pixels differ, which is the part a flag alone would not
+            ; prove: a mirrored blit reads the other column.
+            app8.renderOracleSlide(0)
+            def afterPixels:buffer (PptxEditHostTest.copyOf((app8.raw())))
+            app8.runCommand("edit.undo" "")
+            app8.renderOracleSlide(0)
+            def beforePixels:buffer (app8.raw())
+            c.ok("and the picture is drawn differently" ((PptxEditHostTest.sameBytes(beforePixels afterPixels)) == false))
         }
 
         print "-- the viewer is still a viewer --"

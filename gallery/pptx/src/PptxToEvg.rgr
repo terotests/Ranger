@@ -288,7 +288,7 @@ class PptxToEvg {
         push dl.cmds c
     }
 
-    fn pushImage:void (dl:EVGDisplayList src:string x:double y:double w:double h:double) {
+    fn pushImage:void (dl:EVGDisplayList src:string x:double y:double w:double h:double flipH:boolean flipV:boolean) {
         def c (new EVGDrawCmd())
         c.kind = 2
         c.x = x
@@ -297,7 +297,34 @@ class PptxToEvg {
         c.h = h
         c.src = src
         c.a = 1.0
+        c.flipH = flipH
+        c.flipV = flipV
         push dl.cmds c
+    }
+
+    ; A mirrored shape is its path read from the other side of its own box.
+    sfn mirrorUnit:[double] (unit:[double] flipH:boolean flipV:boolean) {
+        if (flipH == false) {
+            if (flipV == false) {
+                return unit
+            }
+        }
+        def out:[double]
+        def i:int 0
+        while (i < (array_length unit)) {
+            def ux:double (itemAt unit i)
+            def uy:double (itemAt unit (i + 1))
+            if flipH {
+                ux = (1.0 - ux)
+            }
+            if flipV {
+                uy = (1.0 - uy)
+            }
+            push out ux
+            push out uy
+            i = (i + 2)
+        }
+        return out
     }
 
     ; The lines of a shape's text, in painter pixels. One layout, asked for by
@@ -494,7 +521,7 @@ class PptxToEvg {
         }
         if (shape.kind == 1) {
             if ((strlen shape.imagePart) > 0) {
-                this.pushImage(dl shape.imagePart x y w h)
+                this.pushImage(dl shape.imagePart x y w h shape.flipH shape.flipV)
             } {
                 this.pushRect(dl x y w h (EVGColor.rgb(200 210 230)))
             }
@@ -527,6 +554,7 @@ class PptxToEvg {
                 if (shape.hasPath == false) {
                     unit = (PptxGeom.unitPreset(shape.preset))
                 }
+                unit = (PptxToEvg.mirrorUnit(unit shape.flipH shape.flipV))
                 def pts:[double] (PptxGeom.scaleToBox(unit x y w h))
                 def col:EVGColor (EVGColor.rgb(180 180 190))
                 if (shape.fill.isSet) {

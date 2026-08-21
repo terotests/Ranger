@@ -179,6 +179,10 @@ class PptxView {
         def x:double c.x
         def y:double c.y
         def size:double c.fontSize
+        def turnedText:boolean false
+        if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+            turnedText = true
+        }
         if ((strlen c.textAlign) > 0) {
             if (c.w > 0.0) {
                 def mw:double (ctx.measureWidth(c.text size))
@@ -190,12 +194,40 @@ class PptxView {
                 }
             }
         }
-        if (c.maxWidth > 8.0) {
-            ctx.textWrapped(c.text (to_int x) (to_int y) size c.maxWidth col)
+        if turnedText {
+            ctx.textRotated(c.text (to_int x) (to_int y) size col c.rotate)
         } {
-            ctx.text(c.text (to_int x) (to_int y) size col)
+            if (c.maxWidth > 8.0) {
+                ctx.textWrapped(c.text (to_int x) (to_int y) size c.maxWidth col)
+            } {
+                ctx.text(c.text (to_int x) (to_int y) size col)
+            }
         }
         ctx.tr.fontFamily = prevFamily
+    }
+
+    ; A rectangle turned about its own centre, as four points. The GPU backend
+    ; rotates a quad in the shader; the CPU one has a polygon filler and had
+    ; been ignoring `rotate` entirely, so a shape you turned in the editor
+    ; drew straight here and turned in the browser.
+    sfn rotatedCorners:[double] (x:double y:double w:double h:double degrees:double) {
+        def out:[double]
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        def rad:double (degrees * 0.017453292519943295)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def xs:[double] ([] _:double ( 0.0 1.0 1.0 0.0 ))
+        def ys:[double] ([] _:double ( 0.0 0.0 1.0 1.0 ))
+        def i:int 0
+        while (i < 4) {
+            def px:double ((x + ((itemAt xs i) * w)) - cx)
+            def py:double ((y + ((itemAt ys i) * h)) - cy)
+            push out (cx + ((px * cs) - (py * sn)))
+            push out (cy + ((px * sn) + (py * cs)))
+            i = (i + 1)
+        }
+        return out
     }
 
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
@@ -205,8 +237,24 @@ class PptxView {
         while (i < n) {
             def c:EVGDrawCmd (dl.at(i))
             if (c.kind == 0) {
+                def turned:boolean false
+                if ((c.rotate > 0.001) || (c.rotate < -0.001)) {
+                    if (c.hasGrad == false) {
+                        if (c.a > 0.001) {
+                            turned = true
+                        }
+                    }
+                }
+                if turned {
+                    def corners:[double] (PptxView.rotatedCorners(c.x c.y c.w c.h c.rotate))
+                    ctx.fillPolygon(corners c.r c.g c.b (to_int (c.a * 255.0)))
+                }
                 if c.hasShadow {
                     ctx.shadowRoundRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) (to_int c.shadowX) (to_int c.shadowY) (to_int c.shadowBlur) c.shadowR c.shadowG c.shadowB (to_int (c.shadowA * 255.0)))
+                }
+                if turned {
+                    i = (i + 1)
+                    continue
                 }
                 if c.hasGrad {
                     ctx.fillRoundRectGrad((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (to_int c.radius) c.gradDir c.r c.g c.b (to_int (c.a * 255.0)) c.r2 c.g2 c.b2 (to_int (c.a2 * 255.0)))
@@ -233,7 +281,7 @@ class PptxView {
                 if (!null? img) {
                     def pixels:ImageBuffer (unwrap img)
                     if ((pixels.width > 0) && (pixels.height > 0)) {
-                        canvas.blitImageRectScaled(pixels 0 0 pixels.width pixels.height (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+                        canvas.blitImageRectScaledFlipped(pixels 0 0 pixels.width pixels.height (to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) c.flipH c.flipV)
                     } {
                         ctx.fillRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h) (EVGColor.rgb(180 198 230)))
                     }

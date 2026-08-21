@@ -196,6 +196,8 @@ class PptxClone {
         s.height = src.height
         s.hasXfrm = src.hasXfrm
         s.rotation = src.rotation
+        s.flipH = src.flipH
+        s.flipV = src.flipV
         s.preset = src.preset
         s.fill = (PptxClone.color(src.fill))
         s.fillGrad = (PptxClone.gradient(src.fillGrad))
@@ -208,6 +210,7 @@ class PptxClone {
         s.imagePart = src.imagePart
         s.imageBytes = src.imageBytes
         s.imageOk = src.imageOk
+        s.locked = src.locked
         s.isPlaceholder = src.isPlaceholder
         s.phType = src.phType
         s.phIdx = src.phIdx
@@ -261,6 +264,28 @@ class PptxClone {
 
 ; One point in the undo stack: the slides, which slide was in front of you, and
 ; what was selected — restoring geometry without the selection loses your place.
+; What the format painter carries: how a shape is filled, outlined, shadowed
+; and lettered, with none of its geometry and none of its words.
+class PptxFormat {
+    def fill:PptxColor (new PptxColor())
+    def grad:PptxGradient (new PptxGradient())
+    def line:PptxColor (new PptxColor())
+    def lineWidthPt:double 0.0
+    def shadow:PptxShadow (new PptxShadow())
+    def hasText:boolean false
+    def bold:boolean false
+    def italic:boolean false
+    def sizePt:double 18.0
+    def sizeSet:boolean false
+    def family:string ""
+    def color:PptxColor (new PptxColor())
+    def align:string "l"
+    def alignSet:boolean false
+
+    Constructor () {
+    }
+}
+
 class PptxEditSnapshot {
     def label:string ""
     def slideIndex:int 0
@@ -297,6 +322,14 @@ class PptxEditor {
     def editingId:int 0
     def caret:PptxTextPos (new PptxTextPos())
     def anchor:PptxTextPos (new PptxTextPos())
+    ; What was copied, and where a drag on empty canvas started. The clipboard
+    ; is the editor's own — a browser tab cannot read the system one without
+    ; asking, and a deck's shapes are not text anyway.
+    def clip:[PptxShape]
+    def gridEnabled:boolean false
+    def gridPt:double 9.0
+    def format:PptxFormat (new PptxFormat())
+    def formatSet:boolean false
 
     Constructor () {
     }
@@ -773,7 +806,7 @@ class PptxEditor {
     ; --- transforms ----------------------------------------------------------
 
     fn applyMove:void (dx:double dy:double) {
-        def shapes:[PptxShape] (this.selectedShapes())
+        def shapes:[PptxShape] (this.movableShapes())
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
@@ -942,6 +975,21 @@ class PptxEditor {
         push ey ((b.bottom()) + dy)
         def linesX:[double] (this.snapLinesX())
         def linesY:[double] (this.snapLinesY())
+        ; With the grid on, the grid line nearest each moving edge is a
+        ; candidate like any other — so a shape lands on the grid when nothing
+        ; better is near, and on its neighbour's edge when one is.
+        if gridEnabled {
+            def gi:int 0
+            while (gi < (array_length ex)) {
+                push linesX (PptxEditor.snapToStep((itemAt ex gi) gridPt))
+                gi = (gi + 1)
+            }
+            def gj:int 0
+            while (gj < (array_length ey)) {
+                push linesY (PptxEditor.snapToStep((itemAt ey gj) gridPt))
+                gj = (gj + 1)
+            }
+        }
         def ax:double (PptxEditor.nearestSnap(ex linesX snapTolPt))
         def ay:double (PptxEditor.nearestSnap(ey linesY snapTolPt))
         if ((fabs ax) > 0.0001) {
@@ -1042,7 +1090,7 @@ class PptxEditor {
         }
         def sx:double (nw / b.w)
         def sy:double (nh / b.h)
-        def shapes:[PptxShape] (this.selectedShapes())
+        def shapes:[PptxShape] (this.movableShapes())
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
@@ -1058,11 +1106,21 @@ class PptxEditor {
         return true
     }
 
+    fn applyRotate:void (deg:double) {
+        def shapes:[PptxShape] (this.movableShapes())
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            sh.rotation = (PptxEditor.normalizeDeg(deg))
+            i = (i + 1)
+        }
+    }
+
     fn rotateSelection:boolean (deg:double) {
         if ((array_length selection) == 0) {
             return false
         }
-        def shapes:[PptxShape] (this.selectedShapes())
+        def shapes:[PptxShape] (this.movableShapes())
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
@@ -1078,7 +1136,7 @@ class PptxEditor {
             return false
         }
         def norm:double (PptxEditor.normalizeDeg(deg))
-        def shapes:[PptxShape] (this.selectedShapes())
+        def shapes:[PptxShape] (this.movableShapes())
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
@@ -1221,7 +1279,9 @@ class PptxEditor {
             def drop:boolean false
             if (sh.inherited == false) {
                 if (this.isSelected(sh.editId)) {
-                    drop = true
+                    if (sh.locked == false) {
+                        drop = true
+                    }
                 }
             }
             if drop {
@@ -1544,7 +1604,7 @@ class PptxEditor {
         if ((array_length selection) == 0) {
             return false
         }
-        def shapes:[PptxShape] (this.selectedShapes())
+        def shapes:[PptxShape] (this.movableShapes())
         def b:PptxEditRect (this.selectionBounds())
         if ((array_length shapes) < 2) {
             b = (PptxEditRect.of(0.0 0.0 (this.slideWidth()) (this.slideHeight())))
@@ -2339,6 +2399,313 @@ class PptxEditor {
         }
         def sh:PptxShape (unwrap hit)
         return (PptxTextEdit.rangeIsAll(sh.text anchor caret what))
+    }
+
+
+    ; --- what a drag over empty canvas selects --------------------------------
+
+    sfn rectsOverlap:boolean (ax:double ay:double aw:double ah:double bx:double by:double bw:double bh:double) {
+        if ((ax + aw) < bx) {
+            return false
+        }
+        if ((bx + bw) < ax) {
+            return false
+        }
+        if ((ay + ah) < by) {
+            return false
+        }
+        if ((by + bh) < ay) {
+            return false
+        }
+        return true
+    }
+
+    ; A rubber band takes what it TOUCHES rather than only what it encloses:
+    ; the enclosing rule is PowerPoint's and it makes a band across a row of
+    ; shapes select nothing at all.
+    fn selectInRect:int (x:double y:double w:double h:double additive:boolean) {
+        if (additive == false) {
+            this.clearSelection()
+        }
+        def rx:double x
+        def ry:double y
+        def rw:double w
+        def rh:double h
+        if (rw < 0.0) {
+            rx = (x + w)
+            rw = (0.0 - w)
+        }
+        if (rh < 0.0) {
+            ry = (y + h)
+            rh = (0.0 - h)
+        }
+        def shapes:[PptxShape] (this.editableShapes())
+        def hits:int 0
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            if (PptxEditor.rectsOverlap(rx ry rw rh sh.x sh.y sh.width sh.height)) {
+                this.addToSelection(sh.editId)
+                hits = (hits + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
+    }
+
+    ; --- the clipboard --------------------------------------------------------
+
+    fn copySelection:int () {
+        def shapes:[PptxShape] (this.selectedShapes())
+        if ((array_length shapes) == 0) {
+            return 0
+        }
+        def out:[PptxShape]
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            push out (PptxClone.shape(sh))
+            i = (i + 1)
+        }
+        clip = out
+        return (array_length out)
+    }
+
+    fn cutSelection:int () {
+        def n:int (this.copySelection())
+        if (n == 0) {
+            return 0
+        }
+        this.deleteSelection()
+        return n
+    }
+
+    fn clipboardCount:int () {
+        return (array_length clip)
+    }
+
+    ; Pasting on the slide it was copied from offsets, so the copy is visible;
+    ; pasting on another slide puts it where it was, which is what makes
+    ; copying a header from one slide to the next useful.
+    fn pasteClipboard:boolean (offset:boolean) {
+        if ((array_length clip) == 0) {
+            return false
+        }
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        def pasted:[int]
+        def i:int 0
+        while (i < (array_length clip)) {
+            def src:PptxShape (itemAt clip i)
+            def copy:PptxShape (PptxClone.shape(src))
+            if offset {
+                copy.x = (copy.x + 10.0)
+                copy.y = (copy.y + 10.0)
+            }
+            copy.locked = false
+            this.assignIdTo(copy)
+            push s.shapes copy
+            push pasted copy.editId
+            i = (i + 1)
+        }
+        this.clearSelection()
+        def j:int 0
+        while (j < (array_length pasted)) {
+            push selection (itemAt pasted j)
+            j = (j + 1)
+        }
+        this.pushSnapshot("paste")
+        return true
+    }
+
+    ; --- locking --------------------------------------------------------------
+
+    ; Mirroring, which is a flag rather than a transform: the box stays where
+    ; it is and what is drawn in it is read the other way round.
+    fn flipSelection:boolean (horizontal:boolean) {
+        def shapes:[PptxShape] (this.movableShapes())
+        if ((array_length shapes) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            if horizontal {
+                sh.flipH = (sh.flipH == false)
+            } {
+                sh.flipV = (sh.flipV == false)
+            }
+            i = (i + 1)
+        }
+        this.pushSnapshot("flip")
+        return true
+    }
+
+    fn setLocked:boolean (locked:boolean) {
+        def shapes:[PptxShape] (this.selectedShapes())
+        if ((array_length shapes) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            sh.locked = locked
+            i = (i + 1)
+        }
+        this.pushSnapshot("lock")
+        return true
+    }
+
+    fn selectionLocked:boolean () {
+        def shapes:[PptxShape] (this.selectedShapes())
+        if ((array_length shapes) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            if (sh.locked == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The shapes a transform may touch: everything selected that is not locked.
+    fn movableShapes:[PptxShape] () {
+        def out:[PptxShape]
+        def shapes:[PptxShape] (this.selectedShapes())
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            if (sh.locked == false) {
+                push out sh
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- the grid -------------------------------------------------------------
+
+    sfn snapToStep:double (v:double step:double) {
+        if (step <= 0.0) {
+            return v
+        }
+        ; Rounded on the magnitude, sign put back: `to_int` floors, so
+        ; subtracting a half on the negative side rounds away from zero twice
+        ; and -11 on a 9pt grid lands on -18.
+        def n:double (v / step)
+        def neg:boolean (n < 0.0)
+        def mag:double n
+        if neg {
+            mag = (0.0 - n)
+        }
+        def k:int (to_int (mag + 0.5))
+        def out:double ((to_double k) * step)
+        if neg {
+            return (0.0 - out)
+        }
+        return out
+    }
+
+    fn setGrid:void (on:boolean) {
+        gridEnabled = on
+    }
+
+
+    ; --- the format painter ---------------------------------------------------
+
+    fn copyFormat:boolean () {
+        def hit@(optional):PptxShape (this.firstSelected())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        def f (new PptxFormat())
+        f.fill = (PptxClone.color(sh.fill))
+        f.grad = (PptxClone.gradient(sh.fillGrad))
+        f.line = (PptxClone.color(sh.line))
+        f.lineWidthPt = sh.lineWidthPt
+        f.shadow = (PptxClone.shadow(sh.shadow))
+        if sh.hasText {
+            if ((array_length sh.text.paragraphs) > 0) {
+                def para:PptxParagraph (itemAt sh.text.paragraphs 0)
+                f.align = para.align
+                f.alignSet = para.alignSet
+                if ((array_length para.runs) > 0) {
+                    def run:PptxTextRun (itemAt para.runs 0)
+                    f.hasText = true
+                    f.bold = run.bold
+                    f.italic = run.italic
+                    f.sizePt = run.fontSizePt
+                    f.sizeSet = run.sizeSet
+                    f.family = run.fontFamily
+                    f.color = (PptxClone.color(run.color))
+                }
+            }
+        }
+        format = f
+        formatSet = true
+        return true
+    }
+
+    fn hasFormat:boolean () {
+        return formatSet
+    }
+
+    ; Painted onto everything selected that is not locked. Text properties
+    ; reach a shape only if it HAS text — a picture does not become bold.
+    fn applyFormat:boolean () {
+        if (formatSet == false) {
+            return false
+        }
+        def shapes:[PptxShape] (this.movableShapes())
+        if ((array_length shapes) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            if (sh.kind != 1) {
+                sh.fill = (PptxClone.color(format.fill))
+                sh.fillGrad = (PptxClone.gradient(format.grad))
+            }
+            sh.line = (PptxClone.color(format.line))
+            sh.lineWidthPt = format.lineWidthPt
+            sh.shadow = (PptxClone.shadow(format.shadow))
+            if sh.hasText {
+                def pi:int 0
+                while (pi < (array_length sh.text.paragraphs)) {
+                    def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+                    if format.alignSet {
+                        para.align = format.align
+                        para.alignSet = true
+                    }
+                    if format.hasText {
+                        def ri:int 0
+                        while (ri < (array_length para.runs)) {
+                            def run:PptxTextRun (itemAt para.runs ri)
+                            run.bold = format.bold
+                            run.italic = format.italic
+                            run.fontSizePt = format.sizePt
+                            run.sizeSet = format.sizeSet
+                            run.fontFamily = format.family
+                            run.color = (PptxClone.color(format.color))
+                            ri = (ri + 1)
+                        }
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.pushSnapshot("format")
+        return true
     }
 
 }

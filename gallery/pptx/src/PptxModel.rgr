@@ -186,6 +186,9 @@ class PptxShape {
     def height:double 0.0
     def hasXfrm:boolean false   ; true when spPr/xfrm supplied geometry
     def rotation:double 0.0     ; degrees
+    ; `a:xfrm flipH` / `flipV`: the shape drawn mirrored in its own box.
+    def flipH:boolean false
+    def flipV:boolean false
     def preset:string "rect"    ; rect / ellipse / roundRect / …
     def fill:PptxColor (new PptxColor())
     def fillGrad:PptxGradient (new PptxGradient())
@@ -205,6 +208,10 @@ class PptxShape {
     def phIdx:int -1
     ; true when shape came from master/layout chrome (not authored on the slide)
     def inherited:boolean false
+    ; `a:spLocks noMove/noResize`: a shape that is on the slide to be looked at
+    ; rather than dragged. It can still be selected — a lock you cannot select
+    ; is a lock you cannot undo.
+    def locked:boolean false
     ; Custom / flattened path in shape-local unit coords (optional)
     def hasPath:boolean false
     def pathUnit:[double]

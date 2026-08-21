@@ -92,6 +92,10 @@ window pixel becomes one:
 - [x] Drag to move, eight handles to resize, rotation-aware hit testing
 - [x] Alignment guides: shape edges, shape centres and the slide's own thirds
 - [x] Align 6 ways, distribute across / down, z-order, group / ungroup
+- [x] A rubber band over empty canvas; copy / cut / paste (Ctrl+C/X/V), on this
+      slide or another; lock (`a:spLocks`, so it survives the file); a grid to
+      snap to; a rotation handle with 15° steps under shift; flip across and
+      down; a format painter
 - [x] Insert box / ellipse / text box / picture, delete, duplicate
 - [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
       on a shape's text

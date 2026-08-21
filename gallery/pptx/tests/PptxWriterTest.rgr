@@ -48,6 +48,8 @@ class PptxWriterTest {
         this.testFlattening()
         this.testPictures()
         this.testEditedDeck()
+        this.testLockRoundTrip()
+        this.testFlipRoundTrip()
         this.testSaveOver()
         this.testSaveOverStructure()
         print ""
@@ -417,6 +419,118 @@ class PptxWriterTest {
         p2.close()
     }
 
+
+    fn testLockRoundTrip:void () {
+        print "--- a lock is in the file ---"
+        def pres (new PptxPresentation())
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        def a (new PptxShape())
+        a.x = 50.0
+        a.y = 50.0
+        a.width = 100.0
+        a.height = 50.0
+        a.hasXfrm = true
+        a.locked = true
+        a.fill = (PptxColor.srgbOf("4472C4"))
+        push slide.shapes a
+        def b (new PptxShape())
+        b.x = 200.0
+        b.y = 50.0
+        b.width = 100.0
+        b.height = 50.0
+        b.hasXfrm = true
+        b.fill = (PptxColor.srgbOf("ED7D31"))
+        push slide.shapes b
+        push pres.slides slide
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "locks.pptx")
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "locks.pptx"))
+        this.check("a deck with a lock opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s1:PptxSlide (itemAt back.slides 0)
+        def locked:int 0
+        def free:int 0
+        def i:int 0
+        while (i < (array_length s1.shapes)) {
+            def sh:PptxShape (itemAt s1.shapes i)
+            if (sh.inherited == false) {
+                if sh.locked {
+                    locked = (locked + 1)
+                } {
+                    free = (free + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("the locked shape came back locked" (locked == 1))
+        this.check("and the other one did not" (free == 1))
+        p2.close()
+    }
+
+    fn testFlipRoundTrip:void () {
+        print "--- a mirror is in the file ---"
+        def pres (new PptxPresentation())
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        def a (new PptxShape())
+        a.x = 40.0
+        a.y = 40.0
+        a.width = 120.0
+        a.height = 60.0
+        a.hasXfrm = true
+        a.flipH = true
+        a.preset = "triangle"
+        a.fill = (PptxColor.srgbOf("4472C4"))
+        push slide.shapes a
+        def b (new PptxShape())
+        b.x = 200.0
+        b.y = 40.0
+        b.width = 120.0
+        b.height = 60.0
+        b.hasXfrm = true
+        b.flipV = true
+        b.rotation = 30.0
+        b.fill = (PptxColor.srgbOf("ED7D31"))
+        push slide.shapes b
+        push pres.slides slide
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "flips.pptx")
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "flips.pptx"))
+        this.check("a deck with mirrors opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s1:PptxSlide (itemAt back.slides 0)
+        def authored:[PptxShape]
+        def i:int 0
+        while (i < (array_length s1.shapes)) {
+            def sh:PptxShape (itemAt s1.shapes i)
+            if (sh.inherited == false) {
+                push authored sh
+            }
+            i = (i + 1)
+        }
+        this.check("both shapes came back" ((array_length authored) == 2))
+        if ((array_length authored) < 2) {
+            return
+        }
+        def one:PptxShape (itemAt authored 0)
+        def two:PptxShape (itemAt authored 1)
+        this.check("the horizontal mirror survived" one.flipH)
+        this.check("and did not become a vertical one" (one.flipV == false))
+        this.check("the vertical mirror survived" two.flipV)
+        this.check("beside its rotation" (this.near(two.rotation 30.0)))
+        p2.close()
+    }
 
     ; --- saving the file that was opened -------------------------------------
     ;

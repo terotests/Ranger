@@ -254,13 +254,46 @@ keep all of it. Narrowing that further means keeping the original XML for the
 shapes an edit did not touch, which is a shape-level provenance the parser does
 not record yet.
 
-## Phase E4 — the rest of the direct manipulation
+## Phase E4 — the rest of the direct manipulation (mostly done)
 
-Box (marquee) select · copy / cut / paste, including between decks · format
-painter · flip horizontal / vertical · lock · rulers, grid and per-shape
-rotation handle · crop and picture filters · multi-stop gradients, shadow and
-outline dialogs · a colour picker · right-click menus · the shape library
-beyond the presets `PptxGeom` already draws.
+Landed:
+
+- **Marquee select.** A drag from empty canvas is a rubber band, and it takes
+  what it *touches* rather than only what it encloses — the enclosing rule is
+  PowerPoint's and it makes a band across a row of shapes select nothing.
+- **Clipboard.** Copy, cut and paste, the editor's own rather than the system
+  one (a browser tab cannot read that without asking, and a deck's shapes are
+  not text). Pasting on the slide it came from offsets; pasting on another
+  slide puts it back where it was, which is what makes copying a header from
+  one slide to the next useful.
+- **Lock** (`a:spLocks noMove/noResize`, so it survives a save and comes back
+  from a deck PowerPoint locked). A locked shape can still be selected — a
+  lock you cannot select is a lock you cannot undo — but move, resize, rotate,
+  flip and delete pass it over, and its selection draws no handles, because
+  drawing handles that do nothing is a lie.
+- **Grid**, as another set of lines to snap to, drawn as dots at the step.
+- **A rotation handle**, the ninth handle, on its stalk above the box; shift
+  snaps the angle to 15°.
+- **Flip horizontal / vertical** — a flag rather than a transform, the way
+  OOXML states it, honoured by the path geometry, by a new mirrored blit in
+  the CPU backend (`blitImageRectScaledFlipped`) and by a swapped UV range in
+  the GPU one.
+- **The format painter**: fill, gradient, outline, shadow and the text's
+  weight, size, colour and alignment picked up from one shape and painted onto
+  others, without touching their geometry or their words.
+- And a fidelity debt this uncovered: **the CPU backend ignored `rotate`
+  entirely**, so a shape you turned in the editor drew straight in a PNG and
+  turned in the browser. A turned rectangle is four rotated corners through
+  the polygon filler it already had, and turned text goes through
+  `UIContext.textRotated`.
+
+Still open, and deliberately named rather than quietly dropped: **crop and
+picture filters**, **multi-stop gradients**, **shadow and outline dialogs**, a
+**colour picker** (the fill command takes a hex string today, so a host can
+already set any colour — what is missing is a way to *choose* one), and
+**rulers**. **Right-click menus** cannot be built at all yet: `UIInput` carries
+no button identity, so the UI layer cannot tell a right press from a left one
+— that is a change in the shared input contract, not in this gallery.
 
 ## Phase E4b — the slide panel
 
