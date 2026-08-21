@@ -285,7 +285,17 @@ class SoftPainter {
                     def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
                     this.applyFaceStyled(c.fontFamily (c.fontWeight == "bold") (c.textAlign == "italic"))
                     if (c.rotate == 0.0) {
-                        ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                        ; CUT to the clip, not merely tested against it.
+                        ; `textInClip` answers "does this string begin inside
+                        ; the rectangle", and a label beginning one pixel
+                        ; inside its cell used to be drawn in full — across an
+                        ; occupied neighbour, over the row numbers, off the
+                        ; left edge of the window.
+                        if (this.hasClip()) {
+                            ctx.textClipped(c.text (to_int c.x) (to_int c.y) c.fontSize col3 (this.clipX0()) (this.clipY0()) (this.clipX1()) (this.clipY1()))
+                        } {
+                            ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                        }
                     } {
                         ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
                     }

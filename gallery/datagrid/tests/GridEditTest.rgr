@@ -1517,19 +1517,48 @@ class GridEditTest {
         c.ok("short row stays short" ((wm.rowHeight(18)) < afterH))
 
         print "-- overflow only over EMPTY neighbours --"
-        def spillRect:GridRect (wApp.grid.cellRect(wm 22 1))
-        def roomEmpty:int (wApp.view.spillWidth(wm spillRect 22 1 true))
-        c.ok("spills past its own width" (roomEmpty > spillRect.w))
+        ; `spillRoom` answers how far a label may run BEYOND its own cell, so
+        ; an empty neighbour is room and an occupied one is none.
+        def roomEmpty:int (wApp.view.spillRoom(wm 22 1 true))
+        c.ok("spills into an empty neighbour" (roomEmpty > 0))
         ; C25 is occupied, so B25 must stop at its own edge.
-        def blockRect:GridRect (wApp.grid.cellRect(wm 24 1))
-        def roomBlocked:int (wApp.view.spillWidth(wm blockRect 24 1 true))
-        c.eqInt("blocked by an occupied neighbour" roomBlocked blockRect.w)
+        def roomBlocked:int (wApp.view.spillRoom(wm 24 1 true))
+        c.eqInt("blocked by an occupied neighbour" roomBlocked 0)
         c.ok("occupied neighbour really has content" ((strlen (wm.getCell(24 2))) > 0))
         ; Filling the neighbour stops the spill.
         wm.setCellRaw(22 2 "now taken")
-        def roomAfter:int (wApp.view.spillWidth(wm spillRect 22 1 true))
-        c.eqInt("spill stops once the neighbour fills" roomAfter spillRect.w)
+        def roomAfter:int (wApp.view.spillRoom(wm 22 1 true))
+        c.eqInt("spill stops once the neighbour fills" roomAfter 0)
         c.ok("still renders" ((strlen (wApp.sceneJson())) > 500))
+
+        ; Leftward, which is where a right-aligned number grows.
+        def leftApp:GridApp (new GridApp)
+        leftApp.init("gallery/pdf_writer/assets/fonts")
+        leftApp.model.clearSheet()
+        leftApp.model.resize(6 5)
+        leftApp.model.setCellRaw(1 2 "value")
+        c.ok("an empty cell to the left is room" ((leftApp.view.spillRoom(leftApp.model 1 2 false)) > 0))
+        leftApp.model.setCellRaw(1 1 "taken")
+        c.eqInt("an occupied one is not" (leftApp.view.spillRoom(leftApp.model 1 2 false)) 0)
+        c.eqInt("and column A has nothing to its left" (leftApp.view.spillRoom(leftApp.model 1 0 false)) 0)
+
+        ; A merged cell already covers its own columns: the walk has to start
+        ; past the merge, or those columns are counted twice and the label runs
+        ; that much further than there is room for.
+        def mrgApp:GridApp (new GridApp)
+        mrgApp.init("gallery/pdf_writer/assets/fonts")
+        mrgApp.model.clearSheet()
+        mrgApp.model.resize(6 8)
+        mrgApp.model.setCellRaw(0 0 "a wide title")
+        mrgApp.model.addMerge(0 0 0 3)
+        def mergedRoom:int (mrgApp.view.spillRoom(mrgApp.model 0 0 true))
+        def colE:int (mrgApp.model.colWidth(4))
+        def colF:int (mrgApp.model.colWidth(5))
+        def colG:int (mrgApp.model.colWidth(6))
+        def colH:int (mrgApp.model.colWidth(7))
+        c.eqInt("a merge spills from its LAST column" mergedRoom (((colE + colF) + colG) + colH))
+        mrgApp.model.setCellRaw(0 4 "stop")
+        c.eqInt("and stops at the first thing beyond it" (mrgApp.view.spillRoom(mrgApp.model 0 0 true)) 0)
 
         print "== format painter =="
         def fpApp:GridApp (new GridApp)

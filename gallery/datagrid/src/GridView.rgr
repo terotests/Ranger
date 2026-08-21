@@ -522,17 +522,34 @@ class GridView {
         this.popClip(dl)
     }
 
-    ; No wrap: Excel spills into EMPTY neighbours and clips at the first
-    ; occupied one. Text used to always spill, painting over live cells.
-    fn spillWidth:int (model:SpreadsheetModel rect:GridRect r:int c:int toRight:boolean) {
-        def total:int rect.w
+    ; No wrap: Excel spills into EMPTY neighbours and stops at the first
+    ; occupied one. This answers how far it may go in ONE direction, in pixels,
+    ; not counting the cell itself.
+    ;
+    ; The walk starts past the cell's MERGE rather than at the next column.
+    ; `rect` for a merged cell already covers every column the merge spans, so
+    ; probing from `c + 1` would count those columns a second time and let the
+    ; text run that much further than there is room for.
+    fn spillRoom:int (model:SpreadsheetModel r:int c:int toRight:boolean) {
+        def first:int c
+        def last:int c
+        def key:string (model.mergeAt(r c))
+        if ((strlen key) > 0) {
+            def parts:[string] (strsplit key ",")
+            if ((array_length parts) >= 4) {
+                first = (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                last = (SpreadsheetModel.parseInt0((itemAt parts 3)))
+            }
+        }
         def step:int 1
+        def probe:int (last + 1)
         if (toRight == false) {
             step = -1
+            probe = (first - 1)
         }
-        def probe:int (c + step)
+        def total:int 0
         def guard:int 0
-        while (guard < 32) {
+        while (guard < 64) {
             if (probe < 0) {
                 return total
             }
@@ -542,7 +559,10 @@ class GridView {
             if ((strlen (model.getCell(r probe))) > 0) {
                 return total
             }
-            total = (total + (model.colWidth(probe)))
+            ; A hidden column has no room in it to spill through.
+            if ((model.isColHidden(probe)) == false) {
+                total = (total + (model.colWidth(probe)))
+            }
             probe = (probe + step)
             guard = (guard + 1)
         }
@@ -698,21 +718,33 @@ class GridView {
         }
         def top:int (this.textTopFor(rect st lineH 1 cellPx))
         def tx:double (this.alignedX(rect st textW))
-        ; Room the text may use: its own cell plus any empty neighbours in the
-        ; direction it grows.
+        ; Room the text may use: its own cell, plus any empty neighbours in the
+        ; direction it actually grows — which depends on the alignment, and for
+        ; a centred label is BOTH. A centred label used to be given room only
+        ; to the right while its text started to the left of its own cell, so
+        ; the half that overhung was cut even where the neighbour was empty.
         def clipX:int rect.x
         def clipW:int rect.w
         if ((textW + 8) > rect.w) {
-            def toRight:boolean true
+            def wantsLeft:boolean false
+            def wantsRight:boolean false
             if (st.align == "right") {
-                toRight = false
-            }
-            def room:int (this.spillWidth(model rect r c toRight))
-            if toRight {
-                clipW = room
+                wantsLeft = true
             } {
-                clipX = ((rect.x + rect.w) - room)
-                clipW = room
+                if (st.align == "center") {
+                    wantsLeft = true
+                    wantsRight = true
+                } {
+                    wantsRight = true
+                }
+            }
+            if wantsLeft {
+                def leftRoom:int (this.spillRoom(model r c false))
+                clipX = (clipX - leftRoom)
+                clipW = (clipW + leftRoom)
+            }
+            if wantsRight {
+                clipW = (clipW + (this.spillRoom(model r c true)))
             }
         }
         this.pushClip(dl (to_double clipX) (to_double rect.y) (to_double clipW) (to_double rect.h))

@@ -100,6 +100,21 @@ class EvgGlPainter {
         }
     }
 
+    ; Hand the top of the clip stack to the GL layer, or clear it when the
+    ; stack is empty.
+    fn syncClip:void () {
+        def n:int (array_length clipStack)
+        if (n < 4) {
+            dgfx_evg_clip_off
+            return
+        }
+        def cx:int (itemAt clipStack (n - 4))
+        def cy:int (itemAt clipStack (n - 3))
+        def cw:int (itemAt clipStack (n - 2))
+        def ch:int (itemAt clipStack (n - 1))
+        dgfx_evg_clip (to_double cx) (to_double cy) (to_double cw) (to_double ch)
+    }
+
     fn rectInClip:boolean (x:double y:double w:double h:double) {
         if ((array_length clipStack) < 4) {
             return true
@@ -415,6 +430,7 @@ class EvgGlPainter {
         dgfx_evg_begin pageW pageH drawW drawH
         dgfx_evg_set_atlas (atlas.raw()) atlasW atlasH
         clear clipStack
+        dgfx_evg_clip_off
 
         def i:int 0
         def n:int (dl.count())
@@ -423,11 +439,20 @@ class EvgGlPainter {
             def rf:double ((to_double c.r) / 255.0)
             def gf:double ((to_double c.g) / 255.0)
             def bf:double ((to_double c.b) / 255.0)
+            ; The stack is kept for `rectInClip`, which still throws away what
+            ; is wholly outside — cheap, and it keeps the batches small. What
+            ; it CANNOT do is cut a command that is partly inside: a label
+            ; wider than its cell overlaps the clip, passes that test, and used
+            ; to be drawn in full across its neighbour. So the clip is handed
+            ; to the GL layer as a scissor as well, and that is what actually
+            ; stops the ink.
             if (c.kind == 4) {
                 this.pushClipRect((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h))
+                this.syncClip()
             }
             if (c.kind == 5) {
                 this.popClipRect()
+                this.syncClip()
             }
             if (c.kind == 0) {
                 if (this.rectInClip(c.x c.y c.w c.h)) {

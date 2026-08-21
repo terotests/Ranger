@@ -786,6 +786,20 @@ static void dgfx_close() {
             es6 ( "undefined" )
         }
     }
+    ; The clip in force from here on, as a scissor. The caller has already
+    ; intersected it with any enclosing clip.
+    dgfx_evg_clip _:void (x:double y:double w:double h:double) {
+        templates {
+            cpp ( "evggl_clip((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "))" )
+            es6 ( "undefined" )
+        }
+    }
+    dgfx_evg_clip_off _:void () {
+        templates {
+            cpp ( "evggl_clip_off()" )
+            es6 ( "undefined" )
+        }
+    }
     dgfx_evg_border _:void (x:double y:double w:double h:double thick:double r:double g:double b:double a:double radius:double) {
         templates {
             cpp ( "evggl_border((float)(" (e 1) "), (float)(" (e 2) "), (float)(" (e 3) "), (float)(" (e 4) "), (float)(" (e 5) "), (float)(" (e 6) "), (float)(" (e 7) "), (float)(" (e 8) "), (float)(" (e 9) "), (float)(" (e 10) "))" )
