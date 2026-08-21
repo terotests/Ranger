@@ -19,6 +19,7 @@
 
 Import "PptxModel.rgr"
 Import "PptxTextEdit.rgr"
+Import "PptxResolver.rgr"
 
 ; A rectangle in slide points. Ranger returns one value; a bounding box is four.
 class PptxEditRect {
@@ -94,6 +95,7 @@ class PptxClone {
     sfn run:PptxTextRun (src:PptxTextRun) {
         def r (new PptxTextRun())
         r.text = src.text
+        r.field = src.field
         r.fontFamily = src.fontFamily
         r.fontSizePt = src.fontSizePt
         r.sizeSet = src.sizeSet
@@ -243,6 +245,31 @@ class PptxClone {
         return s
     }
 
+    sfn sheet:PptxSheet (src:PptxSheet) {
+        def out (new PptxSheet())
+        out.partPath = src.partPath
+        out.dirty = src.dirty
+        out.bg = (PptxClone.color(src.bg))
+        def i:int 0
+        while (i < (array_length src.shapes)) {
+            push out.shapes (PptxClone.shape((itemAt src.shapes i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn section:PptxSection (src:PptxSection) {
+        def out (new PptxSection())
+        out.name = src.name
+        out.id = src.id
+        def i:int 0
+        while (i < (array_length src.slideIds)) {
+            push out.slideIds (itemAt src.slideIds i)
+            i = (i + 1)
+        }
+        return out
+    }
+
     sfn slide:PptxSlide (src:PptxSlide) {
         def sl (new PptxSlide())
         sl.partPath = src.partPath
@@ -253,6 +280,9 @@ class PptxClone {
         sl.bg = (PptxClone.color(src.bg))
         sl.layoutPart = src.layoutPart
         sl.masterPart = src.masterPart
+        sl.notes = (PptxClone.shape(src.notes))
+        sl.notesPart = src.notesPart
+        sl.slideId = src.slideId
         def i:int 0
         while (i < (array_length src.shapes)) {
             def sh:PptxShape (itemAt src.shapes i)
@@ -292,12 +322,27 @@ class PptxEditSnapshot {
     def slideIndex:int 0
     def slides:[PptxSlide]
     def selection:[int]
+    ; The master and layout sheets, because they can be edited too, and the
+    ; sections, because reordering the deck moves them.
+    def sheetKeys:[string]
+    def sheetValues:[PptxSheet]
+    def sheetIsMaster:[boolean]
+    def sections:[PptxSection]
+    def sheetPart:string ""
 
     Constructor () {
         def s:[PptxSlide]
         slides = s
         def sel:[int]
         selection = sel
+        def sk:[string]
+        sheetKeys = sk
+        def sv:[PptxSheet]
+        sheetValues = sv
+        def sm:[boolean]
+        sheetIsMaster = sm
+        def sc:[PptxSection]
+        sections = sc
     }
 }
 
@@ -334,6 +379,12 @@ class PptxEditor {
     ; Never reused, so a revision names one state of one slide even after an
     ; undo has thrown a later one away.
     def nextRevision:int 0
+    ; For re-resolving a palette colour; the same mapping the loader used.
+    def resolver:PptxResolver (new PptxResolver())
+    ; Editing a master or a layout: the sheet stands in for the slide, so
+    ; every operation that knows how to move a shape works on it unchanged.
+    def sheetPart:string ""
+    def sheetSlide:PptxSlide (new PptxSlide())
 
     Constructor () {
     }
@@ -365,6 +416,7 @@ class PptxEditor {
                 this.assignIdTo(sh)
                 i = (i + 1)
             }
+            this.assignIdTo(slide.notes)
             si = (si + 1)
         }
     }
@@ -385,6 +437,10 @@ class PptxEditor {
     }
 
     fn currentSlide@(optional):PptxSlide () {
+        if ((strlen sheetPart) > 0) {
+            def editing@(optional):PptxSlide sheetSlide
+            return editing
+        }
         if (slideIndex < 0) {
             def __none@(optional):PptxSlide
             return __none
@@ -462,6 +518,11 @@ class PptxEditor {
                 return hit
             }
             i = (i + 1)
+        }
+        ; The notes are a shape too, and not one on the slide.
+        if (s.notes.editId == id) {
+            def notesHit@(optional):PptxShape s.notes
+            return notesHit
         }
         def __missing@(optional):PptxShape
         return __missing
@@ -693,6 +754,36 @@ class PptxEditor {
             push snap.selection (itemAt selection j)
             j = (j + 1)
         }
+        def mkeys:[string] (keys doc.masters)
+        def mi:int 0
+        while (mi < (array_length mkeys)) {
+            def mk:string (itemAt mkeys mi)
+            def ms@(optional):PptxSheet (get doc.masters mk)
+            if (!null? ms) {
+                push snap.sheetKeys mk
+                push snap.sheetValues (PptxClone.sheet((unwrap ms)))
+                push snap.sheetIsMaster true
+            }
+            mi = (mi + 1)
+        }
+        def lkeys:[string] (keys doc.layouts)
+        def li:int 0
+        while (li < (array_length lkeys)) {
+            def lk:string (itemAt lkeys li)
+            def ls@(optional):PptxSheet (get doc.layouts lk)
+            if (!null? ls) {
+                push snap.sheetKeys lk
+                push snap.sheetValues (PptxClone.sheet((unwrap ls)))
+                push snap.sheetIsMaster false
+            }
+            li = (li + 1)
+        }
+        def qi:int 0
+        while (qi < (array_length doc.sections)) {
+            push snap.sections (PptxClone.section((itemAt doc.sections qi)))
+            qi = (qi + 1)
+        }
+        snap.sheetPart = sheetPart
         return snap
     }
 
@@ -722,6 +813,17 @@ class PptxEditor {
         history = kept
         historyPos = ((array_length history) - 1)
         dirty = true
+        ; An operation inside a master writes through to the sheet: the ops
+        ; replace the shape array rather than mutating it in place.
+        if ((strlen sheetPart) > 0) {
+            def live@(optional):PptxSheet (this.sheetFor(sheetPart))
+            if (!null? live) {
+                def ls2:PptxSheet (unwrap live)
+                ls2.shapes = sheetSlide.shapes
+                ls2.bg = sheetSlide.bg
+                ls2.dirty = true
+            }
+        }
         ; Which slide the step was on, so a save can leave the others alone.
         if (label != "open") {
             def cur@(optional):PptxSlide (this.currentSlide())
@@ -743,7 +845,19 @@ class PptxEditor {
             i = (i + 1)
         }
         doc.slides = slides
-        slideIndex = snap.slideIndex
+        ; Stay on the slide you are looking at. The snapshot remembers which
+        ; slide the step was taken on, and that is the fallback — undoing a
+        ; deleted slide has to go back to it — but undoing an edit should not
+        ; move the deck under you the way it did when the answer was always
+        ; the snapshot's own index.
+        def want:int slideIndex
+        if (want >= (array_length doc.slides)) {
+            want = snap.slideIndex
+        }
+        if (want < 0) {
+            want = snap.slideIndex
+        }
+        slideIndex = want
         if (slideIndex >= (array_length doc.slides)) {
             slideIndex = ((array_length doc.slides) - 1)
         }
@@ -773,6 +887,42 @@ class PptxEditor {
             }
         }
         selection = keep
+        ; The sheets and the sections come back with the slides.
+        def masters:[string:PptxSheet]
+        def layouts:[string:PptxSheet]
+        def si:int 0
+        while (si < (array_length snap.sheetKeys)) {
+            def key:string (itemAt snap.sheetKeys si)
+            def sheet:PptxSheet (PptxClone.sheet((itemAt snap.sheetValues si)))
+            if ((itemAt snap.sheetIsMaster si)) {
+                set masters key sheet
+            } {
+                set layouts key sheet
+            }
+            si = (si + 1)
+        }
+        if ((array_length snap.sheetKeys) > 0) {
+            doc.masters = masters
+            doc.layouts = layouts
+        }
+        def sections:[PptxSection]
+        def qi:int 0
+        while (qi < (array_length snap.sections)) {
+            push sections (PptxClone.section((itemAt snap.sections qi)))
+            qi = (qi + 1)
+        }
+        doc.sections = sections
+        ; Stay in the master you are in, the same way you stay on the slide you
+        ; are on: the snapshot remembers which sheet the step was taken in, and
+        ; that is the fallback rather than the answer.
+        def wantSheet:string sheetPart
+        if ((strlen wantSheet) == 0) {
+            wantSheet = snap.sheetPart
+        }
+        sheetPart = ""
+        if ((strlen wantSheet) > 0) {
+            this.editSheet(wantSheet)
+        }
     }
 
     fn canUndo:boolean () {
@@ -2751,6 +2901,856 @@ class PptxEditor {
             i = (i + 1)
         }
         this.pushSnapshot("format")
+        return true
+    }
+
+
+    ; --- the theme ------------------------------------------------------------
+    ;
+    ; A deck's colours mostly come from its palette, and the resolver keeps
+    ; that provenance now, so re-theming is: put a new palette in the theme and
+    ; ask every colour that came from one to resolve again.
+
+    sfn paletteNames:[string] () {
+        return ([] _:string ( "office" "forest" "berry" "slate" "sunset" ))
+    }
+
+    sfn paletteColors:[string] (name:string) {
+        ; dk1 lt1 dk2 lt2 accent1..6 hlink folHlink
+        if (name == "forest") {
+            return ([] _:string ( "1E2B22" "FFFFFF" "375845" "EAF2EC" "217346" "6BA644" "9BC53D" "C7D96A" "2F6F5E" "48A9A6" "1F6F54" "6B7C74" ))
+        }
+        if (name == "berry") {
+            return ([] _:string ( "2B1A22" "FFFFFF" "5A2B3F" "F6EAF0" "B0295E" "E0518A" "F08CB4" "8E44AD" "C2185B" "6A1B4D" "AD1457" "7B5E6B" ))
+        }
+        if (name == "slate") {
+            return ([] _:string ( "1B1F24" "FFFFFF" "36414D" "EDF1F5" "3D5A80" "5C82B2" "98C1D9" "6C7A89" "2F4858" "8FA6B8" "2C5F8A" "6E7B87" ))
+        }
+        if (name == "sunset") {
+            return ([] _:string ( "2A1B12" "FFFFFF" "5A3924" "FBEEE4" "E4572E" "F5A623" "F2C14E" "C1440E" "8C3503" "A44A3F" "D2691E" "8B6F5E" ))
+        }
+        return ([] _:string ( "000000" "FFFFFF" "44546A" "E7E6E6" "4472C4" "ED7D31" "A5A5A5" "FFC000" "5B9BD5" "70AD47" "0563C1" "954F72" ))
+    }
+
+    fn applyPalette:boolean (name:string) {
+        def cols:[string] (PptxEditor.paletteColors(name))
+        if ((array_length cols) < 12) {
+            return false
+        }
+        def slots:[string] ([] _:string ( "dk1" "lt1" "dk2" "lt2" "accent1" "accent2" "accent3" "accent4" "accent5" "accent6" "hlink" "folHlink" ))
+        def i:int 0
+        while (i < (array_length slots)) {
+            doc.theme.setColor((itemAt slots i) (itemAt cols i))
+            i = (i + 1)
+        }
+        this.retheme()
+        this.pushSnapshot(("theme " + name))
+        return true
+    }
+
+    fn setThemeColor:boolean (slot:string hex:string) {
+        if ((strlen slot) == 0) {
+            return false
+        }
+        doc.theme.setColor(slot hex)
+        this.retheme()
+        this.pushSnapshot("theme colour")
+        return true
+    }
+
+    ; Every colour in the deck that came from the palette, resolved again —
+    ; including the master and layout sheets, so a layout applied afterwards
+    ; arrives in the new colours too.
+    fn retheme:void () {
+        def si:int 0
+        while (si < (array_length doc.slides)) {
+            def slide:PptxSlide (itemAt doc.slides si)
+            this.rethemeColor(slide.bg)
+            def i:int 0
+            while (i < (array_length slide.shapes)) {
+                this.rethemeShape((itemAt slide.shapes i))
+                i = (i + 1)
+            }
+            this.rethemeShape(slide.notes)
+            slide.dirty = true
+            nextRevision = (nextRevision + 1)
+            slide.revision = nextRevision
+            si = (si + 1)
+        }
+        def mkeys:[string] (keys doc.masters)
+        def mi:int 0
+        while (mi < (array_length mkeys)) {
+            def sheet@(optional):PptxSheet (get doc.masters (itemAt mkeys mi))
+            if (!null? sheet) {
+                this.rethemeSheet((unwrap sheet))
+            }
+            mi = (mi + 1)
+        }
+        def lkeys:[string] (keys doc.layouts)
+        def li:int 0
+        while (li < (array_length lkeys)) {
+            def lsheet@(optional):PptxSheet (get doc.layouts (itemAt lkeys li))
+            if (!null? lsheet) {
+                this.rethemeSheet((unwrap lsheet))
+            }
+            li = (li + 1)
+        }
+    }
+
+    fn rethemeSheet:void (sheet:PptxSheet) {
+        this.rethemeColor(sheet.bg)
+        def i:int 0
+        while (i < (array_length sheet.shapes)) {
+            this.rethemeShape((itemAt sheet.shapes i))
+            i = (i + 1)
+        }
+    }
+
+    fn rethemeShape:void (shape:PptxShape) {
+        this.rethemeColor(shape.fill)
+        this.rethemeColor(shape.line)
+        this.rethemeColor(shape.fillGrad.c1)
+        this.rethemeColor(shape.fillGrad.c2)
+        this.rethemeColor(shape.shadow.color)
+        this.rethemeColor(shape.text.defColor)
+        def pi:int 0
+        while (pi < (array_length shape.text.paragraphs)) {
+            def para:PptxParagraph (itemAt shape.text.paragraphs pi)
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                this.rethemeColor(((itemAt para.runs ri).color))
+                ri = (ri + 1)
+            }
+            pi = (pi + 1)
+        }
+        def ci:int 0
+        while (ci < (array_length shape.tableCells)) {
+            this.rethemeColor(((itemAt shape.tableCells ci).fill))
+            ci = (ci + 1)
+        }
+        def k:int 0
+        while (k < (array_length shape.children)) {
+            this.rethemeShape((itemAt shape.children k))
+            k = (k + 1)
+        }
+    }
+
+    fn rethemeColor:void (c:PptxColor) {
+        if (c.isSet == false) {
+            return
+        }
+        if (c.isScheme == false) {
+            return
+        }
+        def key:string (resolver.mapSchemeName(c.scheme))
+        c.srgb = (doc.theme.colorOf(key))
+    }
+
+    fn themeColor:string (slot:string) {
+        return (doc.theme.colorOf(slot))
+    }
+
+    ; --- the layout -----------------------------------------------------------
+
+    fn layoutParts:[string] () {
+        return (keys doc.layouts)
+    }
+
+    fn slideLayout:string () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return ""
+        }
+        return ((unwrap slide).layoutPart)
+    }
+
+    ; Picking a layout swaps the chrome the slide inherits — the master's, then
+    ; the new layout's — and leaves everything the slide itself declares where
+    ; it is. It is the same merge the resolver does at load, done again with a
+    ; different layout.
+    fn applyLayout:boolean (part:string) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def sheet@(optional):PptxSheet (get doc.layouts part)
+        if (null? sheet) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        def layout:PptxSheet (unwrap sheet)
+        def authored:[PptxShape]
+        def i:int 0
+        while (i < (array_length s.shapes)) {
+            def sh:PptxShape (itemAt s.shapes i)
+            if (sh.inherited == false) {
+                push authored sh
+            }
+            i = (i + 1)
+        }
+        def merged:[PptxShape]
+        def master@(optional):PptxSheet (get doc.masters s.masterPart)
+        if (null? master) {
+            def mkeys:[string] (keys doc.masters)
+            if ((array_length mkeys) > 0) {
+                master = (get doc.masters (itemAt mkeys 0))
+            }
+        }
+        if (!null? master) {
+            def ms:PptxSheet (unwrap master)
+            def mi:int 0
+            while (mi < (array_length ms.shapes)) {
+                def mshape:PptxShape (itemAt ms.shapes mi)
+                if (mshape.isPlaceholder == false) {
+                    def mc:PptxShape (PptxClone.shape(mshape))
+                    mc.inherited = true
+                    this.assignIdTo(mc)
+                    push merged mc
+                }
+                mi = (mi + 1)
+            }
+        }
+        def li:int 0
+        while (li < (array_length layout.shapes)) {
+            def lshape:PptxShape (itemAt layout.shapes li)
+            if (lshape.isPlaceholder == false) {
+                def lc:PptxShape (PptxClone.shape(lshape))
+                lc.inherited = true
+                this.assignIdTo(lc)
+                push merged lc
+            }
+            li = (li + 1)
+        }
+        def j:int 0
+        while (j < (array_length authored)) {
+            push merged (itemAt authored j)
+            j = (j + 1)
+        }
+        s.shapes = merged
+        s.layoutPart = part
+        if (layout.bg.isSet) {
+            if (s.bg.isSet == false) {
+                s.bg = (PptxClone.color(layout.bg))
+            }
+        }
+        this.clearSelection()
+        this.pushSnapshot("layout")
+        return true
+    }
+
+    ; --- the slide's own background -------------------------------------------
+
+    fn setSlideBackground:boolean (hex:string) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        s.bg = (PptxColor.srgbOf(hex))
+        this.pushSnapshot("background")
+        return true
+    }
+
+    fn setSlideBackgroundScheme:boolean (scheme:string) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        def c (new PptxColor())
+        c.isSet = true
+        c.isScheme = true
+        c.scheme = scheme
+        c.srgb = (doc.theme.colorOf((resolver.mapSchemeName(scheme))))
+        s.bg = c
+        this.pushSnapshot("background")
+        return true
+    }
+
+    fn clearSlideBackground:boolean () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        def none (new PptxColor())
+        s.bg = none
+        this.pushSnapshot("background")
+        return true
+    }
+
+    ; --- the notes ------------------------------------------------------------
+
+    fn notesShape@(optional):PptxShape () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            def __none@(optional):PptxShape
+            return __none
+        }
+        def s:PptxSlide (unwrap slide)
+        if (s.notes.editId == 0) {
+            this.assignIdTo(s.notes)
+        }
+        s.notes.hasText = true
+        if ((array_length s.notes.text.paragraphs) == 0) {
+            def para (new PptxParagraph())
+            push s.notes.text.paragraphs para
+        }
+        def hit@(optional):PptxShape s.notes
+        return hit
+    }
+
+    fn notesText:string () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return ""
+        }
+        return ((unwrap slide).notesText())
+    }
+
+    fn setNotes:boolean (text:string) {
+        def hit@(optional):PptxShape (this.notesShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        PptxEditor.setBodyText(sh.text text)
+        this.pushSnapshot("notes")
+        return true
+    }
+
+    fn editNotes:boolean () {
+        def hit@(optional):PptxShape (this.notesShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        ; The notes are not on the slide, so editing them is not a selection:
+        ; the caret goes there without anything being picked up.
+        this.clearSelection()
+        editingId = sh.editId
+        def end:PptxTextPos (PptxTextEdit.docEnd(sh.text))
+        caret = end
+        anchor = (end.copy())
+        return true
+    }
+
+    fn isEditingNotes:boolean () {
+        if (editingId <= 0) {
+            return false
+        }
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        return (s.notes.editId == editingId)
+    }
+
+
+    ; --- editing a master or a layout -----------------------------------------
+    ;
+    ; A sheet is a slide with a different name — the same shapes, the same
+    ; geometry — so editing one is standing a slide in front of the editor and
+    ; letting every operation work as it always does. What comes back out is
+    ; copied into the sheet, and the slides that inherit from it are re-merged.
+
+    fn sheetFor@(optional):PptxSheet (part:string) {
+        def m@(optional):PptxSheet (get doc.masters part)
+        if (!null? m) {
+            return m
+        }
+        def l@(optional):PptxSheet (get doc.layouts part)
+        return l
+    }
+
+    fn editSheet:boolean (part:string) {
+        def sheet@(optional):PptxSheet (this.sheetFor(part))
+        if (null? sheet) {
+            return false
+        }
+        def sh:PptxSheet (unwrap sheet)
+        def stand (new PptxSlide())
+        stand.partPath = part
+        stand.width = doc.slideWidth
+        stand.height = doc.slideHeight
+        stand.bg = sh.bg
+        stand.shapes = sh.shapes
+        def i:int 0
+        while (i < (array_length stand.shapes)) {
+            def s2:PptxShape (itemAt stand.shapes i)
+            if (s2.editId == 0) {
+                this.assignIdTo(s2)
+            }
+            i = (i + 1)
+        }
+        sheetSlide = stand
+        sheetPart = part
+        this.clearSelection()
+        return true
+    }
+
+    fn isEditingSheet:boolean () {
+        return ((strlen sheetPart) > 0)
+    }
+
+    fn editingSheetPart:string () {
+        return sheetPart
+    }
+
+    fn masterParts:[string] () {
+        return (keys doc.masters)
+    }
+
+    ; Copy what was done back onto the sheet, and give every slide that follows
+    ; it its chrome again.
+    fn exitSheet:boolean () {
+        if ((strlen sheetPart) == 0) {
+            return false
+        }
+        def part:string sheetPart
+        def sheet@(optional):PptxSheet (this.sheetFor(part))
+        if (!null? sheet) {
+            def sh:PptxSheet (unwrap sheet)
+            sh.shapes = sheetSlide.shapes
+            sh.bg = sheetSlide.bg
+            sh.dirty = true
+        }
+        sheetPart = ""
+        this.clearSelection()
+        this.remergeChrome()
+        return true
+    }
+
+    ; The resolver's merge, run again for every slide: master chrome, then
+    ; layout chrome, then whatever the slide itself declares.
+    fn remergeChrome:void () {
+        def si:int 0
+        while (si < (array_length doc.slides)) {
+            def slide:PptxSlide (itemAt doc.slides si)
+            def authored:[PptxShape]
+            def i:int 0
+            while (i < (array_length slide.shapes)) {
+                def sh:PptxShape (itemAt slide.shapes i)
+                if (sh.inherited == false) {
+                    push authored sh
+                }
+                i = (i + 1)
+            }
+            def merged:[PptxShape]
+            def master@(optional):PptxSheet (get doc.masters slide.masterPart)
+            if (null? master) {
+                def mkeys:[string] (keys doc.masters)
+                if ((array_length mkeys) > 0) {
+                    master = (get doc.masters (itemAt mkeys 0))
+                }
+            }
+            if (!null? master) {
+                def ms:PptxSheet (unwrap master)
+                def mi:int 0
+                while (mi < (array_length ms.shapes)) {
+                    def mshape:PptxShape (itemAt ms.shapes mi)
+                    if (mshape.isPlaceholder == false) {
+                        def mc:PptxShape (PptxClone.shape(mshape))
+                        mc.inherited = true
+                        this.assignIdTo(mc)
+                        push merged mc
+                    }
+                    mi = (mi + 1)
+                }
+            }
+            def layout@(optional):PptxSheet (get doc.layouts slide.layoutPart)
+            if (!null? layout) {
+                def ls:PptxSheet (unwrap layout)
+                def li:int 0
+                while (li < (array_length ls.shapes)) {
+                    def lshape:PptxShape (itemAt ls.shapes li)
+                    if (lshape.isPlaceholder == false) {
+                        def lc:PptxShape (PptxClone.shape(lshape))
+                        lc.inherited = true
+                        this.assignIdTo(lc)
+                        push merged lc
+                    }
+                    li = (li + 1)
+                }
+            }
+            def j:int 0
+            while (j < (array_length authored)) {
+                push merged (itemAt authored j)
+                j = (j + 1)
+            }
+            slide.shapes = merged
+            si = (si + 1)
+        }
+    }
+
+
+    ; --- what every slide says: footers and page numbers -----------------------
+    ;
+    ; These belong on the master, which is where PowerPoint keeps them: put one
+    ; there and every slide that follows the master has it, without a copy per
+    ; slide to keep in step.
+
+    fn masterSheet@(optional):PptxSheet () {
+        def mkeys:[string] (keys doc.masters)
+        if ((array_length mkeys) == 0) {
+            def __none@(optional):PptxSheet
+            return __none
+        }
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (!null? slide) {
+            def s:PptxSlide (unwrap slide)
+            def own@(optional):PptxSheet (get doc.masters s.masterPart)
+            if (!null? own) {
+                return own
+            }
+        }
+        return (get doc.masters (itemAt mkeys 0))
+    }
+
+    sfn namedShape@(optional):PptxShape (sheet:PptxSheet name:string) {
+        def i:int 0
+        while (i < (array_length sheet.shapes)) {
+            def sh:PptxShape (itemAt sheet.shapes i)
+            if (sh.name == name) {
+                def hit@(optional):PptxShape sh
+                return hit
+            }
+            i = (i + 1)
+        }
+        def __none@(optional):PptxShape
+        return __none
+    }
+
+    fn dropNamed:void (sheet:PptxSheet name:string) {
+        def kept:[PptxShape]
+        def i:int 0
+        while (i < (array_length sheet.shapes)) {
+            def sh:PptxShape (itemAt sheet.shapes i)
+            if (sh.name != name) {
+                push kept sh
+            }
+            i = (i + 1)
+        }
+        sheet.shapes = kept
+    }
+
+    fn showSlideNumbers:boolean (on:boolean) {
+        def sheet@(optional):PptxSheet (this.masterSheet())
+        if (null? sheet) {
+            return false
+        }
+        def ms:PptxSheet (unwrap sheet)
+        this.dropNamed(ms "Slide Number Placeholder")
+        if on {
+            def sh (new PptxShape())
+            sh.name = "Slide Number Placeholder"
+            sh.kind = 0
+            sh.hasXfrm = true
+            sh.width = 60.0
+            sh.height = 20.0
+            sh.x = ((doc.slideWidth - sh.width) - 24.0)
+            sh.y = ((doc.slideHeight - sh.height) - 12.0)
+            sh.hasText = true
+            def para (new PptxParagraph())
+            para.align = "r"
+            para.alignSet = true
+            def run (new PptxTextRun())
+            run.field = "slidenum"
+            run.text = (to_string (slideIndex + 1))
+            run.fontSizePt = 12.0
+            run.sizeSet = true
+            run.color = (PptxColor.srgbOf("595959"))
+            push para.runs run
+            push sh.text.paragraphs para
+            this.assignIdTo(sh)
+            push ms.shapes sh
+        }
+        ms.dirty = true
+        this.remergeChrome()
+        this.pushSnapshot("slide numbers")
+        return true
+    }
+
+    fn slideNumbersShown:boolean () {
+        def sheet@(optional):PptxSheet (this.masterSheet())
+        if (null? sheet) {
+            return false
+        }
+        def hit@(optional):PptxShape (PptxEditor.namedShape((unwrap sheet) "Slide Number Placeholder"))
+        return (!null? hit)
+    }
+
+    fn setFooter:boolean (text:string) {
+        def sheet@(optional):PptxSheet (this.masterSheet())
+        if (null? sheet) {
+            return false
+        }
+        def ms:PptxSheet (unwrap sheet)
+        this.dropNamed(ms "Footer Placeholder")
+        if ((strlen text) > 0) {
+            def sh (new PptxShape())
+            sh.name = "Footer Placeholder"
+            sh.kind = 0
+            sh.hasXfrm = true
+            sh.width = (doc.slideWidth * 0.5)
+            sh.height = 20.0
+            sh.x = ((doc.slideWidth - sh.width) * 0.5)
+            sh.y = ((doc.slideHeight - sh.height) - 12.0)
+            sh.hasText = true
+            def para (new PptxParagraph())
+            para.align = "ctr"
+            para.alignSet = true
+            def run (new PptxTextRun())
+            run.text = text
+            run.fontSizePt = 12.0
+            run.sizeSet = true
+            run.color = (PptxColor.srgbOf("595959"))
+            push para.runs run
+            push sh.text.paragraphs para
+            this.assignIdTo(sh)
+            push ms.shapes sh
+        }
+        ms.dirty = true
+        this.remergeChrome()
+        this.pushSnapshot("footer")
+        return true
+    }
+
+    fn footerText:string () {
+        def sheet@(optional):PptxSheet (this.masterSheet())
+        if (null? sheet) {
+            return ""
+        }
+        def hit@(optional):PptxShape (PptxEditor.namedShape((unwrap sheet) "Footer Placeholder"))
+        if (null? hit) {
+            return ""
+        }
+        return (((unwrap hit).text.plainText()))
+    }
+
+    ; --- sections -------------------------------------------------------------
+    ;
+    ; A run of slides under a name. The file names its members by slide id, so
+    ; the deck answers "which section is slide 3 in" by asking which section
+    ; holds that slide's id.
+
+    fn sectionCount:int () {
+        return (array_length doc.sections)
+    }
+
+    fn sectionNameAt:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length doc.sections)) {
+            return ""
+        }
+        return ((itemAt doc.sections i).name)
+    }
+
+    fn ensureSlideIds:void () {
+        def next:int 256
+        def i:int 0
+        while (i < (array_length doc.slides)) {
+            def slide:PptxSlide (itemAt doc.slides i)
+            if (slide.slideId >= next) {
+                next = (slide.slideId + 1)
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length doc.slides)) {
+            def s2:PptxSlide (itemAt doc.slides j)
+            if (s2.slideId == 0) {
+                s2.slideId = next
+                next = (next + 1)
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; The section a slide belongs to, or -1. Slides before the first section
+    ; belong to none, which is what PowerPoint shows too.
+    fn sectionOfSlide:int (index:int) {
+        if (index < 0) {
+            return (0 - 1)
+        }
+        if (index >= (array_length doc.slides)) {
+            return (0 - 1)
+        }
+        def id:int ((itemAt doc.slides index).slideId)
+        if (id == 0) {
+            return (0 - 1)
+        }
+        def si:int 0
+        while (si < (array_length doc.sections)) {
+            def sec:PptxSection (itemAt doc.sections si)
+            def k:int 0
+            while (k < (array_length sec.slideIds)) {
+                if ((itemAt sec.slideIds k) == id) {
+                    return si
+                }
+                k = (k + 1)
+            }
+            si = (si + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Where in the deck a section begins, or the slide count when none of its
+    ; slides are in the deck any more.
+    fn sectionStart:int (sec:PptxSection) {
+        def best:int (array_length doc.slides)
+        def i:int 0
+        while (i < (array_length doc.slides)) {
+            def slide:PptxSlide (itemAt doc.slides i)
+            def k:int 0
+            while (k < (array_length sec.slideIds)) {
+                if ((itemAt sec.slideIds k) == slide.slideId) {
+                    if (i < best) {
+                        best = i
+                    }
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; Start a section at the slide in front of you: it runs from there to the
+    ; slide before the next section begins, which is what cutting a deck into
+    ; parts means — the slides in between change hands.
+    fn addSection:boolean (name:string) {
+        this.ensureSlideIds()
+        def limit:int (array_length doc.slides)
+        def li:int 0
+        while (li < (array_length doc.sections)) {
+            def other0:PptxSection (itemAt doc.sections li)
+            def at:int (this.sectionStart(other0))
+            if (at > slideIndex) {
+                if (at < limit) {
+                    limit = at
+                }
+            }
+            li = (li + 1)
+        }
+        def sec (new PptxSection())
+        sec.name = name
+        def i:int slideIndex
+        while (i < limit) {
+            def slide:PptxSlide (itemAt doc.slides i)
+            push sec.slideIds slide.slideId
+            i = (i + 1)
+        }
+        ; A slide can only be in one section, and a section with nothing left
+        ; in it is not a section any more.
+        def kept:[PptxSection]
+        def si:int 0
+        while (si < (array_length doc.sections)) {
+            def other:PptxSection (itemAt doc.sections si)
+            def stay:[int]
+            def k:int 0
+            while (k < (array_length other.slideIds)) {
+                def id:int (itemAt other.slideIds k)
+                def claimed:boolean false
+                def n:int 0
+                while (n < (array_length sec.slideIds)) {
+                    if ((itemAt sec.slideIds n) == id) {
+                        claimed = true
+                    }
+                    n = (n + 1)
+                }
+                if (claimed == false) {
+                    push stay id
+                }
+                k = (k + 1)
+            }
+            other.slideIds = stay
+            if ((array_length stay) > 0) {
+                push kept other
+            }
+            si = (si + 1)
+        }
+        push kept sec
+        doc.sections = kept
+        this.sortSections()
+        this.pushSnapshot("section")
+        return true
+    }
+
+    ; Sections read in deck order, so the panel can write each name once above
+    ; the run it names.
+    fn sortSections:void () {
+        def out:[PptxSection]
+        def used:[boolean]
+        def i:int 0
+        while (i < (array_length doc.sections)) {
+            push used false
+            i = (i + 1)
+        }
+        def taken:int 0
+        while (taken < (array_length doc.sections)) {
+            def best:int (0 - 1)
+            def bestAt:int 0
+            def k:int 0
+            while (k < (array_length doc.sections)) {
+                if ((itemAt used k) == false) {
+                    def at:int (this.sectionStart((itemAt doc.sections k)))
+                    if (best < 0) {
+                        best = k
+                        bestAt = at
+                    } {
+                        if (at < bestAt) {
+                            best = k
+                            bestAt = at
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            if (best < 0) {
+                taken = (array_length doc.sections)
+            } {
+                set_at used best true
+                push out (itemAt doc.sections best)
+                taken = (taken + 1)
+            }
+        }
+        doc.sections = out
+    }
+
+    fn renameSection:boolean (i:int name:string) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (array_length doc.sections)) {
+            return false
+        }
+        def sec:PptxSection (itemAt doc.sections i)
+        sec.name = name
+        this.pushSnapshot("rename section")
+        return true
+    }
+
+    fn removeSection:boolean (i:int) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (array_length doc.sections)) {
+            return false
+        }
+        def out:[PptxSection]
+        def k:int 0
+        while (k < (array_length doc.sections)) {
+            if (k != i) {
+                push out (itemAt doc.sections k)
+            }
+            k = (k + 1)
+        }
+        doc.sections = out
+        this.pushSnapshot("remove section")
         return true
     }
 

@@ -222,6 +222,8 @@ class PptxTextEdit {
     }
 
     sfn copyStyle:void (src:PptxTextRun dst:PptxTextRun) {
+        ; Not the field: text typed beside a page number is text, not another
+        ; page number.
         dst.fontFamily = src.fontFamily
         dst.fontSizePt = src.fontSizePt
         dst.sizeSet = src.sizeSet

@@ -52,6 +52,10 @@ class PptxWriter {
     ; relationship part names those and not every picture in the deck.
     def slideMediaUse:[int]
     def slideChartUse:[int]
+    ; The notes part this slide will point at, if it has any notes.
+    def slideNotesPath:string ""
+    def notesPaths:[string]
+    def notesBodies:[string]
     ; Parts of the package being written over, when there is one.
     def sourceParts:[string:boolean]
     def overMode:boolean false
@@ -353,6 +357,11 @@ class PptxWriter {
             rPr = ("<a:rPr" + attrs + ">" + inner + "</a:rPr>")
         }
         ; xml:space matters: a run of spaces between two words is content.
+        if ((strlen run.field) > 0) {
+            ; A field keeps its type and the value it last had, which is what
+            ; every reader shows until it computes its own.
+            return ("<a:fld id=\"{B4D1F0A1-0000-4000-9000-000000000001}\" type=\"" + (PptxWriter.esc(run.field)) + "\">" + rPr + "<a:t>" + (PptxWriter.esc(run.text)) + "</a:t></a:fld>")
+        }
         return ("<a:r>" + rPr + "<a:t xml:space=\"preserve\">" + (PptxWriter.esc(run.text)) + "</a:t></a:r>")
     }
 
@@ -414,6 +423,10 @@ class PptxWriter {
         charts = c
         def cp:[string]
         chartPaths = cp
+        def np:[string]
+        notesPaths = np
+        def nb:[string]
+        notesBodies = nb
         def sp:[string:boolean]
         sourceParts = sp
         overMode = false
@@ -425,6 +438,7 @@ class PptxWriter {
         slideMediaUse = mu
         def cu:[int]
         slideChartUse = cu
+        slideNotesPath = ""
     }
 
     fn noteMediaUse:void (idx:int) {
@@ -668,6 +682,68 @@ class PptxWriter {
         return (out + "</a:tbl></a:graphicData></a:graphic></p:graphicFrame>")
     }
 
+    ; --- master and layout sheets --------------------------------------------
+    ;
+    ; A sheet that was edited is written back into its OWN part, and only the
+    ; shape tree of it: a master carries a colour map, a text style and a list
+    ; of its layouts, and none of that is ours to regenerate.
+    fn spTreeXml:string (shapes:[PptxShape]) {
+        shapeId = 1
+        this.resetSlideUse()
+        def out:string "<p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
+        def i:int 0
+        while (i < (array_length shapes)) {
+            out = (out + (this.shapeXml((itemAt shapes i))))
+            i = (i + 1)
+        }
+        return (out + "</p:spTree>")
+    }
+
+    fn sheetWithShapes:string (xml:string sheet:PptxSheet) {
+        def tree:string (this.spTreeXml(sheet.shapes))
+        def start:int (indexOf xml "<p:spTree")
+        if (start < 0) {
+            return xml
+        }
+        def close:int (indexOfFrom xml "</p:spTree>" start)
+        if (close < 0) {
+            def selfEnd:int (indexOfFrom xml "/>" start)
+            if (selfEnd < 0) {
+                return xml
+            }
+            return ((substring xml 0 start) + tree + (substring xml (selfEnd + 2) (strlen xml)))
+        }
+        def after:int (close + (strlen "</p:spTree>"))
+        return ((substring xml 0 start) + tree + (substring xml after (strlen xml)))
+    }
+
+    ; --- notes ---------------------------------------------------------------
+    ;
+    ; The speaker's notes live in a part of their own, which the slide points
+    ; at. Only the body placeholder is what anyone typed — the rest of a notes
+    ; slide is a picture of the slide and its number.
+    sfn notesXml:string (notes:PptxShape) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notes xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree>"
+        out = (out + "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>")
+        out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes Placeholder\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/>")
+        out = (out + (PptxWriter.bodyXml(notes.text)))
+        return (out + "</p:sp></p:spTree></p:cSld></p:notes>")
+    }
+
+    sfn notesRelsXml:string (slidePath:string) {
+        def target:string (PptxWriter.relTargetFrom("ppt/notesSlides" slidePath))
+        return ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rIdSlide\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"" + target + "\"/></Relationships>")
+    }
+
+    fn noteSlide:void (slide:PptxSlide path:string) {
+        if ((strlen (slide.notesText())) == 0) {
+            return
+        }
+        push notesPaths path
+        push notesBodies (PptxWriter.notesXml(slide.notes))
+        slideNotesPath = path
+    }
+
     ; --- parts ---------------------------------------------------------------
 
     fn slideXml:string (slide:PptxSlide) {
@@ -699,6 +775,10 @@ class PptxWriter {
     ; about it, and the pictures and charts THIS slide uses — not every one in
     ; the deck.
     fn slideRelsXmlFor:string (layoutTarget:string keep:[OpcRelationship]) {
+        def notesRel:string ""
+        if ((strlen slideNotesPath) > 0) {
+            notesRel = ("<Relationship Id=\"rIdNotes\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide\" Target=\"" + (PptxWriter.relTargetFrom("ppt/slides" slideNotesPath)) + "\"/>")
+        }
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
         if ((strlen layoutTarget) > 0) {
             out = (out + "<Relationship Id=\"rIdLayout\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"" + layoutTarget + "\"/>")
@@ -723,7 +803,7 @@ class PptxWriter {
             out = (out + "<Relationship Id=\"rIdChart" + (to_string (cidx + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"" + (PptxWriter.relTargetFrom("ppt/slides" cpath)) + "\"/>")
             j = (j + 1)
         }
-        return (out + "</Relationships>")
+        return (out + notesRel + "</Relationships>")
     }
 
     ; --- charts --------------------------------------------------------------
@@ -823,12 +903,14 @@ class PptxWriter {
 
     fn presentationXml:string (pres:PptxPresentation) {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:presentation xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rId1\"/></p:sldMasterIdLst><p:sldIdLst>"
+        def ids:[int] (PptxWriter.slideIdsFor(pres (array_length pres.slides)))
         def i:int 0
         while (i < (array_length pres.slides)) {
-            out = (out + "<p:sldId id=\"" + (to_string (256 + i)) + "\" r:id=\"rId" + (to_string (i + 2)) + "\"/>")
+            out = (out + "<p:sldId id=\"" + (to_string (itemAt ids i)) + "\" r:id=\"rId" + (to_string (i + 2)) + "\"/>")
             i = (i + 1)
         }
         out = (out + "</p:sldIdLst><p:sldSz cx=\"" + (PptxWriter.emu(pres.slideWidth)) + "\" cy=\"" + (PptxWriter.emu(pres.slideHeight)) + "\"/><p:notesSz cx=\"6858000\" cy=\"9144000\"/>")
+        out = (out + (PptxWriter.sectionLstXml(pres ids)))
         return (out + "</p:presentation>")
     }
 
@@ -860,6 +942,11 @@ class PptxWriter {
             out = (out + "<Override PartName=\"/ppt/charts/chart" + (to_string (j + 1)) + ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>")
             j = (j + 1)
         }
+        def n:int 0
+        while (n < (array_length notesPaths)) {
+            out = (out + "<Override PartName=\"/" + (itemAt notesPaths n) + "\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>")
+            n = (n + 1)
+        }
         return (out + "</Types>")
     }
 
@@ -874,6 +961,50 @@ class PptxWriter {
         out = (out + "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>")
         out = (out + "<p:sldLayoutIdLst><p:sldLayoutId id=\"2147483649\" r:id=\"rId1\"/></p:sldLayoutIdLst>")
         return (out + "</p:sldMaster>")
+    }
+
+    ; The flat writer's blank master, with the deck's own master chrome in it
+    ; when the deck has one — otherwise a slide written flat would lose the
+    ; banner it inherits.
+    fn masterWithSheet:string (pres:PptxPresentation) {
+        def xml:string (PptxWriter.masterXml())
+        def mkeys:[string] (keys pres.masters)
+        if ((array_length mkeys) == 0) {
+            return xml
+        }
+        def ms@(optional):PptxSheet (get pres.masters (itemAt mkeys 0))
+        if (null? ms) {
+            return xml
+        }
+        def sheet:PptxSheet (unwrap ms)
+        if ((array_length sheet.shapes) == 0) {
+            return xml
+        }
+        if (skipInherited == false) {
+            ; The flat route already wrote the chrome onto every slide.
+            return xml
+        }
+        return (this.sheetWithShapes(xml sheet))
+    }
+
+    fn layoutWithSheet:string (pres:PptxPresentation) {
+        def xml:string (PptxWriter.layoutXml())
+        def lkeys:[string] (keys pres.layouts)
+        if ((array_length lkeys) == 0) {
+            return xml
+        }
+        def ls@(optional):PptxSheet (get pres.layouts (itemAt lkeys 0))
+        if (null? ls) {
+            return xml
+        }
+        def sheet:PptxSheet (unwrap ls)
+        if ((array_length sheet.shapes) == 0) {
+            return xml
+        }
+        if (skipInherited == false) {
+            return xml
+        }
+        return (this.sheetWithShapes(xml sheet))
     }
 
     sfn masterRelsXml:string () {
@@ -926,6 +1057,7 @@ class PptxWriter {
         while (i < (array_length pres.slides)) {
             def slide:PptxSlide (itemAt pres.slides i)
             push slideBodies (this.slideXml(slide))
+            this.noteSlide(slide ("ppt/notesSlides/notesSlide" + (to_string (i + 1)) + ".xml"))
             def keep:[OpcRelationship]
             push slideRels (this.slideRelsXmlFor("../slideLayouts/slideLayout1.xml" keep))
             i = (i + 1)
@@ -934,9 +1066,9 @@ class PptxWriter {
         this.addXml("ppt/presentation.xml" (this.presentationXml(pres)))
         this.addXml("ppt/_rels/presentation.xml.rels" (this.presentationRelsXml(pres)))
         this.addXml("ppt/theme/theme1.xml" (PptxWriter.themeXml(pres.theme)))
-        this.addXml("ppt/slideMasters/slideMaster1.xml" (PptxWriter.masterXml()))
+        this.addXml("ppt/slideMasters/slideMaster1.xml" (this.masterWithSheet(pres)))
         this.addXml("ppt/slideMasters/_rels/slideMaster1.xml.rels" (PptxWriter.masterRelsXml()))
-        this.addXml("ppt/slideLayouts/slideLayout1.xml" (PptxWriter.layoutXml()))
+        this.addXml("ppt/slideLayouts/slideLayout1.xml" (this.layoutWithSheet(pres)))
         this.addXml("ppt/slideLayouts/_rels/slideLayout1.xml.rels" (PptxWriter.layoutRelsXml()))
         def j:int 0
         while (j < (array_length slideBodies)) {
@@ -955,6 +1087,13 @@ class PptxWriter {
         while (c < (array_length charts)) {
             this.addXml((itemAt chartPaths c) (itemAt charts c))
             c = (c + 1)
+        }
+        def n:int 0
+        while (n < (array_length notesPaths)) {
+            def npath:string (itemAt notesPaths n)
+            this.addXml(npath (itemAt notesBodies n))
+            this.addXml((OpcPackage.relsPathFor(npath)) (PptxWriter.notesRelsXml(("ppt/slides/slide" + (to_string (n + 1)) + ".xml"))))
+            n = (n + 1)
         }
         this.addXml("[Content_Types].xml" (this.contentTypesXml(pres)))
     }
@@ -1026,6 +1165,22 @@ class PptxWriter {
             }
             if rewrite {
                 def body:string (this.slideXml(slide2))
+                def notesPath:string slide2.notesPart
+                if ((strlen (slide2.notesText())) > 0) {
+                    if ((strlen notesPath) == 0) {
+                        def takenNotes:[string:boolean]
+                        def ni:int 0
+                        while (ni < (array_length notesPaths)) {
+                            set takenNotes (itemAt notesPaths ni) true
+                            ni = (ni + 1)
+                        }
+                        notesPath = (this.freePart("ppt/notesSlides/notesSlide" ".xml" takenNotes))
+                    }
+                    ; The model learns where its notes went, so a second save
+                    ; rewrites that part rather than inventing another one.
+                    slide2.notesPart = notesPath
+                    this.noteSlide(slide2 notesPath)
+                }
                 def keep:[OpcRelationship]
                 def layoutTarget:string ""
                 if (isNew == false) {
@@ -1044,6 +1199,17 @@ class PptxWriter {
                         }
                         if ((indexOf rel.type "/chart") >= 0) {
                             drop = true
+                        }
+                        ; The notes are named again from what the slide holds,
+                        ; and a layout the editor changed is named again too.
+                        if ((indexOf rel.type "/notesSlide") >= 0) {
+                            drop = true
+                        }
+                        if ((indexOf rel.type "/slideLayout") >= 0) {
+                            if ((strlen slide2.layoutPart) > 0) {
+                                drop = true
+                                layoutTarget = (PptxWriter.relTargetFrom("ppt/slides" slide2.layoutPart))
+                            }
                         }
                         if (drop == false) {
                             push keep rel
@@ -1065,6 +1231,42 @@ class PptxWriter {
                 set written relsOut true
             }
             sj = (sj + 1)
+        }
+
+        ; --- an edited master or layout, rewritten into its own part
+        def sheetKeys:[string] (keys pres.masters)
+        def ski:int 0
+        while (ski < (array_length sheetKeys)) {
+            def key:string (itemAt sheetKeys ski)
+            def ms@(optional):PptxSheet (get pres.masters key)
+            if (!null? ms) {
+                def sheet:PptxSheet (unwrap ms)
+                if sheet.dirty {
+                    def original:string (pkg.readXml(key))
+                    if ((strlen original) > 0) {
+                        this.addXml(key (this.sheetWithShapes(original sheet)))
+                        set written key true
+                    }
+                }
+            }
+            ski = (ski + 1)
+        }
+        def layoutKeys:[string] (keys pres.layouts)
+        def lki:int 0
+        while (lki < (array_length layoutKeys)) {
+            def lkey:string (itemAt layoutKeys lki)
+            def ls@(optional):PptxSheet (get pres.layouts lkey)
+            if (!null? ls) {
+                def lsheet:PptxSheet (unwrap ls)
+                if lsheet.dirty {
+                    def loriginal:string (pkg.readXml(lkey))
+                    if ((strlen loriginal) > 0) {
+                        this.addXml(lkey (this.sheetWithShapes(loriginal lsheet)))
+                        set written lkey true
+                    }
+                }
+            }
+            lki = (lki + 1)
         }
 
         ; --- everything else, byte for byte
@@ -1133,6 +1335,31 @@ class PptxWriter {
             }
             mi = (mi + 1)
         }
+        def nwi:int 0
+        while (nwi < (array_length notesPaths)) {
+            def npath2:string (itemAt notesPaths nwi)
+            this.addXml(npath2 (itemAt notesBodies nwi))
+            set written npath2 true
+            push newParts npath2
+            def nrels:string (OpcPackage.relsPathFor(npath2))
+            def owner:string ""
+            def oi:int 0
+            while (oi < (array_length pres.slides)) {
+                def cand:PptxSlide (itemAt pres.slides oi)
+                if (cand.notesPart == npath2) {
+                    owner = (itemAt slidePaths oi)
+                }
+                oi = (oi + 1)
+            }
+            if ((strlen owner) == 0) {
+                if (nwi < (array_length slidePaths)) {
+                    owner = (itemAt slidePaths nwi)
+                }
+            }
+            this.addXml(nrels (PptxWriter.notesRelsXml(owner)))
+            set written nrels true
+            nwi = (nwi + 1)
+        }
         def chi:int 0
         while (chi < (array_length charts)) {
             def cpath:string (itemAt chartPaths chi)
@@ -1147,7 +1374,7 @@ class PptxWriter {
 
         ; --- the three parts that have to agree with the slide list
         def presXml:string (pkg.readXml("ppt/presentation.xml"))
-        this.addXml("ppt/presentation.xml" (PptxWriter.presentationWithSlides(presXml slidePaths)))
+        this.addXml("ppt/presentation.xml" (PptxWriter.presentationWithDeck(presXml pres slidePaths)))
         def presRelsXml:string (pkg.readXml("ppt/_rels/presentation.xml.rels"))
         this.addXml("ppt/_rels/presentation.xml.rels" (PptxWriter.presentationRelsWith(pkg presRelsXml slidePaths)))
         def ctXml:string (pkg.readXml("[Content_Types].xml"))
@@ -1199,6 +1426,10 @@ class PptxWriter {
             i = (i + 1)
         }
         list = (list + "</p:sldIdLst>")
+        return (PptxWriter.spliceSlideList(xml list))
+    }
+
+    sfn spliceSlideList:string (xml:string list:string) {
         def start:int (indexOf xml "<p:sldIdLst")
         if (start < 0) {
             ; No list at all: put one after the master list, which every
@@ -1220,6 +1451,157 @@ class PptxWriter {
             return xml
         }
         return ((substring xml 0 start) + list + (substring xml (selfEnd + 2) (strlen xml)))
+    }
+
+    sfn slideIdsFor:[int] (pres:PptxPresentation count:int) {
+        def out:[int]
+        def next:int 256
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def s0:PptxSlide (itemAt pres.slides i)
+            def sid:int s0.slideId
+            if (sid >= next) {
+                next = (sid + 1)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < count) {
+            def id:int 0
+            if (k < (array_length pres.slides)) {
+                def slide:PptxSlide (itemAt pres.slides k)
+                id = slide.slideId
+            }
+            if (id == 0) {
+                id = next
+                next = (next + 1)
+            }
+            push out id
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; PowerPoint wants a GUID here. Sections made in this editor have no id of
+    ; their own, so one is derived from their place in the deck: unique inside
+    ; the file, which is all the id is used for.
+    sfn sectionId:string (sec:PptxSection index:int) {
+        if ((strlen sec.id) > 0) {
+            return sec.id
+        }
+        def n:string (to_string (index + 1))
+        while ((strlen n) < 12) {
+            n = ("0" + n)
+        }
+        return ("{00000000-0000-0000-0000-" + n + "}")
+    }
+
+    sfn sectionLstXml:string (pres:PptxPresentation valid:[int]) {
+        if ((array_length pres.sections) == 0) {
+            return ""
+        }
+        def out:string "<p:extLst><p:ext uri=\"{521415D9-36F7-43E2-AB2F-B90AF26B5E84}\"><p14:sectionLst xmlns:p14=\"http://schemas.microsoft.com/office/powerpoint/2010/main\">"
+        def i:int 0
+        while (i < (array_length pres.sections)) {
+            def sec:PptxSection (itemAt pres.sections i)
+            out = (out + "<p14:section name=\"" + (PptxWriter.esc(sec.name)) + "\" id=\"" + (PptxWriter.sectionId(sec i)) + "\"><p14:sldIdLst>")
+            def k:int 0
+            while (k < (array_length sec.slideIds)) {
+                def id:int (itemAt sec.slideIds k)
+                def live:boolean false
+                def v:int 0
+                while (v < (array_length valid)) {
+                    if ((itemAt valid v) == id) {
+                        live = true
+                    }
+                    v = (v + 1)
+                }
+                if (live) {
+                    out = (out + "<p14:sldId id=\"" + (to_string id) + "\"/>")
+                }
+                k = (k + 1)
+            }
+            out = (out + "</p14:sldIdLst></p14:section>")
+            i = (i + 1)
+        }
+        return (out + "</p14:sectionLst></p:ext></p:extLst>")
+    }
+
+    ; Splice a freshly built section list into a presentation part, replacing
+    ; the one that is there. A deck with no sections loses the list it had.
+    sfn presentationWithSections:string (xml:string sections:string) {
+        def start:int (indexOf xml "<p14:sectionLst")
+        if (start < 0) {
+            if ((strlen sections) == 0) {
+                return xml
+            }
+            def close:int (indexOf xml "</p:presentation>")
+            if (close < 0) {
+                return xml
+            }
+            def existing:int (indexOf xml "<p:extLst>")
+            if (existing >= 0) {
+                def cut:int (existing + (strlen "<p:extLst>"))
+                def inner:string (substring sections (strlen "<p:extLst>") ((strlen sections) - (strlen "</p:extLst>")))
+                return ((substring xml 0 cut) + inner + (substring xml cut (strlen xml)))
+            }
+            return ((substring xml 0 close) + sections + (substring xml close (strlen xml)))
+        }
+        ; Replace the whole <p:ext> that holds the list, so an emptied deck
+        ; does not keep a stray wrapper.
+        def extStart:int (PptxWriter.lastIndexBefore(xml "<p:ext " start))
+        if (extStart < 0) {
+            extStart = start
+        }
+        def extEnd:int (indexOfFrom xml "</p:ext>" start)
+        if (extEnd < 0) {
+            return xml
+        }
+        def after:int (extEnd + (strlen "</p:ext>"))
+        def repl:string ""
+        if ((strlen sections) > 0) {
+            repl = (substring sections (strlen "<p:extLst>") ((strlen sections) - (strlen "</p:extLst>")))
+        }
+        def head:string (substring xml 0 extStart)
+        def tail:string (substring xml after (strlen xml))
+        if ((strlen repl) == 0) {
+            ; An extLst with nothing left in it is not valid; drop it too.
+            def emptyAt:int (indexOf (head + tail) "<p:extLst></p:extLst>")
+            def joined:string (head + tail)
+            if (emptyAt >= 0) {
+                return ((substring joined 0 emptyAt) + (substring joined (emptyAt + (strlen "<p:extLst></p:extLst>")) (strlen joined)))
+            }
+            return joined
+        }
+        return (head + repl + tail)
+    }
+
+    sfn lastIndexBefore:int (xml:string needle:string limit:int) {
+        def found:int (0 - 1)
+        def at:int (indexOf xml needle)
+        while (at >= 0) {
+            if (at >= limit) {
+                return found
+            }
+            found = at
+            at = (indexOfFrom xml needle (at + 1))
+        }
+        return found
+    }
+
+    ; The slide list written from the deck's own slide ids, plus the section
+    ; list that names them.
+    sfn presentationWithDeck:string (xml:string pres:PptxPresentation slidePaths:[string]) {
+        def ids:[int] (PptxWriter.slideIdsFor(pres (array_length slidePaths)))
+        def list:string "<p:sldIdLst>"
+        def i:int 0
+        while (i < (array_length slidePaths)) {
+            list = (list + "<p:sldId id=\"" + (to_string (itemAt ids i)) + "\" r:id=\"rIdSld" + (to_string (i + 1)) + "\"/>")
+            i = (i + 1)
+        }
+        list = (list + "</p:sldIdLst>")
+        def out:string (PptxWriter.spliceSlideList(xml list))
+        return (PptxWriter.presentationWithSections(out (PptxWriter.sectionLstXml(pres ids))))
     }
 
     sfn presentationRelsWith:string (pkg:OpcPackage xml:string slidePaths:[string]) {
@@ -1344,6 +1726,9 @@ class PptxWriter {
         }
         if ((indexOf part "ppt/charts/chart") == 0) {
             return "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+        }
+        if ((indexOf part "ppt/notesSlides/notesSlide") == 0) {
+            return "application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"
         }
         return ""
     }

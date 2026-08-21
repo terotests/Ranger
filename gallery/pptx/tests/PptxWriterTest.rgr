@@ -50,8 +50,14 @@ class PptxWriterTest {
         this.testEditedDeck()
         this.testLockRoundTrip()
         this.testFlipRoundTrip()
+        this.testNotesRoundTrip()
+        this.testNotesOverExistingDeck()
+        this.testThemeInFile()
         this.testSaveOver()
         this.testSaveOverStructure()
+        this.testSectionsRoundTrip()
+        this.testSheetEditRoundTrip()
+        this.testFooterRoundTrip()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -532,6 +538,117 @@ class PptxWriterTest {
         p2.close()
     }
 
+    fn testNotesRoundTrip:void () {
+        print "--- the speaker's notes are in the file ---"
+        def pres (new PptxPresentation())
+        def slide (new PptxSlide())
+        slide.width = 720.0
+        slide.height = 540.0
+        def a (new PptxShape())
+        a.x = 40.0
+        a.y = 40.0
+        a.width = 200.0
+        a.height = 80.0
+        a.hasXfrm = true
+        a.fill = (PptxColor.srgbOf("4472C4"))
+        push slide.shapes a
+        push pres.slides slide
+        def second (new PptxSlide())
+        second.width = 720.0
+        second.height = 540.0
+        push pres.slides second
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(0)
+        ed.setNotes("Open with the numbers\nThen the demo")
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "notes.pptx")
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "notes.pptx"))
+        this.check("a deck with notes opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s1:PptxSlide (itemAt back.slides 0)
+        this.check("the notes came back" ((s1.notesText()) == "Open with the numbers\nThen the demo"))
+        this.check("and the slide points at them" ((strlen s1.notesPart) > 0))
+        def s2:PptxSlide (itemAt back.slides 1)
+        this.check("a slide with none has none" ((s2.notesText()) == ""))
+        this.check("and no part for them" ((strlen s2.notesPart) == 0))
+        p2.close()
+    }
+
+    fn testNotesOverExistingDeck:void () {
+        print "--- notes added to a deck that had none ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "04-multi.pptx")) == false) {
+            this.check("open 04-multi" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(1)
+        ed.setNotes("Said out loud, not on the slide")
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-notes.pptx")
+        parser.close()
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "over-notes.pptx"))
+        this.check("the kept-package deck opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt back.slides 1)
+        this.check("the notes are on the slide they were typed on" ((s2.notesText()) == "Said out loud, not on the slide"))
+        def s1:PptxSlide (itemAt back.slides 0)
+        this.check("and not on the other one" ((s1.notesText()) == ""))
+        p2.close()
+    }
+
+    fn testThemeInFile:void () {
+        print "--- a re-themed deck keeps its palette ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "07-theme-fills.pptx")) == false) {
+            this.check("open 07-theme-fills" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.applyPalette("berry")
+        def wanted:string (ed.themeColor("accent1"))
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "themed.pptx")
+        parser.close()
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "themed.pptx"))
+        this.check("the themed deck opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        this.check("the palette is in the theme part" ((back.theme.colorOf("accent1")) == wanted))
+        ; A shape that took its colour from the palette resolves to the new one
+        ; when the file is read again.
+        def s1:PptxSlide (itemAt back.slides 0)
+        def matched:boolean false
+        def i:int 0
+        while (i < (array_length s1.shapes)) {
+            def sh:PptxShape (itemAt s1.shapes i)
+            if (sh.fill.isSet) {
+                if (sh.fill.srgb == wanted) {
+                    matched = true
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("and a themed shape came back in it" matched)
+        p2.close()
+    }
+
     ; --- saving the file that was opened -------------------------------------
     ;
     ; The flat writer loses everything the model does not describe. This is the
@@ -728,6 +845,179 @@ class PptxWriterTest {
             }
             out3.close()
         }
+    }
+
+    ; --- sections and edited masters -----------------------------------------
+
+    fn testSectionsRoundTrip:void () {
+        print "--- sections survive a save ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "04-multi.pptx")) == false) {
+            this.check("open 04-multi" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        this.check("slides come back with ids" (((itemAt pres.slides 0).slideId) > 0))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(0)
+        ed.addSection("Opening")
+        if ((pres.slideCount()) > 1) {
+            ed.gotoSlide(1)
+            ed.addSection("The rest")
+        }
+        this.check("two sections were made" ((ed.sectionCount()) == 2))
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-sections.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "over-sections.pptx"))
+        this.check("a sectioned deck opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        this.check("both sections came back" ((array_length back.sections) == 2))
+        if ((array_length back.sections) == 2) {
+            this.check("with their names" (((itemAt back.sections 0).name) == "Opening"))
+            this.check("and the second one too" (((itemAt back.sections 1).name) == "The rest"))
+            def ed2 (new PptxEditor())
+            ed2.attach(back)
+            this.check("slide one is in the first section" ((ed2.sectionOfSlide(0)) == 0))
+            if ((back.slideCount()) > 1) {
+                this.check("and slide two in the second" ((ed2.sectionOfSlide(1)) == 1))
+            }
+            ; Taking every section away leaves a file that still opens.
+            ed2.removeSection(1)
+            ed2.removeSection(0)
+            def w2 (new PptxWriter())
+            w2.saveOver(back p2.pkg "gallery/pptx/bin" "over-unsectioned.pptx")
+            def p3 (new PptxParser())
+            if (p3.openParts("gallery/pptx/bin" "over-unsectioned.pptx")) {
+                def back3:PptxPresentation ((new PptxResolver()).resolvePresentation((p3.parsePresentation())))
+                this.check("the unsectioned deck has none" ((array_length back3.sections) == 0))
+                this.check("and still has its slides" ((back3.slideCount()) == (back.slideCount())))
+                p3.close()
+            } {
+                this.check("the unsectioned deck opens" false)
+            }
+        }
+        p2.close()
+    }
+
+    fn testSheetEditRoundTrip:void () {
+        print "--- an edited master is written back ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open the business deck" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(0)
+        def master:string ((itemAt pres.slides 0).masterPart)
+        this.check("the slide names a master" ((strlen master) > 0))
+        if ((strlen master) == 0) {
+            return
+        }
+        this.check("the master opens for editing" (ed.editSheet(master)))
+        def id:int (ed.addShapeAt("rect" 20.0 20.0 120.0 40.0))
+        ed.setShapeText(id "Drawn on the master")
+        ed.exitSheet()
+        this.check("and editing it ends" ((ed.isEditingSheet()) == false))
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-master.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "over-master.pptx"))
+        this.check("the deck with an edited master opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def sheet@(optional):PptxSheet (get back.masters master)
+        this.check("the master is still there" (!null? sheet))
+        if (null? sheet) {
+            p2.close()
+            return
+        }
+        def sh:PptxSheet (unwrap sheet)
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length sh.shapes)) {
+            def s2:PptxShape (itemAt sh.shapes i)
+            if s2.hasText {
+                if ((s2.text.plainText()) == "Drawn on the master") {
+                    found = true
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("and carries what was drawn on it" found)
+        p2.close()
+    }
+
+    fn testFooterRoundTrip:void () {
+        print "--- a footer and page numbers reach the file ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open the business deck" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(1)
+        this.check("page numbers can be turned on" (ed.showSlideNumbers(true)))
+        this.check("and they read as on" (ed.slideNumbersShown()))
+        this.check("a footer can be set" (ed.setFooter("Q3 review — internal")))
+        this.check("and reads back" ((ed.footerText()) == "Q3 review — internal"))
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-footer.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "over-footer.pptx"))
+        this.check("the deck with a footer opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def ed2 (new PptxEditor())
+        ed2.attach(back)
+        ed2.gotoSlide(1)
+        this.check("the footer came back" ((ed2.footerText()) == "Q3 review — internal"))
+        this.check("and the page numbers did too" (ed2.slideNumbersShown()))
+        ; The number is a field, not the text that was written into it, so it
+        ; still counts up when the slide moves.
+        def sheet@(optional):PptxSheet (ed2.masterSheet())
+        this.check("the master is there" (!null? sheet))
+        if (!null? sheet) {
+            def hit@(optional):PptxShape (PptxEditor.namedShape((unwrap sheet) "Slide Number Placeholder"))
+            this.check("with a slide-number shape" (!null? hit))
+            if (!null? hit) {
+                def sh:PptxShape (unwrap hit)
+                def isField:boolean false
+                def pi:int 0
+                while (pi < (array_length sh.text.paragraphs)) {
+                    def para:PptxParagraph (itemAt sh.text.paragraphs pi)
+                    def ri:int 0
+                    while (ri < (array_length para.runs)) {
+                        def run:PptxTextRun (itemAt para.runs ri)
+                        if (run.field == "slidenum") {
+                            isField = true
+                        }
+                        ri = (ri + 1)
+                    }
+                    pi = (pi + 1)
+                }
+                this.check("that is still a field" isField)
+            }
+        }
+        p2.close()
     }
 
     sfn sameBytes:boolean (a:buffer b:buffer) {
