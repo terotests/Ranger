@@ -373,7 +373,9 @@ class ScriptEditor {
         push dl.cmds c
     }
 
-    fn paint:void (dl:EVGDisplayList tr:UITextRenderer frame:int) {
+    ; `blink` is a phase, not a frame count: the page derives it from the
+    ; clock so a page that only repaints when something changed still blinks.
+    fn paint:void (dl:EVGDisplayList tr:UITextRenderer blink:int) {
         layout.syncMetrics(tr)
         layout.clampScroll(buf)
         this.ensureTokens()
@@ -427,8 +429,7 @@ class ScriptEditor {
         ; Caret: on for half a second, off for half a second, at 60 fps.
         if focused {
             if ((caretLine >= first) && (caretLine <= last)) {
-                def phase:int (idiv frame 30)
-                def on:int (phase - ((idiv phase 2) * 2))
+                def on:int (blink - ((idiv blink 2) * 2))
                 if (on == 0) {
                     def cx:int (layout.caretPixelX(tr buf caretLine sel.caret.col))
                     def cy:int (layout.caretPixelY(caretLine))

@@ -210,6 +210,46 @@ message for the caret's line in the status bar — out of the way until the care
 is on it. **Ctrl+E** jumps to the next problem. In the browser page **Ctrl+K**
 cycles the samples, two of which are wrong on purpose.
 
+## Two things a real browser found
+
+Both were invisible to the test suite, which is the interesting part.
+
+**A click handed the keyboard back.** Mouse selection worked, colours worked,
+scrolling worked — and typing did nothing. The browser moves focus on mousedown
+*after* the handler runs, and the canvas is deliberately not focusable, so the
+default action took the keyboard off the textarea and gave it to `<body>`. One
+`preventDefault()` fixes it. No test caught it because **every test reached the
+editor with the keyboard** — Tab, or a programmatic `focus()` — and never once
+clicked the way a person does. `keyboard.mjs` now starts with a real mouse
+click and types after it.
+
+**It redrew sixty times a second while nothing happened.** The animation loop
+called `scene()` every frame: build the display list, walk it, serialize it to
+JSON — about 1.4 ms — and then compare the string with the last one and throw
+it away. Now the loop asks `revision()` first, a handful of string joins over
+the document version, the caret, the selection, the scroll line and the blink
+phase; a scene is built only when that changes. Idle goes from 60 rebuilds a
+second to **2** — the caret blinking, which is why the blink comes off the
+clock rather than off a frame counter.
+
+And in the shared WebGL renderer, one line of a Chrome profile:
+
+```text
+160.1 ms  36.1%  getShaderParameter
+```
+
+`renderDisplayList` compiled and linked both of its shader programs on **every
+call**. `getShaderParameter(COMPILE_STATUS)` is synchronous — it makes the CPU
+wait for a compile the driver was entitled to defer — so a third of every frame
+was spent recompiling two shaders that had not changed since the page loaded.
+They are cached per GL context now (`gallery/evg/gl/evg-webgl.js`), which the
+DataGrid's own page gets for free. A full redraw of the editor measures **2.9 ms**
+of GL plus 1.4 ms of scene building, on software rasterization in headless
+Chrome.
+
+The next candidate, when it matters, is the text atlas: it is rasterized from
+scratch on every render call, and could be kept while the runs are unchanged.
+
 ## The lexer is not a parser
 
 `JsTokens` knows keywords, identifiers, the workbook API's own names, numbers,
