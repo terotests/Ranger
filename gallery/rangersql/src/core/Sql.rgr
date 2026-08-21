@@ -1,0 +1,79 @@
+; ==============================================================================
+; Sql - the façade: parse, generate, transpile.
+; ==============================================================================
+;
+;     def out (Sql.transpile("SELECT IFNULL(a, 0) FROM t" "sqlite" "postgres"))
+;     -> SELECT COALESCE(a, 0) FROM t
+;
+; Everything else in this project is reachable from here, and nothing here does
+; any work of its own: it wires a tokenizer to a parser to a generator.
+; ==============================================================================
+
+Import "Parser.rgr"
+Import "../generators/Generator.rgr"
+Import "../dialects/Dialect.rgr"
+Import "../ast/SqlAst.rgr"
+
+; One parse: the tree, where it came from, and what went wrong if anything did.
+class SqlParseResult {
+    def ast:SqlAst (new SqlAst)
+    def root:int -1
+    def error:string ""
+    def commentCount:int 0
+
+    Constructor () {
+    }
+
+    fn okResult:boolean () {
+        if (root < 0) {
+            return false
+        }
+        return ((strlen error) == 0)
+    }
+
+    fn toJson:string () {
+        return (ast.toJson(root))
+    }
+}
+
+class Sql {
+    sfn parseWith:SqlParseResult (sql:string dialectName:string) {
+        def dialect:SqlDialect (SqlDialects.byName(dialectName))
+        def parser:SqlParser (SqlParser.forDialect(dialect))
+        def result:SqlParseResult (new SqlParseResult)
+        result.root = (parser.parse(sql))
+        result.ast = parser.ast
+        result.error = parser.error
+        result.commentCount = parser.commentCount
+        return result
+    }
+
+    sfn parse:SqlParseResult (sql:string) {
+        return (Sql.parseWith(sql ""))
+    }
+
+    sfn generateWith:string (result:SqlParseResult dialectName:string) {
+        def dialect:SqlDialect (SqlDialects.byName(dialectName))
+        def generator:SqlGenerator (SqlGenerator.forDialect(dialect))
+        return (generator.generate(result.ast result.root))
+    }
+
+    ; The round trip a formatter is: text -> tree -> text.
+    sfn format:string (sql:string) {
+        def result:SqlParseResult (Sql.parse(sql))
+        if ((result.okResult()) == false) {
+            return ""
+        }
+        return (Sql.generateWith(result ""))
+    }
+
+    ; The round trip a transpiler is: text in one dialect -> tree -> text in
+    ; another.
+    sfn transpile:string (sql:string fromDialect:string toDialect:string) {
+        def result:SqlParseResult (Sql.parseWith(sql fromDialect))
+        if ((result.okResult()) == false) {
+            return ""
+        }
+        return (Sql.generateWith(result toDialect))
+    }
+}

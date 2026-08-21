@@ -1,0 +1,1509 @@
+; ==============================================================================
+; SqlParser - tokens in, arena AST out.
+; ==============================================================================
+;
+; Expressions are parsed by precedence climbing (a Pratt parser), which is what
+; SQL wants: one table of binding powers instead of a nest of grammar rules
+; called term / factor / comparison / conjunction.
+;
+;     1 + 2 * 3          Add(1, Mul(2, 3))
+;     a AND b OR c       Or(And(a, b), c)
+;     x NOT BETWEEN 1 AND 2   Between(x, 1, 2) with NOT
+;
+; Statements are ordinary recursive descent on top of that. The two meet in
+; parsePrimary, where a `(` may open a subquery.
+;
+; Everything the parser cannot yet read fails with a message and a position
+; rather than a half-built tree - the corpus runner counts those, and that
+; count is the project's progress bar.
+; ==============================================================================
+
+Import "Token.rgr"
+Import "Tokenizer.rgr"
+Import "../ast/SqlAst.rgr"
+Import "../dialects/Dialect.rgr"
+
+class SqlParser {
+    def dialect:SqlDialect (new SqlDialect)
+    def ast:SqlAst (new SqlAst)
+    def tokens:[SqlToken]
+    def pos:int 0
+    def error:string ""
+    def commentCount:int 0
+    ; Comments seen but not yet given to a node. `peek` collects them, and
+    ; whoever just finished parsing something takes them.
+    def pendingComments:[string]
+
+    Constructor () {
+    }
+
+    sfn forDialect:SqlParser (dialect:SqlDialect) {
+        def p:SqlParser (new SqlParser)
+        p.dialect = dialect
+        return p
+    }
+
+    ; ------------------------------------------------------------- the tape --
+    fn peek:SqlToken () {
+        this.skipComments()
+        if (pos >= (array_length tokens)) {
+            return (new SqlToken)
+        }
+        return (itemAt tokens pos)
+    }
+
+    fn skipComments:void () {
+        while (pos < (array_length tokens)) {
+            def t:SqlToken (itemAt tokens pos)
+            if (t.kind != 7) {
+                return
+            }
+            push pendingComments t.text
+            pos = (pos + 1)
+        }
+    }
+
+    ; Give whatever comments are waiting to the node just parsed. A comment in
+    ; SQL belongs to the thing it was written beside, and dropping it turns a
+    ; formatter into a code shredder.
+    fn absorbComments:int (id:int) {
+        this.skipComments()
+        if (id < 0) {
+            return id
+        }
+        def n:int (array_length pendingComments)
+        def i:int 0
+        while (i < n) {
+            def c:int (ast.newNode((SqlKind.commentNode()) (itemAt pendingComments i)))
+            ast.attach(id (SqlRole.commentClause()) c)
+            i = (i + 1)
+        }
+        clear pendingComments
+        return id
+    }
+
+    fn takeLeadingComments:void (id:int) {
+        def n:int (array_length pendingComments)
+        def i:int 0
+        while (i < n) {
+            def c:int (ast.newNode((SqlKind.commentNode()) (itemAt pendingComments i)))
+            ast.addFlag(c (SqlFlag.leadingCommentFlag()))
+            ast.attach(id (SqlRole.commentClause()) c)
+            i = (i + 1)
+        }
+        clear pendingComments
+    }
+
+    fn peekAhead:SqlToken (offset:int) {
+        this.skipComments()
+        def seen:int 0
+        def i:int pos
+        while (i < (array_length tokens)) {
+            def t:SqlToken (itemAt tokens i)
+            if (t.kind != 7) {
+                if (seen == offset) {
+                    return t
+                }
+                seen = (seen + 1)
+            }
+            i = (i + 1)
+        }
+        return (new SqlToken)
+    }
+
+    fn advance:SqlToken () {
+        def t:SqlToken (this.peek())
+        if (pos < (array_length tokens)) {
+            pos = (pos + 1)
+        }
+        return t
+    }
+
+    fn atEnd:boolean () {
+        def t:SqlToken (this.peek())
+        return (t.kind == 0)
+    }
+
+    fn atWord:boolean (word:string) {
+        def t:SqlToken (this.peek())
+        return (t.isWord(word))
+    }
+
+    fn atPunct:boolean (symbol:string) {
+        def t:SqlToken (this.peek())
+        return (t.isPunct(symbol))
+    }
+
+    fn takeWord:boolean (word:string) {
+        if (this.atWord(word)) {
+            this.advance()
+            return true
+        }
+        return false
+    }
+
+    fn takePunct:boolean (symbol:string) {
+        if (this.atPunct(symbol)) {
+            this.advance()
+            return true
+        }
+        return false
+    }
+
+    fn expectPunct:boolean (symbol:string) {
+        if (this.takePunct(symbol)) {
+            return true
+        }
+        this.fail(("expected " + symbol))
+        return false
+    }
+
+    fn expectWord:boolean (word:string) {
+        if (this.takeWord(word)) {
+            return true
+        }
+        this.fail(("expected " + word))
+        return false
+    }
+
+    fn fail:void (message:string) {
+        if ((strlen error) > 0) {
+            return
+        }
+        def t:SqlToken (this.peek())
+        error = (message + " but found " + (t.describe()) + " at offset " + (to_string t.start))
+    }
+
+    fn ok:boolean () {
+        return ((strlen error) == 0)
+    }
+
+    ; ---------------------------------------------------------------- parse --
+    fn parse:int (sql:string) {
+        def tk:SqlTokenizer (SqlTokenizer.forDialect(dialect))
+        tokens = (tk.tokenize(sql))
+        commentCount = tk.commentCount
+        ast = (new SqlAst)
+        pos = 0
+        error = tk.error
+        if ((strlen error) > 0) {
+            return -1
+        }
+        clear pendingComments
+        this.skipComments()
+        def leading:[string]
+        def lc:int 0
+        while (lc < (array_length pendingComments)) {
+            push leading (itemAt pendingComments lc)
+            lc = (lc + 1)
+        }
+        clear pendingComments
+        def root:int (this.parseStatement())
+        if (root >= 0) {
+            def li:int 0
+            while (li < (array_length leading)) {
+                push pendingComments (itemAt leading li)
+                li = (li + 1)
+            }
+            this.takeLeadingComments(root)
+            this.absorbComments(root)
+        }
+        if (this.ok()) {
+            this.takePunct(";")
+            if ((this.atEnd()) == false) {
+                this.fail("expected end of statement")
+            }
+        }
+        if ((this.ok()) == false) {
+            return -1
+        }
+        ast.root = root
+        return root
+    }
+
+    fn parseStatement:int () {
+        if (this.atWord("INSERT")) {
+            return (this.parseInsert())
+        }
+        if (this.atWord("UPDATE")) {
+            return (this.parseUpdate())
+        }
+        if (this.atWord("DELETE")) {
+            return (this.parseDelete())
+        }
+        if (this.atWord("WITH")) {
+            return (this.parseWith())
+        }
+        if (this.atWord("SELECT")) {
+            return (this.parseSetOperation())
+        }
+        if (this.atPunct("(")) {
+            def save:int pos
+            def probe:SqlToken (this.peekAhead(1))
+            if (probe.isWord("SELECT")) {
+                return (this.parseSetOperation())
+            }
+            pos = save
+        }
+        ; The corpus is full of bare expressions - SQL that is an expression is
+        ; still SQL, and a formatter has to be able to print one.
+        return (this.parseExpression(0))
+    }
+
+    ; WITH a AS (...), b AS (...) SELECT ...
+    fn parseWith:int () {
+        def node:int (ast.newNode((SqlKind.withNode()) ""))
+        this.expectWord("WITH")
+        if (this.takeWord("RECURSIVE")) {
+            ast.addFlag(node (SqlFlag.allFlag()))
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            def cte:int (ast.newNode((SqlKind.cteNode()) ""))
+            def nameTok:SqlToken (this.advance())
+            def nameId:int (this.identifierFrom(nameTok))
+            if (nameId < 0) {
+                this.fail("expected a CTE name")
+                return -1
+            }
+            ast.attach(cte (SqlRole.aliasName()) nameId)
+            this.expectWord("AS")
+            this.expectPunct("(")
+            def body:int (this.parseSetOperation())
+            ast.attach(cte (SqlRole.bodyClause()) body)
+            this.expectPunct(")")
+            ast.attach(node (SqlRole.cteClause()) cte)
+            more = (this.takePunct(","))
+        }
+        def query:int (this.parseSetOperation())
+        ast.attach(node (SqlRole.bodyClause()) query)
+        return node
+    }
+
+    ; SELECT ... UNION [ALL] SELECT ...
+    fn parseSetOperation:int () {
+        def left:int (this.parseSelectOrParen())
+        while (this.ok()) {
+            def op:string ""
+            if (this.atWord("UNION")) {
+                op = "UNION"
+            }
+            if (this.atWord("INTERSECT")) {
+                op = "INTERSECT"
+            }
+            if (this.atWord("EXCEPT")) {
+                op = "EXCEPT"
+            }
+            if ((strlen op) == 0) {
+                break
+            }
+            this.advance()
+            def node:int (ast.newNode((SqlKind.setOperation()) op))
+            if (this.takeWord("ALL")) {
+                ast.addFlag(node (SqlFlag.allFlag()))
+            } {
+                if (this.takeWord("DISTINCT")) {
+                    ast.addFlag(node (SqlFlag.distinctFlag()))
+                }
+            }
+            def right:int (this.parseSelectOrParen())
+            ast.attach(node (SqlRole.leftOperand()) left)
+            ast.attach(node (SqlRole.rightOperand()) right)
+            left = node
+        }
+        return left
+    }
+
+    fn parseSelectOrParen:int () {
+        if (this.atPunct("(")) {
+            this.advance()
+            def inner:int (this.parseSetOperation())
+            this.expectPunct(")")
+            def node:int (ast.newNode((SqlKind.paren()) ""))
+            ast.attach(node (SqlRole.thisOperand()) inner)
+            return node
+        }
+        return (this.parseSelect())
+    }
+
+    fn parseSelect:int () {
+        def node:int (ast.newNode((SqlKind.selectNode()) ""))
+        if ((this.expectWord("SELECT")) == false) {
+            return -1
+        }
+        if (this.takeWord("DISTINCT")) {
+            ast.addFlag(node (SqlFlag.distinctFlag()))
+            ; Postgres' DISTINCT ON (a, b) - a list, not a function call, and
+            ; parsing it as one is how it came back out with the space gone.
+            if (this.atWord("ON")) {
+                this.advance()
+                ast.addFlag(node (SqlFlag.distinctOnFlag()))
+                this.expectPunct("(")
+                def moreOn:boolean true
+                while (moreOn) {
+                    if ((this.ok()) == false) {
+                        return -1
+                    }
+                    ast.attach(node (SqlRole.distinctOn()) (this.parseExpression(0)))
+                    moreOn = (this.takePunct(","))
+                }
+                this.expectPunct(")")
+            }
+        } {
+            this.takeWord("ALL")
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            def item:int (this.parseProjection())
+            ast.attach(node (SqlRole.projection()) item)
+            more = (this.takePunct(","))
+        }
+        if (this.takeWord("FROM")) {
+            def moreFrom:boolean true
+            while (moreFrom) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                def source:int (this.parseTableReference())
+                ast.attach(node (SqlRole.fromClause()) source)
+                moreFrom = (this.takePunct(","))
+            }
+            while (this.isJoinStart()) {
+                def join:int (this.parseJoin())
+                ast.attach(node (SqlRole.joinClause()) join)
+                if ((this.ok()) == false) {
+                    return -1
+                }
+            }
+        }
+        if (this.takeWord("WHERE")) {
+            ast.attach(node (SqlRole.whereClause()) (this.parseExpression(0)))
+        }
+        if (this.atWord("GROUP")) {
+            this.advance()
+            this.expectWord("BY")
+            def moreGroup:boolean true
+            while (moreGroup) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                ast.attach(node (SqlRole.groupClause()) (this.parseExpression(0)))
+                moreGroup = (this.takePunct(","))
+            }
+        }
+        if (this.takeWord("HAVING")) {
+            ast.attach(node (SqlRole.havingClause()) (this.parseExpression(0)))
+        }
+        if (this.atWord("ORDER")) {
+            this.advance()
+            this.expectWord("BY")
+            def moreOrder:boolean true
+            while (moreOrder) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                ast.attach(node (SqlRole.orderClause()) (this.parseOrderItem()))
+                moreOrder = (this.takePunct(","))
+            }
+        }
+        if (this.takeWord("LIMIT")) {
+            def limit:int (this.parseExpression(0))
+            ; MySQL's LIMIT offset, count - the same two numbers the other
+            ; engines write the other way round, so the AST holds them by name
+            ; and every generator can print its own order.
+            if (this.takePunct(",")) {
+                def count:int (this.parseExpression(0))
+                ast.attach(node (SqlRole.offsetClause()) limit)
+                ast.attach(node (SqlRole.limitClause()) count)
+            } {
+                ast.attach(node (SqlRole.limitClause()) limit)
+            }
+        }
+        if (this.takeWord("OFFSET")) {
+            ast.attach(node (SqlRole.offsetClause()) (this.parseExpression(0)))
+        }
+        return node
+    }
+
+    fn parseProjection:int () {
+        def expr:int (this.parseExpression(0))
+        def aliased:int (this.maybeAlias(expr))
+        return (this.absorbComments(aliased))
+    }
+
+    ; [AS] name - and a word that is really the next clause is not an alias.
+    fn maybeAlias:int (expr:int) {
+        def explicit:boolean (this.takeWord("AS"))
+        def t:SqlToken (this.peek())
+        def isName:boolean false
+        if (t.kind == 2) {
+            isName = true
+        }
+        if (t.kind == 1) {
+            if (explicit) {
+                isName = true
+            } {
+                if ((SqlParser.isReserved(t.upper)) == false) {
+                    isName = true
+                }
+            }
+        }
+        if (isName == false) {
+            if explicit {
+                this.fail("expected an alias after AS")
+            }
+            return expr
+        }
+        def nameTok:SqlToken (this.advance())
+        def nameId:int (this.identifierFrom(nameTok))
+        def node:int (ast.newNode((SqlKind.aliasNode()) ""))
+        ast.attach(node (SqlRole.thisOperand()) expr)
+        ast.attach(node (SqlRole.aliasName()) nameId)
+        if explicit {
+            ast.addFlag(node (SqlFlag.explicitAsFlag()))
+        }
+        return node
+    }
+
+    fn identifierFrom:int (t:SqlToken) {
+        if (t.kind == 2) {
+            def q:int (ast.newNode((SqlKind.identifier()) t.text))
+            ast.addFlag(q (SqlFlag.quotedFlag()))
+            return q
+        }
+        if (t.kind == 1) {
+            return (ast.newNode((SqlKind.identifier()) t.text))
+        }
+        return -1
+    }
+
+    ; Words that can never be a bare column or a bare alias, because they open
+    ; the next clause. Everything else in the keyword list stays usable as a
+    ; name - `SELECT count FROM t` and `SELECT LEFT(x, 1)` are both real SQL.
+    sfn isReserved:boolean (upper:string) {
+        if (upper == "SELECT") {
+            return true
+        }
+        if (upper == "FROM") {
+            return true
+        }
+        if (upper == "WHERE") {
+            return true
+        }
+        if (upper == "GROUP") {
+            return true
+        }
+        if (upper == "HAVING") {
+            return true
+        }
+        if (upper == "ORDER") {
+            return true
+        }
+        if (upper == "BY") {
+            return true
+        }
+        if (upper == "LIMIT") {
+            return true
+        }
+        if (upper == "OFFSET") {
+            return true
+        }
+        if (upper == "JOIN") {
+            return true
+        }
+        if (upper == "INNER") {
+            return true
+        }
+        if (upper == "CROSS") {
+            return true
+        }
+        if (upper == "NATURAL") {
+            return true
+        }
+        if (upper == "ON") {
+            return true
+        }
+        if (upper == "USING") {
+            return true
+        }
+        if (upper == "UNION") {
+            return true
+        }
+        if (upper == "INTERSECT") {
+            return true
+        }
+        if (upper == "EXCEPT") {
+            return true
+        }
+        if (upper == "WHEN") {
+            return true
+        }
+        if (upper == "THEN") {
+            return true
+        }
+        if (upper == "ELSE") {
+            return true
+        }
+        if (upper == "END") {
+            return true
+        }
+        if (upper == "AND") {
+            return true
+        }
+        if (upper == "OR") {
+            return true
+        }
+        if (upper == "NOT") {
+            return true
+        }
+        if (upper == "IS") {
+            return true
+        }
+        if (upper == "IN") {
+            return true
+        }
+        if (upper == "BETWEEN") {
+            return true
+        }
+        if (upper == "AS") {
+            return true
+        }
+        if (upper == "SET") {
+            return true
+        }
+        if (upper == "VALUES") {
+            return true
+        }
+        if (upper == "INTO") {
+            return true
+        }
+        if (upper == "WITH") {
+            return true
+        }
+        return false
+    }
+
+    fn isJoinStart:boolean () {
+        if (this.atWord("JOIN")) {
+            return true
+        }
+        if (this.atWord("INNER")) {
+            return true
+        }
+        if (this.atWord("LEFT")) {
+            return true
+        }
+        if (this.atWord("RIGHT")) {
+            return true
+        }
+        if (this.atWord("FULL")) {
+            return true
+        }
+        if (this.atWord("CROSS")) {
+            return true
+        }
+        if (this.atWord("NATURAL")) {
+            return true
+        }
+        return false
+    }
+
+    fn parseJoin:int () {
+        def kind:string ""
+        if (this.takeWord("NATURAL")) {
+            kind = "NATURAL"
+        }
+        if (this.takeWord("INNER")) {
+            kind = (this.joinWord(kind "INNER"))
+        }
+        if (this.takeWord("CROSS")) {
+            kind = (this.joinWord(kind "CROSS"))
+        }
+        if (this.takeWord("LEFT")) {
+            kind = (this.joinWord(kind "LEFT"))
+        }
+        if (this.takeWord("RIGHT")) {
+            kind = (this.joinWord(kind "RIGHT"))
+        }
+        if (this.takeWord("FULL")) {
+            kind = (this.joinWord(kind "FULL"))
+        }
+        def outer:boolean (this.takeWord("OUTER"))
+        def node:int (ast.newNode((SqlKind.joinNode()) kind))
+        if outer {
+            ast.addFlag(node (SqlFlag.outerFlag()))
+        }
+        if ((this.expectWord("JOIN")) == false) {
+            return -1
+        }
+        def target:int (this.parseTableReference())
+        ast.attach(node (SqlRole.thisOperand()) target)
+        if (this.takeWord("ON")) {
+            ast.attach(node (SqlRole.onClause()) (this.parseExpression(0)))
+        } {
+            if (this.takeWord("USING")) {
+                this.expectPunct("(")
+                def more:boolean true
+                while (more) {
+                    if ((this.ok()) == false) {
+                        return -1
+                    }
+                    def col:SqlToken (this.advance())
+                    ast.attach(node (SqlRole.usingClause()) (this.identifierFrom(col)))
+                    more = (this.takePunct(","))
+                }
+                this.expectPunct(")")
+            }
+        }
+        return node
+    }
+
+    fn joinWord:string (existing:string word:string) {
+        if ((strlen existing) == 0) {
+            return word
+        }
+        return (existing + " " + word)
+    }
+
+    ; A table, a subquery, or a parenthesised join - each with an alias.
+    fn parseTableReference:int () {
+        def base:int -1
+        if (this.atPunct("(")) {
+            def ahead:SqlToken (this.peekAhead(1))
+            this.advance()
+            if (ahead.isWord("SELECT")) {
+                def inner:int (this.parseSetOperation())
+                this.expectPunct(")")
+                base = (ast.newNode((SqlKind.subquery()) ""))
+                ast.attach(base (SqlRole.thisOperand()) inner)
+            } {
+                if (ahead.isWord("WITH")) {
+                    def innerWith:int (this.parseWith())
+                    this.expectPunct(")")
+                    base = (ast.newNode((SqlKind.subquery()) ""))
+                    ast.attach(base (SqlRole.thisOperand()) innerWith)
+                } {
+                    def nested:int (this.parseTableReference())
+                    this.expectPunct(")")
+                    base = (ast.newNode((SqlKind.paren()) ""))
+                    ast.attach(base (SqlRole.thisOperand()) nested)
+                }
+            }
+        } {
+            base = (this.parseTableName())
+        }
+        if (base < 0) {
+            return -1
+        }
+        def aliased:int (this.maybeAlias(base))
+        return (this.absorbComments(aliased))
+    }
+
+    fn parseTableName:int () {
+        def t:SqlToken (this.advance())
+        def nameId:int (this.identifierFrom(t))
+        if (nameId < 0) {
+            this.fail("expected a table name")
+            return -1
+        }
+        def parts:[int]
+        push parts nameId
+        while (this.atPunct(".")) {
+            this.advance()
+            def next:SqlToken (this.advance())
+            def part:int (this.identifierFrom(next))
+            if (part < 0) {
+                this.fail("expected a name after .")
+                return -1
+            }
+            push parts part
+        }
+        def count:int (array_length parts)
+        def node:int (ast.newNode((SqlKind.table()) ""))
+        def last:int (itemAt parts (count - 1))
+        ast.attach(node (SqlRole.thisOperand()) last)
+        def i:int 0
+        while (i < (count - 1)) {
+            ast.attach(node (SqlRole.qualifier()) (itemAt parts i))
+            i = (i + 1)
+        }
+        return node
+    }
+
+    fn parseOrderItem:int () {
+        def expr:int (this.parseExpression(0))
+        def node:int (ast.newNode((SqlKind.orderItem()) ""))
+        ast.attach(node (SqlRole.thisOperand()) expr)
+        if (this.takeWord("DESC")) {
+            ast.addFlag(node (SqlFlag.descFlag()))
+        } {
+            if (this.takeWord("ASC")) {
+                ast.addFlag(node (SqlFlag.explicitAscFlag()))
+            }
+        }
+        if (this.takeWord("NULLS")) {
+            if (this.takeWord("FIRST")) {
+                ast.addFlag(node (SqlFlag.nullsFirstFlag()))
+            } {
+                if (this.takeWord("LAST")) {
+                    ast.addFlag(node (SqlFlag.nullsLastFlag()))
+                } {
+                    this.fail("expected FIRST or LAST after NULLS")
+                }
+            }
+        }
+        return node
+    }
+
+    ; ----------------------------------------------------------- expressions --
+    ; Binding powers. Higher binds tighter; 0 means "not an infix operator".
+    fn infixPrecedence:int (t:SqlToken) {
+        if (t.kind == 1) {
+            if (t.upper == "OR") {
+                return 1
+            }
+            if (t.upper == "AND") {
+                return 2
+            }
+            if (t.upper == "IS") {
+                return 4
+            }
+            if (t.upper == "IN") {
+                return 4
+            }
+            if (t.upper == "LIKE") {
+                return 4
+            }
+            if (t.upper == "ILIKE") {
+                return 4
+            }
+            if (t.upper == "RLIKE") {
+                return 4
+            }
+            if (t.upper == "BETWEEN") {
+                return 4
+            }
+            if (t.upper == "NOT") {
+                ; Only as part of NOT IN / NOT LIKE / NOT BETWEEN.
+                def next:SqlToken (this.peekAhead(1))
+                if (next.kind == 1) {
+                    if (next.upper == "IN") {
+                        return 4
+                    }
+                    if (next.upper == "LIKE") {
+                        return 4
+                    }
+                    if (next.upper == "ILIKE") {
+                        return 4
+                    }
+                    if (next.upper == "RLIKE") {
+                        return 4
+                    }
+                    if (next.upper == "BETWEEN") {
+                        return 4
+                    }
+                }
+                return 0
+            }
+            return 0
+        }
+        if (t.kind != 5) {
+            return 0
+        }
+        if (t.text == "=") {
+            return 4
+        }
+        if (t.text == "<>") {
+            return 4
+        }
+        if (t.text == "!=") {
+            return 4
+        }
+        if (t.text == "<") {
+            return 4
+        }
+        if (t.text == ">") {
+            return 4
+        }
+        if (t.text == "<=") {
+            return 4
+        }
+        if (t.text == ">=") {
+            return 4
+        }
+        if (t.text == "||") {
+            return 5
+        }
+        if (t.text == "|") {
+            return 5
+        }
+        if (t.text == "&") {
+            return 5
+        }
+        if (t.text == "^") {
+            return 5
+        }
+        if (t.text == "<<") {
+            return 5
+        }
+        if (t.text == ">>") {
+            return 5
+        }
+        if (t.text == "+") {
+            return 6
+        }
+        if (t.text == "-") {
+            return 6
+        }
+        if (t.text == "*") {
+            return 7
+        }
+        if (t.text == "/") {
+            return 7
+        }
+        if (t.text == "%") {
+            return 7
+        }
+        if (t.text == "->") {
+            return 8
+        }
+        if (t.text == "->>") {
+            return 8
+        }
+        if (t.text == "::") {
+            return 9
+        }
+        return 0
+    }
+
+    fn parseExpression:int (minPrecedence:int) {
+        def left:int (this.parseUnary())
+        while (this.ok()) {
+            def t:SqlToken (this.peek())
+            def prec:int (this.infixPrecedence(t))
+            if (prec == 0) {
+                break
+            }
+            if (prec < minPrecedence) {
+                break
+            }
+            left = (this.parseInfix(left prec))
+        }
+        return left
+    }
+
+    fn parseInfix:int (left:int precedence:int) {
+        def negated:boolean false
+        if (this.atWord("NOT")) {
+            this.advance()
+            negated = true
+        }
+        def t:SqlToken (this.peek())
+        if (t.kind == 1) {
+            if (t.upper == "IS") {
+                this.advance()
+                def isNot:boolean (this.takeWord("NOT"))
+                def node:int (ast.newNode((SqlKind.isNull()) ""))
+                if (isNot) {
+                    ast.addFlag(node (SqlFlag.notFlag()))
+                }
+                def rhs:int (this.parseExpression(5))
+                ast.attach(node (SqlRole.leftOperand()) left)
+                ast.attach(node (SqlRole.rightOperand()) rhs)
+                return node
+            }
+            if (t.upper == "IN") {
+                this.advance()
+                def inNode:int (ast.newNode((SqlKind.inList()) ""))
+                if negated {
+                    ast.addFlag(inNode (SqlFlag.notFlag()))
+                }
+                ast.attach(inNode (SqlRole.leftOperand()) left)
+                this.expectPunct("(")
+                def ahead:SqlToken (this.peek())
+                if (ahead.isWord("SELECT")) {
+                    def sub:int (this.parseSetOperation())
+                    def subNode:int (ast.newNode((SqlKind.subquery()) ""))
+                    ast.attach(subNode (SqlRole.thisOperand()) sub)
+                    ast.attach(inNode (SqlRole.argument()) subNode)
+                    ast.addFlag(inNode (SqlFlag.directSubqueryFlag()))
+                } {
+                    def more:boolean true
+                    while (more) {
+                        if ((this.ok()) == false) {
+                            return -1
+                        }
+                        ast.attach(inNode (SqlRole.argument()) (this.parseExpression(0)))
+                        more = (this.takePunct(","))
+                    }
+                }
+                this.expectPunct(")")
+                return inNode
+            }
+            if (t.upper == "BETWEEN") {
+                this.advance()
+                def betweenNode:int (ast.newNode((SqlKind.between()) ""))
+                if negated {
+                    ast.addFlag(betweenNode (SqlFlag.notFlag()))
+                }
+                ast.attach(betweenNode (SqlRole.thisOperand()) left)
+                ; The bounds bind tighter than AND, or `x BETWEEN a AND b`
+                ; would read as `x BETWEEN (a AND b)`.
+                ast.attach(betweenNode (SqlRole.lowBound()) (this.parseExpression(3)))
+                this.expectWord("AND")
+                ast.attach(betweenNode (SqlRole.highBound()) (this.parseExpression(3)))
+                return betweenNode
+            }
+            def likeOp:string ""
+            if (t.upper == "LIKE") {
+                likeOp = "LIKE"
+            }
+            if (t.upper == "ILIKE") {
+                likeOp = "ILIKE"
+            }
+            if (t.upper == "RLIKE") {
+                likeOp = "RLIKE"
+            }
+            if ((strlen likeOp) > 0) {
+                this.advance()
+                def likeNode:int (ast.newNode((SqlKind.likeNode()) likeOp))
+                if negated {
+                    ast.addFlag(likeNode (SqlFlag.notFlag()))
+                }
+                ast.attach(likeNode (SqlRole.leftOperand()) left)
+                ast.attach(likeNode (SqlRole.rightOperand()) (this.parseExpression(5)))
+                return likeNode
+            }
+            ; AND / OR
+            def word:string t.upper
+            this.advance()
+            def binNode:int (ast.newNode((SqlKind.binary()) word))
+            ast.attach(binNode (SqlRole.leftOperand()) left)
+            ast.attach(binNode (SqlRole.rightOperand()) (this.parseExpression((precedence + 1))))
+            return binNode
+        }
+        ; punctuation operators
+        def symbol:string t.text
+        this.advance()
+        if (symbol == "::") {
+            def castNode:int (ast.newNode((SqlKind.castNode()) ""))
+            ast.attach(castNode (SqlRole.thisOperand()) left)
+            ast.attach(castNode (SqlRole.typeName()) (this.parseDataType()))
+            return castNode
+        }
+        def node2:int (ast.newNode((SqlKind.binary()) symbol))
+        ast.attach(node2 (SqlRole.leftOperand()) left)
+        ast.attach(node2 (SqlRole.rightOperand()) (this.parseExpression((precedence + 1))))
+        return node2
+    }
+
+    fn parseUnary:int () {
+        if (this.atWord("NOT")) {
+            this.advance()
+            def node:int (ast.newNode((SqlKind.unary()) "NOT"))
+            ast.attach(node (SqlRole.thisOperand()) (this.parseExpression(3)))
+            return node
+        }
+        if (this.atPunct("-")) {
+            this.advance()
+            def neg:int (ast.newNode((SqlKind.unary()) "-"))
+            ast.attach(neg (SqlRole.thisOperand()) (this.parseExpression(8)))
+            return neg
+        }
+        if (this.atPunct("+")) {
+            this.advance()
+            def plus:int (ast.newNode((SqlKind.unary()) "+"))
+            ast.attach(plus (SqlRole.thisOperand()) (this.parseExpression(8)))
+            return plus
+        }
+        if (this.atPunct("~")) {
+            this.advance()
+            def inv:int (ast.newNode((SqlKind.unary()) "~"))
+            ast.attach(inv (SqlRole.thisOperand()) (this.parseExpression(8)))
+            return inv
+        }
+        def value:int (this.parsePrimary())
+        def after:int (this.parsePostfix(value))
+        return (this.absorbComments(after))
+    }
+
+    ; a[0], a['x'], f(x) OVER (...) - things that attach to what came before.
+    fn parsePostfix:int (value:int) {
+        def current:int value
+        while (this.ok()) {
+            if (this.atPunct("[")) {
+                this.advance()
+                def node:int (ast.newNode((SqlKind.subscript()) ""))
+                ast.attach(node (SqlRole.thisOperand()) current)
+                ast.attach(node (SqlRole.argument()) (this.parseExpression(0)))
+                this.expectPunct("]")
+                current = node
+                continue
+            }
+            if (this.atWord("OVER")) {
+                this.advance()
+                def window:int (this.parseWindowSpec())
+                ast.attach(current (SqlRole.overClause()) window)
+                continue
+            }
+            break
+        }
+        return current
+    }
+
+    ; OVER (PARTITION BY a ORDER BY b ROWS BETWEEN ...) - the frame is kept as
+    ; the words it was written with, because a frame grammar is a project of
+    ; its own and losing the text would be worse than not modelling it.
+    fn parseWindowSpec:int () {
+        def node:int (ast.newNode((SqlKind.windowSpec()) ""))
+        if ((this.expectPunct("(")) == false) {
+            return node
+        }
+        if (this.atWord("PARTITION")) {
+            this.advance()
+            this.expectWord("BY")
+            def morePart:boolean true
+            while (morePart) {
+                if ((this.ok()) == false) {
+                    return node
+                }
+                ast.attach(node (SqlRole.partitionClause()) (this.parseExpression(0)))
+                morePart = (this.takePunct(","))
+            }
+        }
+        if (this.atWord("ORDER")) {
+            this.advance()
+            this.expectWord("BY")
+            def moreOrder:boolean true
+            while (moreOrder) {
+                if ((this.ok()) == false) {
+                    return node
+                }
+                ast.attach(node (SqlRole.orderClause()) (this.parseOrderItem()))
+                moreOrder = (this.takePunct(","))
+            }
+        }
+        def frame:string ""
+        while (this.ok()) {
+            if (this.atPunct(")")) {
+                break
+            }
+            def t:SqlToken (this.peek())
+            if (t.kind == 0) {
+                this.fail("unterminated window frame")
+                return node
+            }
+            this.advance()
+            def piece:string t.text
+            if (t.kind == 3) {
+                piece = ("'" + t.text + "'")
+            }
+            if ((strlen frame) > 0) {
+                frame = (frame + " ")
+            }
+            frame = (frame + piece)
+        }
+        ast.setText(node frame)
+        this.expectPunct(")")
+        return node
+    }
+
+    fn parsePrimary:int () {
+        def t:SqlToken (this.peek())
+        if (t.kind == 0) {
+            this.fail("expected an expression")
+            return -1
+        }
+        if (t.kind == 4) {
+            this.advance()
+            return (ast.newNode((SqlKind.numberValue()) t.text))
+        }
+        if (t.kind == 3) {
+            this.advance()
+            def strId:int (ast.newNode((SqlKind.stringValue()) t.text))
+            if ((strlen t.prefix) > 0) {
+                ast.attach(strId (SqlRole.literalPrefix()) (ast.newNode((SqlKind.identifier()) t.prefix)))
+            }
+            return strId
+        }
+        if (t.kind == 6) {
+            this.advance()
+            return (ast.newNode((SqlKind.parameter()) t.text))
+        }
+        if (t.kind == 5) {
+            if (t.text == "*") {
+                this.advance()
+                return (ast.newNode((SqlKind.star()) "*"))
+            }
+            if (t.text == "(") {
+                return (this.parseParenthesised())
+            }
+            this.fail("expected an expression")
+            return -1
+        }
+        if (t.kind == 2) {
+            return (this.parseColumnReference())
+        }
+        ; a word: keyword form, function call, or a column
+        if (t.upper == "NULL") {
+            this.advance()
+            return (ast.newNode((SqlKind.nullValue()) "NULL"))
+        }
+        if (t.upper == "TRUE") {
+            this.advance()
+            return (ast.newNode((SqlKind.boolValue()) "TRUE"))
+        }
+        if (t.upper == "FALSE") {
+            this.advance()
+            return (ast.newNode((SqlKind.boolValue()) "FALSE"))
+        }
+        if (t.upper == "CASE") {
+            return (this.parseCase())
+        }
+        if (t.upper == "CAST") {
+            return (this.parseCast())
+        }
+        if (t.upper == "EXISTS") {
+            this.advance()
+            def node:int (ast.newNode((SqlKind.existsNode()) ""))
+            this.expectPunct("(")
+            def inner:int (this.parseSetOperation())
+            this.expectPunct(")")
+            def sub:int (ast.newNode((SqlKind.subquery()) ""))
+            ast.attach(sub (SqlRole.thisOperand()) inner)
+            ast.attach(node (SqlRole.thisOperand()) sub)
+            return node
+        }
+        def next:SqlToken (this.peekAhead(1))
+        if (next.isPunct("(")) {
+            return (this.parseFunctionCall())
+        }
+        ; LEFT(x, 1) above is a function; a bare LEFT here is the start of a
+        ; join, and reading it as a column name is how `SELECT FROM` used to
+        ; parse.
+        if (SqlParser.isReserved(t.upper)) {
+            this.fail("expected an expression")
+            return -1
+        }
+        return (this.parseColumnReference())
+    }
+
+    fn parseParenthesised:int () {
+        this.advance()
+        def ahead:SqlToken (this.peek())
+        if (ahead.isWord("SELECT")) {
+            def inner:int (this.parseSetOperation())
+            this.expectPunct(")")
+            def sub:int (ast.newNode((SqlKind.subquery()) ""))
+            ast.attach(sub (SqlRole.thisOperand()) inner)
+            return sub
+        }
+        if (ahead.isWord("WITH")) {
+            def innerWith:int (this.parseWith())
+            this.expectPunct(")")
+            def sub2:int (ast.newNode((SqlKind.subquery()) ""))
+            ast.attach(sub2 (SqlRole.thisOperand()) innerWith)
+            return sub2
+        }
+        def first:int (this.parseExpression(0))
+        if (this.atPunct(",")) {
+            def tuple:int (ast.newNode((SqlKind.tuple()) ""))
+            ast.attach(tuple (SqlRole.argument()) first)
+            while (this.takePunct(",")) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                ast.attach(tuple (SqlRole.argument()) (this.parseExpression(0)))
+            }
+            this.expectPunct(")")
+            return tuple
+        }
+        this.expectPunct(")")
+        def node:int (ast.newNode((SqlKind.paren()) ""))
+        ast.attach(node (SqlRole.thisOperand()) first)
+        return node
+    }
+
+    fn parseCase:int () {
+        this.advance()
+        def node:int (ast.newNode((SqlKind.caseNode()) ""))
+        if ((this.atWord("WHEN")) == false) {
+            ast.attach(node (SqlRole.thisOperand()) (this.parseExpression(0)))
+        }
+        while (this.takeWord("WHEN")) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            def branch:int (ast.newNode((SqlKind.whenNode()) ""))
+            ast.attach(branch (SqlRole.whenClause()) (this.parseExpression(0)))
+            this.expectWord("THEN")
+            ast.attach(branch (SqlRole.thenClause()) (this.parseExpression(0)))
+            ast.attach(node (SqlRole.whenClause()) branch)
+        }
+        if (this.takeWord("ELSE")) {
+            ast.attach(node (SqlRole.elseClause()) (this.parseExpression(0)))
+        }
+        this.expectWord("END")
+        return node
+    }
+
+    fn parseCast:int () {
+        this.advance()
+        def node:int (ast.newNode((SqlKind.castNode()) ""))
+        this.expectPunct("(")
+        ast.attach(node (SqlRole.thisOperand()) (this.parseExpression(0)))
+        this.expectWord("AS")
+        ast.attach(node (SqlRole.typeName()) (this.parseDataType()))
+        this.expectPunct(")")
+        return node
+    }
+
+    ; INT, VARCHAR(10), DECIMAL(10, 2), TIMESTAMP WITH TIME ZONE
+    fn parseDataType:int () {
+        def t:SqlToken (this.advance())
+        if (t.kind != 1) {
+            this.fail("expected a type name")
+            return -1
+        }
+        def name:string t.upper
+        def node:int (ast.newNode((SqlKind.dataType()) name))
+        if (this.takePunct("(")) {
+            def more:boolean true
+            while (more) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                def arg:SqlToken (this.advance())
+                ast.attach(node (SqlRole.argument()) (ast.newNode((SqlKind.numberValue()) arg.text)))
+                more = (this.takePunct(","))
+            }
+            this.expectPunct(")")
+        }
+        ; TIMESTAMP WITH TIME ZONE and friends: keep the words in the name.
+        while (this.atWord("WITH")) {
+            this.advance()
+            def extra:string "WITH"
+            while (true) {
+                def w:SqlToken (this.peek())
+                if (w.kind != 1) {
+                    break
+                }
+                if ((w.upper == "TIME") == false) {
+                    if ((w.upper == "ZONE") == false) {
+                        if ((w.upper == "LOCAL") == false) {
+                            break
+                        }
+                    }
+                }
+                this.advance()
+                extra = (extra + " " + w.upper)
+            }
+            ast.setText(node ((ast.textOf(node)) + " " + extra))
+        }
+        return node
+    }
+
+    fn parseFunctionCall:int () {
+        def nameTok:SqlToken (this.advance())
+        def node:int (ast.newNode((SqlKind.functionCall()) nameTok.text))
+        this.expectPunct("(")
+        if (this.takeWord("DISTINCT")) {
+            ast.addFlag(node (SqlFlag.distinctFlag()))
+        }
+        if (this.atPunct(")")) {
+            this.advance()
+            return node
+        }
+        if (this.atPunct("*")) {
+            def ahead:SqlToken (this.peekAhead(1))
+            if (ahead.isPunct(")")) {
+                this.advance()
+                this.advance()
+                ast.addFlag(node (SqlFlag.starArgFlag()))
+                return node
+            }
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            ast.attach(node (SqlRole.argument()) (this.parseExpression(0)))
+            more = (this.takePunct(","))
+        }
+        this.expectPunct(")")
+        return node
+    }
+
+    ; ------------------------------------------------------------------ DML --
+    ; INSERT INTO t (a, b) VALUES (1, 2), (3, 4)
+    ; INSERT INTO t SELECT ...
+    fn parseInsert:int () {
+        this.advance()
+        def node:int (ast.newNode((SqlKind.insertNode()) ""))
+        this.expectWord("INTO")
+        def target:int (this.parseTableName())
+        this.absorbComments(target)
+        ast.attach(node (SqlRole.targetClause()) target)
+        if (this.atPunct("(")) {
+            this.advance()
+            def more:boolean true
+            while (more) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                def col:SqlToken (this.advance())
+                def colId:int (this.identifierFrom(col))
+                this.absorbComments(colId)
+                ast.attach(node (SqlRole.columnList()) colId)
+                more = (this.takePunct(","))
+            }
+            this.expectPunct(")")
+        }
+        if (this.atWord("VALUES")) {
+            this.advance()
+            def moreRows:boolean true
+            while (moreRows) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                def row:int (ast.newNode((SqlKind.valuesNode()) ""))
+                this.expectPunct("(")
+                def moreValues:boolean true
+                while (moreValues) {
+                    if ((this.ok()) == false) {
+                        return -1
+                    }
+                    ast.attach(row (SqlRole.argument()) (this.parseExpression(0)))
+                    moreValues = (this.takePunct(","))
+                }
+                this.expectPunct(")")
+                ast.attach(node (SqlRole.valueRow()) row)
+                moreRows = (this.takePunct(","))
+            }
+            return node
+        }
+        if (this.atWord("SELECT")) {
+            ast.attach(node (SqlRole.bodyClause()) (this.parseSetOperation()))
+            return node
+        }
+        if (this.atWord("WITH")) {
+            ast.attach(node (SqlRole.bodyClause()) (this.parseWith()))
+            return node
+        }
+        this.fail("expected VALUES or SELECT")
+        return -1
+    }
+
+    ; UPDATE t SET a = 1, b = 2 WHERE ...
+    fn parseUpdate:int () {
+        this.advance()
+        def node:int (ast.newNode((SqlKind.updateNode()) ""))
+        def target:int (this.parseTableReference())
+        ast.attach(node (SqlRole.targetClause()) target)
+        if ((this.expectWord("SET")) == false) {
+            return -1
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            def assign:int (ast.newNode((SqlKind.assignment()) ""))
+            ast.attach(assign (SqlRole.leftOperand()) (this.parseColumnReference()))
+            this.expectPunct("=")
+            ast.attach(assign (SqlRole.rightOperand()) (this.parseExpression(0)))
+            ast.attach(node (SqlRole.setClause()) assign)
+            more = (this.takePunct(","))
+        }
+        if (this.takeWord("FROM")) {
+            def moreFrom:boolean true
+            while (moreFrom) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                ast.attach(node (SqlRole.fromClause()) (this.parseTableReference()))
+                moreFrom = (this.takePunct(","))
+            }
+        }
+        if (this.takeWord("WHERE")) {
+            ast.attach(node (SqlRole.whereClause()) (this.parseExpression(0)))
+        }
+        return node
+    }
+
+    ; DELETE FROM t WHERE ...
+    fn parseDelete:int () {
+        this.advance()
+        def node:int (ast.newNode((SqlKind.deleteNode()) ""))
+        this.expectWord("FROM")
+        def target:int (this.parseTableReference())
+        ast.attach(node (SqlRole.targetClause()) target)
+        if (this.takeWord("USING")) {
+            def moreUsing:boolean true
+            while (moreUsing) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                ast.attach(node (SqlRole.usingClause()) (this.parseTableReference()))
+                moreUsing = (this.takePunct(","))
+            }
+        }
+        if (this.takeWord("WHERE")) {
+            ast.attach(node (SqlRole.whereClause()) (this.parseExpression(0)))
+        }
+        return node
+    }
+
+    ; a, a.b, a.b.c, a.*, "quoted".x
+    fn parseColumnReference:int () {
+        def t:SqlToken (this.advance())
+        def firstId:int (this.identifierFrom(t))
+        if (firstId < 0) {
+            this.fail("expected a column")
+            return -1
+        }
+        def parts:[int]
+        push parts firstId
+        def sawStar:boolean false
+        while (this.atPunct(".")) {
+            this.advance()
+            if (this.atPunct("*")) {
+                this.advance()
+                sawStar = true
+                break
+            }
+            def next:SqlToken (this.advance())
+            def part:int (this.identifierFrom(next))
+            if (part < 0) {
+                this.fail("expected a name after .")
+                return -1
+            }
+            push parts part
+        }
+        def count:int (array_length parts)
+        if sawStar {
+            def starNode:int (ast.newNode((SqlKind.star()) "*"))
+            def s:int 0
+            while (s < count) {
+                ast.attach(starNode (SqlRole.qualifier()) (itemAt parts s))
+                s = (s + 1)
+            }
+            return starNode
+        }
+        def node:int (ast.newNode((SqlKind.column()) ""))
+        ast.attach(node (SqlRole.thisOperand()) (itemAt parts (count - 1)))
+        def i:int 0
+        while (i < (count - 1)) {
+            ast.attach(node (SqlRole.qualifier()) (itemAt parts i))
+            i = (i + 1)
+        }
+        return node
+    }
+}

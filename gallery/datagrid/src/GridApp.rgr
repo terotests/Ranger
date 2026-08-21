@@ -25,6 +25,7 @@ Import "GridFormat.rgr"
 Import "GridChart.rgr"
 Import "GridChartView.rgr"
 Import "GridClip.rgr"
+Import "db/GridDbSource.rgr"
 
 class GridApp {
     def book:WorkbookModel (new WorkbookModel)
@@ -45,6 +46,10 @@ class GridApp {
     ; A host that ignores it loses nothing: Ctrl+S still writes beside the
     ; source file, as it always did.
     def fileRequest:string ""
+    ; A sheet whose rows are a database query, when the host bound one. Nothing
+    ; is loaded and no engine is named until bindDatabase is called, so a build
+    ; that never touches a database carries a class it never constructs.
+    def db:GridDbSource (new GridDbSource)
     def statusH:int 22
     def editing:boolean false
     def editBuf:string ""
@@ -177,6 +182,12 @@ class GridApp {
     ; Text / fill colour picker. One dialog, two modes: which format op it
     ; applies when the user confirms.
     def colorDialog:EVGWindow (new EVGWindow)
+    ; The SQL box. A database sheet can be described by typing the query that
+    ; makes it, which is the only way to reach the parts of SQL a QuerySpec
+    ; built in code does not have a button for.
+    def sqlDialog:EVGWindow (new EVGWindow)
+    def dbSqlText:string ""
+    def dbSqlStatus:string ""
     def colorDialogOp:string "color"
     def colorPick:string "#C00000"
     def colorRecent:[string]
@@ -362,6 +373,161 @@ class GridApp {
         return false
     }
 
+    ; --- database sheets ------------------------------------------------------
+    ; A query becomes a sheet. The workbook may hold both kinds at once: an
+    ; .xlsx sheet next to a live table, in the same document, with the same
+    ; formulas and the same charts over either.
+    fn bindDatabase:boolean (dbSession:DBSession querySpec:QuerySpec keys:[string] sheetName:string) {
+        if editing {
+            this.commitEdit()
+        }
+        def sheet:SpreadsheetModel (new SpreadsheetModel)
+        sheet.name = sheetName
+        if ((strlen sheet.name) == 0) {
+            sheet.name = querySpec.table
+        }
+        book.addSheet(sheet)
+        def idx:int ((book.sheetCount()) - 1)
+        book.setActive(idx)
+        db.bindQuery(dbSession querySpec idx)
+        if ((array_length keys) > 0) {
+            db.setKeys(keys)
+        } {
+            db.adoptKeysFromTable()
+        }
+        def ok:boolean (db.loadInto(sheet))
+        engine.attach(book)
+        engine.rebuildAll()
+        this.syncActiveModel()
+        view.status = db.status
+        return ok
+    }
+
+    ; The same, from typed SQL. RangerSQL parses it and SqlFront plans it into
+    ; a QuerySpec where it can, so a typed SELECT gives an ordinary editable
+    ; database sheet; anything beyond the planner runs as raw SQL and the
+    ; sheet says it is read only.
+    fn bindDatabaseSql:boolean (dbSession:DBSession sql:string sheetName:string) {
+        if editing {
+            this.commitEdit()
+        }
+        def sheet:SpreadsheetModel (new SpreadsheetModel)
+        sheet.name = sheetName
+        if ((strlen sheet.name) == 0) {
+            sheet.name = "SQL"
+        }
+        book.addSheet(sheet)
+        def idx:int ((book.sheetCount()) - 1)
+        book.setActive(idx)
+        def bound:boolean (db.bindSqlQuery(dbSession sql idx))
+        if (bound == false) {
+            dbSqlStatus = db.status
+            view.status = db.status
+            return false
+        }
+        def ok:boolean (db.loadInto(sheet))
+        engine.attach(book)
+        engine.rebuildAll()
+        this.syncActiveModel()
+        dbSqlText = sql
+        dbSqlStatus = db.status
+        view.status = db.status
+        return ok
+    }
+
+    ; Run a query against the session this app already has - which is the one
+    ; the bound sheet came from. Without one there is nothing to ask.
+    fn runSqlQuery:boolean (sql:string) {
+        if (db.bound == false) {
+            dbSqlStatus = "no database is open - start the app with a database sheet"
+            view.status = dbSqlStatus
+            return false
+        }
+        def session:DBSession db.session
+        def trimmed:string (trim sql)
+        if ((strlen trimmed) == 0) {
+            dbSqlStatus = "type a query first"
+            view.status = dbSqlStatus
+            return false
+        }
+        return (this.bindDatabaseSql(session trimmed "SQL"))
+    }
+
+    ; --- the SQL box ----------------------------------------------------------
+    fn openSqlDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        sqlDialog.title = "SQL query"
+        sqlDialog.w = 460
+        sqlDialog.labelW = 40
+        sqlDialog.reset()
+        sqlDialog.addInput(701 "SQL" dbSqlText)
+        if ((strlen dbSqlStatus) > 0) {
+            sqlDialog.addLabel(dbSqlStatus)
+        } {
+            if (db.bound) {
+                sqlDialog.addLabel(("engine: " + (db.session.engineName())))
+            } {
+                sqlDialog.addLabel("no database is open")
+            }
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 711
+        push labels "Close"
+        push ids 712
+        push labels "Run"
+        sqlDialog.addButtonRow(ids labels 712)
+        sqlDialog.finish()
+        def px:int (grid.x + (idiv (W - sqlDialog.w) 2))
+        def py:int (grid.y + 60)
+        sqlDialog.openWithin(px py W H)
+        windows.raise(sqlDialog)
+        sqlDialog.focusedId = 701
+        view.focused = true
+    }
+
+    fn runSqlFromDialog:void () {
+        dbSqlText = (sqlDialog.inputValue(701))
+        this.runSqlQuery(dbSqlText)
+        ; Reopen so the box shows what happened, with the query still in it.
+        def kx:int sqlDialog.x
+        def ky:int sqlDialog.y
+        this.openSqlDialog()
+        sqlDialog.x = kx
+        sqlDialog.y = ky
+    }
+
+    ; Is the sheet in front of the user the database one? Everything below
+    ; asks this rather than "is a database bound", because a workbook with a
+    ; live sheet in it still has ordinary sheets that must behave ordinarily.
+    fn dbSheetActive:boolean () {
+        if (db.bound == false) {
+            return false
+        }
+        return (db.sheetIndex == book.activeIndex)
+    }
+
+    ; After the sheet's cells were replaced by a new query result.
+    fn afterDbReload:void () {
+        sheetView.markDirty()
+        sheetView.rebuild()
+        engine.rebuildAll()
+        grid.updateVisible(model)
+        view.status = db.status
+    }
+
+    fn refreshDatabaseSheet:boolean () {
+        if ((this.dbSheetActive()) == false) {
+            return false
+        }
+        def ok:boolean (db.refresh(model))
+        this.afterDbReload()
+        return ok
+    }
+
     ; The host's clock, in the only form the engine cares about. A platform
     ; that has a calendar calls this once at start-up; a test calls it with the
     ; date it wants to reason about.
@@ -432,6 +598,15 @@ class GridApp {
         commands.add("data.sort.desc" "Sort descending" "Data" "")
         commands.add("data.filter.clear" "Clear filter" "Data" "")
         commands.add("data.validation" "Data validation…" "Data" "Ctrl+E")
+        commands.add("db.refresh" "Refresh from database" "Data" "")
+        commands.add("db.commit" "Write pending edits to the database" "Data" "")
+        commands.add("db.discard" "Discard pending edits" "Data" "")
+        commands.add("db.row.delete" "Delete this row from the database" "Data" "")
+        commands.addArg("db.filter" "Filter this column in the database" "Data" "")
+        commands.add("db.page.next" "Next page of rows" "Data" "")
+        commands.add("db.page.prev" "Previous page of rows" "Data" "")
+        commands.add("db.sql.dialog" "SQL query…" "Data" "Ctrl+Q")
+        commands.addArg("db.sql" "Run a SQL query as a sheet" "Data" "")
         commands.add("select.all" "Select all" "Select" "Ctrl+A")
         commands.add("select.column" "Select column" "Select" "Ctrl+Space")
         commands.add("select.row" "Select row" "Select" "Shift+Space")
@@ -687,12 +862,71 @@ class GridApp {
         if (id == "nav.goto") {
             return (this.gotoCell(arg))
         }
+        if ((strlen id) > 3) {
+            if ((substring id 0 3) == "db.") {
+                return (this.runDbCommand(id arg))
+            }
+        }
         if (id == "view.sheet.next") {
             this.setActiveSheet((book.activeIndex + 1))
             return true
         }
         if (id == "view.sheet.prev") {
             this.setActiveSheet((book.activeIndex - 1))
+            return true
+        }
+        return false
+    }
+
+    ; Everything a database sheet can be asked to do. Off a database sheet
+    ; they all say the same thing rather than half-working on an .xlsx one.
+    fn runDbCommand:boolean (id:string arg:string) {
+        ; The SQL box is about the CONNECTION, not about the sheet in front of
+        ; the user, so it works from anywhere in the workbook.
+        if (id == "db.sql.dialog") {
+            this.openSqlDialog()
+            return true
+        }
+        if (id == "db.sql") {
+            this.runSqlQuery(arg)
+            return true
+        }
+        if ((this.dbSheetActive()) == false) {
+            view.status = "this sheet does not come from a database"
+            return true
+        }
+        if (id == "db.refresh") {
+            this.refreshDatabaseSheet()
+            return true
+        }
+        if (id == "db.commit") {
+            db.commitPending()
+            this.refreshDatabaseSheet()
+            return true
+        }
+        if (id == "db.discard") {
+            db.discardPending()
+            this.refreshDatabaseSheet()
+            return true
+        }
+        if (id == "db.row.delete") {
+            db.deleteSheetRow(model sel.active.row)
+            this.afterDbReload()
+            return true
+        }
+        if (id == "db.filter") {
+            db.filterByColumn(model sel.active.col arg)
+            this.afterDbReload()
+            return true
+        }
+        if (id == "db.page.next") {
+            db.nextPage(model)
+            this.afterDbReload()
+            return true
+        }
+        if (id == "db.page.prev") {
+            db.previousPage(model)
+            this.afterDbReload()
             return true
         }
         return false
@@ -1513,6 +1747,15 @@ class GridApp {
         if editing {
             this.commitEdit()
         }
+        ; …and on a database sheet it moves the rows the ENGINE returns: the
+        ; sort is a new query. Reordering the page that happens to be loaded
+        ; would order one screen of a million rows and call it sorted. The edit
+        ; above is committed first, so what is written back is what was typed.
+        if (this.dbSheetActive()) {
+            db.sortByColumn(model col ascending)
+            this.afterDbReload()
+            return
+        }
         sheetView.markDirty()
         sheetView.rebuild()
         def order:[int]
@@ -1552,6 +1795,11 @@ class GridApp {
     }
 
     fn clearFilter:void () {
+        if (this.dbSheetActive()) {
+            db.clearQueryFilter(model)
+            this.afterDbReload()
+            return
+        }
         def empty:[string]
         model.setFilter(-1 false empty)
         sheetView.markDirty()
@@ -1885,6 +2133,9 @@ class GridApp {
         colorDialog.w = 340
         colorDialog.title = "Colour"
         windows.add(colorDialog)
+        sqlDialog.w = 460
+        sqlDialog.title = "SQL query"
+        windows.add(sqlDialog)
         dialogsReady = true
     }
 
@@ -3720,6 +3971,15 @@ class GridApp {
                 findDialog.close()
             }
         }
+        if (sqlDialog.activated > 0) {
+            if (sqlDialog.activated == 712) {
+                this.runSqlFromDialog()
+            }
+            if (sqlDialog.activated == 711) {
+                dbSqlText = (sqlDialog.inputValue(701))
+                sqlDialog.close()
+            }
+        }
         if (cfDialog.activated > 0) {
             if (cfDialog.activated == 633) {
                 this.addCfRuleFromDialog()
@@ -3948,6 +4208,17 @@ class GridApp {
         editCaret = 0
         editInFormulaBar = false
         this.afterCellMutation()
+        ; A database sheet gets the last word on its own cells: the edit is
+        ; written back, or refused and undone, before anything reads the value
+        ; that is now on screen.
+        if (this.dbSheetActive()) {
+            db.cellEdited(model r c)
+            view.status = db.status
+            engine.resetStats()
+            engine.syncCell(book.activeIndex r c)
+            engine.recalcDirty()
+            grid.updateVisible(model)
+        }
     }
 
     fn cancelEdit:void () {
@@ -6375,6 +6646,14 @@ class GridApp {
                         this.commitEdit()
                     }
                     this.openFindDialog()
+                }
+                ; Ctrl+Q opens the SQL box - the query is the thing you edit
+                ; when the sheet is a database sheet.
+                if ((ch == 113) || (ch == 81)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openSqlDialog()
                 }
                 if ((ch == 104) || (ch == 72)) {
                     if editing {

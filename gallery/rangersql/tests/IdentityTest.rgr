@@ -1,0 +1,155 @@
+; ==============================================================================
+; IdentityTest - RangerSQL against SQLGlot's own identity corpus.
+; ==============================================================================
+;
+; Every line of tests/fixtures/identity.sql is a statement SQLGlot parses and
+; regenerates character for character. Running the same file through RangerSQL
+; gives three numbers that say exactly where the project is:
+;
+;     identical   parsed and came back out the same
+;     differs     parsed, but the generator wrote something else
+;     unparsed    the grammar does not cover it yet
+;
+; The third number is the roadmap and the first is the progress. A baseline is
+; asserted at the end so that a change which quietly parses less fails.
+; ==============================================================================
+
+Import "../src/core/Sql.rgr"
+
+class IdentityTest {
+    ; Raised as the parser grows. A run below this is a regression, not a
+    ; matter of opinion.
+    sfn baseline:int () {
+        return 380
+    }
+
+    ; The message without the position, so the same problem in ninety lines
+    ; counts as one thing to fix.
+    sfn reasonOf:string (error:string) {
+        def cut:int (strlen error)
+        def marker:string " at offset "
+        def n:int (strlen error)
+        def m:int (strlen marker)
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring error i (i + m)) == marker) {
+                cut = i
+                i = n
+            }
+            i = (i + 1)
+        }
+        return (substring error 0 cut)
+    }
+
+    sfn main:void () {
+        def text@(optional):string (read_file "gallery/rangersql/tests/fixtures" "identity.sql")
+        if (null? text) {
+            print "could not read gallery/rangersql/tests/fixtures/identity.sql"
+            return
+        }
+        def body:string (unwrap text)
+        def lines:[string] (strsplit body (strfromcode 10))
+        def total:int 0
+        def identical:int 0
+        def differs:int 0
+        def unparsed:int 0
+        ; Everything that parsed, as `original TAB regenerated`, for
+        ; tools/sqlglot_oracle.py to check against SQLGlot itself.
+        def dump:string ""
+        def shownErrors:int 0
+        def shownDiffs:int 0
+        ; What the failures have in common, so the next thing to implement is a
+        ; measurement rather than a guess.
+        def reasonKeys:[string]
+        def reasonCounts:[int]
+        def n:int (array_length lines)
+        def i:int 0
+        while (i < n) {
+            def raw:string (itemAt lines i)
+            def line:string (trim raw)
+            if ((strlen line) > 0) {
+                total = (total + 1)
+                def result:SqlParseResult (Sql.parse(line))
+                if ((result.okResult()) == false) {
+                    unparsed = (unparsed + 1)
+                    def reason:string (IdentityTest.reasonOf(result.error))
+                    def slot:int -1
+                    def rn:int (array_length reasonKeys)
+                    def r:int 0
+                    while (r < rn) {
+                        if ((itemAt reasonKeys r) == reason) {
+                            slot = r
+                        }
+                        r = (r + 1)
+                    }
+                    if (slot < 0) {
+                        push reasonKeys reason
+                        push reasonCounts 1
+                    } {
+                        set_at reasonCounts slot ((itemAt reasonCounts slot) + 1)
+                    }
+                    if (shownErrors < 12) {
+                        print ("  unparsed: " + line)
+                        print ("            " + result.error)
+                        shownErrors = (shownErrors + 1)
+                    }
+                } {
+                    def out:string (Sql.generateWith(result ""))
+                    dump = (dump + line + (strfromcode 9) + out + (strfromcode 10))
+                    if (out == line) {
+                        identical = (identical + 1)
+                    } {
+                        differs = (differs + 1)
+                        if (shownDiffs < 40) {
+                            print ("  differs:  " + line)
+                            print ("        ->  " + out)
+                            shownDiffs = (shownDiffs + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        print ""
+        print ("statements  " + (to_string total))
+        print ("identical   " + (to_string identical))
+        print ("differs     " + (to_string differs))
+        print ("unparsed    " + (to_string unparsed))
+        def pct:int 0
+        if (total > 0) {
+            pct = (idiv (identical * 100) total)
+        }
+        print ("round trip  " + (to_string pct) + "%")
+        write_file "gallery/rangersql/bin" "identity_out.tsv" dump
+        print "wrote gallery/rangersql/bin/identity_out.tsv"
+        print ""
+        print "what the unparsed lines tripped on:"
+        def rk:int (array_length reasonKeys)
+        def printed:int 0
+        while (printed < 14) {
+            def bestIdx:int -1
+            def bestCount:int 0
+            def k:int 0
+            while (k < rk) {
+                def c:int (itemAt reasonCounts k)
+                if (c > bestCount) {
+                    bestCount = c
+                    bestIdx = k
+                }
+                k = (k + 1)
+            }
+            if (bestIdx < 0) {
+                printed = 14
+            } {
+                print ("  " + (to_string bestCount) + "  " + (itemAt reasonKeys bestIdx))
+                set_at reasonCounts bestIdx 0
+                printed = (printed + 1)
+            }
+        }
+        if (identical < (IdentityTest.baseline())) {
+            print ("REGRESSION: baseline is " + (to_string (IdentityTest.baseline())))
+        } {
+            print "BASELINE OK"
+        }
+    }
+}

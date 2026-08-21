@@ -1,0 +1,226 @@
+; ==============================================================================
+; DbWire - one text encoding for a DataChunk, used in two places.
+; ==============================================================================
+;
+;   1. The host seam. A Ranger backend talking to DuckDB or SQLite gets its
+;      answer as text, and something has to read it. JSON would mean carrying a
+;      JSON parser into a spreadsheet; a chunk is a rectangle of typed values,
+;      which needs far less.
+;
+;   2. RangerDB persistence. `saveText` / `loadText` write the same rectangle,
+;      so a table survives a restart without a binary file format existing yet.
+;
+; The format is line oriented and escaped rather than length prefixed, because
+; `strlen` does not mean the same number of units on every Ranger target and a
+; file written by the JavaScript build has to be readable by the C++ one.
+;
+;     RDBW1
+;     <name>
+;     <colCount> TAB <rowCount>
+;     <colName> TAB <kind> TAB <isKey>      (colCount lines)
+;     <v> TAB <v> TAB ...                   (rowCount lines)
+;
+; Inside a value: backslash escapes itself, a tab is \t, a newline is \n, and a
+; NULL is the two characters \N - the same choice Postgres' COPY text format
+; makes, for the same reason.
+; ==============================================================================
+
+Import "DataChunk.rgr"
+
+class DbWire {
+    sfn escapeValue:string (raw:string) {
+        def out:string ""
+        def n:int (strlen raw)
+        def i:int 0
+        def bs:string (strfromcode 92)
+        while (i < n) {
+            def c:int (charAt raw i)
+            if (c == 92) {
+                out = (out + bs + bs)
+            } {
+                if (c == 9) {
+                    out = (out + bs + "t")
+                } {
+                    if (c == 10) {
+                        out = (out + bs + "n")
+                    } {
+                        if (c == 13) {
+                            out = (out + bs + "r")
+                        } {
+                            out = (out + (strfromcode c))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn unescapeValue:string (raw:string) {
+        def out:string ""
+        def n:int (strlen raw)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt raw i)
+            if (c == 92) {
+                if ((i + 1) < n) {
+                    def d:int (charAt raw (i + 1))
+                    if (d == 116) {
+                        out = (out + (strfromcode 9))
+                    }
+                    if (d == 110) {
+                        out = (out + (strfromcode 10))
+                    }
+                    if (d == 114) {
+                        out = (out + (strfromcode 13))
+                    }
+                    if (d == 92) {
+                        out = (out + (strfromcode 92))
+                    }
+                    i = (i + 2)
+                } {
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    sfn encodeChunk:string (name:string chunk:DataChunk) {
+        def tab:string (strfromcode 9)
+        def nl:string (strfromcode 10)
+        def bs:string (strfromcode 92)
+        def nullMark:string (bs + "N")
+        def cn:int (chunk.columnCount())
+        def out:string "RDBW1"
+        out = (out + nl + (DbWire.escapeValue(name)))
+        out = (out + nl + (to_string cn) + tab + (to_string chunk.rowCount))
+        def i:int 0
+        while (i < cn) {
+            def col:DBColumn (chunk.columnAt(i))
+            def keyFlag:string "0"
+            if col.key {
+                keyFlag = "1"
+            }
+            out = (out + nl + (DbWire.escapeValue(col.name)) + tab + (DBType.kindName(col.kind)) + tab + keyFlag)
+            i = (i + 1)
+        }
+        def r:int 0
+        while (r < chunk.rowCount) {
+            def line:string ""
+            def c:int 0
+            while (c < cn) {
+                if (c > 0) {
+                    line = (line + tab)
+                }
+                def v:DBValue (chunk.valueAt(r c))
+                if v.isNull {
+                    line = (line + nullMark)
+                } {
+                    line = (line + (DbWire.escapeValue((v.asString()))))
+                }
+                c = (c + 1)
+            }
+            out = (out + nl + line)
+            r = (r + 1)
+        }
+        return out
+    }
+
+    sfn decodeChunk:DataChunk (text:string) {
+        def chunk:DataChunk (new DataChunk)
+        def nl:string (strfromcode 10)
+        def lines:[string] (strsplit text nl)
+        def total:int (array_length lines)
+        if (total < 3) {
+            return chunk
+        }
+        def header:string (itemAt lines 0)
+        if (header != "RDBW1") {
+            return chunk
+        }
+        def tab:string (strfromcode 9)
+        def counts:[string] (strsplit (itemAt lines 2) tab)
+        if ((array_length counts) < 2) {
+            return chunk
+        }
+        def cn@(optional):int (str2int (itemAt counts 0))
+        def rn@(optional):int (str2int (itemAt counts 1))
+        if (null? cn) {
+            return chunk
+        }
+        if (null? rn) {
+            return chunk
+        }
+        def colCount:int (unwrap cn)
+        def rowCount:int (unwrap rn)
+        def i:int 0
+        while (i < colCount) {
+            def li:int (3 + i)
+            if (li >= total) {
+                return chunk
+            }
+            def parts:[string] (strsplit (itemAt lines li) tab)
+            def cname:string ""
+            def kind:int 4
+            def isKey:boolean false
+            if ((array_length parts) > 0) {
+                cname = (DbWire.unescapeValue((itemAt parts 0)))
+            }
+            if ((array_length parts) > 1) {
+                kind = (DBType.kindFromName((itemAt parts 1)))
+            }
+            if ((array_length parts) > 2) {
+                isKey = ((itemAt parts 2) == "1")
+            }
+            def col:DBColumn (DBColumn.create(cname kind))
+            col.key = isKey
+            chunk.addColumn(col)
+            i = (i + 1)
+        }
+        def r:int 0
+        while (r < rowCount) {
+            def li2:int ((3 + colCount) + r)
+            if (li2 >= total) {
+                return chunk
+            }
+            def cells:[string] (strsplit (itemAt lines li2) tab)
+            def values:[DBValue]
+            def c:int 0
+            while (c < colCount) {
+                def col2:DBColumn (chunk.columnAt(c))
+                def raw:string ""
+                if (c < (array_length cells)) {
+                    raw = (itemAt cells c)
+                }
+                def bs2:string (strfromcode 92)
+                def nullMark2:string (bs2 + "N")
+                if (raw == nullMark2) {
+                    push values (DBValue.nullOf(col2.kind))
+                } {
+                    def text2:string (DbWire.unescapeValue(raw))
+                    push values (DBValue.parseAs(col2.kind text2))
+                }
+                c = (c + 1)
+            }
+            chunk.appendRow(values)
+            r = (r + 1)
+        }
+        return chunk
+    }
+
+    ; The table name a chunk was encoded with - the decoder above does not need
+    ; it, but a loader restoring a database does.
+    sfn decodeName:string (text:string) {
+        def nl:string (strfromcode 10)
+        def lines:[string] (strsplit text nl)
+        if ((array_length lines) < 2) {
+            return ""
+        }
+        return (DbWire.unescapeValue((itemAt lines 1)))
+    }
+}

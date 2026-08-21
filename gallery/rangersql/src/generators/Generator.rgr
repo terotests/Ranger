@@ -1,0 +1,614 @@
+; ==============================================================================
+; SqlGenerator - AST out to SQL text, in whichever dialect is asked for.
+; ==============================================================================
+;
+; This is the half that makes the project more than a parser: the tree does not
+; remember the text it came from, so writing it out is a real decision at every
+; node, and the same tree can come out as SQLite or as Postgres.
+;
+;     parse("SELECT IFNULL(a, 0) FROM t", sqlite)
+;         -> Function IFNULL
+;     generate(postgres)
+;         -> SELECT COALESCE(a, 0) FROM t
+;
+; Like SQLGlot, this regenerates rather than preserving the original text: the
+; formatting and the spacing are the generator's, not the input's.
+; ==============================================================================
+
+Import "../ast/SqlAst.rgr"
+Import "../dialects/Dialect.rgr"
+
+class SqlGenerator {
+    def dialect:SqlDialect (new SqlDialect)
+    def ast:SqlAst (new SqlAst)
+
+    Constructor () {
+    }
+
+    sfn forDialect:SqlGenerator (dialect:SqlDialect) {
+        def g:SqlGenerator (new SqlGenerator)
+        g.dialect = dialect
+        return g
+    }
+
+    fn generate:string (tree:SqlAst root:int) {
+        ast = tree
+        return (this.sqlOf(root))
+    }
+
+    fn joinList:string (ids:[int] separator:string) {
+        def out:string ""
+        def n:int (array_length ids)
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                out = (out + separator)
+            }
+            out = (out + (this.sqlOf((itemAt ids i))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn quoteName:string (name:string) {
+        def open:string (dialect.quoteOpen())
+        def close:string (dialect.quoteClose())
+        def out:string open
+        def n:int (strlen name)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt name i)
+            if ((strfromcode c) == close) {
+                out = (out + close)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return (out + close)
+    }
+
+    fn quoteString:string (value:string) {
+        def out:string "'"
+        def n:int (strlen value)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt value i)
+            if (c == 39) {
+                out = (out + "'")
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return (out + "'")
+    }
+
+    fn qualifierPrefix:string (id:int) {
+        def parts:[int] (ast.childrenOf(id (SqlRole.qualifier())))
+        def n:int (array_length parts)
+        if (n == 0) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            out = (out + (this.sqlOf((itemAt parts i))) + ".")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Every node is written as: leading comments, the node itself, its window,
+    ; then the comments that were written after it.
+    fn sqlOf:string (id:int) {
+        if (id < 0) {
+            return ""
+        }
+        def body:string (this.sqlOfBody(id))
+        def window:int (ast.childAt(id (SqlRole.overClause())))
+        if (window >= 0) {
+            if ((ast.kindOf(id)) != (SqlKind.functionCall())) {
+                body = (body + " " + (this.sqlOf(window)))
+            }
+        }
+        def comments:[int] (ast.childrenOf(id (SqlRole.commentClause())))
+        def n:int (array_length comments)
+        if (n == 0) {
+            return body
+        }
+        def before:string ""
+        def after:string ""
+        def i:int 0
+        while (i < n) {
+            def c:int (itemAt comments i)
+            def text:string (ast.textOf(c))
+            if (ast.hasFlag(c (SqlFlag.leadingCommentFlag()))) {
+                before = (before + text + " ")
+            } {
+                after = (after + " " + text)
+            }
+            i = (i + 1)
+        }
+        return (before + body + after)
+    }
+
+    fn sqlOfBody:string (id:int) {
+        def kind:int (ast.kindOf(id))
+        def text:string (ast.textOf(id))
+        if (kind == 1) {
+            return "NULL"
+        }
+        if (kind == 2) {
+            return text
+        }
+        if (kind == 3) {
+            return text
+        }
+        if (kind == 4) {
+            def prefix:int (ast.childAt(id (SqlRole.literalPrefix())))
+            def lead:string ""
+            if (prefix >= 0) {
+                lead = (ast.textOf(prefix))
+            }
+            return (lead + (this.quoteString(text)))
+        }
+        if (kind == 5) {
+            if (ast.hasFlag(id (SqlFlag.quotedFlag()))) {
+                return (this.quoteName(text))
+            }
+            return text
+        }
+        if (kind == 6) {
+            def prefix:string (this.qualifierPrefix(id))
+            return (prefix + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))))
+        }
+        if (kind == 7) {
+            def starPrefix:string (this.qualifierPrefix(id))
+            return (starPrefix + "*")
+        }
+        if (kind == 8) {
+            def tablePrefix:string (this.qualifierPrefix(id))
+            return (tablePrefix + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))))
+        }
+        if (kind == 9) {
+            return (this.aliasSql(id))
+        }
+        if (kind == 10) {
+            return text
+        }
+        if (kind == 20) {
+            def left:string (this.sqlOf((ast.childAt(id (SqlRole.leftOperand())))))
+            def right:string (this.sqlOf((ast.childAt(id (SqlRole.rightOperand())))))
+            return (left + " " + text + " " + right)
+        }
+        if (kind == 21) {
+            def operand:string (this.sqlOf((ast.childAt(id (SqlRole.thisOperand())))))
+            if (text == "NOT") {
+                return ("NOT " + operand)
+            }
+            ; `- -5` written as `--5` is a line comment, not a number.
+            if ((strlen operand) > 0) {
+                if ((substring operand 0 1) == text) {
+                    return (text + " " + operand)
+                }
+            }
+            return (text + operand)
+        }
+        if (kind == 22) {
+            return (this.isSql(id))
+        }
+        if (kind == 23) {
+            return (this.inSql(id))
+        }
+        if (kind == 24) {
+            return (this.betweenSql(id))
+        }
+        if (kind == 25) {
+            return (this.likeSql(id))
+        }
+        if (kind == 26) {
+            return (this.caseSql(id))
+        }
+        if (kind == 28) {
+            return (this.castSql(id))
+        }
+        if (kind == 29) {
+            return (this.functionSql(id))
+        }
+        if (kind == 30) {
+            return ("(" + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))) + ")")
+        }
+        if (kind == 31) {
+            return ("EXISTS" + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))))
+        }
+        if (kind == 32) {
+            return ("(" + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))) + ")")
+        }
+        if (kind == 33) {
+            return (this.dataTypeSql(id))
+        }
+        if (kind == 34) {
+            def items:[int] (ast.childrenOf(id (SqlRole.argument())))
+            return ("(" + (this.joinList(items ", ")) + ")")
+        }
+        if (kind == 35) {
+            def target:string (this.sqlOf((ast.childAt(id (SqlRole.thisOperand())))))
+            def index:string (this.sqlOf((ast.childAt(id (SqlRole.argument())))))
+            return (target + "[" + index + "]")
+        }
+        if (kind == 36) {
+            return (this.windowSql(id))
+        }
+        if (kind == 37) {
+            return text
+        }
+        if (kind == 40) {
+            return (this.selectSql(id))
+        }
+        if (kind == 60) {
+            return (this.insertSql(id))
+        }
+        if (kind == 61) {
+            return (this.updateSql(id))
+        }
+        if (kind == 62) {
+            return (this.deleteSql(id))
+        }
+        if (kind == 63) {
+            def lhs:string (this.sqlOf((ast.childAt(id (SqlRole.leftOperand())))))
+            def rhs:string (this.sqlOf((ast.childAt(id (SqlRole.rightOperand())))))
+            return (lhs + " = " + rhs)
+        }
+        if (kind == 64) {
+            def items:[int] (ast.childrenOf(id (SqlRole.argument())))
+            return ("(" + (this.joinList(items ", ")) + ")")
+        }
+        if (kind == 42) {
+            return (this.joinSql(id))
+        }
+        if (kind == 45) {
+            return (this.orderItemSql(id))
+        }
+        if (kind == 48) {
+            return (this.setOperationSql(id))
+        }
+        if (kind == 49) {
+            return (this.withSql(id))
+        }
+        if (kind == 50) {
+            return (this.cteSql(id))
+        }
+        return text
+    }
+
+    fn aliasSql:string (id:int) {
+        def body:string (this.sqlOf((ast.childAt(id (SqlRole.thisOperand())))))
+        def name:string (this.sqlOf((ast.childAt(id (SqlRole.aliasName())))))
+        if (ast.hasFlag(id (SqlFlag.explicitAsFlag()))) {
+            return (body + " AS " + name)
+        }
+        return (body + " " + name)
+    }
+
+    fn isSql:string (id:int) {
+        def left:string (this.sqlOf((ast.childAt(id (SqlRole.leftOperand())))))
+        def right:string (this.sqlOf((ast.childAt(id (SqlRole.rightOperand())))))
+        if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+            return (left + " IS NOT " + right)
+        }
+        return (left + " IS " + right)
+    }
+
+    fn inSql:string (id:int) {
+        def left:string (this.sqlOf((ast.childAt(id (SqlRole.leftOperand())))))
+        def items:[int] (ast.childrenOf(id (SqlRole.argument())))
+        def inner:string ""
+        def single:boolean false
+        if (ast.hasFlag(id (SqlFlag.directSubqueryFlag()))) {
+            if ((array_length items) == 1) {
+                single = true
+                inner = (this.sqlOf((itemAt items 0)))
+            }
+        }
+        if (single == false) {
+            inner = ("(" + (this.joinList(items ", ")) + ")")
+        }
+        if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+            return (left + " NOT IN " + inner)
+        }
+        return (left + " IN " + inner)
+    }
+
+    fn betweenSql:string (id:int) {
+        def value:string (this.sqlOf((ast.childAt(id (SqlRole.thisOperand())))))
+        def low:string (this.sqlOf((ast.childAt(id (SqlRole.lowBound())))))
+        def high:string (this.sqlOf((ast.childAt(id (SqlRole.highBound())))))
+        def word:string " BETWEEN "
+        if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+            word = " NOT BETWEEN "
+        }
+        return (value + word + low + " AND " + high)
+    }
+
+    fn likeSql:string (id:int) {
+        def left:string (this.sqlOf((ast.childAt(id (SqlRole.leftOperand())))))
+        def right:string (this.sqlOf((ast.childAt(id (SqlRole.rightOperand())))))
+        def op:string (ast.textOf(id))
+        if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+            return (left + " NOT " + op + " " + right)
+        }
+        return (left + " " + op + " " + right)
+    }
+
+    fn caseSql:string (id:int) {
+        def out:string "CASE"
+        def subject:int (ast.childAt(id (SqlRole.thisOperand())))
+        if (subject >= 0) {
+            out = (out + " " + (this.sqlOf(subject)))
+        }
+        def branches:[int] (ast.childrenOf(id (SqlRole.whenClause())))
+        def n:int (array_length branches)
+        def i:int 0
+        while (i < n) {
+            def branch:int (itemAt branches i)
+            def cond:string (this.sqlOf((ast.childAt(branch (SqlRole.whenClause())))))
+            def then:string (this.sqlOf((ast.childAt(branch (SqlRole.thenClause())))))
+            out = (out + " WHEN " + cond + " THEN " + then)
+            i = (i + 1)
+        }
+        def elseId:int (ast.childAt(id (SqlRole.elseClause())))
+        if (elseId >= 0) {
+            out = (out + " ELSE " + (this.sqlOf(elseId)))
+        }
+        return (out + " END")
+    }
+
+    fn castSql:string (id:int) {
+        def value:string (this.sqlOf((ast.childAt(id (SqlRole.thisOperand())))))
+        def type:string (this.sqlOf((ast.childAt(id (SqlRole.typeName())))))
+        return ("CAST(" + value + " AS " + type + ")")
+    }
+
+    fn dataTypeSql:string (id:int) {
+        def name:string (ast.textOf(id))
+        def args:[int] (ast.childrenOf(id (SqlRole.argument())))
+        if ((array_length args) == 0) {
+            return name
+        }
+        return (name + "(" + (this.joinList(args ", ")) + ")")
+    }
+
+    ; GROUP BY CUBE (x) and DISTINCT ON (x) are written with a space, because
+    ; they are clause syntax that happens to look like a call.
+    sfn spacedName:boolean (upper:string) {
+        if (upper == "CUBE") {
+            return true
+        }
+        if (upper == "ROLLUP") {
+            return true
+        }
+        if (upper == "GROUPING") {
+            return true
+        }
+        return false
+    }
+
+    fn windowSql:string (id:int) {
+        def out:string "OVER ("
+        def parts:[int] (ast.childrenOf(id (SqlRole.partitionClause())))
+        def wrote:boolean false
+        if ((array_length parts) > 0) {
+            out = (out + "PARTITION BY " + (this.joinList(parts ", ")))
+            wrote = true
+        }
+        def orders:[int] (ast.childrenOf(id (SqlRole.orderClause())))
+        if ((array_length orders) > 0) {
+            if wrote {
+                out = (out + " ")
+            }
+            out = (out + "ORDER BY " + (this.joinList(orders ", ")))
+            wrote = true
+        }
+        def frame:string (ast.textOf(id))
+        if ((strlen frame) > 0) {
+            if wrote {
+                out = (out + " ")
+            }
+            out = (out + frame)
+        }
+        return (out + ")")
+    }
+
+    fn insertSql:string (id:int) {
+        def out:string ("INSERT INTO " + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+        def cols:[int] (ast.childrenOf(id (SqlRole.columnList())))
+        if ((array_length cols) > 0) {
+            out = (out + " (" + (this.joinList(cols ", ")) + ")")
+        }
+        def rows:[int] (ast.childrenOf(id (SqlRole.valueRow())))
+        if ((array_length rows) > 0) {
+            return (out + " VALUES " + (this.joinList(rows ", ")))
+        }
+        def body:int (ast.childAt(id (SqlRole.bodyClause())))
+        return (out + " " + (this.sqlOf(body)))
+    }
+
+    fn updateSql:string (id:int) {
+        def out:string ("UPDATE " + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+        def sets:[int] (ast.childrenOf(id (SqlRole.setClause())))
+        out = (out + " SET " + (this.joinList(sets ", ")))
+        def sources:[int] (ast.childrenOf(id (SqlRole.fromClause())))
+        if ((array_length sources) > 0) {
+            out = (out + " FROM " + (this.joinList(sources ", ")))
+        }
+        def where:int (ast.childAt(id (SqlRole.whereClause())))
+        if (where >= 0) {
+            out = (out + " WHERE " + (this.sqlOf(where)))
+        }
+        return out
+    }
+
+    fn deleteSql:string (id:int) {
+        def out:string ("DELETE FROM " + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+        def usingCols:[int] (ast.childrenOf(id (SqlRole.usingClause())))
+        if ((array_length usingCols) > 0) {
+            out = (out + " USING " + (this.joinList(usingCols ", ")))
+        }
+        def where:int (ast.childAt(id (SqlRole.whereClause())))
+        if (where >= 0) {
+            out = (out + " WHERE " + (this.sqlOf(where)))
+        }
+        return out
+    }
+
+    fn functionSql:string (id:int) {
+        def raw:string (ast.textOf(id))
+        def upper:string (to_uppercase raw)
+        def name:string (dialect.functionFor(upper))
+        if (name == upper) {
+            name = raw
+        }
+        def out:string name
+        if (SqlGenerator.spacedName(upper)) {
+            out = (out + " (")
+        } {
+            out = (out + "(")
+        }
+        if (ast.hasFlag(id (SqlFlag.distinctFlag()))) {
+            out = (out + "DISTINCT ")
+        }
+        if (ast.hasFlag(id (SqlFlag.starArgFlag()))) {
+            out = (out + "*)")
+            return (out + (this.windowSuffix(id)))
+        }
+        def args:[int] (ast.childrenOf(id (SqlRole.argument())))
+        out = (out + (this.joinList(args ", ")) + ")")
+        return (out + (this.windowSuffix(id)))
+    }
+
+    fn windowSuffix:string (id:int) {
+        def window:int (ast.childAt(id (SqlRole.overClause())))
+        if (window < 0) {
+            return ""
+        }
+        return (" " + (this.sqlOf(window)))
+    }
+
+    fn orderItemSql:string (id:int) {
+        def out:string (this.sqlOf((ast.childAt(id (SqlRole.thisOperand())))))
+        if (ast.hasFlag(id (SqlFlag.descFlag()))) {
+            out = (out + " DESC")
+        }
+        if (ast.hasFlag(id (SqlFlag.explicitAscFlag()))) {
+            out = (out + " ASC")
+        }
+        if (dialect.supportsNullsOrdering()) {
+            if (ast.hasFlag(id (SqlFlag.nullsFirstFlag()))) {
+                out = (out + " NULLS FIRST")
+            }
+            if (ast.hasFlag(id (SqlFlag.nullsLastFlag()))) {
+                out = (out + " NULLS LAST")
+            }
+        }
+        return out
+    }
+
+    fn joinSql:string (id:int) {
+        def out:string ""
+        def kind:string (ast.textOf(id))
+        if ((strlen kind) > 0) {
+            out = (out + kind + " ")
+        }
+        if (ast.hasFlag(id (SqlFlag.outerFlag()))) {
+            out = (out + "OUTER ")
+        }
+        out = (out + "JOIN " + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))))
+        def on:int (ast.childAt(id (SqlRole.onClause())))
+        if (on >= 0) {
+            out = (out + " ON " + (this.sqlOf(on)))
+        }
+        def usingCols:[int] (ast.childrenOf(id (SqlRole.usingClause())))
+        if ((array_length usingCols) > 0) {
+            out = (out + " USING (" + (this.joinList(usingCols ", ")) + ")")
+        }
+        return out
+    }
+
+    fn selectSql:string (id:int) {
+        def out:string "SELECT"
+        if (ast.hasFlag(id (SqlFlag.distinctFlag()))) {
+            out = (out + " DISTINCT")
+            def onList:[int] (ast.childrenOf(id (SqlRole.distinctOn())))
+            if ((array_length onList) > 0) {
+                out = (out + " ON (" + (this.joinList(onList ", ")) + ")")
+            }
+        }
+        def projections:[int] (ast.childrenOf(id (SqlRole.projection())))
+        out = (out + " " + (this.joinList(projections ", ")))
+        def sources:[int] (ast.childrenOf(id (SqlRole.fromClause())))
+        if ((array_length sources) > 0) {
+            out = (out + " FROM " + (this.joinList(sources ", ")))
+        }
+        def joins:[int] (ast.childrenOf(id (SqlRole.joinClause())))
+        def jn:int (array_length joins)
+        def j:int 0
+        while (j < jn) {
+            out = (out + " " + (this.sqlOf((itemAt joins j))))
+            j = (j + 1)
+        }
+        def where:int (ast.childAt(id (SqlRole.whereClause())))
+        if (where >= 0) {
+            out = (out + " WHERE " + (this.sqlOf(where)))
+        }
+        def groups:[int] (ast.childrenOf(id (SqlRole.groupClause())))
+        if ((array_length groups) > 0) {
+            out = (out + " GROUP BY " + (this.joinList(groups ", ")))
+        }
+        def having:int (ast.childAt(id (SqlRole.havingClause())))
+        if (having >= 0) {
+            out = (out + " HAVING " + (this.sqlOf(having)))
+        }
+        def orders:[int] (ast.childrenOf(id (SqlRole.orderClause())))
+        if ((array_length orders) > 0) {
+            out = (out + " ORDER BY " + (this.joinList(orders ", ")))
+        }
+        def limit:int (ast.childAt(id (SqlRole.limitClause())))
+        def offset:int (ast.childAt(id (SqlRole.offsetClause())))
+        if (limit >= 0) {
+            out = (out + " LIMIT " + (this.sqlOf(limit)))
+        }
+        if (offset >= 0) {
+            out = (out + " OFFSET " + (this.sqlOf(offset)))
+        }
+        return out
+    }
+
+    fn setOperationSql:string (id:int) {
+        def left:string (this.sqlOf((ast.childAt(id (SqlRole.leftOperand())))))
+        def right:string (this.sqlOf((ast.childAt(id (SqlRole.rightOperand())))))
+        def op:string (ast.textOf(id))
+        if (ast.hasFlag(id (SqlFlag.allFlag()))) {
+            op = (op + " ALL")
+        }
+        if (ast.hasFlag(id (SqlFlag.distinctFlag()))) {
+            op = (op + " DISTINCT")
+        }
+        return (left + " " + op + " " + right)
+    }
+
+    fn withSql:string (id:int) {
+        def out:string "WITH "
+        if (ast.hasFlag(id (SqlFlag.allFlag()))) {
+            out = "WITH RECURSIVE "
+        }
+        def ctes:[int] (ast.childrenOf(id (SqlRole.cteClause())))
+        out = (out + (this.joinList(ctes ", ")))
+        def body:int (ast.childAt(id (SqlRole.bodyClause())))
+        return (out + " " + (this.sqlOf(body)))
+    }
+
+    fn cteSql:string (id:int) {
+        def name:string (this.sqlOf((ast.childAt(id (SqlRole.aliasName())))))
+        def body:string (this.sqlOf((ast.childAt(id (SqlRole.bodyClause())))))
+        return (name + " AS (" + body + ")")
+    }
+}

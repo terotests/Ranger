@@ -143,6 +143,85 @@ class EVGDisplayList {
         return (itemAt cmds i)
     }
 
+    ; ------------------------------------------------------------ primitives --
+    ; Every component that draws into a display list needs the same four
+    ; commands, and each one that encoded them for itself encoded them slightly
+    ; differently. They live here, where `cmds` does, so a dialog, a grid and a
+    ; chart put the same bytes in the list.
+    fn addRect:void (x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push cmds c
+    }
+
+    fn addFrame:void (x:double y:double w:double h:double thickness:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push cmds c
+    }
+
+    ; The measured width and height come from the caller, because the list has
+    ; no text renderer of its own and the measurement must be the one the
+    ; caller laid out with.
+    fn addText:void (text:string x:double y:double size:double col:EVGColor family:string bold:boolean italic:boolean width:double height:double) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 3
+        c.x = x
+        c.y = y
+        c.w = width
+        c.h = height
+        c.text = text
+        c.fontFamily = family
+        c.fontSize = size
+        if bold {
+            c.fontWeight = "bold"
+        }
+        if italic {
+            c.textAlign = "italic"
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push cmds c
+    }
+
+    fn addClip:void (x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push cmds c
+    }
+
+    fn addClipEnd:void () {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push cmds c
+    }
+
 
     ; A `<path>` element, flattened into rings and pushed as a fill and/or a
     ; stroke. The transform is the one the raster and PDF targets build: the

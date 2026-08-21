@@ -727,7 +727,9 @@ class RangerPythonClassWriter {
     wr.out("):" true)
     wr.indent(1)
 
+    def wroteSuper:boolean false
     if(parentClass) {
+      wroteSuper = true
       ; Pass parent constructor arguments to super().__init__()
       if (parentClass.has_constructor) {
         def parentConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
@@ -753,6 +755,11 @@ class RangerPythonClassWriter {
       wr.out((("self._rg_kind = \"" + cl.name) + "\"") true)
     }
     def hasContent:boolean needsKind
+    ; The super() call above is a body too - without this a subclass with an
+    ; empty constructor got both `super().__init__()` and a stray `pass`.
+    if wroteSuper {
+      hasContent = true
+    }
     for cl.variables pvar:RangerAppParamDesc i {
       this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
       hasContent = true
@@ -762,8 +769,24 @@ class RangerPythonClassWriter {
       wr.newline()
       def subCtx:RangerAppWriterContext ( unwrap constr.fnCtx )
       subCtx.is_function = true
+      ; A DECLARED constructor is not the same thing as a constructor that
+      ; writes something. `Constructor () { }` on a class with no fields and no
+      ; parent used to count as content, so __init__ was emitted with nothing
+      ; under it and the whole module failed to parse at the NEXT method:
+      ;
+      ;   def __init__(self):
+      ;   def who(self):        <- IndentationError
+      ;
+      ; Measured the same way pyWalkBody measures a method body.
+      def lineBefore:int wr.lineNumber
+      def colBefore:int (strlen wr.currentLine)
       this.WalkNode(( unwrap constr.fnBody ) subCtx wr)
-      hasContent = true
+      if (wr.lineNumber != lineBefore) {
+        hasContent = true
+      }
+      if ((strlen wr.currentLine) != colBefore) {
+        hasContent = true
+      }
     }
     if (hasContent == false) {
       wr.out("pass" true)
