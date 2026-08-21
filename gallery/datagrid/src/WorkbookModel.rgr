@@ -3,6 +3,7 @@
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
+Import "SheetTable.rgr"
 
 class WorkbookModel {
     def sheets:[SpreadsheetModel]
@@ -28,6 +29,51 @@ class WorkbookModel {
 
     fn sheetAt:SpreadsheetModel (i:int) {
         return (itemAt sheets i)
+    }
+
+    ; --- tables ---------------------------------------------------------------
+    ; A table belongs to a sheet, but its NAME is workbook-wide: `Table1[Amount]`
+    ; means the same thing written on any sheet. So the lookup is here, and it
+    ; answers with both the table and the sheet it sits on — a caller resolving
+    ; a reference needs the second as much as the first.
+    fn tableIndexByName:int (name:string) {
+        def want:string (SheetTable.fold(name))
+        def si:int 0
+        while (si < (array_length sheets)) {
+            def sh:SpreadsheetModel (itemAt sheets si)
+            def ti:int 0
+            while (ti < (sh.tableCount())) {
+                def t:SheetTable (sh.tableAt(ti))
+                if ((SheetTable.fold(t.name)) == want) {
+                    return si
+                }
+                ti = (ti + 1)
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn tableByName:SheetTable (name:string) {
+        def want:string (SheetTable.fold(name))
+        def si:int 0
+        while (si < (array_length sheets)) {
+            def sh:SpreadsheetModel (itemAt sheets si)
+            def ti:int 0
+            while (ti < (sh.tableCount())) {
+                def t:SheetTable (sh.tableAt(ti))
+                if ((SheetTable.fold(t.name)) == want) {
+                    return t
+                }
+                ti = (ti + 1)
+            }
+            si = (si + 1)
+        }
+        return (new SheetTable)
+    }
+
+    fn hasTable:boolean (name:string) {
+        return ((this.tableIndexByName(name)) >= 0)
     }
 
     fn setActive:void (i:int) {
