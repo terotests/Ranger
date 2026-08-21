@@ -3807,6 +3807,13 @@ class GridApp {
         W = nw
         H = nh
         view.resize(W H)
+        ; The strip is as many rows as the buttons need AT THIS WIDTH, and the
+        ; width is what just changed. Measured once at startup and never again,
+        ; the height was right only for the size the window opened at: narrow
+        ; it and the buttons that no longer fit wrapped onto a row painted
+        ; BELOW the strip, over the formula bar; widen it and a band of empty
+        ; chrome sat where a row used to be.
+        grid.toolbarH = (view.toolbar.heightFor(W))
         grid.setBounds(0 0 W (H - statusH))
         grid.updateVisible(model)
     }

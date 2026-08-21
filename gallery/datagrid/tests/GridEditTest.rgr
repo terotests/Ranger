@@ -2795,6 +2795,115 @@ class GridEditTest {
         vScroll.update(up)
         c.ok("wheel up decreases scrollY" (vScroll.grid.scrollY < midY))
 
+        print "== the border buttons put borders on cells =="
+        ; There was no test for these at all, which is its own answer to
+        ; whether they work: nothing said they had to.
+        def bd:GridApp (new GridApp)
+        bd.init("gallery/pdf_writer/assets/fonts")
+        bd.model.clearSheet()
+        bd.model.resize(6 5)
+        bd.sel.setAnchor(1 1)
+        bd.sel.setActive(3 3)
+        bd.sheetView.markDirty()
+        bd.sheetView.rebuild()
+        c.ok("all borders runs" (bd.runCommand("format.border" "all")))
+        def mid:CellStyle (bd.model.getCellStyle(2 2))
+        c.ok("a cell in the middle got all four" (((mid.borderTop.has()) && (mid.borderRight.has())) && ((mid.borderBottom.has()) && (mid.borderLeft.has()))))
+        c.eqStr("as thin lines" mid.borderTop.style "thin")
+        def outside:CellStyle (bd.model.getCellStyle(5 5))
+        c.ok("and a cell outside the selection got none" ((outside.borderTop.has()) == false))
+
+        ; Outline is the one that depends on WHERE a cell is: only the edges of
+        ; the block, which is what makes it different from all.
+        def ol:GridApp (new GridApp)
+        ol.init("gallery/pdf_writer/assets/fonts")
+        ol.model.clearSheet()
+        ol.model.resize(6 5)
+        ol.sel.setAnchor(1 1)
+        ol.sel.setActive(3 3)
+        ol.sheetView.markDirty()
+        ol.sheetView.rebuild()
+        c.ok("outline runs" (ol.runCommand("format.border" "outline")))
+        def corner:CellStyle (ol.model.getCellStyle(1 1))
+        c.ok("the top-left corner has a top and a left" ((corner.borderTop.has()) && (corner.borderLeft.has())))
+        c.ok("and no bottom or right" (((corner.borderBottom.has()) == false) && ((corner.borderRight.has()) == false)))
+        def centre2:CellStyle (ol.model.getCellStyle(2 2))
+        c.ok("the middle of the block has no edges at all" ((((centre2.borderTop.has()) == false) && ((centre2.borderRight.has()) == false)) && (((centre2.borderBottom.has()) == false) && ((centre2.borderLeft.has()) == false))))
+        def edgeCell:CellStyle (ol.model.getCellStyle(2 1))
+        c.ok("a cell on the left edge has only its left" (((edgeCell.borderLeft.has()) && ((edgeCell.borderRight.has()) == false)) && ((edgeCell.borderTop.has()) == false)))
+
+        c.ok("no border runs" (bd.runCommand("format.border" "none")))
+        def cleared:CellStyle (bd.model.getCellStyle(2 2))
+        c.ok("and takes them all away" ((((cleared.borderTop.has()) == false) && ((cleared.borderRight.has()) == false)) && (((cleared.borderBottom.has()) == false) && ((cleared.borderLeft.has()) == false))))
+        c.ok("including the flag that says there is one" ((cleared.hasBorder) == false))
+
+        ; Through the toolbar, the way a click gets there — the item carries
+        ; the argument, and a button that ran the command WITHOUT it would set
+        ; the flag and draw no lines at all.
+        def tb:GridApp (new GridApp)
+        tb.init("gallery/pdf_writer/assets/fonts")
+        tb.model.clearSheet()
+        tb.model.resize(6 5)
+        tb.sel.setAnchor(1 1)
+        tb.sel.setActive(1 1)
+        tb.sheetView.markDirty()
+        tb.sheetView.rebuild()
+        tb.render()
+        def bdIdx:int -1
+        def bi:int 0
+        while (bi < (tb.view.toolbar.count())) {
+            def bt:ToolItem (tb.view.toolbar.at(bi))
+            if (bt.command == "format.border") {
+                if (bt.arg == "all") {
+                    bdIdx = bi
+                }
+            }
+            bi = (bi + 1)
+        }
+        c.ok("the toolbar has an All borders button" (bdIdx >= 0))
+        def bItem:ToolItem (tb.view.toolbar.at(bdIdx))
+        def bx:int (bItem.x + (idiv bItem.w 2))
+        def by:int (bItem.y + (idiv bItem.h 2))
+        c.eqInt("and the hit test finds it where it is painted" (tb.toolbarHit(bx by)) bdIdx)
+        def bin (new UIInput)
+        bin.newFrame()
+        bin.setPointerPos(bx by)
+        bin.setPointerDown(true)
+        tb.update(bin)
+        bin.newFrame()
+        bin.setPointerPos(bx by)
+        bin.setPointerDown(false)
+        tb.update(bin)
+        def clicked:CellStyle (tb.model.getCellStyle(1 1))
+        c.ok("clicking it draws four lines, not just a flag" ((((clicked.borderTop.has()) && (clicked.borderRight.has())) && ((clicked.borderBottom.has()) && (clicked.borderLeft.has()))) && clicked.hasBorder))
+
+        print "== the toolbar is as tall as the buttons need AT THIS WIDTH =="
+        ; Measured once at startup and never again, the height was right only
+        ; for the size the window opened at. Narrow the window and the buttons
+        ; that no longer fit wrapped onto a row painted BELOW the strip, over
+        ; the formula bar; widen it and a band of empty chrome sat where a row
+        ; used to be.
+        def rs:GridApp (new GridApp)
+        rs.W = 900
+        rs.H = 560
+        rs.init("gallery/pdf_writer/assets/fonts")
+        rs.render()
+        c.eqInt("at the width it opened at" rs.grid.toolbarH rs.view.toolbar.height)
+        rs.resize(620 560)
+        rs.render()
+        c.eqInt("still right after narrowing" rs.grid.toolbarH rs.view.toolbar.height)
+        c.ok("which needed another row" (rs.view.toolbar.rows > 2))
+        rs.resize(1400 560)
+        rs.render()
+        c.eqInt("and after widening" rs.grid.toolbarH rs.view.toolbar.height)
+        c.ok("which needed fewer" (rs.view.toolbar.rows < 2))
+        ; The buttons have to stay inside the strip, or they are painted over
+        ; whatever is under it.
+        rs.resize(480 560)
+        rs.render()
+        def lastItem:ToolItem (rs.view.toolbar.at(((rs.view.toolbar.count())) - 1))
+        c.ok("the last button is inside the strip" ((lastItem.y + lastItem.h) <= ((rs.grid.toolbarY()) + rs.grid.toolbarH)))
+
         print "== freezing panes does not decide what a heading is =="
         ; Sorting a column marked the column and moved nothing, on a real file,
         ; and the reason was two steps back from the sorter: `sortedOrder` took
