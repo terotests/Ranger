@@ -39,7 +39,7 @@ invented and tiny on purpose: what is being tested is the type, not the numbers.
 | `sparkline` | the Sparkline control |
 | `heatmap` | the HeatMap control |
 | `multicolored_line` | MultiColoredLine |
-| `polar_column` | a polar column — theta as a CATEGORY, which is what a radar or a rose needs |
+| `polar_column`, `polar_stacked` | a polar column and a rose — theta as a CATEGORY, one band of the circle per category |
 
 What the report says today, and what each remaining difference is, is written
 up in [`../../CHART_API.md`](../../CHART_API.md#what-two-other-catalogues-say-is-missing).

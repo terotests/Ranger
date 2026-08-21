@@ -317,6 +317,22 @@ class VlChartTest {
         this.sameChart("box plot, sized" chart want)
     }
 
+    ; A bar bent round a circle: the angle is a category and the radius is
+    ; what the chart measures. The segments pile up along the radius the way a
+    ; stacked bar's pile up its axis.
+    fn testPolarColumn:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(180 180)
+        def wedges (chart.arc())
+        wedges.theta("quarter").type("nominal")
+        wedges.radius("sales")
+        wedges.color("region")
+        def want:string ("{\"width\":180,\"height\":180," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"arc\",\"encoding\":{\"theta\":{\"field\":\"quarter\",\"type\":\"nominal\"},\"radius\":{\"field\":\"sales\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"}}}")
+        this.sameChart("polar column" chart want)
+    }
+
     ; --- what the API answers on its own -------------------------------------
 
     fn testInference:void () {
@@ -436,6 +452,7 @@ class VlChartTest {
         this.testTickThickness()
         this.testStackedLine()
         this.testBoxplotSized()
+        this.testPolarColumn()
         if (failures > 0) {
             print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
         } {

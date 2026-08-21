@@ -80,6 +80,7 @@
         <button type="button" data-preset="grouped">Ryhmitelty</button>
         <button type="button" data-preset="donut">Donitsi</button>
         <button type="button" data-preset="heat">Lämpökartta</button>
+        <button type="button" data-preset="rose">Ruusu</button>
       </div>
       <textarea id="code" spellcheck="false" aria-label="API-kutsut"></textarea>
       <div id="status">…</div>
@@ -144,6 +145,14 @@ bars.y("sales").color("region").xOffset("region")`,
 def wedges (chart.arc())
 wedges.innerRadius(52)
 wedges.theta("sales").aggregate("sum")
+wedges.color("region")`,
+    data: null,
+  },
+  rose: {
+    code: `chart.size(220 220)
+def wedges (chart.arc())
+wedges.theta("quarter").timeUnit("yearquarter").type("nominal")
+wedges.radius("sales")
 wedges.color("region")`,
     data: null,
   },

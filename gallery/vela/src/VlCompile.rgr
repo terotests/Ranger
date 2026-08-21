@@ -4903,11 +4903,23 @@ class VlCompile {
         ; — unless the chart says otherwise, and a radial chart that asks for
         ; `"stack": true` is asking for the wedges to go all the way round.
         if (this.hasChannel("radius")) {
-            if (! (measure.def0.has("stack"))) {
-                return
+            ; …unless the ANGLE is a category. Then the chart is a polar
+            ; column — a bar bent round a circle — and its segments pile up
+            ; along the radius the way a stacked bar's pile up its axis.
+            def angle:VlChannel (this.channel("theta"))
+            def polarColumn:boolean false
+            if angle.defined {
+                if (angle.isDiscrete()) {
+                    polarColumn = true
+                }
             }
-            if ((measure.def0.get("stack")).isNull()) {
-                return
+            if (! polarColumn) {
+                if (! (measure.def0.has("stack"))) {
+                    return
+                }
+                if ((measure.def0.get("stack")).isNull()) {
+                    return
+                }
             }
         }
         ; A bar that already says where both its ends are is not stacked: it is
@@ -4967,7 +4979,19 @@ class VlCompile {
     fn stackMeasure:VlChannel () {
         def theta:VlChannel (this.channel("theta"))
         if theta.defined {
-            return theta
+            ; …unless the angle is a category. Then the angle says WHICH wedge
+            ; and the radius says how long it is, so the radius is what
+            ; accumulates — the polar version of a bar standing in its band.
+            if (theta.isDiscrete()) {
+                def radius:VlChannel (this.channel("radius"))
+                if radius.defined {
+                    if (radius.isContinuous()) {
+                        return radius
+                    }
+                }
+            } {
+                return theta
+            }
         }
         ; A BINNED field is a dimension however continuous it is: it says which
         ; group a row is in, not how much the row is worth. Taken as the
@@ -5021,6 +5045,10 @@ class VlCompile {
         if (measure.name == "theta") {
             def none (new VlChannel())
             return none
+        }
+        ; A polar column is grouped by the angle it stands at.
+        if (measure.name == "radius") {
+            return (this.channel("theta"))
         }
         if (measure.name == "y") {
             return (this.channel("x"))
@@ -7827,13 +7855,26 @@ class VlCompile {
         }
         def sc (VlJson.objectValue())
         sc.setMember("name" (VlJson.stringValue((this.sname("theta")))))
-        sc.setMember("type" (VlJson.stringValue("linear")))
+        ; An angle read from a CATEGORY is a band of the circle — one slice per
+        ; category, all the same size — and the length of the wedge inside it
+        ; is what the chart is measuring. That is a polar column chart, and the
+        ; rose and the radar are built on the same scale. Typed as a number, a
+        ; category answered nothing and every wedge came out as the same
+        ; degenerate angle.
+        def banded:boolean (ch.isDiscrete())
+        if banded {
+            sc.setMember("type" (VlJson.stringValue("band")))
+        } {
+            sc.setMember("type" (VlJson.stringValue("linear")))
+        }
         sc.setMember("domain" (this.domainFor(ch)))
         def range (VlJson.arrayValue())
         push range.arr (VlJson.numberValue(0.0))
         push range.arr (VlJson.numberValue(6.283185307179586))
         sc.setMember("range" range)
-        sc.setMember("zero" (VlJson.boolValue(true)))
+        if (! banded) {
+            sc.setMember("zero" (VlJson.boolValue(true)))
+        }
         ; …unless the chart said where the angles run. A pyramid is a pie with
         ; a bite taken out of it, and the bite is a stated range.
         this.applyDeclaredScale(sc ch)
@@ -11005,6 +11046,16 @@ class VlCompile {
         halfDown.setMember("mult" (VlJson.numberValue(0.5)))
         update.setMember("y" halfDown)
         def radius:VlChannel (this.channel("radius"))
+        def theta:VlChannel (this.channel("theta"))
+        ; An angle read from a category: the wedge fills its band of the circle
+        ; and its LENGTH is what the chart measures, which is a polar column
+        ; chart. Everything below is the other way round from a pie.
+        def bandedTheta:boolean false
+        if theta.defined {
+            if (theta.isDiscrete()) {
+                bandedTheta = true
+            }
+        }
         def statedOuter:VlJson (markDef.get("outerRadius"))
         if (statedOuter.isNumber()) {
             ; A pie told how big it is is that big. Ignored, every wedge ran
@@ -11013,7 +11064,11 @@ class VlCompile {
             update.setMember("outerRadius" (VlCompile.literal(statedOuter)))
         } {
             if radius.defined {
-                update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+                if (bandedTheta && ((strlen stackField) > 0)) {
+                    update.setMember("outerRadius" (this.scaled("radius" (stackField + "_end"))))
+                } {
+                    update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+                }
             } {
                 def outer (VlJson.objectValue())
                 outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
@@ -11021,10 +11076,27 @@ class VlCompile {
             }
         }
         def inner:VlJson (markDef.get("innerRadius"))
-        if (inner.isNumber()) {
-            update.setMember("innerRadius" (VlCompile.literal(inner)))
+        if (bandedTheta && ((strlen stackField) > 0)) {
+            ; A stacked polar column stands on the one below it, and the first
+            ; stands on nothing — which is what `_start` says. It beats a
+            ; stated `innerRadius`: the segments would otherwise all start at
+            ; the same ring and draw over each other.
+            update.setMember("innerRadius" (this.scaled("radius" (stackField + "_start"))))
         } {
+          if (inner.isNumber()) {
+            update.setMember("innerRadius" (VlCompile.literal(inner)))
+          } {
             update.setMember("innerRadius" (VlCompile.literal((VlJson.numberValue(0.0)))))
+          }
+        }
+        if bandedTheta {
+            update.setMember("startAngle" (this.scaled("theta" (theta.outField()))))
+            def far:VlJson (this.scaled("theta" (theta.outField())))
+            def bandWide (VlJson.objectValue())
+            bandWide.setMember("signal" (VlJson.stringValue((("bandwidth('" + (this.sname("theta"))) + "')"))))
+            far.setMember("offset" bandWide)
+            update.setMember("endAngle" far)
+            return
         }
         if ((strlen stackField) > 0) {
             update.setMember("startAngle" (this.scaled("theta" (stackField + "_end"))))
@@ -11032,7 +11104,6 @@ class VlCompile {
         } {
             ; Unstacked, every wedge starts at nothing: the chart is read by
             ; comparing the wedges rather than by walking round the circle.
-            def theta:VlChannel (this.channel("theta"))
             if theta.defined {
                 update.setMember("startAngle" (this.scaled("theta" (theta.outField()))))
                 def zero (VlJson.objectValue())
