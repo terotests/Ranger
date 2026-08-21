@@ -83,9 +83,12 @@ class RangerFlowWeb {
         input.shift = shift
         input.ctrl = ctrl
         editor.pointerUp(input)
-        ; Lanes are only valid for the positions they were computed from, so a
-        ; drag or a new connection invalidates them.
+        ; Lanes and routes are only valid for the positions they were computed
+        ; from, so a drag or a new connection invalidates both. The layout's
+        ; routes are not recomputed — once a node has been moved by hand the
+        ; layering it was routed against is no longer what is on screen.
         if (simRunning == false) {
+            EdgeLanes.reset(graph)
             EdgeLanes.assign(graph)
         }
     }
@@ -186,6 +189,7 @@ class RangerFlowWeb {
         lay.nodeGap = 40.0
         lay.run()
         EdgeLanes.assign(graph)
+        lay.routeLongEdges()
         simRunning = false
         editor.pinWhileDragging = false
         status = ((to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations")
@@ -280,6 +284,7 @@ class RangerFlowWeb {
         lay.nodeGap = 26.0
         lay.run()
         EdgeLanes.assign(graph)
+        lay.routeLongEdges()
         simRunning = false
         editor.pinWhileDragging = false
         status = "a flowchart — the core with no domain on top of it"
@@ -328,6 +333,7 @@ class RangerFlowWeb {
         lay.run()
         SchemaToGraph.faceEdges(graph)
         EdgeLanes.assign(graph)
+        lay.routeLongEdges()
     }
 
     fn setLayout:void (name:string) {

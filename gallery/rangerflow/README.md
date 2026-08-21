@@ -111,6 +111,7 @@ is 250 lines, and most of them are the model rather than the drawing.
 | Scene | `core/FlowView.rgr`, `core/FlowScene.rgr` | the picture, once, for four backends |
 | Layout | `layout/ForceLayout.rgr`, `layout/LayeredLayout.rgr` | d3-force and a Sugiyama-style layered layout |
 | Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |
+| | `layout/LayeredLayout.rgr` | dummy-vertex chains, so long edges are ordered, given room, and drawn round what is between their ends |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |
 | Export | `export/FlowExport.rgr` | PDF, HTML, SVG, scene JSON, graph JSON |
@@ -240,9 +241,56 @@ The fourteen that remain at 8 px are the fan itself: three arrivals spread
 across a 19-pixel row are about four pixels apart, which is as much room as the
 row has. They separate immediately after leaving it.
 
-What this does **not** do is route around obstacles — a track is still a
-straight run, and a node standing in the corridor is drawn over. The fix for
-that is dummy nodes in the layered layout, which is the first item below.
+### …and round what stands in the way
+
+Channel routing gives an edge its own track. It does not help when something is
+*standing* in the track, and the classic answer to that is the other half of
+Sugiyama's method: an edge spanning more than one layer is replaced, for the
+duration of the layout, by a chain of **dummy vertices** — one in each layer it
+crosses.
+
+```text
+without dummies                 with dummies
+┌───┐                           ┌───┐
+│ a ├──────┬────────┐           │ a ├───┐   ┌───┐
+└───┘   ┌──┴──┐     │           └───┘   └───┤ · │  ← a dummy holds the lane
+        │  b  │     │                   ┌───┴───┘     open through b's layer
+        └─────┘  ┌──┴──┐        ┌─────┐ │       ┌─────┐
+         ↑ drawn │  c  │        │  b  │ └───────┤  c  │
+           over  └─────┘        └─────┘         └─────┘
+```
+
+That buys two things at once, and the second is the one that surprised us:
+
+- the dummies take part in the **crossing-reduction sweeps**, so a long edge is
+  ordered against everything else instead of being ignored by the pass that is
+  supposed to untangle it;
+- they take **room** in their layer, so the real nodes move aside. The obstacle
+  is largely gone before any routing happens — the placement does most of the
+  work, and `LayeredLayout.useDummies` exists so the difference can be measured
+  rather than asserted.
+
+Afterwards the chain is thrown away and its positions become the edge's
+**waypoints**: the corners it is drawn through, handed to the same `bendPath`
+that rounds the stepped router's corners. Back edges — the ones the layering
+reversed to break a cycle — are walked in the author's direction and leave the
+node on the side they are actually travelling towards, which is the difference
+between a route that goes round the outside and one that doubles across itself
+on the way out.
+
+`EdgeOverlap.nodeCrossings` counts the times an edge is drawn straight through
+a node it has nothing to do with, which is what "routes around obstacles"
+means. On the schema fixture it goes **1 → 0**; on a graph built to need it
+(four layers, an edge from the first to the last) it is 2 → 0, and with
+`useDummies = false` the same graph keeps its crossings.
+
+Once a node has been **dragged by hand** the waypoints are dropped rather than
+recomputed: a route around an obstacle that has since moved is worse than no
+route at all, so the edge falls back to the corridor router.
+
+What is still missing is a *general* obstacle-avoiding router. These routes go
+round what the layered layout knows about, because the layout put it there. A
+node dropped by hand into the middle of a corridor is still drawn over.
 
 ## Parity is measured, not claimed
 
@@ -370,10 +418,8 @@ when the two meet, this reader becomes a thin adapter over that AST.
 
 ## Where it goes next
 
-1. **Dummy-node edge routing** so an edge spanning four layers is routed around
-   what is in the way rather than through it. `EdgeLanes` gives each edge its
-   own track through a corridor; it cannot yet make the corridor go round
-   anything.
+1. **A general obstacle-avoiding router**, so an edge goes round a node the
+   *user* dropped in its way and not only the ones the layered layout placed.
 2. **A live schema inspector** behind one interface, so DuckDB, SQLite and
    RangerDB can all answer "what tables do you have" and the editor cannot tell
    which one did.

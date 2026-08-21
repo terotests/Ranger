@@ -754,6 +754,14 @@ class EdgeRouter {
 
     sfn smoothStepAt:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double radius:double hasCx:boolean cx:double hasCy:boolean cy:double) {
         def pts:[double] (EdgeRouter.stepPointsAt(x1 y1 s1 x2 y2 s2 offset hasCx cx hasCy cy))
+        return (EdgeRouter.bendPath(pts radius))
+    }
+
+    ; A corner list, turned into a path with the turns rounded. React Flow's
+    ; `getBend`, and the one place it lives: the stepped router, the corridor
+    ; router and the layered layout's routed edges all hand their corners here
+    ; rather than each rounding them slightly differently.
+    sfn bendPath:EdgePath (pts:[double] radius:double) {
         def p (new EdgePath)
         def n:int (idiv (array_length pts) 2)
         if (n < 2) {
@@ -825,6 +833,12 @@ class EdgeRouter {
 
     ; The one entry point the view and the exporters call.
     sfn route:EdgePath (g:FlowGraph e:FlowEdge) {
+        ; Waypoints win over everything. An edge the layered layout routed has
+        ; already been told where to go — around the nodes standing in its way
+        ; — and recomputing a route here would throw that away.
+        if ((array_length e.waypoints) >= 4) {
+            return (EdgeRouter.bendPath(e.waypoints 5.0))
+        }
         def x1:double (g.endpointX(e true))
         def y1:double (g.endpointY(e true))
         def x2:double (g.endpointX(e false))

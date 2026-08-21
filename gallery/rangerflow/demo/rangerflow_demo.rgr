@@ -72,7 +72,7 @@ class RangerFlowDemo {
         lay.run()
         SchemaToGraph.faceEdges(g)
         print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges, " + (to_string (lay.layerCount())) + " layers")
-        this.routeEdges(g)
+        this.routeEdges(g lay)
         def v:FlowView (FlowView.of(g))
         v.notation = "crowfoot"
         this.writeAll(v g "rangerflow-erd" "RangerFlow — e-commerce schema")
@@ -114,7 +114,7 @@ class RangerFlowDemo {
         lay.layerGap = 110.0
         lay.run()
         print ("  graph  " + (to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations")
-        this.routeEdges(g)
+        this.routeEdges(g lay)
         def v:FlowView (FlowView.of(g))
         v.notation = "uml"
         this.writeAll(v g "rangerflow-uml" "RangerFlow — UML class diagram")
@@ -251,18 +251,25 @@ class RangerFlowDemo {
     ; segments drawn within two pixels of each other and overlapping along
     ; their shared axis are two edges that read as one line, and counting them
     ; is the difference between "looks tidier" and a claim.
-    fn routeEdges:void (g:FlowGraph) {
+    fn routeEdges:void (g:FlowGraph lay:LayeredLayout) {
         ; Two tolerances, because they answer different questions. At 2 px the
         ; segments are drawn on top of each other; at 8 they are close enough
         ; that at a normal zoom you cannot tell which line is which, which is
         ; the complaint this pass exists to answer.
         def exact0:int (EdgeOverlap.pairs(g 2.0))
         def near0:int (EdgeOverlap.pairs(g 8.0))
+        def cross0:int (EdgeOverlap.nodeCrossings(g))
         def moved:int (EdgeLanes.assign(g))
+        ; The chains, cashed in: a long edge is drawn through the lane its
+        ; dummies held open. This runs after the fan so the corners start where
+        ; the edge actually starts.
+        def routed:int (lay.routeLongEdges())
         def exact1:int (EdgeOverlap.pairs(g 2.0))
         def near1:int (EdgeOverlap.pairs(g 8.0))
-        print ("  routing " + (to_string moved) + " endpoints and tracks moved")
+        def cross1:int (EdgeOverlap.nodeCrossings(g))
+        print ("  routing " + (to_string moved) + " endpoints and tracks moved, " + (to_string routed) + " long edges taken round the nodes in the way")
         print ("          overlapping segment pairs: on top of each other " + (to_string exact0) + " → " + (to_string exact1) + ", within 8 px " + (to_string near0) + " → " + (to_string near1))
+        print ("          edges drawn through an unrelated node: " + (to_string cross0) + " → " + (to_string cross1))
     }
 
     ; --------------------------------------------------------------- output --

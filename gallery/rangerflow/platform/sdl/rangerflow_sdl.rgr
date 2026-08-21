@@ -96,6 +96,7 @@ class RangerFlowSdl {
         lay.run()
         SchemaToGraph.faceEdges(graph)
         EdgeLanes.assign(graph)
+        lay.routeLongEdges()
         editor.fitView()
     }
 
@@ -172,6 +173,7 @@ class RangerFlowSdl {
             if prevDown {
                 editor.pointerUp(input)
                 if (simRunning == false) {
+                    EdgeLanes.reset(graph)
                     EdgeLanes.assign(graph)
                 }
             } {

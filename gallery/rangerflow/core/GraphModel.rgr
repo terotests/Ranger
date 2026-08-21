@@ -648,6 +648,12 @@ class FlowEdge {
     def portNudgeSource:double 0.0
     def portNudgeTarget:double 0.0
 
+    ; The corners of a route somebody else worked out — the layered layout,
+    ; when the edge spans more than one layer and has to be taken around what
+    ; stands between its ends. Flat x,y pairs, in order, from the source port
+    ; to the target port. Empty means "route it yourself".
+    def waypoints:[double]
+
     ; The track this edge takes through the corridor it crosses, assigned by
     ; `EdgeLanes`. React Flow calls the same thing `center` on
     ; `getSmoothStepPath`: an explicit place to turn, instead of the midpoint
