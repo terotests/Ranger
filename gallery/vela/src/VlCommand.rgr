@@ -33,6 +33,14 @@ class VlDrawCommand {
     ; chart needs to tell a gridline from a bar, and the colour cannot tell it:
     ; both are whatever the specification said.
     def role:string ""
+    ; What a screen reader is told about this shape. `label` is the sentence
+    ; it reads out — the mark's own description, computed from the data — and
+    ; `roleDescription` is what kind of thing it says this is ("bar", "axis").
+    ; `hidden` is the chrome: a gridline and a tick say nothing a reader needs
+    ; and are announced as nothing at all rather than as unlabelled shapes.
+    def label:string ""
+    def roleDescription:string ""
+    def hidden:boolean false
 
     def x:double 0.0
     def y:double 0.0
@@ -219,6 +227,34 @@ class VlSceneCommands {
         return list
     }
 
+    ; The two things a reader is told, carried from the item that knows them.
+    ; A mark the guide marked hidden hides everything it draws: an axis' ticks
+    ; and labels are read from the sentence the axis carries, not one by one.
+    sfn carryAria:void (cmd:VlDrawCommand mark:VlSceneMark item:VlSceneItem) {
+        cmd.label = (item.text("description"))
+        cmd.roleDescription = (item.text("ariaRoleDescription"))
+        ; A GUIDE that is not a group carries its sentence on the mark rather
+        ; than on any item: a title is one text mark with one word in it, and
+        ; what a reader is told is "Title text 'x'", not the word.
+        if ((strlen mark.ariaLabel) > 0) {
+            cmd.label = mark.ariaLabel
+            cmd.roleDescription = mark.ariaKind
+        }
+        ; A mark that says nothing about what it is is called what it is: the
+        ; reference falls back to "<marktype> mark", which is why a line reads
+        ; as a "line mark" while a bar — whose compiler DID say — reads as a
+        ; "bar". Without the fallback every line, area, arc, rule and label in
+        ; the suite was announced with no idea of what kind of thing it was.
+        if ((strlen cmd.label) > 0) {
+            if ((strlen cmd.roleDescription) == 0) {
+                cmd.roleDescription = (mark.markType + " mark")
+            }
+        }
+        if (mark.ariaHidden) {
+            cmd.hidden = true
+        }
+    }
+
     sfn walkMark:void (list:VlCommandList mark:VlSceneMark offsetX:double offsetY:double) {
         ; A line or an area is ONE shape built from every item, not one shape
         ; per item — the items are its vertices.
@@ -294,6 +330,12 @@ class VlSceneCommands {
         cmd.op = "polyline"
         cmd.markType = mark.markType
         cmd.role = mark.role
+        ; A line is one shape built from every item, and the reference labels
+        ; it from the first: the sentence names the series, not the vertex.
+        if ((array_length mark.items) > 0) {
+            def firstItem:VlSceneItem (itemAt mark.items 0)
+            VlSceneCommands.carryAria(cmd mark firstItem)
+        }
         def vertices:int 0
         def r:int 0
         while (r < marked) {
@@ -329,6 +371,12 @@ class VlSceneCommands {
         cmd.op = "trail"
         cmd.markType = mark.markType
         cmd.role = mark.role
+        ; A line is one shape built from every item, and the reference labels
+        ; it from the first: the sentence names the series, not the vertex.
+        if ((array_length mark.items) > 0) {
+            def firstItem:VlSceneItem (itemAt mark.items 0)
+            VlSceneCommands.carryAria(cmd mark firstItem)
+        }
         cmd.x = 0.0
         cmd.y = 0.0
         def vertices:int 0
@@ -370,6 +418,12 @@ class VlSceneCommands {
         cmd.op = "polygon"
         cmd.markType = mark.markType
         cmd.role = mark.role
+        ; A line is one shape built from every item, and the reference labels
+        ; it from the first: the sentence names the series, not the vertex.
+        if ((array_length mark.items) > 0) {
+            def firstItem:VlSceneItem (itemAt mark.items 0)
+            VlSceneCommands.carryAria(cmd mark firstItem)
+        }
         def first:VlSceneItem (itemAt mark.items (itemAt runs 0))
         def horizontal:boolean false
         if (first.has("x2")) {
@@ -471,6 +525,10 @@ class VlSceneCommands {
         def begin (new VlDrawCommand())
         begin.op = "group-begin"
         begin.markType = "group"
+        begin.role = mark.role
+        begin.label = mark.ariaLabel
+        begin.roleDescription = mark.ariaKind
+        begin.hidden = mark.ariaHidden
         begin.x = gx
         begin.y = gy
         begin.width = (item.number("width"))
@@ -560,6 +618,7 @@ class VlSceneCommands {
         def cmd (new VlDrawCommand())
         cmd.markType = mark.markType
         cmd.role = mark.role
+        VlSceneCommands.carryAria(cmd mark item)
 
         if (mark.markType == "rect") {
             cmd.op = "rect"

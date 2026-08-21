@@ -17,6 +17,352 @@
       "originY": 10,
       "items": [
         {
+          "marktype": "rect",
+          "name": "marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 150.5,
+              "y": 233.833333,
+              "x2": 188,
+              "y2": 267.166667,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 5 – 6; b (binned): 20 – 30; Count of Records: 1"
+            },
+            {
+              "x": 263,
+              "y": 133.833333,
+              "x2": 300.5,
+              "y2": 167.166667,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 8 – 9; b (binned): 50 – 60; Count of Records: 1"
+            },
+            {
+              "x": 38,
+              "y": 167.166667,
+              "x2": 75.5,
+              "y2": 200.5,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 2 – 3; b (binned): 40 – 50; Count of Records: 1"
+            },
+            {
+              "x": 225.5,
+              "y": 0.5,
+              "x2": 263,
+              "y2": 33.833333,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 7 – 8; b (binned): 90 – 100; Count of Records: 1"
+            },
+            {
+              "x": 113,
+              "y": 33.833333,
+              "x2": 150.5,
+              "y2": 67.166667,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 4 – 5; b (binned): 80 – 90; Count of Records: 1"
+            },
+            {
+              "x": 188,
+              "y": 133.833333,
+              "x2": 225.5,
+              "y2": 167.166667,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 6 – 7; b (binned): 50 – 60; Count of Records: 1"
+            },
+            {
+              "x": 263,
+              "y": 267.166667,
+              "x2": 300.5,
+              "y2": 300.5,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 8 – 9; b (binned): 10 – 20; Count of Records: 1"
+            },
+            {
+              "x": 0.5,
+              "y": 33.833333,
+              "x2": 38,
+              "y2": 67.166667,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 1 – 2; b (binned): 80 – 90; Count of Records: 1"
+            },
+            {
+              "x": 75.5,
+              "y": 133.833333,
+              "x2": 113,
+              "y2": 167.166667,
+              "width": 37.5,
+              "height": 33.333333,
+              "fill": "rgb(69, 180, 194)",
+              "description": "c (binned): 3 – 4; b (binned): 50 – 60; Count of Records: 1"
+            }
+          ]
+        },
+        {
+          "marktype": "group",
+          "role": "legend",
+          "items": [
+            {
+              "x": 318,
+              "y": 0,
+              "width": 140,
+              "height": 216,
+              "orient": "right",
+              "padding": 0,
+              "titlePadding": 5,
+              "items": [
+                {
+                  "marktype": "group",
+                  "role": "legend-entry",
+                  "items": [
+                    {
+                      "x": 0,
+                      "y": 16,
+                      "items": [
+                        {
+                          "marktype": "rect",
+                          "role": "legend-gradient",
+                          "items": [
+                            {
+                              "x": 0,
+                              "y": 0,
+                              "width": 16,
+                              "height": 200,
+                              "stroke": "#ddd",
+                              "strokeWidth": 0,
+                              "opacity": 1,
+                              "gradientStops": [
+                                {
+                                  "offset": 0,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.025,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.05,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.075,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.1,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.125,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.15,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.175,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.2,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.225,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.25,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.275,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.3,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.325,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.35,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.375,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.4,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.425,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.45,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.475,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.5,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.525,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.55,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.575,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.6,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.625,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.65,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.675,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.7,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.725,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.75,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.775,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.8,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.825,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.85,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.875,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.9,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.925,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.95,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 0.975,
+                                  "color": "rgb(69, 180, 194)"
+                                },
+                                {
+                                  "offset": 1,
+                                  "color": "rgb(69, 180, 194)"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "marktype": "text",
+                          "role": "legend-label",
+                          "items": [
+                            {
+                              "x": 18,
+                              "y": 100,
+                              "fill": "#000",
+                              "opacity": 1,
+                              "text": "1.000000",
+                              "font": "sans-serif",
+                              "fontSize": 10,
+                              "align": "left",
+                              "baseline": "middle"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "marktype": "text",
+                  "role": "legend-title",
+                  "items": [
+                    {
+                      "x": 0,
+                      "y": 0,
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "Count of Records",
+                      "font": "sans-serif",
+                      "fontSize": 11,
+                      "fontWeight": "bold",
+                      "align": "left",
+                      "baseline": "top",
+                      "angle": 0,
+                      "orient": "top",
+                      "limit": 180,
+                      "anchor": "start"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
           "marktype": "group",
           "role": "axis",
           "items": [
@@ -538,352 +884,6 @@
                       "baseline": "bottom",
                       "angle": -90,
                       "auto": true
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "marktype": "rect",
-          "name": "marks",
-          "role": "mark",
-          "items": [
-            {
-              "x": 150.5,
-              "y": 233.833333,
-              "x2": 188,
-              "y2": 267.166667,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 5 – 6; b (binned): 20 – 30; Count of Records: 1"
-            },
-            {
-              "x": 263,
-              "y": 133.833333,
-              "x2": 300.5,
-              "y2": 167.166667,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 8 – 9; b (binned): 50 – 60; Count of Records: 1"
-            },
-            {
-              "x": 38,
-              "y": 167.166667,
-              "x2": 75.5,
-              "y2": 200.5,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 2 – 3; b (binned): 40 – 50; Count of Records: 1"
-            },
-            {
-              "x": 225.5,
-              "y": 0.5,
-              "x2": 263,
-              "y2": 33.833333,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 7 – 8; b (binned): 90 – 100; Count of Records: 1"
-            },
-            {
-              "x": 113,
-              "y": 33.833333,
-              "x2": 150.5,
-              "y2": 67.166667,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 4 – 5; b (binned): 80 – 90; Count of Records: 1"
-            },
-            {
-              "x": 188,
-              "y": 133.833333,
-              "x2": 225.5,
-              "y2": 167.166667,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 6 – 7; b (binned): 50 – 60; Count of Records: 1"
-            },
-            {
-              "x": 263,
-              "y": 267.166667,
-              "x2": 300.5,
-              "y2": 300.5,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 8 – 9; b (binned): 10 – 20; Count of Records: 1"
-            },
-            {
-              "x": 0.5,
-              "y": 33.833333,
-              "x2": 38,
-              "y2": 67.166667,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 1 – 2; b (binned): 80 – 90; Count of Records: 1"
-            },
-            {
-              "x": 75.5,
-              "y": 133.833333,
-              "x2": 113,
-              "y2": 167.166667,
-              "width": 37.5,
-              "height": 33.333333,
-              "fill": "rgb(69, 180, 194)",
-              "description": "c (binned): 3 – 4; b (binned): 50 – 60; Count of Records: 1"
-            }
-          ]
-        },
-        {
-          "marktype": "group",
-          "role": "legend",
-          "items": [
-            {
-              "x": 318,
-              "y": 0,
-              "width": 140,
-              "height": 216,
-              "orient": "right",
-              "padding": 0,
-              "titlePadding": 5,
-              "items": [
-                {
-                  "marktype": "group",
-                  "role": "legend-entry",
-                  "items": [
-                    {
-                      "x": 0,
-                      "y": 16,
-                      "items": [
-                        {
-                          "marktype": "rect",
-                          "role": "legend-gradient",
-                          "items": [
-                            {
-                              "x": 0,
-                              "y": 0,
-                              "width": 16,
-                              "height": 200,
-                              "stroke": "#ddd",
-                              "strokeWidth": 0,
-                              "opacity": 1,
-                              "gradientStops": [
-                                {
-                                  "offset": 0,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.025,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.05,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.075,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.1,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.125,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.15,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.175,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.2,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.225,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.25,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.275,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.3,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.325,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.35,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.375,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.4,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.425,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.45,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.475,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.5,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.525,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.55,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.575,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.6,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.625,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.65,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.675,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.7,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.725,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.75,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.775,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.8,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.825,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.85,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.875,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.9,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.925,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.95,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 0.975,
-                                  "color": "rgb(69, 180, 194)"
-                                },
-                                {
-                                  "offset": 1,
-                                  "color": "rgb(69, 180, 194)"
-                                }
-                              ]
-                            }
-                          ]
-                        },
-                        {
-                          "marktype": "text",
-                          "role": "legend-label",
-                          "items": [
-                            {
-                              "x": 18,
-                              "y": 100,
-                              "fill": "#000",
-                              "opacity": 1,
-                              "text": "1.000000",
-                              "font": "sans-serif",
-                              "fontSize": 10,
-                              "align": "left",
-                              "baseline": "middle"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "marktype": "text",
-                  "role": "legend-title",
-                  "items": [
-                    {
-                      "x": 0,
-                      "y": 0,
-                      "fill": "#000",
-                      "opacity": 1,
-                      "text": "Count of Records",
-                      "font": "sans-serif",
-                      "fontSize": 11,
-                      "fontWeight": "bold",
-                      "align": "left",
-                      "baseline": "top",
-                      "angle": 0,
-                      "orient": "top",
-                      "limit": 180,
-                      "anchor": "start"
                     }
                   ]
                 }

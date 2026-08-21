@@ -324,6 +324,13 @@ class VlLegend {
             return mark
         }
         def sc:VlScale (this.scaleFor(primary))
+        ; What a reader who cannot see the key is told it says — written by the
+        ; reference in its renderer rather than carried in the scene: "Symbol
+        ; legend titled 'g' for fill color with 2 values: x, y". A key that is
+        ; a bar rather than a column of symbols is a GRADIENT legend, and the
+        ; channel is named the way a person would say it.
+        mark.ariaLabel = (VlLegend.ariaLabel(ldef sc primary))
+        mark.ariaKind = "legend"
 
         ; A legend over a CONTINUOUS colour scale is a bar, not a column of
         ; symbols: there is no set of values to list, only a ramp with its ends
@@ -850,6 +857,34 @@ class VlLegend {
             }
         }
         return out
+    }
+
+    sfn ariaLabel:string (ldef:VlJson sc:VlScale primary:string) {
+        def out:string "Symbol legend"
+        if ((sc.ariaKind()) != "discrete") {
+            if ((primary == "fill") || (primary == "stroke")) {
+                out = "Gradient legend"
+            }
+        }
+        def title:string (ldef.stringOr("title" ""))
+        if ((strlen title) > 0) {
+            out = (((out + " titled '") + title) + "'")
+        }
+        out = ((out + " for ") + (VlLegend.ariaChannel(primary)))
+        return (out + (sc.ariaValues((ldef.stringOr("format" "")) (ldef.stringOr("formatType" "")))))
+    }
+
+    ; What the key is a key TO, said the way a person would say it. Only a
+    ; COLOUR is called one — the reference leaves every other channel under the
+    ; name the grammar gives it, so a dash legend is "for strokeDash".
+    sfn ariaChannel:string (primary:string) {
+        if (primary == "fill") {
+            return "fill color"
+        }
+        if (primary == "stroke") {
+            return "stroke color"
+        }
+        return primary
     }
 
     fn buildTitle:VlSceneMark (titleEncode:VlJson) {

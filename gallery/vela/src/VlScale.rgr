@@ -258,6 +258,191 @@ class VlScale {
         return slots
     }
 
+    ; --- what a reader is told this scale holds ------------------------------
+    ; A screen reader is given a sentence about every axis and every key, and
+    ; the part that describes the SCALE is the same in both: what kind it is,
+    ; and either the values it has or the ends of the range it covers. The
+    ; reference writes these in its renderer, from the scale — so they live
+    ; here, where the scale is, rather than in either guide.
+    fn ariaKind:string () {
+        if (((scaleType == "band") || (scaleType == "point")) || (scaleType == "ordinal")) {
+            return "discrete"
+        }
+        return scaleType
+    }
+
+    ; A guide is announced with the values its scale holds. A long list is cut
+    ; short exactly where the reference cuts it: past seven values it names the
+    ; first five and then the last, so a reader hears the shape of the domain
+    ; rather than every member of it. `format`/`formatType` are the guide's
+    ; own, because what a reader is told a value IS has to be what the chart
+    ; prints — a month axis says "January", not thirteen digits of
+    ; milliseconds.
+    fn ariaValues:string (format:string formatType:string) {
+        if (((scaleType == "band") || (scaleType == "point")) || (scaleType == "ordinal")) {
+            def labels:[string] (this.ariaDomainText(format formatType))
+            return (" with " + (VlScale.ariaList(labels)))
+        }
+        def ends:[string] (this.ariaSpan(format formatType))
+        def low:string (itemAt ends 0)
+        def high:string (itemAt ends 1)
+        return (((" with values from " + low) + " to ") + high)
+    }
+
+    ; The domain of a discrete scale, as a reader is told it.
+    fn ariaDomainText:[string] (format:string formatType:string) {
+        def out:[string]
+        def temporal:boolean ((formatType == "time") || (formatType == "utc"))
+        def spec:string (VlScale.ariaSpecifier(format))
+        for domainValues name:string idx {
+            if temporal {
+                def instant:double (VlFormat.toNumber(name))
+                if ((strlen spec) == 0) {
+                    push out (this.ariaInstant(instant (formatType == "utc")))
+                } {
+                    push out (VlTime.format(instant spec zone))
+                }
+            } {
+                push out name
+            }
+        }
+        return out
+    }
+
+    ; "N values: a, b, c" — or, past seven of them, "N values: a, b, c, d, e,
+    ; ending with z". One value is a "value" and not a "values".
+    sfn ariaList:string (labels:[string]) {
+        def n:int (array_length labels)
+        def out:string (VlJson.intToText(n))
+        if (n == 1) {
+            out = (out + " value: ")
+        } {
+            out = (out + " values: ")
+        }
+        def shown:int n
+        if (n > 7) {
+            shown = 5
+        }
+        def i:int 0
+        while (i < shown) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (itemAt labels i))
+            i = (i + 1)
+        }
+        if (n > 7) {
+            out = ((out + ", ending with ") + (itemAt labels (n - 1)))
+        }
+        return out
+    }
+
+    ; The two ends of a continuous scale, written the way the guide writes its
+    ; ticks: a shared precision taken from a five-tick step, so a domain of 0
+    ; to 3 is read "0.0 to 3.0" and a share of a whole with `"format": "%"` is
+    ; read "0% to 100%".
+    fn ariaSpan:[string] (format:string formatType:string) {
+        def ends:[double]
+        push ends domainMin
+        push ends domainMax
+        def temporal:boolean (((scaleType == "time") || (scaleType == "utc")) || ((formatType == "time") || (formatType == "utc")))
+        if temporal {
+            def utc:boolean ((scaleType == "utc") || (formatType == "utc"))
+            def spec:string (VlScale.ariaSpecifier(format))
+            def out:[string]
+            for ends v:double idx {
+                if ((strlen spec) == 0) {
+                    push out (this.ariaInstant(v utc))
+                } {
+                    push out (VlTime.format(v spec zone))
+                }
+            }
+            return out
+        }
+        ; A log scale has no shared step to take a precision from — the
+        ; reference formats each end on its own — and the existing path already
+        ; agrees with it.
+        if (this.isLog()) {
+            def out2:[string]
+            for ends v2:double idx2 {
+                push out2 (VlFormat.apply(v2 ""))
+            }
+            return out2
+        }
+        ; A domain with no width has no step to take a precision from, and the
+        ; reference falls back to its default six decimals: a legend over a
+        ; column that is 1 everywhere reads "values from 1.000000 to
+        ; 1.000000". It looks like a mistake and it is what a reader is told,
+        ; so it is what this says.
+        if (domainMin == domainMax) {
+            if ((strlen format) == 0) {
+                def flat:[string]
+                for ends v3:double idx3 {
+                    push flat (VlFormat.apply(v3 ",.6f"))
+                }
+                return flat
+            }
+        }
+        def ticks:[double] (this.ticksAbove(5 0.0))
+        return (VlScale.spanLabels(ticks ends format))
+    }
+
+    ; A date specifier written for an AXIS is abbreviated — "%b" is "Jan" —
+    ; because an axis has a label's width to fit in. A reader has no such
+    ; limit, so the reference spells both the weekday and the month out before
+    ; it speaks them.
+    sfn ariaSpecifier:string (format:string) {
+        def out:string ""
+        def n:int (strlen format)
+        def i:int 0
+        while (i < n) {
+            def c:string (substring format i (i + 1))
+            def step:int 1
+            if (c == "%") {
+                if ((i + 1) < n) {
+                    def d:string (substring format (i + 1) (i + 2))
+                    if (d == "a") {
+                        c = "%A"
+                        step = 2
+                    }
+                    if (d == "b") {
+                        c = "%B"
+                        step = 2
+                    }
+                }
+            }
+            out = (out + c)
+            i = (i + step)
+        }
+        return out
+    }
+
+    ; "Friday, 01 January 2016, 12:00:00 AM" — the reference's `%A, %d %B %Y,
+    ; %X`, whose hour is NOT padded. A UTC scale says so at the end.
+    fn ariaInstant:string (ms:double utc:boolean) {
+        def p:VlTimeParts (VlTime.partsOf(ms zone))
+        def out:string ((VlTime.weekdayName(p.weekday)) + ", ")
+        out = ((out + (VlTime.pad2(p.day))) + " ")
+        out = ((out + (VlTime.monthName(p.month))) + " ")
+        out = ((out + (VlJson.intToText(p.year))) + ", ")
+        def hour:int (VlTime.floorMod(p.hours 12))
+        if (hour == 0) {
+            hour = 12
+        }
+        out = ((out + (VlJson.intToText(hour))) + ":")
+        out = ((out + (VlTime.pad2(p.minutes))) + ":")
+        out = (out + (VlTime.pad2(p.seconds)))
+        if (p.hours < 12) {
+            out = (out + " AM")
+        } {
+            out = (out + " PM")
+        }
+        if utc {
+            return (out + " UTC")
+        }
+        return out
+    }
+
     fn bandwidth:double () {
         return bandWidth
     }
@@ -994,6 +1179,61 @@ class VlScale {
         }
         def out:string ((sign + grouped) + rest)
         return (VlJson.withMinusSign(out))
+    }
+
+    ; The text of a tick set — the reference's `tickFormat`. A specification's
+    ; own format applies to each value on its own; without one the set shares a
+    ; precision chosen from its step, which is why an unformatted axis reads
+    ; 0.0, 0.5, 1.0 rather than 0, 0.5, 1.
+    sfn labelSet:[string] (values:[double] format:string) {
+        return (VlScale.spanLabels(values values format))
+    }
+
+    ; The same, but for values that are not the set the precision comes from.
+    ; A guide's ARIA sentence names the two ends of the domain and formats them
+    ; the way the ticks are formatted — and the ends are not ticks, so the step
+    ; has to be measured on one list and spent on another.
+    sfn spanLabels:[string] (values:[double] ends:[double] format:string) {
+        if ((strlen format) == 0) {
+            def plain:[string]
+            def decimals:int (VlScale.tickDecimals(values))
+            for ends e:double ei {
+                plain = (VlScale.appendLabel(plain e decimals))
+            }
+            return plain
+        }
+        def spec:VlFormatSpec (VlFormat.parse(format))
+        ; A specifier that names a TYPE but no precision takes its precision
+        ; from the tick step, which is what `scale.tickFormat` does and what an
+        ; axis needs: `"format": "%"` on shares of a whole means 0%, 50%, 100%
+        ; and not six decimal places of each. The step is measured in the units
+        ; the label is printed in, so a percentage's step is a hundred times
+        ; the scale's own.
+        ; An SI format on an AXIS names one prefix for the whole set rather
+        ; than the nearest one for each label. The prefix is chosen from the
+        ; end of the scale and every tick is written in it — which is what
+        ; makes the middle of a population pyramid read "0M" and not "0", and
+        ; a tick a thousand times smaller than its neighbour read "0.001M"
+        ; rather than "1k".
+        if (spec.type == "s") {
+            return (VlFormat.siOver(ends spec))
+        }
+        if (spec.precision < 0) {
+            def scaled:[double]
+            for values v0:double vi0 {
+                if (spec.type == "%") {
+                    push scaled (v0 * 100.0)
+                } {
+                    push scaled v0
+                }
+            }
+            spec.precision = (VlScale.tickDecimals(scaled))
+        }
+        def out:[string]
+        for ends v:double idx {
+            push out (VlFormat.applySpec(v spec))
+        }
+        return out
     }
 
     ; A tick SET is formatted to one shared precision, chosen from the step —

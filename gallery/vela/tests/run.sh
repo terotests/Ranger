@@ -117,6 +117,11 @@ node $VELA/tools/reference/parity.mjs || status=1
 say "the drawing, against the reference renderer"
 node $VELA/tools/reference/render.mjs || status=1
 
+# The ink is half of what a chart says. This is the other half: every sentence
+# the two documents hand a screen reader, in the order they hand it over.
+say "what the chart says to a screen reader"
+node $VELA/tools/reference/aria.mjs || status=1
+
 say "the Vega-Lite compiler, drawn against the official one"
 node $VELA/tools/reference/compiler.mjs || status=1
 
