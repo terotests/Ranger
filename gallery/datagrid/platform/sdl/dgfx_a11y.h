@@ -13,6 +13,19 @@
 // the UIA (Windows) or AT-SPI2 (Linux) half — or drops AccessKit in, which
 // implements all three behind one tree model very close to this one.
 //
+// A Windows half would need three things this header does not have yet, all of
+// them small and none of them reaching back into the app (the analysis is in
+// gallery/evg/PLAN_ACCESSIBILITY.md §14):
+//
+//   * an attach(SDL_Window*) call, because WM_GETOBJECT must be answered from
+//     the window procedure and SDL2's message hook returns void;
+//   * a threading rule — UIA calls providers from RPC threads, so publish would
+//     have to swap an immutable snapshot rather than mutate in place, which
+//     NSAccessibility never forced because it asks on the main thread;
+//   * a typed action channel instead of the point below, since
+//     IValueProvider::SetValue and IScrollItemProvider::ScrollIntoView cannot be
+//     said as "press here".
+//
 // The JSON is what `EVGA11yTree.toJson()` produces:
 //
 //   { "root":"app", "focus":"app/grid/row:7/B7", "gen":42,

@@ -361,7 +361,7 @@ well — the tree is text.
 | 5 | Keyboard completeness and a visible focus ring, audited rather than assumed | not done, and it is what phase 6 should wait for |
 | 6 | Declarative side: `role` / `aria-*` on `EVGElement` + `JSXToEVG`, defaults per tag, showcase pages, `EVGHTMLRenderer` parity | not done |
 | 7 | Native macOS: `dgfx_a11y.mm`, NSAccessibility elements over the SDL2 window | **written, unverified** — see §13 |
-| 8 | Windows (UIA) and Linux (AT-SPI2), most likely via AccessKit | not done |
+| 8 | Windows (UI Automation) and Linux (AT-SPI2), most likely via AccessKit | not done — analysed in §14 |
 | 9 | Tagged PDF from the same tree | not done |
 
 The honest summary: the renderer needs no changes at all, the browser host needs
@@ -526,3 +526,125 @@ sees, so the link failed on two symbols. Nobody noticed because the container
 has no SDL2 and the build was never run here. Two declarations fixed it. It is
 the same failure mode the display list exists to prevent, one layer down: two
 copies of a list, and only one of them was updated.
+
+---
+
+## 14. Would Windows work?
+
+The question worth asking after two hosts is not "can it be done" — it can — but
+whether the abstraction is the right shape, or whether macOS quietly bent it.
+
+**The tree is portable. The action channel is not.** That is the whole answer;
+the rest is why.
+
+### The tree maps to UI Automation better than it maps to ARIA
+
+UIA is not a poorer relation of the web's accessibility model, it is a richer
+one, and a spreadsheet is the case it was designed around. Every field
+`EVGA11yNode` carries has a UIA property or pattern waiting for it:
+
+| `EVGA11yNode` | UI Automation |
+| --- | --- |
+| `role` | `ControlType` — Button, CheckBox, RadioButton, Edit, DataGrid, DataItem, HeaderItem, ToolBar, Group, Text, Image, TabItem |
+| `name` / `description` | `Name` / `HelpText` |
+| `value` | `IValueProvider::Value` |
+| `b` (x, y, w, h) | `BoundingRectangle` — screen pixels, **y down**, so simpler than the macOS flip |
+| `focusable` / `focused` | `IsKeyboardFocusable` / `HasKeyboardFocus` + `UIA_AutomationFocusChangedEventId` |
+| `disabled` / `readOnly` | `IsEnabled` / `IValueProvider::IsReadOnly` |
+| `checked` (tri-state) | `IToggleProvider::ToggleState` — Off / On / Indeterminate, the same three |
+| `selected` | `ISelectionItemProvider::IsSelected` |
+| `modal` | `IsModal` |
+| `rowIndex` / `colIndex` | `IGridItemProvider::Row` / `Column` |
+| `rowCount` / `colCount` | `IGridProvider::RowCount` / `ColumnCount` |
+| `posInSet` / `setSize` | `PositionInSet` / `SizeOfSet` |
+| `live` | `LiveSetting` + `UIA_LiveRegionChangedEventId` |
+| `actActivate` / `actSetValue` / `actScrollTo` | `IInvokeProvider` / `IValueProvider::SetValue` / `IScrollItemProvider::ScrollIntoView` |
+
+Nothing in that column had to be invented for it and nothing in the left column
+is left over. The virtualization story is better than the web's, too:
+`IGridProvider::GetItem(row, column)` is a call the app can answer for a row it
+has never emitted, which is exactly the shape `DataGrid` already has.
+
+### Three things the bridge would have to grow
+
+**1. It needs the window handle.** `WM_GETOBJECT` is how Windows asks a window
+for its provider, and answering means returning
+`UiaReturnRawElementProvider(...)` as the message's `LRESULT`. SDL2's own hook
+cannot do that — checked against the header in this container:
+
+```c
+typedef void (SDLCALL * SDL_WindowsMessageHook)(void *userdata, void *hWnd,
+        unsigned int message, Uint64 wParam, Sint64 lParam);   /* SDL_system.h:46 */
+```
+
+It returns `void`, so it can observe `WM_GETOBJECT` and not answer it. The
+window procedure has to be subclassed instead — `SDL_GetWindowWMInfo` for the
+`HWND` (`info.info.win.window`), `SetWindowLongPtr(GWLP_WNDPROC)`, chain to the
+original. So `dgfx_a11y.h` grows one entry point, `dgfx_a11y_attach(SDL_Window*)`,
+called once beside `dgfx_install_menus`. macOS did not need it only because
+`NSApp` can find its own window; that was macOS being convenient, not the
+abstraction being right.
+
+**2. The contract has to say which thread.** This is the one that would bite.
+NSAccessibility asks its questions on the main thread, so `dgfx_a11y.mm` can
+hold plain mutable state and never think about it. UIA clients — NVDA, JAWS,
+Narrator — call provider methods from **RPC threads**, concurrently with the
+app's frame loop calling `publish`. The four functions do not change shape, but
+the contract behind them does: `publish` must swap in an **immutable snapshot**
+under a lock (or an atomic pointer), and every provider answers from the
+snapshot it was handed. Get that wrong and it is a crash under a screen reader
+and nowhere else.
+
+**3. The action channel is the part that is actually wrong.** Today a press
+comes back as a *point*, and the host presses the app there. That was a good
+trade for two hosts: no map from node ids to commands, and a button that moved
+is still pressed correctly. It cannot express what UIA will ask for:
+
+| UIA asks | Point suffices? |
+| --- | --- |
+| `IInvokeProvider::Invoke` | yes |
+| `ISelectionItemProvider::Select` | yes |
+| `IToggleProvider::Toggle` | yes |
+| `IValueProvider::SetValue(BSTR)` | **no** — a string has to arrive, and at a named node |
+| `IScrollItemProvider::ScrollIntoView` | **no** — the point is off screen, which is the problem |
+| `IExpandCollapseProvider` | no |
+
+So `dgfx_a11y_take_press` would become something like
+`dgfx_a11y_take_action() -> "kind\tnodeId\tx,y\tpayload"`, and the app grows
+one entry point that takes a node id rather than a coordinate. Notably this is
+the **same gap** as the browser's missing real `<input>` (§12): both are the
+write direction, and both are unfinished for the same reason — the tree was
+built first because it is what a reader reads.
+
+### Hand-written or AccessKit
+
+| | Hand-written UIA | AccessKit |
+| --- | --- | --- |
+| Size | ~800–1200 lines of COM C++: a provider class per node, `IRawElementProviderSimple` / `Fragment` / `FragmentRoot`, six pattern interfaces, refcounting, `UiaDisconnectProvider` on removal, the threading above | roughly the transcription `dgfx_a11y.mm` already is |
+| Risk | COM lifetime and cross-thread bugs that only appear with a screen reader attached | someone else already made them |
+| Cost | none | a Rust toolchain in a C++ build, and a static library to link |
+| Covers | Windows | Windows **and** Linux AT-SPI2 **and** macOS |
+
+`EVGA11yNode` was deliberately shaped as the intersection of these five APIs,
+and AccessKit's `TreeUpdate` is the closest of the five. If Windows is wanted,
+AccessKit is the answer for it and for Linux, and `dgfx_a11y.mm` then becomes
+the odd one out — worth keeping while it is the only tested path, worth
+retiring once it is not.
+
+### Verdict
+
+Nothing on the **Ranger side** would change: not `EVGA11yTree`, not
+`GridView.a11yTree`, not `GridApp.a11yJson`. That is the actual test of whether
+the seam was in the right place, and it passes. What changes is the bridge —
+one more entry point, one documented threading rule, and a typed action channel
+replacing the point. Those are amendments to a 60-line header, and the reason
+to make them is Windows; there is no reason to make them speculatively before
+somebody writes the other side.
+
+One Windows-specific trap to write down before it is discovered the hard way:
+`BoundingRectangle` is in **physical** screen pixels. A process that is not
+per-monitor DPI aware gets its rectangles virtualized by the system, and on a
+scaled display every node would be reported in the wrong place — the same class
+of bug as the Retina pointer offset documented in
+[`platform/sdl/README.md`](../datagrid/platform/sdl/README.md), arriving from
+the other end.
