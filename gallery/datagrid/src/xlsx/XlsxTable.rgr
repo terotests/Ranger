@@ -1,0 +1,229 @@
+; ==============================================================================
+; XlsxTable.rgr — `xl/tables/tableN.xml` becomes a SheetTable.
+; ==============================================================================
+;
+; A table part is small and says exactly three things worth keeping:
+;
+;   <table id="1" name="Table1" displayName="Table1" ref="A1:C5"
+;          headerRowCount="1" totalsRowCount="0">
+;     <tableColumns count="3">
+;       <tableColumn id="1" name="ProductID"/>
+;       <tableColumn id="2" name="CategoryID"/>
+;       <tableColumn id="3" name="Amount"/>
+;     </tableColumns>
+;   </table>
+;
+; the NAME a formula writes, the RECTANGLE it covers, and what each COLUMN is
+; called. The autoFilter and tableStyleInfo beside them are presentation and
+; are not read; the filter state the grid has of its own is a different thing
+; from the one a table remembers.
+;
+; TWO ATTRIBUTES FOR THE NAME. `displayName` is what formulas use and `name` is
+; an internal identifier; they are usually the same string and Excel keeps them
+; in step, but where a file has only one of them, or they differ, the formula
+; side is the one that matters — so displayName wins and name is the fallback.
+;
+; `headerRowCount` DEFAULTS TO ONE, which is the opposite of how an absent
+; attribute usually reads. A table written without it has a header row; a table
+; genuinely without one says `headerRowCount="0"` explicitly. Getting that
+; backwards moves every data row up by one and quietly turns the header into
+; data.
+; ==============================================================================
+
+Import "XmlLite.rgr"
+Import "../SheetTable.rgr"
+Import "../SpreadsheetModel.rgr"
+
+class XlsxTable {
+    ; Parse one table part. Returns a table whose name is empty when the part
+    ; is not one — a caller can test that rather than a separate flag.
+    sfn parse:SheetTable (xml:string) {
+        def t:SheetTable (new SheetTable)
+        if ((strlen xml) == 0) {
+            return t
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(xml)
+        def inColumns:boolean false
+        while (p.pos < p.len) {
+            def tag:XmlTag (p.nextTag())
+            if (tag.valid == false) {
+                break
+            }
+            if ((tag.name == "table") && (tag.isEnd == false)) {
+                def disp:string (tag.attr("displayName"))
+                if ((strlen disp) == 0) {
+                    disp = (tag.attr("name"))
+                }
+                t.name = disp
+                XlsxTable.applyRef(t (tag.attr("ref")))
+                ; Absent means one, not none.
+                def hdr:string (tag.attr("headerRowCount"))
+                if ((strlen hdr) > 0) {
+                    t.headerRowCount = (SpreadsheetModel.parseInt0(hdr))
+                } {
+                    t.headerRowCount = 1
+                }
+                def tot:string (tag.attr("totalsRowCount"))
+                if ((strlen tot) > 0) {
+                    t.totalsRowCount = (SpreadsheetModel.parseInt0(tot))
+                } {
+                    t.totalsRowCount = 0
+                }
+            }
+            if (tag.name == "tableColumns") {
+                if tag.isEnd {
+                    inColumns = false
+                } {
+                    inColumns = true
+                    if tag.selfClose {
+                        inColumns = false
+                    }
+                }
+            }
+            if ((tag.name == "tableColumn") && (tag.isEnd == false)) {
+                if inColumns {
+                    push t.columns (tag.attr("name"))
+                }
+            }
+        }
+        ; A table whose part named no columns still has them — they are the
+        ; cells of its header row. Reading the sheet is not this function's
+        ; job, so the caller is left to fill them; what must not happen is a
+        ; column list that is shorter than the rectangle, because a column
+        ; index is looked up in it.
+        return t
+    }
+
+    ; "A1:C5" — or "A1" for a one-cell table, which is legal and rare.
+    sfn applyRef:void (t:SheetTable ref:string) {
+        if ((strlen ref) == 0) {
+            return
+        }
+        def cut:int (indexOf ref ":")
+        def a:string ref
+        def b:string ref
+        if (cut >= 0) {
+            a = (substring ref 0 cut)
+            b = (substring ref (cut + 1) (strlen ref))
+        }
+        t.r0 = (XlsxTable.refRow(a))
+        t.c0 = (XlsxTable.refCol(a))
+        t.r1 = (XlsxTable.refRow(b))
+        t.c1 = (XlsxTable.refCol(b))
+        if (t.r1 < t.r0) {
+            def rt:int t.r0
+            t.r0 = t.r1
+            t.r1 = rt
+        }
+        if (t.c1 < t.c0) {
+            def ct:int t.c0
+            t.c0 = t.c1
+            t.c1 = ct
+        }
+    }
+
+    ; A1 → 0-based row and column. Written here rather than borrowed from the
+    ; formula parser: a table's `ref` never carries a `$` or a sheet name, and
+    ; the loader importing the engine to read four numbers would be a cycle
+    ; drawn for no reason.
+    sfn refCol:int (ref:string) {
+        def col:int 0
+        def saw:boolean false
+        def i:int 0
+        def n:int (strlen ref)
+        while (i < n) {
+            def ch:int (charAt ref i)
+            if ((ch >= 65) && (ch <= 90)) {
+                col = ((col * 26) + ((ch - 65) + 1))
+                saw = true
+            } {
+                if ((ch >= 97) && (ch <= 122)) {
+                    col = ((col * 26) + ((ch - 97) + 1))
+                    saw = true
+                } {
+                    if (ch != 36) {
+                        i = n
+                        continue
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (saw == false) {
+            return 0
+        }
+        return (col - 1)
+    }
+
+    sfn refRow:int (ref:string) {
+        def row:int 0
+        def saw:boolean false
+        def i:int 0
+        def n:int (strlen ref)
+        while (i < n) {
+            def ch:int (charAt ref i)
+            if ((ch >= 48) && (ch <= 57)) {
+                row = ((row * 10) + (ch - 48))
+                saw = true
+            }
+            i = (i + 1)
+        }
+        if (saw == false) {
+            return 0
+        }
+        return (row - 1)
+    }
+
+    ; Every table relationship on a sheet, in the order the rels part lists
+    ; them. A sheet may carry several tables, so `relTargetOfType` — which
+    ; answers with the first — is not enough here.
+    sfn tableTargets:void (rels:string out:[string]) {
+        if ((strlen rels) == 0) {
+            return
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(rels)
+        while (p.pos < p.len) {
+            def tag:XmlTag (p.nextTag())
+            if (tag.valid == false) {
+                break
+            }
+            if ((tag.name == "Relationship") && (tag.isEnd == false)) {
+                def ty:string (tag.attr("Type"))
+                def n:int (strlen ty)
+                if (n >= 6) {
+                    if ((substring ty (n - 6) n) == "/table") {
+                        def target:string (tag.attr("Target"))
+                        if ((strlen target) > 0) {
+                            push out target
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ; Column names the part did not carry, taken from the header row the table
+    ; says it has. A table with no header row has no names to take, and its
+    ; columns can then only be reached by position — which is what Excel does
+    ; too.
+    sfn fillColumnsFromSheet:void (t:SheetTable model:SpreadsheetModel) {
+        def want:int ((t.c1 - t.c0) + 1)
+        if (want < 1) {
+            return
+        }
+        if ((array_length t.columns) >= want) {
+            return
+        }
+        def i:int (array_length t.columns)
+        while (i < want) {
+            def name:string ""
+            if (t.headerRowCount > 0) {
+                name = (model.getCell(t.r0 (t.c0 + i)))
+            }
+            push t.columns name
+            i = (i + 1)
+        }
+    }
+}

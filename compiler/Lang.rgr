@@ -2286,7 +2286,7 @@ std::string __cpp_curr_dir() {
                 llvm ( "(file_exists " (e 1) " " (e 2) ")" )
                 cpp ( "r_cpp_file_exists( " (e 1) " + std::string(\"/\") + " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
 (create_polyfill "
-bool r_cpp_file_exists(std::string name) 
+bool r_cpp_file_exists(const std::string& name) 
 {
   struct stat buffer;
   return (stat (name.c_str(), &buffer) == 0);
@@ -2434,7 +2434,7 @@ func r_dir_exists ( dirName:String ) -> Bool {
                 )
                 cpp ( "r_cpp_dir_exists( " (e 1) " )" (imp "<sys/stat.h>") (imp "<string>")
 (create_polyfill "
-bool  r_cpp_dir_exists(std::string name) 
+bool  r_cpp_dir_exists(const std::string& name) 
 {
   struct stat buffer;
   return (stat (name.c_str(), &buffer) == 0);
@@ -2636,7 +2636,7 @@ static class RgFiles {
 
                 cpp ( "r_cpp_create_dir( " (e 1) " );" nl (imp "<sys/stat.h>") (imp "<sys/types.h>") (imp "<string>")
 (create_polyfill "
-void  r_cpp_create_dir(std::string name) 
+void  r_cpp_create_dir(const std::string& name) 
 {
   mkdir( name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
 }    
@@ -2763,7 +2763,7 @@ func r_write_file ( dirName:String, dataToWrite:String ) {
 
                 cpp ( "r_cpp_write_file( " (e 1) " , " (e 2) " , " (e 3) "  );" nl (imp "<iostream>") (imp "<string>") (imp "<fstream>")
 (create_polyfill "
-void  r_cpp_write_file(std::string path, std::string filename, std::string text) 
+void  r_cpp_write_file(const std::string& path, const std::string& filename, const std::string& text) 
 {
   std::ofstream outputFile;
   outputFile.open(path + \"/\" + filename);
@@ -2853,7 +2853,7 @@ def rg_read_file(path, filename):
                 )
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
 (create_polyfill "
-std::string  r_cpp_readFile(std::string path, std::string filename) 
+std::string  r_cpp_readFile(const std::string& path, const std::string& filename) 
 {
   std::ifstream ifs(path + \"/\" + filename);
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
@@ -4690,23 +4690,28 @@ static class RgStr {
 
 (create_polyfill
 "
-std::vector<std::string> r_str_split(std::string data, std::string token) {
+std::vector<std::string> r_str_split(const std::string& data, const std::string& token) {
+    // Walked with an index rather than by chopping the front off a copy: the
+    // old form reassigned `data = data.substr(...)` on every separator, so
+    // splitting an n-character string into k pieces copied about n*k
+    // characters. Splitting a megabyte on newlines was minutes of memcpy.
     std::vector<std::string> output;
-    size_t pos = std::string::npos; 
-    if(token.length() == 0) {
-        for(std::string::iterator it = data.begin(); it != data.end(); ++it) {
+    if (token.length() == 0) {
+        for (std::string::const_iterator it = data.begin(); it != data.end(); ++it) {
             output.push_back( std::string( it, it + 1) );
-        }        
+        }
         return output;
     }
-    do
-    {
-        pos = data.find(token);
-        output.push_back(data.substr(0, pos));
-        if (std::string::npos != pos)
-            data = data.substr(pos + token.size());
-    } while (std::string::npos != pos);
-    return output;
+    size_t start = 0;
+    while (true) {
+        size_t pos = data.find(token, start);
+        if (pos == std::string::npos) {
+            output.push_back(data.substr(start));
+            return output;
+        }
+        output.push_back(data.substr(start, pos - start));
+        start = pos + token.size();
+    }
 }
 "
 )   
@@ -6759,7 +6764,7 @@ i "}" nl ))
                     "r_string_index_of(" (e 1) " , " (e 2) ")"
 (create_polyfill
 "
-int r_string_index_of( std::string str, std::string key )  { 
+int r_string_index_of( const std::string& str, const std::string& key )  { 
     auto n = str.find( key );
     if (n == std::string::npos) {
         return -1;
@@ -6789,7 +6794,7 @@ int r_string_index_of( std::string str, std::string key )  {
                     "r_string_index_of_from(" (e 1) " , " (e 2) ", " (e 3) ")"
 (create_polyfill
 "
-int r_string_index_of_from( std::string str, std::string key, int start )  { 
+int r_string_index_of_from( const std::string& str, const std::string& key, int start )  { 
     if (start < 0 || start >= str.length()) return -1;
     auto n = str.find( key, start );
     if (n == std::string::npos) {
@@ -6822,7 +6827,7 @@ int r_string_index_of_from( std::string str, std::string key, int start )  {
                     "r_string_last_index_of(" (e 1) " , " (e 2) ")"
 (create_polyfill
 "
-int r_string_last_index_of( std::string str, std::string key )  { 
+int r_string_last_index_of( const std::string& str, const std::string& key )  { 
     auto n = str.rfind( key );
     if (n == std::string::npos) {
         return -1;
@@ -8355,7 +8360,7 @@ fun r_read_key(): String {
                         (imp "<algorithm>")
                         (imp "<string>")
 (create_polyfill "
-std::string r_cpp_str_to_lowercase(std::string original)
+std::string r_cpp_str_to_lowercase(const std::string& original)
 {
     std::string str = original;
     std::transform(str.begin(), str.end(), str.begin(), ::tolower);
@@ -8387,7 +8392,7 @@ std::string r_cpp_str_to_lowercase(std::string original)
                         (imp "<algorithm>")
                         (imp "<string>")
 (create_polyfill "
-std::string r_cpp_str_to_uppercase(std::string original) 
+std::string r_cpp_str_to_uppercase(const std::string& original) 
 {
     std::string str = original;
     std::transform(str.begin(), str.end(),str.begin(), ::toupper);  

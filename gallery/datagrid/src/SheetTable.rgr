@@ -1,0 +1,148 @@
+; ==============================================================================
+; SheetTable.rgr — an Excel table (a ListObject), and the names it gives things.
+; ==============================================================================
+;
+; A table is a named rectangle whose COLUMNS have names, and that is the whole
+; point of it: once a range is a table, a formula can say what it means rather
+; than where it is.
+;
+;     =SUM(Table1[Amount])                  every amount
+;     =Table1[[#This Row],[CategoryID]]     the category on this row
+;     =Table1[@CategoryID]                  the same thing, written since 2010
+;
+; Both spellings are ordinary in files people send: the long one is what Excel
+; 2007 wrote and what stays in a file written then, the short one is what Excel
+; writes today. Neither calculated here before, because nothing read the
+; `xl/tables/*.xml` parts where a table's name and its column names live —
+; the formula loaded as text and sat there.
+;
+; The geometry is stored the way the file states it: `r0` is the FIRST row of
+; the table, which is the header row when there is one. Everything else is
+; derived, so a table cannot hold two answers to the same question:
+;
+;     header row     r0                          (when headerRowCount is 1)
+;     first data row r0 + headerRowCount
+;     last data row  r1 - totalsRowCount
+;     totals row     r1                          (when totalsRowCount is 1)
+;
+; A table belongs to one sheet, but its NAME is workbook-wide: `Table1[Amount]`
+; means the same thing written on any sheet, which is why the lookup lives on
+; WorkbookModel rather than here.
+; ==============================================================================
+
+class SheetTable {
+    ; `name` is what a formula writes — OOXML's `displayName`. The `name`
+    ; attribute beside it is an internal identifier and is usually the same
+    ; string; where they differ, formulas use displayName.
+    def name:string ""
+    def r0:int 0
+    def c0:int 0
+    def r1:int 0
+    def c1:int 0
+    def headerRowCount:int 1
+    def totalsRowCount:int 0
+    ; Column names, left to right, one per column between c0 and c1.
+    def columns:[string]
+
+    Constructor () {
+    }
+
+    fn dataR0:int () {
+        return (r0 + headerRowCount)
+    }
+
+    fn dataR1:int () {
+        return (r1 - totalsRowCount)
+    }
+
+    fn hasHeader:boolean () {
+        return (headerRowCount > 0)
+    }
+
+    fn hasTotals:boolean () {
+        return (totalsRowCount > 0)
+    }
+
+    fn columnCount:int () {
+        return (array_length columns)
+    }
+
+    ; Which column carries this name, as an offset from c0, or -1.
+    ;
+    ; Compared without case, because Excel does not care and neither do the
+    ; people writing the formulas: a file whose header says "CategoryID" and a
+    ; formula that says `[categoryid]` are the same reference.
+    fn columnIndex:int (colName:string) {
+        def want:string (SheetTable.fold(colName))
+        def i:int 0
+        while (i < (array_length columns)) {
+            if ((SheetTable.fold((itemAt columns i))) == want) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn columnAt:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length columns)) {
+            return ""
+        }
+        return (itemAt columns i)
+    }
+
+    ; Lower-cased and trimmed. Not `to_lowercase` alone: a header may have been
+    ; written with a space around it, and a formula referring to it will not.
+    sfn fold:string (s:string) {
+        def n:int (strlen s)
+        def a:int 0
+        while (a < n) {
+            def ch:int (charAt s a)
+            if ((ch == 32) || (ch == 9)) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        def b:int n
+        while (b > a) {
+            def ch2:int (charAt s (b - 1))
+            if ((ch2 == 32) || (ch2 == 9)) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        return (to_lowercase (substring s a b))
+    }
+
+    ; Does this row fall inside the table at all? `[#This Row]` is only
+    ; meaningful where it does — a formula that says it from somewhere else is
+    ; asking about a row the table does not have.
+    fn containsRow:boolean (row:int) {
+        if (row < r0) {
+            return false
+        }
+        return (row <= r1)
+    }
+
+    fn copy:SheetTable () {
+        def t:SheetTable (new SheetTable)
+        t.name = name
+        t.r0 = r0
+        t.c0 = c0
+        t.r1 = r1
+        t.c1 = c1
+        t.headerRowCount = headerRowCount
+        t.totalsRowCount = totalsRowCount
+        def i:int 0
+        while (i < (array_length columns)) {
+            push t.columns (itemAt columns i)
+            i = (i + 1)
+        }
+        return t
+    }
+}

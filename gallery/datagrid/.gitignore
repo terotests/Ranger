@@ -8,3 +8,11 @@
 bin/
 harness/out/
 !fixtures/
+web/standalone/dist/
+web/editor/dist/
+!web/editor/compare/src/
+!web/editor/compare/src/**
+web/editor/compare/node_modules/
+web/editor/compare/page/cm-bundle.js
+web/editor/compare/page/doc.js
+web/editor/compare/last-results.json

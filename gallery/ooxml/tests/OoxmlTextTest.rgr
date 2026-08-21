@@ -1,0 +1,141 @@
+; ==============================================================================
+; OoxmlTextTest — the three OOXML readers decode text the same way, on both
+; string models.
+; ==============================================================================
+;
+; .xlsx, .docx and .pptx each had their own entity decoder, and they had drifted
+; apart in two ways that no test in any one of them could see.
+;
+; NUMERIC ENTITIES. `&#228;` and `&#xE4;` are ordinary in files Word and
+; PowerPoint write. The spreadsheet learned to read them; the other two showed
+; the user the digits.
+;
+; THE BYTE-VERSUS-CHARACTER TRAP. PowerPoint's decoder rebuilt every character
+; it passed through as `(strfromcode (charAt s i))`. That is the identity on
+; the JavaScript target, where a string is UTF-16 code units, and on the C++
+; target — where a string is BYTES — it hands 195 (the first byte of "ä") to a
+; function whose job is to turn a code POINT into text, which encodes it again.
+; So on the native build, any slide whose text contained an `&` ANYWHERE came
+; out with every accent in that string doubled: "Ä & Ö" drew as "Ã„ & Ã–".
+; Nothing in a JavaScript test can see that, which is why this file is compiled
+; and run TWICE.
+;
+;   npm run ooxml:text:test
+; ==============================================================================
+
+Import "../OoxmlText.rgr"
+Import "../../datagrid/src/xlsx/XmlLite.rgr"
+Import "../../docx_viewer/src/WordXml.rgr"
+Import "../../pptx/src/PptxXml.rgr"
+
+class OoxmlCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    ; The same input through all three readers, which is the whole point: a
+    ; reader that drifts fails here rather than in a document nobody renders.
+    fn allThree:void (name:string src:string want:string) {
+        def px:PptxXmlParser (new PptxXmlParser)
+        this.eqStr((name + " [xlsx]") (XmlLite.decodeEntities(src)) want)
+        this.eqStr((name + " [docx]") (WordXml.decodeEntities(src)) want)
+        this.eqStr((name + " [pptx]") (px.decodeEntities(src)) want)
+    }
+}
+
+class OoxmlTextTest {
+    ; Written out rather than pasted, so this file stays legible in any editor.
+    sfn aUml:string () {
+        return (strfromcode 228)
+    }
+
+    sfn oUml:string () {
+        return (strfromcode 246)
+    }
+
+    sfn main:void () {
+        def c:OoxmlCheck (new OoxmlCheck)
+        print "== OoxmlTextTest =="
+
+        def a:string (OoxmlTextTest.aUml())
+        def o:string (OoxmlTextTest.oUml())
+        def town:string (("H" + a) + "meenlinna")
+
+        print "-- the five named entities, in every reader --"
+        c.allThree("ampersand" "R&amp;D" "R&D")
+        c.allThree("less than" "a &lt; b" "a < b")
+        c.allThree("greater than" "a &gt; b" "a > b")
+        c.allThree("quote" "say &quot;hi&quot;" "say \"hi\"")
+        c.allThree("apostrophe" "it&apos;s" "it's")
+
+        print "-- numeric entities, which two of the three did not know --"
+        c.allThree("decimal" "H&#228;meenlinna" town)
+        c.allThree("hex lower" "H&#xe4;meenlinna" town)
+        c.allThree("hex upper" "H&#xE4;meenlinna" town)
+        c.allThree("a line break" "a&#10;b" ("a" + (strfromcode 10) + "b"))
+        c.allThree("several in a row" ("&#228;&#246;") (a + o))
+
+        print "-- text that has to come through untouched --"
+        c.allThree("no entity at all" town town)
+        c.allThree("empty" "" "")
+        ; The one that only the C++ build can fail: an `&` puts the decoder on
+        ; its slow path, and every accent after it has to survive that path.
+        c.allThree("accents beside an entity" ("R&amp;D " + town) ("R&D " + town))
+        c.allThree("accents on both sides" ((town + " &amp; ") + town) ((town + " & ") + town))
+        c.allThree("an accent between two entities" (("&lt;" + a) + "&gt;") (("<" + a) + ">"))
+
+        print "-- markup nobody here understands is left as written --"
+        c.allThree("an unknown named entity" "&nbsp;x" "&nbsp;x")
+        c.allThree("a bare ampersand" "a & b" "a & b")
+        c.allThree("an unterminated entity" "a &amp b" "a &amp b")
+        c.allThree("a doctype is not expanded" "&xxe;" "&xxe;")
+        c.allThree("not a number" "&#zz;" "&#zz;")
+        c.allThree("out of range" "&#9999999;" "&#9999999;")
+
+        print "-- the number reader itself --"
+        c.eqInt("decimal" (OoxmlText.entityNumber("#228")) 228)
+        c.eqInt("hex" (OoxmlText.entityNumber("#xE4")) 228)
+        c.eqInt("hex, capital X" (OoxmlText.entityNumber("#XE4")) 228)
+        c.eqInt("no digits" (OoxmlText.entityNumber("#")) 0)
+        c.eqInt("no digits after x" (OoxmlText.entityNumber("#x")) 0)
+        c.eqInt("past the last code point" (OoxmlText.entityNumber("#1114112")) 0)
+        c.eqInt("the last code point" (OoxmlText.entityNumber("#1114111")) 1114111)
+
+        print "-- and the string model this is running under --"
+        def bytes:boolean ((strlen a) > 1)
+        if bytes {
+            print "  strings are BYTES here (the C++ model)"
+        } {
+            print "  strings are CODE UNITS here (the JavaScript model)"
+        }
+        ; Whatever the model, a decoded accent has to equal the letter itself —
+        ; which is exactly what a second encoding pass breaks.
+        c.eqStr("a decoded accent is the letter" (OoxmlText.decodeEntities("&#228;")) a)
+        c.ok("and nothing was added to it" ((strlen (OoxmlText.decodeEntities("&#228;"))) == (strlen a)))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

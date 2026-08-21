@@ -1,0 +1,257 @@
+; ==============================================================================
+; ScriptEditorTest — the lexer says what a run of characters is, and the
+; editor does what a key press means.
+; ==============================================================================
+;
+; Both halves are checked without a screen: the lexer hands back spans, and the
+; editor hands back text. What a colour LOOKS like is not testable here and is
+; not the part that breaks — what breaks is a lexer that loses its state across
+; a line, and an edit that puts the caret in the wrong place.
+; ==============================================================================
+
+Import "../src/script/JsTokens.rgr"
+Import "../src/script/ScriptEditor.rgr"
+Import "../src/script/lang/JsLanguage.rgr"
+Import "../src/script/lang/RangerLanguage.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class ScriptEditorTest {
+
+    ; The kind the lexer gave the token starting at `at`, or -1.
+    sfn kindAt:int (line:CodeTokenLine at:int) {
+        def i:int 0
+        def n:int (line.count())
+        while (i < n) {
+            def t:CodeToken (line.at(i))
+            if (t.start == at) {
+                return t.kind
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn textOf:string (src:string line:CodeTokenLine index:int) {
+        def t:CodeToken (line.at(index))
+        def stop:int (t.start + t.len)
+        return (substring src t.start stop)
+    }
+
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== the lexer =="
+        def lx:JsTokenizer (new JsTokenizer)
+        def src:string "const rows = sheetRows('Sales'); // read the sheet"
+        def line:CodeTokenLine (lx.tokenizeLine(src))
+        c.eqInt("const is a keyword" (ScriptEditorTest.kindAt(line 0)) (CodeTokenKind.keyword()))
+        c.eqInt("rows is an identifier" (ScriptEditorTest.kindAt(line 6)) (CodeTokenKind.ident()))
+        c.eqInt("sheetRows is a builtin" (ScriptEditorTest.kindAt(line 13)) (CodeTokenKind.builtin()))
+        c.eqInt("'Sales' is text" (ScriptEditorTest.kindAt(line 23)) (CodeTokenKind.text()))
+        c.eqInt("the comment runs to the end" (ScriptEditorTest.kindAt(line 33)) (CodeTokenKind.comment()))
+
+        def numLine:CodeTokenLine (lx.tokenizeLine("let x = 12.5 + 0x1f;"))
+        c.eqInt("a number is a number" (ScriptEditorTest.kindAt(numLine 8)) (CodeTokenKind.number()))
+        c.eqInt("so is a hex one" (ScriptEditorTest.kindAt(numLine 15)) (CodeTokenKind.number()))
+
+        print "== JSX, without a parser =="
+        def jsx:CodeTokenLine (lx.tokenizeLine("  <Label width='90px' fontWeight={w}>{v}</Label>"))
+        c.eqInt("an opening tag" (ScriptEditorTest.kindAt(jsx 2)) (CodeTokenKind.tag()))
+        c.eqInt("width is an attribute" (ScriptEditorTest.kindAt(jsx 9)) (CodeTokenKind.attr()))
+        c.eqInt("fontWeight too" (ScriptEditorTest.kindAt(jsx 22)) (CodeTokenKind.attr()))
+        def cmp:CodeTokenLine (lx.tokenizeLine("if (i < rows.length) { }"))
+        c.eqInt("but a comparison is punctuation" (ScriptEditorTest.kindAt(cmp 6)) (CodeTokenKind.punct()))
+        def eq:CodeTokenLine (lx.tokenizeLine("if (a == b) { }"))
+        c.eqInt("and == is not an attribute" (ScriptEditorTest.kindAt(eq 4)) (CodeTokenKind.ident()))
+
+        print "== state that outlives a line =="
+        def lines:[string] ([] _:string ( "a = 1; /* opens" "still inside" "closes */ b = 2;" ))
+        def out:[CodeTokenLine] (lx.tokenize(lines))
+        c.eqInt("three lines in, three out" (array_length out) 3)
+        def l1:CodeTokenLine (itemAt out 1)
+        c.eqInt("the whole middle line is comment" (l1.count()) 1)
+        c.eqInt("and it knows it" (ScriptEditorTest.kindAt(l1 0)) (CodeTokenKind.comment()))
+        def l2:CodeTokenLine (itemAt out 2)
+        c.eqInt("code resumes after the close" (ScriptEditorTest.kindAt(l2 10)) (CodeTokenKind.ident()))
+
+        print "== the editor =="
+        def ed:ScriptEditor (new ScriptEditor)
+        ed.init("function render() {\n  return 1;\n}\n")
+        c.eqInt("lines counted" (ed.buf.lineCount()) 4)
+        c.ok("nothing typed yet" (ed.dirty == false))
+
+        ; Type at the end of the first line: Enter keeps the indent, and opens
+        ; one more level after a `{`.
+        ed.moveCaret(0 19 false)
+        ed.insertNewline()
+        c.eqStr("a new line, indented" (ed.buf.lineAt(1)) "  ")
+        ed.handleText("const x = 1;")
+        c.eqStr("typed after the indent" (ed.buf.lineAt(1)) "  const x = 1;")
+        c.ok("and the script is dirty now" ed.dirty)
+
+        ed.backspace()
+        c.eqStr("backspace takes one" (ed.buf.lineAt(1)) "  const x = 1")
+        ed.undo()
+        c.ok("undo puts it back" ((ed.buf.lineAt(1)) == "  const x = 1;"))
+
+        ed.selectAll()
+        c.ok("select all reaches the end" ((ed.sel.isCollapsed()) == false))
+        ed.insert("x")
+        c.eqInt("and typing replaces everything" (ed.buf.lineCount()) 1)
+        c.eqStr("with what was typed" (ed.text()) "x")
+
+        print "== the keyboard can cross the file =="
+        def kb:ScriptEditor (new ScriptEditor)
+        kb.init("const alpha = 1;\nfunction beta() {\n  return gamma;\n}\n")
+        kb.moveCaret(0 0 false)
+        kb.handleKey((UIKey.right()) false true)
+        c.eqInt("ctrl+right lands after the first word" kb.sel.caret.col 5)
+        kb.handleKey((UIKey.right()) false true)
+        c.eqInt("and after the second" kb.sel.caret.col 11)
+        kb.handleKey((UIKey.left()) false true)
+        c.eqInt("ctrl+left goes back to its start" kb.sel.caret.col 6)
+        kb.handleKey((UIKey.end()) false false)
+        c.eqInt("end is the end of the line" kb.sel.caret.col 16)
+        kb.handleKey((UIKey.end()) false true)
+        c.eqInt("ctrl+end is the last line" kb.sel.caret.line 4)
+        kb.handleKey((UIKey.home()) false true)
+        c.eqInt("ctrl+home is the first" kb.sel.caret.line 0)
+        c.eqInt("at column zero" kb.sel.caret.col 0)
+        kb.handleKey((UIKey.down()) true false)
+        c.ok("shift+down selects" ((kb.sel.isCollapsed()) == false))
+        kb.handleKey((UIKey.right()) false false)
+        c.ok("a plain right collapses the selection" (kb.sel.isCollapsed()))
+        c.eqInt("to its far edge, without moving on" kb.sel.caret.line 1)
+        c.eqInt("and to that edge's column" kb.sel.caret.col 0)
+        kb.handleKey((UIKey.down()) true false)
+        kb.handleKey((UIKey.left()) false false)
+        c.eqInt("a plain left collapses to the near edge" kb.sel.caret.line 1)
+        kb.handleKey((UIKey.end()) true true)
+        c.ok("shift+ctrl+end selects to the end" (kb.sel.caret.line == 4))
+        c.ok("and the selection is still open" ((kb.sel.isCollapsed()) == false))
+
+        print "== tokens follow the text =="
+        ; With a language plugin installed. Without one the editor draws plain
+        ; text on purpose — an unknown file should not be coloured as if it
+        ; were understood.
+        ed.setLanguage((new JsLanguage))
+        ed.init("const a = 1;")
+        ed.ensureTokens()
+        def first:CodeTokenLine (ed.tokensFor(0))
+        c.eqInt("lexed on demand" (ScriptEditorTest.kindAt(first 0)) (CodeTokenKind.keyword()))
+        def v1:int ed.tokenVersion
+        ed.ensureTokens()
+        c.eqInt("and not re-lexed for nothing" ed.tokenVersion v1)
+        ed.moveCaret(0 12 false)
+        ed.handleText(" // note")
+        ed.ensureTokens()
+        c.ok("re-lexed after an edit" (ed.tokenVersion != v1))
+        def again:CodeTokenLine (ed.tokensFor(0))
+        c.eqInt("and the comment is there" (ScriptEditorTest.kindAt(again 13)) (CodeTokenKind.comment()))
+
+        print "== a language plugin says what is wrong =="
+        def js:JsLanguage (new JsLanguage)
+        c.eqStr("it knows its name" (js.id()) "javascript")
+        c.ok("and which files are its own" (js.handlesFile("report.tsx")))
+        c.ok("but not another language's" ((js.handlesFile("thing.rgr")) == false))
+
+        def clean:[EditorDiagnostic] (js.diagnose("function render() {\n  return 1;\n}\n"))
+        c.eqInt("a good document has no problems" (array_length clean) 0)
+        c.ok("and it was really parsed, not skipped" js.parsedLastRun)
+
+        def unclosed:[EditorDiagnostic] (js.diagnose("function render() {\n  return 1;\n"))
+        c.eqInt("an unclosed brace is one problem" (array_length unclosed) 1)
+        def ub:EditorDiagnostic (itemAt unclosed 0)
+        c.eqInt("reported where it was OPENED" ub.line 0)
+        c.eqInt("at its column" ub.col 18)
+        c.eqInt("as an error" ub.severity (DiagnosticSeverity.error()))
+        c.eqStr("by the plugin that found it" ub.source "javascript")
+
+        def stray:[EditorDiagnostic] (js.diagnose("const a = 1;\n}\n"))
+        c.ok("a stray closer is caught too" ((array_length stray) > 0))
+        def sd:EditorDiagnostic (itemAt stray 0)
+        c.eqInt("on its own line" sd.line 1)
+
+        ; A document that is structurally fine but does not parse: the second
+        ; pass, the real parser, the one ComponentEngine will use.
+        def bad:[EditorDiagnostic] (js.diagnose("const = 1;\n"))
+        c.ok("the parser catches what the lexer cannot" ((array_length bad) > 0))
+        def pd:EditorDiagnostic (itemAt bad 0)
+        c.eqInt("with a line" pd.line 0)
+        c.ok("and something to say" ((strlen pd.message) > 4))
+
+        print "== and another plugin, for another language =="
+        def rg:RangerLanguage (new RangerLanguage)
+        c.eqStr("its own name" (rg.id()) "ranger")
+        c.ok("its own files" (rg.handlesFile("Thing.rgr")))
+        def rgClean:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:int () {\n        return (this.g())\n    }\n}\n"))
+        c.eqInt("clean Ranger is clean" (array_length rgClean) 0)
+        def rgOpen:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:int () {\n        return (1 + 2\n    }\n"))
+        c.ok("an unclosed paren is a problem" ((array_length rgOpen) > 0))
+        def rgWarn:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:int () {\n        return this.g()\n    }\n}\n"))
+        c.eqInt("a returned bare call is a warning" (array_length rgWarn) 1)
+        def rw:EditorDiagnostic (itemAt rgWarn 0)
+        c.eqInt("on the return line" rw.line 2)
+        c.eqInt("as a warning, not an error" rw.severity (DiagnosticSeverity.warning()))
+        def rgRecv:[EditorDiagnostic] (rg.diagnose("class A {\n    fn f:void () {\n        (this.g()).x()\n    }\n}\n"))
+        c.ok("so is a statement starting with a receiver" ((array_length rgRecv) > 0))
+
+        print "== the registry picks by file name =="
+        def reg:LanguageRegistry (new LanguageRegistry)
+        reg.add(js)
+        reg.add(rg)
+        def pick1:EditorLanguage (reg.forFile("summary.tsx"))
+        c.eqStr("a .tsx goes to the javascript plugin" (pick1.id()) "javascript")
+        def pick2:EditorLanguage (reg.forFile("GridApp.rgr"))
+        c.eqStr("a .rgr goes to the ranger one" (pick2.id()) "ranger")
+        def pick3:EditorLanguage (reg.forFile("notes.txt"))
+        c.eqStr("and an unknown file complains about nothing" (pick3.id()) "text")
+        def byId:EditorLanguage (reg.byId("ranger"))
+        c.eqStr("plugins can be found by id" (byId.id()) "ranger")
+
+        print "== the editor shows them, and forgets them when fixed =="
+        def ed2:ScriptEditor (new ScriptEditor)
+        ed2.setLanguage(js)
+        ed2.init("function render() {\n  return 1;\n")
+        c.eqInt("one problem to start with" (ed2.problemCount()) 1)
+        c.ok("the line knows it has one" (ed2.hasProblemOnLine(0)))
+        c.ok("another line does not" ((ed2.hasProblemOnLine(1)) == false))
+        ed2.moveCaret(1 11 false)
+        ed2.handleText("}")
+        c.eqInt("and closing it clears the complaint" (ed2.problemCount()) 0)
+        ed2.moveCaret(0 0 false)
+        ed2.handleText("{")
+        c.ok("breaking it again brings one back" ((ed2.problemCount()) > 0))
+        c.ok("and the caret can be sent to it" (ed2.goToNextProblem()))
+
+        print ""
+        print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILED"
+            return
+        }
+        print "OK"
+    }
+}

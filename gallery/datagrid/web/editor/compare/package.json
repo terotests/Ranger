@@ -1,0 +1,15 @@
+{
+  "name": "ranger-code-editor-compare",
+  "private": true,
+  "type": "module",
+  "description": "Side-by-side: the Ranger EVG code editor vs CodeMirror 6, same keys, same page",
+  "scripts": {
+    "compare": "node run.mjs"
+  },
+  "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.2",
+    "@codemirror/theme-one-dark": "^6.1.3",
+    "codemirror": "^6.0.1",
+    "esbuild": "^0.25.0"
+  }
+}

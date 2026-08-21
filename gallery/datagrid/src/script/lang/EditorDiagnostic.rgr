@@ -1,0 +1,76 @@
+; ==============================================================================
+; EditorDiagnostic.rgr — one complaint about one span of text
+; ==============================================================================
+;
+; The record every language plugin produces and the editor paints. It is
+; deliberately the shape a Language Server Protocol diagnostic has — a range, a
+; severity, a message and the name of whatever said so — because that shape has
+; already been argued about by everyone, and because a later move to a real
+; server should be a change of TRANSPORT, not of meaning.
+;
+; Positions are 0-based, like the editor's own. Every plugin converts into that
+; on its way out; nothing downstream has to remember whose parser counted from
+; one.
+; ==============================================================================
+
+class DiagnosticSeverity {
+    sfn error:int ()   { return 0 }
+    sfn warning:int () { return 1 }
+    sfn info:int ()    { return 2 }
+    sfn hint:int ()    { return 3 }
+
+    sfn name:string (severity:int) {
+        if (severity == 0) {
+            return "error"
+        }
+        if (severity == 1) {
+            return "warning"
+        }
+        if (severity == 2) {
+            return "info"
+        }
+        return "hint"
+    }
+}
+
+class EditorDiagnostic {
+    def line:int 0
+    def col:int 0
+    def endLine:int 0
+    def endCol:int 0
+    def severity:int 0
+    def message:string ""
+    ; Which plugin said it: "javascript", "ranger", "componentengine". Shown to
+    ; the user and used by a host that wants to clear one source's complaints
+    ; without touching another's.
+    def source:string ""
+
+    Constructor () {
+    }
+
+    ; The common case: a span inside one line. Not called `at` — that name is
+    ; taken by an operator, and a method with it compiles but never resolves.
+    sfn span:EditorDiagnostic (line:int col:int endCol:int severity:int message:string source:string) {
+        def d:EditorDiagnostic (new EditorDiagnostic)
+        d.line = line
+        d.col = col
+        d.endLine = line
+        d.endCol = endCol
+        d.severity = severity
+        d.message = message
+        d.source = source
+        return d
+    }
+
+    fn coversLine:boolean (l:int) {
+        if (l < line) {
+            return false
+        }
+        return (l <= endLine)
+    }
+
+    fn label:string () {
+        def where:string ((to_string (line + 1)) + ":" + (to_string (col + 1)))
+        return ((((DiagnosticSeverity.name(severity)) + " ") + where) + "  " + message)
+    }
+}

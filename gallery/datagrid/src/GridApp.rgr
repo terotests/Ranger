@@ -25,6 +25,7 @@ Import "GridFormat.rgr"
 Import "GridChart.rgr"
 Import "GridChartView.rgr"
 Import "GridClip.rgr"
+Import "script/GridScriptEngine.rgr"
 Import "db/GridDbSource.rgr"
 
 class GridApp {
@@ -46,6 +47,20 @@ class GridApp {
     ; A host that ignores it loses nothing: Ctrl+S still writes beside the
     ; source file, as it always did.
     def fileRequest:string ""
+    ; True when the HOST, not this class, decides where bytes end up — a
+    ; browser tab has no directory to write a PDF into, so it asks for the
+    ; bytes instead. A desktop host leaves this false and gets a file.
+    def hostWritesFiles:boolean false
+    ; Reports. A script lives in the workbook (script/GridScript.rgr), reads it
+    ; through GridScriptData, and comes back as EVG — which the preview paints
+    ; on this same canvas and the exporter writes as PDF. Nothing here is built
+    ; until a script is actually run, so a workbook without one pays nothing.
+    def scriptEngine:GridScriptEngine (new GridScriptEngine)
+    def scriptIndex:int 0
+    ; The PDF the last export produced, kept for hosts that hand bytes to a
+    ; browser download rather than writing a file themselves.
+    def pdfBytes:buffer (buffer_alloc 0)
+    def pdfName:string ""
     ; A sheet whose rows are a database query, when the host bound one. Nothing
     ; is loaded and no engine is named until bindDatabase is called, so a build
     ; that never touches a database carries a class it never constructs.
@@ -202,6 +217,13 @@ class GridApp {
     def dbRequestTable:string ""
     def dbConnStatus:string ""
     def colorDialogOp:string "color"
+    ; The border gallery. Three toolbar words could not say "a medium red line
+    ; under this block and nothing else", so the buttons open this instead:
+    ; which edges, which line, which colour, with the answer drawn as a
+    ; four-cell picture before it is applied to anything.
+    def borderDialog:EVGWindow (new EVGWindow)
+    def borderLine:string "thin"
+    def borderInk:string "#000000"
     def colorPick:string "#C00000"
     def colorRecent:[string]
     ; Live preview while the palette is open: styles before the picker ran,
@@ -270,6 +292,10 @@ class GridApp {
 
     fn init:void (fontDir:string) {
         view.init(W H fontDir)
+        ; The report engine measures with the same faces the grid draws with.
+        ; Two font searches would be two answers to "how wide is this string",
+        ; and the preview would stop agreeing with the PDF.
+        scriptEngine.fontsDir = fontDir
         ; The view paints the windows and the charts, so it is given them once
         ; here rather than on every frame — anything that builds a display list
         ; directly (a test, a dump) then sees the same scene the app does.
@@ -789,6 +815,17 @@ class GridApp {
         commands.addArg("nav.goto" "Go to cell" "Select" "")
         commands.add("view.sheet.next" "Next sheet" "View" "")
         commands.add("view.sheet.prev" "Previous sheet" "View" "")
+        commands.add("script.run" "Run the report script" "Script" "Ctrl+R")
+        commands.addArg("script.open" "Run a named report script" "Script" "")
+        commands.add("script.next" "Next script in this workbook" "Script" "")
+        commands.add("script.new" "New report script for this sheet" "Script" "")
+        commands.add("script.close" "Close the report preview" "Script" "Esc")
+        commands.add("script.page.next" "Next report page" "Script" "PgDn")
+        commands.add("script.page.prev" "Previous report page" "Script" "PgUp")
+        commands.add("script.zoom.in" "Zoom in" "Script" "+")
+        commands.add("script.zoom.out" "Zoom out" "Script" "-")
+        commands.add("script.zoom.fit" "Fit the page" "Script" "0")
+        commands.add("script.export.pdf" "Export the report as PDF" "Script" "Ctrl+P")
     }
 
     ; A tool the host adds. It appears in the table, and on the status bar, and
@@ -1038,6 +1075,11 @@ class GridApp {
         if (id == "nav.goto") {
             return (this.gotoCell(arg))
         }
+        if ((strlen id) > 7) {
+            if ((substring id 0 7) == "script.") {
+                return (this.runScriptCommand(id arg))
+            }
+        }
         if ((strlen id) > 3) {
             if ((substring id 0 3) == "db.") {
                 return (this.runDbCommand(id arg))
@@ -1050,6 +1092,70 @@ class GridApp {
         if (id == "view.sheet.prev") {
             this.setActiveSheet((book.activeIndex - 1))
             return true
+        }
+        return false
+    }
+
+    ; --- reports ---------------------------------------------------------------
+    ; A script that lives in this workbook, run over this workbook, drawn on
+    ; this canvas, exported as this PDF. GridScriptEngine does the work; what
+    ; is here is which script, and where the bytes go.
+    fn runScriptCommand:boolean (id:string arg:string) {
+        if (id == "script.run") {
+            return (this.runScriptAt(scriptIndex))
+        }
+        if (id == "script.open") {
+            def at:int (book.scriptIndexOf(arg))
+            if (at < 0) {
+                view.status = ("no script named '" + arg + "' in this workbook")
+                return true
+            }
+            return (this.runScriptAt(at))
+        }
+        if (id == "script.next") {
+            def n:int (book.scriptCount())
+            if (n == 0) {
+                view.status = "this workbook carries no scripts"
+                return true
+            }
+            def next:int (scriptIndex + 1)
+            if (next >= n) {
+                next = 0
+            }
+            return (this.runScriptAt(next))
+        }
+        if (id == "script.new") {
+            return (this.newScript(arg))
+        }
+        if (id == "script.close") {
+            view.preview.close()
+            view.status = "report closed"
+            return true
+        }
+        if (id == "script.page.next") {
+            view.preview.nextPage()
+            view.status = (view.preview.headline())
+            return true
+        }
+        if (id == "script.page.prev") {
+            view.preview.prevPage()
+            view.status = (view.preview.headline())
+            return true
+        }
+        if (id == "script.zoom.in") {
+            view.preview.zoomBy(1.25)
+            return true
+        }
+        if (id == "script.zoom.out") {
+            view.preview.zoomBy(0.8)
+            return true
+        }
+        if (id == "script.zoom.fit") {
+            view.preview.zoomFit()
+            return true
+        }
+        if (id == "script.export.pdf") {
+            return (this.exportScriptPdf())
         }
         return false
     }
@@ -1110,6 +1216,285 @@ class GridApp {
             return true
         }
         return false
+    }
+
+    ; Relative imports inside a script resolve against the workbook's own
+    ; folder, so a report can `import { Header } from "./components/Header"`
+    ; and mean the folder the .xlsx is in.
+    fn scriptBaseDir:string () {
+        def src:string book.sourcePath
+        if ((strlen src) == 0) {
+            return "./"
+        }
+        def dir:string (GridApp.exportDir(src))
+        if ((strlen dir) == 0) {
+            return "./"
+        }
+        return (dir + "/")
+    }
+
+    fn currentScript:GridScript () {
+        def n:int (book.scriptCount())
+        if (n == 0) {
+            def none:GridScript (new GridScript)
+            return none
+        }
+        def at:int scriptIndex
+        if (at < 0) {
+            at = 0
+        }
+        if (at >= n) {
+            at = (n - 1)
+        }
+        return (book.scriptAt(at))
+    }
+
+    fn runScriptAt:boolean (i:int) {
+        def n:int (book.scriptCount())
+        if (n == 0) {
+            view.status = "this workbook carries no scripts — run 'New report script' first"
+            return true
+        }
+        if editing {
+            this.commitEdit()
+        }
+        def at:int i
+        if (at < 0) {
+            at = 0
+        }
+        if (at >= n) {
+            at = (n - 1)
+        }
+        scriptIndex = at
+        def sc:GridScript (book.scriptAt(at))
+        scriptEngine.basePath = (this.scriptBaseDir())
+        def result:GridScriptResult (scriptEngine.run(sc book))
+        view.preview.show(sc.name result)
+        if (result.ok == false) {
+            view.status = result.error
+            return true
+        }
+        view.status = (view.preview.headline())
+        return true
+    }
+
+    ; A starter report for the sheet in front of the user, added to the
+    ; workbook so it is saved with it. Running it immediately is the point:
+    ; the first thing a new script does is show what it prints.
+    fn newScript:boolean (name:string) {
+        def nm:string name
+        if ((strlen nm) == 0) {
+            nm = "report"
+        }
+        def sheet:string (book.activeName())
+        def sc:GridScript (GridScript.create(nm (GridScript.starter(sheet))))
+        book.addScript(sc)
+        def at:int (book.scriptIndexOf(nm))
+        view.status = ("added script '" + nm + "' to the workbook")
+        return (this.runScriptAt(at))
+    }
+
+    fn pdfFileName:string (scriptName:string) {
+        def src:string book.sourcePath
+        def base:string (GridApp.baseName(src))
+        if ((strlen base) == 0) {
+            return (scriptName + ".pdf")
+        }
+        def dot:int -1
+        def i:int 0
+        while (i < (strlen base)) {
+            if ((charAt base i) == 46) {
+                dot = i
+            }
+            i = (i + 1)
+        }
+        if (dot > 0) {
+            base = (substring base 0 dot)
+        }
+        return ((base + "-" + scriptName) + ".pdf")
+    }
+
+    ; Re-run and render. The export never prints the preview's cached pages:
+    ; the sheet may have changed since, and a report that quietly exports last
+    ; minute's numbers is worse than one that takes a moment.
+    fn exportScriptPdf:boolean () {
+        def n:int (book.scriptCount())
+        if (n == 0) {
+            view.status = "no script to export"
+            return true
+        }
+        def sc:GridScript (this.currentScript())
+        scriptEngine.basePath = (this.scriptBaseDir())
+        def result:GridScriptResult (scriptEngine.run(sc book))
+        view.preview.show(sc.name result)
+        if (result.ok == false) {
+            view.status = result.error
+            return true
+        }
+        def bytes:buffer (scriptEngine.toPdf(result))
+        def size:int (buffer_length bytes)
+        if (size == 0) {
+            view.status = ("PDF export failed: " + scriptEngine.lastError)
+            return true
+        }
+        pdfBytes = bytes
+        pdfName = (this.pdfFileName(sc.name))
+        if hostWritesFiles {
+            fileRequest = "exportPdf"
+            view.status = ("report ready: " + pdfName)
+            return true
+        }
+        def dir:string (GridApp.exportDir(book.sourcePath))
+        buffer_write_file dir pdfName bytes
+        view.status = ((("wrote " + dir) + "/") + pdfName)
+        return true
+    }
+
+    ; The bytes a browser host downloads, and what to call the file.
+    fn scriptPdfBytes:buffer () {
+        return pdfBytes
+    }
+
+    fn suggestPdfName:string () {
+        if ((strlen pdfName) == 0) {
+            return "report.pdf"
+        }
+        return pdfName
+    }
+
+    ; --- the preview owns the keyboard ----------------------------------------
+    ; While a report is up, the sheet is behind it: arrow keys must not scroll
+    ; something the user cannot see. Clicks outside the preview panel still
+    ; reach the toolbar and the sheet tabs, so Save and Open keep working.
+    fn updateScriptPreview:boolean (input:UIInput) {
+        def consumed:boolean false
+        def ki:int 0
+        def kn:int (input.keyCount())
+        while (ki < kn) {
+            def k:int (input.keyAt(ki))
+            this.previewKey(k)
+            consumed = true
+            ki = (ki + 1)
+        }
+        if (input.hasText()) {
+            this.previewText(input.textInput input.ctrlDown)
+            consumed = true
+        }
+        if (input.scrollDelta != 0) {
+            if input.ctrlDown {
+                if (input.scrollDelta > 0) {
+                    view.preview.zoomBy(1.1)
+                } {
+                    view.preview.zoomBy(0.9)
+                }
+            } {
+                if (input.scrollDelta > 0) {
+                    view.preview.prevPage()
+                } {
+                    view.preview.nextPage()
+                }
+            }
+            view.status = (view.preview.headline())
+            consumed = true
+        }
+        if input.pointerPressed {
+            if (this.pointerInPreview(input.pointerX input.pointerY)) {
+                return true
+            }
+            return false
+        }
+        return consumed
+    }
+
+    fn pointerInPreview:boolean (px:int py:int) {
+        def top:int (grid.headerTop())
+        def bottom:int (grid.y + grid.h)
+        if (py < top) {
+            return false
+        }
+        if (py > bottom) {
+            return false
+        }
+        if (px < grid.x) {
+            return false
+        }
+        def right:int (grid.x + grid.w)
+        if (px > right) {
+            return false
+        }
+        return true
+    }
+
+    fn previewKey:void (key:int) {
+        if (key == (UIKey.escape())) {
+            view.preview.close()
+            view.status = "report closed"
+            return
+        }
+        if (key == (UIKey.pageDown())) {
+            view.preview.nextPage()
+            view.status = (view.preview.headline())
+            return
+        }
+        if (key == (UIKey.pageUp())) {
+            view.preview.prevPage()
+            view.status = (view.preview.headline())
+            return
+        }
+        if (key == (UIKey.right())) {
+            view.preview.nextPage()
+            view.status = (view.preview.headline())
+            return
+        }
+        if (key == (UIKey.left())) {
+            view.preview.prevPage()
+            view.status = (view.preview.headline())
+            return
+        }
+        if (key == (UIKey.home())) {
+            view.preview.setPage(0)
+            view.status = (view.preview.headline())
+            return
+        }
+        if (key == (UIKey.end())) {
+            def last:int ((view.preview.pageCount()) - 1)
+            view.preview.setPage(last)
+            view.status = (view.preview.headline())
+            return
+        }
+    }
+
+    fn previewText:void (text:string ctrl:boolean) {
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            if ctrl {
+                ; Ctrl+P prints, Ctrl+R re-runs — the two things a preview is
+                ; for, on the keys every other application uses for them.
+                if ((ch == 112) || (ch == 80)) {
+                    this.exportScriptPdf()
+                }
+                if ((ch == 114) || (ch == 82)) {
+                    this.runScriptAt(scriptIndex)
+                }
+            } {
+                if ((ch == 43) || (ch == 61)) {
+                    view.preview.zoomBy(1.25)
+                }
+                if (ch == 45) {
+                    view.preview.zoomBy(0.8)
+                }
+                if (ch == 48) {
+                    view.preview.zoomFit()
+                }
+                if ((ch == 110) || (ch == 78)) {
+                    view.preview.nextPage()
+                    view.status = (view.preview.headline())
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     ; --- saving ---------------------------------------------------------------
@@ -2313,6 +2698,9 @@ class GridApp {
         colorDialog.w = 340
         colorDialog.title = "Colour"
         windows.add(colorDialog)
+        borderDialog.w = 300
+        borderDialog.title = "Borders"
+        windows.add(borderDialog)
         sqlDialog.w = 460
         sqlDialog.title = "SQL query"
         windows.add(sqlDialog)
@@ -2664,6 +3052,285 @@ class GridApp {
         colorPreviewCommitted = false
         view.colorPreviewWid = 0
         colorDialog.close()
+    }
+
+    ; --- the border gallery ---------------------------------------------------
+    ; Three toolbar buttons could say "all", "outline" and "none", and that was
+    ; the whole vocabulary: no way to put a line under a block without boxing
+    ; it, no way to choose a thickness, no way to choose a colour. Everything
+    ; Excel offers in Format Cells → Border, and none of it reachable.
+    ;
+    ; So a window. It opens showing what the caret's cell ALREADY has — that is
+    ; what makes unticking an edge a way to remove one — and everything in it
+    ; feeds one command string, `format.border spec:…`, so a host driving the
+    ; grid can say the same thing without the window.
+    ;
+    ; Ids: 1001..1006 the edges, 1011..1016 the line, 1030.. the colour
+    ; (group 2), 1050 the preview, 1071..1073 the presets, 1091 Cancel,
+    ; 1092 Apply.
+    sfn borderPaletteCount:int () {
+        return 10
+    }
+
+    sfn borderPalette:string (i:int) {
+        if (i == 0) { return "#000000" }
+        if (i == 1) { return "#404040" }
+        if (i == 2) { return "#808080" }
+        if (i == 3) { return "#BFBFBF" }
+        if (i == 4) { return "#C00000" }
+        if (i == 5) { return "#ED7D31" }
+        if (i == 6) { return "#FFC000" }
+        if (i == 7) { return "#70AD47" }
+        if (i == 8) { return "#4472C4" }
+        if (i == 9) { return "#7030A0" }
+        return "#000000"
+    }
+
+    sfn borderLineCount:int () {
+        return 6
+    }
+
+    sfn borderLineStyle:string (i:int) {
+        if (i == 0) { return "thin" }
+        if (i == 1) { return "medium" }
+        if (i == 2) { return "thick" }
+        if (i == 3) { return "double" }
+        if (i == 4) { return "dashed" }
+        if (i == 5) { return "dotted" }
+        return "thin"
+    }
+
+    sfn borderLineLabel:string (i:int) {
+        if (i == 0) { return "Thin" }
+        if (i == 1) { return "Medium" }
+        if (i == 2) { return "Thick" }
+        if (i == 3) { return "Double" }
+        if (i == 4) { return "Dashed" }
+        if (i == 5) { return "Dotted" }
+        return "Thin"
+    }
+
+    ; The edges the caret's cell carries, as spec letters. A cell in the middle
+    ; of a selection cannot say anything about the block's inside lines, so H
+    ; and V are never seeded — they are something you ask for, not something
+    ; that is already there.
+    fn borderEdgesOfActive:string () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        def out:string ""
+        if (st.borderTop.has()) {
+            out = (out + "T")
+        }
+        if (st.borderBottom.has()) {
+            out = (out + "B")
+        }
+        if (st.borderLeft.has()) {
+            out = (out + "L")
+        }
+        if (st.borderRight.has()) {
+            out = (out + "R")
+        }
+        return out
+    }
+
+    ; The line and colour the caret's cell already draws with, so re-opening
+    ; the gallery over a red dashed box does not offer to make it thin black.
+    fn borderLineOfActive:string () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        if (st.borderTop.has())    { return st.borderTop.style }
+        if (st.borderBottom.has()) { return st.borderBottom.style }
+        if (st.borderLeft.has())   { return st.borderLeft.style }
+        if (st.borderRight.has())  { return st.borderRight.style }
+        return "thin"
+    }
+
+    fn borderInkOfActive:string () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        if (st.borderTop.has())    { return st.borderTop.rgb }
+        if (st.borderBottom.has()) { return st.borderBottom.rgb }
+        if (st.borderLeft.has())   { return st.borderLeft.rgb }
+        if (st.borderRight.has())  { return st.borderRight.rgb }
+        return "#000000"
+    }
+
+    fn openBorderDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        def edges:string (this.borderEdgesOfActive())
+        borderLine = (this.borderLineOfActive())
+        borderInk = (this.borderInkOfActive())
+        def multi:boolean false
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        if (a.row != b.row) {
+            multi = true
+        }
+        if (a.col != b.col) {
+            multi = true
+        }
+        borderDialog.w = 300
+        borderDialog.reset()
+        borderDialog.addLabel("Edges")
+        borderDialog.beginColumns(2)
+        borderDialog.addCheckbox(1001 "Top" (GridApp.hasLetter(edges 84)))
+        borderDialog.addCheckbox(1002 "Bottom" (GridApp.hasLetter(edges 66)))
+        borderDialog.addCheckbox(1003 "Left" (GridApp.hasLetter(edges 76)))
+        borderDialog.addCheckbox(1004 "Right" (GridApp.hasLetter(edges 82)))
+        borderDialog.endColumns()
+        ; The two inside lines only mean something when there is an inside.
+        if multi {
+            borderDialog.beginColumns(2)
+            borderDialog.addCheckbox(1005 "Inside —" false)
+            borderDialog.addCheckbox(1006 "Inside |" false)
+            borderDialog.endColumns()
+        }
+        borderDialog.addSeparator()
+        borderDialog.addLabel("Line")
+        borderDialog.beginColumns(3)
+        def li:int 0
+        while (li < (GridApp.borderLineCount())) {
+            def styleName:string (GridApp.borderLineStyle(li))
+            borderDialog.addRadio((1011 + li) (GridApp.borderLineLabel(li)) 1 (styleName == borderLine))
+            li = (li + 1)
+        }
+        borderDialog.endColumns()
+        borderDialog.addSeparator()
+        borderDialog.addLabel("Colour")
+        borderDialog.beginColumns(10)
+        def matched:boolean false
+        def ci:int 0
+        while (ci < (GridApp.borderPaletteCount())) {
+            def hex:string (GridApp.borderPalette(ci))
+            def on:boolean false
+            if (matched == false) {
+                if (hex == borderInk) {
+                    on = true
+                    matched = true
+                }
+            }
+            borderDialog.addSwatch((1030 + ci) hex 2 on)
+            ci = (ci + 1)
+        }
+        borderDialog.endColumns()
+        ; A colour the sheet is already using but the palette does not offer
+        ; would otherwise be silently swapped for black on the first Apply.
+        if (matched == false) {
+            borderDialog.beginColumns(10)
+            borderDialog.addSwatch(1029 borderInk 2 true)
+            borderDialog.endColumns()
+        }
+        borderDialog.addSeparator()
+        borderDialog.addContent(1050 62)
+        def pids:[int]
+        def plabels:[string]
+        push pids 1071
+        push plabels "Box"
+        push pids 1072
+        push plabels "All"
+        push pids 1073
+        push plabels "None"
+        borderDialog.addButtonRow(pids plabels 0)
+        def ids:[int]
+        def labels:[string]
+        push ids 1091
+        push labels "Cancel"
+        push ids 1092
+        push labels "Apply"
+        borderDialog.addButtonRow(ids labels 1092)
+        borderDialog.finish()
+        def px:int (grid.x + (idiv (W - borderDialog.w) 2))
+        borderDialog.openWithin(px (grid.y + 40) W H)
+        windows.raise(borderDialog)
+        view.focused = true
+        this.syncBorderDialog()
+    }
+
+    sfn hasLetter:boolean (s:string letter:int) {
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == letter) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What the controls currently say, as the spec string the command takes.
+    fn borderSpecFromDialog:string () {
+        def flags:string ""
+        if (borderDialog.isChecked(1001)) {
+            flags = (flags + "T")
+        }
+        if (borderDialog.isChecked(1002)) {
+            flags = (flags + "B")
+        }
+        if (borderDialog.isChecked(1003)) {
+            flags = (flags + "L")
+        }
+        if (borderDialog.isChecked(1004)) {
+            flags = (flags + "R")
+        }
+        if (borderDialog.isChecked(1005)) {
+            flags = (flags + "H")
+        }
+        if (borderDialog.isChecked(1006)) {
+            flags = (flags + "V")
+        }
+        return ("spec:" + flags + ":" + borderLine + ":" + borderInk)
+    }
+
+    ; Read the window back every frame, the way the chart picker does, so the
+    ; preview is what the controls say and not what they said when it opened.
+    fn syncBorderDialog:void () {
+        def chosen:int (borderDialog.selectedInGroup(1))
+        if (chosen >= 1011) {
+            borderLine = (GridApp.borderLineStyle((chosen - 1011)))
+        }
+        def hex:string (borderDialog.selectedSwatchValue(2))
+        if ((strlen hex) > 0) {
+            borderInk = hex
+        }
+        view.borderPreviewSpec = (this.borderSpecFromDialog())
+        if borderDialog.visible {
+            view.borderPreviewWid = borderDialog.wid
+        } {
+            view.borderPreviewWid = 0
+        }
+    }
+
+    ; The presets tick boxes rather than applying anything: what a preset means
+    ; is then visible in the preview before it touches the sheet.
+    fn presetBorderDialog:void (which:int) {
+        def box:boolean (which == 1071)
+        def all:boolean (which == 1072)
+        borderDialog.setChecked(1001 (box || all))
+        borderDialog.setChecked(1002 (box || all))
+        borderDialog.setChecked(1003 (box || all))
+        borderDialog.setChecked(1004 (box || all))
+        borderDialog.setChecked(1005 all)
+        borderDialog.setChecked(1006 all)
+        this.syncBorderDialog()
+    }
+
+    fn applyBorderDialog:void () {
+        this.syncBorderDialog()
+        def spec:string (this.borderSpecFromDialog())
+        def done:boolean (GridFormat.apply(model sel "border" spec))
+        if done {
+            sheetView.markDirty()
+            grid.updateVisible(model)
+            view.status = ("Borders: " + (GridFormat.specField(spec 1)))
+        }
+        view.borderPreviewWid = 0
+        borderDialog.close()
+    }
+
+    fn cancelBorderDialog:void () {
+        view.borderPreviewWid = 0
+        borderDialog.close()
     }
 
     ; --- conditional formatting ----------------------------------------------
@@ -3632,6 +4299,12 @@ class GridApp {
                 return true
             }
         }
+        if (id == "format.border") {
+            if ((strlen arg) == 0) {
+                this.openBorderDialog()
+                return true
+            }
+        }
         if (id == "format.fill") {
             if ((strlen arg) == 0) {
                 def curF:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
@@ -4217,6 +4890,24 @@ class GridApp {
                 view.colorPreviewWid = 0
             }
         }
+        if borderDialog.visible {
+            ; Live, like the chart picker: the preview draws whatever the
+            ; controls say, so you can see a medium red box before you own one.
+            this.syncBorderDialog()
+            if (borderDialog.activated >= 1071) {
+                if (borderDialog.activated <= 1073) {
+                    this.presetBorderDialog(borderDialog.activated)
+                }
+            }
+            if (borderDialog.activated == 1092) {
+                this.applyBorderDialog()
+            }
+            if (borderDialog.activated == 1091) {
+                this.cancelBorderDialog()
+            }
+        } {
+            view.borderPreviewWid = 0
+        }
         if (linkDialog.activated > 0) {
             if (linkDialog.activated == 813) {
                 this.applyLinkDialog()
@@ -4263,6 +4954,13 @@ class GridApp {
         W = nw
         H = nh
         view.resize(W H)
+        ; The strip is as many rows as the buttons need AT THIS WIDTH, and the
+        ; width is what just changed. Measured once at startup and never again,
+        ; the height was right only for the size the window opened at: narrow
+        ; it and the buttons that no longer fit wrapped onto a row painted
+        ; BELOW the strip, over the formula bar; widen it and a band of empty
+        ; chrome sat where a row used to be.
+        grid.toolbarH = (view.toolbar.heightFor(W))
         grid.setBounds(0 0 W (H - statusH))
         grid.updateVisible(model)
     }
@@ -6583,6 +7281,13 @@ class GridApp {
         ; A visible dialog owns the frame.
         if (this.updateDialogs(input)) {
             return
+        }
+        ; …and so does a report preview, for everything except a click on the
+        ; chrome around it.
+        if view.preview.active {
+            if (this.updateScriptPreview(input)) {
+                return
+            }
         }
         ; The toolbar lights up under the pointer whether or not a button is
         ; pressed — without that it is a row of shapes rather than something

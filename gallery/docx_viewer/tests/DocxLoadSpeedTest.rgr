@@ -1,0 +1,131 @@
+; ==============================================================================
+; DocxLoadSpeedTest — a long document opens in time proportional to its length
+; ==============================================================================
+;
+; Opening a 20,000-paragraph .docx took 58 seconds in the browser and 49 in the
+; native build. Two separate causes, one of them invisible from either side
+; alone, which is why this test is compiled twice.
+;
+; THE WALK RE-SEARCHED THE WHOLE DOCUMENT. `parseDocumentXml` asked for the
+; next `w:p`, `w:tbl` and `w:sectPr` from the current position on every turn.
+; A document with no tables in it — which is most documents — therefore
+; scanned its entire length looking for `w:tbl`, found nothing, and did it
+; again for the next paragraph. Remembering where each tag was last seen makes
+; the walk linear, since the body is only ever walked forward.
+;
+; AND THE C++ SEARCH COPIED THE DOCUMENT. `indexOfFrom` lowered to a polyfill
+; taking `std::string` BY VALUE, so every search copied the whole 4.6 MB part
+; before looking at any of it — a cost the JavaScript target does not have and
+; cannot see. `const std::string&` in Lang.rgr took the native parse from 49
+; seconds to 139 milliseconds.
+;
+; The budget below is deliberately loose — twenty seconds for work that now
+; takes well under one — so it fails on either of those and never on a slow
+; machine.
+;
+;   npm run docx_viewer:load:test
+; ==============================================================================
+
+Import "../src/WordMlParser.rgr"
+Import "../src/RichDocument.rgr"
+
+class LoadCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class DocxLoadSpeedTest {
+    ; Paragraphs enough that either defect needs tens of seconds and a linear
+    ; parser needs a fraction of one. Measured on the same machine: 58,532 ms
+    ; (JavaScript) and 49,327 ms (C++) before, 869 ms and 139 ms after.
+    sfn paragraphs:int () {
+        return 20000
+    }
+
+    sfn budgetMs:double () {
+        return 20000.0
+    }
+
+    ; WordprocessingML with no tables in it, which is the shape that made the
+    ; old walk quadratic — and with an accented word and an escaped entity in
+    ; every paragraph, so the text path is exercised too rather than skipped.
+    sfn buildXml:int (n:int out:[string]) {
+        def s:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        str_append s "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>"
+        def a:string (strfromcode 228)
+        def i:int 0
+        while (i < n) {
+            str_append s "<w:p><w:pPr><w:jc w:val=\"both\"/></w:pPr><w:r><w:rPr><w:sz w:val=\"22\"/></w:rPr><w:t xml:space=\"preserve\">Kappale "
+            str_append s (to_string i)
+            str_append s " H"
+            str_append s a
+            str_append s "meenlinna &amp; &#198;r&#248;, tavallista teksti"
+            str_append s a
+            str_append s " ja hieman pituutta.</w:t></w:r></w:p>"
+            i = (i + 1)
+        }
+        str_append s "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\"/></w:sectPr>"
+        str_append s "</w:body></w:document>"
+        push out s
+        return (strlen s)
+    }
+
+    sfn main:void () {
+        def c:LoadCheck (new LoadCheck)
+        print "== DocxLoadSpeedTest =="
+        def n:int (DocxLoadSpeedTest.paragraphs())
+
+        def held:[string]
+        def units:int (DocxLoadSpeedTest.buildXml(n held))
+        def xml:string (itemAt held 0)
+        print ("  " + (to_string n) + " paragraphs, " + (to_string units) + " units of XML")
+
+        def parser:WordMlParser (new WordMlParser)
+        def t0:double (wall_clock_ms)
+        def doc:RichDocument (parser.parseDocumentXml(xml))
+        def t1:double (wall_clock_ms)
+        def took:double (t1 - t0)
+        print ("  parsed in " + (to_string (to_int took)) + " ms")
+
+        c.eqInt("every paragraph is there" (doc.paragraphCount()) n)
+        c.ok((("under the " + (to_string (to_int (DocxLoadSpeedTest.budgetMs())))) + " ms budget") (took < (DocxLoadSpeedTest.budgetMs())))
+
+        ; The text came through as text, not as the entities it was written
+        ; with — a fast parser that drops the decoding is not a fast parser.
+        def a:string (strfromcode 228)
+        def first:Paragraph (doc.paragraphAt(0))
+        def txt:string (first.plainText())
+        c.ok("an accent written as bytes" ((indexOf txt ("H" + a + "meenlinna")) >= 0))
+        c.ok("an ampersand written as an entity" ((indexOf txt " & ") >= 0))
+        c.ok("a letter written as a numeric entity" ((indexOf txt (strfromcode 198)) >= 0))
+        def last:Paragraph (doc.paragraphAt((n - 1)))
+        c.ok("and the last paragraph too" ((indexOf (last.plainText()) "Kappale 19999") >= 0))
+
+        print ""
+        if ((strlen a) > 1) {
+            print "  strings are BYTES here (the C++ model)"
+        } {
+            print "  strings are CODE UNITS here (the JavaScript model)"
+        }
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

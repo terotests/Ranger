@@ -1,0 +1,170 @@
+; ==============================================================================
+; SoftClipTest — a clip is a clip on both targets.
+; ==============================================================================
+;
+; `SoftPainter.intersectClip` used to take four one-element arrays and write
+; the narrowed rectangle back into them. On the JavaScript target an array is a
+; reference and that works. On the C++ target `[int]` is a `std::vector<int>`
+; parameter taken BY VALUE, so the caller's rectangle was never touched and the
+; native build drew every RECT and every BORDER at full size, clip or no clip.
+;
+; Nothing had ever noticed, because until an active-cell ring was drawn two
+; pixels outside the sheet body nothing in the app was drawn outside a clip at
+; all. The render-parity harness caught it the moment one was — the two builds
+; drew the same spreadsheet differently — and this is the same question asked
+; directly, so it fails loudly rather than as a pixel diff in a picture.
+;
+; Both halves matter and neither can see the other, so this test is compiled
+; twice:
+;
+;   npm run datagrid:softclip:test
+; ==============================================================================
+
+Import "../src/SoftPainter.rgr"
+
+class SoftClipCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class SoftClipTest {
+    sfn painterAt:SoftPainter (w:int h:int) {
+        def p:SoftPainter (new SoftPainter)
+        def canvas:SoftCanvas (new SoftCanvas)
+        canvas.init(w h)
+        def ctx:UIContext (new UIContext)
+        ctx.attach(canvas)
+        def images:GridImages (new GridImages)
+        p.attach(canvas ctx images w h)
+        return p
+    }
+
+
+    sfn rectCmd:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    sfn borderCmd:void (dl:EVGDisplayList x:double y:double w:double h:double thickness:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    sfn clipCmd:void (dl:EVGDisplayList x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push dl.cmds c
+    }
+
+    sfn unclipCmd:void (dl:EVGDisplayList) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push dl.cmds c
+    }
+
+    ; Red channel of one pixel.
+    sfn redAt:int (p:SoftPainter w:int x:int y:int) {
+        def px:buffer (p.raw())
+        def at:int (((y * w) + x) * 4)
+        if ((at + 3) >= (buffer_length px)) {
+            return -1
+        }
+        return (buffer_get px at)
+    }
+
+    sfn main:void () {
+        def c:SoftClipCheck (new SoftClipCheck)
+        print "== SoftClipTest =="
+        def W:int 80
+        def H:int 60
+
+        ; A red rectangle covering the whole canvas, with a clip that only
+        ; admits the middle of it.
+        def p:SoftPainter (SoftClipTest.painterAt(W H))
+        def dl:EVGDisplayList (new EVGDisplayList)
+        SoftClipTest.clipCmd(dl 20.0 20.0 20.0 20.0)
+        SoftClipTest.rectCmd(dl 0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(255 0 0)))
+        SoftClipTest.unclipCmd(dl)
+        p.clear((EVGColor.rgb(0 0 0)))
+        p.draw(dl)
+        c.eqInt("inside the clip is painted" (SoftClipTest.redAt(p W 25 25)) 255)
+        ; These four were 255 on the C++ build: the rectangle was drawn whole.
+        c.eqInt("left of the clip is not" (SoftClipTest.redAt(p W 10 25)) 0)
+        c.eqInt("right of it is not" (SoftClipTest.redAt(p W 60 25)) 0)
+        c.eqInt("above it is not" (SoftClipTest.redAt(p W 25 10)) 0)
+        c.eqInt("below it is not" (SoftClipTest.redAt(p W 25 55)) 0)
+
+        ; A rectangle wholly outside the clip is not painted at all.
+        def p2:SoftPainter (SoftClipTest.painterAt(W H))
+        def dl2:EVGDisplayList (new EVGDisplayList)
+        SoftClipTest.clipCmd(dl2 0.0 0.0 10.0 10.0)
+        SoftClipTest.rectCmd(dl2 40.0 40.0 10.0 10.0 (EVGColor.rgb(255 0 0)))
+        SoftClipTest.unclipCmd(dl2)
+        p2.clear((EVGColor.rgb(0 0 0)))
+        p2.draw(dl2)
+        c.eqInt("a rect entirely outside the clip draws nothing" (SoftClipTest.redAt(p2 W 45 45)) 0)
+
+        ; A BORDER is an outline, so a clip must CUT its sides rather than
+        ; shrink the box: narrowing the rectangle would move all four lines
+        ; inwards and draw a smaller, complete ring in the wrong place.
+        def p3:SoftPainter (SoftClipTest.painterAt(W H))
+        def dl3:EVGDisplayList (new EVGDisplayList)
+        ; Clip admits x >= 20; the ring starts at 10, so its left side is out.
+        SoftClipTest.clipCmd(dl3 20.0 0.0 (to_double (W - 20)) (to_double H))
+        SoftClipTest.borderCmd(dl3 10.0 10.0 40.0 30.0 1.0 (EVGColor.rgb(255 0 0)))
+        SoftClipTest.unclipCmd(dl3)
+        p3.clear((EVGColor.rgb(0 0 0)))
+        p3.draw(dl3)
+        c.eqInt("the ring's left side is cut away" (SoftClipTest.redAt(p3 W 10 25)) 0)
+        c.eqInt("and is NOT redrawn at the clip edge" (SoftClipTest.redAt(p3 W 20 25)) 0)
+        c.eqInt("its right side is where it always was" (SoftClipTest.redAt(p3 W 49 25)) 255)
+        c.eqInt("its top survives inside the clip" (SoftClipTest.redAt(p3 W 30 10)) 255)
+        c.eqInt("and is cut outside it" (SoftClipTest.redAt(p3 W 15 10)) 0)
+        c.eqInt("its bottom survives too" (SoftClipTest.redAt(p3 W 30 39)) 255)
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

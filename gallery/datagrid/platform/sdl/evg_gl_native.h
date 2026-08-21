@@ -26,6 +26,11 @@ void evggl_text(float x, float y, float w, float h,
                 float r, float g, float b, float a, float rotDeg);
 void evggl_image(float x, float y, float w, float h,
                  const uint8_t* rgba, int tw, int th, float radius);
+// Clip everything drawn from here on to a page-coordinate rectangle; the
+// caller intersects as clips nest. `evggl_clip_off` returns to unclipped.
+void evggl_clip(float x, float y, float w, float h);
+void evggl_clip_off(void);
+
 void evggl_tris(const float* xy, int nFloats,
                 float r, float g, float b, float a);
 void evggl_tris_doubles(const double* xy, int nFloats,

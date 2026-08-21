@@ -1,0 +1,192 @@
+; ==============================================================================
+; RangerTokens.rgr — the same token kinds, from a different language
+; ==============================================================================
+;
+; Ranger is S-expressions: `;` runs to the end of the line, strings are double
+; quoted, and the words that matter are the declaration keywords rather than
+; JavaScript's. Twenty lines of difference, and the editor cannot tell — it is
+; handed the same `CodeTokenLine`s and paints them the same way.
+;
+; That is the test of whether the seam is real. A language whose colours had to
+; be added to the painter would not be a plugin.
+; ==============================================================================
+
+Import "CodeTokens.rgr"
+
+class RangerTokenizer {
+    Constructor () {
+    }
+
+    sfn keywords:[string] () {
+        return ([] _:string ( "class" "def" "fn" "sfn" "return" "if" "if!" "while" "for" "switch" "case" "default" "break" "continue" "new" "this" "Import" "Extends" "Constructor" "record" "Enum" "true" "false" "null" "static" "throw" "try" "print" "push" "clear" "set" "get" "has" "unwrap" "operator" ))
+    }
+
+    ; The operators a Ranger file is mostly made of. Colouring them as builtins
+    ; is the same favour the JavaScript plugin does for the workbook API: a
+    ; name that lights up is a name the language knows.
+    sfn builtins:[string] () {
+        return ([] _:string ( "array_length" "strlen" "substring" "charAt" "strfromcode" "to_string" "to_int" "to_double" "itemAt" "set_at" "remove_index" "removeLast" "str_append" "strsplit" "trim" "idiv" "read_file" "write_file" "buffer_length" "buffer_get" "wall_clock_ms" "keys" "values" ))
+    }
+
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        def out:[CodeTokenLine]
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            push out (this.tokenizeLine((itemAt lines i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn tokenizeLine:CodeTokenLine (line:string) {
+        def out:CodeTokenLine (new CodeTokenLine)
+        def n:int (strlen line)
+        def i:int 0
+        def kw:[string] (RangerTokenizer.keywords())
+        def bi:[string] (RangerTokenizer.builtins())
+        while (i < n) {
+            def ch:int (charAt line i)
+            if ((ch == 32) || (ch == 9)) {
+                i = (i + 1)
+                continue
+            }
+            if (ch == 59) {
+                push out.tokens (CodeToken.create(i (n - i) (CodeTokenKind.comment())))
+                i = n
+                continue
+            }
+            if (ch == 34) {
+                def close:int (this.stringEnd(line (i + 1)))
+                def stop:int n
+                if (close >= 0) {
+                    stop = (close + 1)
+                }
+                push out.tokens (CodeToken.create(i (stop - i) (CodeTokenKind.text())))
+                i = stop
+                continue
+            }
+            if (RangerTokenizer.isDigit(ch)) {
+                def numEnd:int (this.readNumber(line i))
+                push out.tokens (CodeToken.create(i (numEnd - i) (CodeTokenKind.number())))
+                i = numEnd
+                continue
+            }
+            if (RangerTokenizer.isWordChar(ch)) {
+                def wordEnd:int (this.readWord(line i))
+                def word:string (substring line i wordEnd)
+                def kind:int (CodeTokenKind.ident())
+                if (RangerTokenizer.wordIn(word kw)) {
+                    kind = (CodeTokenKind.keyword())
+                } {
+                    if (RangerTokenizer.wordIn(word bi)) {
+                        kind = (CodeTokenKind.builtin())
+                    } {
+                        ; `name:type` — the annotation half is the type, and a
+                        ; type is the closest thing Ranger has to an attribute.
+                        if (wordEnd < n) {
+                            if ((charAt line wordEnd) == 58) {
+                                kind = (CodeTokenKind.attr())
+                            }
+                        }
+                    }
+                }
+                push out.tokens (CodeToken.create(i (wordEnd - i) kind))
+                i = wordEnd
+                continue
+            }
+            push out.tokens (CodeToken.create(i 1 (CodeTokenKind.punct())))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn stringEnd:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            if (ch == 92) {
+                i = (i + 2)
+                continue
+            }
+            if (ch == 34) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn readWord:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            if ((RangerTokenizer.isWordChar(ch)) == false) {
+                if ((RangerTokenizer.isDigit(ch)) == false) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn readNumber:int (line:string from:int) {
+        def i:int from
+        def n:int (strlen line)
+        while (i < n) {
+            def ch:int (charAt line i)
+            def ok:boolean (RangerTokenizer.isDigit(ch))
+            if (ch == 46) {
+                ok = true
+            }
+            if (ok == false) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn isDigit:boolean (ch:int) {
+        if (ch < 48) {
+            return false
+        }
+        return (ch <= 57)
+    }
+
+    sfn isWordChar:boolean (ch:int) {
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        if (ch == 95) {
+            return true
+        }
+        if (ch == 33) {
+            ; `if!` and `!null?` are words in this language.
+            return true
+        }
+        if (ch == 63) {
+            return true
+        }
+        return (ch > 127)
+    }
+
+    sfn wordIn:boolean (word:string list:[string]) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            def w:string (itemAt list i)
+            if (w == word) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

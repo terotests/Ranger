@@ -27,7 +27,7 @@
 ; Freeze panes                    | freezeRows/Cols + fixed bands             | done
 ; Undo / redo                     | transactional, value + formula per op     | done
 ; Cell formatting (fill/font/…)   | fill, bold/italic/underline/strike, size  | done
-; Cell borders                    | 4 edges, all OOXML line styles + colours  | done
+; Cell borders                    | 4 edges + a picker (edges/line/colour)    | done
 ; Number formats                  | XlsxNumberFormat engine (practical set)   | done
 ; Text wrap / rotation            |                                           | todo
 ; Sort / filter                   | SheetView paint + header popup UI         | done
