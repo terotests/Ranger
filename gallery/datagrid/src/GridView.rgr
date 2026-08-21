@@ -872,8 +872,11 @@ class GridView {
             def mc:int (grid.mapCol(hc))
             def hx:int (grid.viewColScreenX(model hc))
             def label:string (SpreadsheetModel.colLabel(mc))
-            if (model.sortCol == mc) {
-                if model.sortAsc {
+            ; A sort moves the data now, so the view is not sorting anything
+            ; — but the header still says which column was put in order, and
+            ; which way, because that is what the person did.
+            if (model.sortedCol == mc) {
+                if model.sortedAsc {
                     label = (label + " ^")
                 } {
                     label = (label + " v")

@@ -1474,11 +1474,53 @@ class GridApp {
         this.setColumnWidths(col w)
     }
 
+    ; Sorting moves the DATA, not just the way it is drawn.
+    ;
+    ; It used to permute the view's row order and leave the sheet alone. On
+    ; screen that looks identical, and everywhere else it is not: the file
+    ; saves in the old order, a copied range copies the old order, a chart
+    ; plots the old order, and reopening the file undoes a sort that appeared
+    ; to have happened. Excel and Sheets both move the rows, and so does this
+    ; — in one transaction, so one Ctrl+Z puts it back.
     fn applySort:void (col:int ascending:boolean) {
-        model.setSort(col ascending)
+        if (col < 0) {
+            return
+        }
+        if (col >= model.colCount) {
+            return
+        }
+        if editing {
+            this.commitEdit()
+        }
         sheetView.markDirty()
         sheetView.rebuild()
-        grid.updateVisible(model)
+        def order:[int]
+        sheetView.sortedOrder(col ascending order)
+        def moved:boolean false
+        def i:int 0
+        while (i < (array_length order)) {
+            if ((itemAt order i) != i) {
+                moved = true
+            }
+            i = (i + 1)
+        }
+        ; Remember which column was sorted so the header still says so, but do
+        ; not leave the VIEW sorting on top of data that is now in order.
+        model.setSort(-1 ascending)
+        model.sortedCol = col
+        model.sortedAsc = ascending
+        if moved {
+            model.beginTx()
+            model.pushReorderOp(order)
+            this.snapshotOtherSheetFormulas()
+            model.reorderRowsRaw(order)
+            model.endTx()
+            this.afterStructuralChange()
+        } {
+            sheetView.markDirty()
+            sheetView.rebuild()
+            grid.updateVisible(model)
+        }
     }
 
     fn applyFilter:void (col:int values:[string]) {

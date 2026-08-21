@@ -940,16 +940,41 @@ class GridEditTest {
         sortApp.sheetView.rebuild()
         sortApp.openHeaderMenu(1 100 100)
         sortApp.runHeaderMenu(1)
-        c.eqInt("header remains first" (itemAt sortApp.sheetView.rowOrder 0) 0)
-        def firstSorted:int (itemAt sortApp.sheetView.rowOrder 1)
-        c.eqInt("smallest value row comes first" firstSorted 2)
-        c.eqStr("name moved with sorted value" (sortApp.model.getCell(firstSorted 0)) "A")
-        c.eqStr("other columns move with the row" (sortApp.model.getCell(firstSorted 2)) "first")
-        c.eqInt("blank tail stays after populated rows" (itemAt sortApp.sheetView.rowOrder 4) 4)
+        ; A sort moves the DATA, so the sheet itself is in order afterwards
+        ; and the view is not permuting anything. That is the whole point:
+        ; what gets saved, copied and charted is what is on screen.
+        c.eqStr("the heading stays put" (sortApp.model.getCell(0 0)) "Name"
+        )
+        c.eqStr("smallest value first" (sortApp.model.getCell(1 1)) "10"
+        )
+        c.eqStr("its name came with it" (sortApp.model.getCell(1 0)) "A"
+        )
+        c.eqStr("and every other column of that row" (sortApp.model.getCell(1 2)) "first"
+        )
+        c.eqStr("then the middle one" (sortApp.model.getCell(2 1)) "20"
+        )
+        c.eqStr("then the largest" (sortApp.model.getCell(3 1)) "30"
+        )
+        c.eqStr("blank rows stay after the data" (sortApp.model.getCell(4 1)) ""
+        )
+        c.eqInt("and the view has nothing left to reorder" (itemAt sortApp.sheetView.rowOrder 1) 1)
+        c.eqInt("the header still says which column" sortApp.model.sortedCol 1)
+        c.ok("and which way" sortApp.model.sortedAsc)
+        ; One Ctrl+Z is one sort.
+        sortApp.undoEdit()
+        c.eqStr("undo puts the rows back" (sortApp.model.getCell(1 1)) "30"
+        )
+        c.eqStr("all of them" (sortApp.model.getCell(3 1)) "20"
+        )
+        sortApp.redoEdit()
+        c.eqStr("redo sorts again" (sortApp.model.getCell(1 1)) "10"
+        )
         sortApp.applySort(1 false)
-        def firstDesc:int (itemAt sortApp.sheetView.rowOrder 1)
-        c.eqInt("descending puts largest row first" firstDesc 1)
-        c.eqStr("descending keeps row intact" (sortApp.model.getCell(firstDesc 2)) "third")
+        c.eqStr("descending puts the largest first" (sortApp.model.getCell(1 1)) "30"
+        )
+        c.eqStr("with its row intact" (sortApp.model.getCell(1 2)) "third"
+        )
+        c.ok("and the header says so" (sortApp.model.sortedAsc == false))
 
         print "== double-click a header auto-fits =="
         def dz:GridApp (new GridApp)
