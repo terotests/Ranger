@@ -1,0 +1,55 @@
+; ==============================================================================
+; a11y_bench — what one frame of accessibility actually costs.
+; ==============================================================================
+;
+; The browser host rebuilds the tree only when the scene changed, and JavaScript
+; strings are ropes, so neither cost shows there. The native host runs a frame
+; loop, and `EVGA11yTree.toJson` builds its string the way every `toJson` in
+; this repo does — `out = out + …` — which the C++ target emits as a fresh
+; std::string per append. That is quadratic in the finished length, and this is
+; how you find out whether it matters.
+;
+; It does, mildly. Measured with g++ -O2 on a 900x560 sheet, 352 nodes,
+; 39 KB of JSON:
+;
+;   tree only     0.31 ms / frame
+;   tree + json   1.28 ms / frame      <- the json is three quarters of it
+;
+; Not a stall at 60 Hz, but a frame's worth of work every second for a tree
+; nobody read, which is why the SDL host rebuilds it at 15 Hz and republishes
+; the cached string in between.
+;
+; Natively:
+;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp \
+;     gallery/datagrid/bench/a11y_bench.rgr -nodecli -d=tmp/a11ybench -o=a11y_bench.cpp
+;   cp gallery/invaders/variant.hpp tmp/a11ybench/
+;   g++ -O2 -std=c++17 tmp/a11ybench/a11y_bench.cpp -o tmp/a11ybench/a11y_bench
+;   ./tmp/a11ybench/a11y_bench
+; ==============================================================================
+Import "../src/GridApp.rgr"
+
+class A11yBench {
+    sfn main:void () {
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def warm:string (app.sceneJson())
+        def t0:double (wall_clock_ms)
+        def i:int 0
+        while (i < 60) {
+            def tree:EVGA11yTree (app.a11yTree())
+            i = (i + 1)
+        }
+        def t1:double (wall_clock_ms)
+        def j:int 0
+        while (j < 60) {
+            def js:string (app.a11yJson())
+            j = (j + 1)
+        }
+        def t2:double (wall_clock_ms)
+        def one:string (app.a11yJson())
+        print ("nodes/frame       " + (to_string ((app.a11yTree()).count())))
+        print ("json bytes        " + (to_string (strlen one)))
+        print ("tree only   x60   " + (to_string (t1 - t0)) + " ms")
+        print ("tree + json x60   " + (to_string (t2 - t1)) + " ms")
+    }
+}

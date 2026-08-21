@@ -39,12 +39,21 @@ class DataGridSdl {
     ; "does the native build produce it too" is a question with an answer that
     ; needs neither a screen reader nor a window.
     def dumpA11y:boolean false
+    ; The tree as JSON, rebuilt a few times a second rather than sixty. Building
+    ; it costs about 1.3 ms — measured, `bench/a11y_bench.rgr` — three quarters
+    ; of which is the JSON, and a screen reader has no use for sixty versions of
+    ; a sheet that changed once. The cached string is still handed over every
+    ; frame, because the bridge needs to hear about a window that MOVED, and a
+    ; move does not change the tree by a byte.
+    def a11yJson:string ""
+    def a11yTick:int 0
 
     fn openWindow:void () {
         def ok:int (dgfx_open "Ranger DataGrid (SDL2 / OpenGL)" pw ph)
         if (ok == 1) {
             hasWindow = true
             dgfx_install_menus
+            dgfx_a11y_attach
         } {
             print "dgfx_open failed (no display?) — SoftCanvas fallback for smoke"
         }
@@ -196,8 +205,16 @@ class DataGridSdl {
     fn serveA11y:void () {
         def on:boolean (dgfx_a11y_active)
         if on {
-            def tree:string (app.a11yJson())
-            dgfx_a11y_publish tree
+            a11yTick = (a11yTick + 1)
+            def stale:boolean (a11yTick >= 4)
+            if ((strlen a11yJson) == 0) {
+                stale = true
+            }
+            if stale {
+                a11yTick = 0
+                a11yJson = (app.a11yJson())
+            }
+            dgfx_a11y_publish a11yJson
         }
         ; …and what it pressed. A point, not a command: the app's own hit
         ; testing decides what is there, exactly as it does for the mouse, so
