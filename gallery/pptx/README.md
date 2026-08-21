@@ -43,6 +43,7 @@ gallery/pptx/
     PptxToEvg.rgr       ResolvedSlide → EVG + display list
     PptxView.rgr        SoftCanvas / sceneJson (+ image cache)
     PptxEdit.rgr        editing core: selection, transforms, history
+    PptxWriter.rgr      model → OPC package (save)
     PptxApp.rgr         UIInput navigation + editing host
     pptx_demo.rgr       headless PNG demo
     pptx_oracle_dump.rgr  inspect.json + oracle PNGs
@@ -91,17 +92,27 @@ window pixel becomes one:
       on a shape's text
 - [x] Slides: add, duplicate, delete, reorder
 - [x] Undo / redo — a drag is one step, a burst of typing is one step
+- [x] **Save**: the model is written back out as a `.pptx` (`PptxWriter.rgr`),
+      checked three ways: a round trip through our own parser, a Python script
+      that reads the package with `zipfile` alone, and a pixel comparison in
+      which 21 written slides redraw byte for byte. In the browser it is a
+      download; Ctrl+S
 - [x] The selection outline and its handles are pushed into the same
       `EVGDisplayList` as the slide, so WebGL and SoftCanvas both draw them and
       an export has none of them
 
-Not yet: a text caret (typing appends), saving back to `.pptx`, clipboard,
-crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
+Not yet: a text caret (typing appends), keeping the parts of a deck the model
+does not describe when saving (what is written is flat — the template is baked
+into the slides), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
 governs them — none of this is derived from another editor's source.
 
 ```bash
 npm run pptx:editor:test        # the editing core
 npm run pptx:editor:host:test   # pointer, keys, overlay, commands
+npm run pptx:writer:test        # write a deck, read it back, compare
+npm run pptx:writer:verify      # …and check the package from outside
+npm run pptx:writer:visual      # …and that it redraws the same picture
+npm run pptx:editor:shots       # artifacts/*.png — what the editor looks like
 ```
 
 ## Running it in a browser, with no host

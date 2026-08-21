@@ -144,6 +144,16 @@ class PptxWeb {
         app.setMods(shift ctrl)
     }
 
+    ; The deck as a package, for the page to hand to the browser. A tab has
+    ; no file system, so "save" here is bytes and a download.
+    fn saveBytes:buffer () {
+        return (app.deckBytes())
+    }
+
+    fn suggestedName:string () {
+        return (app.suggestedName())
+    }
+
     fn editing:boolean () {
         return app.editMode
     }

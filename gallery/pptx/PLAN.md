@@ -44,7 +44,8 @@ web editor like PPTist does, none of the code is.
 | --- | --- |
 | E1 | Editing core: selection, hit test, transforms, snapping, z-order, group, align, insert / delete, styles, slide ops, undo / redo, host seam — **done** |
 | E2 | A text caret over `gallery/text_editor`'s buffer, real bullets, indents |
-| E3 | Writing `.pptx` back out on `ZipWriter`, checked by both oracles |
+| E3 | Writing `.pptx` back out on `ZipWriter`, round-tripped and verified from outside — **done, flat** |
+| E3b | Saving the file you opened: keep the original parts, rewrite only what changed |
 | E4 | Marquee select, clipboard, format painter, flip / lock, crop, rulers |
 | E5 | Themes, layouts, master editing, sections, notes |
 | E6 | Transitions, animations, presenter view |

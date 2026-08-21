@@ -222,6 +222,11 @@ window.addEventListener("keydown", async (ev) => {
   const ctrl = !!(ev.ctrlKey || ev.metaKey);
   // Ctrl chords are characters with the modifier held — undo, redo, select
   // all, group, bold — and the app decides which of them mean anything.
+  if (ctrl && (ev.key === "s" || ev.key === "S")) {
+    ev.preventDefault();
+    downloadDeck();
+    return;
+  }
   if (ctrl && ev.key.length === 1) {
     ev.preventDefault();
     web.type(ev.key, !!ev.shiftKey, true);
@@ -259,6 +264,29 @@ async function servicePendingFile() {
   const want = web.takeFileRequest();
   if (want === "open") fileEl?.click();
   if (want === "image") imageEl?.click();
+  if (want === "save") downloadDeck();
+}
+
+// Saving, in a tab: the app writes the package into memory and the browser is
+// asked to keep it. There is no path to save to and nothing to save it with.
+function downloadDeck() {
+  const raw = web.saveBytes();
+  const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw;
+  if (!view || !(view.length || view.byteLength)) {
+    statusEl.textContent = "nothing to save";
+    return;
+  }
+  const url = URL.createObjectURL(
+    new Blob([view], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = web.suggestedName() || "deck.pptx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  statusEl.textContent = "saved " + a.download;
 }
 
 imageEl?.addEventListener("change", async (ev) => {
@@ -352,6 +380,27 @@ async function selftest() {
     ok("delete takes the inserted shape away", web.run("edit.delete", "") || (web.selectionCount() | 0) === 0);
     web.run("edit.toggle", "");
     ok("and the viewer comes back", web.editing() === false);
+  }
+
+  // Saving: the page can write the package it is showing, and the proof is
+  // that the page can open what it just wrote.
+  {
+    web.run("edit.toggle", "");
+    web.run("shape.rect", "");
+    await draw();
+    const slidesBefore = web.slideCount() | 0;
+    const raw = web.saveBytes();
+    const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : new Uint8Array(raw || []);
+    ok("save produced bytes", view.length > 1000);
+    ok("and they are a ZIP", view[0] === 0x50 && view[1] === 0x4b);
+    const copy = view.slice().buffer;
+    copy._view = new DataView(copy);
+    ok("the page can open what it wrote", web.openDeck(copy, "written.pptx"));
+    refreshMedia();
+    lastScene = "";
+    await draw();
+    ok("with the same number of slides", (web.slideCount() | 0) === slidesBefore);
+    ok("and something drawn on the first one", JSON.parse(web.scene()).list.cmds.length > 4);
   }
 
   // Pictures: the deck carries them, so they should be textures by now.

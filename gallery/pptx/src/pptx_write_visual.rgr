@@ -1,0 +1,139 @@
+; ==============================================================================
+; pptx_write_visual - does the deck we wrote draw the same picture?
+; ==============================================================================
+;
+; The round-trip test compares the MODEL before and after writing, which cannot
+; see a field the writer and the parser agree to lose. This compares the
+; PICTURE: each fixture is rendered at 96dpi, written through `PptxWriter`,
+; reopened and rendered again, and the two framebuffers are subtracted.
+;
+; It is not a fidelity oracle — both pictures come from the same painter, so it
+; says nothing about PowerPoint. It says the file we wrote carries what we drew.
+;
+;   npm run pptx:writer:visual
+; ==============================================================================
+
+Import "PptxApp.rgr"
+Import "PptxWriter.rgr"
+
+class PptxWriteVisual {
+    def failed:int 0
+    def checked:int 0
+    def worst:double 0.0
+    def worstName:string ""
+    def limit:double 1.0
+
+    sfn main:void () {
+        def t (new PptxWriteVisual())
+        t.run()
+    }
+
+    sfn copyOf:buffer (src:buffer) {
+        def n:int (buffer_length src)
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (buffer_get src i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Mean absolute difference over every byte, 0..255.
+    sfn mae:double (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if (n != (buffer_length b)) {
+            return 255.0
+        }
+        if (n == 0) {
+            return 255.0
+        }
+        def total:double 0.0
+        def i:int 0
+        while (i < n) {
+            def d:int ((buffer_get a i) - (buffer_get b i))
+            if (d < 0) {
+                d = (0 - d)
+            }
+            total = (total + (to_double d))
+            i = (i + 1)
+        }
+        return (total / (to_double n))
+    }
+
+    fn run:void () {
+        print "=== written decks, drawn again ==="
+        def names:[string] ([] _:string ( "01-text.pptx" "02-shapes.pptx" "04-multi.pptx" "05-group.pptx" "06-text-runs.pptx" "08-presets.pptx" "16-image-png.pptx" "19-text-fidelity.pptx" "20-business-deck.pptx" "21-gradient.pptx" "22-shadow.pptx" "23-bullets.pptx" "24-custom-geom.pptx" "25-table.pptx" "26-chart-vela.pptx" "27-accented-text.pptx" ))
+        def i:int 0
+        while (i < (array_length names)) {
+            this.compare((itemAt names i))
+            i = (i + 1)
+        }
+        print ""
+        if (worst <= 0.0001) {
+            print ((to_string checked) + " slides compared, every one byte for byte identical")
+        } {
+            print (((to_string checked) + " slides compared, worst mean error ") + (to_string worst) + " on " + worstName)
+        }
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print (((to_string failed) + " slides differ by more than ") + (to_string limit))
+            print "SOME FAILED"
+        }
+    }
+
+    fn compare:void (name:string) {
+        def before:PptxApp (new PptxApp)
+        before.init("gallery/pdf_writer/assets/fonts")
+        before.resize(960 720)
+        if ((before.loadParts("gallery/pptx/fixtures" name)) == false) {
+            print ("  FAIL  " + name + ": will not open")
+            failed = (failed + 1)
+            return
+        }
+        def writer (new PptxWriter())
+        writer.save(before.presentation "gallery/pptx/bin" ("vis-" + name))
+
+        def after:PptxApp (new PptxApp)
+        after.init("gallery/pdf_writer/assets/fonts")
+        after.resize(960 720)
+        if ((after.loadParts("gallery/pptx/bin" ("vis-" + name))) == false) {
+            print ("  FAIL  " + name + ": what we wrote will not open")
+            failed = (failed + 1)
+            return
+        }
+        if ((after.slideCount()) != (before.slideCount())) {
+            print ("  FAIL  " + name + ": slide count changed")
+            failed = (failed + 1)
+            return
+        }
+        def si:int 0
+        def worstHere:double 0.0
+        while (si < (before.slideCount())) {
+            before.renderOracleSlide(si)
+            def a:buffer (PptxWriteVisual.copyOf((before.raw())))
+            after.renderOracleSlide(si)
+            def b:buffer (after.raw())
+            def err:double (PptxWriteVisual.mae(a b))
+            checked = (checked + 1)
+            if (err > worstHere) {
+                worstHere = err
+            }
+            if (err > worst) {
+                worst = err
+                worstName = (name + " slide " + (to_string (si + 1)))
+            }
+            if (err > limit) {
+                failed = (failed + 1)
+                print ("  FAIL  " + name + " slide " + (to_string (si + 1)) + ": mean error " + (to_string err))
+            }
+            si = (si + 1)
+        }
+        if (worstHere <= limit) {
+            print ("  PASS  " + name + " (" + (to_string (before.slideCount())) + " slides, worst " + (to_string worstHere) + ")")
+        }
+        before.close()
+        after.close()
+    }
+}

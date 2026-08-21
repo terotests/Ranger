@@ -104,20 +104,65 @@ text engine.
 Also here: bullets and numbering as real paragraph properties rather than a
 painted prefix, indent levels, line and paragraph spacing, hyperlinks.
 
-## Phase E3 — writing `.pptx` back out
+## Phase E3 — writing `.pptx` back out (done, flat)
 
-An editor that cannot save is a demo. `gallery/zip/ZipWriter.rgr` already
-writes ZIP containers, so what is missing is the OPC part of it:
-`[Content_Types].xml`, `_rels`, and a PresentationML serializer that turns
-`PptxModel` back into `p:sp` / `a:xfrm` / `a:t` with the EMU conversions run
-backwards. Two oracles decide whether it worked, and both already exist in
-`harness/`: python-pptx reads the file we wrote and is asked what is in it, and
-LibreOffice renders it so the visual diff can compare it against our own paint.
+An editor that cannot save is a demo. `src/PptxWriter.rgr` turns the model back
+into an OPC package over `gallery/zip`'s `ZipWriter`: `[Content_Types].xml`,
+the relationship parts, `ppt/presentation.xml`, a theme carrying the deck's own
+colour scheme and fonts, a blank master and layout, one part per slide, and the
+picture bytes in `ppt/media`. The EMU conversions run backwards (points ×
+12700, degrees × 60000, font sizes × 100), text is escaped and written as
+**UTF-8** — `ZipWriter.addString` writes one byte per UTF-16 unit, which is
+wrong for every deck not written in English — and `xml:space="preserve"` keeps
+the spaces between words that a run boundary would otherwise eat.
 
-Round-tripping a deck we did not author is the hard half: parts we do not model
-(SmartArt, embedded objects, animations) have to survive being re-written, which
-means keeping the original XML for anything untouched rather than regenerating
-it from the model.
+Tables become `a:tbl` grids and charts become **ChartML with the numbers
+cached** — a chart part normally points at an embedded workbook for its data,
+and a deck written here has none, so the cache is the data (which is what every
+reader looks at first anyway).
+
+It is checked three ways:
+
+- **Round trip** (`npm run pptx:writer:test`, 96 checks): a deck built in
+  memory and fourteen fixtures are written, reopened with `PptxParser` and
+  compared — geometry, rotation, fills, outlines, presets, groups and their
+  child boxes, run styles, paragraph alignment, picture bytes, and an edit made
+  through `PptxEditor` being in the file afterwards.
+- **Structure, from outside** (`npm run pptx:writer:verify`): a Python script
+  that uses nothing but `zipfile` and `ElementTree` and asks a consumer's
+  questions — does the ZIP open, does every part parse, is every part covered
+  by a content type, does every relationship target exist, does every
+  `r:embed` resolve in that slide's rels, does the presentation name a master
+  and a slide size. 624 checks over the decks the round-trip test leaves
+  behind.
+- **The picture** (`npm run pptx:writer:visual`): every fixture is rendered at
+  96dpi, written, reopened and rendered again, and the two framebuffers are
+  subtracted. 21 slides — text, groups, presets, pictures, gradients, shadows,
+  bullets, custom geometry, tables, a chart and accented text — come back
+  **byte for byte identical**. It is not a fidelity oracle (both pictures come
+  from the same painter, so it says nothing about PowerPoint); it says the file
+  carries what was drawn.
+
+LibreOffice would be the fidelity oracle, and it is the one this environment
+cannot run — the install here fails to convert even a `.txt`, so a refusal from
+it is not evidence about the file. `harness/run_oracles.mjs` is where that
+check belongs when a machine has a working one.
+
+What comes out is a **flat** deck: the model handed to the writer is the
+resolved one, in which master and layout chrome has already been merged into
+each slide, so the written master and layout are blank and every slide carries
+its own picture. It looks like what was on screen — which is the contract a
+"save" has — and it is not the file that came in.
+
+### Phase E3b — saving the file you opened
+
+Round-tripping a deck we did not author is the hard half. Parts the model does
+not describe (SmartArt, embedded objects, animations, notes) are dropped today,
+and the template is baked into the slides. The fix is not a bigger serializer:
+it is keeping the **original package** and rewriting only the parts that were
+touched — slide XML for edited slides, new parts for new ones, everything else
+copied through byte for byte. That also needs the parser to record where each
+shape came from, which is the same bookkeeping E2 wants for text runs.
 
 ## Phase E4 — the rest of the direct manipulation
 

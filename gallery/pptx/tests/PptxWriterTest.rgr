@@ -1,0 +1,417 @@
+; ==============================================================================
+; PptxWriterTest — write a deck, read it back, and see whether it is the same
+; ==============================================================================
+;
+; The writer's only honest test is a round trip: build or open a deck, write it
+; through `PptxWriter`, open what came out with the repository's own parser and
+; ask whether the geometry, the text, the colours and the pictures survived.
+;
+;   npm run pptx:writer:test
+; ==============================================================================
+
+Import "../src/PptxModel.rgr"
+Import "../src/PptxWriter.rgr"
+Import "../src/PptxParser.rgr"
+Import "../src/PptxResolver.rgr"
+Import "../src/PptxEdit.rgr"
+
+class PptxWriterTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxWriterTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn near:boolean (a:double b:double) {
+        def d:double (fabs (a - b))
+        return (d < 0.6)
+    }
+
+    fn run:void () {
+        print "=== PptxWriterTest ==="
+        this.testUnits()
+        this.testRoundTripBuilt()
+        this.testRoundTripFixtures()
+        this.testFlattening()
+        this.testPictures()
+        this.testEditedDeck()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testUnits:void () {
+        print "--- units and escaping ---"
+        this.check("1 inch is 914400 EMU" ((PptxWriter.emu(72.0)) == "914400"))
+        this.check("a point is 12700" ((PptxWriter.emu(1.0)) == "12700"))
+        this.check("18pt is sz 1800" ((PptxWriter.hundredths(18.0)) == "1800"))
+        this.check("half opacity is 50000" ((PptxWriter.pct(0.5)) == "50000"))
+        this.check("90 degrees is 5400000" ((PptxWriter.deg60k(90.0)) == "5400000"))
+        this.check("a negative angle wraps" ((PptxWriter.deg60k(0.0 - 90.0)) == "16200000"))
+        this.check("markup in text is escaped" ((PptxWriter.esc("a<b&c\"d")) == "a&lt;b&amp;c&quot;d"))
+        def u:buffer (PptxWriter.utf8("aä"))
+        this.check("utf-8: one byte then two" ((buffer_length u) == 3))
+        def euro:buffer (PptxWriter.utf8("€"))
+        this.check("utf-8: three bytes for U+20AC" ((buffer_length euro) == 3))
+    }
+
+    ; A deck assembled in memory, written, and read back.
+    fn testRoundTripBuilt:void () {
+        print "--- a deck built here ---"
+        def pres (new PptxPresentation())
+        pres.slideWidth = 960.0
+        pres.slideHeight = 540.0
+        def slide (new PptxSlide())
+        slide.width = 960.0
+        slide.height = 540.0
+        slide.bg = (PptxColor.srgbOf("FFFFFF"))
+        def box (new PptxShape())
+        box.name = "Box"
+        box.x = 100.0
+        box.y = 80.0
+        box.width = 240.0
+        box.height = 120.0
+        box.hasXfrm = true
+        box.rotation = 30.0
+        box.fill = (PptxColor.srgbOf("4472C4"))
+        box.line = (PptxColor.srgbOf("203864"))
+        box.lineWidthPt = 2.0
+        box.hasText = true
+        def para (new PptxParagraph())
+        para.align = "ctr"
+        para.alignSet = true
+        def run (new PptxTextRun())
+        run.text = "Sähkö & <deck>"
+        run.fontSizePt = 24.0
+        run.sizeSet = true
+        run.bold = true
+        run.color = (PptxColor.srgbOf("FFFFFF"))
+        push para.runs run
+        push box.text.paragraphs para
+        push slide.shapes box
+        def oval (new PptxShape())
+        oval.name = "Oval"
+        oval.preset = "ellipse"
+        oval.x = 500.0
+        oval.y = 300.0
+        oval.width = 160.0
+        oval.height = 160.0
+        oval.hasXfrm = true
+        oval.fill = (PptxColor.srgbOf("ED7D31"))
+        push slide.shapes oval
+        push pres.slides slide
+
+        def second (new PptxSlide())
+        second.width = 960.0
+        second.height = 540.0
+        def grp (new PptxShape())
+        grp.kind = 2
+        grp.x = 40.0
+        grp.y = 40.0
+        grp.width = 200.0
+        grp.height = 100.0
+        grp.chX = 40.0
+        grp.chY = 40.0
+        grp.chW = 200.0
+        grp.chH = 100.0
+        def child (new PptxShape())
+        child.x = 60.0
+        child.y = 60.0
+        child.width = 80.0
+        child.height = 40.0
+        child.hasXfrm = true
+        child.fill = (PptxColor.srgbOf("70AD47"))
+        push grp.children child
+        push second.shapes grp
+        push pres.slides second
+
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "roundtrip.pptx")
+
+        def parser (new PptxParser())
+        def ok:boolean (parser.openParts("gallery/pptx/bin" "roundtrip.pptx"))
+        this.check("the package opens" ok)
+        if (ok == false) {
+            return
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation(raw))
+        this.check("two slides came back" ((back.slideCount()) == 2))
+        this.check("the slide size survived" (this.near(back.slideWidth 960.0)))
+        def s1:PptxSlide (itemAt back.slides 0)
+        def authored:[PptxShape]
+        def i:int 0
+        while (i < (array_length s1.shapes)) {
+            def sh:PptxShape (itemAt s1.shapes i)
+            if (sh.inherited == false) {
+                push authored sh
+            }
+            i = (i + 1)
+        }
+        this.check("two shapes on the first slide" ((array_length authored) == 2))
+        if ((array_length authored) < 2) {
+            return
+        }
+        def b2:PptxShape (itemAt authored 0)
+        this.check("x survived" (this.near(b2.x 100.0)))
+        this.check("width survived" (this.near(b2.width 240.0)))
+        this.check("rotation survived" (this.near(b2.rotation 30.0)))
+        this.check("fill survived" (b2.fill.srgb == "4472C4"))
+        this.check("outline survived" (b2.line.srgb == "203864"))
+        this.check("outline width survived" (this.near(b2.lineWidthPt 2.0)))
+        this.check("text survived, ampersand and all" ((b2.text.plainText()) == "Sähkö & <deck>"))
+        def p2:PptxParagraph (itemAt b2.text.paragraphs 0)
+        def r2:PptxTextRun (itemAt p2.runs 0)
+        this.check("bold survived" r2.bold)
+        this.check("size survived" (this.near(r2.fontSizePt 24.0)))
+        this.check("run colour survived" (r2.color.srgb == "FFFFFF"))
+        this.check("alignment survived" (p2.align == "ctr"))
+        def ov:PptxShape (itemAt authored 1)
+        this.check("the preset survived" (ov.preset == "ellipse"))
+        ; The group on slide two.
+        def s2:PptxSlide (itemAt back.slides 1)
+        def groups:int 0
+        def j:int 0
+        while (j < (array_length s2.shapes)) {
+            def sh2:PptxShape (itemAt s2.shapes j)
+            if (sh2.kind == 2) {
+                groups = (groups + 1)
+                this.check("the group kept its children" ((array_length sh2.children) == 1))
+                this.check("the child box survived" (this.near(sh2.chW 200.0)))
+            }
+            j = (j + 1)
+        }
+        this.check("a group came back as a group" (groups == 1))
+        parser.close()
+    }
+
+    ; Every fixture: open it, write it, open what was written, and compare the
+    ; shape counts and the text. This is the check that catches a part the
+    ; writer forgot — a deck that cannot be reopened at all fails here.
+    fn testRoundTripFixtures:void () {
+        print "--- the fixtures, out and back ---"
+        def names:[string] ([] _:string ( "01-text.pptx" "02-shapes.pptx" "04-multi.pptx" "05-group.pptx" "06-text-runs.pptx" "08-presets.pptx" "16-image-png.pptx" "19-text-fidelity.pptx" "20-business-deck.pptx" "21-gradient.pptx" "22-shadow.pptx" "23-bullets.pptx" "25-table.pptx" "27-accented-text.pptx" ))
+        def i:int 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            this.roundTripFixture(name)
+            i = (i + 1)
+        }
+    }
+
+    fn roundTripFixture:void (name:string) {
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" name)) == false) {
+            this.check(("open " + name) false)
+            return
+        }
+        def before:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def writer (new PptxWriter())
+        writer.save(before "gallery/pptx/bin" ("rt-" + name))
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" ("rt-" + name)))
+        this.check((name + ": reopens") ok)
+        if (ok == false) {
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        this.check((name + ": same slide count") ((after.slideCount()) == (before.slideCount())))
+        def si:int 0
+        def sameShapes:boolean true
+        def sameText:boolean true
+        while (si < (before.slideCount())) {
+            if (si < (after.slideCount())) {
+                def a:PptxSlide (itemAt before.slides si)
+                def b:PptxSlide (itemAt after.slides si)
+                def na:int (PptxWriterTest.countShapes(a))
+                def nb:int (PptxWriterTest.countShapes(b))
+                if (na != nb) {
+                    sameShapes = false
+                }
+                if ((PptxWriterTest.textOf(a)) != (PptxWriterTest.textOf(b))) {
+                    sameText = false
+                }
+            }
+            si = (si + 1)
+        }
+        this.check((name + ": same shapes on every slide") sameShapes)
+        this.check((name + ": same text on every slide") sameText)
+        p2.close()
+    }
+
+    ; Everything on the resolved slide, chrome included. What is written is
+    ; the resolved deck — the master's footer is a shape on the slide in the
+    ; file that comes out, which is the flattening the writer documents — so
+    ; the count that has to match is the total, not the authored half.
+    sfn countShapes:int (slide:PptxSlide) {
+        return (array_length slide.shapes)
+    }
+
+    sfn textOf:string (slide:PptxSlide) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if sh.hasText {
+                out = ((out + (sh.text.plainText())) + "|")
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; And the flattening itself, stated once rather than implied: a deck that
+    ; has been through the writer inherits nothing, because there is nothing
+    ; left to inherit from.
+    fn testFlattening:void () {
+        print "--- what the writer flattens ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "15-master-layout-mixed.pptx")) == false) {
+            this.check("open 15-master-layout-mixed" false)
+            return
+        }
+        def before:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slideBefore:PptxSlide (itemAt before.slides 0)
+        def inheritedBefore:int 0
+        def i:int 0
+        while (i < (array_length slideBefore.shapes)) {
+            def sh:PptxShape (itemAt slideBefore.shapes i)
+            if sh.inherited {
+                inheritedBefore = (inheritedBefore + 1)
+            }
+            i = (i + 1)
+        }
+        this.check("the deck we read inherits chrome" (inheritedBefore > 0))
+        def writer (new PptxWriter())
+        writer.save(before "gallery/pptx/bin" "rt-flat.pptx")
+        parser.close()
+        def p2 (new PptxParser())
+        if ((p2.openParts("gallery/pptx/bin" "rt-flat.pptx")) == false) {
+            this.check("the flattened deck opens" false)
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def slideAfter:PptxSlide (itemAt after.slides 0)
+        def inheritedAfter:int 0
+        def j:int 0
+        while (j < (array_length slideAfter.shapes)) {
+            def sh2:PptxShape (itemAt slideAfter.shapes j)
+            if sh2.inherited {
+                inheritedAfter = (inheritedAfter + 1)
+            }
+            j = (j + 1)
+        }
+        this.check("the deck we wrote inherits nothing" (inheritedAfter == 0))
+        this.check("and has the same shapes on it" ((array_length slideAfter.shapes) == (array_length slideBefore.shapes)))
+        p2.close()
+    }
+
+    ; The point of the writer: what an edit did is in the file afterwards.
+    fn testEditedDeck:void () {
+        print "--- an edited deck ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "01-text.pptx")) == false) {
+            this.check("open 01-text" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        def id:int (ed.addShapeAt("roundRect" 120.0 200.0 300.0 90.0))
+        ed.setFillHex("C00000")
+        ed.setShapeText(id "Written by the editor")
+        ed.moveSelection(20.0 10.0)
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "edited.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "edited.pptx"))
+        this.check("the edited deck opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def slide:PptxSlide (itemAt back.slides 0)
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if sh.hasText {
+                if ((sh.text.plainText()) == "Written by the editor") {
+                    found = true
+                    this.check("the inserted shape kept its fill" (sh.fill.srgb == "C00000"))
+                    this.check("and the move it was given" (this.near(sh.x 140.0)))
+                    this.check("and its rounded preset" (sh.preset == "roundRect"))
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("the inserted shape is in the file" found)
+        p2.close()
+    }
+
+    ; A picture is bytes in the package, not a reference to one that was in
+    ; the deck we read — the file has to stand on its own.
+    fn testPictures:void () {
+        print "--- pictures ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "18-image-mixed.pptx")) == false) {
+            this.check("open 18-image-mixed" false)
+            return
+        }
+        def before:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def writer (new PptxWriter())
+        writer.save(before "gallery/pptx/bin" "rt-images.pptx")
+        this.check("the media were collected" ((array_length writer.media) > 0))
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "rt-images.pptx"))
+        this.check("the deck with pictures reopens" ok)
+        if (ok == false) {
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def pics:int 0
+        def withBytes:int 0
+        def si:int 0
+        while (si < (array_length after.slides)) {
+            def slide:PptxSlide (itemAt after.slides si)
+            def i:int 0
+            while (i < (array_length slide.shapes)) {
+                def sh:PptxShape (itemAt slide.shapes i)
+                if (sh.kind == 1) {
+                    pics = (pics + 1)
+                    if ((buffer_length sh.imageBytes) > 0) {
+                        withBytes = (withBytes + 1)
+                    }
+                }
+                i = (i + 1)
+            }
+            si = (si + 1)
+        }
+        this.check("the pictures came back" (pics > 0))
+        this.check("and every one of them carries its bytes" (pics == withBytes))
+        p2.close()
+    }
+
+}

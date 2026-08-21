@@ -11,6 +11,7 @@ Import "PptxResolver.rgr"
 Import "PptxModel.rgr"
 Import "PptxView.rgr"
 Import "PptxEdit.rgr"
+Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -33,6 +34,7 @@ class PptxToolbar extends EVGToolbar {
     fn build:void () {
         clear items
         this.add("file.open" "" "Open a deck" (ToolIcon.openFile()))
+        this.add("file.save" "" "Save the deck" (ToolIcon.save()))
         this.addSeparator()
         this.add("slide.first" "" "First slide" (ToolIcon.alignLeft()))
         this.add("slide.prev" "" "Previous slide" (ToolIcon.undo()))
@@ -147,6 +149,7 @@ class PptxApp {
 
     fn registerCommands:void () {
         commands.add("file.open" "Open a deck" "File" "Ctrl+O")
+        commands.addArg("file.save" "Save the deck" "File" "Ctrl+S")
         commands.add("slide.next" "Next slide" "View" "Right")
         commands.add("slide.prev" "Previous slide" "View" "Left")
         commands.add("slide.first" "First slide" "View" "Home")
@@ -461,6 +464,23 @@ class PptxApp {
                 return true
             }
             return false
+        }
+        ; Saving. With no argument the app can only say that it wants to —
+        ; a browser tab and a file system disagree about what a path is, and
+        ; the host is the one that knows.
+        if (id == "file.save") {
+            if ((strlen arg) == 0) {
+                fileRequest = "save"
+                return true
+            }
+            def cut:int (PptxApp.lastSlash(arg))
+            def dir:string "."
+            def base:string arg
+            if (cut >= 0) {
+                dir = (substring arg 0 cut)
+                base = (substring arg (cut + 1) (strlen arg))
+            }
+            return (this.saveDeck(dir base))
         }
         if (id == "dialog.close") {
             slideDialog.close()
@@ -1544,6 +1564,51 @@ class PptxApp {
             dl.addFrame((hx - 4.0) (hy - 4.0) 8.0 8.0 1.0 box)
             hi = (hi + 1)
         }
+    }
+
+    ; --- saving ---------------------------------------------------------------
+
+    sfn lastSlash:int (path:string) {
+        def i:int ((strlen path) - 1)
+        while (i >= 0) {
+            def c:int (charAt path i)
+            if (c == 47) {
+                return i
+            }
+            if (c == 92) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return (0 - 1)
+    }
+
+    fn saveDeck:boolean (path:string name:string) {
+        if (loaded == false) {
+            return false
+        }
+        def writer (new PptxWriter())
+        writer.save(presentation path name)
+        editor.dirty = false
+        status = ("saved " + name)
+        return true
+    }
+
+    ; The same package as bytes, for a host with no file system.
+    fn deckBytes:buffer () {
+        def writer (new PptxWriter())
+        if (loaded == false) {
+            return (buffer_alloc 0)
+        }
+        return (writer.toBuffer(presentation))
+    }
+
+    fn suggestedName:string () {
+        def n:string view.deckName
+        if ((strlen n) == 0) {
+            return "deck.pptx"
+        }
+        return n
     }
 
     fn editStatus:string () {
