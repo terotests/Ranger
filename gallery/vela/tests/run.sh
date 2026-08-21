@@ -36,16 +36,18 @@ compile $VELA/tests/expr_test.rgr expr_test.js
 compile $VELA/tests/scale_test.rgr scale_test.js
 compile $VELA/tests/flow_test.rgr flow_test.js
 compile $VELA/tests/regex_test.rgr regex_test.js
+compile $VELA/tests/chart_test.rgr chart_test.js
 compile $VELA/tools/vela_scene.rgr vela_scene.js
 compile $VELA/tools/vela_commands.rgr vela_commands.js
 compile $VELA/tools/vela_compile.rgr vela_compile.js
 compile $VELA/tools/vela_svg.rgr vela_svg.js
+compile $VELA/tools/vela_chart.rgr vela_chart.js
 echo "ok"
 
 status=0
 
 say "unit tests"
-for t in json_test expr_test scale_test flow_test regex_test; do
+for t in json_test expr_test scale_test flow_test regex_test chart_test; do
   out=$(node "$BIN/$t.js")
   echo "$out" | tail -1
   if echo "$out" | grep -q "FAIL"; then status=1; fi
@@ -94,6 +96,18 @@ for spec in $VELA/tests/specs/*.vg.json; do
   fi
 done
 echo "$reflowed specs reflow to the same scene"
+
+# The chart API is checked against hand-written specifications inside
+# chart_test; this is the other half of the claim — that what it builds is
+# drawable, all the way to an SVG, through the same path a pasted spec takes.
+say "charts built by calling the API"
+mkdir -p "$BIN/chart-api"
+drawn=$(node "$BIN/vela_chart.js" "$BIN/chart-api/")
+echo "$drawn" | tail -1
+if ! echo "$drawn" | grep -q "6 of 6 charts drawn"; then
+  echo "$drawn"
+  status=1
+fi
 
 say "parity against the reference implementation"
 node $VELA/tools/reference/parity.mjs || status=1
