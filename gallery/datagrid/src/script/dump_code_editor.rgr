@@ -1,0 +1,49 @@
+; ==============================================================================
+; dump_code_editor — the editor page, painted on the CPU, as a PNG
+; ==============================================================================
+;
+; The third backend. WebGL draws the page in a browser and OpenGL draws it in
+; the SDL binary; this draws the same display list with SoftPainter and writes
+; the pixels out, which is the only one of the three that runs anywhere with no
+; window and no GPU — so it is what CI looks at, and what the README shows.
+;
+; It is also the honest picture: these glyphs come from the same TTF the layout
+; measured with, so every token is exactly where the caret says it is.
+; ==============================================================================
+
+Import "CodeEditorPage.rgr"
+Import "../../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DumpCodeEditor {
+
+    sfn writePng:void (page:CodeEditorPage dir:string file:string) {
+        page.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = page.W
+        rb.height = page.H
+        rb.pixels = (page.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb dir file)
+        print ("wrote " + dir + "/" + file)
+    }
+
+    sfn main:void () {
+        def page:CodeEditorPage (new CodeEditorPage)
+        page.init(1000 700 "gallery/pdf_writer/assets/fonts")
+        page.status = "SoftCanvas"
+        DumpCodeEditor.writePng(page "gallery/datagrid/artifacts" "code_editor_soft.png")
+        ; …and the other document, so the highlighter is shown a page of
+        ; awkward tokens rather than only the one it was written against.
+        page.nextSample()
+        page.status = "SoftCanvas"
+        DumpCodeEditor.writePng(page "gallery/datagrid/artifacts" "code_editor_syntax.png")
+        ; …and the two documents that have something wrong with them, which is
+        ; the only way to photograph a diagnostic.
+        page.loadSample(2)
+        DumpCodeEditor.writePng(page "gallery/datagrid/artifacts" "code_editor_problems.png")
+        page.loadSample(3)
+        DumpCodeEditor.writePng(page "gallery/datagrid/artifacts" "code_editor_ranger.png")
+        print ("lines=" + (to_string (page.editor.buf.lineCount())) + " tokens=" + (to_string (page.tokenCount())) + " lex=" + (to_string page.lexUs) + "us")
+    }
+}

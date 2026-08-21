@@ -1,0 +1,283 @@
+; ==============================================================================
+; RangerLanguage.rgr — the same seam, a different language
+; ==============================================================================
+;
+; This plugin exists to prove the seam is real. It shares no code with the
+; JavaScript one, has its own idea of what a comment is (`;` to the end of the
+; line), and reports errors JavaScript does not have — because in an
+; S-expression language a bracket that never closes is not one error among many,
+; it is nearly the whole category.
+;
+; It is a LINT, not the Ranger compiler. Wiring the compiler in would be the
+; honest way to get real type errors, and it is also two megabytes of frontend
+; and a second of work per keystroke; when that is wanted it arrives as another
+; plugin next to this one — which is the point of there being a registry.
+;
+; What it does check is the shape of the file and the three mistakes the
+; repository's own AGENTS.md says cost the most time.
+; ==============================================================================
+
+Import "EditorLanguage.rgr"
+Import "EditorDiagnostic.rgr"
+Import "RangerTokens.rgr"
+
+class RangerLanguage {
+    Extends(EditorLanguage)
+
+    def lexer:RangerTokenizer (new RangerTokenizer)
+
+    Constructor () {
+    }
+
+    fn id:string () {
+        return "ranger"
+    }
+
+    fn tokenize:[CodeTokenLine] (lines:[string]) {
+        return (lexer.tokenize(lines))
+    }
+
+    fn label:string () {
+        return "Ranger"
+    }
+
+    fn handlesFile:boolean (name:string) {
+        return (EditorLanguage.hasSuffix(name ".rgr"))
+    }
+
+    fn diagnose:[EditorDiagnostic] (source:string) {
+        def lines:[string] (EditorLanguage.linesOf(source))
+        return (this.quickDiagnose(lines))
+    }
+
+    ; This plugin has one speed: it never parses, so its full answer is already
+    ; cheap enough for every keystroke.
+    fn quickDiagnose:[EditorDiagnostic] (lines:[string]) {
+        def out:[EditorDiagnostic]
+        this.brackets(lines out)
+        this.gotchas(lines out)
+        return out
+    }
+
+    ; --- shape -----------------------------------------------------------------
+    ; One pass, carrying the two states that outlive a line: none. A Ranger
+    ; string does not span lines and a comment ends with the line, so the state
+    ; machine is per line and the bracket stack is per file.
+    fn brackets:void (lines:[string] out:[EditorDiagnostic]) {
+        def stackCh:[int]
+        def stackLine:[int]
+        def stackCol:[int]
+        def li:int 0
+        def n:int (array_length lines)
+        while (li < n) {
+            def s:string (itemAt lines li)
+            def len:int (strlen s)
+            def i:int 0
+            while (i < len) {
+                def ch:int (charAt s i)
+                if (ch == 59) {
+                    ; `;` — comment to the end of the line.
+                    break
+                }
+                if (ch == 34) {
+                    def close:int (this.stringEnd(s (i + 1)))
+                    if (close < 0) {
+                        push out (EditorDiagnostic.span(li i len (DiagnosticSeverity.error()) "string is never closed" "ranger"))
+                        break
+                    }
+                    i = (close + 1)
+                    continue
+                }
+                if (RangerLanguage.isOpen(ch)) {
+                    push stackCh ch
+                    push stackLine li
+                    push stackCol i
+                }
+                if (RangerLanguage.isClose(ch)) {
+                    def depth:int (array_length stackCh)
+                    if (depth == 0) {
+                        push out (EditorDiagnostic.span(li i (i + 1) (DiagnosticSeverity.error()) ("stray '" + (strfromcode ch) + "' — nothing opened here") "ranger"))
+                    } {
+                        def openCh:int (itemAt stackCh (depth - 1))
+                        def want:int (RangerLanguage.closerFor(openCh))
+                        if (want != ch) {
+                            def msg:string ((("'" + (strfromcode ch)) + "' closes a '") + (strfromcode openCh) + "' — expected '" + (strfromcode want) + "'")
+                            push out (EditorDiagnostic.span(li i (i + 1) (DiagnosticSeverity.error()) msg "ranger"))
+                        }
+                        removeLast stackCh
+                        removeLast stackLine
+                        removeLast stackCol
+                    }
+                }
+                i = (i + 1)
+            }
+            li = (li + 1)
+        }
+        def rest:int (array_length stackCh)
+        if (rest > 0) {
+            def openCh2:int (itemAt stackCh (rest - 1))
+            def atLine:int (itemAt stackLine (rest - 1))
+            def atCol:int (itemAt stackCol (rest - 1))
+            push out (EditorDiagnostic.span(atLine atCol (atCol + 1) (DiagnosticSeverity.error()) ("'" + (strfromcode openCh2) + "' is never closed") "ranger"))
+        }
+    }
+
+    fn stringEnd:int (s:string from:int) {
+        def i:int from
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 92) {
+                i = (i + 2)
+                continue
+            }
+            if (ch == 34) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn isOpen:boolean (ch:int) {
+        if (ch == 40) {
+            return true
+        }
+        if (ch == 91) {
+            return true
+        }
+        return (ch == 123)
+    }
+
+    sfn isClose:boolean (ch:int) {
+        if (ch == 41) {
+            return true
+        }
+        if (ch == 93) {
+            return true
+        }
+        return (ch == 125)
+    }
+
+    sfn closerFor:int (open:int) {
+        if (open == 40) {
+            return 41
+        }
+        if (open == 91) {
+            return 93
+        }
+        return 125
+    }
+
+    ; --- the mistakes this repository actually makes ---------------------------
+    ; From AGENTS.md, which lists them because they cost hours: a returned call
+    ; needs its own parentheses, and a statement may not start with a
+    ; parenthesised receiver. Both compile to misleading errors somewhere else,
+    ; which is exactly the kind of thing an editor should say early.
+    fn gotchas:void (lines:[string] out:[EditorDiagnostic]) {
+        def li:int 0
+        def n:int (array_length lines)
+        while (li < n) {
+            def raw:string (itemAt lines li)
+            def indent:int (this.indentOf(raw))
+            def body:string (substring raw indent (strlen raw))
+            if ((this.beginsWith(body "return ")) && ((strlen body) > 7)) {
+                def rest:string (substring body 7 (strlen body))
+                def first:int (charAt rest 0)
+                if (first != 40) {
+                    if (this.looksLikeCall(rest)) {
+                        def col:int (indent + 7)
+                        push out (EditorDiagnostic.span(li col (strlen raw) (DiagnosticSeverity.warning()) "a returned call needs its own parentheses: return (this.f())" "ranger"))
+                    }
+                }
+            }
+            if ((strlen body) > 1) {
+                def opener:int (charAt body 0)
+                if (opener == 40) {
+                    ; `(recv.method())` as a STATEMENT. Inside an expression it
+                    ; is fine, so only a line that starts with it is flagged.
+                    if (this.looksLikeReceiverCall(body)) {
+                        push out (EditorDiagnostic.span(li indent (strlen raw) (DiagnosticSeverity.warning()) "a statement may not start with a parenthesised receiver — bind it first" "ranger"))
+                    }
+                }
+            }
+            li = (li + 1)
+        }
+    }
+
+    fn indentOf:int (s:string) {
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch != 32) && (ch != 9)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn beginsWith:boolean (s:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen s) < n) {
+            return false
+        }
+        def head:string (substring s 0 n)
+        return (head == prefix)
+    }
+
+    ; `foo.bar()` or `foo(x)` — an unparenthesised call, rather than a value.
+    fn looksLikeCall:boolean (s:string) {
+        def sawOpen:boolean false
+        def sawClose:boolean false
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 40) {
+                sawOpen = true
+            }
+            if (ch == 41) {
+                if sawOpen {
+                    sawClose = true
+                }
+            }
+            ; An operator in the expression means it is arithmetic, not a bare
+            ; returned call, and those are legal.
+            if (ch == 43) {
+                return false
+            }
+            if (ch == 63) {
+                return false
+            }
+            i = (i + 1)
+        }
+        if (sawOpen == false) {
+            return false
+        }
+        return sawClose
+    }
+
+    ; `(thing.method(` — the receiver form, as opposed to `(op a b)`, which is
+    ; every other line in the language.
+    fn looksLikeReceiverCall:boolean (s:string) {
+        def i:int 1
+        def n:int (strlen s)
+        def sawDot:boolean false
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 32) {
+                return false
+            }
+            if (ch == 40) {
+                return sawDot
+            }
+            if (ch == 46) {
+                sawDot = true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

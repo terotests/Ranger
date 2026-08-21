@@ -1,0 +1,327 @@
+; ==============================================================================
+; ScriptPreview.rgr — the report, on the sheet's own canvas
+; ==============================================================================
+;
+; The preview is not a picture of the report: it is the report's own display
+; list, the one EVGDisplayList builds from the laid-out page, copied into the
+; grid's list with a scale and an offset. Nothing about the page is re-drawn by
+; hand here, so anything the PDF can show — gradients, rounded boxes, vector
+; paths, real font metrics — arrives on screen for free, and a page that looks
+; right in the preview is the page that comes out of the exporter.
+;
+; The one thing this file owns is the transform. A draw command is absolute
+; pixels by design, so placing a 595×842 page inside a 700×400 panel means
+; rewriting every coordinate — which is a copy, not a mutation, because the
+; page's own list belongs to the page and gets reused on the next frame.
+; ==============================================================================
+
+Import "GridScriptEngine.rgr"
+Import "../../../evg/EVGDisplayList.rgr"
+Import "../../../evg/EVGColor.rgr"
+
+class ScriptPreview {
+    def active:boolean false
+    def scriptName:string ""
+    def pageIndex:int 0
+    ; 0 means "fit the page to the panel"; anything else is an explicit zoom.
+    def zoom:double 0.0
+    def result:GridScriptResult (new GridScriptResult)
+    def status:string ""
+    ; Where the page ended up last time it was painted — the hit test for
+    ; clicks and the scroll wheel need it.
+    def lastScale:double 1.0
+    def lastPageX:double 0.0
+    def lastPageY:double 0.0
+    ; Per-page display lists, built once per run rather than once per frame.
+    def cache:[EVGDisplayList]
+    def cacheValid:boolean false
+
+    Constructor () {
+    }
+
+    fn show:void (name:string r:GridScriptResult) {
+        scriptName = name
+        result = r
+        pageIndex = 0
+        active = true
+        cacheValid = false
+        clear cache
+        if (r.ok == false) {
+            status = r.error
+            return
+        }
+        def n:int (r.pageCount())
+        status = (name + ": " + (to_string n) + " page(s)")
+    }
+
+    fn close:void () {
+        active = false
+        cacheValid = false
+        clear cache
+    }
+
+    fn pageCount:int () {
+        return (result.pageCount())
+    }
+
+    ; The one line of chrome the preview has: which report, which page, and
+    ; the four keys worth knowing.
+    fn headline:string () {
+        if (result.ok == false) {
+            return (scriptName + ": " + result.error)
+        }
+        def n:int (result.pageCount())
+        def shown:int (pageIndex + 1)
+        def out:string (scriptName + "  page " + (to_string shown) + "/" + (to_string n))
+        return (out + "   PgUp/PgDn pages · +/- zoom · Ctrl+P PDF · Esc closes")
+    }
+
+    fn setPage:void (i:int) {
+        def n:int (result.pageCount())
+        if (n == 0) {
+            pageIndex = 0
+            return
+        }
+        def next:int i
+        if (next < 0) {
+            next = 0
+        }
+        if (next >= n) {
+            next = (n - 1)
+        }
+        pageIndex = next
+    }
+
+    fn nextPage:void () {
+        def i:int (pageIndex + 1)
+        this.setPage(i)
+    }
+
+    fn prevPage:void () {
+        def i:int (pageIndex - 1)
+        this.setPage(i)
+    }
+
+    fn zoomBy:void (factor:double) {
+        def base:double lastScale
+        def next:double (base * factor)
+        if (next < 0.2) {
+            next = 0.2
+        }
+        if (next > 4.0) {
+            next = 4.0
+        }
+        zoom = next
+    }
+
+    fn zoomFit:void () {
+        zoom = 0.0
+    }
+
+    ; --- the page's own list ---------------------------------------------------
+    fn ensureCache:void () {
+        if cacheValid {
+            return
+        }
+        clear cache
+        def i:int 0
+        def n:int (result.pageCount())
+        while (i < n) {
+            def pg:GridScriptPage (result.pageAt(i))
+            def dl:EVGDisplayList (new EVGDisplayList)
+            dl.build(pg.element)
+            push cache dl
+            i = (i + 1)
+        }
+        cacheValid = true
+    }
+
+    ; --- the transform ---------------------------------------------------------
+    fn copyScaled:EVGDrawCmd (src:EVGDrawCmd dx:double dy:double s:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = src.kind
+        c.x = ((src.x * s) + dx)
+        c.y = ((src.y * s) + dy)
+        c.w = (src.w * s)
+        c.h = (src.h * s)
+        c.radius = (src.radius * s)
+        c.thickness = (src.thickness * s)
+        c.r = src.r
+        c.g = src.g
+        c.b = src.b
+        c.a = src.a
+        c.text = src.text
+        c.fontFamily = src.fontFamily
+        c.fontSize = (src.fontSize * s)
+        c.textAlign = src.textAlign
+        c.fontWeight = src.fontWeight
+        c.maxWidth = (src.maxWidth * s)
+        c.hasGrad = src.hasGrad
+        c.gradDir = src.gradDir
+        c.r2 = src.r2
+        c.g2 = src.g2
+        c.b2 = src.b2
+        c.a2 = src.a2
+        c.hasShadow = src.hasShadow
+        c.shadowX = (src.shadowX * s)
+        c.shadowY = (src.shadowY * s)
+        c.shadowBlur = (src.shadowBlur * s)
+        c.shadowR = src.shadowR
+        c.shadowG = src.shadowG
+        c.shadowB = src.shadowB
+        c.shadowA = src.shadowA
+        c.src = src.src
+        c.evenOdd = src.evenOdd
+        c.rotate = src.rotate
+        ; Vector rings are page coordinates too, so they move with everything
+        ; else — a chart drawn as paths would otherwise stay at the origin.
+        def pi:int 0
+        def pn:int (array_length src.pts)
+        while (pi < pn) {
+            def px:double (itemAt src.pts pi)
+            def isX:boolean ((pi - ((idiv pi 2) * 2)) == 0)
+            if isX {
+                push c.pts ((px * s) + dx)
+            } {
+                push c.pts ((px * s) + dy)
+            }
+            pi = (pi + 1)
+        }
+        def ri:int 0
+        def rn:int (array_length src.ringEnds)
+        while (ri < rn) {
+            push c.ringEnds (itemAt src.ringEnds ri)
+            ri = (ri + 1)
+        }
+        return c
+    }
+
+    fn appendScaled:void (dst:EVGDisplayList src:EVGDisplayList dx:double dy:double s:double) {
+        def i:int 0
+        def n:int (src.count())
+        while (i < n) {
+            def cmd:EVGDrawCmd (src.at(i))
+            push dst.cmds (this.copyScaled(cmd dx dy s))
+            i = (i + 1)
+        }
+    }
+
+    ; --- painting --------------------------------------------------------------
+    fn scaleFor:double (viewW:int viewH:int) {
+        if ((result.pageCount()) == 0) {
+            return 1.0
+        }
+        def pg:GridScriptPage (result.pageAt(pageIndex))
+        if (zoom > 0.0) {
+            return zoom
+        }
+        def marginPx:double 24.0
+        def availW:double ((to_double viewW) - (marginPx * 2.0))
+        def availH:double ((to_double viewH) - (marginPx * 2.0))
+        if (availW < 40.0) {
+            availW = 40.0
+        }
+        if (availH < 40.0) {
+            availH = 40.0
+        }
+        def sx:double (availW / pg.width)
+        def sy:double (availH / pg.height)
+        def s:double sx
+        if (sy < sx) {
+            s = sy
+        }
+        if (s > 2.0) {
+            s = 2.0
+        }
+        return s
+    }
+
+    ; Backdrop, sheet, page content — in that order, clipped to the panel.
+    fn paintInto:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        if (active == false) {
+            return
+        }
+        def backdrop:EVGColor (EVGColor.parse("#4a4f55"))
+        def paper:EVGColor (EVGColor.parse("#ffffff"))
+        def edge:EVGColor (EVGColor.parse("#20242a"))
+        this.pushRect(dl (to_double x) (to_double y) (to_double w) (to_double h) backdrop)
+        if ((result.pageCount()) == 0) {
+            return
+        }
+        this.ensureCache()
+        def pg:GridScriptPage (result.pageAt(pageIndex))
+        def s:double (this.scaleFor(w h))
+        def pageW:double (pg.width * s)
+        def pageH:double (pg.height * s)
+        def px:double ((to_double x) + (((to_double w) - pageW) / 2.0))
+        def py:double ((to_double y) + (((to_double h) - pageH) / 2.0))
+        if (py < ((to_double y) + 12.0)) {
+            py = ((to_double y) + 12.0)
+        }
+        if (px < ((to_double x) + 12.0)) {
+            px = ((to_double x) + 12.0)
+        }
+        lastScale = s
+        lastPageX = px
+        lastPageY = py
+        this.pushClip(dl (to_double x) (to_double y) (to_double w) (to_double h))
+        this.pushRect(dl (px + 3.0) (py + 3.0) pageW pageH (EVGColor.parse("#2b2f34")))
+        this.pushRect(dl px py pageW pageH paper)
+        this.pushBorder(dl px py pageW pageH 1.0 edge)
+        ; Clipped to the sheet, not to the panel: content that runs past the
+        ; bottom of the page is content the PDF will not print either, and a
+        ; preview that shows it is a preview that lies.
+        this.pushClip(dl px py pageW pageH)
+        def content:EVGDisplayList (itemAt cache pageIndex)
+        def offset:double (pg.margin * s)
+        this.appendScaled(dl content (px + offset) (py + offset) s)
+        this.popClip(dl)
+        this.popClip(dl)
+    }
+
+    ; --- small command helpers (the grid's own live in GridView) ---------------
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushBorder:void (dl:EVGDisplayList x:double y:double w:double h:double thickness:double col:EVGColor) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 4
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        push dl.cmds c
+    }
+
+    fn popClip:void (dl:EVGDisplayList) {
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 5
+        push dl.cmds c
+    }
+}

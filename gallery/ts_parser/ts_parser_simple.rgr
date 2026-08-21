@@ -169,6 +169,12 @@ class TSParserSimple {
   def errorCount:int 0
   ; The first diagnostic this parse produced, readable by the host.
   def firstErrorText:string ""
+  ; …and WHERE it was, taken from the token the parser was looking at. A host
+  ; that only gets the text can print it; a host that gets the position can
+  ; underline it, which is the difference between a message and a diagnostic.
+  ; Both are 0-based; -1 means the parse ended before any token was current.
+  def firstErrorLine:int -1
+  def firstErrorCol:int -1
   def scopeNames:[string]
   def scopeStart:[int]
   def scopeIsFn:[int]
@@ -318,6 +324,8 @@ class TSParserSimple {
     ; parsed -- one bad bundle poisoned the realm.
     this.errorCount = 0
     this.firstErrorText = ""
+    this.firstErrorLine = -1
+    this.firstErrorCol = -1
     if ((array_length toks) > 0) {
       this.currentToken = (itemAt toks 0)
       ; Skip initial comments/whitespace
@@ -345,6 +353,11 @@ class TSParserSimple {
     ; signal that a bundle failed to parse was a message on stdout, which a
     ; harness reads as a successful load.
     this.firstErrorText = msg
+    if (this.currentToken) {
+      def at:Token (unwrap this.currentToken)
+      this.firstErrorLine = at.line
+      this.firstErrorCol = at.col
+    }
     if (this.quiet == false) {
       print msg
     }

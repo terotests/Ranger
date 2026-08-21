@@ -1,0 +1,555 @@
+; ==============================================================================
+; GridScriptData.rgr — what a script is allowed to see
+; ==============================================================================
+;
+; A script reads the workbook through ordinary function calls — `sheetRows`,
+; `range`, `cell`, `query` — and gets back plain JavaScript values. It never
+; touches a SpreadsheetModel, which is what keeps the same script running over
+; an .xlsx sheet and over a sheet whose rows came from a database: by the time
+; the script sees them, both are arrays.
+;
+;   const rows = sheetRows("Sales");        // every used row of a sheet
+;   const q1   = range("Sales!B2:D13");     // one rectangle
+;   const live = query("select * from orders where total > 100");
+;
+; `query` is a seam, not an engine. GridScriptQuery answers "no database is
+; bound" and a host that has one — the SQL layer in gallery/rangerdb, a Node
+; driver, anything — subclasses it and hands the subclass to the bridge. That
+; is the whole coupling between reports and databases.
+; ==============================================================================
+
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+Import "../../../pdf_writer/src/jsx/EvalValue.rgr"
+Import "../WorkbookModel.rgr"
+Import "../SpreadsheetModel.rgr"
+Import "../FormulaEngine.rgr"
+Import "../XlsxNumberFormat.rgr"
+
+; A database, seen from a script. The default one has none: `available` is
+; false and every query comes back empty with a reason. Subclass it to bind a
+; real source — the rows are strings and the first row is the column names,
+; because that is the shape every driver can produce and every script can read.
+class GridScriptQuery {
+    def lastError:string ""
+
+    Constructor () {
+    }
+
+    fn available:boolean () {
+        return false
+    }
+
+    fn run:[[string]] (sql:string) {
+        lastError = "no database is bound to this workbook"
+        def empty:[[string]]
+        return empty
+    }
+}
+
+class GridScriptBridge {
+    Extends(EvalNativeBridge)
+
+    def book:WorkbookModel (new WorkbookModel)
+    def query:GridScriptQuery (new GridScriptQuery)
+    ; The sheet a bare "A1" means: whichever one the user was looking at.
+    def defaultSheet:string ""
+    ; Host facts a report may want to print — file name, date, selection.
+    def paramKeys:[string]
+    def paramValues:[string]
+    ; Everything the script said with log(), in order.
+    def messages:[string]
+    ; The largest rectangle any one call will return, so a runaway script
+    ; cannot pull a million rows into the interpreter.
+    def maxRows:int 20000
+    def maxCols:int 256
+
+    Constructor () {
+    }
+
+    fn attach:void (b:WorkbookModel) {
+        book = b
+    }
+
+    fn setQuery:void (q:GridScriptQuery) {
+        query = q
+    }
+
+    fn setParam:void (key:string value:string) {
+        def i:int 0
+        def n:int (array_length paramKeys)
+        while (i < n) {
+            def k:string (itemAt paramKeys i)
+            if (k == key) {
+                set_at paramValues i value
+                return
+            }
+            i = (i + 1)
+        }
+        push paramKeys key
+        push paramValues value
+    }
+
+    fn paramValue:string (key:string) {
+        def i:int 0
+        def n:int (array_length paramKeys)
+        while (i < n) {
+            def k:string (itemAt paramKeys i)
+            if (k == key) {
+                return (itemAt paramValues i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; --- the callable surface --------------------------------------------------
+    fn has:boolean (name:string) {
+        if (name == "sheetNames") {
+            return true
+        }
+        if (name == "sheetCount") {
+            return true
+        }
+        if (name == "sheetRows") {
+            return true
+        }
+        if (name == "sheetText") {
+            return true
+        }
+        if (name == "usedRows") {
+            return true
+        }
+        if (name == "usedCols") {
+            return true
+        }
+        if (name == "cell") {
+            return true
+        }
+        if (name == "text") {
+            return true
+        }
+        if (name == "range") {
+            return true
+        }
+        if (name == "rangeText") {
+            return true
+        }
+        if (name == "param") {
+            return true
+        }
+        if (name == "query") {
+            return true
+        }
+        if (name == "hasDatabase") {
+            return true
+        }
+        if (name == "formatNumber") {
+            return true
+        }
+        if (name == "log") {
+            return true
+        }
+        return false
+    }
+
+    fn invoke:EvalValue (name:string args:[EvalValue]) {
+        if (name == "sheetNames") {
+            return (this.callSheetNames())
+        }
+        if (name == "sheetCount") {
+            def n:int (book.sheetCount())
+            return (EvalValue.fromInt(n))
+        }
+        if (name == "sheetRows") {
+            return (this.callSheetRows(args false))
+        }
+        if (name == "sheetText") {
+            return (this.callSheetRows(args true))
+        }
+        if (name == "usedRows") {
+            return (this.callUsed(args true))
+        }
+        if (name == "usedCols") {
+            return (this.callUsed(args false))
+        }
+        if (name == "cell") {
+            return (this.callCell(args false))
+        }
+        if (name == "text") {
+            return (this.callCell(args true))
+        }
+        if (name == "range") {
+            return (this.callRange(args false))
+        }
+        if (name == "rangeText") {
+            return (this.callRange(args true))
+        }
+        if (name == "param") {
+            def key:string (this.argString(args 0))
+            def v:string (this.paramValue(key))
+            return (EvalValue.string(v))
+        }
+        if (name == "query") {
+            return (this.callQuery(args))
+        }
+        if (name == "hasDatabase") {
+            def ok:boolean (query.available())
+            return (EvalValue.boolean(ok))
+        }
+        if (name == "formatNumber") {
+            return (this.callFormatNumber(args))
+        }
+        if (name == "log") {
+            def msg:string (this.argString(args 0))
+            push messages msg
+            return (EvalValue.null())
+        }
+        return (EvalValue.null())
+    }
+
+    ; --- arguments -------------------------------------------------------------
+    fn argString:string (args:[EvalValue] i:int) {
+        if (i >= (array_length args)) {
+            return ""
+        }
+        def v:EvalValue (itemAt args i)
+        return (v.toString())
+    }
+
+    fn argInt:int (args:[EvalValue] i:int fallback:int) {
+        if (i >= (array_length args)) {
+            return fallback
+        }
+        def v:EvalValue (itemAt args i)
+        if ((v.isNumber()) == false) {
+            return fallback
+        }
+        def d:double (v.toNumber())
+        return (to_int d)
+    }
+
+    ; --- sheets ----------------------------------------------------------------
+    fn sheetIndexOf:int (name:string) {
+        if ((strlen name) == 0) {
+            if ((strlen defaultSheet) > 0) {
+                return (this.sheetIndexOf(defaultSheet))
+            }
+            return book.activeIndex
+        }
+        def i:int 0
+        def n:int (book.sheetCount())
+        while (i < n) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            if (sh.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn sheetNamed:SpreadsheetModel (name:string) {
+        def idx:int (this.sheetIndexOf(name))
+        if (idx < 0) {
+            def empty:SpreadsheetModel (new SpreadsheetModel)
+            return empty
+        }
+        return (book.sheetAt(idx))
+    }
+
+    ; How far the data actually goes. `cellRows` only holds rows something was
+    ; written to, so this is bounded by the content and not by rowCount, which
+    ; is 1000 on an empty sheet.
+    fn usedExtent:void (sh:SpreadsheetModel rowsOut:[int] colsOut:[int]) {
+        clear rowsOut
+        clear colsOut
+        def lastRow:int -1
+        def lastCol:int -1
+        def maxCol:int sh.colCount
+        def r:int 0
+        def n:int (array_length sh.cellRows)
+        while (r < n) {
+            def m:[int:string] (itemAt sh.cellRows r)
+            def c:int 0
+            while (c < maxCol) {
+                if (has m c) {
+                    def val:string (?? (get m c) "")
+                    if ((strlen val) > 0) {
+                        if (r > lastRow) {
+                            lastRow = r
+                        }
+                        if (c > lastCol) {
+                            lastCol = c
+                        }
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        push rowsOut (lastRow + 1)
+        push colsOut (lastCol + 1)
+    }
+
+    fn callSheetNames:EvalValue () {
+        def out:[EvalValue]
+        def i:int 0
+        def n:int (book.sheetCount())
+        while (i < n) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            push out (EvalValue.string(sh.name))
+            i = (i + 1)
+        }
+        return (EvalValue.array(out))
+    }
+
+    fn callUsed:EvalValue (args:[EvalValue] wantRows:boolean) {
+        def name:string (this.argString(args 0))
+        def sh:SpreadsheetModel (this.sheetNamed(name))
+        def rowsOut:[int]
+        def colsOut:[int]
+        this.usedExtent(sh rowsOut colsOut)
+        if wantRows {
+            def r:int (itemAt rowsOut 0)
+            return (EvalValue.fromInt(r))
+        }
+        def c:int (itemAt colsOut 0)
+        return (EvalValue.fromInt(c))
+    }
+
+    ; One cell, as the script should see it: a number when the sheet holds a
+    ; number, the text otherwise. `asText` asks for the displayed string
+    ; instead — what the cell looks like in the grid, number format applied.
+    fn cellValue:EvalValue (sh:SpreadsheetModel row:int col:int asText:boolean) {
+        if asText {
+            def disp:string (sh.getDisplay(row col))
+            return (EvalValue.string(disp))
+        }
+        def raw:string (sh.getCell(row col))
+        if ((strlen raw) == 0) {
+            return (EvalValue.string(""))
+        }
+        def num@(optional):double (to_double raw)
+        if num {
+            def d:double (unwrap num)
+            return (EvalValue.number(d))
+        }
+        return (EvalValue.string(raw))
+    }
+
+    fn rowsOf:EvalValue (sh:SpreadsheetModel r0:int c0:int r1:int c1:int asText:boolean) {
+        def rows:[EvalValue]
+        def r:int r0
+        def rowsTaken:int 0
+        while (r <= r1) {
+            if (rowsTaken >= maxRows) {
+                break
+            }
+            def cells:[EvalValue]
+            def c:int c0
+            def colsTaken:int 0
+            while (c <= c1) {
+                if (colsTaken >= maxCols) {
+                    break
+                }
+                push cells (this.cellValue(sh r c asText))
+                colsTaken = (colsTaken + 1)
+                c = (c + 1)
+            }
+            push rows (EvalValue.array(cells))
+            rowsTaken = (rowsTaken + 1)
+            r = (r + 1)
+        }
+        return (EvalValue.array(rows))
+    }
+
+    fn callSheetRows:EvalValue (args:[EvalValue] asText:boolean) {
+        def name:string (this.argString(args 0))
+        def sh:SpreadsheetModel (this.sheetNamed(name))
+        def rowsOut:[int]
+        def colsOut:[int]
+        this.usedExtent(sh rowsOut colsOut)
+        def nRows:int (itemAt rowsOut 0)
+        def nCols:int (itemAt colsOut 0)
+        if (nRows == 0) {
+            def none:[EvalValue]
+            return (EvalValue.array(none))
+        }
+        def limit:int (this.argInt(args 1 nRows))
+        if (limit < nRows) {
+            nRows = limit
+        }
+        return (this.rowsOf(sh 0 0 (nRows - 1) (nCols - 1) asText))
+    }
+
+    ; --- references ------------------------------------------------------------
+    ; "Sales!B2" and "B2" both arrive here; so does cell("Sales" "B2"), which is
+    ; the form a script builds when the sheet name is in a variable.
+    fn splitRef:void (args:[EvalValue] sheetOut:[string] refOut:[string]) {
+        clear sheetOut
+        clear refOut
+        def a0:string (this.argString(args 0))
+        def a1:string (this.argString(args 1))
+        def sheet:string ""
+        def ref:string a0
+        if ((strlen a1) > 0) {
+            sheet = a0
+            ref = a1
+        }
+        def bang:int (this.indexOfChar(ref 33))
+        if (bang >= 0) {
+            sheet = (substring ref 0 bang)
+            ref = (substring ref (bang + 1) (strlen ref))
+        }
+        sheet = (this.unquoteSheet(sheet))
+        push sheetOut sheet
+        push refOut ref
+    }
+
+    fn indexOfChar:int (s:string ch:int) {
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn unquoteSheet:string (s:string) {
+        def n:int (strlen s)
+        if (n < 2) {
+            return s
+        }
+        def firstCh:int (charAt s 0)
+        def lastCh:int (charAt s (n - 1))
+        if ((firstCh == 39) && (lastCh == 39)) {
+            return (substring s 1 (n - 1))
+        }
+        return s
+    }
+
+    fn cellOfRef:void (ref:string rowOut:[int] colOut:[int]) {
+        def rows:[int]
+        def cols:[int]
+        def absR:[boolean]
+        def absC:[boolean]
+        FormulaParser.parseA1(ref rows cols absR absC)
+        clear rowOut
+        clear colOut
+        push rowOut (itemAt rows 0)
+        push colOut (itemAt cols 0)
+    }
+
+    fn callCell:EvalValue (args:[EvalValue] asText:boolean) {
+        def sheetOut:[string]
+        def refOut:[string]
+        this.splitRef(args sheetOut refOut)
+        def sh:SpreadsheetModel (this.sheetNamed((itemAt sheetOut 0)))
+        def rowOut:[int]
+        def colOut:[int]
+        this.cellOfRef((itemAt refOut 0) rowOut colOut)
+        def r:int (itemAt rowOut 0)
+        def c:int (itemAt colOut 0)
+        if (r < 0) {
+            return (EvalValue.string(""))
+        }
+        if (c < 0) {
+            return (EvalValue.string(""))
+        }
+        return (this.cellValue(sh r c asText))
+    }
+
+    fn callRange:EvalValue (args:[EvalValue] asText:boolean) {
+        def sheetOut:[string]
+        def refOut:[string]
+        this.splitRef(args sheetOut refOut)
+        def sh:SpreadsheetModel (this.sheetNamed((itemAt sheetOut 0)))
+        def ref:string (itemAt refOut 0)
+        def colon:int (this.indexOfChar(ref 58))
+        def startRef:string ref
+        def endRef:string ref
+        if (colon >= 0) {
+            startRef = (substring ref 0 colon)
+            endRef = (substring ref (colon + 1) (strlen ref))
+        }
+        def r0Out:[int]
+        def c0Out:[int]
+        this.cellOfRef(startRef r0Out c0Out)
+        def r1Out:[int]
+        def c1Out:[int]
+        this.cellOfRef(endRef r1Out c1Out)
+        def r0:int (itemAt r0Out 0)
+        def c0:int (itemAt c0Out 0)
+        def r1:int (itemAt r1Out 0)
+        def c1:int (itemAt c1Out 0)
+        if (r1 < r0) {
+            def t:int r0
+            r0 = r1
+            r1 = t
+        }
+        if (c1 < c0) {
+            def t2:int c0
+            c0 = c1
+            c1 = t2
+        }
+        if (r0 < 0) {
+            r0 = 0
+        }
+        if (c0 < 0) {
+            c0 = 0
+        }
+        return (this.rowsOf(sh r0 c0 r1 c1 asText))
+    }
+
+    ; --- database --------------------------------------------------------------
+    fn callQuery:EvalValue (args:[EvalValue]) {
+        def sql:string (this.argString(args 0))
+        def rows:[[string]] (query.run(sql))
+        if ((strlen query.lastError) > 0) {
+            push messages ("query failed: " + query.lastError)
+        }
+        def out:[EvalValue]
+        def i:int 0
+        def n:int (array_length rows)
+        while (i < n) {
+            if (i >= maxRows) {
+                break
+            }
+            def row:[string] (itemAt rows i)
+            def cells:[EvalValue]
+            def c:int 0
+            def cn:int (array_length row)
+            while (c < cn) {
+                def raw:string (itemAt row c)
+                def num@(optional):double (to_double raw)
+                if num {
+                    def d:double (unwrap num)
+                    push cells (EvalValue.number(d))
+                } {
+                    push cells (EvalValue.string(raw))
+                }
+                c = (c + 1)
+            }
+            push out (EvalValue.array(cells))
+            i = (i + 1)
+        }
+        return (EvalValue.array(out))
+    }
+
+    ; --- formatting ------------------------------------------------------------
+    ; The workbook's own number formatter, so a report prints 1 234,50 € the
+    ; same way the cell does rather than reinventing it in JavaScript.
+    fn callFormatNumber:EvalValue (args:[EvalValue]) {
+        def raw:string (this.argString(args 0))
+        def code:string (this.argString(args 1))
+        if ((strlen code) == 0) {
+            code = "General"
+        }
+        def outText:string (XlsxNumberFormat.format(raw code))
+        return (EvalValue.string(outText))
+    }
+}
