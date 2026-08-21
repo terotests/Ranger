@@ -108,3 +108,11 @@ line.
 The honest gap: none of that is compiled or run here, because this container
 has neither SDL2 nor a GPU. Treat the C++ compile as evidence that the
 portable half holds, not that the app runs.
+
+## Nobody can read it
+
+A GPU frame is invisible to a screen reader: NVDA asks the platform for a tree
+of roles and names, and this file produces quads. Making an EVG program usable
+with an assistive technology means publishing a second list beside the display
+list — meaning where this one carries geometry. The design is in
+[../PLAN_ACCESSIBILITY.md](../PLAN_ACCESSIBILITY.md); none of it is built yet.
