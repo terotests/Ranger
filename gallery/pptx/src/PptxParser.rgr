@@ -306,21 +306,41 @@ class PptxParser {
                     }
                 }
             }
-            def runs:[PptxXmlNode] (pnode.childrenNamed("r"))
+            ; Runs and FIELDS, in the order the paragraph has them: a page
+            ; number sits between words often enough that reading the runs
+            ; first and the fields after would reorder the line.
             def j:int 0
-            while (j < (array_length runs)) {
-                def rnode:PptxXmlNode (itemAt runs j)
-                def run (new PptxTextRun())
-                def rPr@(optional):PptxXmlNode (rnode.firstChild("rPr"))
-                if (!null? rPr) {
-                    this.applyRPrToRun((unwrap rPr) run)
+            while (j < (pnode.childCount())) {
+                def child:PptxXmlNode (pnode.childAt(j))
+                def isRun:boolean false
+                def isField:boolean false
+                if (child.isText == false) {
+                    if (child.name == "r") {
+                        isRun = true
+                    }
+                    if (child.name == "fld") {
+                        isField = true
+                    }
                 }
-                def t@(optional):PptxXmlNode (rnode.firstChild("t"))
-                if (!null? t) {
-                    def tn:PptxXmlNode (unwrap t)
-                    run.text = (tn.textContent())
+                if (isRun || isField) {
+                    def run (new PptxTextRun())
+                    def rPr@(optional):PptxXmlNode (child.firstChild("rPr"))
+                    if (!null? rPr) {
+                        this.applyRPrToRun((unwrap rPr) run)
+                    }
+                    def t@(optional):PptxXmlNode (child.firstChild("t"))
+                    if (!null? t) {
+                        def tn:PptxXmlNode (unwrap t)
+                        run.text = (tn.textContent())
+                    }
+                    if isField {
+                        run.field = (child.attr("type"))
+                        if ((strlen run.field) == 0) {
+                            run.field = "slidenum"
+                        }
+                    }
+                    push para.runs run
                 }
-                push para.runs run
                 j = (j + 1)
             }
             push body.paragraphs para
@@ -1233,6 +1253,38 @@ class PptxParser {
         return theme
     }
 
+    ; `p14:sectionLst`, which lives in the presentation's extLst. A deck with
+    ; no sections is the common case and parses to an empty list, not an error.
+    fn parseSections:void (pres:PptxPresentation doc:PptxXmlNode) {
+        def lst@(optional):PptxXmlNode (doc.find("sectionLst"))
+        if (null? lst) {
+            return
+        }
+        def node:PptxXmlNode (unwrap lst)
+        def secs:[PptxXmlNode] (node.childrenNamed("section"))
+        def i:int 0
+        while (i < (array_length secs)) {
+            def sn:PptxXmlNode (itemAt secs i)
+            def sec (new PptxSection())
+            sec.name = (sn.attr("name"))
+            sec.id = (sn.attr("id"))
+            def ids@(optional):PptxXmlNode (sn.find("sldIdLst"))
+            if (!null? ids) {
+                def idNode:PptxXmlNode (unwrap ids)
+                def kids:[PptxXmlNode] (idNode.childrenNamed("sldId"))
+                def k:int 0
+                while (k < (array_length kids)) {
+                    def kid:PptxXmlNode (itemAt kids k)
+                    def v@(optional):int (str2int (kid.attr("id")))
+                    push sec.slideIds (?? v 0)
+                    k = (k + 1)
+                }
+            }
+            push pres.sections sec
+            i = (i + 1)
+        }
+    }
+
     fn parsePresentation:PptxPresentation () {
         def pres (new PptxPresentation())
         def xml:string (pkg.readXml("ppt/presentation.xml"))
@@ -1250,7 +1302,9 @@ class PptxParser {
             pres.slideWidth = (PptxUnits.emuToPt((this.parseDoubleAttr(sz "cx"))))
             pres.slideHeight = (PptxUnits.emuToPt((this.parseDoubleAttr(sz "cy"))))
         }
-        ; Slide order from sldIdLst → relationships
+        ; Slide order from sldIdLst → relationships. The `id` on each entry is
+        ; the name sections use for a slide, so it is kept alongside the part.
+        def slideIds:[int]
         def idLst@(optional):PptxXmlNode (doc.find("sldIdLst"))
         if (!null? idLst) {
             def lst:PptxXmlNode (unwrap idLst)
@@ -1259,17 +1313,22 @@ class PptxParser {
             while (i < (array_length ids)) {
                 def idNode:PptxXmlNode (itemAt ids i)
                 def rid:string (idNode.attr("r:id"))
+                def own:string (idNode.attr("id"))
                 if ((strlen rid) == 0) {
                     ; Rare writers omit the prefix
-                    rid = (idNode.attr("id"))
+                    rid = own
+                    own = ""
                 }
                 def part:string (pkg.resolveRelationship("ppt/presentation.xml" rid))
                 if ((strlen part) > 0) {
                     push pres.slideParts part
+                    def sid@(optional):int (str2int own)
+                    push slideIds (?? sid 0)
                 }
                 i = (i + 1)
             }
         }
+        this.parseSections(pres doc)
         ; Theme via master
         def masterPart:string (pkg.findRelationshipByType("ppt/presentation.xml" "/slideMaster"))
         if ((strlen masterPart) > 0) {
@@ -1287,6 +1346,9 @@ class PptxParser {
         while (si < (array_length pres.slideParts)) {
             def part:string (itemAt pres.slideParts si)
             def slide:PptxSlide (this.parseSlide(part pres.slideWidth pres.slideHeight))
+            if (si < (array_length slideIds)) {
+                slide.slideId = (itemAt slideIds si)
+            }
             if ((strlen slide.layoutPart) > 0) {
                 slide.masterPart = (pkg.findRelationshipByType(slide.layoutPart "/slideMaster"))
                 this.ensureSheet(pres.layouts slide.layoutPart)

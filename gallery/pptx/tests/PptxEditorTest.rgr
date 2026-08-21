@@ -93,6 +93,7 @@ class PptxEditorTest {
         this.testFlip()
         this.testFormatPainter()
         this.testLayouts()
+        this.testMasterEditing()
         this.testTheme()
         this.testBackground()
         this.testNotes()
@@ -1005,6 +1006,68 @@ class PptxEditorTest {
         this.check("undo puts the old layout back" (ed.undo()))
         this.check("and says so" ((ed.slideLayout()) == was))
         this.check("an unknown layout is refused" ((ed.applyLayout("ppt/slideLayouts/nope.xml")) == false))
+        parser.close()
+    }
+
+
+    fn testMasterEditing:void () {
+        print "--- editing the master ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "11-master-background.pptx")) == false) {
+            this.check("open 11-master-background" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        def masters:[string] (ed.masterParts())
+        this.check("the deck has a master" ((array_length masters) > 0))
+        if ((array_length masters) == 0) {
+            return
+        }
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def chromeBefore:int 0
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            if (((itemAt slide.shapes i).inherited)) {
+                chromeBefore = (chromeBefore + 1)
+            }
+            i = (i + 1)
+        }
+        this.check("and the slide inherits chrome from it" (chromeBefore > 0))
+        this.check("not editing a sheet to begin with" ((ed.isEditingSheet()) == false))
+        def part:string (itemAt masters 0)
+        this.check("step into the master" (ed.editSheet(part)))
+        this.check("it says which one" ((ed.editingSheetPart()) == part))
+        def masterShapes:int (array_length (ed.editableShapes()))
+        this.check("the master's own shapes are what is editable" (masterShapes > 0))
+        ; Put something on the master and give it back to the deck.
+        def added:int (ed.addShapeAt("rect" 10.0 10.0 60.0 20.0))
+        this.check("a shape can be added to it" (added > 0))
+        this.check("step out again" (ed.exitSheet()))
+        this.check("and it is no longer a sheet being edited" ((ed.isEditingSheet()) == false))
+        def slideAfter:PptxSlide (itemAt pres.slides 0)
+        def chromeAfter:int 0
+        def j:int 0
+        while (j < (array_length slideAfter.shapes)) {
+            if (((itemAt slideAfter.shapes j).inherited)) {
+                chromeAfter = (chromeAfter + 1)
+            }
+            j = (j + 1)
+        }
+        this.check("the slide inherited the new chrome" (chromeAfter == (chromeBefore + 1)))
+        ; The sheet itself is marked, so a save knows to rewrite its part.
+        def sheet@(optional):PptxSheet (ed.sheetFor(part))
+        if (!null? sheet) {
+            this.check("the master is marked as changed" (((unwrap sheet).dirty)))
+        }
+        ; Undo reaches inside a master, because the snapshots carry the sheets.
+        ed.editSheet(part)
+        def beforeUndo:int (array_length (ed.editableShapes()))
+        this.check("undo works in there" (ed.undo()))
+        this.check("and it took the shape back" ((array_length (ed.editableShapes())) == (beforeUndo - 1)))
+        ed.exitSheet()
+        this.check("an unknown sheet is refused" ((ed.editSheet("ppt/slideMasters/none.xml")) == false))
         parser.close()
     }
 

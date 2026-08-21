@@ -349,12 +349,56 @@ the toolbar ABOVE the panel still belongs to the toolbar (the first version
 swallowed it) — and 3 in the browser. `artifacts/09_slide_panel.png` is a slide
 being dragged, with the drop line where it would land.
 
-## Phase E5 — the document, not the slide
+## Phase E5 — the document, not the slide (done)
 
-Themes (recolour a deck from one palette, the way `GridTheme` does for the
-spreadsheet) · layouts and placeholders as things you can pick rather than
-inherit · editing the master · sections · speaker notes · slide numbers and
-footers · background fills per slide.
+Everything above this phase edits one slide. This one edits the things a slide
+inherits from, which is where a deck stops being a pile of pages.
+
+- **Themes.** `applyPalette` swaps the six accent colours and the two darks and
+  lights; `setThemeColor` sets one slot. Both then *re-theme* what is already
+  on the slides, which needed a change in the resolver: a colour that came out
+  of `schemeClr` now keeps the slot it named after being resolved, so it can be
+  looked up again. Before, resolving threw the name away and a re-theme could
+  only guess by matching hex values.
+- **Layouts.** `layoutParts` lists what the deck has and `applyLayout` moves a
+  slide onto one, re-inheriting its chrome and re-matching its placeholders.
+- **The master, edited in place.** `editSheet` stands a master (or a layout) up
+  as a slide and hands it to the same painter, the same pointer and the same
+  tools — nothing in the editing stack knows it is not a slide. `exitSheet`
+  writes it back and gives every slide that follows it its chrome again. The
+  status line says `master` so you can tell where you are standing. The one
+  fix this needed downstream: a sheet's own background was never resolved, so
+  a master with a `schemeClr` background drew black the moment you could see
+  it — the resolver now resolves master and layout backgrounds too.
+- **Sections.** Parsed out of `p14:sectionLst` in the presentation part and
+  written back into it, which meant slides had to keep the id `p:sldIdLst` gave
+  them (`PptxSlide.slideId`) — sections name their members by id, so a save
+  that renumbered the slides would have scrambled them. A section starts at the
+  slide in front of you and runs to the slide before the next section begins;
+  the panel writes each name once, above the run it names.
+- **Notes.** Speaker's notes are a `PptxShape` rather than a string, so the
+  caret, the wrap and the styling that already exist work on them; the strip
+  under the slide is just the box that shape is laid out in. They round-trip
+  through their own `notesSlide` part.
+- **Slide numbers and footers.** Both live on the master, which is where
+  PowerPoint keeps them, so one of each serves the whole deck. The number is a
+  **field** (`a:fld` with `type="slidenum"`), not the text that was in it when
+  it was written, so it still counts up when slides move — which meant teaching
+  the parser and the writer about fields, and the converter which slide it is
+  drawing.
+- **Backgrounds per slide.** `setSlideBackground` (hex), `setSlideBackgroundScheme`
+  (a theme slot, so it follows a re-theme) and `clearSlideBackground` (back to
+  what the layout says).
+
+Commands: `theme.palette`, `theme.color`, `slide.layout`, `slide.background`,
+`master.edit`, `master.exit`, `footer.set`, `slide.numbers`, `section.add`,
+`section.rename`, `section.remove`, `notes.edit`, `notes.set`, `view.notes`.
+
+Verified where it matters — in the file. The writer suite grew a section round
+trip (make two, save, reopen, read them back, then remove them all and check
+the deck still opens), an edited-master round trip, and a footer/slide-number
+round trip that checks the number came back as a *field* and not as a number.
+`artifacts/11_sections_and_footer.png` and `12_master_edit.png`.
 
 ## Phase E6 — presenting
 

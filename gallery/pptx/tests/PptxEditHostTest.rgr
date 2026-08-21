@@ -583,6 +583,63 @@ class PptxEditHostTest {
         c.ok("the deck is back" ((app4.slideCount()) == slides0))
         c.ok("and the viewer is on a slide that exists" (app4.index < (app4.slideCount())))
 
+        print "-- the master, the footer and the sections --"
+        def app5:PptxApp (PptxEditHostTest.buildDeck("20-business-deck.pptx"))
+        def onSlide:int (array_length (app5.editor.editableShapes()))
+        c.ok("the master opens" (app5.runCommand("master.edit" "")))
+        c.ok("and the app says so" (app5.editor.isEditingSheet()))
+        def masterShapes:[PptxShape] (app5.editor.editableShapes())
+        def sheet@(optional):PptxSheet (app5.editor.masterSheet())
+        def fromSheet:boolean false
+        if (!null? sheet) {
+            def ms:PptxSheet (unwrap sheet)
+            if ((array_length masterShapes) == (array_length ms.shapes)) {
+                fromSheet = true
+                def mi:int 0
+                while (mi < (array_length masterShapes)) {
+                    def a:PptxShape (itemAt masterShapes mi)
+                    def b:PptxShape (itemAt ms.shapes mi)
+                    if (a.editId != b.editId) {
+                        fromSheet = false
+                    }
+                    mi = (mi + 1)
+                }
+            }
+        }
+        c.ok("what is editable is the master's own shapes" fromSheet)
+        c.ok("leaving it works" (app5.runCommand("master.exit" "")))
+        c.ok("and puts the slide back" ((app5.editor.isEditingSheet()) == false))
+        c.ok("with the shapes it had" ((array_length (app5.editor.editableShapes())) == onSlide))
+        c.ok("leaving again does nothing" ((app5.runCommand("master.exit" "")) == false))
+        ; The frame still builds while the master is open — the master is drawn
+        ; through the same path as a slide.
+        app5.runCommand("master.edit" "")
+        def masterFrame:EVGDisplayList (app5.buildFrame())
+        c.ok("the master draws" ((array_length masterFrame.cmds) > 0))
+        app5.runCommand("master.exit" "")
+
+        c.ok("a footer can be set from a command" (app5.runCommand("footer.set" "Internal only")))
+        c.ok("and it is on the master" ((app5.editor.footerText()) == "Internal only"))
+        c.ok("slide numbers toggle on" (app5.runCommand("slide.numbers" "")))
+        c.ok("and read as on" (app5.editor.slideNumbersShown()))
+        c.ok("and off again" (app5.runCommand("slide.numbers" "")))
+        c.ok("reading as off" ((app5.editor.slideNumbersShown()) == false))
+
+        def secs0:int (app5.editor.sectionCount())
+        app5.gotoSlide(0)
+        c.ok("a section starts here" (app5.runCommand("section.add" "Opening")))
+        c.ok("the deck has one more" ((app5.editor.sectionCount()) == (secs0 + 1)))
+        c.ok("this slide is in it" ((app5.editor.sectionOfSlide(0)) >= 0))
+        c.ok("renaming it works" (app5.runCommand("section.rename" "Overview")))
+        def at0:int (app5.editor.sectionOfSlide(0))
+        c.ok("and the name took" ((app5.editor.sectionNameAt(at0)) == "Overview"))
+        c.ok("an unnamed rename is refused" ((app5.runCommand("section.rename" "")) == false))
+        def sectionFrame:EVGDisplayList (app5.buildFrame())
+        c.ok("the panel draws with a section header" ((array_length sectionFrame.cmds) > 0))
+        c.ok("removing it works" (app5.runCommand("section.remove" "")))
+        c.ok("and the deck is back to none here" ((app5.editor.sectionOfSlide(0)) < 0))
+        c.ok("removing again is refused" ((app5.runCommand("section.remove" "")) == false))
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

@@ -200,6 +200,27 @@ class PptxEditorShots {
         app10.editor.setCaretPos(0 24 false)
         PptxEditorShots.shot(app10 "10_theme_and_notes.png")
 
+        ; 11 — sections in the panel, a footer and page numbers on every slide
+        def app11:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app11.gotoSlide(0)
+        app11.runCommand("section.add" "Opening")
+        if ((app11.slideCount()) > 2) {
+            app11.gotoSlide(2)
+            app11.runCommand("section.add" "The numbers")
+        }
+        app11.runCommand("footer.set" "Q3 review — internal")
+        app11.runCommand("slide.numbers" "")
+        app11.gotoSlide(2)
+        PptxEditorShots.shot(app11 "11_sections_and_footer.png")
+
+        ; 12 — the slide master open for editing, which is where those live
+        def app12:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app12.gotoSlide(1)
+        app12.runCommand("footer.set" "Q3 review — internal")
+        app12.runCommand("slide.numbers" "")
+        app12.runCommand("master.edit" "")
+        PptxEditorShots.shot(app12 "12_master_edit.png")
+
         print "done"
     }
 }

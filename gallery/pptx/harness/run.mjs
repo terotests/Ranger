@@ -88,7 +88,10 @@ function collect(info) {
       }
       if (!inherited && typeof s.runs === "number") runs += s.runs;
       if (!inherited && typeof s.paragraphs === "number") paragraphs = Math.max(paragraphs, s.paragraphs);
-      if (s.fillScheme === true || s.fillScheme === "true") unresolvedSchemeFills += 1;
+      // A fill can name a theme slot and still be resolved: the editor keeps
+      // the slot so re-theming can find it again. Unresolved means no colour.
+      const namesScheme = s.fillScheme === true || s.fillScheme === "true";
+      if (namesScheme && !s.fill) unresolvedSchemeFills += 1;
       if (typeof s.rotation === "number") maxRotation = Math.max(maxRotation, Math.abs(s.rotation));
     }
   }

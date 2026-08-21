@@ -209,6 +209,13 @@ class PptxApp {
         commands.addArg("theme.color" "Set a theme colour" "Design" "")
         commands.addArg("slide.layout" "Pick a layout" "Design" "")
         commands.addArg("slide.background" "Slide background" "Design" "")
+        commands.add("master.edit" "Edit the slide master" "Design" "")
+        commands.add("master.exit" "Back to the slide" "Design" "")
+        commands.addArg("footer.set" "Set the footer" "Design" "")
+        commands.add("slide.numbers" "Show slide numbers" "Design" "")
+        commands.addArg("section.add" "Start a section here" "Slides" "")
+        commands.addArg("section.rename" "Rename this section" "Slides" "")
+        commands.add("section.remove" "Remove this section" "Slides" "")
         commands.add("view.grid" "Snap to the grid" "View" "")
         commands.add("view.snap" "Snap to the shapes" "View" "")
         commands.add("edit.front" "Bring to front" "Arrange" "")
@@ -420,6 +427,12 @@ class PptxApp {
     }
 
     fn currentSlide@(optional):PptxSlide () {
+        ; While the master is open it stands in for the slide: the same paint,
+        ; the same pointer, the same tools — only the shapes come from the
+        ; sheet, which is the whole point of editing it here.
+        if (editor.isEditingSheet()) {
+            return (editor.currentSlide())
+        }
         if (loaded == false) {
             def __missing@(optional):PptxSlide
             return __missing
@@ -1667,6 +1680,63 @@ class PptxApp {
             }
             return (editor.setSlideBackground(arg))
         }
+        ; The master is edited in the same frame as a slide: what changes is
+        ; which sheet the shapes come from, so every tool keeps working.
+        if (id == "master.edit") {
+            if (editor.isEditingSheet()) {
+                editor.exitSheet()
+                return true
+            }
+            def slide@(optional):PptxSlide (editor.currentSlide())
+            if (null? slide) {
+                return false
+            }
+            def s0:PptxSlide (unwrap slide)
+            def part:string s0.masterPart
+            if ((strlen part) == 0) {
+                return false
+            }
+            this.setEditMode(true)
+            return (editor.editSheet(part))
+        }
+        if (id == "master.exit") {
+            if ((editor.isEditingSheet()) == false) {
+                return false
+            }
+            editor.exitSheet()
+            return true
+        }
+        if (id == "footer.set") {
+            return (editor.setFooter(arg))
+        }
+        if (id == "slide.numbers") {
+            def on:boolean (editor.slideNumbersShown())
+            return (editor.showSlideNumbers((on == false)))
+        }
+        if (id == "section.add") {
+            def name:string arg
+            if ((strlen name) == 0) {
+                name = ("Section " + (to_string ((editor.sectionCount()) + 1)))
+            }
+            return (editor.addSection(name))
+        }
+        if (id == "section.rename") {
+            def at:int (editor.sectionOfSlide(index))
+            if (at < 0) {
+                return false
+            }
+            if ((strlen arg) == 0) {
+                return false
+            }
+            return (editor.renameSection(at arg))
+        }
+        if (id == "section.remove") {
+            def at2:int (editor.sectionOfSlide(index))
+            if (at2 < 0) {
+                return false
+            }
+            return (editor.removeSection(at2))
+        }
         if (id == "view.panel") {
             panelVisible = (panelVisible == false)
             view.chromeW = (this.panelWidth())
@@ -2101,6 +2171,11 @@ class PptxApp {
         if (editor.isEditingText()) {
             out = "typing"
         }
+        ; Editing the master is a different place to be standing, and the one
+        ; thing worth saying about it is that you are not on a slide.
+        if (editor.isEditingSheet()) {
+            out = (out + " · master")
+        }
         if (n == 1) {
             out = (out + " · 1 selected")
         }
@@ -2138,6 +2213,7 @@ class PptxApp {
     ; shape, without the notes pretending to be on the slide.
     fn lineBoxesIn:[PptxTextLine] (sh:PptxShape box:PptxEditRect scale:double) {
         view.converter.setScale((scale / (96.0 / 72.0)))
+        view.converter.slideNumber = (index + 1)
         return (view.converter.lineBoxes(sh box.x box.y box.w box.h))
     }
 
@@ -2394,9 +2470,14 @@ class PptxApp {
         return 26
     }
 
+    ; The panel starts far enough below the strip that a section name written
+    ; above the first thumbnail has room to be read.
+    fn panelTop:int () {
+        return (toolbarH + 20)
+    }
+
     fn panelThumbY:int (i:int) {
-        def top:int (toolbarH + 10)
-        return (((top + (i * (this.panelStep()))) - panelScroll))
+        return ((((this.panelTop()) + (i * (this.panelStep()))) - panelScroll))
     }
 
     fn panelSlideAt:int (px:int py:int) {
@@ -2432,7 +2513,7 @@ class PptxApp {
     fn panelDropIndex:int (py:int) {
         def n:int (this.slideCount())
         def step:int (this.panelStep())
-        def top:int ((toolbarH + 10) - panelScroll)
+        def top:int ((this.panelTop()) - panelScroll)
         def rel:int (py - top)
         if (rel < 0) {
             return 0
@@ -2564,6 +2645,7 @@ class PptxApp {
                 dl.addRect((to_double tx) (to_double ty) (to_double tw) (to_double th) (EVGColor.rgb(255 255 255)))
                 def scale:double ((to_double tw) / (slide.width * (96.0 / 72.0)))
                 view.converter.setScale(scale)
+                view.converter.slideNumber = (i + 1)
                 def sub:EVGDisplayList (view.converter.slideToDisplayList(slide))
                 PptxApp.offsetList(sub tx ty)
                 dl.addClip((to_double tx) (to_double ty) (to_double tw) (to_double th))
@@ -2577,13 +2659,25 @@ class PptxApp {
                     dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 border)
                 }
                 toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 theme.dim)
+                ; A section names the run of slides that starts here, so it is
+                ; written once, above the first of them.
+                def sec:int (editor.sectionOfSlide(i))
+                if (sec >= 0) {
+                    def prev:int (0 - 1)
+                    if (i > 0) {
+                        prev = (editor.sectionOfSlide((i - 1)))
+                    }
+                    if (sec != prev) {
+                        toolbarView.pushText(dl (editor.sectionNameAt(sec)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
+                    }
+                }
             }
             i = (i + 1)
         }
         ; Where a dragged slide would land.
         if (panelDrag >= 0) {
             if (panelDropAt >= 0) {
-                def dropY:int (((toolbarH + 10) + (panelDropAt * (this.panelStep()))) - panelScroll - 4)
+                def dropY:int ((((this.panelTop()) + (panelDropAt * (this.panelStep()))) - panelScroll) - 4)
                 dl.addRect((to_double tx) (to_double dropY) (to_double tw) 2.0 (EVGColor.rgb(232 84 120)))
             }
         }

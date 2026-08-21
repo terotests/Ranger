@@ -493,12 +493,34 @@ class PptxResolver {
         return slide
     }
 
+    ; A master or layout can be opened for editing, and then it is drawn like a
+    ; slide — so its own background has to be a colour, not a theme slot that
+    ; nothing has looked up yet.
+    fn resolveSheetBackgrounds:void (cache:[string:PptxSheet] theme:PptxTheme) {
+        def parts:[string] (keys cache)
+        def i:int 0
+        while (i < (array_length parts)) {
+            def hit@(optional):PptxSheet (get cache (itemAt parts i))
+            if (!null? hit) {
+                def sheet:PptxSheet (unwrap hit)
+                if (sheet.bg.isSet) {
+                    sheet.bg = (this.resolveColor(sheet.bg theme))
+                } {
+                    sheet.bg = (this.resolveColor((PptxColor.schemeOf("lt1")) theme))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     fn resolvePresentation:PptxPresentation (pres:PptxPresentation) {
         def i:int 0
         while (i < (array_length pres.slides)) {
             this.resolveSlide((itemAt pres.slides i) pres.theme pres.layouts pres.masters)
             i = (i + 1)
         }
+        this.resolveSheetBackgrounds(pres.masters pres.theme)
+        this.resolveSheetBackgrounds(pres.layouts pres.theme)
         return pres
     }
 }
