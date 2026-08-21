@@ -680,9 +680,48 @@ under `game_engine`, and both are fixed.
 ## Charts
 
 Select cells, press **Ctrl+M** (or click **+ Chart** on the status bar), and the
-picker opens on that range. Pick a type and a style, and the chart appears in a
-window floating over the sheet that you can drag, resize, and reopen for
-editing.
+picker opens on that range. Pick a type and a style, and the chart appears on
+the sheet — a picture with a hairline round it, which you drag by taking hold
+of the picture.
+
+### A chart is not a dialog
+
+It used to be one: a dark caption bar with the range written across it, a close
+box, a sunken recess around the drawing, and a row of **Copy** and **Edit…**
+buttons underneath. Sixty pixels of furniture around a picture, permanently,
+whether or not anyone was doing anything to it — and on a spreadsheet a chart
+is a thing sitting on the page, not a dialog floating over it.
+
+So the frame went. `EVGWindow` grew a **bare** mode: a hairline and a hint of
+shadow instead of a caption bar, the whole body as the drag handle (there is no
+bar to grab, and grabbing a chart by the chart is the obvious gesture), and no
+recess around the content — a sunken border around a picture that already has
+one is a second frame nobody asked for. The same window class, three fields
+different; a dialog is unchanged.
+
+Copy, Edit and Close became three small icons over the top-right corner, drawn
+only while that chart is the one being worked with. Click the picture and they
+appear, along with the resize grip and an accent edge; click anywhere else and
+the chart goes back to being a picture. The strip is painted **after** the
+content — a window paints its frame, the owner paints the picture, and then
+`paintOverlay` puts the tools on top, because that is the only order in which a
+strip over a picture is over it.
+
+Selecting takes one click and pressing a tool takes the next, and the ordering
+is deliberate rather than incidental: the strip opens in the window's own drag
+handler and the manager only ever *closes* it. Open it from the manager instead
+and the strip would already be up by the time that same press reached the
+window, so the first click on a chart would fire whichever invisible tool it
+happened to land on.
+
+The icons are drawn as rectangles — the close box always was — because a glyph
+would need a face the host may not have loaded and a path would need a stencil
+buffer the GL backend only keeps for fills. Six rectangles each, and every
+backend already draws rectangles.
+
+Nothing was lost with the caption: `wnd.title` is still what the chart is
+called, the editor still opens on the range, and a chart that used to spend
+sixty pixels on chrome now spends them on the drawing.
 
 Clicking a column header selects from its header through its last populated
 cell. Ctrl+click keeps additional columns; **+ Chart** uses exactly those
@@ -702,7 +741,7 @@ chart follows on the next frame.
 | cells → Vega-Lite JSON | `GridChart.rgr` (`ChartData.specJson`) |
 | Vega-Lite → Vega → scene → draw commands | [Vela](../vela/README.md), unchanged |
 | draw commands → `EVGDrawCmd` | [`VlEvgList.rgr`](../vela/src/VlEvgList.rgr) |
-| the window, the drag, the resize | [`EVGWindow`](../evg/EVGWindow.rgr) |
+| the frame, the drag, the resize, the tool strip | [`EVGWindow`](../evg/EVGWindow.rgr) |
 
 Only the first arrow is new. Everything below it is Vela's, which is checked
 against the official Vega implementation by its own corpus, so a bar here is
@@ -1103,6 +1142,84 @@ rendering half, because the text was already correct in memory by then.
 
 Both C++ halves need only a C++17 compiler and say so out loud when there is
 none.
+
+### The other thing that is true in only one target: `a = a + b`
+
+A 500,000-row workbook loaded in five seconds and then never finished saving.
+Nothing in the writer looked quadratic; it built the sheet XML the way every
+string in this codebase is built:
+
+```
+out = (out + "<row r=\"" + (to_string (r + 1)) + "\">")
+```
+
+On the JavaScript target that is a rope, and appending is free. On the C++
+target `out + x` constructs a **new** `std::string` holding a copy of
+everything accumulated so far, and then assigns it back — so writing a
+138 MB sheet a row at a time copies about nine petabytes. Measured on the same
+machine, the same compiler, the same test: 5,000 rows in 0.7 s, 10,000 in
+2.8 s, 20,000 in 13.6 s, 40,000 in 104 s. Four times the work for twice the
+rows, all the way up.
+
+`Lang.rgr` already had the operator that fixes it — `str_append s suffix`
+lowers to `s += suffix` on C++, `push_str` on Rust and `s = s + x` on targets
+whose strings are immutable anyway — so the fix was to spell the append as an
+append. The sheet writer, the XML escaper, the clipboard's TSV and HTML
+builders and the ZIP's byte buffer all do that now, and `esc` copies the
+stretches between escapes in **runs** rather than a character at a time,
+handing back the string unchanged when there was nothing to escape. Same
+bytes out: `roundtrip.xlsx` and `annotations-out.xlsx` are byte-identical
+before and after.
+
+| 500,000 rows × 5 columns, C++ `-O2` | before | after |
+| --- | --- | --- |
+| sheet XML | ~4.5 hours (extrapolated) | 1.9 s |
+| `XlsxWriter.write` to disk | never finished | **5.2 s** |
+
+```bash
+npm run datagrid:save:test        # one test, compiled to JS and to C++
+npm run datagrid:save:bench -- 500000
+```
+
+The test is about TIME, because the output was always *correct* — it just took
+hours — and it is compiled twice for the same reason the text tests are: run
+only the JavaScript half and 20,000 rows serialize in 250 ms and everything
+looks fine. The C++ half of the same run took 22.6 s before the fix and 86 ms
+after, against a deliberately loose 20 s budget that no slow machine will trip
+and no quadratic writer can pass.
+
+## Things that make it feel like a program
+
+**The pointer says what it is over.** A pointer that never changes shape makes
+an interface feel like a picture of one. `GridApp.cursorAt(x, y)` answers with a
+`GridCursor` KIND — cell, column resize, text, grab, fill, pointing — asking the
+same questions the press handler asks, in the same order, so what the pointer
+promises and what a click does cannot drift apart. The app names no cursor: an
+SDL window turns the kind into `SDL_CreateSystemCursor`, a browser tab into a
+CSS name, and neither vocabulary leaks into the grid.
+
+**A wheel notch is a shove, not a step.** Scrolling used to move a fixed number
+of rows per notch, which is why going a long way down was slow. It sets a
+SPEED now, notches that arrive together add up, and the speed decays about 12%
+a frame — roughly a fifth of a second to half speed, long enough that the sheet
+has weight and short enough that it stops where it was thrown. A hand on the
+sheet stops it dead, the way a finger stops a flick. The browser page keeps
+drawing while it coasts; the window already draws every frame.
+
+**The keyboard belongs to somebody.** While an edit is open that somebody is
+the text field — the formula bar or the cell — and `Ctrl+A` means "all of this
+text". While no edit is open the grid has it and `Ctrl+A` means the sheet. That
+one question is the whole of the focus problem here, and answering it is what
+let the fields have their own shortcuts: shift with any caret move extends a
+selection, typing and Backspace replace it whole, and `Ctrl+C` / `Ctrl+X` /
+`Ctrl+V` move text rather than cells. The selection is a span between an anchor
+and the caret, drawn as a band behind the letters, and the app hands the view
+the span rather than the view working it out.
+
+**A column header is a handle.** Press and it selects the column; drag and it
+picks the column up, with a line showing where it will land. Which one a press
+means is decided by whether the pointer travels, so there is no third gesture
+to learn, and the drop is one undoable step.
 
 ## Recalculation: dependencies first, not sweeps
 

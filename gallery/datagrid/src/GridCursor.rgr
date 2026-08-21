@@ -1,0 +1,96 @@
+; ==============================================================================
+; GridCursor — what the pointer is over, and therefore what it should look like
+; ==============================================================================
+;
+; A pointer that never changes shape makes a program feel like a picture of a
+; program. Every edge you can drag, every field you can type in and every thing
+; you can pick up says so before you press, and saying so is most of what makes
+; an interface feel like it has surfaces.
+;
+; The app answers with a KIND rather than a cursor: it has no idea whether it
+; is in an SDL window or a browser tab, and the two name their cursors
+; differently. `GridApp.cursorAt(x, y)` asks the same questions the press
+; handler asks, in the same order, so what the pointer promises and what a
+; click does cannot drift apart.
+; ==============================================================================
+
+class GridCursor {
+    sfn arrow:int ()      { return 0 }
+    ; Over the cells: Excel's fat white plus.
+    sfn cell:int ()       { return 1 }
+    ; Over a column edge / a row edge in the headers.
+    sfn resizeX:int ()    { return 2 }
+    sfn resizeY:int ()    { return 3 }
+    ; Over text you can type into — the formula bar, a cell being edited.
+    sfn text:int ()       { return 4 }
+    ; Over something that can be picked up, and while carrying it.
+    sfn grab:int ()       { return 5 }
+    sfn grabbing:int ()   { return 6 }
+    ; Over the fill handle, which drags a series out.
+    sfn crosshair:int ()  { return 7 }
+    ; Over a link or a button.
+    sfn pointing:int ()   { return 8 }
+
+    sfn count:int () {
+        return 9
+    }
+
+    ; The CSS name a browser knows this by.
+    sfn cssName:string (kind:int) {
+        if (kind == 1) {
+            return "cell"
+        }
+        if (kind == 2) {
+            return "col-resize"
+        }
+        if (kind == 3) {
+            return "row-resize"
+        }
+        if (kind == 4) {
+            return "text"
+        }
+        if (kind == 5) {
+            return "grab"
+        }
+        if (kind == 6) {
+            return "grabbing"
+        }
+        if (kind == 7) {
+            return "crosshair"
+        }
+        if (kind == 8) {
+            return "pointer"
+        }
+        return "default"
+    }
+
+    ; A name for a log or a test failure, so a wrong cursor reads as a wrong
+    ; cursor rather than as a wrong number.
+    sfn label:string (kind:int) {
+        if (kind == 1) {
+            return "cell"
+        }
+        if (kind == 2) {
+            return "resize columns"
+        }
+        if (kind == 3) {
+            return "resize rows"
+        }
+        if (kind == 4) {
+            return "text"
+        }
+        if (kind == 5) {
+            return "grab"
+        }
+        if (kind == 6) {
+            return "grabbing"
+        }
+        if (kind == 7) {
+            return "fill"
+        }
+        if (kind == 8) {
+            return "pointing"
+        }
+        return "arrow"
+    }
+}

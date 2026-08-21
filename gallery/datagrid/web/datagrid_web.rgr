@@ -66,6 +66,24 @@ class DataGridWeb {
     ; Ctrl+O go through here, so the same button means the same thing in a
     ; window and in a tab; only the picker differs. New (`file.new`) is handled
     ; inside the app and never asks the host.
+    ; The CSS name for whatever the pointer is over. A window sets a system
+    ; cursor from the same answer; only the vocabulary differs.
+    ; Is the sheet still coasting after a flick? A page only redraws when
+    ; something happens, so it has to be told that something still is.
+    fn coasting:boolean () {
+        return (app.isCoasting())
+    }
+
+    ; One frame with no input at all, to let a coast carry.
+    fn idle:void () {
+        input.newFrame()
+        app.update(input)
+    }
+
+    fn cursorAt:string (x:int y:int) {
+        return (GridCursor.cssName((app.cursorAt(x y))))
+    }
+
     fn takeFileRequest:string () {
         def want:string app.fileRequest
         app.fileRequest = ""

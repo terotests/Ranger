@@ -105,6 +105,19 @@ class GridView {
     def fbTextX:int 0
     def fbTextY:int 0
     def fbFontSize:double 13.0
+    ; Where the text of the cell being edited was actually drawn, so the caret
+    ; can stand on the same line rather than at a guessed offset from the
+    ; cell's top corner.
+    ; The insertion point a carried column would drop at, or -1.
+    def colDropAt:int -1
+    ; The span of selected text inside the field being edited, as character
+    ; offsets, or -1 -1 for none. Drawn as a band behind the letters, which is
+    ; what a text field looks like everywhere.
+    def editSelA:int -1
+    def editSelB:int -1
+    def editTextX:int 0
+    def editTextY:int 0
+    def editTextPx:double 13.0
     ; Set during paint for tests/hosts: formula edits always own the bar caret.
     def caretInFormulaBar:boolean false
     def focused:boolean true
@@ -786,8 +799,31 @@ class GridView {
                 }
             }
             if formulaEdit {
-                this.paintFormulaBarText(dl txt (rect.x + 4) (rect.y + 3) cellPx)
+                ; A formula being typed is drawn by the syntax painter so its
+                ; references keep their colours — but it is still text in a
+                ; cell, and it sits where the cell's text sits. `rect.y + 3`
+                ; put it four pixels below its own line and the cell's clip
+                ; then cut the bottom off every letter.
+                def editLineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+                if (editLineH < 8) {
+                    editLineH = 8
+                }
+                def editTop:int (this.textTopFor(rect st editLineH 1 cellPx))
+                editTextX = (rect.x + 4)
+                editTextY = editTop
+                editTextPx = cellPx
+                if (caretInFormulaBar == false) {
+                    this.paintTextSelection(dl txt (rect.x + 4) editTop cellPx editLineH)
+                }
+                this.paintFormulaBarText(dl txt (rect.x + 4) editTop cellPx)
             } {
+                editTextX = (rect.x + 4)
+                editTextPx = cellPx
+                def plainLineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+                if (plainLineH < 8) {
+                    plainLineH = 8
+                }
+                editTextY = (this.textTopFor(rect paintStyle plainLineH 1 cellPx))
                 if st.wrapText {
                     this.paintWrapped(dl txt rect paintStyle cellPx col)
                 } {
@@ -846,8 +882,11 @@ class GridView {
             def mc:int (grid.mapCol(hc))
             def hx:int (grid.viewColScreenX(model hc))
             def label:string (SpreadsheetModel.colLabel(mc))
-            if (model.sortCol == mc) {
-                if model.sortAsc {
+            ; A sort moves the data now, so the view is not sorting anything
+            ; — but the header still says which column was put in order, and
+            ; which way, because that is what the person did.
+            if (model.sortedCol == mc) {
+                if model.sortedAsc {
                     label = (label + " ^")
                 } {
                     label = (label + " v")
@@ -1043,6 +1082,37 @@ class GridView {
     }
 
     ; Draw formula-bar text with each A1 / range tinted to match its overlay.
+    ; The band behind selected text. Measured, not counted: proportional type
+    ; means the fifth character is not five character-widths in.
+    fn paintTextSelection:void (dl:EVGDisplayList text:string x:int y:int size:double h:int) {
+        if (editSelA < 0) {
+            return
+        }
+        if (editSelB <= editSelA) {
+            return
+        }
+        def n:int (strlen text)
+        def a:int editSelA
+        def b:int editSelB
+        if (a > n) {
+            a = n
+        }
+        if (b > n) {
+            b = n
+        }
+        if (b <= a) {
+            return
+        }
+        this.applyFaceNamed("" false false)
+        def x0:int (to_int (ctx.tr.measureWidth((substring text 0 a) size)))
+        def x1:int (to_int (ctx.tr.measureWidth((substring text 0 b) size)))
+        def w:int (x1 - x0)
+        if (w < 1) {
+            return
+        }
+        this.pushRect(dl (to_double (x + x0)) (to_double y) (to_double w) (to_double h) theme.selection)
+    }
+
     fn paintFormulaBarText:void (dl:EVGDisplayList text:string x:int y:int size:double) {
         if ((strlen text) == 0) {
             return
@@ -1147,6 +1217,9 @@ class GridView {
         fbTextX = (fieldX + 6)
         fbTextY = (fieldY + 3)
         fbFontSize = 13.0
+        if caretInFormulaBar {
+            this.paintTextSelection(dl shown (fieldX + 6) (fieldY + 3) 13.0 (fieldH - 6))
+        }
         this.paintFormulaBarText(dl shown (fieldX + 6) (fieldY + 3) 13.0)
         ; Formula edits always put the solid caret here, even when editing was
         ; entered from the cell (F2 / typing). There must be only one caret.
@@ -1488,8 +1561,19 @@ class GridView {
                             }
                             upTo = (substring editBuf 0 cc)
                         }
-                        def ew:int (to_int (ctx.tr.measureWidth(upTo fontSize)))
-                        this.pushRect(dl (to_double (ar.x + 4 + ew)) (to_double (ar.y + 3)) 2.0 (to_double (ar.h - 6)) theme.activeBorder)
+                        ; Measured in the CELL's type, not the view's default,
+                        ; and standing on the line the text was drawn on.
+                        this.applyFaceNamed("" false false)
+                        def ew:int (to_int (ctx.tr.measureWidth(upTo editTextPx)))
+                        def caretH:int (to_int editTextPx)
+                        def caretY:int editTextY
+                        if (caretY < (ar.y + 1)) {
+                            caretY = (ar.y + 1)
+                        }
+                        if (((caretY + caretH) + 2) > (ar.y + ar.h)) {
+                            caretY = (((ar.y + ar.h) - caretH) - 2)
+                        }
+                        this.pushRect(dl (to_double ((editTextX + ew) + 1)) (to_double caretY) 2.0 (to_double caretH) theme.activeBorder)
                     }
                 }
             }
@@ -1501,6 +1585,19 @@ class GridView {
         ; SoftCanvas and the GL host still ignore clip commands.
         this.pushRect(dl (to_double grid.x) (to_double headerTop) (to_double grid.rowHeaderW) (to_double grid.colHeaderH) theme.cornerBg)
         this.paintColHeaders(dl model grid bodyLeft headerTop vw)
+
+        ; Where a carried column would land. Excel and every reorderable list
+        ; draw the same thing: a line at the insertion point, not a ghost of
+        ; the column, because the question is "between which two".
+        if (colDropAt >= 0) {
+            def dropX:int (grid.colScreenX(model colDropAt))
+            if (colDropAt >= model.colCount) {
+                dropX = ((grid.colScreenX(model (model.colCount - 1))) + (model.colWidth((model.colCount - 1))))
+            }
+            if (dropX > grid.x) {
+                this.pushRect(dl (to_double (dropX - 1)) (to_double (grid.headerTop())) 3.0 (to_double ((grid.h - grid.toolbarH) - grid.formulaBarH)) theme.activeBorder)
+            }
+        }
 
         ; Live guide while dragging a header edge, so the drop position is visible.
         if (grid.resizingCol >= 0) {
@@ -1694,6 +1791,9 @@ class GridView {
             def wnd:EVGWindow (itemAt windows.windows wi)
             wnd.paint(dl ctx.tr pageW pageH)
             chartLayer.paintContent(dl model ctx.tr wnd)
+            ; And only now the window's own overlay: a chart's tool strip sits
+            ; ON the chart, so it has to be drawn after the chart is.
+            wnd.paintOverlay(dl ctx.tr)
             ; The picker's own preview, drawn into the region it left for it.
             ; Same renderer, same cache, same everything as a chart on the
             ; sheet — which is the point: what you see is what you will get.

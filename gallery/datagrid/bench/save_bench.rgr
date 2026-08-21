@@ -1,0 +1,84 @@
+; ==============================================================================
+; save_bench - how long does writing a big sheet take, and where does it go.
+; ==============================================================================
+;
+; Usage: npm run datagrid:save:bench
+;        npm run datagrid:save:bench -- 100000
+; ==============================================================================
+
+Import "../src/WorkbookModel.rgr"
+Import "../src/SpreadsheetModel.rgr"
+Import "../src/xlsx/XlsxWriter.rgr"
+Import "../../zip/ZipWriter.rgr"
+
+class SaveBench {
+    sfn report:void (name:string ms:double) {
+        def whole:int (to_int ms)
+        print ("  " + name + ": " + (to_string whole) + " ms")
+    }
+
+    sfn main:void () {
+        def n:int 20000
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if parsed {
+                n = (unwrap parsed)
+            }
+        }
+        print ("== save_bench rows=" + (to_string n) + " ==")
+
+        def t0:double (wall_clock_ms)
+        def book:WorkbookModel (new WorkbookModel)
+        def s:SpreadsheetModel (new SpreadsheetModel)
+        s.name = "Data"
+        s.resize(n 8)
+        def r:int 0
+        while (r < n) {
+            s.setCellRaw(r 0 ("Row " + (to_string r)))
+            s.setCellRaw(r 1 (to_string r))
+            s.setCellRaw(r 2 "12.5")
+            s.setCellRaw(r 3 "Hämeenlinna")
+            s.setCellRaw(r 4 (to_string (r * 3)))
+            r = (r + 1)
+        }
+        book.clear()
+        book.addSheet(s)
+        def t1:double (wall_clock_ms)
+        SaveBench.report("build model" (t1 - t0))
+
+        def w:XlsxWriter (new XlsxWriter)
+        def xml:string (w.sheetXml(s))
+        def t2:double (wall_clock_ms)
+        SaveBench.report("sheetXml" (t2 - t1))
+        print ("  sheet xml chars: " + (to_string (strlen xml)))
+
+        def buf:buffer (XlsxWriter.utf8Buffer(xml))
+        def t3:double (wall_clock_ms)
+        SaveBench.report("utf8Buffer" (t3 - t2))
+        print ("  bytes: " + (to_string (buffer_length buf)))
+
+        def z:ZipWriter (new ZipWriter)
+        z.create()
+        z.addFile("sheet.xml" buf)
+        def t4:double (wall_clock_ms)
+        SaveBench.report("zip addFile (crc + copy)" (t4 - t3))
+
+        def out:buffer (z.toBuffer())
+        def t5:double (wall_clock_ms)
+        SaveBench.report("zip toBuffer" (t5 - t4))
+        print ("  zip bytes: " + (to_string (buffer_length out)))
+
+        SaveBench.report("TOTAL save-ish" (t5 - t1))
+
+        ; And the whole thing the way the editor calls it, to disk.
+        def t6:double (wall_clock_ms)
+        def w2:XlsxWriter (new XlsxWriter)
+        def ok:boolean (w2.write(book "tmp" "save_bench.xlsx"))
+        def t7:double (wall_clock_ms)
+        SaveBench.report("XlsxWriter.write -> tmp/save_bench.xlsx" (t7 - t6))
+        if (ok == false) {
+            print ("  write failed: " + w2.lastError)
+        }
+    }
+}

@@ -48,6 +48,13 @@ class EVGControlKind {
     ; A coloured square in a palette. `value` holds the hex (#RRGGBB); the
     ; group / checked fields work like a radio so one swatch is the choice.
     sfn swatch:int ()    { return 7 }
+    ; A small square icon button drawn OVER the window rather than laid out
+    ; under it, and only while the window is the one being worked with.
+    ; `value` names the glyph — the drawing is rectangles, not a font, so a
+    ; host that has loaded no face still gets an icon. A chart on a sheet is
+    ; the reason it exists: two labelled buttons under a picture are most of
+    ; what made the picture look like a dialog.
+    sfn tool:int ()      { return 8 }
 }
 
 class EVGControl {
@@ -98,6 +105,13 @@ class EVGWindowTheme {
     def buttonHot:EVGColor (EVGColor.rgb(219 231 245))
     def accent:EVGColor (EVGColor.rgb(26 115 232))
     def scrim:EVGColor (EVGColor.create(20.0 30.0 45.0 0.28))
+    ; A bare panel's edge: a hairline, not the blue rule a dialog wears.
+    def hairline:EVGColor (EVGColor.rgb(206 212 222))
+    ; Two passes of this under the bottom-right of a bare panel is enough
+    ; shadow to lift it off the page without looking like a drop shadow.
+    def shadow:EVGColor (EVGColor.create(20.0 30.0 45.0 0.07))
+    def toolBg:EVGColor (EVGColor.rgb(255 255 255))
+    def toolIcon:EVGColor (EVGColor.rgb(74 84 98))
 
     Constructor () {
     }
@@ -171,13 +185,42 @@ class EVGWindow {
     ; caches rendered pixels knows when the cache went stale.
     def contentVersion:int 0
 
+    ; --- bare panel -----------------------------------------------------------
+    ; A window with no title bar and no button row: the picture IS the window.
+    ; A chart on a spreadsheet is a thing sitting on the page, not a dialog
+    ; floating over it, and the frame that said "dialog" — a dark caption bar
+    ; with the range written across it, a close box, two labelled buttons under
+    ; the drawing — was most of what a chart looked like.
+    ;
+    ; Bare changes three things and nothing else:
+    ;   * the frame is a hairline and a hint of shadow instead of a caption bar,
+    ;     and it takes the accent colour while the panel is the selected one;
+    ;   * the whole body is the drag handle, because there is no bar to grab;
+    ;   * what would have been the button row becomes `addTool` icons drawn
+    ;     over the top-right corner, shown only while `toolsOpen`.
+    def bare:boolean false
+    def toolsOpen:boolean false
+    def toolSide:int 22
+    def toolGap:int 4
+    def toolPad:int 6
+
     Constructor () {
     }
 
     ; --- building -------------------------------------------------------------
+    ; How much of the top the frame itself owns. A bare panel owns none of it:
+    ; its content starts at the padding.
+    fn topInset:int () {
+        if bare {
+            return 0
+        }
+        return titleH
+    }
+
     fn reset:void () {
         clear controls
-        cursorY = (titleH + padY)
+        cursorY = ((this.topInset()) + padY)
+        toolsOpen = false
         activated = -1
         hot = -1
         columns = 1
@@ -361,6 +404,9 @@ class EVGWindow {
         def past:boolean false
         while (i < (array_length controls)) {
             def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.tool())) {
+                ; Placed from the corner by `layoutTools` below, not carried.
+            } {
             if (c.kind == (EVGControlKind.button())) {
                 ; Buttons are laid out from the right edge and sit under the
                 ; content, so they follow both.
@@ -382,8 +428,10 @@ class EVGWindow {
                     }
                 }
             }
+            }
             i = (i + 1)
         }
+        this.layoutTools()
     }
 
     ; A one-line text field with a label in front of it.
@@ -523,8 +571,66 @@ class EVGWindow {
     ; Call once the controls are in: sizes the panel to its content.
     fn finish:void () {
         h = cursorY
-        if (h < (titleH + 40)) {
-            h = (titleH + 40)
+        def floor:int ((this.topInset()) + 40)
+        if (h < floor) {
+            h = floor
+        }
+        this.layoutTools()
+    }
+
+    ; --- the tool strip -------------------------------------------------------
+    ; A small icon button over the top-right corner. `glyph` is one of "copy",
+    ; "edit", "close" or "chevron"; anything else draws a dot, which is a
+    ; visible question rather than an invisible one.
+    fn addTool:void (id:int glyph:string) {
+        def c:EVGControl (new EVGControl)
+        c.id = id
+        c.kind = (EVGControlKind.tool())
+        c.value = glyph
+        c.w = toolSide
+        c.h = toolSide
+        push controls c
+        this.layoutTools()
+    }
+
+    fn toolCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.tool())) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Anchored to the top-right corner rather than laid out in the flow, so a
+    ; resize does not have to remember to move them: they are placed from the
+    ; edge every time the edge moves.
+    fn layoutTools:void () {
+        def n:int (this.toolCount())
+        if (n == 0) {
+            return
+        }
+        def span:int ((n * toolSide) + ((n - 1) * toolGap))
+        def x0:int ((w - toolPad) - span)
+        if (x0 < toolPad) {
+            x0 = toolPad
+        }
+        def seen:int 0
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.tool())) {
+                c.w = toolSide
+                c.h = toolSide
+                c.x = (x0 + (seen * (toolSide + toolGap)))
+                c.y = toolPad
+                seen = (seen + 1)
+            }
+            i = (i + 1)
         }
     }
 
@@ -678,6 +784,24 @@ class EVGWindow {
         if ((this.containsPoint(px py)) == false) {
             return false
         }
+        if bare {
+            return false
+        }
+        return (py < (y + titleH))
+    }
+
+    ; What a press has to land on to start a drag. A dialog gives you the
+    ; caption bar; a bare panel has none, so it gives you the whole body —
+    ; which is also what the ask was, in as many words: drag it by its
+    ; contents. The tools and the grip are checked before this, so the two
+    ; things that are NOT a handle never become one.
+    fn onDragHandle:boolean (px:int py:int) {
+        if ((this.containsPoint(px py)) == false) {
+            return false
+        }
+        if bare {
+            return true
+        }
         return (py < (y + titleH))
     }
 
@@ -690,6 +814,9 @@ class EVGWindow {
 
     fn onCloseBox:boolean (px:int py:int) {
         if (closable == false) {
+            return false
+        }
+        if bare {
             return false
         }
         def side:int (this.boxSide())
@@ -710,6 +837,13 @@ class EVGWindow {
     fn onResizeGrip:boolean (px:int py:int) {
         if (resizable == false) {
             return false
+        }
+        if bare {
+            ; The grip is part of the chrome, and a bare panel wears its
+            ; chrome only while it is the one being worked with.
+            if (toolsOpen == false) {
+                return false
+            }
         }
         def side:int (this.boxSide())
         def gx:int ((x + w) - side)
@@ -751,6 +885,9 @@ class EVGWindow {
             }
             if (c.kind == (EVGControlKind.swatch())) {
                 interactive = true
+            }
+            if (c.kind == (EVGControlKind.tool())) {
+                interactive = toolsOpen
             }
             if (interactive && c.enabled) {
                 if (c.contains(lx ly)) {
@@ -802,12 +939,10 @@ class EVGWindow {
                 sizeH0 = h
                 return true
             }
-            if (this.onTitleBar(px py)) {
-                dragging = true
-                dragDX = (px - x)
-                dragDY = (py - y)
-                return true
-            }
+            ; Controls first, THEN the handle. On a dialog the two never
+            ; overlap — nothing is laid out into the caption bar — but on a
+            ; bare panel the handle is the whole body, so asking about the
+            ; handle first would swallow every tool click.
             def id:int (this.controlAt(px py))
             if (id >= 0) {
                 def c:EVGControl (this.controlById(id))
@@ -828,6 +963,22 @@ class EVGWindow {
                     focusedId = id
                     c.caret = (strlen c.value)
                 }
+                if (c.kind == (EVGControlKind.tool())) {
+                    activated = id
+                }
+                return true
+            }
+            if (this.onDragHandle(px py)) {
+                ; Pressing a bare panel anywhere is also what selects it, and
+                ; selecting it is what brings its tools out. The press starts
+                ; a drag as well: a press that never moves is a drag of zero
+                ; pixels, which is the same as having only selected it.
+                if bare {
+                    toolsOpen = true
+                }
+                dragging = true
+                dragDX = (px - x)
+                dragDY = (py - y)
                 return true
             }
             if (this.containsPoint(px py)) {
@@ -998,6 +1149,20 @@ class EVGWindow {
         if modal {
             this.rect(dl 0 0 pageW pageH theme.scrim)
         }
+        if bare {
+            ; Two offset washes for a shadow, the panel, and one hairline —
+            ; which becomes the accent while this is the panel being worked
+            ; with, so "selected" is a change of colour rather than a change
+            ; of furniture.
+            this.rect(dl (x + 1) (y + 2) w h theme.shadow)
+            this.rect(dl (x + 2) (y + 3) w h theme.shadow)
+            this.rect(dl x y w h theme.panel)
+            def edge0:EVGColor theme.hairline
+            if toolsOpen {
+                edge0 = theme.accent
+            }
+            this.frame(dl x y w h 1.0 edge0)
+        } {
         this.rect(dl x y w h theme.panel)
         this.frame(dl x y w h 1.0 theme.border)
         this.rect(dl x y w titleH theme.titleBg)
@@ -1012,6 +1177,7 @@ class EVGWindow {
             this.rect(dl (bx + 3) (by + (idiv side 2)) (side - 6) 1 theme.titleText)
             this.rect(dl (bx + (idiv side 2)) (by + 3) 1 (side - 6) theme.titleText)
         }
+        }
         def i:int 0
         while (i < (array_length controls)) {
             def c:EVGControl (itemAt controls i)
@@ -1021,9 +1187,14 @@ class EVGWindow {
                 this.text(dl c.text cx (cy + 4) fontSize theme.text tr false)
             }
             if (c.kind == (EVGControlKind.content())) {
-                ; The owner's rectangle: only the recess is ours.
+                ; The owner's rectangle: only the recess is ours — and a bare
+                ; panel has no recess, because a sunken border around a
+                ; picture that already has a border is the second frame the
+                ; chart did not need.
                 this.rect(dl cx cy c.w c.h theme.panel)
-                this.frame(dl cx cy c.w c.h 1.0 theme.muted)
+                if (bare == false) {
+                    this.frame(dl cx cy c.w c.h 1.0 theme.muted)
+                }
             }
             if (c.kind == (EVGControlKind.separator())) {
                 this.rect(dl cx (cy + 3) c.w 1 theme.muted)
@@ -1107,6 +1278,10 @@ class EVGWindow {
                     this.rect(dl ((fx + 5) + caretX) (cy + 3) 1 (c.h - 6) theme.text)
                 }
             }
+            if (c.kind == (EVGControlKind.tool())) {
+                ; Drawn by `paintOverlay`, after the owner has painted the
+                ; content — a strip drawn here would be under the picture.
+            }
             if (c.kind == (EVGControlKind.button())) {
                 def bg:EVGColor theme.buttonBg
                 if (hot == c.id) {
@@ -1125,17 +1300,102 @@ class EVGWindow {
             i = (i + 1)
         }
         if resizable {
-            def gside:int (this.boxSide())
-            def gx:int ((x + w) - gside)
-            def gy:int ((y + h) - gside)
-            def line:int 0
-            while (line < 3) {
-                def off:int (3 + (line * 4))
-                this.rect(dl (gx + off) ((gy + gside) - 3) (gside - off) 1 theme.muted)
-                this.rect(dl ((gx + gside) - 3) (gy + off) 1 (gside - off) theme.muted)
-                line = (line + 1)
+            def showGrip:boolean true
+            def gink:EVGColor theme.muted
+            if bare {
+                showGrip = toolsOpen
+                gink = theme.hairline
+            }
+            if showGrip {
+                def gside:int (this.boxSide())
+                def gx:int ((x + w) - gside)
+                def gy:int ((y + h) - gside)
+                def line:int 0
+                while (line < 3) {
+                    def off:int (3 + (line * 4))
+                    this.rect(dl (gx + off) ((gy + gside) - 3) (gside - off) 1 gink)
+                    this.rect(dl ((gx + gside) - 3) (gy + off) 1 (gside - off) gink)
+                    line = (line + 1)
+                }
             }
         }
+    }
+
+    ; --- the tool strip, on top ----------------------------------------------
+    ; Called AFTER the owner has painted the content region, because that is
+    ; the only order in which a strip over a picture is over it. A window with
+    ; no tools, or one nobody has selected, draws nothing at all — which is
+    ; the point of the whole arrangement: a chart that is not being worked
+    ; with has no furniture on it.
+    fn paintOverlay:void (dl:EVGDisplayList tr:UITextRenderer) {
+        if (visible == false) {
+            return
+        }
+        if (toolsOpen == false) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length controls)) {
+            def c:EVGControl (itemAt controls i)
+            if (c.kind == (EVGControlKind.tool())) {
+                def cx:int (x + c.x)
+                def cy:int (y + c.y)
+                def bg:EVGColor theme.toolBg
+                if (hot == c.id) {
+                    bg = theme.buttonHot
+                }
+                this.rect(dl cx cy c.w c.h bg)
+                this.frame(dl cx cy c.w c.h 1.0 theme.hairline)
+                this.glyph(dl c.value cx cy c.w c.h theme.toolIcon)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Icons as rectangles. A glyph would need a face the host may not have
+    ; loaded — the close box has always been two bars for that reason — and a
+    ; path would need a stencil buffer the GL backend only has for fills. Six
+    ; rectangles each, and every backend already draws rectangles.
+    fn glyph:void (dl:EVGDisplayList name:string gx:int gy:int gw:int gh:int col:EVGColor) {
+        def cx:int (gx + (idiv gw 2))
+        def cy:int (gy + (idiv gh 2))
+        if (name == "close") {
+            def s:int 4
+            def k:int (0 - s)
+            while (k <= s) {
+                this.rect(dl (cx + k) (cy + k) 1 1 col)
+                this.rect(dl (cx + k) (cy - k) 1 1 col)
+                k = (k + 1)
+            }
+            return
+        }
+        if (name == "copy") {
+            ; Two sheets, the back one peeking out behind the front.
+            this.frame(dl (gx + 5) (gy + 5) 8 9 1.0 col)
+            this.rect(dl (gx + 8) (gy + 8) 9 10 (EVGColor.rgb(255 255 255)))
+            this.frame(dl (gx + 8) (gy + 8) 9 10 1.0 col)
+            return
+        }
+        if (name == "edit") {
+            ; A pencil: a stroke on the diagonal, a nib at the bottom left.
+            def k2:int 0
+            while (k2 < 8) {
+                this.rect(dl ((gx + 6) + k2) ((gy + 13) - k2) 2 2 col)
+                k2 = (k2 + 1)
+            }
+            this.rect(dl (gx + 5) (gy + 15) 3 2 col)
+            return
+        }
+        if (name == "chevron") {
+            def k3:int 0
+            while (k3 < 4) {
+                this.rect(dl ((cx - 4) + k3) ((cy - 2) + k3) 2 2 col)
+                this.rect(dl ((cx + 3) - k3) ((cy - 2) + k3) 2 2 col)
+                k3 = (k3 + 1)
+            }
+            return
+        }
+        this.rect(dl (cx - 2) (cy - 2) 4 4 col)
     }
 }
 
@@ -1244,6 +1504,42 @@ class EVGWindowManager {
             w0.activated = -1
             c = (c + 1)
         }
+        if pressed {
+            ; A bare panel's tools belong to the panel being worked with, and
+            ; there is only ever one of those. Decided here rather than in the
+            ; windows themselves because "somewhere else" is a fact about the
+            ; whole stack: the window that was not pressed cannot know it.
+            def owner:int -1
+            def t:int ((array_length windows) - 1)
+            while (t >= 0) {
+                def wt:EVGWindow (itemAt windows t)
+                if wt.visible {
+                    if (wt.containsPoint(px py)) {
+                        owner = wt.wid
+                        t = -1
+                    } {
+                        t = (t - 1)
+                    }
+                } {
+                    t = (t - 1)
+                }
+            }
+            ; Only ever CLOSES. Opening is the window's own business, in
+            ; `onDragHandle`, and the difference matters: opened here, the
+            ; strip would already be open by the time the same press reached
+            ; the window, and the very first click on a chart would fire
+            ; whichever invisible tool it happened to land on.
+            def b:int 0
+            while (b < (array_length windows)) {
+                def wb:EVGWindow (itemAt windows b)
+                if wb.bare {
+                    if (wb.wid != owner) {
+                        wb.toolsOpen = false
+                    }
+                }
+                b = (b + 1)
+            }
+        }
         def i:int ((array_length windows) - 1)
         while (i >= 0) {
             def wnd:EVGWindow (itemAt windows i)
@@ -1293,6 +1589,7 @@ class EVGWindowManager {
         while (i < (array_length windows)) {
             def wnd:EVGWindow (itemAt windows i)
             wnd.paint(dl tr pageW pageH)
+            wnd.paintOverlay(dl tr)
             i = (i + 1)
         }
     }

@@ -77,7 +77,8 @@ class SpreadsheetUndoOp {
     def afterStyle:int -1
     def touchStyle:boolean false
     ; Structural op: 0 none, 1 insert column, 2 delete column, 3 move column,
-    ; 4 insert row, 5 delete row, 6 move row. Rows and columns share the
+    ; 4 insert row, 5 delete row, 6 move row, 7 reorder every row (a sort).
+    ; Rows and columns share the
     ; snapshot fields below: what they hold is "the line that was lifted out",
     ; and which direction it ran is what `structKind` says.
     def structKind:int 0
@@ -87,6 +88,9 @@ class SpreadsheetUndoOp {
     def colFormulas:[string]
     def colStyles:[int]
     def colWidthSaved:int 0
+    ; The permutation a sort applied: `structOrder[i]` is the row that ended
+    ; up at i. Undo runs its inverse.
+    def structOrder:[int]
     ; Every formula in the sheet before the op. A reference into a deleted
     ; column becomes #REF!, which no amount of re-shifting can undo, so the
     ; original text is the only way back.
@@ -119,6 +123,12 @@ class SpreadsheetUndoOp {
         structAt = o.structAt
         structTo = o.structTo
         colWidthSaved = o.colWidthSaved
+        clear structOrder
+        def so:int 0
+        while (so < (array_length o.structOrder)) {
+            push structOrder (itemAt o.structOrder so)
+            so = (so + 1)
+        }
         clear colValues
         clear colFormulas
         clear colStyles
@@ -888,6 +898,85 @@ class SpreadsheetModel {
         version = (version + 1)
     }
 
+    ; Put the rows in a new order, in one pass.
+    ;
+    ; `order[i]` is the row that should end up AT i, and every row is named
+    ; exactly once. Everything a row owns travels with it: its values, its
+    ; formulas, the styles of its cells, its height and whether it is hidden.
+    ;
+    ; Every row is read out before any is written back, because a permutation
+    ; applied in place overwrites rows that have not been read yet. Doing this
+    ; with repeated single moves would be correct and quadratic, and a sheet is
+    ; sorted often enough for that to be the difference between instant and
+    ; noticeable.
+    fn reorderRowsRaw:void (order:[int]) {
+        def n:int (array_length order)
+        if (n < 2) {
+            return
+        }
+        def width:int ((this.usedCol()) + 1)
+        def vals:[string]
+        def fmls:[string]
+        def sids:[int]
+        def heights:[int]
+        def hiddens:[boolean]
+        def i:int 0
+        while (i < n) {
+            def from:int (itemAt order i)
+            if (from < 0) {
+                from = 0
+            }
+            if (from >= rowCount) {
+                from = (rowCount - 1)
+            }
+            def rowVals:[string]
+            def rowFmls:[string]
+            def rowSids:[int]
+            this.snapshotRow(from rowVals rowFmls rowSids)
+            def k:int 0
+            while (k < width) {
+                if (k < (array_length rowVals)) {
+                    push vals (itemAt rowVals k)
+                    push fmls (itemAt rowFmls k)
+                    push sids (itemAt rowSids k)
+                } {
+                    push vals ""
+                    push fmls ""
+                    push sids -1
+                }
+                k = (k + 1)
+            }
+            push heights (this.rowHeight(from))
+            push hiddens (this.isRowHidden(from))
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < n) {
+            def putVals:[string]
+            def putFmls:[string]
+            def putSids:[int]
+            def base:int (j * width)
+            def c:int 0
+            while (c < width) {
+                push putVals (itemAt vals (base + c))
+                push putFmls (itemAt fmls (base + c))
+                push putSids (itemAt sids (base + c))
+                c = (c + 1)
+            }
+            this.restoreRow(j putVals putFmls putSids)
+            if (j < (array_length rowHeights)) {
+                set_at rowHeights j (itemAt heights j)
+            }
+            if (j < (array_length rowHidden)) {
+                set_at rowHidden j (itemAt hiddens j)
+            }
+            j = (j + 1)
+        }
+        rowGeomDirty = true
+        this.ensureGeometry()
+        version = (version + 1)
+    }
+
     fn growTo:void (rows:int cols:int) {
         def changed:boolean false
         if (rows > rowCount) {
@@ -1570,6 +1659,13 @@ class SpreadsheetModel {
         version = (version + 1)
     }
 
+    ; Which column the data was last sorted by, and which way. This is a
+    ; record of what happened, not an instruction to the view: the rows are
+    ; really in this order now, so the view sorts nothing. It is what the
+    ; header's little arrow is drawn from.
+    def sortedCol:int -1
+    def sortedAsc:boolean true
+
     fn setSort:void (col:int ascending:boolean) {
         sortCol = col
         sortAsc = ascending
@@ -1834,6 +1930,26 @@ class SpreadsheetModel {
     }
 
     ; Record a structural column op so it can be undone as one action.
+    ; A sort, as one undoable step. The order is kept whole rather than as a
+    ; sequence of moves: a sort is one action to the person who asked for it,
+    ; and one Ctrl+Z has to put the sheet back the way it was.
+    fn pushReorderOp:void (order:[int]) {
+        def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
+        op.structKind = 7
+        op.txId = curTx
+        def i:int 0
+        while (i < (array_length order)) {
+            push op.structOrder (itemAt order i)
+            i = (i + 1)
+        }
+        this.snapshotFormulas(op.savedKeys op.savedTexts)
+        push undoStack op
+        if (txDepth == 0) {
+            this.trimUndo()
+        }
+        clear redoStack
+    }
+
     fn pushStructOp:void (kind:int at:int to:int) {
         def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
         op.structKind = kind
@@ -1879,6 +1995,9 @@ class SpreadsheetModel {
             if (op.structKind == 6) {
                 this.moveRowRaw(op.structAt op.structTo)
             }
+            if (op.structKind == 7) {
+                this.reorderRowsRaw(op.structOrder)
+            }
             return
         }
         if (op.structKind == 1) {
@@ -1902,6 +2021,28 @@ class SpreadsheetModel {
         }
         if (op.structKind == 6) {
             this.moveRowRaw(op.structTo op.structAt)
+        }
+        if (op.structKind == 7) {
+            ; The inverse permutation: whatever went to i came from
+            ; structOrder[i], so to put it back, row structOrder[i] takes i.
+            def inv:[int]
+            def zn:int (array_length op.structOrder)
+            def z:int 0
+            while (z < zn) {
+                push inv 0
+                z = (z + 1)
+            }
+            z = 0
+            while (z < zn) {
+                def came:int (itemAt op.structOrder z)
+                if (came >= 0) {
+                    if (came < zn) {
+                        set_at inv came z
+                    }
+                }
+                z = (z + 1)
+            }
+            this.reorderRowsRaw(inv)
         }
         ; Formula text is restored wholesale — see savedKeys.
         this.restoreFormulas(op.savedKeys op.savedTexts)

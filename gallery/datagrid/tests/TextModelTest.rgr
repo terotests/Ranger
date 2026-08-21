@@ -143,6 +143,34 @@ class TextModelTest {
         c.eqInt("an astral codepoint is still one character" (EVGCodepoint.charCount(astral)) 1)
         c.eqInt("and reads back as itself" (EVGCodepoint.codeAt(astral 0)) 128169)
 
+        print "== bytes 0x80-0x9F, where Latin-1 and cp1252 part company =="
+        ; "Å" is C3 85 in UTF-8, and 0x85 falls in the band where the two
+        ; encodings disagree: cp1252 keeps an ellipsis there, Latin-1 keeps
+        ; the byte. A reader that takes one for the other destroys the letter
+        ; and leaves the rest of the text looking fine, which is what makes it
+        ; worth a test of its own.
+        def band:[int]
+        push band 197
+        push band 8364
+        push band 8212
+        push band 233
+        def bi:int 0
+        while (bi < (array_length band)) {
+            def cp:int (itemAt band bi)
+            def one2:string (EVGCodepoint.toStr(cp))
+            def enc:string (Utf8.encode(one2))
+            def bn:int (strlen enc)
+            def buf:buffer (buffer_alloc bn)
+            def bj:int 0
+            while (bj < bn) {
+                buffer_set buf bj (charAt enc bj)
+                bj = (bj + 1)
+            }
+            def back:string (Utf8.decode((buffer_to_string buf)))
+            c.eqInt("a byte string comes back as the character it spells" (EVGCodepoint.codeAt(back 0)) cp)
+            bi = (bi + 1)
+        }
+
         print "== a workbook out and back in =="
         def book:WorkbookModel (new WorkbookModel)
         def sheet:SpreadsheetModel (new SpreadsheetModel)

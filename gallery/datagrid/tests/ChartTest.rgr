@@ -624,20 +624,27 @@ class ChartTest {
         }
         this.checkTrue("the sheet's own frame carries chart geometry" (inside > 4))
 
-        ; Drag the title bar: the window moves and the chart remembers.
+        ; A chart with nobody working on it wears nothing: no caption bar, no
+        ; buttons, no tools. That is the whole point of the frame it has now.
+        this.checkTrue("the frame is bare" panel.win.bare)
+        this.checkFalse("and carries no tools until it is asked" panel.win.toolsOpen)
+
+        ; Drag it by the PICTURE — there is no caption bar to take hold of, and
+        ; grabbing a chart by the chart is what was asked for.
         def input (new UIInput)
         def startX:int panel.win.x
         def startY:int panel.win.y
         input.newFrame()
-        input.setPointerPos((startX + 40) (startY + 8))
+        input.setPointerPos((startX + 40) (startY + 60))
+        input.setPointerDown(true)
+        app.update(input)
+        this.checkTrue("pressing the picture selected it" panel.win.toolsOpen)
+        input.newFrame()
+        input.setPointerPos((startX + 90) (startY + 90))
         input.setPointerDown(true)
         app.update(input)
         input.newFrame()
-        input.setPointerPos((startX + 90) (startY + 38))
-        input.setPointerDown(true)
-        app.update(input)
-        input.newFrame()
-        input.setPointerPos((startX + 90) (startY + 38))
+        input.setPointerPos((startX + 90) (startY + 90))
         input.setPointerDown(false)
         app.update(input)
         this.checkInt("window followed the drag" panel.win.x (startX + 50))
@@ -656,11 +663,26 @@ class ChartTest {
         input.setPointerDown(false)
         app.update(input)
         this.checkInt("the grid still takes clicks" app.sel.active.row 0)
+        this.checkFalse("and working elsewhere puts the tools away" panel.win.toolsOpen)
 
-        ; Reopen the editor from the window's own button.
+        ; Reopen the editor from the chart's own tools. TWO clicks, and that is
+        ; deliberate: the first selects the chart and brings the strip out, and
+        ; only then is there a button there to press. A single click firing
+        ; whichever invisible tool it landed on is the bug this ordering exists
+        ; to prevent.
         def editBtn:EVGControl (panel.win.controlById((ChartLayer.editId())))
         def bx:int ((panel.win.x + editBtn.x) + 8)
         def by:int ((panel.win.y + editBtn.y) + 8)
+        input.newFrame()
+        input.setPointerPos(bx by)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(bx by)
+        input.setPointerDown(false)
+        app.update(input)
+        this.checkFalse("the first click only selected the chart" app.chartDialog.visible)
+        this.checkTrue("and brought the tools out" panel.win.toolsOpen)
         input.newFrame()
         input.setPointerPos(bx by)
         input.setPointerDown(true)
@@ -681,9 +703,12 @@ class ChartTest {
         this.checkInt("place kept" edited.chart.x keptX)
 
         ; Drag the grip: the window grows, the chart's box grows with it, and
-        ; the button stays where a button belongs.
+        ; the tools stay anchored to the corner they belong to. The grip is
+        ; chrome too, so it exists only while the chart is the selected one —
+        ; the edit above left it that way.
         def gpanel:ChartPanel (app.view.chartLayer.panelAt(0))
         def gwin:EVGWindow gpanel.win
+        this.checkTrue("editing kept the chart selected" gwin.toolsOpen)
         def gside:int (gwin.boxSide())
         def gx:int (((gwin.x + gwin.w) - gside) + 4)
         def gy:int (((gwin.y + gwin.h) - gside) + 4)
@@ -706,16 +731,19 @@ class ChartTest {
         this.checkInt("the grip resized the window" gwin.w (beforeW + 60))
         this.checkInt("the content took the width" (gwin.contentW()) (beforeContentW + 60))
         def btn2:EVGControl (gwin.controlById((ChartLayer.editId())))
-        this.checkInt("the button stayed on the right edge" (btn2.x + btn2.w) (btnRight + 60))
+        this.checkInt("the tool stayed on the right edge" (btn2.x + btn2.w) (btnRight + 60))
+        this.checkInt("and stayed at the top" btn2.y gwin.toolPad)
         def resized:ChartPanel (app.view.chartLayer.panelAt(0))
         this.checkInt("and the chart remembers its new size" resized.chart.w gwin.w)
 
-        ; The close box takes the chart away.
+        ; The close TOOL takes the chart away — there is no box in a caption
+        ; bar any more, because there is no caption bar.
         def lastPanel:ChartPanel (app.view.chartLayer.panelAt(0))
         def win:EVGWindow lastPanel.win
-        def side:int (win.boxSide())
-        def clx:int (((win.x + win.w) - (side + 8)) + 4)
-        def cly:int ((win.y + (idiv (win.titleH - side) 2)) + 4)
+        this.checkFalse("no close box on a bare frame" (win.onCloseBox(((win.x + win.w) - 10) (win.y + 8))))
+        def closeTool:EVGControl (win.controlById((ChartLayer.closeId())))
+        def clx:int ((win.x + closeTool.x) + 8)
+        def cly:int ((win.y + closeTool.y) + 8)
         input.newFrame()
         input.setPointerPos(clx cly)
         input.setPointerDown(true)

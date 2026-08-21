@@ -5030,12 +5030,25 @@ static bool r_regex_test_i(string pattern, string s) {
             templates {
                 ranger ( "(buffer_to_string " (e 1) ")" )
                 llvm ( "(buffer_to_string " (e 1) ")" )
-                ; Latin-1 one char per byte. Do NOT use fromCharCode.apply on the
-                ; whole view — apply builds the arg list on the stack and throws
-                ; "Maximum call stack size exceeded" above ~100–200 KB (xlsx sheet
-                ; XML and sharedStrings routinely exceed that). TextDecoder('latin1')
-                ; is stack-safe; the chunked apply loop is the fallback.
-                es6 ( "(function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); if (typeof TextDecoder !== \"undefined\") { return new TextDecoder(\"latin1\").decode(v); } var s = \"\"; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(" (e 1) ")" )
+                ; Latin-1: one character per byte, exactly, for every byte.
+                ;
+                ; Two traps here, and this template has fallen into both.
+                ;
+                ; fromCharCode.APPLY over the whole view builds the argument
+                ; list on the stack and throws "Maximum call stack size
+                ; exceeded" above ~100-200 KB — which xlsx sheet XML and
+                ; sharedStrings routinely are. Hence the chunked loop.
+                ;
+                ; And TextDecoder("latin1") is NOT Latin-1. In the Encoding
+                ; Standard "latin1", "iso-8859-1" and "l1" are all labels for
+                ; WINDOWS-1252 — check `new TextDecoder("latin1").encoding`
+                ; and it says so. The two agree everywhere except 0x80-0x9F,
+                ; where cp1252 keeps typographic characters: byte 0x85 comes
+                ; back as U+2026, not U+0085. For UTF-8 read through this that
+                ; is fatal — the second byte of "Å" (C3 85) becomes an
+                ; ellipsis and the letter is gone. There is no label for real
+                ; Latin-1, so the loop is the whole answer, not a fallback.
+                es6 ( "(function(b){ var v = (b instanceof Uint8Array) ? b : new Uint8Array(b); var s = \"\"; var i = 0; var n = v.length; var c = 32768; while (i < n) { var e = i + c; if (e > n) { e = n; } s += String.fromCharCode.apply(null, v.subarray(i, e)); i = e; } return s; })(" (e 1) ")" )
                 go ( "string(" (e 1) ")" )
                 rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
                 cpp ( "std::string(" (e 1) ".begin(), " (e 1) ".end())" )

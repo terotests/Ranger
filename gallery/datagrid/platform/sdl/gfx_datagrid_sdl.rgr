@@ -331,6 +331,38 @@ static int dgfx_drawable_height() {
     SDL_GL_GetDrawableSize(g_dgfx_win, &w, &h);
     return h;
 }
+// --- the pointer's shape ------------------------------------------------------
+//
+// One system cursor per kind, made on demand and kept. SDL owns them; setting
+// the same one twice is free, and the app calls this every frame.
+static SDL_Cursor* g_dgfx_cursors[16] = { nullptr };
+static int g_dgfx_cursor_kind = -1;
+
+static SDL_SystemCursor dgfx_system_cursor(int kind) {
+    if (kind == 1) { return SDL_SYSTEM_CURSOR_CROSSHAIR; }
+    if (kind == 2) { return SDL_SYSTEM_CURSOR_SIZEWE; }
+    if (kind == 3) { return SDL_SYSTEM_CURSOR_SIZENS; }
+    if (kind == 4) { return SDL_SYSTEM_CURSOR_IBEAM; }
+    if (kind == 5) { return SDL_SYSTEM_CURSOR_HAND; }
+    if (kind == 6) { return SDL_SYSTEM_CURSOR_SIZEALL; }
+    if (kind == 7) { return SDL_SYSTEM_CURSOR_CROSSHAIR; }
+    if (kind == 8) { return SDL_SYSTEM_CURSOR_HAND; }
+    return SDL_SYSTEM_CURSOR_ARROW;
+}
+
+static void dgfx_set_cursor(int kind) {
+    if (kind < 0) { kind = 0; }
+    if (kind > 15) { kind = 0; }
+    if (kind == g_dgfx_cursor_kind) { return; }
+    if (g_dgfx_cursors[kind] == nullptr) {
+        g_dgfx_cursors[kind] = SDL_CreateSystemCursor(dgfx_system_cursor(kind));
+    }
+    if (g_dgfx_cursors[kind] != nullptr) {
+        SDL_SetCursor(g_dgfx_cursors[kind]);
+        g_dgfx_cursor_kind = kind;
+    }
+}
+
 // --- native file dialogs -----------------------------------------------------
 //
 // A file picker is the one thing a portable app cannot draw for itself: the
@@ -653,6 +685,15 @@ static void dgfx_close() {
     dgfx_delay _:void (ms:int) {
         templates {
             cpp ( "SDL_Delay((Uint32)(" (e 1) "))" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; The pointer's shape, by GridCursor kind. Setting the same one twice is
+    ; free, so a host may call this every frame.
+    dgfx_set_cursor _:void (kind:int) {
+        templates {
+            cpp ( "dgfx_set_cursor(" (e 1) ")" (imp "<SDL2/SDL.h>") )
             es6 ( "undefined" )
         }
     }
