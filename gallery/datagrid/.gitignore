@@ -8,3 +8,5 @@
 bin/
 harness/out/
 !fixtures/
+web/standalone/dist/
+web/editor/dist/

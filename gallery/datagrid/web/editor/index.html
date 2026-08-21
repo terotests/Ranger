@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Ranger code editor — WebGL</title>
+    <style>
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./fonts/OpenSans-Regular.ttf") format("truetype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "Open Sans";
+        src: url("./fonts/OpenSans-Bold.ttf") format("truetype");
+        font-weight: 700;
+        font-style: normal;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #0d0e13;
+        color: #c4cde2;
+        font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }
+      header {
+        display: flex;
+        gap: 18px;
+        align-items: baseline;
+        padding: 10px 16px;
+        border-bottom: 1px solid #23252f;
+      }
+      header h1 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0;
+        color: #e2e8f5;
+      }
+      header span {
+        color: #6b7590;
+      }
+      header strong {
+        color: #7aa2f7;
+        font-weight: 600;
+      }
+      main {
+        padding: 16px;
+      }
+      canvas {
+        display: block;
+        border: 1px solid #23252f;
+        border-radius: 4px;
+        outline: none;
+      }
+      footer {
+        padding: 0 16px 20px;
+        color: #6b7590;
+        max-width: 900px;
+      }
+      code {
+        color: #9ece6a;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Ranger code editor</h1>
+      <span>backend <strong id="backend">…</strong></span>
+      <span>cmds <strong id="cmds">0</strong></span>
+      <span>fps <strong id="fps">0</strong></span>
+      <span>state <strong id="status">starting…</strong></span>
+    </header>
+    <main>
+      <canvas id="screen" width="1000" height="700" tabindex="0"></canvas>
+    </main>
+    <pre id="selftest" style="margin:0 16px;color:#7dcfff"></pre>
+    <footer>
+      <p>
+        The editor is Ranger, compiled to JavaScript; the picture is an
+        <b>EVG display list</b> drawn by <code>gl/evg-webgl.js</code> on WebGL 2.
+        The same page compiles to C++ and draws through OpenGL in the SDL
+        binary — <code>npm run datagrid:editor:sdl</code>.
+      </p>
+      <p>
+        Click to place the caret, drag to select, type. <b>Ctrl+K</b> switches
+        between the report script and the syntax sampler, <b>Ctrl+L</b> reloads
+        it, <b>Ctrl+Z</b> / <b>Ctrl+Y</b> undo and redo, <b>Ctrl+A</b> selects
+        all. Paste works.
+      </p>
+    </footer>
+    <script
+      src="./code_editor_web.js"
+      onerror="window.__engineMissing='code_editor_web.js'"
+    ></script>
+    <script type="module" src="./editor.mjs"></script>
+  </body>
+</html>

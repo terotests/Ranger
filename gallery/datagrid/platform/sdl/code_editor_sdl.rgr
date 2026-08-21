@@ -1,0 +1,248 @@
+; ==============================================================================
+; code_editor_sdl — the code editor as a native window (SDL2 + OpenGL)
+; ==============================================================================
+;
+; The same CodeEditorPage the browser runs, drawn through the same display
+; list. This file only opens a window, turns SDL events into UIInput, and hands
+; the list to EvgGlPainter — which is where the browser's evg-webgl.js sits in
+; the other host.
+;
+; The difference worth knowing: here the glyphs come from Ranger's own atlas,
+; rasterized from the same TTF the layout measured with, so a token lands
+; exactly where the caret says it does. In a browser the atlas is Canvas2D's,
+; and its advances differ from the font file's by a fraction of a pixel per
+; glyph — visible as slightly loose spacing along a long line, and the reason
+; this host is the reference picture.
+;
+; Usage (after build_editor.sh):
+;   ./tmp/code-editor-sdl/code_editor_sdl [file.tsx] [frames]
+;   SDL_VIDEODRIVER=dummy ./tmp/code-editor-sdl/code_editor_sdl 20   # smoke
+;
+; Ctrl+S writes the buffer back to the file it was opened from.
+; ==============================================================================
+
+Import "../../src/script/CodeEditorPage.rgr"
+Import "gfx_datagrid_sdl.rgr"
+Import "EvgGlPainter.rgr"
+
+class CodeEditorSdl {
+    def page:CodeEditorPage (new CodeEditorPage)
+    def input:UIInput (new UIInput)
+    def glPainter:EvgGlPainter (new EvgGlPainter)
+    def pw:int 1000
+    def ph:int 700
+    def frames:int 0
+    def hasWindow:boolean false
+    def filePath:string ""
+    def fontDir:string "gallery/pdf_writer/assets/fonts"
+    def wantQuit:boolean false
+
+    fn openWindow:void () {
+        def ok:int (dgfx_open "Ranger code editor (SDL2 / OpenGL)" pw ph)
+        if (ok == 1) {
+            hasWindow = true
+        } {
+            print "dgfx_open failed (no display?) — SoftCanvas fallback for smoke"
+        }
+    }
+
+    ; A file on disk, if one was named. Anything unreadable leaves the sample
+    ; script in place rather than opening an empty window.
+    fn loadFile:void (path:string) {
+        if ((strlen path) == 0) {
+            return
+        }
+        def dir:string (CodeEditorSdl.dirOf(path))
+        def name:string (CodeEditorSdl.nameOf(path))
+        def text@(optional):string (read_file dir name)
+        if (null? text) {
+            print ("could not read " + path + " — keeping the sample")
+            return
+        }
+        def src:string (unwrap text)
+        page.setText(src)
+        page.docName = name
+        filePath = path
+        page.status = ("opened " + path)
+        print ("opened " + path)
+    }
+
+    fn saveFile:void () {
+        if ((strlen filePath) == 0) {
+            page.status = "no file to save (opened from the sample)"
+            return
+        }
+        def dir:string (CodeEditorSdl.dirOf(filePath))
+        def name:string (CodeEditorSdl.nameOf(filePath))
+        write_file dir name (page.text())
+        page.status = ("saved " + filePath)
+        print ("saved " + filePath)
+    }
+
+    sfn dirOf:string (path:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring path 0 cut)
+    }
+
+    sfn nameOf:string (path:string) {
+        def cut:int -1
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) (strlen path))
+    }
+
+    fn syncWindowSize:void () {
+        def ww:int (dgfx_window_width)
+        def wh:int (dgfx_window_height)
+        if (ww < 320) {
+            return
+        }
+        if (wh < 240) {
+            return
+        }
+        if ((ww == pw) && (wh == ph)) {
+            return
+        }
+        pw = ww
+        ph = wh
+        page.resize(pw ph)
+    }
+
+    ; One SDL frame, as UIInput. Ctrl+S is taken here rather than in the page:
+    ; the page has no idea what a file is.
+    fn pumpInput:void () {
+        dgfx_poll
+        input.newFrame()
+        this.syncWindowSize()
+        def mx:int (dgfx_mouse_x)
+        def my:int (dgfx_mouse_y)
+        def btn:int (dgfx_mouse_buttons)
+        def down:boolean false
+        if ((bit_and btn 1) != 0) {
+            down = true
+        }
+        input.setPointerPos(mx my)
+        input.setPointerDown(down)
+        def wy:int (dgfx_wheel)
+        if (wy != 0) {
+            input.addScroll((0 - wy))
+        }
+        def shift:boolean (dgfx_shift_down)
+        def ctrl:boolean (dgfx_ctrl_down)
+        input.setModifiers(shift ctrl)
+        def text:string (dgfx_take_text)
+        if ((strlen text) > 0) {
+            if ctrl {
+                def ch:int (charAt text 0)
+                if ((ch == 115) || (ch == 83)) {
+                    this.saveFile()
+                } {
+                    input.pushText(text)
+                }
+            } {
+                input.pushText(text)
+            }
+        }
+        def k:int (dgfx_pop_key)
+        while (k != 0) {
+            input.pushKey(k)
+            k = (dgfx_pop_key)
+        }
+        page.update(input)
+    }
+
+    fn draw:void () {
+        def dl:EVGDisplayList (page.buildDisplayList())
+        if hasWindow {
+            glPainter.draw(dl pw ph page.ctx.tr page.images)
+        } {
+            ; No GL (headless smoke): the same list, on the CPU.
+            page.render()
+        }
+    }
+
+    fn run:void (maxFrames:int) {
+        page.init(pw ph fontDir)
+        this.loadFile(filePath)
+        this.openWindow()
+        def running:boolean true
+        while (running) {
+            this.pumpInput()
+            this.draw()
+            frames = (frames + 1)
+            def sc:boolean (dgfx_should_close)
+            if sc {
+                running = false
+            }
+            if wantQuit {
+                running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+        if hasWindow {
+            dgfx_close
+        }
+    }
+
+    sfn main:void () {
+        def host:CodeEditorSdl (new CodeEditorSdl)
+        def maxFrames:int 0
+        def i:int 0
+        def n:int (shell_arg_cnt)
+        while (i < n) {
+            def a:string (shell_arg i)
+            def isNum:boolean true
+            if ((strlen a) == 0) {
+                isNum = false
+            }
+            def ci:int 0
+            while (ci < (strlen a)) {
+                def ch:int (charAt a ci)
+                if ((ch < 48) || (ch > 57)) {
+                    isNum = false
+                }
+                ci = (ci + 1)
+            }
+            if isNum {
+                def parsed@(optional):int (to_int a)
+                if (!null? parsed) {
+                    maxFrames = (unwrap parsed)
+                }
+            } {
+                host.filePath = a
+            }
+            i = (i + 1)
+        }
+        host.run(maxFrames)
+        ; Whether the frames went through OpenGL or fell back to the CPU is the
+        ; one thing a headless smoke has to say out loud: both finish, and only
+        ; one of them tested the painter this host exists for.
+        def gl:string "no"
+        if host.hasWindow {
+            gl = "yes"
+        }
+        print ("code-editor-sdl done: frames=" + (to_string host.frames) + " lines=" + (to_string (host.page.editor.buf.lineCount())) + " gl=" + gl)
+    }
+}

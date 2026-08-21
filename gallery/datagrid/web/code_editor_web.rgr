@@ -1,0 +1,138 @@
+; ==============================================================================
+; code_editor_web — the code editor page, as one class a browser can hold
+; ==============================================================================
+;
+;   INPUT   browser event → CodeEditorWeb → UIInput → CodeEditorPage
+;   RENDER  CodeEditorPage.sceneJson() → EVGDisplayList → evg-webgl.js
+;
+; The same seam the DataGrid's own page uses, and the same one the SDL binary
+; draws through — see platform/sdl/code_editor_sdl.rgr. Nothing in this file
+; knows anything about editing: it turns events into UIInput, and hands back
+; the scene.
+; ==============================================================================
+
+Import "../src/script/CodeEditorPage.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
+
+class CodeEditorWeb {
+    def page:CodeEditorPage (new CodeEditorPage)
+    def input:UIInput (new UIInput)
+
+    Constructor () {
+    }
+
+    fn start:void (w:int h:int) {
+        page.initBare(w h)
+    }
+
+    fn addFont:boolean (family:string data:buffer) {
+        return (page.addFont(family data))
+    }
+
+    fn addFace:boolean (data:buffer) {
+        return (page.addFace(data))
+    }
+
+    fn resize:void (w:int h:int) {
+        page.resize(w h)
+    }
+
+    fn pointer:void (x:int y:int down:boolean shift:boolean ctrl:boolean) {
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.setPointerPos(x y)
+        input.setPointerDown(down)
+        page.update(input)
+    }
+
+    fn wheel:void (x:int y:int delta:int) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.addScroll(delta)
+        page.update(input)
+    }
+
+    fn text:void (s:string shift:boolean ctrl:boolean) {
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushText(s)
+        page.update(input)
+    }
+
+    fn key:void (name:string shift:boolean ctrl:boolean) {
+        def code:int (CodeEditorWeb.keyByName(name))
+        if (code == 0) {
+            return
+        }
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushKey(code)
+        page.update(input)
+    }
+
+    ; The browser's key names as UIKey's numbers — kept here rather than in the
+    ; page so a second host does not have to invent the same table.
+    sfn keyByName:int (name:string) {
+        if (name == "backspace") { return (UIKey.backspace()) }
+        if (name == "enter")     { return (UIKey.enter()) }
+        if (name == "tab")       { return (UIKey.tab()) }
+        if (name == "escape")    { return (UIKey.escape()) }
+        if (name == "left")      { return (UIKey.left()) }
+        if (name == "right")     { return (UIKey.right()) }
+        if (name == "up")        { return (UIKey.up()) }
+        if (name == "down")      { return (UIKey.down()) }
+        if (name == "delete")    { return (UIKey.del()) }
+        if (name == "home")      { return (UIKey.home()) }
+        if (name == "end")       { return (UIKey.end()) }
+        if (name == "pageUp")    { return (UIKey.pageUp()) }
+        if (name == "pageDown")  { return (UIKey.pageDown()) }
+        return 0
+    }
+
+    ; A frame with no input in it: the caret blinks, so the page still has to
+    ; be able to ask for the picture again.
+    fn tick:void () {
+        input.newFrame()
+        page.update(input)
+    }
+
+    fn scene:string () {
+        return (page.sceneJson())
+    }
+
+    fn status:string () {
+        return page.status
+    }
+
+    fn documentName:string () {
+        return page.docName
+    }
+
+    fn documentText:string () {
+        return (page.text())
+    }
+
+    fn setDocument:void (src:string) {
+        page.setText(src)
+    }
+
+    fn nextSample:void () {
+        page.nextSample()
+    }
+
+    fn width:int () {
+        return page.W
+    }
+
+    fn height:int () {
+        return page.H
+    }
+
+    fn lineCount:int () {
+        return (page.editor.buf.lineCount())
+    }
+
+    fn tokenCount:int () {
+        return (page.tokenCount())
+    }
+}

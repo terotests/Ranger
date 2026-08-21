@@ -34,6 +34,8 @@ npm run datagrid:formula:workbook:test
 npm run datagrid:formula:bench
 npm run datagrid:script:test
 npm run datagrid:script:smoke
+npm run datagrid:script:editor:test
+npm run datagrid:editor:web:test
 npm run datagrid:artifacts
 npm run datagrid:xlsx:fixtures
 npm run datagrid:bench -- 100000
@@ -621,6 +623,28 @@ npm run datagrid:script:test       # engine, data API, .xlsx round trip
 npm run datagrid:script:smoke      # the app's own commands, headless
 npm run datagrid:script:artifacts  # the picture above, and the PDF
 ```
+
+### The script editor
+
+The scripts have an editor, and it is the same picture on every backend:
+
+![The code editor, painted on the CPU](artifacts/code_editor_syntax.png)
+
+A JavaScript / JSX lexer, a gutter with line numbers, a current-line band,
+selection, undo — painted into an **EVG display list**, which means it runs on
+WebGL 2 in a browser, on OpenGL in a native SDL2 binary, and on the CPU with no
+window at all, from one source.
+
+```bash
+npm run datagrid:editor:web:serve  # the page, on :8001, no host process
+npm run datagrid:editor:sdl        # Ranger → C++ → SDL2 + OpenGL binary
+npm run datagrid:editor:web:test   # headless Chrome types into it: 12 checks
+npm run datagrid:editor:sdl:smoke  # 20 frames through OpenGL, headless
+```
+
+The text model is [`gallery/text_editor`](../text_editor)'s — buffer, selection
+and layout — rather than a third one written for this. Details, keys and what
+is deliberately missing: [`docs/CODE_EDITOR.md`](docs/CODE_EDITOR.md).
 
 ## Charts
 
