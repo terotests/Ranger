@@ -581,9 +581,15 @@ fs.writeFileSync(path.join(OUT, "gl", "view.html"), viewerHtml(faceCss.join("\n 
       throw new Error("vela_chart_api.js does not define VelaChartApi without require()");
     }
   }
+  // The API classes go out with it, not just the entry point: the page's
+  // JavaScript mode calls `chart.bar().x("region")` on the compiled
+  // `VlChart` itself, so what a reader types reaches the same methods the
+  // Ranger interpreter beside it dispatches to.
   fs.writeFileSync(path.join(LIVE, "vela_chart_api.js"),
     "// GENERATED from gallery/vela/tools/vela_chart_web.rgr — do not edit.\n"
-    + "(function () {\n" + bundle + "\n;globalThis.VelaChartApi = VelaChartApi;\n})();\n");
+    + "(function () {\n" + bundle + "\n;globalThis.VelaChartApi = VelaChartApi;"
+    + "\n;globalThis.Vela = { VelaChartApi: VelaChartApi, VlChart: VlChart,"
+    + " VlChartMark: VlChartMark, VlDataset: VlDataset, VlDataRow: VlDataRow, VlJson: VlJson };\n})();\n");
   fs.copyFileSync(path.join(ROOT, "gallery/vela/web/chart_api.html"), path.join(LIVE, "index.html"));
   process.stdout.write("  chart-api/ (live)\n");
 }

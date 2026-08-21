@@ -290,14 +290,46 @@ bundle, and a page that dispatches what a reader types to it —
 gallery/evg/showcase/dist/chart-api/     →  published at /evg/chart-api/
 ```
 
-Type `chart.bar().x("region")` and the page calls `VlChart.bar()` and then
-`VlChartMark.x("region")`; the chart redraws as you edit, and the Vega-Lite
-those calls built is on the tab beside it. Edit the **data** and it redraws
-too, which is the difference between a live page and a picture of one.
+The page speaks **two languages**, and the primary one is JavaScript:
 
-It is an interpreter over the real methods and not a second implementation:
-there is no chart type anywhere in that file and no specification is written by
-hand. A name the API does not have is refused *by name* —
+```js
+chart.size(320, 190);
+chart.x("quarter").y("sales").color("region");
+chart.area().markOpacity(0.35);
+chart.line();
+```
+
+That is not a wrapper or a binding layer. The bundle publishes the compiled
+classes — `VlChart`, `VlChartMark`, `VlDataset` — and the reader's JavaScript
+calls **them**: `chart.bar()` *is* `VlChart.bar()`, compiled from Ranger, and
+what it answers is a `VlChartMark`. The page counts the calls with a `Proxy`
+and hands the finished chart back to `VelaChartApi.draw`.
+
+The same chart in Ranger is the second tab:
+
+```ranger
+chart.size(320 190)
+chart.x("quarter").y("sales").color("region")
+chart.area().markOpacity(0.35)
+chart.line()
+```
+
+which goes through the small interpreter in `vela_chart_web.rgr` — a dispatcher
+over the same methods, so that a Ranger call reaches `VlChart.size(320 190)`
+the way a JavaScript one reaches `VlChart.size(320, 190)`. **Both draw the same
+SVG, byte for byte**, and the browser check asserts exactly that for all eight
+presets: it is the whole claim the page makes, so it is the thing that is
+tested rather than assumed.
+
+The chart redraws as you edit, and the Vega-Lite those calls built is on the
+tab beside it. Edit the **data** and it redraws too, which is the difference
+between a live page and a picture of one.
+
+Neither language is a second implementation: there is no chart type anywhere in
+that file and no specification is written by hand. A name the API does not have
+is refused *by name* — by JavaScript itself on one side
+(`TypeError: chart.colour is not a function`) and by the interpreter on the
+other —
 
 ```
 line 2: a chart has no method 'colour'
@@ -318,7 +350,8 @@ The browser check is the point of the exercise, so it checks through the page
 rather than around it: every preset draws a different chart, an unknown method
 is refused by name, editing the data redraws, the inferred column types are
 shown, the specification and the Vega are both on the page, and a page error or
-a console error fails the run. **16 checks, in Chromium.**
+a console error fails the run, and the eight presets are drawn twice — once
+per language — and compared. **22 checks, in Chromium.**
 
 ## What two other catalogues say is missing
 

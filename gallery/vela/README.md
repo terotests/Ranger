@@ -117,10 +117,12 @@ apart. It is the only page there that no specification was written for.
 
 And a **live** one beside it at
 [`/evg/chart-api/`](https://terotests.github.io/Ranger/evg/chart-api/): the API
-compiled to a browser bundle, with a page that dispatches the lines you type to
-it method by method and redraws as you edit — the calls, the Vega-Lite they
-built, and the Vega it compiles to, all three on the page. `npm run
-showcase:api` opens it in a real browser and checks that it runs.
+compiled to a browser bundle, called from the page as you type — the calls, the
+Vega-Lite they built, and the Vega it compiles to, all three on the page. It
+speaks **JavaScript** first (`chart.bar().x("region")` calling the compiled
+`VlChart` itself, no binding layer in between) and **Ranger** second, and the
+same chart in either language draws the same SVG byte for byte. `npm run
+showcase:api` opens it in a real browser and checks that — 22 checks.
 
 [**CHART_API.md**](CHART_API.md) is the design: what was taken from AntV G2,
 Observable Plot, Vega-Lite and ECharts, the whole surface, how it is checked,
