@@ -2893,10 +2893,13 @@ class GridEditTest {
         rs.render()
         c.eqInt("still right after narrowing" rs.grid.toolbarH rs.view.toolbar.height)
         c.ok("which needed another row" (rs.view.toolbar.rows > 2))
+        def narrowRows:int rs.view.toolbar.rows
         rs.resize(1400 560)
         rs.render()
         c.eqInt("and after widening" rs.grid.toolbarH rs.view.toolbar.height)
-        c.ok("which needed fewer" (rs.view.toolbar.rows < 2))
+        ; Fewer than it needed when narrow — not "one", which was only ever
+        ; true for the number of buttons the strip happened to have that week.
+        c.ok("which needed fewer" (rs.view.toolbar.rows < narrowRows))
         ; The buttons have to stay inside the strip, or they are painted over
         ; whatever is under it.
         rs.resize(480 560)

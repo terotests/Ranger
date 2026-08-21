@@ -66,6 +66,9 @@ class GridFormat {
             if (arg == "none") {
                 return (st.hasBorder == false)
             }
+            if (GridFormat.isSpec(arg)) {
+                return false
+            }
             return st.hasBorder
         }
         return false
@@ -270,6 +273,141 @@ class GridFormat {
         }
     }
 
+    ; --- the border spec ------------------------------------------------------
+    ; The three toolbar words — "all", "outline", "none" — are the three things
+    ; a person wants most often and nothing like all of what Excel's border
+    ; gallery offers. Rather than invent a command per combination, the border
+    ; op also takes a SPEC: which edges, drawn in which line, in which colour.
+    ;
+    ;     spec:TBLRHV:medium:#C00000
+    ;
+    ; Letters are the edges of the SELECTION — Top Bottom Left Right — plus H
+    ; and V for the lines INSIDE it, which are the two Excel calls "inside
+    ; horizontal" and "inside vertical". A missing letter means "leave that
+    ; edge alone", which is what lets the picker put a line under a block
+    ; without wiping the box someone already drew around it.
+    ;
+    ; Absent fields fall back: `spec:TBLR` is a thin black box.
+    ;
+    ; A spec REPLACES the four edges rather than adding to them — the picker
+    ; opens showing what the cell already has, so what it shows is what you
+    ; get, and unticking an edge is how you take one away.
+    sfn isSpec:boolean (arg:string) {
+        if ((strlen arg) < 5) {
+            return false
+        }
+        return ((substring arg 0 5) == "spec:")
+    }
+
+    ; Field `n` of a colon-separated spec, or "" when it is not there.
+    sfn specField:string (arg:string n:int) {
+        def start:int 0
+        def field:int 0
+        def i:int 0
+        while (i <= (strlen arg)) {
+            def atEnd:boolean (i == (strlen arg))
+            def sep:boolean atEnd
+            if (atEnd == false) {
+                if ((charAt arg i) == 58) {
+                    sep = true
+                }
+            }
+            if sep {
+                if (field == n) {
+                    return (substring arg start i)
+                }
+                field = (field + 1)
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn specHasEdge:boolean (arg:string letter:int) {
+        def flags:string (GridFormat.specField(arg 1))
+        def i:int 0
+        while (i < (strlen flags)) {
+            if ((charAt flags i) == letter) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn specStyle:string (arg:string) {
+        def st:string (GridFormat.specField(arg 2))
+        if ((strlen st) == 0) {
+            return "thin"
+        }
+        return st
+    }
+
+    sfn specColor:string (arg:string) {
+        def c:string (GridFormat.specField(arg 3))
+        if ((strlen c) == 0) {
+            return "#000000"
+        }
+        return c
+    }
+
+    ; Apply a spec to one cell, given where that cell sits in the block. An
+    ; edge letter is only spent on the cells that HAVE that edge; H and V are
+    ; spent on the seams, which is every cell that is not against the far side.
+    ; A one-cell selection is on all four edges at once, so it has no seams and
+    ; H / V are simply not reachable there — which is correct: there is nothing
+    ; inside a single cell to draw a line between.
+    sfn borderSpecFor:void (st:CellStyle arg:string onTop:boolean onRight:boolean onBottom:boolean onLeft:boolean) {
+        def line:string (GridFormat.specStyle(arg))
+        def ink:string (GridFormat.specColor(arg))
+        def wantT:boolean false
+        def wantR:boolean false
+        def wantB:boolean false
+        def wantL:boolean false
+        if onTop {
+            wantT = (GridFormat.specHasEdge(arg 84))
+        } {
+            wantT = (GridFormat.specHasEdge(arg 72))
+        }
+        if onBottom {
+            wantB = (GridFormat.specHasEdge(arg 66))
+        } {
+            wantB = (GridFormat.specHasEdge(arg 72))
+        }
+        if onLeft {
+            wantL = (GridFormat.specHasEdge(arg 76))
+        } {
+            wantL = (GridFormat.specHasEdge(arg 86))
+        }
+        if onRight {
+            wantR = (GridFormat.specHasEdge(arg 82))
+        } {
+            wantR = (GridFormat.specHasEdge(arg 86))
+        }
+        st.borderTop = (new CellBorder)
+        st.borderRight = (new CellBorder)
+        st.borderBottom = (new CellBorder)
+        st.borderLeft = (new CellBorder)
+        if wantT {
+            st.borderTop.style = line
+            st.borderTop.rgb = ink
+        }
+        if wantB {
+            st.borderBottom.style = line
+            st.borderBottom.rgb = ink
+        }
+        if wantL {
+            st.borderLeft.style = line
+            st.borderLeft.rgb = ink
+        }
+        if wantR {
+            st.borderRight.style = line
+            st.borderRight.rgb = ink
+        }
+        st.hasBorder = ((st.borderTop.has()) || (st.borderRight.has()) || (st.borderBottom.has()) || (st.borderLeft.has()))
+    }
+
     ; Borders are the one operation that depends on WHERE a cell is in the
     ; selection: "outline" puts a line only on the edges of the block, "all"
     ; puts one on every side of every cell.
@@ -310,7 +448,18 @@ class GridFormat {
             st.borderTop.style = line
             st.borderTop.rgb = ink
         }
-        st.hasBorder = true
+        if (arg == "left") {
+            st.borderLeft.style = line
+            st.borderLeft.rgb = ink
+        }
+        if (arg == "right") {
+            st.borderRight.style = line
+            st.borderRight.rgb = ink
+        }
+        ; Latching this on regardless left a cell claiming a border it did not
+        ; have — and the painter believes it, so a "border" of four empty
+        ; edges cost a display-list pass and drew nothing.
+        st.hasBorder = ((st.borderTop.has()) || (st.borderRight.has()) || (st.borderBottom.has()) || (st.borderLeft.has()))
     }
 
     ; --- applying it to a selection -------------------------------------------
@@ -332,9 +481,13 @@ class GridFormat {
                 while (c <= g.c1) {
                     def st:CellStyle ((model.getCellStyle(r c)).copy())
                     if (op == "border") {
-                        GridFormat.borderFor(st arg (r == g.r0) (c == g.c1) (r == g.r1) (c == g.c0))
-                        if (arg == "all") {
-                            GridFormat.borderFor(st "all" true true true true)
+                        if (GridFormat.isSpec(arg)) {
+                            GridFormat.borderSpecFor(st arg (r == g.r0) (c == g.c1) (r == g.r1) (c == g.c0))
+                        } {
+                            GridFormat.borderFor(st arg (r == g.r0) (c == g.c1) (r == g.r1) (c == g.c0))
+                            if (arg == "all") {
+                                GridFormat.borderFor(st "all" true true true true)
+                            }
                         }
                     } {
                         GridFormat.mutate(st op arg on)

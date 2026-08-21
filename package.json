@@ -476,6 +476,8 @@
     "docx_viewer:load:test": "bash gallery/docx_viewer/tools/run_load_test.sh",
     "lang:string:test": "bash tests/lang/run_string_test.sh",
     "datagrid:tables:test": "bash gallery/datagrid/tools/run_tables_test.sh",
+    "datagrid:softclip:test": "bash gallery/datagrid/tools/run_soft_clip_test.sh",
+    "datagrid:border:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/BorderRenderTest.rgr -d=./gallery/datagrid/bin -o=BorderRenderTest.js -nodecli && node ./gallery/datagrid/bin/BorderRenderTest.js",
     "datagrid:overflow:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/OverflowRenderTest.rgr -d=./gallery/datagrid/bin -o=OverflowRenderTest.js -nodecli && node ./gallery/datagrid/bin/OverflowRenderTest.js"
   },
   "repository": {
