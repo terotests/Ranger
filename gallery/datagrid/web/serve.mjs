@@ -374,6 +374,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Where the buttons are. The command table says what the grid can do; this
+  // says where a pointer has to go to ask for it, which is what a host driving
+  // the real UI (or a test clicking a real button) needs.
+  if (url.pathname === "/toolbar") {
+    const bar = app.view.toolbar;
+    const items = [];
+    for (let i = 0; i < bar.count(); i++) {
+      const t = bar.at(i);
+      if (!t.command || !t.w) continue;
+      items.push({ command: t.command, arg: t.arg || "", label: t.label || "", x: t.x, y: t.y, w: t.w, h: t.h });
+    }
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify({ items }));
+    return;
+  }
+
   if (url.pathname === "/command" && req.method === "POST") {
     let body = "";
     for await (const chunk of req) body += chunk;

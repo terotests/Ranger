@@ -74,6 +74,31 @@ class GridDbTest {
         session.mutate(m)
     }
 
+    ; Which toolbar entry runs a command, or -1.
+    sfn toolIndexFor:int (app:GridApp command:string) {
+        def n:int (app.view.toolbar.count())
+        def i:int 0
+        while (i < n) {
+            def t:ToolItem (app.view.toolbar.at(i))
+            if (t.command == command) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn clickAt:void (app:GridApp input:UIInput px:int py:int) {
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(false)
+        app.update(input)
+    }
+
     sfn focusCell:void (app:GridApp r:int c:int) {
         app.sel.anchor.row = r
         app.sel.anchor.col = c
@@ -185,6 +210,25 @@ class GridDbTest {
         check.eqInt("one revenue series" (data.seriesCount()) 1)
         check.eqInt("one category per row" (data.catCount()) app.db.loadedRows)
         check.eqStr("series named by the query column" (itemAt data.series 0) "revenue")
+
+        ; --- the toolbar buttons ------------------------------------------------
+        ; A shortcut is not a discoverable feature, and in a browser Ctrl+D is
+        ; the bookmark. Both windows have a button, and the button is clicked
+        ; here the way a pointer clicks it.
+        def dbButton:int (GridDbTest.toolIndexFor(app "db.connection"))
+        check.ok("there is a database button on the toolbar" (dbButton >= 0))
+        def sqlButton:int (GridDbTest.toolIndexFor(app "db.sql.dialog"))
+        check.ok("and one for the SQL box" (sqlButton >= 0))
+        if (dbButton >= 0) {
+            def item:ToolItem (app.view.toolbar.at(dbButton))
+            check.ok("the button was laid out" (item.w > 0))
+            def hit:int (app.toolbarHit((item.x + (idiv item.w 2)) (item.y + (idiv item.h 2))))
+            check.eqInt("the pointer hits it" hit dbButton)
+            def input:UIInput (new UIInput)
+            GridDbTest.clickAt(app input (item.x + (idiv item.w 2)) (item.y + (idiv item.h 2)))
+            check.ok("clicking it opens the connection window" app.connDialog.visible)
+            app.connDialog.close()
+        }
 
         ; --- the connection window ---------------------------------------------
         ; What the workbook is talking to, in one place: engine, data source,

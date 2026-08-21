@@ -473,6 +473,12 @@ class GridApp {
         dbDriver = driver
         dbDsn = dsn
         dbTable = table
+        ; The window that asked for this connection is still on screen showing
+        ; the OLD one - the host answers after the click, not during it - so it
+        ; is rebuilt here rather than left lying about what is connected.
+        if connDialog.visible {
+            this.reopenConnectionDialog()
+        }
     }
 
     ; --- the connection window --------------------------------------------------

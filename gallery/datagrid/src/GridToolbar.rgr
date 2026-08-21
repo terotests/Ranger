@@ -75,6 +75,11 @@ class ToolIcon {
     sfn save:int ()        { return 42 }
     sfn openFile:int ()    { return 43 }
     sfn newFile:int ()     { return 44 }
+    ; The database group. A shortcut is not a discoverable feature, and in a
+    ; browser it is not even a reliable one: Ctrl+D is the bookmark and Ctrl+Q
+    ; quits. A button on the strip works everywhere the grid is drawn.
+    sfn database:int ()    { return 45 }
+    sfn sqlBox:int ()      { return 46 }
 }
 
 class ToolItem {
@@ -211,6 +216,10 @@ class GridToolbar {
         this.add("edit.find" "" "Find" (ToolIcon.search()))
         this.add("format.conditional" "" "Conditional formatting" (ToolIcon.cond()))
         this.add("data.validation" "" "Data validation" (ToolIcon.validate()))
+        this.addSeparator()
+
+        this.add("db.connection" "" "Database connection" (ToolIcon.database()))
+        this.add("db.sql.dialog" "" "SQL query" (ToolIcon.sqlBox()))
     }
 
     ; Place the items across the strip. Anything past the right edge is given

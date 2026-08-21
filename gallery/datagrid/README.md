@@ -257,7 +257,8 @@ cell. It passes on all three engines.
 
 ### The connection window
 
-**Ctrl+D** shows what the workbook is talking to, and is the way to point it
+The **database button** on the toolbar (and **Ctrl+D** where the host lets it
+through) shows what the workbook is talking to, and is the way to point it
 somewhere else:
 
 ![The database connection window](artifacts/db_connection.png)
@@ -277,8 +278,20 @@ ignores the request loses nothing, since the sheet it already has keeps
 working.
 
 ```bash
-npm run datagrid:db:window     # …then Ctrl+D
+npm run datagrid:db:window     # …then the database button, or Ctrl+D
 ```
+
+**In a browser the button is the reliable path.** `Ctrl+D` is the bookmark and
+`Ctrl+Q` closes the window; the page now claims both while the sheet has focus,
+but `Cmd+Q` on macOS cannot be intercepted by any page — so the connection
+window and the SQL box each have a button on the toolbar, next to the
+conditional-formatting and validation ones. Every button runs the same command
+string the keyboard and a remote host use, so nothing can be reachable one way
+and not another.
+
+The host can find them: `GET /toolbar` returns the laid-out buttons
+(`command`, `label`, `x`, `y`, `w`, `h`), which is what lets a test click a
+real button instead of a guessed pixel.
 
 Typing `rangerdb` into Engine and pressing Enter switches the live workbook
 from DuckDB to the Ranger engine and reloads the sheet — which is what
@@ -312,7 +325,7 @@ curl -s localhost:8766/command -d '{"id":"db.sql","arg":"SELECT country, revenue
 `npm run datagrid:db:window:smoke` opens the box the way a person does — the
 command, then text events, then Enter — and checks the query became a sheet.
 
-`npm run datagrid:db:test` runs all of it over all three engines (164/164), and
+`npm run datagrid:db:test` runs all of it over all three engines (179/179), and
 `npm run datagrid:db:demo` is a headless session that seeds a table, edits a
 cell through the UI, reads the new value back out of the database, has one
 edit refused, sorts (which re-runs the query) and leaves this behind:

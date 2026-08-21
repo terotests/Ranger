@@ -222,19 +222,18 @@ class GridDbLauncher {
         push keys "id"
         def ok:boolean (app.bindDatabase(session spec keys ("DB " + table)))
         rows = app.db.loadedRows
-        ; What the connection window shows: which engine, which data source,
-        ; which table. The app holds a session and nothing else - this is the
-        ; part only the host knows.
-        app.noteConnection(engine dsn table)
         if (ok == false) {
             status = (engine + ": " + app.db.status)
-            app.dbConnStatus = status
-            return false
+        } {
+            status = (engine + ": " + table + ", " + (to_string rows) + " rows - edit a cell and it is written back")
         }
-        status = (engine + ": " + table + ", " + (to_string rows) + " rows - edit a cell and it is written back")
         app.dbConnStatus = status
         app.view.status = status
-        return true
+        ; Told LAST, because this is what redraws the connection window - and a
+        ; window redrawn before the outcome was written shows the question
+        ; ("connecting to …") next to the answer.
+        app.noteConnection(engine dsn table)
+        return ok
     }
 
     ; Engines the host could reach, for the console line the server prints.
