@@ -230,6 +230,40 @@ rotation handle · crop and picture filters · multi-stop gradients, shadow and
 outline dialogs · a colour picker · right-click menus · the shape library
 beyond the presets `PptxGeom` already draws.
 
+## Phase E4b — the slide panel
+
+The most visible thing a slide editor has, and it was in this file only as a
+performance note in E7 ("virtualized slide thumbnails") — which is the answer
+to a question nobody had asked yet, because the panel itself was never planned.
+What exists today is `slide.pick`: a dialog of numbered radio buttons. It works
+and it is not what anyone means by a deck.
+
+The panel is a strip of **rendered slides** down one side: each thumbnail is
+the same scene the viewer paints, at a small scale, so there is no second
+renderer and no second idea of what a slide looks like. `PptxView` already
+renders a slide alone at a given scale (`renderOracleSlide` does exactly this
+for the oracles), so a thumbnail is that at ~120px wide, cached per slide and
+invalidated by the same `PptxSlide.dirty` flag the save path already keeps.
+
+What it needs, in order:
+
+1. A layout: the strip takes width out of the frame the way the toolbar takes
+   height, so the fit-to-window scale and `slideOriginX` account for it.
+2. Thumbnails painted into the same display list, with the current slide marked
+   and its number beside it.
+3. Click to go to a slide; the panel is the navigation, and the left/right
+   thirds of the slide stop being it in edit mode.
+4. Drag to reorder — the editor already has `moveSlide`, so this is a drop
+   indicator and an index.
+5. The slide commands where they belong: new / duplicate / delete on the panel
+   rather than only on the toolbar.
+6. Scrolling, once a deck is longer than the window.
+
+Cache invalidation is the whole risk: a thumbnail that does not notice an edit
+is worse than no thumbnail. The flag exists, the render is cheap at that size,
+and the honest first version re-renders the current slide's thumbnail every
+time its scene changes and the others only when their `dirty` flips.
+
 ## Phase E5 — the document, not the slide
 
 Themes (recolour a deck from one palette, the way `GridTheme` does for the
@@ -247,9 +281,10 @@ time-varying scene, which is the interesting part.
 ## Phase E7 — scale
 
 Operation-log history with inverses instead of deck snapshots · dirty-rectangle
-painting rather than rebuilding the display list per frame · virtualized slide
-thumbnails · a document big enough to make the difference measurable, in
-`bench/`, the way the text editor and the grid are benched.
+painting rather than rebuilding the display list per frame · **virtualizing**
+the slide panel of E4b, so a hundred-slide deck renders the dozen thumbnails
+that are on screen · a document big enough to make the difference measurable,
+in `bench/`, the way the text editor and the grid are benched.
 
 ## Non-goals
 

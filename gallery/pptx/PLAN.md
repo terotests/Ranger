@@ -48,6 +48,7 @@ web editor like PPTist does, none of the code is.
 | E3 | Writing `.pptx` back out on `ZipWriter`, round-tripped and verified from outside — **done, flat** |
 | E3b | Saving the file you opened: original parts kept, only touched slides rewritten — **done** |
 | E4 | Marquee select, clipboard, format painter, flip / lock, crop, rulers |
+| E4b | The slide panel: rendered thumbnails, click to go, drag to reorder |
 | E5 | Themes, layouts, master editing, sections, notes |
 | E6 | Transitions, animations, presenter view |
 | E7 | Op-log history, dirty-rect paint, benches |
