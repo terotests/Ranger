@@ -8,6 +8,8 @@
  *
  *   node gallery/datagrid/web/serve.mjs [--port 8766] [--open] [--headless-smoke]
  *
+ *   --theme <name>  colour scheme: default (the neutral slate), green, blue,
+ *                   red. Ctrl+Shift+T steps through them in the window.
  *   --db <engine>   open a DATABASE sheet instead of an .xlsx: "auto" (DuckDB
  *                   if installed, else SQLite, else RangerDB), or name one.
  *                   --db-dsn (default :memory:), --db-table (default sales),
@@ -106,6 +108,17 @@ if (DB_DRIVER) {
   }
 } else {
   console.log("  (no " + xlsxPath + " — using demo sheet)");
+}
+
+// --theme green|blue|red — the app's colour scheme, before the first frame.
+const themeArg = argVal("--theme", "");
+if (themeArg) {
+  const okTheme = app.setTheme(themeArg);
+  console.log(
+    okTheme
+      ? "  theme " + themeArg
+      : "  no such theme: " + themeArg + " (have: " + app.themeNames() + ")",
+  );
 }
 
 const liveInput = new UIInput();

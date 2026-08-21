@@ -14,6 +14,7 @@ Import "SpreadsheetModel.rgr"
 Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "CellStyle.rgr"
+Import "GridTheme.rgr"
 Import "ConditionalFormat.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
@@ -28,28 +29,6 @@ Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "WorkbookModel.rgr"
 
-class GridTheme {
-    def bg:EVGColor (EVGColor.rgb(245 247 250))
-    def headerBg:EVGColor (EVGColor.rgb(232 236 242))
-    def headerText:EVGColor (EVGColor.rgb(55 65 80))
-    def gridLine:EVGColor (EVGColor.rgb(210 216 224))
-    def cellText:EVGColor (EVGColor.rgb(30 36 48))
-    def formulaBg:EVGColor (EVGColor.rgb(255 255 255))
-    def formulaText:EVGColor (EVGColor.rgb(30 36 48))
-    def selection:EVGColor (EVGColor.rgba(50 120 220 0.22))
-    def linkText:EVGColor (EVGColor.rgb(21 78 172))
-    def noteMark:EVGColor (EVGColor.rgb(214 69 65))
-    def noteBg:EVGColor (EVGColor.rgb(255 252 228))
-    def activeBorder:EVGColor (EVGColor.rgb(40 100 210))
-    def editBg:EVGColor (EVGColor.rgb(255 252 230))
-    def statusBg:EVGColor (EVGColor.rgb(236 240 246))
-    def statusText:EVGColor (EVGColor.rgb(80 92 110))
-    def cornerBg:EVGColor (EVGColor.rgb(220 226 234))
-
-    Constructor () {
-    }
-}
-
 class GridView {
     def canvas:SoftCanvas (new SoftCanvas)
     def ctx:UIContext (new UIContext)
@@ -60,6 +39,10 @@ class GridView {
     ; list — see script/ScriptPreview.rgr — into this one, over the sheet.
     def preview:ScriptPreview (new ScriptPreview)
     def theme:GridTheme (new GridTheme)
+    ; The palette revision and the window-manager add count `syncWindowTheme`
+    ; last painted the dialogs for.
+    def themedRevision:int 0
+    def themedWindows:int 0
     def status:string ""
     def editCaret:int 0
     ; When true the blinking caret belongs in the formula bar, not only in the
@@ -1190,8 +1173,30 @@ class GridView {
         }
     }
 
+    ; A window carries its own EVGWindowTheme and the dialogs are built lazily,
+    ; so tinting them once when the theme changes would miss every dialog that
+    ; had not been opened yet. Watching the palette's revision AND the manager's
+    ; ever-added count catches both, and costs two integer compares a frame.
+    fn syncWindowTheme:void () {
+        if (themedRevision == theme.revision) {
+            if (themedWindows == windows.added) {
+                return
+            }
+        }
+        themedRevision = theme.revision
+        themedWindows = windows.added
+        def n:int (array_length windows.windows)
+        def i:int 0
+        while (i < n) {
+            def wnd:EVGWindow (itemAt windows.windows i)
+            theme.tintWindow(wnd.theme)
+            i = (i + 1)
+        }
+    }
+
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
         grid.updateVisible(model)
+        this.syncWindowTheme()
         def dl:EVGDisplayList (new EVGDisplayList)
 
         this.pushRect(dl 0.0 0.0 (to_double pageW) (to_double pageH) theme.bg)
@@ -1819,13 +1824,13 @@ class GridView {
         def sy2:int (grid.y + grid.h)
         if (sy2 < pageH) {
             def sh2:int (pageH - sy2)
-            this.pushRect(dl 0.0 (to_double sy2) (to_double pageW) (to_double sh2) theme.statusBg)
+            this.pushRect(dl 0.0 (to_double sy2) (to_double pageW) (to_double sh2) theme.barBg)
             def src:string book.sourcePath
             if ((strlen src) == 0) {
                 src = "(demo)"
             }
             def info:string ("sheet " + (book.activeName()) + "  sel " + (SpreadsheetModel.cellLabel(sel.active.row sel.active.col)) + "  visible " + (to_string grid.firstVisibleRow) + ".." + (to_string grid.lastVisibleRow) + "  rows=" + (to_string model.rowCount) + "  " + src + "  " + status)
-            this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
+            this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.barText)
             ; The one control on the status bar: making a chart out of what is
             ; selected. A shortcut alone would be a feature nobody finds.
             ; The host's own tools sit to the left of the built-in button, in
@@ -1836,16 +1841,16 @@ class GridView {
                 def tx:int (GridView.toolButtonX(pageW toolI))
                 def ty:int (GridView.chartButtonY(sy2))
                 def tw:int (GridView.toolButtonW())
-                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) theme.headerBg)
+                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) theme.barButton)
                 this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
-                this.pushText(dl tool.label (to_double (tx + 6)) (to_double (ty + 1)) 12.0 theme.statusText)
+                this.pushText(dl tool.label (to_double (tx + 6)) (to_double (ty + 1)) 12.0 theme.barText)
                 toolI = (toolI + 1)
             }
             def cbx:int (GridView.chartButtonX(pageW))
             def cby:int (GridView.chartButtonY(sy2))
-            this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.headerBg)
+            this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.barButton)
             this.pushBorder(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
-            this.pushText(dl "+ Chart" (to_double (cbx + 10)) (to_double (cby + 1)) 12.0 theme.statusText)
+            this.pushText(dl "+ Chart" (to_double (cbx + 10)) (to_double (cby + 1)) 12.0 theme.barText)
         }
 
         ; Dialogs and floating charts sit above everything, including the

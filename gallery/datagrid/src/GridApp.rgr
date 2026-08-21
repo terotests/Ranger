@@ -975,6 +975,8 @@ class GridApp {
         commands.add("select.column" "Select column" "Select" "Ctrl+Space")
         commands.add("select.row" "Select row" "Select" "Shift+Space")
         commands.addArg("nav.goto" "Go to cell" "Select" "")
+        commands.addArg("view.theme" "Colour theme" "View" "")
+        commands.add("view.theme.next" "Next colour theme" "View" "Ctrl+Shift+T")
         commands.add("view.sheet.next" "Next sheet" "View" "")
         commands.add("view.sheet.prev" "Previous sheet" "View" "")
         commands.add("script.run" "Run the report script" "Script" "Ctrl+R")
@@ -1036,6 +1038,31 @@ class GridApp {
         return true
     }
 
+    ; --- colour theme ---------------------------------------------------------
+    ; "default" / "green" / "blue" / "red" — see GridTheme.rgr for what a theme
+    ; is allowed to touch (the chrome; never the workbook's own formatting).
+    ; Returns false for a name this build does not have, leaving the current
+    ; theme alone.
+    fn setTheme:boolean (name:string) {
+        def ok:boolean (view.theme.apply(name))
+        if (ok == false) {
+            view.status = ("no such theme: " + name)
+            return false
+        }
+        view.status = ("theme: " + view.theme.name)
+        return true
+    }
+
+    fn themeName:string () {
+        return view.theme.name
+    }
+
+    ; Every theme this build knows, space separated — a host's menu, without
+    ; the list having to be written down twice.
+    fn themeNames:string () {
+        return (GridTheme.themeNames())
+    }
+
     ; Run one command by name. Returns false for a name the table does not
     ; have, so a host can tell a typo from a no-op.
     fn runCommand:boolean (id:string arg:string) {
@@ -1087,6 +1114,14 @@ class GridApp {
                     return true
                 }
             }
+        }
+        if (id == "view.theme") {
+            return (this.setTheme(arg))
+        }
+        if (id == "view.theme.next") {
+            def picked:string (view.theme.cycle())
+            view.status = ("theme: " + picked)
+            return true
         }
         if (id == "view.freeze.here") {
             model.freezeRows = sel.active.row
@@ -7712,6 +7747,17 @@ class GridApp {
                         this.commitEdit()
                     }
                     this.openFindDialog()
+                }
+                ; Ctrl+Shift+T steps through the colour themes. Plain Ctrl+T
+                ; is left alone: Excel spends it on "format as table".
+                if ((ch == 116) || (ch == 84)) {
+                    if input.shiftDown {
+                        if editing {
+                            this.commitEdit()
+                        }
+                        def picked:string (view.theme.cycle())
+                        view.status = ("theme: " + picked)
+                    }
                 }
                 ; Ctrl+D shows what the workbook is connected to.
                 if ((ch == 100) || (ch == 68)) {
