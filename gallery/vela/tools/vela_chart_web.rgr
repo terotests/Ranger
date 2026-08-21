@@ -1,0 +1,996 @@
+; ==============================================================================
+; vela_chart_web.rgr — the chart API, called from a browser.
+; ==============================================================================
+; The showcase page proves the API BUILT six charts; a picture of a chart is
+; not proof that the thing which drew it still runs. This is the other half: a
+; page hands in lines of API code and rows of data, and every line is
+; dispatched to the method of that name on the compiled `VlChart` — in the
+; browser, at the moment the reader presses a key.
+;
+;     chart.size(320 180)                 →  VlChart.size(320 180)
+;     def bars (chart.bar())              →  VlChart.bar()
+;     bars.x("region").y("sales")         →  VlChartMark.x("region"), .y("sales")
+;
+; It is an interpreter over the real methods rather than a second
+; implementation of them: there is no table of chart types here and no
+; specification is written by hand anywhere in this file. A name the API does
+; not have is an error that says so, which is the same rule the rest of Vela
+; follows — a playground that quietly ignored a line would teach the wrong API.
+;
+; The answer is JSON, because "it did not build" is an answer too:
+;
+;   {"ok": true,  "svg": "<svg …>", "spec": "…", "vega": "…", "calls": 7}
+;   {"ok": false, "errors": ["line 3: a chart has no method 'colour'"]}
+; ==============================================================================
+
+Import "../src/VlChart.rgr"
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+Import "../src/VlSvg.rgr"
+
+; One argument, as it was written in the source line.
+class VlScriptArg {
+    def kind:int 0
+    def str:string ""
+    def num:double 0.0
+    def flag:boolean false
+
+    fn isText:boolean () {
+        return (kind == 0)
+    }
+    fn isNumber:boolean () {
+        return (kind == 1)
+    }
+    fn isFlag:boolean () {
+        return (kind == 2)
+    }
+    ; What it says it is, for an error message that names the mistake.
+    fn describe:string () {
+        if (kind == 0) {
+            return (("a string (\"" + str) + "\")")
+        }
+        if (kind == 1) {
+            return "a number"
+        }
+        return "true or false"
+    }
+}
+
+class VlChartScript {
+    def chart:VlChart
+    def data:VlDataset
+    def errors:[string]
+    ; The marks a `def` gave a name to.
+    def named:[string:VlChartMark]
+    ; What the chain being read is standing on: the view, or one of its marks.
+    def onChart:boolean true
+    def current:VlChartMark (new VlChartMark())
+    def calls:int 0
+    def line:int 0
+
+    sfn create:VlChartScript (data:VlDataset) {
+        def s (new VlChartScript())
+        s.data = data
+        s.chart = (VlChart.create(data))
+        return s
+    }
+
+    ; The map is written through a method because a field assigned into a
+    ; local loses the type the map wants.
+    fn keepMark:void (key:string mark:VlChartMark) {
+        set named key mark
+    }
+
+    fn fail:void (message:string) {
+        push errors ((("line " + (VlJson.intToText(line))) + ": ") + message)
+    }
+
+    ; --- reading the script --------------------------------------------------
+    fn run:void (script:string) {
+        def lines:[string] (strsplit script (strfromcode 10))
+        for lines raw:string li {
+            line = (li + 1)
+            def text:string (trim raw)
+            if ((strlen text) == 0) {
+                ; a blank line
+            } {
+                if (VlChartScript.startsComment(text)) {
+                    ; a comment: `;` as Ranger writes it, `//` as a reader might
+                } {
+                    this.runLine(text)
+                }
+            }
+        }
+    }
+
+    sfn startsComment:boolean (text:string) {
+        if ((substring text 0 1) == ";") {
+            return true
+        }
+        if ((strlen text) < 2) {
+            return false
+        }
+        return ((substring text 0 2) == "//")
+    }
+
+    fn runLine:void (text:string) {
+        def body:string text
+        def binding:string ""
+        ; `def bars (chart.bar())` — a name for the mark the chain answers.
+        if (VlChartScript.hasPrefix(body "def ")) {
+            def rest:string (trim (substring body 4 (strlen body)))
+            def open:int (indexOf rest "(")
+            if (open < 0) {
+                this.fail("a `def` needs a name and a call: def bars (chart.bar())")
+                return
+            }
+            binding = (trim (substring rest 0 open))
+            def close:int (VlChartScript.matching(rest open))
+            if (close < 0) {
+                this.fail("a `def` is missing its closing bracket")
+                return
+            }
+            body = (trim (substring rest (open + 1) close))
+        }
+        this.evaluate(body binding)
+    }
+
+    ; `receiver.method(args).method(args)…`
+    fn evaluate:void (body:string binding:string) {
+        def dot:int (VlChartScript.topLevelDot(body))
+        if (dot < 0) {
+            this.fail((("'" + body) + "' is not a call: it needs a receiver and a method"))
+            return
+        }
+        def receiver:string (trim (substring body 0 dot))
+        if (receiver == "chart") {
+            onChart = true
+        } {
+            if (has named receiver) {
+                onChart = false
+                current = (unwrap (get named receiver))
+            } {
+                this.fail((("there is nothing called '" + receiver) + "' — the view is `chart`, and a mark is whatever a `def` called it"))
+                return
+            }
+        }
+
+        def at:int (dot + 1)
+        def n:int (strlen body)
+        while (at < n) {
+            def open:int (indexOf (substring body at n) "(")
+            if (open < 0) {
+                this.fail("a method needs its brackets")
+                return
+            }
+            def name:string (trim (substring body at (at + open)))
+            def close:int (VlChartScript.matching(body (at + open)))
+            if (close < 0) {
+                this.fail((("the call to '" + name) + "' is missing its closing bracket"))
+                return
+            }
+            def inside:string (substring body ((at + open) + 1) close)
+            def args:[VlScriptArg] (this.readArgs(inside name))
+            this.dispatch(name args)
+            calls = (calls + 1)
+            at = (close + 1)
+            if (at < n) {
+                if ((substring body at (at + 1)) == ".") {
+                    at = (at + 1)
+                } {
+                    at = n
+                }
+            }
+        }
+        if ((strlen binding) > 0) {
+            if onChart {
+                this.fail("a `def` names a mark, and this chain answered the view")
+            } {
+                this.keepMark(binding current)
+            }
+        }
+    }
+
+    ; Arguments as Ranger writes them — separated by spaces — and as a reader
+    ; used to another language might: separated by commas. Both, because the
+    ; point of the page is the API and not its punctuation.
+    fn readArgs:[VlScriptArg] (inside:string name:string) {
+        def out:[VlScriptArg]
+        def n:int (strlen inside)
+        def i:int 0
+        while (i < n) {
+            def c:string (substring inside i (i + 1))
+            if (((c == " ") || (c == ",")) || (c == (strfromcode 9))) {
+                i = (i + 1)
+            } {
+                if (c == "\"") {
+                    def end:int (VlChartScript.closingQuote(inside (i + 1)))
+                    if (end < 0) {
+                        this.fail((("the string given to '" + name) + "' has no closing quote"))
+                        return out
+                    }
+                    def a (new VlScriptArg())
+                    a.kind = 0
+                    a.str = (substring inside (i + 1) end)
+                    push out a
+                    i = (end + 1)
+                } {
+                    def end2:int (VlChartScript.wordEnd(inside i))
+                    def word:string (substring inside i end2)
+                    push out (VlChartScript.wordArg(word))
+                    i = end2
+                }
+            }
+        }
+        return out
+    }
+
+    sfn wordArg:VlScriptArg (word:string) {
+        def a (new VlScriptArg())
+        if ((word == "true") || (word == "false")) {
+            a.kind = 2
+            a.flag = (word == "true")
+            return a
+        }
+        def value@(optional):double (str2double word)
+        if (!null? value) {
+            a.kind = 1
+            a.num = (unwrap value)
+            return a
+        }
+        ; A bare word that is not a number and not a yes or no is a column name
+        ; somebody forgot to quote, and reading it as one silently would draw a
+        ; chart of a column nobody has.
+        a.kind = 3
+        a.str = word
+        return a
+    }
+
+    sfn closingQuote:int (text:string from:int) {
+        def n:int (strlen text)
+        def i:int from
+        while (i < n) {
+            if ((substring text i (i + 1)) == "\"") {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn wordEnd:int (text:string from:int) {
+        def n:int (strlen text)
+        def i:int from
+        while (i < n) {
+            def c:string (substring text i (i + 1))
+            if (((c == " ") || (c == ",")) || (c == (strfromcode 9))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The bracket that closes the one at `open`, so a nested call inside an
+    ; argument list does not end the call early.
+    sfn matching:int (text:string open:int) {
+        def n:int (strlen text)
+        def depth:int 0
+        def i:int open
+        def inString:boolean false
+        while (i < n) {
+            def c:string (substring text i (i + 1))
+            if inString {
+                if (c == "\"") {
+                    inString = false
+                }
+            } {
+                if (c == "\"") {
+                    inString = true
+                } {
+                    if (c == "(") {
+                        depth = (depth + 1)
+                    } {
+                        if (c == ")") {
+                            depth = (depth - 1)
+                            if (depth == 0) {
+                                return i
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The dot that separates the receiver from its first method — the one
+    ; outside every bracket and every string.
+    sfn topLevelDot:int (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def c:string (substring text i (i + 1))
+            if (c == ".") {
+                return i
+            }
+            if ((c == "(") || (c == "\"")) {
+                return (0 - 1)
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn hasPrefix:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == prefix)
+    }
+
+    ; --- argument checking ---------------------------------------------------
+    fn text:string (args:[VlScriptArg] index:int name:string) {
+        if ((array_length args) <= index) {
+            this.fail((("'" + name) + "' needs a column name in quotes"))
+            return ""
+        }
+        def a:VlScriptArg (itemAt args index)
+        if (a.kind == 3) {
+            this.fail(((("'" + name) + "' needs its argument in quotes: ") + a.str))
+            return ""
+        }
+        if (! (a.isText())) {
+            this.fail((((("'" + name) + "' needs a string, and was given ") + (a.describe()))))
+            return ""
+        }
+        return a.str
+    }
+
+    fn number:double (args:[VlScriptArg] index:int name:string) {
+        if ((array_length args) <= index) {
+            this.fail((("'" + name) + "' needs a number"))
+            return 0.0
+        }
+        def a:VlScriptArg (itemAt args index)
+        if (! (a.isNumber())) {
+            this.fail((((("'" + name) + "' needs a number, and was given ") + (a.describe()))))
+            return 0.0
+        }
+        return a.num
+    }
+
+    fn flag:boolean (args:[VlScriptArg] index:int name:string) {
+        if ((array_length args) <= index) {
+            return true
+        }
+        def a:VlScriptArg (itemAt args index)
+        if (! (a.isFlag())) {
+            this.fail((((("'" + name) + "' needs true or false, and was given ") + (a.describe()))))
+            return false
+        }
+        return a.flag
+    }
+
+    ; --- dispatch: a line becomes the call it names --------------------------
+    ; Every branch below is the API method of that name, called for real. There
+    ; is no chart type anywhere in this file and no specification is written by
+    ; hand: what the page draws, it draws by calling `VlChart`.
+    fn dispatch:void (name:string args:[VlScriptArg]) {
+        if onChart {
+            this.onView(name args)
+        } {
+            this.onMark(name args)
+        }
+    }
+
+    fn onView:void (name:string args:[VlScriptArg]) {
+        if (name == "bar") {
+            current = (chart.bar())
+            onChart = false
+            return
+        }
+        if (name == "line") {
+            current = (chart.line())
+            onChart = false
+            return
+        }
+        if (name == "area") {
+            current = (chart.area())
+            onChart = false
+            return
+        }
+        if (name == "point") {
+            current = (chart.point())
+            onChart = false
+            return
+        }
+        if (name == "circle") {
+            current = (chart.circle())
+            onChart = false
+            return
+        }
+        if (name == "square") {
+            current = (chart.square())
+            onChart = false
+            return
+        }
+        if (name == "tick") {
+            current = (chart.tick())
+            onChart = false
+            return
+        }
+        if (name == "rule") {
+            current = (chart.rule())
+            onChart = false
+            return
+        }
+        if (name == "rect") {
+            current = (chart.rect())
+            onChart = false
+            return
+        }
+        if (name == "arc") {
+            current = (chart.arc())
+            onChart = false
+            return
+        }
+        if (name == "boxplot") {
+            current = (chart.boxplot())
+            onChart = false
+            return
+        }
+        if (name == "errorbar") {
+            current = (chart.errorbar())
+            onChart = false
+            return
+        }
+        if (name == "errorband") {
+            current = (chart.errorband())
+            onChart = false
+            return
+        }
+        if (name == "trail") {
+            current = (chart.trail())
+            onChart = false
+            return
+        }
+        if (name == "image") {
+            current = (chart.image())
+            onChart = false
+            return
+        }
+        if (name == "geoshape") {
+            current = (chart.geoshape())
+            onChart = false
+            return
+        }
+        if (name == "text") {
+            current = (chart.label())
+            onChart = false
+            return
+        }
+        if (name == "label") {
+            current = (chart.label())
+            onChart = false
+            return
+        }
+        if (name == "mark") {
+            def kind:string (this.text(args 0 "mark"))
+            current = (chart.mark(kind))
+            onChart = false
+            return
+        }
+        if (name == "latest") {
+            current = (chart.latest())
+            onChart = false
+            return
+        }
+        if (name == "x") {
+            def field:string (this.text(args 0 "x"))
+            chart.x(field)
+            return
+        }
+        if (name == "y") {
+            def field:string (this.text(args 0 "y"))
+            chart.y(field)
+            return
+        }
+        if (name == "color") {
+            def field:string (this.text(args 0 "color"))
+            chart.color(field)
+            return
+        }
+        if (name == "detail") {
+            def field:string (this.text(args 0 "detail"))
+            chart.detail(field)
+            return
+        }
+        if (name == "size") {
+            def w:double (this.number(args 0 "size"))
+            def h:double (this.number(args 1 "size"))
+            def wi:int (to_int w)
+            def hi:int (to_int h)
+            chart.size(wi hi)
+            return
+        }
+        if (name == "width") {
+            def w2:double (this.number(args 0 "width"))
+            def wi2:int (to_int w2)
+            chart.width(wi2)
+            return
+        }
+        if (name == "height") {
+            def h2:double (this.number(args 0 "height"))
+            def hi2:int (to_int h2)
+            chart.height(hi2)
+            return
+        }
+        if (name == "heading") {
+            def title:string (this.text(args 0 "heading"))
+            chart.heading(title)
+            return
+        }
+        if (name == "background") {
+            def colour:string (this.text(args 0 "background"))
+            chart.background(colour)
+            return
+        }
+        if (name == "type") {
+            def kind2:string (this.text(args 0 "type"))
+            chart.type(kind2)
+            return
+        }
+        if (name == "title") {
+            def label:string (this.text(args 0 "title"))
+            chart.title(label)
+            return
+        }
+        if (name == "timeUnit") {
+            def unit:string (this.text(args 0 "timeUnit"))
+            chart.timeUnit(unit)
+            return
+        }
+        if (name == "keepOrder") {
+            chart.keepOrder()
+            return
+        }
+        if (name == "filter") {
+            def expression:string (this.text(args 0 "filter"))
+            chart.filter(expression)
+            return
+        }
+        if (name == "calculate") {
+            def formula:string (this.text(args 0 "calculate"))
+            def as:string (this.text(args 1 "calculate"))
+            chart.calculate(formula as)
+            return
+        }
+        if (name == "on") {
+            def channel:string (this.text(args 0 "on"))
+            chart.on(channel)
+            return
+        }
+        if (name == "independent") {
+            def apart:string (this.text(args 0 "independent"))
+            chart.independent(apart)
+            return
+        }
+        this.fail((("a chart has no method '" + name) + "'"))
+    }
+
+    fn onMark:void (name:string args:[VlScriptArg]) {
+        if (name == "x") {
+            def field:string (this.text(args 0 "x"))
+            current.x(field)
+            return
+        }
+        if (name == "y") {
+            def field:string (this.text(args 0 "y"))
+            current.y(field)
+            return
+        }
+        if (name == "x2") {
+            def field:string (this.text(args 0 "x2"))
+            current.x2(field)
+            return
+        }
+        if (name == "y2") {
+            def field:string (this.text(args 0 "y2"))
+            current.y2(field)
+            return
+        }
+        if (name == "color") {
+            def field:string (this.text(args 0 "color"))
+            current.color(field)
+            return
+        }
+        if (name == "fill") {
+            def field:string (this.text(args 0 "fill"))
+            current.fill(field)
+            return
+        }
+        if (name == "stroke") {
+            def field:string (this.text(args 0 "stroke"))
+            current.stroke(field)
+            return
+        }
+        if (name == "size") {
+            def field:string (this.text(args 0 "size"))
+            current.size(field)
+            return
+        }
+        if (name == "shape") {
+            def field:string (this.text(args 0 "shape"))
+            current.shape(field)
+            return
+        }
+        if (name == "opacity") {
+            def field:string (this.text(args 0 "opacity"))
+            current.opacity(field)
+            return
+        }
+        if (name == "theta") {
+            def field:string (this.text(args 0 "theta"))
+            current.theta(field)
+            return
+        }
+        if (name == "radius") {
+            def field:string (this.text(args 0 "radius"))
+            current.radius(field)
+            return
+        }
+        if (name == "detail") {
+            def field:string (this.text(args 0 "detail"))
+            current.detail(field)
+            return
+        }
+        if (name == "text") {
+            def field:string (this.text(args 0 "text"))
+            current.text(field)
+            return
+        }
+        if (name == "order") {
+            def field:string (this.text(args 0 "order"))
+            current.order(field)
+            return
+        }
+        if (name == "column") {
+            def field:string (this.text(args 0 "column"))
+            current.column(field)
+            return
+        }
+        if (name == "row") {
+            def field:string (this.text(args 0 "row"))
+            current.row(field)
+            return
+        }
+        if (name == "xOffset") {
+            def field:string (this.text(args 0 "xOffset"))
+            current.xOffset(field)
+            return
+        }
+        if (name == "yOffset") {
+            def field:string (this.text(args 0 "yOffset"))
+            current.yOffset(field)
+            return
+        }
+        if (name == "aggregate") {
+            def value:string (this.text(args 0 "aggregate"))
+            current.aggregate(value)
+            return
+        }
+        if (name == "timeUnit") {
+            def value:string (this.text(args 0 "timeUnit"))
+            current.timeUnit(value)
+            return
+        }
+        if (name == "type") {
+            def value:string (this.text(args 0 "type"))
+            current.type(value)
+            return
+        }
+        if (name == "title") {
+            def value:string (this.text(args 0 "title"))
+            current.title(value)
+            return
+        }
+        if (name == "format") {
+            def value:string (this.text(args 0 "format"))
+            current.format(value)
+            return
+        }
+        if (name == "stack") {
+            def value:string (this.text(args 0 "stack"))
+            current.stack(value)
+            return
+        }
+        if (name == "sortBy") {
+            def value:string (this.text(args 0 "sortBy"))
+            current.sortBy(value)
+            return
+        }
+        if (name == "scaleType") {
+            def value:string (this.text(args 0 "scaleType"))
+            current.scaleType(value)
+            return
+        }
+        if (name == "scheme") {
+            def value:string (this.text(args 0 "scheme"))
+            current.scheme(value)
+            return
+        }
+        if (name == "interpolate") {
+            def value:string (this.text(args 0 "interpolate"))
+            current.interpolate(value)
+            return
+        }
+        if (name == "markColor") {
+            def value:string (this.text(args 0 "markColor"))
+            current.markColor(value)
+            return
+        }
+        if (name == "orient") {
+            def value:string (this.text(args 0 "orient"))
+            current.orient(value)
+            return
+        }
+        if (name == "extent") {
+            def value:string (this.text(args 0 "extent"))
+            current.extent(value)
+            return
+        }
+        if (name == "on") {
+            def value:string (this.text(args 0 "on"))
+            current.on(value)
+            return
+        }
+        if (name == "markSize") {
+            def value:double (this.number(args 0 "markSize"))
+            current.markSize(value)
+            return
+        }
+        if (name == "markOpacity") {
+            def value:double (this.number(args 0 "markOpacity"))
+            current.markOpacity(value)
+            return
+        }
+        if (name == "innerRadius") {
+            def value:double (this.number(args 0 "innerRadius"))
+            current.innerRadius(value)
+            return
+        }
+        if (name == "cornerRadius") {
+            def value:double (this.number(args 0 "cornerRadius"))
+            current.cornerRadius(value)
+            return
+        }
+        if (name == "thickness") {
+            def value:double (this.number(args 0 "thickness"))
+            current.thickness(value)
+            return
+        }
+        if (name == "strokeWidth") {
+            def value:double (this.number(args 0 "strokeWidth"))
+            current.strokeWidth(value)
+            return
+        }
+        if (name == "filled") {
+            def value:boolean (this.flag(args 0 "filled"))
+            current.filled(value)
+            return
+        }
+        if (name == "withPoints") {
+            def value:boolean (this.flag(args 0 "withPoints"))
+            current.withPoints(value)
+            return
+        }
+        if (name == "tooltip") {
+            def value:boolean (this.flag(args 0 "tooltip"))
+            current.tooltip(value)
+            return
+        }
+        if (name == "bin") {
+            current.bin()
+            return
+        }
+        if (name == "noStack") {
+            current.noStack()
+            return
+        }
+        if (name == "keepOrder") {
+            current.keepOrder()
+            return
+        }
+        if (name == "noLegend") {
+            current.noLegend()
+            return
+        }
+        if (name == "noAxis") {
+            current.noAxis()
+            return
+        }
+        if (name == "count") {
+            def channel:string (this.text(args 0 "count"))
+            current.count(channel)
+            return
+        }
+        if (name == "maxBins") {
+            def many:double (this.number(args 0 "maxBins"))
+            def manyInt:int (to_int many)
+            current.maxBins(manyInt)
+            return
+        }
+        if (name == "valueNumber") {
+            def channel2:string (this.text(args 0 "valueNumber"))
+            def value2:double (this.number(args 1 "valueNumber"))
+            current.valueNumber(channel2 value2)
+            return
+        }
+        if (name == "valueString") {
+            def channel3:string (this.text(args 0 "valueString"))
+            def value3:string (this.text(args 1 "valueString"))
+            current.valueString(channel3 value3)
+            return
+        }
+        if (name == "axisOrient") {
+            def side:string (this.text(args 0 "axisOrient"))
+            current.axisOrient(side)
+            return
+        }
+        if (name == "chart") {
+            onChart = true
+            return
+        }
+        this.fail((("a mark has no method '" + name) + "'"))
+    }
+}
+
+; ------------------------------------------------------------------------------
+; What the page calls: lines of API code and rows of data in, a drawn chart out.
+; There is no file system here and no command line, which is what makes the
+; compiled bundle loadable by a browser.
+; ------------------------------------------------------------------------------
+class VelaChartApi {
+
+    sfn render:string (script:string dataText:string) {
+        def out:VlJson (VlJson.objectValue())
+        def errors:VlJson (VlJson.arrayValue())
+
+        def parser (new VlJsonParser())
+        def rows:VlJson (parser.parse(dataText))
+        if (! parser.ok) {
+            push errors.arr (VlJson.stringValue(("the data is not valid JSON: " + parser.err)))
+            return (VelaChartApi.failure(out errors))
+        }
+        def values:VlJson rows
+        if (rows.isObject()) {
+            ; `{"values": […]}` is what a specification's data block looks like,
+            ; and somebody pasting one in should get a chart rather than a
+            ; complaint about the shape of their own data.
+            values = (rows.get("values"))
+        }
+        if (! (values.isArray())) {
+            push errors.arr (VlJson.stringValue("the data has to be an array of rows"))
+            return (VelaChartApi.failure(out errors))
+        }
+        def data (VlDataset.create())
+        data.fromValues(values)
+
+        def runner:VlChartScript (VlChartScript.create(data))
+        runner.run(script)
+        for runner.errors e:string ei {
+            push errors.arr (VlJson.stringValue(e))
+        }
+        if ((array_length runner.errors) > 0) {
+            return (VelaChartApi.failure(out errors))
+        }
+
+        def chart:VlChart runner.chart
+        def spec:VlJson (chart.toSpec())
+        for chart.errors ce:string cei {
+            push errors.arr (VlJson.stringValue(ce))
+        }
+        if ((array_length chart.errors) > 0) {
+            return (VelaChartApi.failure(out errors))
+        }
+        def writer (new VlJsonWriter())
+        def specText:string (writer.writePretty(spec))
+
+        def compiler (new VlCompile())
+        def vega:VlJson (compiler.compileSpec(spec))
+        for compiler.errors pe:string pei {
+            push errors.arr (VlJson.stringValue(pe))
+        }
+        if ((array_length compiler.errors) > 0) {
+            return (VelaChartApi.failure(out errors))
+        }
+        def vegaText:string (writer.writePretty(vega))
+
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(vega))
+        for rt.errors re:string rei {
+            push errors.arr (VlJson.stringValue(re))
+        }
+        if ((array_length rt.errors) > 0) {
+            return (VelaChartApi.failure(out errors))
+        }
+
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def root:VlSceneItem (itemAt scene.items 0)
+        def svgWriter (new VlSvgWriter())
+        def doc:string (svgWriter.writeDocument(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY")) rt.background))
+
+        def warnings (VlJson.arrayValue())
+        for rt.warnings rw:string rwi {
+            push warnings.arr (VlJson.stringValue(rw))
+        }
+        for svgWriter.unsupported un:string uni {
+            push warnings.arr (VlJson.stringValue(("not drawn as asked: " + un)))
+        }
+
+        out.setMember("ok" (VlJson.boolValue(true)))
+        out.setMember("svg" (VlJson.stringValue(doc)))
+        out.setMember("spec" (VlJson.stringValue(specText)))
+        out.setMember("vega" (VlJson.stringValue(vegaText)))
+        out.setMember("calls" (VlJson.intValue(runner.calls)))
+        out.setMember("rows" (VlJson.intValue((data.count()))))
+        out.setMember("commands" (VlJson.intValue((list.count()))))
+        out.setMember("warnings" warnings)
+        return (writer.write(out))
+    }
+
+    ; What the data says its columns are — the inference the API does, answered
+    ; to the page so a reader can see WHY a channel came out temporal.
+    sfn columns:string (dataText:string) {
+        def out:VlJson (VlJson.objectValue())
+        def parser (new VlJsonParser())
+        def rows:VlJson (parser.parse(dataText))
+        def values:VlJson rows
+        if (rows.isObject()) {
+            values = (rows.get("values"))
+        }
+        if (! (values.isArray())) {
+            def w2 (new VlJsonWriter())
+            return (w2.write(out))
+        }
+        def data (VlDataset.create())
+        data.fromValues(values)
+        def seen:[string]
+        def i:int 0
+        def n:int (values.count())
+        while (i < n) {
+            def row:VlJson (values.at(i))
+            for row.keys k:string ki {
+                def known:boolean false
+                for seen s:string si {
+                    if (s == k) {
+                        known = true
+                    }
+                }
+                if (! known) {
+                    push seen k
+                    out.setMember(k (VlJson.stringValue((data.fieldType(k)))))
+                }
+            }
+            i = (i + 1)
+        }
+        def w (new VlJsonWriter())
+        return (w.write(out))
+    }
+
+    sfn failure:string (out:VlJson errors:VlJson) {
+        out.setMember("ok" (VlJson.boolValue(false)))
+        out.setMember("errors" errors)
+        def w (new VlJsonWriter())
+        return (w.write(out))
+    }
+
+    ; The page calls the class directly; a `main` that ran something would run
+    ; it on every page load.
+    sfn main:void () {
+    }
+}

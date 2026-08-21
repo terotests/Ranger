@@ -30,7 +30,7 @@ npm run datagrid:workbook:test
 npm run datagrid:db:test        # a sheet over RangerDB / SQLite / DuckDB
 npm run datagrid:db:demo        # …and a headless session that edits one
 npm run datagrid:db:window      # the editor in a browser window, on a database
-                                #   …Ctrl+Q there opens the SQL box
+                                #   …Ctrl+D shows the connection, Ctrl+Q the SQL box
 npm run datagrid:db:window:smoke  # …the same, checked without a browser
 npm run datagrid:formula:test
 npm run datagrid:formula:array:test
@@ -259,6 +259,51 @@ events the browser posts, and checks that the edit is in the next scene, that
 the app says the database took it, and that a bad value never reaches the
 cell. It passes on all three engines.
 
+### The connection window
+
+The **database button** on the toolbar (and **Ctrl+D** where the host lets it
+through) shows what the workbook is talking to, and is the way to point it
+somewhere else:
+
+![The database connection window](artifacts/db_connection.png)
+
+Engine, data source and table are editable; below them is what was actually
+negotiated — the rows loaded, the columns that identify a row (without them the
+sheet is read only and says so), what the engine can do for itself
+(`DBCapabilities`), and what Ranger had to do instead (`DBSession.lastFallback`,
+so a backend that cannot group tells you the grouping happened here).
+
+Connecting is the **host's** part, exactly like opening a file picker: the app
+cannot name an engine, so **Connect** leaves a request behind —
+`app.takeDbRequest()` returns `"connect"` with `dbRequestDriver`,
+`dbRequestDsn` and `dbRequestTable` — and whoever is hosting opens it and calls
+`bindDatabase`. `web/serve.mjs` does that with `GridDbLauncher`; a host that
+ignores the request loses nothing, since the sheet it already has keeps
+working.
+
+```bash
+npm run datagrid:db:window     # …then the database button, or Ctrl+D
+```
+
+**In a browser the button is the reliable path.** `Ctrl+D` is the bookmark and
+`Ctrl+Q` closes the window; the page now claims both while the sheet has focus,
+but `Cmd+Q` on macOS cannot be intercepted by any page — so the connection
+window and the SQL box each have a button on the toolbar, next to the
+conditional-formatting and validation ones. Every button runs the same command
+string the keyboard and a remote host use, so nothing can be reachable one way
+and not another.
+
+The host can find them: `GET /toolbar` returns the laid-out buttons
+(`command`, `label`, `x`, `y`, `w`, `h`), which is what lets a test click a
+real button instead of a guessed pixel.
+
+Typing `rangerdb` into Engine and pressing Enter switches the live workbook
+from DuckDB to the Ranger engine and reloads the sheet — which is what
+`datagrid:db:window:smoke` checks, through the same events a person sends.
+
+Demo rows are only seeded into `:memory:`. Pointed at a file, a table that is
+not there comes back as `no table called …` rather than being invented.
+
 ### The SQL box
 
 **Ctrl+Q** opens a query box inside the editor. What you type is parsed by
@@ -284,7 +329,7 @@ curl -s localhost:8766/command -d '{"id":"db.sql","arg":"SELECT country, revenue
 `npm run datagrid:db:window:smoke` opens the box the way a person does — the
 command, then text events, then Enter — and checks the query became a sheet.
 
-`npm run datagrid:db:test` runs all of it over all three engines (134/134), and
+`npm run datagrid:db:test` runs all of it over all three engines (179/179), and
 `npm run datagrid:db:demo` is a headless session that seeds a table, edits a
 cell through the UI, reads the new value back out of the database, has one
 edit refused, sorts (which re-runs the query) and leaves this behind:
@@ -656,6 +701,69 @@ things follow:
 
 Functions that only ever wanted values keep working: the helpers that walk
 arguments open a rectangle out on the way past.
+
+### Tables, and formulas that say what they mean
+
+A table — a ListObject — is a named rectangle whose columns have names, and
+once a range is one, a formula can say what it means instead of where it is:
+
+```
+=SUM(Table1[Amount])                   every amount
+=Table1[[#This Row],[CategoryID]]      the category on this row
+=Table1[@CategoryID]                   the same thing, written since 2010
+```
+
+Both spellings turn up in files people send: the long one is what Excel 2007
+wrote and what stays in a file written then, the short one is what Excel writes
+today and what it converts the long one to when you retype it. Neither
+calculated here, because nothing read the `xl/tables/*.xml` parts where a
+table's name and its column names live — the formula loaded as text and sat
+there showing whatever value the file had cached.
+
+The whole set reads now: a bare column, `[#This Row]` and `[@col]`, `[#All]`,
+`[#Data]`, `[#Headers]`, `[#Totals]`, an item and a column together, and a span
+of columns `[[Amount]:[Price]]`. A `'` inside a name is an escape, so a column
+genuinely called `#Amount` is written `['#Amount]` and comes back as itself.
+
+Three decisions are worth stating.
+
+**Resolved late, not at parse time.** A structured reference is kept as it was
+written and turned into a rectangle when it is evaluated. The parser does not
+know the tables — they belong to the workbook, not the formula — and
+`[#This Row]` has no answer until you know which cell is asking. `FormulaEngine`
+sets `curRow` at its two entry points and `resolveTableRef` does the rest.
+
+**Not translated when copied.** Fill a structured reference down and it stays
+what it was; `[#This Row]` re-anchors itself on whatever row it lands on. That
+is the entire reason people write them, and it falls out of `translateNode`
+touching only the reference kinds that are written as positions.
+
+**It depends on what it reads.** `collectDeps` resolves the reference and
+registers every cell in the rectangle, so editing an amount inside the table
+moves every `=SUM(Table1[Amount])` that reads it. A version that computed
+correctly the first time and never again would look right until somebody typed
+a number.
+
+The errors are Excel's, and each says something different: `#NAME?` for a table
+nobody has, `#REF!` for a column the table lacks or a header row it does not
+have, `#VALUE!` for `[#This Row]` asked from a row outside the table.
+
+Tables are written back out too — the part, the `<tableParts>` element, the
+relationship and the content-type override — because the alternative is that
+opening a file with a table and saving it destroys the table, and then every
+formula naming it reads `#NAME?` in a file that was only ever opened.
+
+```bash
+npm run datagrid:tables:test     # one test, compiled to JS and to C++
+```
+
+Compiled twice because a structured reference matches a column BY NAME, and
+names are where the two string models disagree: `to_lowercase` is Unicode-aware
+on the JavaScript target and byte-wise on the C++ one. ASCII case is ignored on
+both — `[amount]` finds `Amount` — and the test pins that, along with what
+happens to a name that is not ASCII. The fixture is regenerated by
+`python3 gallery/datagrid/tools/make_tables_fixture.py`, and openpyxl reads
+back the tables this writer produces.
 
 ### Dates
 

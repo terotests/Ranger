@@ -8,6 +8,8 @@
 ; SvgParser — only the five predefined XML entities are expanded.
 ; ==============================================================================
 
+Import "../../ooxml/OoxmlText.rgr"
+
 class PptxXmlAttr {
     def name:string ""
     def value:string ""
@@ -250,56 +252,14 @@ class PptxXmlParser {
         return qname
     }
 
+    ; One decoder for all three OOXML readers. This one used to rebuild every
+    ; character it passed through as `(strfromcode (charAt s i))`, which is the
+    ; identity where a string is code units and encodes each BYTE a second time
+    ; where it is bytes — so on the C++ build any slide whose text contained an
+    ; `&` anywhere came out with every accent doubled. It also knew only the
+    ; five named entities, so `&#228;` reached the slide as digits.
     fn decodeEntities:string (s:string) {
-        if ((indexOf s "&") < 0) {
-            return s
-        }
-        def out:string ""
-        def i:int 0
-        def n:int (strlen s)
-        while (i < n) {
-            def c:int (charAt s i)
-            if (c != 38) {
-                out = (out + (strfromcode c))
-                i = (i + 1)
-            } {
-                def semi:int (indexOfFrom s ";" i)
-                def handled:boolean false
-                if (semi > i) {
-                    def ent:string (substring s i (semi + 1))
-                    if (ent == "&amp;") {
-                        out = (out + "&")
-                        handled = true
-                    }
-                    if (ent == "&lt;") {
-                        out = (out + "<")
-                        handled = true
-                    }
-                    if (ent == "&gt;") {
-                        out = (out + ">")
-                        handled = true
-                    }
-                    if (ent == "&quot;") {
-                        out = (out + "\"")
-                        handled = true
-                    }
-                    if (ent == "&apos;") {
-                        out = (out + "'")
-                        handled = true
-                    }
-                    if handled {
-                        i = (semi + 1)
-                    } {
-                        out = (out + (strfromcode c))
-                        i = (i + 1)
-                    }
-                } {
-                    out = (out + (strfromcode c))
-                    i = (i + 1)
-                }
-            }
-        }
-        return out
+        return (OoxmlText.decodeEntities(s))
     }
 
     fn readTag:PptxXmlTag () {

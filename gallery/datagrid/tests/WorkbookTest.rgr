@@ -319,6 +319,96 @@ class WorkbookTest {
         def fill:string (ConditionalFormat.resolveFill(app.model 2 2))
         c.ok("cf fill non-empty" ((strlen fill) > 0))
 
+        print "== adding, renaming and reordering sheets =="
+        ; The operations a tab strip needs, tested before there is a tab strip:
+        ; they are facts about the workbook, and two of them have consequences
+        ; a caller must not be left to remember.
+        def wb:WorkbookModel (new WorkbookModel)
+        def mk:int 0
+        while (mk < 3) {
+            def sh:SpreadsheetModel (new SpreadsheetModel)
+            sh.name = ("S" + (to_string (mk + 1)))
+            wb.addSheet(sh)
+            mk = (mk + 1)
+        }
+        c.eqInt("three sheets" (wb.sheetCount()) 3)
+        c.eqInt("found by name" (wb.indexOfName("S2")) 1)
+        c.eqInt("without caring about case" (wb.indexOfName("s2")) 1)
+        c.eqInt("a name nobody has" (wb.indexOfName("S9")) -1)
+        c.eqStr("the next free SheetN" (wb.nextSheetName()) "Sheet4")
+        c.eqStr("a free name is itself" (wb.uniqueName("Report")) "Report")
+        c.eqStr("a taken one counts up" (wb.uniqueName("S2")) "S22")
+
+        print "-- inserting --"
+        wb.setActive(1)
+        def added:SpreadsheetModel (new SpreadsheetModel)
+        added.name = "New"
+        wb.insertSheet(1 added)
+        c.eqInt("four sheets" (wb.sheetCount()) 4)
+        def at1:SpreadsheetModel (wb.sheetAt(1))
+        c.eqStr("it landed where it was asked to" at1.name "New")
+        def at2:SpreadsheetModel (wb.sheetAt(2))
+        c.eqStr("and pushed the rest along" at2.name "S2")
+        ; A sheet inserted at or before the active one must not change which
+        ; sheet you are looking at.
+        c.eqInt("the sheet you were on is still the one you are on" wb.activeIndex 2)
+        def tail:SpreadsheetModel (new SpreadsheetModel)
+        tail.name = "Last"
+        wb.insertSheet(99 tail)
+        def atLast:SpreadsheetModel (wb.sheetAt(4))
+        c.eqStr("an index past the end appends" atLast.name "Last")
+        c.eqInt("and leaves the active sheet alone" wb.activeIndex 2)
+
+        print "-- reordering --"
+        ; S1 New S2 S3 Last, looking at S2.
+        wb.moveSheet(0 3)
+        def m0:SpreadsheetModel (wb.sheetAt(0))
+        def m3:SpreadsheetModel (wb.sheetAt(3))
+        c.eqStr("the tab moved to where it was dropped" m3.name "S1")
+        c.eqStr("and everything closed up behind it" m0.name "New")
+        c.eqInt("the active sheet followed itself" wb.activeIndex 1)
+        def stillS2:SpreadsheetModel (wb.activeSheet())
+        c.eqStr("by identity, not by number" stillS2.name "S2")
+        wb.moveSheet(3 0)
+        def back0:SpreadsheetModel (wb.sheetAt(0))
+        c.eqStr("and back again" back0.name "S1")
+        c.eqInt("the active number moved with it" wb.activeIndex 2)
+
+        print "-- the remap on its own --"
+        ; Moving right: everything between shifts down one.
+        c.eqInt("the moved one lands on its target" (WorkbookModel.remapIndex(0 0 3)) 3)
+        c.eqInt("one it passed" (WorkbookModel.remapIndex(1 0 3)) 0)
+        c.eqInt("the last one it passed" (WorkbookModel.remapIndex(3 0 3)) 2)
+        c.eqInt("one beyond it" (WorkbookModel.remapIndex(4 0 3)) 4)
+        ; Moving left: everything between shifts up one.
+        c.eqInt("moved left" (WorkbookModel.remapIndex(3 3 0)) 0)
+        c.eqInt("one it passed" (WorkbookModel.remapIndex(0 3 0)) 1)
+        c.eqInt("one before the target" (WorkbookModel.remapIndex(4 3 1)) 4)
+        c.eqInt("a move to itself changes nothing" (WorkbookModel.remapIndex(2 2 2)) 2)
+        wb.moveSheet(0 0)
+        c.eqInt("and moveSheet agrees" (wb.sheetCount()) 5)
+
+        print "-- names a formula has to be able to write --"
+        c.ok("an ordinary name" (wb.nameIsValid(0 "Report")))
+        c.ok("its own name is still its own" (wb.nameIsValid(0 "S1")))
+        c.ok("but not another sheet's" ((wb.nameIsValid(0 "S2")) == false))
+        c.ok("nor another sheet's in another case" ((wb.nameIsValid(0 "s2")) == false))
+        c.ok("not empty" ((wb.nameIsValid(0 "")) == false))
+        c.ok("not longer than 31" ((wb.nameIsValid(0 "12345678901234567890123456789012")) == false))
+        c.ok("exactly 31 is fine" (wb.nameIsValid(0 "1234567890123456789012345678901")))
+        c.ok("no colon" ((wb.nameIsValid(0 "A:B")) == false))
+        c.ok("no slash" ((wb.nameIsValid(0 "A/B")) == false))
+        c.ok("no backslash" ((wb.nameIsValid(0 "A\\B")) == false))
+        c.ok("no question mark" ((wb.nameIsValid(0 "A?B")) == false))
+        c.ok("no asterisk" ((wb.nameIsValid(0 "A*B")) == false))
+        c.ok("no brackets" ((wb.nameIsValid(0 "A[B]")) == false))
+        ; A quoted reference is written 'My Sheet'!A1, so a name that starts or
+        ; ends with an apostrophe cannot be written at all.
+        c.ok("no leading apostrophe" ((wb.nameIsValid(0 "'A")) == false))
+        c.ok("no trailing apostrophe" ((wb.nameIsValid(0 "A'")) == false))
+        c.ok("but one in the middle is fine" (wb.nameIsValid(0 "Ada's")))
+        c.ok("and a space is fine" (wb.nameIsValid(0 "My Sheet")))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

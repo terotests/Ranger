@@ -269,6 +269,91 @@ class VlChartTest {
         this.sameChart("transforms" chart want)
     }
 
+    ; An interval computed from the rows: the API says which extent, and the
+    ; compiler expands the composite into the rule that draws it.
+    fn testErrorbar:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(200 160)
+        chart.errorbar().extent("stdev").x("region").keepOrder().y("sales")
+        def want:string ("{\"width\":200,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":{\"type\":\"errorbar\",\"extent\":\"stdev\"},\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"}}}")
+        this.sameChart("error bar" chart want)
+    }
+
+    ; A tick is drawn across its band at the thickness the mark asks for —
+    ; which is what an open and a close of a hi-lo-open-close chart are.
+    fn testTickThickness:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(200 160)
+        chart.tick().thickness(3.0).x("quarter").type("ordinal").y("sales")
+        def want:string ("{\"width\":200,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":{\"type\":\"tick\",\"thickness\":3},\"encoding\":{\"x\":{\"field\":\"quarter\",\"type\":\"ordinal\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"}}}")
+        this.sameChart("tick thickness" chart want)
+    }
+
+    ; A line stacks when the chart says so, and the series that skip a
+    ; category are filled in so the ones above them stand on something.
+    fn testStackedLine:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(220 160)
+        chart.line().x("quarter").type("ordinal").y("sales").stack("zero").color("region")
+        def want:string ("{\"width\":220,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"line\",\"encoding\":{\"x\":{\"field\":\"quarter\",\"type\":\"ordinal\"},\"y\":{\"field\":\"sales\",\"stack\":\"zero\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"}}}")
+        this.sameChart("stacked line" chart want)
+    }
+
+    ; A box plot is five marks over eight derived data sets, and a stated size
+    ; is not a suggestion to any of them.
+    fn testBoxplotSized:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(200 160)
+        chart.boxplot().x("region").y("sales")
+        def want:string ("{\"width\":200,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"boxplot\",\"encoding\":{\"x\":{\"field\":\"region\",\"type\":\"nominal\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"}}}")
+        this.sameChart("box plot, sized" chart want)
+    }
+
+    ; A bar bent round a circle: the angle is a category and the radius is
+    ; what the chart measures. The segments pile up along the radius the way a
+    ; stacked bar's pile up its axis.
+    fn testPolarColumn:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(180 180)
+        def wedges (chart.arc())
+        wedges.theta("quarter").type("nominal")
+        wedges.radius("sales")
+        wedges.color("region")
+        def want:string ("{\"width\":180,\"height\":180," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"arc\",\"encoding\":{\"theta\":{\"field\":\"quarter\",\"type\":\"nominal\"},\"radius\":{\"field\":\"sales\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"}}}")
+        this.sameChart("polar column" chart want)
+    }
+
+    ; A Pareto chart: bars against one scale and a line against another, up
+    ; opposite sides of the same plot.
+    fn testDualAxis:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(220 160)
+        chart.independent("y")
+        def bars (chart.bar())
+        bars.x("region").keepOrder()
+        bars.y("sales").aggregate("sum")
+        def trend (chart.line())
+        trend.withPoints(true)
+        trend.x("region").keepOrder()
+        trend.y("cost").aggregate("mean").axisOrient("right")
+        def want:string ("{\"width\":220,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"layer\":[{\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"sales\",\"aggregate\":\"sum\",\"type\":\"quantitative\"}}}")
+        want = (want + ",{\"mark\":{\"type\":\"line\",\"point\":true},\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"cost\",\"aggregate\":\"mean\",\"axis\":{\"orient\":\"right\"},\"type\":\"quantitative\"}}}]")
+        want = (want + ",\"resolve\":{\"scale\":{\"y\":\"independent\"}}}")
+        this.sameChart("dual axis" chart want)
+    }
+
     ; --- what the API answers on its own -------------------------------------
 
     fn testInference:void () {
@@ -384,6 +469,12 @@ class VlChartTest {
         this.testDonut()
         this.testHeatmap()
         this.testTransforms()
+        this.testErrorbar()
+        this.testTickThickness()
+        this.testStackedLine()
+        this.testBoxplotSized()
+        this.testPolarColumn()
+        this.testDualAxis()
         if (failures > 0) {
             print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
         } {

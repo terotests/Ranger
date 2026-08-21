@@ -147,9 +147,22 @@ class SheetView {
     ; they are, as they do on screen.
     fn sortedOrder:void (col:int asc:boolean out:[int]) {
         clear out
-        sortHeadRows = model.freezeRows
+        ; How many rows stay put — and freezing panes is NOT the answer to
+        ; that question. Where the window is pinned is a view decision, taken
+        ; for reading; which rows are a heading is a fact about the data. This
+        ; used to take the freeze count whole, so a sheet with nine frozen
+        ; rows had nine headings and a sort marked the column and moved
+        ; nothing at all — which looks exactly like sorting being broken.
+        ;
+        ; A frozen FIRST row is still worth honouring: it is a heading nearly
+        ; every time, including on sheets where nothing about the data says so
+        ; (no bold, no fill, text over text). Past the first, freezing says
+        ; nothing.
+        sortHeadRows = (this.inferHeaderRows())
         if (sortHeadRows == 0) {
-            sortHeadRows = (this.inferHeaderRows())
+            if (model.freezeRows > 0) {
+                sortHeadRows = 1
+            }
         }
         def all:[int]
         def r:int 0

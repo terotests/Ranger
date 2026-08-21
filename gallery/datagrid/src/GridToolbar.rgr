@@ -76,6 +76,13 @@ class ToolIcon {
     sfn openFile:int ()    { return 43 }
     sfn newFile:int ()     { return 44 }
     sfn report:int ()      { return 45 }
+    ; The border gallery, as opposed to the three one-click border words.
+    sfn borderMore:int ()  { return 46 }
+    ; The database group. A shortcut is not a discoverable feature, and in a
+    ; browser it is not even a reliable one: Ctrl+D is the bookmark and Ctrl+Q
+    ; quits. A button on the strip works everywhere the grid is drawn.
+    sfn database:int ()    { return 47 }
+    sfn sqlBox:int ()      { return 48 }
 }
 
 class ToolItem {
@@ -186,6 +193,7 @@ class GridToolbar {
         this.add("format.merge" "" "Merge cells" (ToolIcon.merge()))
         this.addSeparator()
 
+        this.add("format.border" "" "Borders…" (ToolIcon.borderMore()))
         this.add("format.border" "all" "All borders" (ToolIcon.borderAll()))
         this.add("format.border" "outline" "Outline" (ToolIcon.borderOut()))
         this.add("format.border" "none" "No border" (ToolIcon.borderNone()))
@@ -214,6 +222,8 @@ class GridToolbar {
         this.add("data.validation" "" "Data validation" (ToolIcon.validate()))
         this.addSeparator()
         this.add("script.run" "" "Run the report script" (ToolIcon.report()))
+        this.add("db.connection" "" "Database connection" (ToolIcon.database()))
+        this.add("db.sql.dialog" "" "SQL query" (ToolIcon.sqlBox()))
     }
 
     ; Place the items across the strip. Anything past the right edge is given

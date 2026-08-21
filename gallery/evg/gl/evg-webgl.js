@@ -54,7 +54,7 @@
  * stencil buffer. A STROKE is expanded to a quad per segment on the CPU, which
  * needs no stencil at all.
  *
- * Not yet implemented: nested clips beyond a single scissor rectangle; stroke
+ * Clips are scissor rectangles, intersected as they nest. Not yet: stroke
  * joins and caps are butt joints, which is invisible at the widths a chart uses.
  */
 
@@ -444,8 +444,26 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const rects = [], colors = [], shapes = [], uvs = [], rots = [];
   const runs = [];
   let missingImages = 0, drawnImages = 0;
+  // The clip in force, as a rectangle or null. A clip is a scissor here, and a
+  // scissor is pipeline state rather than per-instance data, so a change of
+  // clip has to END the run being gathered — everything in a run is drawn by
+  // one call and one call has one scissor.
+  //
+  // This used to be skipped outright, with a note promising a scissor stack.
+  // What that cost was not subtle: a label wider than its cell was drawn in
+  // full, across whatever its neighbour had in it and over the row numbers,
+  // because the clip that said where to stop was thrown away between the
+  // display list and the screen.
+  const clipStack = [];
+  let clip = null;
+  const intersect = (a, b) => {
+    if (!a) return b;
+    const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y);
+    const x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+    return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
+  };
   const pushRun = (start, count, tex) => {
-    if (count > 0) runs.push({ kind: "quads", start, count, tex });
+    if (count > 0) runs.push({ kind: "quads", start, count, tex, clip });
   };
   let runStart = 0;
   const flush = () => {
@@ -455,10 +473,20 @@ export function renderDisplayList(gl, doc, opts = {}) {
   };
   // Path geometry is not instanced quads, so a path ends the run before it and
   // becomes a run of its own — which is what keeps the paint order intact.
-  const pushPath = (op) => { flush(); runs.push(op); };
+  const pushPath = (op) => { flush(); runs.push(Object.assign(op, { clip })); };
 
   for (const c of cmds) {
-    if (c.k === KIND.PUSH_CLIP || c.k === KIND.POP_CLIP) continue;   // TODO: scissor stack
+    if (c.k === KIND.PUSH_CLIP) {
+      flush();
+      clipStack.push(clip);
+      clip = intersect(clip, { x: c.x, y: c.y, w: c.w, h: c.h });
+      continue;
+    }
+    if (c.k === KIND.POP_CLIP) {
+      flush();
+      clip = clipStack.length ? clipStack.pop() : null;
+      continue;
+    }
     if (c.k === KIND.PATH || c.k === KIND.STROKE) {
       const rings = ringsOf(c);
       if (!rings.length) continue;
@@ -636,7 +664,26 @@ export function renderDisplayList(gl, doc, opts = {}) {
     gl.disable(gl.STENCIL_TEST);
   };
 
+  // A clip rectangle in page coordinates becomes a scissor box in framebuffer
+  // pixels, which are scaled by the device ratio and measured from the BOTTOM.
+  const sxScale = gl.canvas.width / doc.width;
+  const syScale = gl.canvas.height / doc.height;
+  let scissorOn = false;
+  const applyClip = (r) => {
+    if (!r) {
+      if (scissorOn) { gl.disable(gl.SCISSOR_TEST); scissorOn = false; }
+      return;
+    }
+    if (!scissorOn) { gl.enable(gl.SCISSOR_TEST); scissorOn = true; }
+    const x = Math.round(r.x * sxScale);
+    const y = Math.round((doc.height - (r.y + r.h)) * syScale);
+    const w = Math.max(0, Math.round(r.w * sxScale));
+    const h = Math.max(0, Math.round(r.h * syScale));
+    gl.scissor(x, y, w, h);
+  };
+
   for (const run of runs) {
+    applyClip(run.clip);
     if (run.kind === "fill") { drawFill(run); paths += 1; continue; }
     if (run.kind === "tris") { drawTris(run.verts, run.color); paths += 1; continue; }
     gl.useProgram(prog);
@@ -648,6 +695,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
     pointAt(run.start);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, run.count);
   }
+  applyClip(null);
 
   return {
     drawn: count, textRuns: slots.size, images: drawnImages, missingImages,

@@ -279,6 +279,92 @@ takes. Three defects came out of six demo charts, none of them in the API.
 None of the three is about the API. All three were invisible from the specs the
 suite already had, which is the argument for the front door existing.
 
+## A page that runs the API rather than showing what it drew
+
+A PDF proves the API built a chart **once, on a build machine, in Node**. It
+says nothing about whether the thing that drew it still runs where a reader is.
+`tools/vela_chart_web.rgr` is the other half: the API compiled to a browser
+bundle, and a page that dispatches what a reader types to it —
+
+```
+gallery/evg/showcase/dist/chart-api/     →  published at /evg/chart-api/
+```
+
+Type `chart.bar().x("region")` and the page calls `VlChart.bar()` and then
+`VlChartMark.x("region")`; the chart redraws as you edit, and the Vega-Lite
+those calls built is on the tab beside it. Edit the **data** and it redraws
+too, which is the difference between a live page and a picture of one.
+
+It is an interpreter over the real methods and not a second implementation:
+there is no chart type anywhere in that file and no specification is written by
+hand. A name the API does not have is refused *by name* —
+
+```
+line 2: a chart has no method 'colour'
+'x' needs its argument in quotes: region
+the data has no column called 'profit'
+```
+
+— because a playground that quietly ignored a line would teach the wrong API.
+The third of those is the API's own check, running in the browser: the dataset
+is there, so it knows what is in it.
+
+```bash
+npm run showcase        # build it into gallery/evg/showcase/dist/chart-api
+npm run showcase:api    # open it in a real browser and check that it RUNS
+```
+
+The browser check is the point of the exercise, so it checks through the page
+rather than around it: every preset draws a different chart, an unknown method
+is refused by name, editing the data redraws, the inferred column types are
+shown, the specification and the Vega are both on the page, and a page error or
+a console error fails the run. **16 checks, in Chromium.**
+
+## What two other catalogues say is missing
+
+An API is only as wide as the charts underneath it, so the surface was measured
+against two other libraries' catalogues rather than against an opinion:
+**Syncfusion's** chart types (Chart, AccumulationChart, StockChart) and
+**Observable Plot's** marks. Thirty-six specifications, one per named type, live
+in [`tests/chart_types`](tests/chart_types/) and go through both implementations:
+
+```bash
+npm run vela:types      # Ranger and official Vega-Lite, scene against scene
+```
+
+**35 of 37 draw exactly what the reference draws.** Getting there fixed nine
+defects, each of which was invisible from the suite that existed:
+
+| what was wrong | what the reference does |
+| --- | --- |
+| A **box plot ignored a stated `width`** — 20 pixels a band, 60 for three groups, axes drawn to match | a box plot is built as its own Vega specification rather than through the ordinary sizing path, and that path was the only one reading `width`. The band spans the plot instead, and no step signal is written at all |
+| **`thickness` on a tick was read only from the configuration** | `{"type": "tick", "thickness": 4}` is a mark saying how thick it is. A bullet chart's measure bar and a hi-lo-open-close chart's open and close both came out a hairline |
+| A **stacked line was not stacked** | a line stacks when the chart *says* so (a bar and an area stack by default and a line never), and a stacked line imputes the categories a series skips, so the ones above it stand on something |
+| A **rule on a discrete axis sat half a pixel off** | a rule is a **band** scale with no padding, placed in the middle of its band — not a point scale. Only a band takes back the half pixel its axis group is offset by, so the hi-lo chart's geometry was right and its axis was not |
+| An **error bar was titled after the columns it was computed from** — `"lower_y, upper_y"` — and called itself a rule | the axis is named after the column the interval is *about*, the band is expanded as a layer of one (`layer_0_marks`), and a composite says what it is: `ariaRoleDescription: "errorbar"` |
+| A **dual-axis chart measured its first layer against the second one's column** | `resolve` belongs to the composition that states it, not to its layers. Inherited, a layer that expands into layers of its own — a line asked to show its points — numbered its scales from zero again and gave them the names the outer layers already had. Two more came out from under it: a layer inside a layer is `layer_1_layer_0_marks`, not `layer_11_marks`; and a nested layer must be told what its parent already knows about the scales, or its line stands at the start of the band the bar beside it fills |
+| A **second axis stood on both sides of the plot** | a layer that does not share a scale gets its axis on the far side and no grid — and the grid axis is *dropped* rather than kept with its grid turned off, because an axis with no ink still reserves room beside the plot |
+| A **polar column collapsed to one wedge** | an angle read from a CATEGORY is a **band of the circle** — one slice per category, all the same size — and the length of the wedge inside it is what the chart measures. Typed as a number, a category answered nothing and every wedge came out at the same degenerate angle. The radius is then what accumulates, so a polar column stacks by default the way a bar does, and the stack beats a stated `innerRadius` |
+
+What still differs, and it is worth naming precisely rather than rounding up:
+
+
+* **`errorbar` / `errorband`** — the geometry, the styles, the names and the
+  aria role now match; the `description` string a screen reader is handed still
+  lists the two ends where the reference lists the mean and both ends.
+
+A polar **column** and a **rose** draw now; what is still missing from that
+family is the rest of a polar coordinate system — a *line* or an *area* bent
+round a circle, which is what a radar chart is.
+
+And what neither Vela nor the Vega-Lite grammar has at all, which is a feature
+list rather than a bug list: **funnel** and **pyramid**; polar **line** and
+**area** (radar); **3D** charts;
+**treemap**, **sankey**, **smith chart** and the **gauge** family; and from
+Plot's side **hexbin**, **contour**, **raster**, **voronoi/delaunay**, **tree**,
+**waffle** and the **dodge** (beeswarm) transform. Everything interactive —
+crosshair, tooltip, zoom, selection — is the interaction gap below.
+
 ## What is not there yet
 
 * **Composition beyond a layer.** `column` and `row` are channels and work; a

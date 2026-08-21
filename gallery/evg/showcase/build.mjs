@@ -419,6 +419,13 @@ function indexHtml(entries, warnings) {
   </p>
   <p class="meta">Built from <code>gallery/evg/showcase</code>. PDF is the print target; PNG is the raster preview; HTML is the debug view.</p>
 
+  <div class="note">
+    <strong>The chart API, running.</strong> Every page below is a rendered
+    file. <a href="chart-api/">Charts, called &mdash; live</a> is not: it loads
+    the compiled <code>VlChart</code> API into the browser and dispatches the
+    lines you type to it, method by method, drawing the answer as you edit.
+  </div>
+
   <nav class="toc" aria-label="Pages">
     <h2>Pages</h2>
     <ul>${contents}</ul>
@@ -548,6 +555,38 @@ for (const [family, rel] of FACES) {
   faceCss.push(`@font-face{font-family:"${family}";src:url("${base}")}`);
 }
 fs.writeFileSync(path.join(OUT, "gl", "view.html"), viewerHtml(faceCss.join("\n  ")), "utf8");
+
+// ---- the live page --------------------------------------------------------
+// The rest of this gallery is rendered ahead of time; this one runs. The chart
+// API is compiled to a browser bundle and the page dispatches what a reader
+// types to the real methods — which is the one thing a picture of a chart
+// cannot demonstrate.
+{
+  const LIVE = path.join(OUT, "chart-api");
+  fs.mkdirSync(LIVE, { recursive: true });
+  compile(path.join(ROOT, "gallery/vela/tools/vela_chart_web.rgr"), "vela_chart_api.js");
+  const bundlePath = path.join(TOOLS, "vela_chart_api.js");
+  // The shebang is for a shell, and a `<script>` is not one: left in, the
+  // browser stops at the `#` and the page loads nothing.
+  const bundle = fs.readFileSync(bundlePath, "utf8").replace(/^#![^\n]*\n/, "");
+  // A browser has no `require`, and a file-system call compiles fine and fails
+  // only when somebody opens the page. Loading it here with `require`
+  // undefined is a stricter check than grepping for one.
+  {
+    const previous = globalThis.require;
+    globalThis.require = undefined;
+    const found = (0, eval)(bundle + "; typeof VelaChartApi");
+    globalThis.require = previous;
+    if (found !== "function") {
+      throw new Error("vela_chart_api.js does not define VelaChartApi without require()");
+    }
+  }
+  fs.writeFileSync(path.join(LIVE, "vela_chart_api.js"),
+    "// GENERATED from gallery/vela/tools/vela_chart_web.rgr — do not edit.\n"
+    + "(function () {\n" + bundle + "\n;globalThis.VelaChartApi = VelaChartApi;\n})();\n");
+  fs.copyFileSync(path.join(ROOT, "gallery/vela/web/chart_api.html"), path.join(LIVE, "index.html"));
+  process.stdout.write("  chart-api/ (live)\n");
+}
 
 const unique = [...new Set(allWarnings)];
 fs.writeFileSync(path.join(OUT, "index.html"), indexHtml(entries, unique), "utf8");

@@ -90,6 +90,11 @@ class GridView {
     ; Colour picker example cell — painted into the dialog's content region.
     def colorPreviewWid:int 0
     def colorPreviewHex:string "#C00000"
+    ; The border gallery's preview: which window it belongs to, and the spec
+    ; string its controls currently say. Drawn as a four-cell block, because a
+    ; block is the only place "inside horizontal" means anything.
+    def borderPreviewWid:int 0
+    def borderPreviewSpec:string "spec:TBLR:thin:#000000"
     def colorPreviewIsFill:boolean false
     def ghostVisible:boolean false
     def ghostR0:int 0
@@ -469,17 +474,34 @@ class GridView {
         this.popClip(dl)
     }
 
-    ; No wrap: Excel spills into EMPTY neighbours and clips at the first
-    ; occupied one. Text used to always spill, painting over live cells.
-    fn spillWidth:int (model:SpreadsheetModel rect:GridRect r:int c:int toRight:boolean) {
-        def total:int rect.w
+    ; No wrap: Excel spills into EMPTY neighbours and stops at the first
+    ; occupied one. This answers how far it may go in ONE direction, in pixels,
+    ; not counting the cell itself.
+    ;
+    ; The walk starts past the cell's MERGE rather than at the next column.
+    ; `rect` for a merged cell already covers every column the merge spans, so
+    ; probing from `c + 1` would count those columns a second time and let the
+    ; text run that much further than there is room for.
+    fn spillRoom:int (model:SpreadsheetModel r:int c:int toRight:boolean) {
+        def first:int c
+        def last:int c
+        def key:string (model.mergeAt(r c))
+        if ((strlen key) > 0) {
+            def parts:[string] (strsplit key ",")
+            if ((array_length parts) >= 4) {
+                first = (SpreadsheetModel.parseInt0((itemAt parts 1)))
+                last = (SpreadsheetModel.parseInt0((itemAt parts 3)))
+            }
+        }
         def step:int 1
+        def probe:int (last + 1)
         if (toRight == false) {
             step = -1
+            probe = (first - 1)
         }
-        def probe:int (c + step)
+        def total:int 0
         def guard:int 0
-        while (guard < 32) {
+        while (guard < 64) {
             if (probe < 0) {
                 return total
             }
@@ -489,7 +511,10 @@ class GridView {
             if ((strlen (model.getCell(r probe))) > 0) {
                 return total
             }
-            total = (total + (model.colWidth(probe)))
+            ; A hidden column has no room in it to spill through.
+            if ((model.isColHidden(probe)) == false) {
+                total = (total + (model.colWidth(probe)))
+            }
             probe = (probe + step)
             guard = (guard + 1)
         }
@@ -645,21 +670,33 @@ class GridView {
         }
         def top:int (this.textTopFor(rect st lineH 1 cellPx))
         def tx:double (this.alignedX(rect st textW))
-        ; Room the text may use: its own cell plus any empty neighbours in the
-        ; direction it grows.
+        ; Room the text may use: its own cell, plus any empty neighbours in the
+        ; direction it actually grows — which depends on the alignment, and for
+        ; a centred label is BOTH. A centred label used to be given room only
+        ; to the right while its text started to the left of its own cell, so
+        ; the half that overhung was cut even where the neighbour was empty.
         def clipX:int rect.x
         def clipW:int rect.w
         if ((textW + 8) > rect.w) {
-            def toRight:boolean true
+            def wantsLeft:boolean false
+            def wantsRight:boolean false
             if (st.align == "right") {
-                toRight = false
-            }
-            def room:int (this.spillWidth(model rect r c toRight))
-            if toRight {
-                clipW = room
+                wantsLeft = true
             } {
-                clipX = ((rect.x + rect.w) - room)
-                clipW = room
+                if (st.align == "center") {
+                    wantsLeft = true
+                    wantsRight = true
+                } {
+                    wantsRight = true
+                }
+            }
+            if wantsLeft {
+                def leftRoom:int (this.spillRoom(model r c false))
+                clipX = (clipX - leftRoom)
+                clipW = (clipW + leftRoom)
+            }
+            if wantsRight {
+                clipW = (clipW + (this.spillRoom(model r c true)))
             }
         }
         this.pushClip(dl (to_double clipX) (to_double rect.y) (to_double clipW) (to_double rect.h))
@@ -791,7 +828,60 @@ class GridView {
                 step = (step + 1)
             }
         }
-        this.paintCellBorders(dl st rect)
+    }
+
+    ; The borders a CELL carries, as their own pass.
+    ;
+    ; They used to be drawn at the end of `paintCell`, which put them under the
+    ; body gridlines: the vertical rule sits at `x + w - 1` and the horizontal
+    ; one at `y + h - 1`, which is exactly where a cell's right and bottom
+    ; borders go. So every bordered cell in every workbook showed its top and
+    ; left edge and had the other two painted over in pale grey — which is why
+    ; "All borders" on a single cell looked like it had done nothing.
+    ;
+    ; r0..r1 / c0..c1 are VIEW indices, like `paintCellRange`.
+    fn paintBordersRange:void (dl:EVGDisplayList model:SpreadsheetModel grid:DataGrid r0:int r1:int c0:int c1:int) {
+        if (r1 < r0) {
+            return
+        }
+        if (c1 < c0) {
+            return
+        }
+        def r:int r0
+        while (r <= r1) {
+            def c:int c0
+            while (c <= c1) {
+                def mr:int (grid.mapRow(r))
+                def mc:int (grid.mapCol(c))
+                if (model.isMergeOrigin(mr mc)) {
+                    def st:CellStyle (model.getCellStyle(mr mc))
+                    if st.hasBorder {
+                        def rect:GridRect (grid.cellRect(model mr mc))
+                        if (rect.x > -50000) {
+                            if (rect.y > -50000) {
+                                this.paintCellBorders(dl st rect)
+                            }
+                        }
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; The same four bands `buildDisplayList` paints cells in, for borders.
+    fn paintBordersBands:void (dl:EVGDisplayList model:SpreadsheetModel grid:DataGrid fzR:int fzC:int) {
+        if (fzR > 0) {
+            if (fzC > 0) {
+                this.paintBordersRange(dl model grid 0 (fzR - 1) 0 (fzC - 1))
+            }
+            this.paintBordersRange(dl model grid 0 (fzR - 1) grid.firstScrollCol grid.lastScrollCol)
+        }
+        if (fzC > 0) {
+            this.paintBordersRange(dl model grid grid.firstScrollRow grid.lastScrollRow 0 (fzC - 1))
+        }
+        this.paintBordersRange(dl model grid grid.firstScrollRow grid.lastScrollRow grid.firstScrollCol grid.lastScrollCol)
     }
 
     ; r0..r1 / c0..c1 are VIEW indices when grid.hasView.
@@ -1269,6 +1359,9 @@ class GridView {
             vr2 = (vr2 + 1)
         }
 
+        ; Cell borders go OVER the gridlines they replace.
+        this.paintBordersBands(dl model grid fzR fzC)
+
         ; freeze separators
         if (fzC > 0) {
             def fx:int ((bodyLeft + (grid.geoFrozenW(model))) - 1)
@@ -1484,6 +1577,17 @@ class GridView {
         ; active cell border
         def ar:GridRect (grid.cellRect(model sel.active.row sel.active.col))
         this.pushBorder(dl (to_double ar.x) (to_double ar.y) (to_double ar.w) (to_double ar.h) 2.0 theme.activeBorder)
+        ; …and then the cell's OWN borders again, over the ring. The ring is
+        ; two pixels of chrome sitting exactly on the cell's boundary, so it
+        ; covered all four edges of the cell it marks: applying a border to
+        ; the one cell you have selected — which is how anyone tries it —
+        ; showed nothing at all until you clicked somewhere else. Drawn again
+        ; here, the border is the inner pixel and the ring is the outer one,
+        ; and both are visible.
+        def ast:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        if ast.hasBorder {
+            this.paintCellBorders(dl ast ar)
+        }
 
         ; FortuneSheet fill handle
         if (editing == false) {
@@ -1775,6 +1879,13 @@ class GridView {
                     }
                 }
             }
+            if (borderPreviewWid > 0) {
+                if ((wnd.wid == borderPreviewWid) && wnd.visible) {
+                    if wnd.hasContent {
+                        this.paintBorderPreview(dl wnd)
+                    }
+                }
+            }
             wi = (wi + 1)
         }
 
@@ -1815,6 +1926,41 @@ class GridView {
         def tx:double ((to_double x0) + (((to_double cw) - tw) * 0.5))
         def ty:double ((to_double y0) + (((to_double ch) - px) * 0.5))
         this.pushStyledText(dl sample tx ty px fg "" false false)
+    }
+
+    ; Four cells in a block, with the spec applied to them exactly as the
+    ; sheet would apply it: the same `GridFormat.borderSpecFor` decides which
+    ; edge each of the four gets, and the same `paintCellBorders` draws it. A
+    ; preview that agrees with the sheet by construction cannot drift from it.
+    fn paintBorderPreview:void (dl:EVGDisplayList wnd:EVGWindow) {
+        def pc:EVGControl (wnd.contentControl())
+        def cw:int (idiv (pc.w - 8) 2)
+        def ch:int (idiv (pc.h - 8) 2)
+        if (cw < 12) {
+            return
+        }
+        if (ch < 10) {
+            return
+        }
+        def x0:int (((wnd.x + pc.x) + (idiv (pc.w - (cw * 2)) 2)))
+        def y0:int (((wnd.y + pc.y) + (idiv (pc.h - (ch * 2)) 2)))
+        this.pushRect(dl (to_double x0) (to_double y0) (to_double (cw * 2)) (to_double (ch * 2)) (EVGColor.rgb(255 255 255)))
+        ; The pale grid the borders are drawn over, so an unticked edge reads
+        ; as "no line here" rather than as a hole.
+        this.pushRect(dl (to_double (x0 + cw - 1)) (to_double y0) 1.0 (to_double (ch * 2)) theme.gridLine)
+        this.pushRect(dl (to_double x0) (to_double (y0 + ch - 1)) (to_double (cw * 2)) 1.0 theme.gridLine)
+        def rr:int 0
+        while (rr < 2) {
+            def cc:int 0
+            while (cc < 2) {
+                def st:CellStyle (new CellStyle)
+                GridFormat.borderSpecFor(st borderPreviewSpec (rr == 0) (cc == 1) (rr == 1) (cc == 0))
+                def rect:GridRect (GridRect.create((x0 + (cc * cw)) (y0 + (rr * ch)) cw ch))
+                this.paintCellBorders(dl st rect)
+                cc = (cc + 1)
+            }
+            rr = (rr + 1)
+        }
     }
 
     fn paintSoftCanvas:void (dl:EVGDisplayList) {
@@ -2083,6 +2229,25 @@ class GridView {
             this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 3)) 8.0 2.0 (EVGColor.rgb(40 140 70)))
             return
         }
+        ; A stack of platters, which is what everything has drawn a database as
+        ; since the disk pack: a lid, two bands under it, and a shaded top so
+        ; it reads as a cylinder rather than as three lines.
+        if (k == (ToolIcon.database())) {
+            def dbInk:EVGColor theme.activeBorder
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 7)) 10.0 1.0 (EVGColor.rgb(150 185 235)))
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 2)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 3)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 4)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy - 4)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 1)) 1.0 2.0 dbInk)
+            return
+        }
+        if (k == (ToolIcon.sqlBox())) {
+            this.pushToolText(dl "SQL" cx cy 9.0 theme.activeBorder false)
+            return
+        }
         if (k == (ToolIcon.freeze())) {
             this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 1.0 theme.activeBorder)
             this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 1.0 14.0 theme.activeBorder)
@@ -2140,6 +2305,20 @@ class GridView {
         }
         if (k == (ToolIcon.borderOut())) {
             this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.borderMore())) {
+            ; A smaller all-borders box, with room under it for the chevron
+            ; that says there is a window behind this one. Drawn at the same
+            ; size as the button beside it, the chevron landed ON the box's
+            ; bottom edge and could not be seen at all.
+            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 8)) 12.0 12.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 3)) 12.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 8)) 1.0 12.0 ink)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy + 5)) 7.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 2)) (to_double (cy + 6)) 5.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 7)) 3.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 8)) 1.0 1.0 ink)
             return
         }
         if (k == (ToolIcon.borderNone())) {

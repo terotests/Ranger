@@ -14,6 +14,7 @@ Import "CellStyle.rgr"
 Import "DataValidation.rgr"
 Import "RichText.rgr"
 Import "SheetImage.rgr"
+Import "SheetTable.rgr"
 Import "XlsxNumberFormat.rgr"
 
 ; Conditional formatting rule (parsed from xlsx cfRule).
@@ -240,6 +241,10 @@ class SpreadsheetModel {
     ; beside the value rather than inside it — see RichText.
     ; Pictures floating over this sheet, in the order the drawing listed them.
     def images:[SheetImage]
+    ; Tables (ListObjects) on this sheet. A table's NAME is workbook-wide, so
+    ; the lookup that formulas use lives on WorkbookModel; this is only where
+    ; the ones belonging to this sheet are kept.
+    def tables:[SheetTable]
     def richCells:[string:RichText]
     def richKeys:[string]
     def links:[string:string]
@@ -291,6 +296,7 @@ class SpreadsheetModel {
         clear colHidden
         clear rowSuppressed
         clear filterValues
+        clear tables
         clear undoStack
         clear redoStack
         freezeRows = 0
@@ -1116,6 +1122,30 @@ class SpreadsheetModel {
 
     fn imageCount:int () {
         return (array_length images)
+    }
+
+    ; --- tables ---------------------------------------------------------------
+    fn addTable:void (t:SheetTable) {
+        push tables t
+        version = (version + 1)
+    }
+
+    fn tableCount:int () {
+        return (array_length tables)
+    }
+
+    fn tableAt:SheetTable (i:int) {
+        if (i < 0) {
+            return (new SheetTable)
+        }
+        if (i >= (array_length tables)) {
+            return (new SheetTable)
+        }
+        return (itemAt tables i)
+    }
+
+    fn clearTables:void () {
+        clear tables
     }
 
     fn imageAt:SheetImage (i:int) {

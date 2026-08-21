@@ -1,0 +1,178 @@
+; ==============================================================================
+; OoxmlPackageTest — one string, three formats, two string models.
+; ==============================================================================
+;
+; `OoxmlTextTest` checks the decoder. This checks the whole way in: a real
+; .xlsx, a real .docx and a real .pptx are opened with their own readers, and
+; the text that comes out has to be the same string in all three — and the
+; same string on both targets.
+;
+; Each fixture carries ONE sentence written TWICE: once as real UTF-8 bytes,
+; once escaped as numeric character references. A reader can get either
+; spelling wrong on its own, so a file that contains both turns a silent
+; difference into two lines that do not match:
+;
+;   * PowerPoint never decoded its parts as UTF-8 — `buffer_to_string` hands
+;     back one unit per BYTE — so on the browser build the raw line drew as
+;     "HÃ¤meenlinna" while the escaped line beside it was correct.
+;   * Word and PowerPoint knew only the five named entities, so the escaped
+;     line came through as digits.
+;
+; Characters are counted with `EVGCodepoint.charCount`, not `strlen`: the two
+; targets legitimately disagree about how many UNITS a string has (21 code
+; units, 27 bytes) and must agree about how many CHARACTERS it has.
+;
+;   npm run ooxml:package:test
+; ==============================================================================
+
+Import "../../datagrid/src/xlsx/XlsxLoader.rgr"
+Import "../../docx_viewer/src/DocxPackage.rgr"
+Import "../../docx_viewer/src/WordMlParser.rgr"
+Import "../../pptx/src/PptxParser.rgr"
+Import "../../evg/EVGCodepoint.rgr"
+
+class PkgCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OoxmlPackageTest {
+    ; The sentence the three fixtures carry, built from code points so this
+    ; file stays ASCII: two-byte letters, a three-byte dash, and a Greek
+    ; capital — every width a UTF-8 walk has to handle.
+    sfn sentence:string () {
+        def s:string "H"
+        str_append s (strfromcode 228)
+        str_append s "meenlinna "
+        str_append s (strfromcode 8211)
+        str_append s " "
+        str_append s (strfromcode 198)
+        str_append s "r"
+        str_append s (strfromcode 248)
+        str_append s " & "
+        str_append s (strfromcode 937)
+        return s
+    }
+
+    sfn main:void () {
+        def c:PkgCheck (new PkgCheck)
+        print "== OoxmlPackageTest =="
+        def want:string (OoxmlPackageTest.sentence())
+        def wantGlyphs:int (EVGCodepoint.charCount(want))
+        print ("  the sentence is " + (to_string wantGlyphs) + " characters and " + (to_string (strlen want)) + " units here")
+        c.eqInt("21 characters, whatever a unit is" wantGlyphs 21)
+
+        print "-- .docx --"
+        def pkg:DocxPackage (new DocxPackage)
+        def dok:boolean (pkg.open("gallery/docx_viewer/fixtures" "21-accented-text.docx"))
+        c.ok("the document opened" dok)
+        if dok {
+            def wp:WordMlParser (new WordMlParser)
+            def doc:RichDocument (wp.parsePackage(pkg))
+            pkg.close()
+            c.ok("two paragraphs" ((doc.paragraphCount()) >= 2))
+            if ((doc.paragraphCount()) >= 2) {
+                def p0:Paragraph (doc.paragraphAt(0))
+                def p1:Paragraph (doc.paragraphAt(1))
+                c.eqStr("written as bytes" (p0.plainText()) want)
+                c.eqStr("written as entities" (p1.plainText()) want)
+                c.eqInt("and both are 21 characters" (EVGCodepoint.charCount((p0.plainText()))) wantGlyphs)
+            }
+        }
+
+        print "-- .pptx --"
+        def pp:PptxParser (new PptxParser)
+        def pok:boolean (pp.openParts("gallery/pptx/fixtures" "27-accented-text.pptx"))
+        c.ok("the deck opened" pok)
+        if pok {
+            def deck:PptxPresentation (pp.parsePresentation())
+            c.ok("one slide" ((deck.slideCount()) == 1))
+            if ((deck.slideCount()) > 0) {
+                def slide:PptxSlide (itemAt deck.slides 0)
+                def texts:[string]
+                def i:int 0
+                while (i < (array_length slide.shapes)) {
+                    def sh:PptxShape (itemAt slide.shapes i)
+                    if sh.hasText {
+                        push texts (sh.text.plainText())
+                    }
+                    i = (i + 1)
+                }
+                c.ok("two text shapes" ((array_length texts) >= 2))
+                if ((array_length texts) >= 2) {
+                    c.eqStr("written as bytes" (itemAt texts 0) want)
+                    c.eqStr("written as entities" (itemAt texts 1) want)
+                    c.eqInt("and both are 21 characters" (EVGCodepoint.charCount((itemAt texts 0))) wantGlyphs)
+                }
+            }
+            pp.close()
+        }
+
+        print "-- .xlsx, which already worked, as the control --"
+        def book:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        def xok:boolean (loader.loadPath("gallery/datagrid/fixtures/accented-text.xlsx" book))
+        c.ok("the workbook opened" xok)
+        if xok {
+            def sheet:SpreadsheetModel (book.sheetAt(0))
+            def found:boolean false
+            def r:int 0
+            while (r <= (sheet.usedRow())) {
+                def cc:int 0
+                while (cc <= (sheet.usedCol())) {
+                    def v:string (sheet.getCell(r cc))
+                    if ((strlen v) > 0) {
+                        if ((EVGCodepoint.charCount(v)) < (strlen v)) {
+                            ; A cell whose character count is below its unit
+                            ; count is a cell holding something outside ASCII,
+                            ; which is the whole point of this fixture.
+                            found = true
+                        }
+                    }
+                    cc = (cc + 1)
+                }
+                r = (r + 1)
+            }
+            def bytes:boolean ((strlen (strfromcode 228)) > 1)
+            if bytes {
+                c.ok("it carries text outside ASCII" found)
+            } {
+                ; On the code-unit model a two-byte letter is ONE unit, so the
+                ; test above cannot see it; the file is the same either way.
+                c.ok("the workbook read without error" ((strlen loader.lastError) == 0))
+            }
+        }
+
+        print ""
+        def bytes2:boolean ((strlen (strfromcode 228)) > 1)
+        if bytes2 {
+            print "  strings are BYTES here (the C++ model)"
+        } {
+            print "  strings are CODE UNITS here (the JavaScript model)"
+        }
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

@@ -1,0 +1,200 @@
+; ==============================================================================
+; OverflowRenderTest — a label spills into empty space and nowhere else.
+; ==============================================================================
+;
+; Excel lets a label that is wider than its cell run into its neighbours, and
+; stops it at the first one that has something in it. Both halves matter: a
+; renderer that never spills clips ordinary labels for no reason, and one that
+; always spills draws two strings on top of each other and paints over the row
+; numbers.
+;
+; It always spilled. The display list was right — the clip commands named
+; exactly the right rectangle — and every backend ignored them for TEXT:
+;
+;   * SoftCanvas asked `textInClip`, which answers "does this string BEGIN
+;     inside the rectangle". A label beginning one pixel inside its own cell
+;     was then drawn in full, across the neighbour and off the window.
+;   * Both GL backends skipped the clip commands outright.
+;
+; So this test is about PIXELS rather than about the display list, because the
+; display list was never the thing that was wrong.
+;
+; It renders the same sheet TWICE — once with long labels, once with short ones
+; in the same cells — and compares regions between the two pictures. That is a
+; sharper instrument than looking for dark pixels: the row-number strip already
+; has grey digits in it and the gridlines are dark enough to trip any threshold
+; worth setting, so "is there ink here" cannot tell spilled text from the
+; furniture. "Did lengthening this label change any pixel over there" can, and
+; needs no threshold at all.
+;
+;   the row-number strip is untouched — there are numbers there already
+;   an occupied neighbour is untouched — it has its own text in it
+;   an EMPTY neighbour does change, because a label is allowed to reach it
+;
+;   npm run datagrid:overflow:test
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class OverflowCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OverflowRenderTest {
+    ; A copy of what was just rendered, so two pictures can be compared after
+    ; the second overwrites the canvas.
+    sfn snapshot:buffer (app:GridApp) {
+        def src:buffer (app.raw())
+        def n:int (buffer_length src)
+        def out:buffer (buffer_alloc n)
+        buffer_copy out 0 src 0 n
+        return out
+    }
+
+    ; How many pixels differ between two renders inside a box.
+    sfn diffIn:int (a:buffer b:buffer w:int x0:int y0:int x1:int y1:int) {
+        def n:int 0
+        def y:int y0
+        while (y < y1) {
+            def x:int x0
+            while (x < x1) {
+                def at:int (((y * w) + x) * 4)
+                if ((at + 2) < (buffer_length a)) {
+                    if ((buffer_get a at) != (buffer_get b at)) {
+                        n = (n + 1)
+                    } {
+                        if ((buffer_get a (at + 1)) != (buffer_get b (at + 1))) {
+                            n = (n + 1)
+                        } {
+                            if ((buffer_get a (at + 2)) != (buffer_get b (at + 2))) {
+                                n = (n + 1)
+                            }
+                        }
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return n
+    }
+
+    ; The same sheet either way; `long` decides how much text the four labels
+    ; carry. Everything else — the columns, the styles, the neighbours — is
+    ; identical, so any pixel that differs between the two differs BECAUSE a
+    ; label got longer.
+    sfn build:GridApp (long:boolean) {
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.resize(14 6)
+        def wide:string "Total Revenue for the year"
+        def narrow:string "A"
+        def a:string narrow
+        if long {
+            a = wide
+        }
+        ; Row 3: an OCCUPIED neighbour. Must stop at its own edge.
+        app.model.setCellRaw(2 0 a)
+        app.model.setCellRaw(2 1 "$28,872.00")
+        ; Row 7: EMPTY neighbours. Must run on.
+        def b:string narrow
+        if long {
+            b = "This one may spill because B is empty"
+        }
+        app.model.setCellRaw(6 0 b)
+        ; Row 11: centred, nothing to its left but the row numbers.
+        def d:string narrow
+        if long {
+            d = "Centred and far too wide for column A"
+        }
+        app.model.setCellRaw(10 0 d)
+        def centre:CellStyle (new CellStyle)
+        centre.align = "center"
+        def csid:int (app.model.styleIdFor(centre))
+        app.model.setCellStyleId(10 0 csid)
+        ; Row 13: right-aligned and too wide, with column A occupied.
+        app.model.setCellRaw(12 0 "Occupied")
+        def e:string "9"
+        if long {
+            e = "9,999,999,999.99"
+        }
+        app.model.setCellRaw(12 1 e)
+        def rightAl:CellStyle (new CellStyle)
+        rightAl.align = "right"
+        def rsid:int (app.model.styleIdFor(rightAl))
+        app.model.setCellStyleId(12 1 rsid)
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.engine.rebuildAll()
+        app.render()
+        return app
+    }
+
+    sfn main:void () {
+        def c:OverflowCheck (new OverflowCheck)
+        print "== OverflowRenderTest =="
+
+        def shortApp:GridApp (OverflowRenderTest.build(false))
+        def before:buffer (OverflowRenderTest.snapshot(shortApp))
+        def app:GridApp (OverflowRenderTest.build(true))
+        def after:buffer (OverflowRenderTest.snapshot(app))
+        def W:int app.W
+        c.eqInt("both renders are the same size" app.W shortApp.W)
+
+        def bodyLeft:int (app.grid.x + app.grid.rowHeaderW)
+        def bodyTop:int ((app.grid.headerTop()) + app.grid.colHeaderH)
+
+        print "-- the row numbers are untouched --"
+        ; Every row of the strip, for the whole visible height: lengthening a
+        ; label must not change one pixel of it.
+        def gutter:int (OverflowRenderTest.diffIn(before after W app.grid.x bodyTop bodyLeft (bodyTop + 320)))
+        c.eqInt("no pixel of the row-number strip changed" gutter 0)
+
+        print "-- an occupied neighbour is untouched --"
+        def b3:GridRect (app.grid.cellRect(app.model 2 1))
+        def onB3:int (OverflowRenderTest.diffIn(before after W (b3.x + 1) b3.y (b3.x + b3.w) (b3.y + b3.h)))
+        c.eqInt("B3 kept its own text and nothing else" onB3 0)
+
+        print "-- an empty one is reached --"
+        def c7:GridRect (app.grid.cellRect(app.model 6 2))
+        def onC7:int (OverflowRenderTest.diffIn(before after W c7.x c7.y (c7.x + c7.w) (c7.y + c7.h)))
+        c.ok("a label reaches C7 when B and C are empty" (onC7 > 0))
+
+        print "-- a centred label stays inside the body --"
+        def cRect:GridRect (app.grid.cellRect(app.model 10 0))
+        def leftOfBody:int (OverflowRenderTest.diffIn(before after W 0 cRect.y bodyLeft (cRect.y + cRect.h)))
+        c.eqInt("nothing left of the body changed on that row" leftOfBody 0)
+
+        print "-- a right-aligned value does not reach back --"
+        def occ:GridRect (app.grid.cellRect(app.model 12 0))
+        def onOcc:int (OverflowRenderTest.diffIn(before after W occ.x occ.y ((occ.x + occ.w) - 1) (occ.y + occ.h)))
+        c.eqInt("the label beside it is untouched" onOcc 0)
+        def val:GridRect (app.grid.cellRect(app.model 12 1))
+        def onVal:int (OverflowRenderTest.diffIn(before after W (val.x + 1) val.y (val.x + val.w) (val.y + val.h)))
+        c.ok("while the value itself did change" (onVal > 0))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

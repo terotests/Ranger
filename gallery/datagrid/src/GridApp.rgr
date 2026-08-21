@@ -203,7 +203,27 @@ class GridApp {
     def sqlDialog:EVGWindow (new EVGWindow)
     def dbSqlText:string ""
     def dbSqlStatus:string ""
+    ; The connection window: what this workbook is talking to, and the way to
+    ; point it somewhere else. The app cannot open a database itself - naming
+    ; an engine is the host's job, the same way opening a file picker is - so
+    ; asking for one is a REQUEST the host reads and clears, like fileRequest.
+    def connDialog:EVGWindow (new EVGWindow)
+    def dbDriver:string ""
+    def dbDsn:string ""
+    def dbTable:string ""
+    def dbRequest:string ""
+    def dbRequestDriver:string ""
+    def dbRequestDsn:string ""
+    def dbRequestTable:string ""
+    def dbConnStatus:string ""
     def colorDialogOp:string "color"
+    ; The border gallery. Three toolbar words could not say "a medium red line
+    ; under this block and nothing else", so the buttons open this instead:
+    ; which edges, which line, which colour, with the answer drawn as a
+    ; four-cell picture before it is applied to anything.
+    def borderDialog:EVGWindow (new EVGWindow)
+    def borderLine:string "thin"
+    def borderInk:string "#000000"
     def colorPick:string "#C00000"
     def colorRecent:[string]
     ; Live preview while the palette is open: styles before the picker ran,
@@ -472,6 +492,168 @@ class GridApp {
         return (this.bindDatabaseSql(session trimmed "SQL"))
     }
 
+    ; What the host connected, so the connection window can say it. The app
+    ; only ever holds a DBSession; which driver and which data source produced
+    ; it is knowledge the host has.
+    fn noteConnection:void (driver:string dsn:string table:string) {
+        dbDriver = driver
+        dbDsn = dsn
+        dbTable = table
+        ; The window that asked for this connection is still on screen showing
+        ; the OLD one - the host answers after the click, not during it - so it
+        ; is rebuilt here rather than left lying about what is connected.
+        if connDialog.visible {
+            this.reopenConnectionDialog()
+        }
+    }
+
+    ; --- the connection window --------------------------------------------------
+    fn connectionEngine:string () {
+        if (db.bound == false) {
+            return "not connected"
+        }
+        return (db.session.engineName())
+    }
+
+    fn connectionSource:string () {
+        if ((strlen dbDsn) == 0) {
+            return ":memory:"
+        }
+        return dbDsn
+    }
+
+    fn connectionTable:string () {
+        if ((strlen db.writeTable) > 0) {
+            return db.writeTable
+        }
+        return dbTable
+    }
+
+    fn connectionKeys:string () {
+        def n:int (array_length db.keyNames)
+        if (n == 0) {
+            return "none - the sheet is read only"
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (itemAt db.keyNames i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn connectionRows:string () {
+        def out:string (to_string db.loadedRows)
+        if (db.totalRows > db.loadedRows) {
+            out = (out + " of " + (to_string db.totalRows))
+        }
+        return (out + " rows")
+    }
+
+    fn openConnectionDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        connDialog.title = "Database connection"
+        connDialog.w = 470
+        connDialog.labelW = 96
+        connDialog.reset()
+        def driverValue:string dbDriver
+        if ((strlen driverValue) == 0) {
+            driverValue = "auto"
+        }
+        connDialog.addInput(721 "Engine" driverValue)
+        connDialog.addInput(722 "Data source" (this.connectionSource()))
+        connDialog.addInput(723 "Table" (this.connectionTable()))
+        connDialog.addSeparator()
+        connDialog.addLabel(("connected: " + (this.connectionEngine())))
+        if db.bound {
+            connDialog.addLabel(("rows: " + (this.connectionRows())))
+            connDialog.addLabel(("key columns: " + (this.connectionKeys())))
+            def caps:DBCapabilities (db.session.capabilities())
+            connDialog.addLabel(("engine can: " + (caps.describe())))
+            def fb:string db.session.lastFallback
+            if ((strlen fb) > 0) {
+                connDialog.addLabel(("ranger did: " + fb))
+            } {
+                connDialog.addLabel("ranger did: nothing - the engine took it all")
+            }
+            if db.readOnly {
+                connDialog.addLabel(("read only: " + db.readOnlyReason))
+            }
+            def err:string (db.session.lastError())
+            if ((strlen err) > 0) {
+                connDialog.addLabel(("last error: " + err))
+            }
+        } {
+            connDialog.addLabel("no database is open")
+        }
+        if ((strlen dbConnStatus) > 0) {
+            connDialog.addLabel(dbConnStatus)
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 731
+        push labels "Close"
+        push ids 732
+        push labels "Refresh"
+        push ids 733
+        push labels "Connect"
+        connDialog.addButtonRow(ids labels 733)
+        connDialog.finish()
+        def px:int (grid.x + (idiv (W - connDialog.w) 2))
+        def py:int (grid.y + 50)
+        connDialog.openWithin(px py W H)
+        windows.raise(connDialog)
+        connDialog.focusedId = 721
+        view.focused = true
+    }
+
+    ; Connecting is the host's part. The app writes down what was asked for and
+    ; whoever is hosting - the window server, the SDL binary, a test - reads it,
+    ; opens the engine and calls bindDatabase. A host that ignores it loses
+    ; nothing: the sheet it already has keeps working.
+    fn requestConnection:void (driver:string dsn:string table:string) {
+        dbRequest = "connect"
+        dbRequestDriver = driver
+        dbRequestDsn = dsn
+        dbRequestTable = table
+        dbConnStatus = ("connecting to " + driver + " " + dsn + " …")
+        view.status = dbConnStatus
+    }
+
+    fn takeDbRequest:string () {
+        def r:string dbRequest
+        dbRequest = ""
+        return r
+    }
+
+    fn connectFromDialog:void () {
+        def driver:string (trim (connDialog.inputValue(721)))
+        def dsn:string (trim (connDialog.inputValue(722)))
+        def table:string (trim (connDialog.inputValue(723)))
+        if ((strlen table) == 0) {
+            dbConnStatus = "name a table to open"
+            this.reopenConnectionDialog()
+            return
+        }
+        this.requestConnection(driver dsn table)
+        this.reopenConnectionDialog()
+    }
+
+    fn reopenConnectionDialog:void () {
+        def kx:int connDialog.x
+        def ky:int connDialog.y
+        this.openConnectionDialog()
+        connDialog.x = kx
+        connDialog.y = ky
+    }
+
     ; --- the SQL box ----------------------------------------------------------
     fn openSqlDialog:void () {
         this.buildDialogs()
@@ -624,6 +806,7 @@ class GridApp {
         commands.addArg("db.filter" "Filter this column in the database" "Data" "")
         commands.add("db.page.next" "Next page of rows" "Data" "")
         commands.add("db.page.prev" "Previous page of rows" "Data" "")
+        commands.add("db.connection" "Database connection…" "Data" "Ctrl+D")
         commands.add("db.sql.dialog" "SQL query…" "Data" "Ctrl+Q")
         commands.addArg("db.sql" "Run a SQL query as a sheet" "Data" "")
         commands.add("select.all" "Select all" "Select" "Ctrl+A")
@@ -982,6 +1165,10 @@ class GridApp {
     fn runDbCommand:boolean (id:string arg:string) {
         ; The SQL box is about the CONNECTION, not about the sheet in front of
         ; the user, so it works from anywhere in the workbook.
+        if (id == "db.connection") {
+            this.openConnectionDialog()
+            return true
+        }
         if (id == "db.sql.dialog") {
             this.openSqlDialog()
             return true
@@ -2511,9 +2698,15 @@ class GridApp {
         colorDialog.w = 340
         colorDialog.title = "Colour"
         windows.add(colorDialog)
+        borderDialog.w = 300
+        borderDialog.title = "Borders"
+        windows.add(borderDialog)
         sqlDialog.w = 460
         sqlDialog.title = "SQL query"
         windows.add(sqlDialog)
+        connDialog.w = 460
+        connDialog.title = "Database connection"
+        windows.add(connDialog)
         dialogsReady = true
     }
 
@@ -2859,6 +3052,285 @@ class GridApp {
         colorPreviewCommitted = false
         view.colorPreviewWid = 0
         colorDialog.close()
+    }
+
+    ; --- the border gallery ---------------------------------------------------
+    ; Three toolbar buttons could say "all", "outline" and "none", and that was
+    ; the whole vocabulary: no way to put a line under a block without boxing
+    ; it, no way to choose a thickness, no way to choose a colour. Everything
+    ; Excel offers in Format Cells → Border, and none of it reachable.
+    ;
+    ; So a window. It opens showing what the caret's cell ALREADY has — that is
+    ; what makes unticking an edge a way to remove one — and everything in it
+    ; feeds one command string, `format.border spec:…`, so a host driving the
+    ; grid can say the same thing without the window.
+    ;
+    ; Ids: 1001..1006 the edges, 1011..1016 the line, 1030.. the colour
+    ; (group 2), 1050 the preview, 1071..1073 the presets, 1091 Cancel,
+    ; 1092 Apply.
+    sfn borderPaletteCount:int () {
+        return 10
+    }
+
+    sfn borderPalette:string (i:int) {
+        if (i == 0) { return "#000000" }
+        if (i == 1) { return "#404040" }
+        if (i == 2) { return "#808080" }
+        if (i == 3) { return "#BFBFBF" }
+        if (i == 4) { return "#C00000" }
+        if (i == 5) { return "#ED7D31" }
+        if (i == 6) { return "#FFC000" }
+        if (i == 7) { return "#70AD47" }
+        if (i == 8) { return "#4472C4" }
+        if (i == 9) { return "#7030A0" }
+        return "#000000"
+    }
+
+    sfn borderLineCount:int () {
+        return 6
+    }
+
+    sfn borderLineStyle:string (i:int) {
+        if (i == 0) { return "thin" }
+        if (i == 1) { return "medium" }
+        if (i == 2) { return "thick" }
+        if (i == 3) { return "double" }
+        if (i == 4) { return "dashed" }
+        if (i == 5) { return "dotted" }
+        return "thin"
+    }
+
+    sfn borderLineLabel:string (i:int) {
+        if (i == 0) { return "Thin" }
+        if (i == 1) { return "Medium" }
+        if (i == 2) { return "Thick" }
+        if (i == 3) { return "Double" }
+        if (i == 4) { return "Dashed" }
+        if (i == 5) { return "Dotted" }
+        return "Thin"
+    }
+
+    ; The edges the caret's cell carries, as spec letters. A cell in the middle
+    ; of a selection cannot say anything about the block's inside lines, so H
+    ; and V are never seeded — they are something you ask for, not something
+    ; that is already there.
+    fn borderEdgesOfActive:string () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        def out:string ""
+        if (st.borderTop.has()) {
+            out = (out + "T")
+        }
+        if (st.borderBottom.has()) {
+            out = (out + "B")
+        }
+        if (st.borderLeft.has()) {
+            out = (out + "L")
+        }
+        if (st.borderRight.has()) {
+            out = (out + "R")
+        }
+        return out
+    }
+
+    ; The line and colour the caret's cell already draws with, so re-opening
+    ; the gallery over a red dashed box does not offer to make it thin black.
+    fn borderLineOfActive:string () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        if (st.borderTop.has())    { return st.borderTop.style }
+        if (st.borderBottom.has()) { return st.borderBottom.style }
+        if (st.borderLeft.has())   { return st.borderLeft.style }
+        if (st.borderRight.has())  { return st.borderRight.style }
+        return "thin"
+    }
+
+    fn borderInkOfActive:string () {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        if (st.borderTop.has())    { return st.borderTop.rgb }
+        if (st.borderBottom.has()) { return st.borderBottom.rgb }
+        if (st.borderLeft.has())   { return st.borderLeft.rgb }
+        if (st.borderRight.has())  { return st.borderRight.rgb }
+        return "#000000"
+    }
+
+    fn openBorderDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        def edges:string (this.borderEdgesOfActive())
+        borderLine = (this.borderLineOfActive())
+        borderInk = (this.borderInkOfActive())
+        def multi:boolean false
+        def a:CellPos (new CellPos)
+        def b:CellPos (new CellPos)
+        sel.normalized(a b)
+        if (a.row != b.row) {
+            multi = true
+        }
+        if (a.col != b.col) {
+            multi = true
+        }
+        borderDialog.w = 300
+        borderDialog.reset()
+        borderDialog.addLabel("Edges")
+        borderDialog.beginColumns(2)
+        borderDialog.addCheckbox(1001 "Top" (GridApp.hasLetter(edges 84)))
+        borderDialog.addCheckbox(1002 "Bottom" (GridApp.hasLetter(edges 66)))
+        borderDialog.addCheckbox(1003 "Left" (GridApp.hasLetter(edges 76)))
+        borderDialog.addCheckbox(1004 "Right" (GridApp.hasLetter(edges 82)))
+        borderDialog.endColumns()
+        ; The two inside lines only mean something when there is an inside.
+        if multi {
+            borderDialog.beginColumns(2)
+            borderDialog.addCheckbox(1005 "Inside —" false)
+            borderDialog.addCheckbox(1006 "Inside |" false)
+            borderDialog.endColumns()
+        }
+        borderDialog.addSeparator()
+        borderDialog.addLabel("Line")
+        borderDialog.beginColumns(3)
+        def li:int 0
+        while (li < (GridApp.borderLineCount())) {
+            def styleName:string (GridApp.borderLineStyle(li))
+            borderDialog.addRadio((1011 + li) (GridApp.borderLineLabel(li)) 1 (styleName == borderLine))
+            li = (li + 1)
+        }
+        borderDialog.endColumns()
+        borderDialog.addSeparator()
+        borderDialog.addLabel("Colour")
+        borderDialog.beginColumns(10)
+        def matched:boolean false
+        def ci:int 0
+        while (ci < (GridApp.borderPaletteCount())) {
+            def hex:string (GridApp.borderPalette(ci))
+            def on:boolean false
+            if (matched == false) {
+                if (hex == borderInk) {
+                    on = true
+                    matched = true
+                }
+            }
+            borderDialog.addSwatch((1030 + ci) hex 2 on)
+            ci = (ci + 1)
+        }
+        borderDialog.endColumns()
+        ; A colour the sheet is already using but the palette does not offer
+        ; would otherwise be silently swapped for black on the first Apply.
+        if (matched == false) {
+            borderDialog.beginColumns(10)
+            borderDialog.addSwatch(1029 borderInk 2 true)
+            borderDialog.endColumns()
+        }
+        borderDialog.addSeparator()
+        borderDialog.addContent(1050 62)
+        def pids:[int]
+        def plabels:[string]
+        push pids 1071
+        push plabels "Box"
+        push pids 1072
+        push plabels "All"
+        push pids 1073
+        push plabels "None"
+        borderDialog.addButtonRow(pids plabels 0)
+        def ids:[int]
+        def labels:[string]
+        push ids 1091
+        push labels "Cancel"
+        push ids 1092
+        push labels "Apply"
+        borderDialog.addButtonRow(ids labels 1092)
+        borderDialog.finish()
+        def px:int (grid.x + (idiv (W - borderDialog.w) 2))
+        borderDialog.openWithin(px (grid.y + 40) W H)
+        windows.raise(borderDialog)
+        view.focused = true
+        this.syncBorderDialog()
+    }
+
+    sfn hasLetter:boolean (s:string letter:int) {
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((charAt s i) == letter) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What the controls currently say, as the spec string the command takes.
+    fn borderSpecFromDialog:string () {
+        def flags:string ""
+        if (borderDialog.isChecked(1001)) {
+            flags = (flags + "T")
+        }
+        if (borderDialog.isChecked(1002)) {
+            flags = (flags + "B")
+        }
+        if (borderDialog.isChecked(1003)) {
+            flags = (flags + "L")
+        }
+        if (borderDialog.isChecked(1004)) {
+            flags = (flags + "R")
+        }
+        if (borderDialog.isChecked(1005)) {
+            flags = (flags + "H")
+        }
+        if (borderDialog.isChecked(1006)) {
+            flags = (flags + "V")
+        }
+        return ("spec:" + flags + ":" + borderLine + ":" + borderInk)
+    }
+
+    ; Read the window back every frame, the way the chart picker does, so the
+    ; preview is what the controls say and not what they said when it opened.
+    fn syncBorderDialog:void () {
+        def chosen:int (borderDialog.selectedInGroup(1))
+        if (chosen >= 1011) {
+            borderLine = (GridApp.borderLineStyle((chosen - 1011)))
+        }
+        def hex:string (borderDialog.selectedSwatchValue(2))
+        if ((strlen hex) > 0) {
+            borderInk = hex
+        }
+        view.borderPreviewSpec = (this.borderSpecFromDialog())
+        if borderDialog.visible {
+            view.borderPreviewWid = borderDialog.wid
+        } {
+            view.borderPreviewWid = 0
+        }
+    }
+
+    ; The presets tick boxes rather than applying anything: what a preset means
+    ; is then visible in the preview before it touches the sheet.
+    fn presetBorderDialog:void (which:int) {
+        def box:boolean (which == 1071)
+        def all:boolean (which == 1072)
+        borderDialog.setChecked(1001 (box || all))
+        borderDialog.setChecked(1002 (box || all))
+        borderDialog.setChecked(1003 (box || all))
+        borderDialog.setChecked(1004 (box || all))
+        borderDialog.setChecked(1005 all)
+        borderDialog.setChecked(1006 all)
+        this.syncBorderDialog()
+    }
+
+    fn applyBorderDialog:void () {
+        this.syncBorderDialog()
+        def spec:string (this.borderSpecFromDialog())
+        def done:boolean (GridFormat.apply(model sel "border" spec))
+        if done {
+            sheetView.markDirty()
+            grid.updateVisible(model)
+            view.status = ("Borders: " + (GridFormat.specField(spec 1)))
+        }
+        view.borderPreviewWid = 0
+        borderDialog.close()
+    }
+
+    fn cancelBorderDialog:void () {
+        view.borderPreviewWid = 0
+        borderDialog.close()
     }
 
     ; --- conditional formatting ----------------------------------------------
@@ -3827,6 +4299,12 @@ class GridApp {
                 return true
             }
         }
+        if (id == "format.border") {
+            if ((strlen arg) == 0) {
+                this.openBorderDialog()
+                return true
+            }
+        }
         if (id == "format.fill") {
             if ((strlen arg) == 0) {
                 def curF:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
@@ -4349,6 +4827,19 @@ class GridApp {
                 findDialog.close()
             }
         }
+        if (connDialog.activated > 0) {
+            if (connDialog.activated == 733) {
+                this.connectFromDialog()
+            }
+            if (connDialog.activated == 732) {
+                this.refreshDatabaseSheet()
+                dbConnStatus = db.status
+                this.reopenConnectionDialog()
+            }
+            if (connDialog.activated == 731) {
+                connDialog.close()
+            }
+        }
         if (sqlDialog.activated > 0) {
             if (sqlDialog.activated == 712) {
                 this.runSqlFromDialog()
@@ -4399,6 +4890,24 @@ class GridApp {
                 view.colorPreviewWid = 0
             }
         }
+        if borderDialog.visible {
+            ; Live, like the chart picker: the preview draws whatever the
+            ; controls say, so you can see a medium red box before you own one.
+            this.syncBorderDialog()
+            if (borderDialog.activated >= 1071) {
+                if (borderDialog.activated <= 1073) {
+                    this.presetBorderDialog(borderDialog.activated)
+                }
+            }
+            if (borderDialog.activated == 1092) {
+                this.applyBorderDialog()
+            }
+            if (borderDialog.activated == 1091) {
+                this.cancelBorderDialog()
+            }
+        } {
+            view.borderPreviewWid = 0
+        }
         if (linkDialog.activated > 0) {
             if (linkDialog.activated == 813) {
                 this.applyLinkDialog()
@@ -4445,6 +4954,13 @@ class GridApp {
         W = nw
         H = nh
         view.resize(W H)
+        ; The strip is as many rows as the buttons need AT THIS WIDTH, and the
+        ; width is what just changed. Measured once at startup and never again,
+        ; the height was right only for the size the window opened at: narrow
+        ; it and the buttons that no longer fit wrapped onto a row painted
+        ; BELOW the strip, over the formula bar; widen it and a band of empty
+        ; chrome sat where a row used to be.
+        grid.toolbarH = (view.toolbar.heightFor(W))
         grid.setBounds(0 0 W (H - statusH))
         grid.updateVisible(model)
     }
@@ -7031,6 +7547,13 @@ class GridApp {
                         this.commitEdit()
                     }
                     this.openFindDialog()
+                }
+                ; Ctrl+D shows what the workbook is connected to.
+                if ((ch == 100) || (ch == 68)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openConnectionDialog()
                 }
                 ; Ctrl+Q opens the SQL box - the query is the thing you edit
                 ; when the sheet is a database sheet.

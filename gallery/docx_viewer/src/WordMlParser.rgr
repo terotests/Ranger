@@ -99,11 +99,38 @@ class WordMlParser {
         }
         def i:int 0
         def n:int (strlen body)
+        ; Where the next `w:p`, `w:tbl` and `w:sectPr` begin — searched once,
+        ; and again only when the walk has gone past the one we found.
+        ;
+        ; The body is walked strictly forward, which makes that sound: a hit
+        ; still ahead of `i` is still the NEXT hit (it was the first at or
+        ; after an earlier position, and everything at or after `i` is also at
+        ; or after that one), and a miss is a miss for every position after it.
+        ;
+        ; Searching all three from `i` on every turn is what made opening a
+        ; long document quadratic. A document with no tables in it — which is
+        ; most documents — scanned its entire length looking for `w:tbl` once
+        ; per paragraph and found nothing, 20,000 times: 58 seconds to open a
+        ; file the spreadsheet's loader reads in under one.
+        def pAt:int (WordXml.findNext(body "w:p" 0))
+        def tAt:int (WordXml.findNext(body "w:tbl" 0))
+        def sAt:int (WordXml.findNext(body "w:sectPr" 0))
         while (i < n) {
-            ; Find next top-level child: p, tbl, or sectPr
-            def pAt:int (WordXml.findNext(body "w:p" i))
-            def tAt:int (WordXml.findNext(body "w:tbl" i))
-            def sAt:int (WordXml.findNext(body "w:sectPr" i))
+            if (pAt >= 0) {
+                if (pAt < i) {
+                    pAt = (WordXml.findNext(body "w:p" i))
+                }
+            }
+            if (tAt >= 0) {
+                if (tAt < i) {
+                    tAt = (WordXml.findNext(body "w:tbl" i))
+                }
+            }
+            if (sAt >= 0) {
+                if (sAt < i) {
+                    sAt = (WordXml.findNext(body "w:sectPr" i))
+                }
+            }
             def next:int -1
             def kind:int -1
             if (pAt >= 0) {

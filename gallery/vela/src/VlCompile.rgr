@@ -534,6 +534,14 @@ class VlCompile {
         if ((markName == "errorbar") || (markName == "errorband")) {
             def spelled:VlJson (this.errorSpec(src))
             if (spelled.isObject()) {
+                ; …as ONE layer rather than as a plain chart. The reference
+                ; expands a composite mark into a layered specification, and a
+                ; scene is compared by the names its marks carry: the same band
+                ; drawn as a plain chart is called `marks` where the reference
+                ; calls it `layer_0_marks`.
+                if (markName == "errorband") {
+                    return (this.compile((VlCompile.asOneLayer(spelled))))
+                }
                 return (this.compile(spelled))
             }
             return (VlJson.objectValue())
@@ -842,7 +850,16 @@ class VlCompile {
             ; whole path down to it. Named after its own index alone, the
             ; second layer of the first layer and the second layer of the chart
             ; were both "data_1", and one silently replaced the other.
-            child.layerPath = (layerPath + (VlJson.intToText(index)))
+            ; A layer inside a layer is `1_layer_0`, which is the name the
+            ; reference gives it: a line asked to show its points expands into
+            ; layers of its own, and run together the eleventh layer of a chart
+            ; and the first sub-layer of its second layer were both called
+            ; `layer_11_marks`.
+            def path:string (VlJson.intToText(index))
+            if ((strlen layerPath) > 0) {
+                path = ((layerPath + "_layer_") + path)
+            }
+            child.layerPath = path
             ; Where the layered chart itself sits: a pane of a concatenation
             ; names its scales, its data and its size after the pane. A layer
             ; that did not inherit that named its scales `x` and `y` like every
@@ -854,6 +871,16 @@ class VlCompile {
             child.insidePanel = insidePanel
             child.dataLabel = ((prefix + "data_") + child.layerPath)
             child.markLabel = (((prefix + "layer_") + child.layerPath) + "_marks")
+            ; What THIS layering already knows about its scales goes down with
+            ; the layer: a layer that expands into layers of its own — a line
+            ; asked to show its points — would otherwise decide afresh that a
+            ; category is a point scale, and its marks would stand at the start
+            ; of a band the bar beside them fills. Twenty pixels out, on a
+            ; forty-five pixel band.
+            for (keys forcedTypes) forced:string fi {
+                def already:string (unwrap (get forcedTypes forced))
+                set child.forcedTypes forced already
+            }
             if bandX {
                 set child.forcedTypes "x" "band"
             }
@@ -1003,32 +1030,41 @@ class VlCompile {
     ; Which direction the summary runs in. An error bar measures ONE column
     ; and is repeated along the other axis, so the measured axis is the one
     ; that names a number and does not already summarise it.
+    ; …and where BOTH axes name a number — a band along a series of readings —
+    ; the interval runs up and down rather than left and right, which is the
+    ; way round the reference reads it. Asked of x first, a band over a line of
+    ; measurements summarised the wrong column: the x axis was drawn from the
+    ; interval's own ends and came out with three ticks where five belong.
     fn errorAxis:string () {
-        def x:VlChannel (this.channel("x"))
-        if (x.defined) {
-            if ((strlen x.field) > 0) {
-                if ((strlen x.aggregate) == 0) {
-                    if (x.isContinuous()) {
-                        if ((strlen x.timeUnit) == 0) {
-                            return "x"
-                        }
-                    }
-                }
-            }
+        if (this.measurableAxis("y")) {
+            return "y"
         }
-        def y:VlChannel (this.channel("y"))
-        if (y.defined) {
-            if ((strlen y.field) > 0) {
-                if ((strlen y.aggregate) == 0) {
-                    if (y.isContinuous()) {
-                        if ((strlen y.timeUnit) == 0) {
-                            return "y"
-                        }
-                    }
-                }
-            }
+        if (this.measurableAxis("x")) {
+            return "x"
         }
         return ""
+    }
+
+    ; A channel that names a number, does not already summarise it, and is not
+    ; a date part — the one an error bar can measure.
+    fn measurableAxis:boolean (name:string) {
+        def ch:VlChannel (this.channel(name))
+        if (! ch.defined) {
+            return false
+        }
+        if ((strlen ch.field) == 0) {
+            return false
+        }
+        if ((strlen ch.aggregate) > 0) {
+            return false
+        }
+        if (! (ch.isContinuous())) {
+            return false
+        }
+        if ((strlen ch.timeUnit) > 0) {
+            return false
+        }
+        return true
     }
 
     ; The specification an error bar or band stands for. The two are the same
@@ -1121,6 +1157,13 @@ class VlCompile {
             farDef.setMember("field" (VlJson.stringValue(far)))
         }
         nearDef.setMember("type" (VlJson.stringValue("quantitative")))
+        ; The axis is named after the COLUMN, not after the two derived ends it
+        ; is drawn from. Left to name themselves, `lower_y` and `upper_y` were
+        ; merged into an axis titled "lower_y, upper_y" where the reference
+        ; writes "y" — the interval is a statement about y, and that is what
+        ; the reader is being shown.
+        nearDef.setMember("title" (VlJson.stringValue(column)))
+        farDef.setMember("title" (VlJson.stringValue(column)))
         ; What the chart said about the measured axis belongs to the end that
         ; carries the axis — its title, its scale and its guide.
         def said:VlJson measured.def0
@@ -1175,11 +1218,11 @@ class VlCompile {
             }
             if runs {
                 shape.setMember("type" (VlJson.stringValue("area")))
-                push style.arr (VlJson.stringValue("area"))
             } {
                 shape.setMember("type" (VlJson.stringValue("rect")))
-                push style.arr (VlJson.stringValue("rect"))
             }
+            ; The mark's own name is added to the style list by whatever draws
+            ; it; naming it here as well wrote `["area", "area", …]`.
             push style.arr (VlJson.stringValue("errorband-band"))
             if (! (markDef.has("opacity"))) {
                 shape.setMember("opacity" (VlJson.numberValue(0.3)))
@@ -1190,7 +1233,29 @@ class VlCompile {
             push style.arr (VlJson.stringValue("errorbar-rule"))
         }
         shape.setMember("style" style)
+        ; What a reader is told this is. The shape it expands to is a rule or
+        ; an area; what it MEANS is an error bar, and the reference says so.
+        shape.setMember("ariaRoleDescription" (VlJson.stringValue(markName)))
         out.setMember("mark" shape)
+        return out
+    }
+
+    ; A specification wrapped in a layer of one, keeping everything above the
+    ; mark — the data, the size, the transforms — on the outside where a layer
+    ; expects to find it.
+    sfn asOneLayer:VlJson (spec:VlJson) {
+        def out (VlJson.objectValue())
+        def inner (VlJson.objectValue())
+        for spec.keys k:string ki {
+            if ((k == "mark") || (k == "encoding")) {
+                inner.setMember(k (spec.get(k)))
+            } {
+                out.setMember(k (spec.get(k)))
+            }
+        }
+        def layers (VlJson.arrayValue())
+        push layers.arr inner
+        out.setMember("layer" layers)
         return out
     }
 
@@ -1238,6 +1303,16 @@ class VlCompile {
         out.setMember("$schema" (VlJson.stringValue("https://vega.github.io/schema/vega/v6.json")))
         out.setMember("background" (VlJson.stringValue("white")))
         out.setMember("padding" (VlJson.numberValue(5.0)))
+        ; A stated size is not a suggestion here either. A box plot is built as
+        ; its own Vega specification rather than through the ordinary sizing
+        ; path, and that path was the only one reading `width`: a box plot
+        ; asked to be 180 wide came out one twenty-pixel band per group —
+        ; sixty pixels for three of them — with the axes drawn to match.
+        def widthGiven:VlJson (src.get("width"))
+        def widthStated:boolean (widthGiven.isNumber())
+        if widthStated {
+            out.setMember("width" widthGiven)
+        }
         def heightGiven:VlJson (src.get("height"))
         if (heightGiven.isNumber()) {
             out.setMember("height" heightGiven)
@@ -1332,16 +1407,21 @@ class VlCompile {
         out.setMember("data" data)
 
         ; --- the signals: the band decides how wide the chart is ---
-        def signals (VlJson.arrayValue())
-        def step (VlJson.objectValue())
-        step.setMember("name" (VlJson.stringValue("x_step")))
-        step.setMember("value" (VlJson.numberValue(20.0)))
-        push signals.arr step
-        def width (VlJson.objectValue())
-        width.setMember("name" (VlJson.stringValue("width")))
-        width.setMember("update" (VlJson.stringValue("bandspace(domain('x').length, 0, 0) * x_step")))
-        push signals.arr width
-        out.setMember("signals" signals)
+        ; …unless the chart said. Then the width is a number on the page and
+        ; the band is whatever fits inside it, which is what the reference
+        ; writes: no signals at all.
+        if (! widthStated) {
+            def signals (VlJson.arrayValue())
+            def step (VlJson.objectValue())
+            step.setMember("name" (VlJson.stringValue("x_step")))
+            step.setMember("value" (VlJson.numberValue(20.0)))
+            push signals.arr step
+            def width (VlJson.objectValue())
+            width.setMember("name" (VlJson.stringValue("width")))
+            width.setMember("update" (VlJson.stringValue("bandspace(domain('x').length, 0, 0) * x_step")))
+            push signals.arr width
+            out.setMember("signals" signals)
+        }
 
         ; --- the marks, in the order they are drawn ---
         def marks (VlJson.arrayValue())
@@ -1381,11 +1461,20 @@ class VlCompile {
         xDomain.setMember("fields" xFields)
         xDomain.setMember("sort" (VlJson.boolValue(true)))
         xs.setMember("domain" xDomain)
-        def xRange (VlJson.objectValue())
-        def xStep (VlJson.objectValue())
-        xStep.setMember("signal" (VlJson.stringValue("x_step")))
-        xRange.setMember("step" xStep)
-        xs.setMember("range" xRange)
+        if widthStated {
+            def span (VlJson.arrayValue())
+            push span.arr (VlJson.numberValue(0.0))
+            def edge (VlJson.objectValue())
+            edge.setMember("signal" (VlJson.stringValue("width")))
+            push span.arr edge
+            xs.setMember("range" span)
+        } {
+            def xRange (VlJson.objectValue())
+            def xStep (VlJson.objectValue())
+            xStep.setMember("signal" (VlJson.stringValue("x_step")))
+            xRange.setMember("step" xStep)
+            xs.setMember("range" xRange)
+        }
         xs.setMember("paddingInner" (VlJson.numberValue(0.0)))
         xs.setMember("paddingOuter" (VlJson.numberValue(0.0)))
         push scales.arr xs
@@ -3214,19 +3303,30 @@ class VlCompile {
         if (channel == "x") {
             far = "top"
         }
+        def kept:[VlJson]
         def k:int 0
         while (k < (axes.count())) {
             def a:VlJson (axes.at(k))
             if ((a.stringOr("scale" "")) == scaleName) {
                 if (a.boolOr("grid" false)) {
                     ; A grid axis for a scale nothing else measures rules the
-                    ; plot twice over. The reference draws one grid.
-                    a.setMember("grid" (VlJson.boolValue(false)))
+                    ; plot twice over, and the reference draws one grid — from
+                    ; the FIRST layer. Kept with its grid turned off it is a
+                    ; second axis standing on the near side drawing nothing,
+                    ; and an axis with no ink still reserves room beside the
+                    ; plot: dropped is what the reference writes.
                 } {
                     a.setMember("orient" (VlJson.stringValue(far)))
+                    push kept a
                 }
+            } {
+                push kept a
             }
             k = (k + 1)
+        }
+        clear axes.arr
+        for kept one:VlJson oi {
+            push axes.arr one
         }
     }
 
@@ -3526,11 +3626,17 @@ class VlCompile {
             ; The composition itself is not inherited — a pane of a
             ; concatenation is not another concatenation.
             def composition:boolean (((key == "layer") || (key == "hconcat")) || ((key == "vconcat") || (key == "facet")))
+            ; …and neither is `resolve`: it says how THIS composition's panes
+            ; share their scales. Inherited, a layer that expands into layers
+            ; of its own — a line asked to show its points is two marks —
+            ; numbered its scales from zero again and gave them the names the
+            ; OUTER layers were already using, so a dual-axis chart's first
+            ; scale ended up measuring the second layer's column.
             ; `concat` and the column count that folds it belong to the
             ; concatenation, not to its panes — inherited, every pane became a
             ; copy of the whole thing and the compiler recursed until the stack
             ; ran out.
-            if ((key == "concat") || (key == "columns")) {
+            if (((key == "concat") || (key == "columns")) || (key == "resolve")) {
                 composition = true
             }
             if composition {
@@ -4765,6 +4871,15 @@ class VlCompile {
             ; rather than in the segment it names.
             return ((VlCompile.asksToStack((this.channel("x")))) || (VlCompile.asksToStack((this.channel("y")))))
         }
+        ; A line stacks only when the chart SAYS so. Piling lines up is a
+        ; statement about parts and wholes that a line does not make on its
+        ; own — the reference stacks a bar and an area by default and a line
+        ; never, unless its own channel asks. Read as unstackable either way,
+        ; `"stack": "zero"` on a line drew every series from the baseline and
+        ; the chart said nothing about it.
+        if (markName == "line") {
+            return ((VlCompile.asksToStack((this.channel("x")))) || (VlCompile.asksToStack((this.channel("y")))))
+        }
         return (((markName == "bar") || (markName == "area")) || (markName == "arc"))
     }
 
@@ -4824,11 +4939,23 @@ class VlCompile {
         ; — unless the chart says otherwise, and a radial chart that asks for
         ; `"stack": true` is asking for the wedges to go all the way round.
         if (this.hasChannel("radius")) {
-            if (! (measure.def0.has("stack"))) {
-                return
+            ; …unless the ANGLE is a category. Then the chart is a polar
+            ; column — a bar bent round a circle — and its segments pile up
+            ; along the radius the way a stacked bar's pile up its axis.
+            def angle:VlChannel (this.channel("theta"))
+            def polarColumn:boolean false
+            if angle.defined {
+                if (angle.isDiscrete()) {
+                    polarColumn = true
+                }
             }
-            if ((measure.def0.get("stack")).isNull()) {
-                return
+            if (! polarColumn) {
+                if (! (measure.def0.has("stack"))) {
+                    return
+                }
+                if ((measure.def0.get("stack")).isNull()) {
+                    return
+                }
             }
         }
         ; A bar that already says where both its ends are is not stacked: it is
@@ -4888,7 +5015,19 @@ class VlCompile {
     fn stackMeasure:VlChannel () {
         def theta:VlChannel (this.channel("theta"))
         if theta.defined {
-            return theta
+            ; …unless the angle is a category. Then the angle says WHICH wedge
+            ; and the radius says how long it is, so the radius is what
+            ; accumulates — the polar version of a bar standing in its band.
+            if (theta.isDiscrete()) {
+                def radius:VlChannel (this.channel("radius"))
+                if radius.defined {
+                    if (radius.isContinuous()) {
+                        return radius
+                    }
+                }
+            } {
+                return theta
+            }
         }
         ; A BINNED field is a dimension however continuous it is: it says which
         ; group a row is in, not how much the row is worth. Taken as the
@@ -4942,6 +5081,10 @@ class VlCompile {
         if (measure.name == "theta") {
             def none (new VlChannel())
             return none
+        }
+        ; A polar column is grouped by the angle it stands at.
+        if (measure.name == "radius") {
+            return (this.channel("theta"))
         }
         if (measure.name == "y") {
             return (this.channel("x"))
@@ -5160,6 +5303,16 @@ class VlCompile {
                 return "band"
             }
             if (((markName == "bar") || (markName == "rect")) || (markName == "tick")) {
+                return "band"
+            }
+            ; A RULE is a band too, and an unpadded one — it is drawn from one
+            ; value to another ACROSS its band rather than standing on a point,
+            ; and the reference places it in the middle of a band that touches
+            ; its neighbours. Typed as a point, a hi-lo chart's own geometry
+            ; came out right and its axis did not: a band takes back the half
+            ; pixel its axis group is offset by and a point scale does not, so
+            ; every tick and label sat half a pixel off.
+            if ((markName == "rule") || (markName == "image")) {
                 return "band"
             }
             return "point"
@@ -6493,8 +6646,13 @@ class VlCompile {
     ; is not a shape. A series missing a row at some x would leave one, so the
     ; missing rows are filled in at zero before the stack — which is also what
     ; keeps the stack's own baseline continuous underneath the series above it.
+    ;
+    ; A STACKED line needs the same filling in and for the second reason rather
+    ; than the first: it has no shape to hole, but it stands on the series
+    ; below it, and a series that skips an x would have the ones above it step
+    ; down to a baseline that is not there.
     fn pushImpute:void (transforms:VlJson) {
-        if (markName != "area") {
+        if ((markName != "area") && (markName != "line")) {
             return
         }
         if ((strlen stackField) == 0) {
@@ -7733,13 +7891,26 @@ class VlCompile {
         }
         def sc (VlJson.objectValue())
         sc.setMember("name" (VlJson.stringValue((this.sname("theta")))))
-        sc.setMember("type" (VlJson.stringValue("linear")))
+        ; An angle read from a CATEGORY is a band of the circle — one slice per
+        ; category, all the same size — and the length of the wedge inside it
+        ; is what the chart is measuring. That is a polar column chart, and the
+        ; rose and the radar are built on the same scale. Typed as a number, a
+        ; category answered nothing and every wedge came out as the same
+        ; degenerate angle.
+        def banded:boolean (ch.isDiscrete())
+        if banded {
+            sc.setMember("type" (VlJson.stringValue("band")))
+        } {
+            sc.setMember("type" (VlJson.stringValue("linear")))
+        }
         sc.setMember("domain" (this.domainFor(ch)))
         def range (VlJson.arrayValue())
         push range.arr (VlJson.numberValue(0.0))
         push range.arr (VlJson.numberValue(6.283185307179586))
         sc.setMember("range" range)
-        sc.setMember("zero" (VlJson.boolValue(true)))
+        if (! banded) {
+            sc.setMember("zero" (VlJson.boolValue(true)))
+        }
         ; …unless the chart said where the angles run. A pyramid is a pie with
         ; a bite taken out of it, and the bite is a stated range.
         this.applyDeclaredScale(sc ch)
@@ -10911,6 +11082,16 @@ class VlCompile {
         halfDown.setMember("mult" (VlJson.numberValue(0.5)))
         update.setMember("y" halfDown)
         def radius:VlChannel (this.channel("radius"))
+        def theta:VlChannel (this.channel("theta"))
+        ; An angle read from a category: the wedge fills its band of the circle
+        ; and its LENGTH is what the chart measures, which is a polar column
+        ; chart. Everything below is the other way round from a pie.
+        def bandedTheta:boolean false
+        if theta.defined {
+            if (theta.isDiscrete()) {
+                bandedTheta = true
+            }
+        }
         def statedOuter:VlJson (markDef.get("outerRadius"))
         if (statedOuter.isNumber()) {
             ; A pie told how big it is is that big. Ignored, every wedge ran
@@ -10919,7 +11100,11 @@ class VlCompile {
             update.setMember("outerRadius" (VlCompile.literal(statedOuter)))
         } {
             if radius.defined {
-                update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+                if (bandedTheta && ((strlen stackField) > 0)) {
+                    update.setMember("outerRadius" (this.scaled("radius" (stackField + "_end"))))
+                } {
+                    update.setMember("outerRadius" (this.scaled("radius" (radius.outField()))))
+                }
             } {
                 def outer (VlJson.objectValue())
                 outer.setMember("signal" (VlJson.stringValue("min(width,height)/2")))
@@ -10927,10 +11112,27 @@ class VlCompile {
             }
         }
         def inner:VlJson (markDef.get("innerRadius"))
-        if (inner.isNumber()) {
-            update.setMember("innerRadius" (VlCompile.literal(inner)))
+        if (bandedTheta && ((strlen stackField) > 0)) {
+            ; A stacked polar column stands on the one below it, and the first
+            ; stands on nothing — which is what `_start` says. It beats a
+            ; stated `innerRadius`: the segments would otherwise all start at
+            ; the same ring and draw over each other.
+            update.setMember("innerRadius" (this.scaled("radius" (stackField + "_start"))))
         } {
+          if (inner.isNumber()) {
+            update.setMember("innerRadius" (VlCompile.literal(inner)))
+          } {
             update.setMember("innerRadius" (VlCompile.literal((VlJson.numberValue(0.0)))))
+          }
+        }
+        if bandedTheta {
+            update.setMember("startAngle" (this.scaled("theta" (theta.outField()))))
+            def far:VlJson (this.scaled("theta" (theta.outField())))
+            def bandWide (VlJson.objectValue())
+            bandWide.setMember("signal" (VlJson.stringValue((("bandwidth('" + (this.sname("theta"))) + "')"))))
+            far.setMember("offset" bandWide)
+            update.setMember("endAngle" far)
+            return
         }
         if ((strlen stackField) > 0) {
             update.setMember("startAngle" (this.scaled("theta" (stackField + "_end"))))
@@ -10938,7 +11140,6 @@ class VlCompile {
         } {
             ; Unstacked, every wedge starts at nothing: the chart is read by
             ; comparing the wedges rather than by walking round the circle.
-            def theta:VlChannel (this.channel("theta"))
             if theta.defined {
                 update.setMember("startAngle" (this.scaled("theta" (theta.outField()))))
                 def zero (VlJson.objectValue())
@@ -11271,8 +11472,16 @@ class VlCompile {
     }
 
     fn encodeAria:void (update:VlJson) {
-        if (((markName != "line") && (markName != "area")) && (markName != "arc")) {
+        ; A mark may say what it is: a composite expands into a shape that is
+        ; not what the chart asked for, and an error bar drawn as a rule is
+        ; still an error bar to whoever is listening to the page.
+        def stated:VlJson (markDef.get("ariaRoleDescription"))
+        if (stated.isString()) {
+            update.setMember("ariaRoleDescription" (VlCompile.literal(stated)))
+        } {
+          if (((markName != "line") && (markName != "area")) && (markName != "arc")) {
             update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue(markName)))))
+          }
         }
         def text:string (this.describeExpr())
         if ((strlen text) > 0) {
@@ -11985,8 +12194,14 @@ class VlCompile {
         ; value and given a thickness rather than placed by its corner.
         if (markName == "tick") {
             update.setMember((axis + "c") (this.scaled(axis (ch.outField()))))
-            ; How thick, which the chart may say once for every tick it draws.
-            update.setMember(dimension (VlCompile.literal((VlJson.numberValue((this.configNumber("tick" "thickness" 1.0)))))))
+            ; How thick, which the chart may say once for every tick it draws
+            ; — or on the mark itself. Read only from the configuration, a
+            ; `{"type": "tick", "thickness": 4}` came out a hairline: the
+            ; measure bar of a bullet chart and the open and close of a
+            ; hi-lo-open-close were both drawn a pixel wide.
+            def thickness:double (this.configNumber("tick" "thickness" 1.0))
+            thickness = (markDef.doubleOr("thickness" thickness))
+            update.setMember(dimension (VlCompile.literal((VlJson.numberValue(thickness)))))
             ; With nothing on the other axis there is no band to cross, so the
             ; tick crosses the plot itself — three quarters of it, centred.
             def other:string "y"
