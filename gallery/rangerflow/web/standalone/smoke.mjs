@@ -113,7 +113,7 @@ const CHROME_FLAGS = [
   "--enable-unsafe-swiftshader",
 ];
 
-const ALL_SCENARIOS = ["erd", "uml", "force", "flow"];
+const ALL_SCENARIOS = ["erd", "uml", "force", "flow", "atk", "org", "process"];
 
 /**
  * Drive one demo through the page's own self test and report.
@@ -150,7 +150,12 @@ async function checkOne(chrome, scenario, shot) {
   else if (!selftest.startsWith("PASS")) problems.push("self test failed: " + selftest.split("\n")[0]);
   if (!/webgl2=true/.test(selftest)) problems.push("the context is not a WebGL2RenderingContext");
   if (!/stencil=true/.test(selftest)) problems.push("no stencil buffer — filled paths cannot be drawn");
-  if (!(num(/quads=(\d+)/) > 50)) problems.push("almost nothing was drawn (quads=" + num(/quads=(\d+)/) + ")");
+  // Quads and paths, together. A schema is nearly all rectangles and a
+  // flowchart is nearly all polygons, so a threshold on quads alone calls a
+  // correctly drawn ATK chart empty — the question is whether the GPU was
+  // given work, not which kind.
+  const marks = num(/quads=(\d+)/) + num(/paths=(\d+)/);
+  if (!(marks > 50)) problems.push(`almost nothing was drawn (quads=${num(/quads=(\d+)/)} paths=${num(/paths=(\d+)/)})`);
   if (!(num(/paths=(\d+)/) > 0)) problems.push("no vector path was drawn — the edges are missing");
   if (num(/skippedFills=(\d+)/) !== 0) problems.push("fills were skipped: " + num(/skippedFills=(\d+)/));
   // Every scenario has to put something on the screen; only the schema has a

@@ -30,17 +30,21 @@
 ;   3. Conflict is transitive in practice — a stack of four is one problem, not
 ;      three — so the conflict graph's connected components are found with
 ;      union-find, and each component is one corridor.
-;   4. Within a corridor the edges are ordered by where they are going (the
-;      midpoint of their span), which is the ordering that minimises crossings
-;      between the tracks themselves, and spread symmetrically about the
-;      corridor's centre.
+;   4. Within a corridor the edges are ordered by the midpoint of their span
+;      and then, because that guess is often wrong, by a transpose pass: two
+;      neighbouring tracks swap whenever swapping costs fewer crossings. The
+;      rule it discovers is that the edge reaching furthest has to turn LAST,
+;      or its long run passes through a neighbour still on its way in.
 ;   5. The spread is clamped to the corridor's own width, so a track can never
 ;      be pushed back through the node it came from. When the edges do not fit
 ;      at full spacing, the spacing shrinks rather than the geometry breaking.
+;   6. Routes somebody else already placed — a long edge drawn down the lane
+;      its dummies held open, or one the reader dragged into place — join the
+;      corridors as lines to keep clear of. They are never moved.
 ;
 ; What this does NOT do is route around obstacles: a track is still a straight
-; run, and a node standing in the corridor is drawn over. The next step for
-; that is dummy nodes in the layered layout, which is noted in the README.
+; run. `LayeredLayout`'s dummy chains keep the corridors clear of the nodes the
+; layout placed, and `OrthoRouter` repairs whatever is left after that.
 ; ============================================================================
 
 Import "../core/GraphModel.rgr"
@@ -78,6 +82,11 @@ class EdgeLanes {
         def hi:[double]
         def wallA:[double]
         def wallB:[double]
+        ; Where the trunk starts and where it ends, in travel order rather than
+        ; sorted order. Which end is which is what decides whether two tracks
+        ; can be swapped to save a crossing.
+        def entry:[double]
+        def exit:[double]
         def active:[boolean]
         ; An edge whose corners somebody else already placed — a long edge
         ; drawn down the corridor its dummies held open, or a route the reader
@@ -95,9 +104,11 @@ class EdgeLanes {
             push hi 0.0
             push wallA 0.0
             push wallB 0.0
+            push entry 0.0
+            push exit 0.0
             push active false
             push frozen false
-            if (this.trunkOf(g e k vertical pos lo hi wallA wallB)) {
+            if (this.trunkOf(g e k vertical pos lo hi wallA wallB entry exit)) {
                 set_at active k true
             }
             k = (k + 1)
@@ -109,7 +120,7 @@ class EdgeLanes {
         while (f < n) {
             if ((itemAt active f) == false) {
                 def fe:FlowEdge (g.edgeAt(f))
-                this.pushFixedTrunks(fe vertical pos lo hi wallA wallB active frozen)
+                this.pushFixedTrunks(fe vertical pos lo hi wallA wallB entry exit active frozen)
             }
             f = (f + 1)
         }
@@ -131,7 +142,7 @@ class EdgeLanes {
         def working:boolean true
         while (round < 6) {
             if working {
-                working = (this.settleRound(g n vertical pos lo hi wallA wallB active frozen))
+                working = (this.settleRound(g n vertical pos lo hi wallA wallB entry exit active frozen))
                 round = (round + 1)
             } {
                 round = 6
@@ -159,7 +170,7 @@ class EdgeLanes {
 
     ; One pass of "group the tracks that would be drawn on top of each other,
     ; then space each group out". True if anything moved.
-    fn settleRound:boolean (g:FlowGraph n:int vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] active:[boolean] frozen:[boolean]) {
+    fn settleRound:boolean (g:FlowGraph n:int vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] entry:[double] exit:[double] active:[boolean] frozen:[boolean]) {
         ; --- 2/3. conflicts, and the corridors they form ---------------------
         def parent:[int]
         def i:int 0
@@ -218,7 +229,7 @@ class EdgeLanes {
                     }
                     m = (m + 1)
                 }
-                moved = (moved + (this.spread(g members vertical pos lo hi wallA wallB)))
+                moved = (moved + (this.spread(g members vertical pos lo hi wallA wallB entry exit)))
             }
             r = (r + 1)
         }
@@ -408,7 +419,7 @@ class EdgeLanes {
     ; The perpendicular run an edge makes between its two gapped endpoints —
     ; only edges whose handles face each other have one, which is the case the
     ; corridors are made of. Everything else keeps the router's own corner.
-    fn trunkOf:boolean (g:FlowGraph e:FlowEdge idx:int vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double]) {
+    fn trunkOf:boolean (g:FlowGraph e:FlowEdge idx:int vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] entry:[double] exit:[double]) {
         if (e.hidden) {
             return false
         }
@@ -458,6 +469,8 @@ class EdgeLanes {
             set_at hi idx (EdgeLanes.upper(sgy tgy))
             set_at wallA idx (EdgeLanes.lower(sgx tgx))
             set_at wallB idx (EdgeLanes.upper(sgx tgx))
+            set_at entry idx sgy
+            set_at exit idx tgy
             return true
         }
         set_at vertical idx false
@@ -466,6 +479,8 @@ class EdgeLanes {
         set_at hi idx (EdgeLanes.upper(sgx tgx))
         set_at wallA idx (EdgeLanes.lower(sgy tgy))
         set_at wallB idx (EdgeLanes.upper(sgy tgy))
+        set_at entry idx sgx
+        set_at exit idx tgx
         return true
     }
 
@@ -473,7 +488,7 @@ class EdgeLanes {
     ; corridor's centre. Ordering by span rather than by index is what keeps
     ; the tracks themselves from crossing: an edge heading further down gets a
     ; track further along.
-    fn spread:int (g:FlowGraph members:[int] vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double]) {
+    fn spread:int (g:FlowGraph members:[int] vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] entry:[double] exit:[double]) {
         def count:int (array_length members)
         if (count < 2) {
             return 0
@@ -488,6 +503,34 @@ class EdgeLanes {
             i = (i + 1)
         }
         EdgeLanes.sortByKey(order keys)
+        ; Span order is a starting guess, and on its own it is often the wrong
+        ; one: two edges that both turn towards the same table cross unless the
+        ; one that reaches further turns later. So walk the neighbours and swap
+        ; whenever swapping costs fewer crossings. It is the transpose pass a
+        ; layered layout already uses on its layers, applied to the tracks in a
+        ; corridor rather than to the nodes in a row.
+        def pass:int 0
+        while (pass < count) {
+            def swapped:boolean false
+            def q:int 0
+            while (q < (count - 1)) {
+                def u:int (itemAt order q)
+                def v:int (itemAt order (q + 1))
+                def asIs:int (EdgeLanes.crossCost(u v lo hi entry exit))
+                def flipped:int (EdgeLanes.crossCost(v u lo hi entry exit))
+                if (flipped < asIs) {
+                    set_at order q v
+                    set_at order (q + 1) u
+                    swapped = true
+                }
+                q = (q + 1)
+            }
+            if swapped {
+                pass = (pass + 1)
+            } {
+                pass = count
+            }
+        }
 
         ; The corridor is only as wide as the narrowest edge in it allows.
         def centre:double 0.0
@@ -537,10 +580,35 @@ class EdgeLanes {
         return moved
     }
 
+    ; What it costs to put track `u` on the near side of track `v`.
+    ;
+    ; With u nearer, u's track runs past the stub that brings v in, and v's
+    ; track runs past the stub that takes u out — each of those is a crossing
+    ; exactly when the stub lands inside the other track's span. Nothing else
+    ; can cross: v's outgoing stub leaves on the far side of u, and u's
+    ; incoming stub arrives on the near side of v.
+    sfn crossCost:int (u:int v:int lo:[double] hi:[double] entry:[double] exit:[double]) {
+        def cost:int 0
+        if (EdgeLanes.strictlyInside((itemAt entry v) (itemAt lo u) (itemAt hi u))) {
+            cost = (cost + 1)
+        }
+        if (EdgeLanes.strictlyInside((itemAt exit u) (itemAt lo v) (itemAt hi v))) {
+            cost = (cost + 1)
+        }
+        return cost
+    }
+
+    sfn strictlyInside:boolean (v:double a:double b:double) {
+        if (v <= (a + 0.001)) {
+            return false
+        }
+        return (v < (b - 0.001))
+    }
+
     ; Every straight run of an edge somebody else already routed, long enough
     ; to read as a line rather than a corner. These are appended past the edge
     ; count: they are obstacles in the corridors, not candidates for a track.
-    fn pushFixedTrunks:void (e:FlowEdge vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] active:[boolean] frozen:[boolean]) {
+    fn pushFixedTrunks:void (e:FlowEdge vertical:[boolean] pos:[double] lo:[double] hi:[double] wallA:[double] wallB:[double] entry:[double] exit:[double] active:[boolean] frozen:[boolean]) {
         if e.hidden {
             return
         }
@@ -566,6 +634,8 @@ class EdgeLanes {
                     push hi (EdgeLanes.upper(ay by))
                     push wallA ax
                     push wallB ax
+                    push entry ay
+                    push exit by
                     push active true
                     push frozen true
                 }
@@ -577,6 +647,8 @@ class EdgeLanes {
                     push hi (EdgeLanes.upper(ax bx))
                     push wallA ay
                     push wallB ay
+                    push entry ax
+                    push exit bx
                     push active true
                     push frozen true
                 }
@@ -732,6 +804,115 @@ class EdgeLanes {
 ; overlapping along their shared axis — that is exactly the situation where two
 ; edges read as one line.
 class EdgeOverlap {
+    ; How many times two edges cross each other. Overlap counts lines drawn
+    ; ON each other; this counts lines drawn THROUGH each other, which is the
+    ; other half of "the routing looks wrong" and the one a layered layout is
+    ; supposed to minimise.
+    ;
+    ; A crossing close to either edge's own end does not count: several edges
+    ; arriving at one table are supposed to converge there, and the fan that
+    ; spreads them across a row necessarily has them meet.
+    sfn edgeCrossings:int (g:FlowGraph) {
+        def segX1:[double]
+        def segY1:[double]
+        def segX2:[double]
+        def segY2:[double]
+        def owner:[int]
+        def endX:[double]
+        def endY:[double]
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                if (e.sourceIndex >= 0) {
+                    if (e.targetIndex >= 0) {
+                        def p:EdgePath (EdgeRouter.route(g e))
+                        p.flatten(2)
+                        def n:int (p.pointCount())
+                        def i:int 1
+                        while (i < n) {
+                            push segX1 (p.px((i - 1)))
+                            push segY1 (p.py((i - 1)))
+                            push segX2 (p.px(i))
+                            push segY2 (p.py(i))
+                            push owner k
+                            i = (i + 1)
+                        }
+                        if (n > 0) {
+                            push endX (p.px(0))
+                            push endY (p.py(0))
+                            push endX (p.px((n - 1)))
+                            push endY (p.py((n - 1)))
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def near:double 26.0
+        def total:int 0
+        def m:int (array_length owner)
+        def a:int 0
+        while (a < m) {
+            def b:int (a + 1)
+            while (b < m) {
+                if ((itemAt owner a) != (itemAt owner b)) {
+                    def hit:[double] (EdgeOverlap.crossingOf((itemAt segX1 a) (itemAt segY1 a) (itemAt segX2 a) (itemAt segY2 a) (itemAt segX1 b) (itemAt segY1 b) (itemAt segX2 b) (itemAt segY2 b)))
+                    if ((array_length hit) == 2) {
+                        if ((EdgeOverlap.nearAnyEnd(endX endY (itemAt hit 0) (itemAt hit 1) near)) == false) {
+                            total = (total + 1)
+                        }
+                    }
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return total
+    }
+
+    sfn nearAnyEnd:boolean (endX:[double] endY:[double] px:double py:double near:double) {
+        def i:int 0
+        while (i < (array_length endX)) {
+            def dx:double ((itemAt endX i) - px)
+            def dy:double ((itemAt endY i) - py)
+            if (((dx * dx) + (dy * dy)) < (near * near)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Where two segments properly cross, or an empty list. Touching at an
+    ; endpoint is not a crossing, so the straddle test is strict on both sides.
+    sfn crossingOf:[double] (ax:double ay:double bx:double by:double cx:double cy:double dx:double dy:double) {
+        def out:[double]
+        def d1:double (EdgeOverlap.cross3(cx cy dx dy ax ay))
+        def d2:double (EdgeOverlap.cross3(cx cy dx dy bx by))
+        def d3:double (EdgeOverlap.cross3(ax ay bx by cx cy))
+        def d4:double (EdgeOverlap.cross3(ax ay bx by dx dy))
+        def eps:double 0.001
+        if ((d1 * d2) >= (0.0 - eps)) {
+            return out
+        }
+        if ((d3 * d4) >= (0.0 - eps)) {
+            return out
+        }
+        def denom:double (d1 - d2)
+        if ((fabs denom) < 0.000001) {
+            return out
+        }
+        def t:double (d1 / denom)
+        push out (ax + ((bx - ax) * t))
+        push out (ay + ((by - ay) * t))
+        return out
+    }
+
+    sfn cross3:double (ax:double ay:double bx:double by:double px:double py:double) {
+        return (((bx - ax) * (py - ay)) - ((by - ay) * (px - ax)))
+    }
+
     sfn pairs:int (g:FlowGraph tol:double) {
         def segX1:[double]
         def segY1:[double]
@@ -800,7 +981,7 @@ class EdgeOverlap {
                             if (i == e.targetIndex) { skip = true }
                             if (skip == false) {
                                 def nd:FlowNode (g.nodeAt(i))
-                                if (nd.hidden == false) {
+                                if (EdgeOverlap.blocks(nd)) {
                                     if (EdgeOverlap.pathEntersRect(p nd)) {
                                         total = (total + 1)
                                     }
@@ -825,6 +1006,16 @@ class EdgeOverlap {
     ; corridor ends up drawn along a border, and a border is where the box
     ; stops — the same half-pixel the router's own clearance test allows, so
     ; the router and this meter agree on what counts as a crossing.
+    ; A frame — a swimlane, a sub-flow box — is the paper the diagram is drawn
+    ; on. Lines cross it because that is what it is for, and counting those
+    ; would drown the count that matters in noise.
+    sfn blocks:boolean (nd:FlowNode) {
+        if nd.hidden {
+            return false
+        }
+        return (nd.nodeType != "group")
+    }
+
     sfn pathEntersRect:boolean (p:EdgePath nd:FlowNode) {
         def full:FlowRect (nd.rect())
         def eps:double 0.5

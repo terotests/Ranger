@@ -235,6 +235,11 @@ class FlowEditor {
     def segStart:double 0.0
     def segUndoBefore:[double]
 
+    ; React Flow's `connectOnClick`. Off by default, because a canvas where
+    ; every click might start a connection is a canvas you cannot select in.
+    def connectOnClick:boolean false
+    def clickConnectFrom:string ""
+
     def snapToGrid:boolean false
     def snapSize:double 16.0
     def panOnDrag:boolean true
@@ -473,6 +478,27 @@ class FlowEditor {
             return
         }
         def ni:int (graph.nodeAtPoint(pressFlowX pressFlowY))
+        ; React Flow's `connectOnClick`, and the mode a toolbar's "connect"
+        ; button turns on: the first click picks the source, the second joins
+        ; them. A click on the pane cancels, so a half-made connection is never
+        ; left waiting for a node the reader has stopped looking for.
+        if connectOnClick {
+            if (ni >= 0) {
+                def cn:FlowNode (graph.nodeAt(ni))
+                if ((strlen clickConnectFrom) == 0) {
+                    clickConnectFrom = cn.id
+                    graph.clearSelection()
+                    cn.selected = true
+                } {
+                    this.connectNodes(clickConnectFrom cn.id)
+                    clickConnectFrom = ""
+                    graph.clearSelection()
+                }
+                mode = 0
+                return
+            }
+            clickConnectFrom = ""
+        }
         if (ni >= 0) {
             def n:FlowNode (graph.nodeAt(ni))
             if (n.selectable) {
@@ -690,7 +716,13 @@ class FlowEditor {
         def i:int 0
         while (i < (graph.nodeCount())) {
             def n:FlowNode (graph.nodeAt(i))
-            if n.selected {
+            def take:boolean n.selected
+            ; A frame carries what is inside it. Dragging a swimlane and
+            ; leaving its steps behind would be a lane that means nothing.
+            if (take == false) {
+                take = (this.insideSelected(n))
+            }
+            if take {
                 if n.draggable {
                     push dragIds n.id
                     push dragStartX n.x
@@ -703,6 +735,29 @@ class FlowEditor {
             }
             i = (i + 1)
         }
+    }
+
+    ; True when some ancestor of this node is selected. Walks up rather than
+    ; down, and stops at a depth no honest diagram exceeds, so a parent that
+    ; somehow points at itself cannot hang the editor.
+    fn insideSelected:boolean (n:FlowNode) {
+        def id:string n.parentId
+        def hops:int 0
+        while (hops < 16) {
+            if ((strlen id) == 0) {
+                return false
+            }
+            if ((graph.hasNode(id)) == false) {
+                return false
+            }
+            def p:FlowNode (graph.nodeById(id))
+            if p.selected {
+                return true
+            }
+            id = p.parentId
+            hops = (hops + 1)
+        }
+        return false
     }
 
     fn pointerMove:void (inp:FlowInput) {
@@ -900,6 +955,144 @@ class FlowEditor {
         push entry.edges e
         undo.record(entry)
         onGraphChanged = true
+    }
+
+    ; --------------------------------------------------------- authoring ----
+    ; What a toolbar needs, and nothing a toolbar does not: the palette adds a
+    ; node, the connect button joins two of them, the name field renames the
+    ; selection. Each one is a single undo step, because a reader who added a
+    ; box by mistake expects one Ctrl-Z to remove it.
+    ;
+    ; These live on the editor rather than in the page so the desktop host and
+    ; the tests drive the same authoring the browser does.
+    def newNodeWidth:double 150.0
+    def newNodeHeight:double 52.0
+    def newNodeSeq:int 0
+
+    fn addNode:FlowNode (label:string shape:string flowX:double flowY:double) {
+        newNodeSeq = (newNodeSeq + 1)
+        def id:string ("n" + (to_string newNodeSeq))
+        while (graph.hasNode(id)) {
+            newNodeSeq = (newNodeSeq + 1)
+            id = ("n" + (to_string newNodeSeq))
+        }
+        def n (new FlowNode)
+        n.id = id
+        n.label = label
+        n.shape = shape
+        n.width = newNodeWidth
+        n.height = newNodeHeight
+        if (shape == "diamond") {
+            n.width = (newNodeWidth + 20.0)
+            n.height = (newNodeHeight + 24.0)
+        }
+        if (shape == "circle") {
+            n.width = 64.0
+            n.height = 64.0
+        }
+        ; Dropped centred on the point that was asked for, and snapped if the
+        ; grid is on, so a new box lands on the same lattice as the old ones.
+        def px:double (flowX - (n.width * 0.5))
+        def py:double (flowY - (n.height * 0.5))
+        if snapToGrid {
+            px = (FlowEditor.snap(px snapSize))
+            py = (FlowEditor.snap(py snapSize))
+        }
+        n.x = px
+        n.y = py
+        n.syncFromModel()
+        graph.addNode(n)
+        graph.reindex()
+        graph.clearSelection()
+        n.selected = true
+        def entry (new FlowUndoEntry)
+        entry.kind = 1
+        entry.label = "add node"
+        push entry.nodes n
+        undo.record(entry)
+        onGraphChanged = true
+        return n
+    }
+
+    ; Add a node in the middle of what the reader is looking at, which is where
+    ; a toolbar button with no pointer position should put it.
+    fn addNodeAtCentre:FlowNode (label:string shape:string) {
+        def fx:double (this.flowX(view.width * 0.5))
+        def fy:double (this.flowY(view.height * 0.5))
+        return (this.addNode(label shape fx fy))
+    }
+
+    ; React Flow's `connectOnClick`: click one node, click the next, and the
+    ; two are joined — the same connection dragging a handle would make, for a
+    ; reader on a trackpad or a touch screen who would rather not drag.
+    fn connectNodes:boolean (sourceId:string targetId:string) {
+        if (sourceId == targetId) {
+            return false
+        }
+        if ((graph.hasNode(sourceId)) == false) {
+            return false
+        }
+        if ((graph.hasNode(targetId)) == false) {
+            return false
+        }
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def other:FlowEdge (graph.edgeAt(k))
+            if (other.source == sourceId) {
+                if (other.target == targetId) {
+                    return false
+                }
+            }
+            k = (k + 1)
+        }
+        def e:FlowEdge (FlowEdge.create("" sourceId targetId))
+        e.edgeType = "smoothstep"
+        graph.addEdge(e)
+        graph.reindex()
+        def entry (new FlowUndoEntry)
+        entry.kind = 3
+        entry.label = "connect"
+        push entry.edges e
+        undo.record(entry)
+        onGraphChanged = true
+        return true
+    }
+
+    fn selectedNode:FlowNode () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.selected {
+                return n
+            }
+            i = (i + 1)
+        }
+        return (new FlowNode)
+    }
+
+    fn selectedNodeId:string () {
+        def n:FlowNode (this.selectedNode())
+        return n.id
+    }
+
+    fn renameSelected:boolean (label:string) {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return false
+        }
+        n.label = label
+        onGraphChanged = true
+        return true
+    }
+
+    fn setSelectedShape:boolean (shape:string) {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return false
+        }
+        n.shape = shape
+        onGraphChanged = true
+        return true
     }
 
     ; ---------------------------------------------------------------- wheel --

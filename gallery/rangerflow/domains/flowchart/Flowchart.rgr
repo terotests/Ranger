@@ -1,0 +1,281 @@
+; ============================================================================
+; Flowchart.rgr — the ATK chart, in the shapes it has had since ISO 5807.
+; ============================================================================
+;
+; The oldest diagram in computing, and the one the shape system exists for. A
+; process is a rectangle, a decision is a diamond, input or output is a
+; parallelogram, stored data is a drum, a printed report is a page with a wavy
+; foot, and a step defined elsewhere is a rectangle with a bar down each side.
+; None of that is decoration: a reader who knows the convention reads the
+; diagram from its outlines before reading a single word in it.
+;
+;                       ╭───────────╮
+;                       │   start   │
+;                       ╰─────┬─────╯
+;                        ╱────┴────╱      ← input
+;                            │
+;                       ┌────┴────┐
+;                       │ process │
+;                       └────┬────┘
+;                            ◇  ── ei ──►  ┌─────────┐
+;                          kyllä           │  retry  │
+;                            │             └─────────┘
+;
+; The model knows nothing about drawing. A `FlowStep` has a kind, and the kind
+; picks the shape; a `FlowLink` has a label, which is where "kyllä" and "ei"
+; live. `build` turns the two into a FlowGraph, and from there it is the same
+; layered layout, the same lane router and the same four backends the ERD uses.
+;
+; Sizes are measured from the text rather than fixed, because a flowchart with
+; one step called "ok" and another called "tarkista asiakkaan luottotiedot"
+; looks wrong at any single width.
+; ============================================================================
+
+Import "../../core/GraphModel.rgr"
+Import "../../core/FlowShapes.rgr"
+
+; The kinds, and the shape each one is drawn as. Names rather than raw shape
+; strings, because the diagram's vocabulary is steps and decisions — the fact
+; that a decision is a diamond is a rendering convention this class owns.
+class FlowKind {
+    sfn terminator:string ()  { return "terminator" }
+    sfn process:string ()     { return "process" }
+    sfn decision:string ()    { return "decision" }
+    sfn io:string ()          { return "io" }
+    sfn document:string ()    { return "document" }
+    sfn database:string ()    { return "database" }
+    sfn manual:string ()      { return "manual" }
+    sfn predefined:string ()  { return "predefined" }
+    sfn preparation:string () { return "preparation" }
+    sfn connector:string ()   { return "connector" }
+    sfn note:string ()        { return "note" }
+
+    sfn shapeFor:string (kind:string) {
+        if (kind == "terminator")  { return "stadium" }
+        if (kind == "decision")    { return "diamond" }
+        if (kind == "io")          { return "parallelogram" }
+        if (kind == "document")    { return "document" }
+        if (kind == "database")    { return "cylinder" }
+        if (kind == "manual")      { return "trapezoid" }
+        if (kind == "preparation") { return "hexagon" }
+        if (kind == "connector")   { return "circle" }
+        if (kind == "predefined")  { return "predefined" }
+        if (kind == "note")        { return "note" }
+        return "rect"
+    }
+}
+
+class FlowStep {
+    def id:string ""
+    def label:string ""
+    def kind:string "process"
+    ; Filled in by the domain's colour scheme unless the caller overrides it.
+    def fill:string ""
+
+    Constructor () {
+    }
+}
+
+class FlowLink {
+    def source:string ""
+    def target:string ""
+    ; "kyllä" / "ei" on a decision's two ways out, or empty everywhere else.
+    def label:string ""
+    ; Drawn dashed: the association a comment has with what it comments on.
+    def dashed:boolean false
+
+    Constructor () {
+    }
+}
+
+class Flowchart {
+    def title:string ""
+    def steps:[FlowStep]
+    def links:[FlowLink]
+
+    ; Text metrics good enough to size a box. The view measures for real when
+    ; it draws; this only has to stop a long label from overflowing, so it errs
+    ; wide.
+    def fontSize:double 13.0
+    def minWidth:double 120.0
+    def maxWidth:double 260.0
+
+    Constructor () {
+    }
+
+    fn step:FlowStep (id:string label:string kind:string) {
+        def s (new FlowStep)
+        s.id = id
+        s.label = label
+        s.kind = kind
+        push steps s
+        return s
+    }
+
+    fn start:FlowStep (id:string label:string) {
+        return (this.step(id label (FlowKind.terminator())))
+    }
+
+    fn link:FlowLink (source:string target:string) {
+        def l (new FlowLink)
+        l.source = source
+        l.target = target
+        push links l
+        return l
+    }
+
+    fn branch:FlowLink (source:string target:string label:string) {
+        def l:FlowLink (this.link(source target))
+        l.label = label
+        return l
+    }
+
+    fn stepCount:int () {
+        return (array_length steps)
+    }
+
+    ; ------------------------------------------------------------ to graph ---
+    fn build:FlowGraph () {
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:FlowStep (itemAt steps i)
+            def n:FlowNode (this.stepNode(s))
+            g.addNode(n)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length links)) {
+            def l:FlowLink (itemAt links k)
+            if (g.hasNode(l.source)) {
+                if (g.hasNode(l.target)) {
+                    def e:FlowEdge (FlowEdge.create("" l.source l.target))
+                    e.edgeType = "smoothstep"
+                    e.markerEnd = "arrowclosed"
+                    e.label = l.label
+                    if l.dashed {
+                        e.dash = 5.0
+                        e.markerEnd = ""
+                    }
+                    g.addEdge(e)
+                }
+            }
+            k = (k + 1)
+        }
+        g.reindex()
+        return g
+    }
+
+    fn stepNode:FlowNode (s:FlowStep) {
+        def n:FlowNode (FlowNode.create(s.id s.label 0.0 0.0))
+        n.nodeType = "step"
+        n.shape = (FlowKind.shapeFor(s.kind))
+        def w:double ((this.textWidth(s.label fontSize)) + 34.0)
+        if (w < minWidth) { w = minWidth }
+        if (w > maxWidth) { w = maxWidth }
+        def h:double 52.0
+        ; A diamond only has room in the middle of itself, so it is given the
+        ; slack a rectangle does not need.
+        if (s.kind == "decision") {
+            w = (w * 1.45)
+            h = 84.0
+        }
+        if (s.kind == "terminator") {
+            h = 46.0
+        }
+        if (s.kind == "database") {
+            h = 64.0
+        }
+        if (s.kind == "document") {
+            h = 62.0
+        }
+        if (s.kind == "connector") {
+            w = 56.0
+            h = 56.0
+        }
+        if (s.kind == "note") {
+            n.borderColor = "#c4b483"
+        }
+        n.width = w
+        n.height = h
+        if ((strlen s.fill) > 0) {
+            n.bgColor = s.fill
+        } {
+            n.bgColor = (Flowchart.fillFor(s.kind))
+        }
+        ; A flowchart is read top to bottom, so that is the way its handles
+        ; face. A decision's "no" branch leaves sideways, which the layout
+        ; discovers for itself once the edges are faced.
+        n.sourcePosition = 2
+        n.targetPosition = 0
+        n.syncFromModel()
+        return n
+    }
+
+    ; Pale, and only pale: the shape carries the meaning, and a chart where
+    ; every box is a different strong colour is a chart nobody can read.
+    sfn fillFor:string (kind:string) {
+        if (kind == "terminator")  { return "#e8f1ff" }
+        if (kind == "decision")    { return "#fff6e5" }
+        if (kind == "io")          { return "#eef7ee" }
+        if (kind == "database")    { return "#f3eefb" }
+        if (kind == "document")    { return "#f6f6f9" }
+        if (kind == "note")        { return "#fdf8e6" }
+        return ""
+    }
+
+    ; The same generous estimate the view uses, without the font tables: a box
+    ; measured a little wide is a box with air in it, and one measured narrow
+    ; is a label with its tail cut off.
+    fn textWidth:double (t:string size:double) {
+        return ((to_double (strlen t)) * (size * 0.58))
+    }
+
+    ; ---------------------------------------------------------- the faces ----
+    ; Which side each edge leaves and arrives by. A step flows downwards; a
+    ; decision's second and third ways out leave left and right, which is the
+    ; convention every flowchart uses and the one that keeps the "no" branch
+    ; from being drawn through the box it is avoiding.
+    sfn faceEdges:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.sourceIndex >= 0) {
+                if (e.targetIndex >= 0) {
+                    def a:FlowNode (g.nodeAt(e.sourceIndex))
+                    def b:FlowNode (g.nodeAt(e.targetIndex))
+                    def down:boolean ((b.centerY()) > (a.centerY()))
+                    if down {
+                        e.sourceHandle = 2
+                        e.targetHandle = 0
+                    } {
+                        ; A loop back up the page leaves and arrives sideways,
+                        ; so it goes round the outside instead of back through
+                        ; everything it just came past.
+                        if ((b.centerX()) < (a.centerX())) {
+                            e.sourceHandle = 3
+                            e.targetHandle = 3
+                        } {
+                            e.sourceHandle = 1
+                            e.targetHandle = 1
+                        }
+                    }
+                    ; A branch that goes sideways rather than down leaves by
+                    ; the side it is heading for.
+                    def dx:double ((b.centerX()) - (a.centerX()))
+                    def dy:double ((b.centerY()) - (a.centerY()))
+                    if ((fabs dx) > ((fabs dy) * 1.4)) {
+                        if (dx > 0.0) {
+                            e.sourceHandle = 1
+                            e.targetHandle = 3
+                        } {
+                            e.sourceHandle = 3
+                            e.targetHandle = 1
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+}

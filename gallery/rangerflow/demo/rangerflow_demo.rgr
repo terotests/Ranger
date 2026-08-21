@@ -6,6 +6,9 @@
 ;   npm run rangerflow:demo -- --uml        the UML class diagram instead
 ;   npm run rangerflow:demo -- --force      the React Flow force-layout parity
 ;   npm run rangerflow:demo -- --bench 500  layout + scene timings at a size
+;   npm run rangerflow:demo -- --flowchart  an ATK flowchart in ISO 5807 shapes
+;   npm run rangerflow:demo -- --org        an organisation chart
+;   npm run rangerflow:demo -- --process    a swimlane process
 ;   npm run rangerflow:demo -- --drag       drop every node everywhere, count
 ;                                           the routes left crossing a box
 ;
@@ -18,6 +21,8 @@ Import "../core/FlowEditor.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
+Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
@@ -42,6 +47,9 @@ class RangerFlowDemo {
             if (a == "--erd")   { mode = "erd" }
             if (a == "--force") { mode = "force" }
             if (a == "--drag")  { mode = "drag" }
+            if (a == "--flowchart") { mode = "flowchart" }
+            if (a == "--org")       { mode = "org" }
+            if (a == "--process")   { mode = "process" }
             if (a == "--bench") {
                 mode = "bench"
                 if ((i + 1) < argCount) {
@@ -56,6 +64,9 @@ class RangerFlowDemo {
         if (mode == "force") { d.runForce() }
         if (mode == "bench") { d.runBench(benchSize) }
         if (mode == "drag")  { d.runDrag() }
+        if (mode == "flowchart") { d.runFlowchart() }
+        if (mode == "org")       { d.runOrg() }
+        if (mode == "process")   { d.runProcess() }
     }
 
     ; --------------------------------------------------------------- ERD ----
@@ -98,6 +109,9 @@ class RangerFlowDemo {
         def circle:UMLClass (d.umlClass("Circle"))
         circle.attribute("-" "radius" "double")
         circle.operation("+" "area" "" "double")
+        def poly:UMLClass (d.umlClass("Polygon"))
+        poly.attribute("-" "points" "[Point]")
+        poly.operation("+" "area" "" "double")
         def canvas:UMLClass (d.umlClass("Canvas"))
         canvas.attribute("-" "shapes" "[Shape]")
         canvas.operation("+" "add" "s: Shape" "void")
@@ -108,6 +122,7 @@ class RangerFlowDemo {
         point.attribute("+" "y" "double")
         d.relate("Rectangle" "Shape" "inheritance")
         d.relate("Circle" "Shape" "inheritance")
+        d.relate("Polygon" "Shape" "inheritance")
         def owns:UMLRelation (d.relate("Canvas" "Shape" "composition"))
         owns.toMultiplicity = "0..*"
         d.relate("Shape" "Point" "aggregation")
@@ -269,6 +284,7 @@ class RangerFlowDemo {
         def exact0:int (EdgeOverlap.pairs(g 2.0))
         def near0:int (EdgeOverlap.pairs(g 8.0))
         def cross0:int (EdgeOverlap.nodeCrossings(g))
+        def xx0:int (EdgeOverlap.edgeCrossings(g))
         def moved:int (EdgeLanes.assign(g))
         ; The chains, cashed in: a long edge is drawn through the lane its
         ; dummies held open. This runs after the fan so the corners start where
@@ -284,12 +300,143 @@ class RangerFlowDemo {
         def exact1:int (EdgeOverlap.pairs(g 2.0))
         def near1:int (EdgeOverlap.pairs(g 8.0))
         def cross1:int (EdgeOverlap.nodeCrossings(g))
+        def xx1:int (EdgeOverlap.edgeCrossings(g))
         print ("  routing " + (to_string moved) + " endpoints and tracks moved, " + (to_string routed) + " long edges chained, " + (to_string repaired) + " repaired by the grid router")
         print ("          overlapping segment pairs: on top of each other " + (to_string exact0) + " → " + (to_string exact1) + ", within 8 px " + (to_string near0) + " → " + (to_string near1))
         print ("          edges drawn through an unrelated node: " + (to_string cross0) + " → " + (to_string cross1))
+        print ("          edges crossing each other: " + (to_string xx0) + " → " + (to_string xx1))
     }
 
-    ; ------------------------------------------------------------- drag ----
+    ; -------------------------------------------------------- flowchart ----
+    ; The chart every ATK course starts with, in the shapes it is supposed to
+    ; be in. Nothing here knows about drawing: `FlowKind.shapeFor` is the whole
+    ; of the translation from "this is a decision" to "this is a diamond".
+    fn flowchartModel:Flowchart () {
+        def c (new Flowchart)
+        c.title = "Tilauksen käsittely"
+        c.start("alku" "Alku")
+        c.step("tilaus" "Lue tilaus" (FlowKind.io()))
+        c.step("asiakas" "Asiakasrekisteri" (FlowKind.database()))
+        c.step("tarkista" "Tarkista luottotiedot" (FlowKind.process()))
+        c.step("luotto" "Luotto kunnossa?" (FlowKind.decision()))
+        c.step("varasto" "Varaa tuotteet" (FlowKind.process()))
+        c.step("saldo" "Riittääkö saldo?" (FlowKind.decision()))
+        c.step("jalkitoimitus" "Merkitse jälkitoimitukseen" (FlowKind.process()))
+        c.step("laskuta" "Muodosta lasku" (FlowKind.predefined()))
+        c.step("lasku" "Lasku asiakkaalle" (FlowKind.document()))
+        c.step("hylkaa" "Ilmoita hylkäys" (FlowKind.manual()))
+        c.step("loppu" "Loppu" (FlowKind.terminator()))
+        c.link("alku" "tilaus")
+        c.link("tilaus" "tarkista")
+        c.link("asiakas" "tarkista")
+        c.link("tarkista" "luotto")
+        c.branch("luotto" "varasto" "kyllä")
+        c.branch("luotto" "hylkaa" "ei")
+        c.link("varasto" "saldo")
+        c.branch("saldo" "laskuta" "kyllä")
+        c.branch("saldo" "jalkitoimitus" "ei")
+        c.link("jalkitoimitus" "laskuta")
+        c.link("laskuta" "lasku")
+        c.link("lasku" "loppu")
+        c.link("hylkaa" "loppu")
+        return c
+    }
+
+    fn runFlowchart:void () {
+        print "== RangerFlow: ATK-kaavio =="
+        def c:Flowchart (this.flowchartModel())
+        def g:FlowGraph (c.build())
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 70.0
+        lay.nodeGap = 46.0
+        lay.run()
+        Flowchart.faceEdges(g)
+        print ("  graph  " + (to_string (g.nodeCount())) + " steps, " + (to_string (g.edgeCount())) + " links")
+        this.routeEdges(g lay)
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        this.writeAll(v g "rangerflow-flowchart" "RangerFlow — ATK-kaavio")
+    }
+
+    ; ------------------------------------------------------------- org -----
+    fn orgModel:OrgChart () {
+        def o (new OrgChart)
+        o.title = "Organisaatio"
+        o.unitColor("Johto" "#eef2ff")
+        o.unitColor("Tuotanto" "#eefaf1")
+        o.unitColor("Myynti" "#fff5e9")
+        o.unitColor("Talous" "#f7effb")
+        o.person("tj" "Aino Virtanen" "toimitusjohtaja" "Johto" "")
+        o.person("cto" "Markus Laine" "teknologiajohtaja" "Johto" "tj")
+        o.person("cfo" "Riikka Salo" "talousjohtaja" "Talous" "tj")
+        o.person("myynti" "Pekka Nieminen" "myyntijohtaja" "Myynti" "tj")
+        o.person("kehitys" "Sanna Koskinen" "kehityspäällikkö" "Tuotanto" "cto")
+        o.person("yllapito" "Otto Mäkelä" "ylläpitopäällikkö" "Tuotanto" "cto")
+        o.person("kirjanpito" "Liisa Aho" "kirjanpitäjä" "Talous" "cfo")
+        o.person("avainasiakkaat" "Tuomas Heikkinen" "avainasiakaspäällikkö" "Myynti" "myynti")
+        def matrix:OrgPerson (o.person("dataAnalyytikko" "Elina Rantala" "data-analyytikko" "Talous" "kehitys"))
+        matrix.dotted = true
+        return o
+    }
+
+    fn runOrg:void () {
+        print "== RangerFlow: organisaatiokaavio =="
+        def o:OrgChart (this.orgModel())
+        def g:FlowGraph (o.build())
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 70.0
+        lay.nodeGap = 34.0
+        lay.run()
+        print ("  graph  " + (to_string (g.nodeCount())) + " people, " + (to_string (g.edgeCount())) + " reporting lines")
+        this.routeEdges(g lay)
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        this.writeAll(v g "rangerflow-org" "RangerFlow — organisaatiokaavio")
+    }
+
+    ; --------------------------------------------------------- process -----
+    fn processModel:SwimlaneProcess () {
+        def p (new SwimlaneProcess)
+        p.title = "Tilaus-toimitus"
+        p.lane("asiakas" "Asiakas")
+        p.lane("myynti" "Myynti")
+        p.lane("varasto" "Varasto")
+        p.lane("talous" "Talous")
+        p.step("tilaa" "Tekee tilauksen" "asiakas" (FlowShape.stadium()))
+        p.step("vastaanota" "Vastaanota tilaus" "myynti" (FlowShape.rect()))
+        p.step("luotto" "Luotto ok?" "myynti" (FlowShape.diamond()))
+        p.step("kerays" "Kerää tuotteet" "varasto" (FlowShape.rect()))
+        p.step("toimitus" "Lähetä toimitus" "varasto" (FlowShape.rect()))
+        p.step("laskuta" "Laskuta" "talous" (FlowShape.rect()))
+        p.step("suoritus" "Kirjaa suoritus" "talous" (FlowShape.rect()))
+        p.step("vastaanotto" "Vastaanottaa tavaran" "asiakas" (FlowShape.stadium()))
+        p.link("tilaa" "vastaanota")
+        p.link("vastaanota" "luotto")
+        p.branch("luotto" "kerays" "kyllä")
+        p.link("kerays" "toimitus")
+        p.link("toimitus" "laskuta")
+        p.link("laskuta" "suoritus")
+        p.link("toimitus" "vastaanotto")
+        return p
+    }
+
+    fn runProcess:void () {
+        print "== RangerFlow: uimaratakaavio =="
+        def p:SwimlaneProcess (this.processModel())
+        def g:FlowGraph (p.build())
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes (" + (to_string (array_length p.laneIds)) + " lanes), " + (to_string (g.edgeCount())) + " links")
+        EdgeLanes.assign(g)
+        OrthoRouter.repairAll(g)
+        print ("          edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
+        print ("          edges crossing each other: " + (to_string (EdgeOverlap.edgeCrossings(g))))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        this.writeAll(v g "rangerflow-process" "RangerFlow — uimaratakaavio")
+    }
+
+    ; ------------------------------------------------------------- drag ----    ; ------------------------------------------------------------- drag ----
     ; "When you drag a box the lines don't always know to go round the other
     ; boxes" is a complaint you cannot answer by looking at one screenshot. So
     ; drag every node to every point on a coarse grid, re-route the way the
@@ -344,6 +491,7 @@ class RangerFlowDemo {
         def noPath:int 0
         def stuck:int 0
         def gaveUp:int 0
+        def tangled:int 0
         def t0:double (wall_clock_ms)
         def ni:int 0
         while (ni < (g.nodeCount())) {
@@ -367,6 +515,7 @@ class RangerFlowDemo {
                         stuck = (stuck + rt.stillCrossing)
                         gaveUp = (gaveUp + rt.refused)
                         def left:int (EdgeOverlap.nodeCrossings(g))
+                        tangled = (tangled + (EdgeOverlap.edgeCrossings(g)))
                         drops = (drops + 1)
                         if (left > 0) {
                             dirty = (dirty + 1)
@@ -396,6 +545,11 @@ class RangerFlowDemo {
         print ("  " + label)
         print ("    " + (to_string drops) + " drops, " + (to_string repairedTotal) + " edges re-routed, " + (to_string (to_int (t1 - t0))) + " ms")
         print ("    drops still drawing a line through a box: " + (to_string dirty) + " (" + (to_string pct) + "%), worst " + (to_string worst) + " lines")
+        def perDrop:double 0.0
+        if (drops > 0) {
+            perDrop = ((to_double tangled) / (to_double drops))
+        }
+        print ("    edges crossing each other, averaged over the drops: " + (to_string perDrop))
         print ("    why: no route found " + (to_string noPath) + ", route found but no better " + (to_string stuck) + ", grid too big " + (to_string gaveUp))
     }
 
