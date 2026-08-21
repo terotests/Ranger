@@ -176,6 +176,7 @@
     "text_editor:window:smoke": "npm run text_editor:module && node gallery/text_editor/web/serve.mjs --headless-smoke",
     "pptx:fixtures": "python3 gallery/pptx/tools/make_fixtures.py",
     "pptx:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxTest.rgr -d=./gallery/pptx/bin -o=PptxTest.js -nodecli && node ./gallery/pptx/bin/PptxTest.js",
+    "pptx:frame:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxFrameTest.rgr -d=./gallery/pptx/bin -o=PptxFrameTest.js -nodecli && node ./gallery/pptx/bin/PptxFrameTest.js",
     "pptx:web": "bash gallery/pptx/web/standalone/build.sh",
     "pptx:web:serve": "bash gallery/pptx/web/standalone/build.sh && python3 -m http.server -d gallery/pptx/web/standalone/dist 8001",
     "pptx:web:test": "bash gallery/pptx/web/standalone/build.sh && node gallery/pptx/web/standalone/smoke.mjs",

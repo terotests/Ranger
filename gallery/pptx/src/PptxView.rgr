@@ -17,6 +17,9 @@ class PptxView {
     def converter:PptxToEvg (new PptxToEvg())
     def pageW:int 960
     def pageH:int 720
+    ; Room the frame takes out of the window, so the fit-to-window scale
+    ; leaves it clear. `PptxApp` sets it — it is the one that knows how tall
+    ; the shared strip came out at this width.
     def chromeH:int 28
     def fontFamily:string "Open Sans"
     def status:string ""
@@ -138,39 +141,17 @@ class PptxView {
         return sy
     }
 
-    fn paintChrome:void (dl:EVGDisplayList) {
-        def y:double (to_double (pageH - chromeH))
-        def c (new EVGDrawCmd())
-        c.kind = 0
-        c.x = 0.0
-        c.y = y
-        c.w = (to_double pageW)
-        c.h = (to_double chromeH)
-        c.r = 30
-        c.g = 34
-        c.b = 48
-        c.a = 1.0
-        push dl.cmds c
-        def label:string (("  " + deckName + "  ·  ") + (to_string (slideIndex + 1)) + (" / " + (to_string slideCount)) + "   ← →   " + status)
-        def t (new EVGDrawCmd())
-        t.kind = 3
-        t.x = 8.0
-        t.y = (y + 6.0)
-        t.text = label
-        t.fontFamily = fontFamily
-        t.fontSize = 13.0
-        t.r = 180
-        t.g = 190
-        t.b = 210
-        t.a = 1.0
-        push dl.cmds t
-    }
-
+    ; The slide, and only the slide.
+    ;
+    ; There used to be a hand-built chrome band on the end of this — a dark
+    ; rectangle and a string of the deck name, the slide numbers and a pair of
+    ; arrow characters, all assembled out of raw EVGDrawCmds here. That was a
+    ; third toolbar, in a third style, that nothing else could use and nothing
+    ; else could fix. `PptxApp` puts the shared strip around this now, the same
+    ; one the spreadsheet and the document have.
     fn buildDisplayList:EVGDisplayList (slide:PptxSlide) {
         converter.setScale((this.fitScale(slide)))
-        def dl:EVGDisplayList (converter.slideToDisplayList(slide))
-        this.paintChrome(dl)
-        return dl
+        return (converter.slideToDisplayList(slide))
     }
 
     fn paintTextCmd:void (c:EVGDrawCmd) {

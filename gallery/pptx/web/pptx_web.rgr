@@ -79,6 +79,35 @@ class PptxWeb {
         app.update(input)
     }
 
+    ; --- the application frame ------------------------------------------------
+    ; The deck now has the same chrome the spreadsheet and the document have —
+    ; the shared toolbar, the shared window layer, the shared command table —
+    ; so a host reaches all three by the same names it uses there.
+    fn run:boolean (id:string arg:string) {
+        def ok:boolean (app.runCommand(id arg))
+        app.render()
+        return ok
+    }
+
+    fn commands:string () {
+        return (app.commands.toJson())
+    }
+
+    fn takeFileRequest:string () {
+        def want:string app.fileRequest
+        app.fileRequest = ""
+        return want
+    }
+
+    ; A press, a move and a release, so the window layer works here too: a
+    ; page that only ever sent presses could open a picker and never let a
+    ; person drag it.
+    fn pointerAt:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        def took:boolean (app.pointer(x y pressed down released))
+        app.render()
+        return took
+    }
+
     fn key:void (name:string) {
         def code:int (PptxWeb.keyByName(name))
         if (code == 0) {
