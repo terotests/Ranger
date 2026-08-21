@@ -41,7 +41,7 @@ The suite is written once, against `DBSession`, and every engine runs it:
 | `rangerdb` | **53/53** + 19 engine internals | pure Ranger, no host |
 | `sqlite` | **53/53** | `node:sqlite`, built in |
 | `duckdb` | **53/53** | `@duckdb/node-api`, optional |
-| grid over all three | **81/81** | `datagrid:db:test` |
+| grid over all three | **93/93** | `datagrid:db:test` |
 
 RangerDB's own 72 tests pass on **JavaScript, Python and native C++** from the
 same source, and the library compiles for **12/12** Ranger targets.

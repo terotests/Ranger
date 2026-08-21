@@ -225,7 +225,7 @@ in them. `db.row.delete` deletes. `db.refresh` re-runs. With
 `db.autoCommit = false` the edits collect instead, and `db.commit` writes them
 in one transaction where the engine has them.
 
-`npm run datagrid:db:test` runs all of it over all three engines (81/81), and
+`npm run datagrid:db:test` runs all of it over all three engines (93/93), and
 `npm run datagrid:db:demo` is a headless session that seeds a table, edits a
 cell through the UI, reads the new value back out of the database, has one
 edit refused, sorts (which re-runs the query) and leaves this behind:

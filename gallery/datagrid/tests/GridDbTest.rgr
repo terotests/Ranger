@@ -170,6 +170,22 @@ class GridDbTest {
         check.eqInt("filling the key inserts the row" app.db.loadedRows 4)
         check.eqStr("the inserted row is in the database" (GridDbTest.storedText(session 9 "country")) "Denmark")
 
+        ; --- a chart over database rows ---------------------------------------
+        ; A database sheet is an ordinary sheet, so the chart code that has
+        ; never heard of a database plots it. Country labels down the first
+        ; column, revenue across - the same extraction an .xlsx range gets.
+        def ch:GridChart (new GridChart)
+        ch.id = 1
+        ch.r0 = 0
+        ch.c0 = 1
+        ch.r1 = app.db.loadedRows
+        ch.c1 = 2
+        def data:ChartData (new ChartData)
+        check.ok("chart data comes out of the database sheet" (data.extract(app.model ch)))
+        check.eqInt("one revenue series" (data.seriesCount()) 1)
+        check.eqInt("one category per row" (data.catCount()) app.db.loadedRows)
+        check.eqStr("series named by the query column" (itemAt data.series 0) "revenue")
+
         ; --- an aggregate is read only ----------------------------------------
         def agg:QuerySpec (QuerySpec.forTable((GridDbTest.tableName())))
         agg.groupOn("country")
