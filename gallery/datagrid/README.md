@@ -29,6 +29,8 @@ npm run datagrid:export:test
 npm run datagrid:workbook:test
 npm run datagrid:db:test        # a sheet over RangerDB / SQLite / DuckDB
 npm run datagrid:db:demo        # …and a headless session that edits one
+npm run datagrid:db:window      # the editor in a browser window, on a database
+npm run datagrid:db:window:smoke  # …the same, checked without a browser
 npm run datagrid:formula:test
 npm run datagrid:formula:array:test
 npm run datagrid:date:test
@@ -224,6 +226,33 @@ The blank row after the last one inserts, once its key columns have something
 in them. `db.row.delete` deletes. `db.refresh` re-runs. With
 `db.autoCommit = false` the edits collect instead, and `db.commit` writes them
 in one transaction where the engine has them.
+
+### Opening the editor on a database
+
+```bash
+npm run datagrid:db:window                      # DuckDB if installed, else SQLite, else RangerDB
+npm run datagrid:db:window:sqlite               # or name the engine
+RANGERDB_ENGINE=rangerdb npm run datagrid:db:window
+```
+
+Same WebGL window as `datagrid:window`, except the sheet is a query: the host
+opens the engine, seeds a demo `sales` table if it is empty, and binds it. Type
+in a cell and the `UPDATE` happens while you watch — the status bar names the
+engine that took it.
+
+The server takes `--db <engine>`, `--db-dsn` (default `:memory:` — point it at
+a file to open a real database), `--db-table` and `--db-rows`:
+
+```bash
+npm run datagrid:db:module
+node gallery/datagrid/web/serve.mjs --open --db duckdb   --db-dsn ./sales.duckdb --db-table sales
+```
+
+`npm run datagrid:db:window:smoke` runs that host with no browser at all: it
+asks for the scene the browser would draw, posts the same click/type/Enter
+events the browser posts, and checks that the edit is in the next scene, that
+the app says the database took it, and that a bad value never reaches the
+cell. It passes on all three engines.
 
 `npm run datagrid:db:test` runs all of it over all three engines (93/93), and
 `npm run datagrid:db:demo` is a headless session that seeds a table, edits a

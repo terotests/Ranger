@@ -24,6 +24,7 @@ npm run rangerdb:test        # RangerDB against the shared contract + engine int
 npm run rangerdb:host:test   # the same contract over SQLite and DuckDB
 npm run datagrid:db:test     # the spreadsheet editing a database, on all three
 npm run datagrid:db:demo     # a headless session editing a table through the grid
+npm run datagrid:db:window   # the spreadsheet, in a window, on a live database
 npm run rangerdb:bench       # the same queries, timed on each engine
 ```
 

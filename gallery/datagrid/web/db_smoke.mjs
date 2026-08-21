@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+/**
+ * Headless check for the database window host: start serve.mjs with --db, ask
+ * for the scene the browser would draw, then edit a cell the way the browser
+ * does (POST /input) and confirm the new value is in the next scene and that
+ * the app says the database took it.
+ *
+ * No browser needed - the seam is the display list, so the scene IS the
+ * picture as far as this test is concerned.
+ *
+ *   node gallery/datagrid/web/db_smoke.mjs [--db auto] [--port 8788]
+ */
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, "../../..");
+
+function argVal(name, def) {
+  const argv = process.argv.slice(2);
+  const i = argv.indexOf(name);
+  if (i >= 0 && argv[i + 1]) return argv[i + 1];
+  return def;
+}
+
+const PORT = argVal("--port", "8788");
+const DRIVER = argVal("--db", "auto");
+const BASE = `http://127.0.0.1:${PORT}`;
+
+const server = spawn(
+  process.execPath,
+  [path.join(__dirname, "serve.mjs"), "--db", DRIVER, "--port", PORT],
+  { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] },
+);
+
+let serverLog = "";
+server.stdout.on("data", (b) => { serverLog += b.toString(); });
+server.stderr.on("data", (b) => { serverLog += b.toString(); });
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function scene() {
+  const res = await fetch(BASE + "/scene.json");
+  if (res.status === 204) return null;
+  return await res.text();
+}
+
+async function post(event) {
+  await fetch(BASE + "/input", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(event),
+  });
+}
+
+let failed = 0;
+function must(name, cond) {
+  if (cond) {
+    console.log("  PASS " + name);
+  } else {
+    console.log("  FAIL " + name);
+    failed++;
+  }
+}
+
+try {
+  let body = null;
+  for (let i = 0; i < 60 && !body; i++) {
+    await sleep(500);
+    try { body = await scene(); } catch (e) { body = null; }
+  }
+  if (!body) throw new Error("no scene from the server:\n" + serverLog);
+
+  const engineLine = (serverLog.match(/^ {2}\w+: \w+, \d+ rows.*$/m) || [])[0] || "";
+  console.log("  engine: " + engineLine.trim());
+  must("the server opened an engine", engineLine.length > 0);
+  must("the sheet is a database sheet", body.includes("DB sales"));
+  must("rows from the database are drawn", body.includes("Finland"));
+
+  // Click a country cell, type, Enter - exactly the events the browser sends.
+  await post({ type: "pointer", x: 250, y: 150, down: true });
+  await post({ type: "pointer", x: 250, y: 150, down: false });
+  await post({ type: "text", text: "SmokeLand" });
+  await post({ type: "key", key: "enter" });
+  await sleep(300);
+  const after = (await scene()) || body;
+  must("the edit is in the next scene", after.includes("SmokeLand"));
+  must("the database took it", after.includes("updated in sales"));
+
+  // A value the column cannot hold must be refused and undone.
+  await post({ type: "pointer", x: 560, y: 150, down: true });
+  await post({ type: "pointer", x: 560, y: 150, down: false });
+  await post({ type: "text", text: "not-a-number" });
+  await post({ type: "key", key: "enter" });
+  await sleep(300);
+  const refused = (await scene()) || after;
+  // The text is expected to appear exactly ONCE, in the status bar's
+  // explanation - if it also reached the cell it would be drawn twice.
+  const mentions = refused.split("not-a-number").length - 1;
+  must("a bad value never reaches the cell", mentions === 1);
+  must("and the app says why", refused.includes("is not a valid"));
+
+  console.log(failed === 0 ? "ALL PASS" : "FAILURES");
+} catch (e) {
+  console.error("[db-smoke] " + (e && e.message ? e.message : e));
+  failed = 1;
+} finally {
+  server.kill("SIGTERM");
+}
+process.exit(failed === 0 ? 0 : 1);

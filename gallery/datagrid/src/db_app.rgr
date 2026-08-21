@@ -1,0 +1,235 @@
+; ==============================================================================
+; db_app - the module the window host loads when it is asked for a database.
+; ==============================================================================
+;
+;   npm run datagrid:db:window                 # DuckDB if installed, else SQLite,
+;                                              # else RangerDB - always something
+;   npm run datagrid:db:window -- --db sqlite  # or name the engine
+;
+; This is a separate entry point on purpose. GridApp itself imports only the
+; PORTABLE half of the database library, so the C++ / SDL build is never asked
+; to compile a JavaScript host binding. Naming an engine is the host's job, and
+; this file is the host's side of it.
+; ==============================================================================
+
+Import "GridApp.rgr"
+Import "../../rangerdb/src/RangerDB.rgr"
+Import "../../rangerdb/src/HostSql.rgr"
+
+class GridDbLauncher {
+    def status:string ""
+    def engine:string ""
+    def session:DBSession (new DBSession)
+    def rows:int 0
+
+    Constructor () {
+    }
+
+    ; "duckdb" / "sqlite" / "rangerdb", or "auto" for the best one present.
+    ; A driver that is not installed is not an error worth stopping for - the
+    ; whole point of the layer is that the sheet does not care.
+    fn openSession:boolean (driver:string dsn:string) {
+        def want:string driver
+        if ((strlen want) == 0) {
+            want = "auto"
+        }
+        if (want != "rangerdb") {
+            if (want != "sqlite") {
+                if (HostSqlBackend.isAvailable("duckdb")) {
+                    def duck:HostSqlBackend (HostSqlBackend.forDriver("duckdb"))
+                    def ds:DBSession (DBSession.over(duck))
+                    if (ds.openDb(dsn)) {
+                        session = ds
+                        engine = "duckdb"
+                        return true
+                    }
+                }
+                if (want == "duckdb") {
+                    status = "duckdb is not installed (npm i @duckdb/node-api)"
+                }
+            }
+            if (want != "duckdb") {
+                if (HostSqlBackend.isAvailable("sqlite")) {
+                    def lite:HostSqlBackend (HostSqlBackend.forDriver("sqlite"))
+                    def ls:DBSession (DBSession.over(lite))
+                    if (ls.openDb(dsn)) {
+                        session = ls
+                        engine = "sqlite"
+                        return true
+                    }
+                }
+            }
+        }
+        def own:RangerDbBackend (new RangerDbBackend)
+        def rs:DBSession (DBSession.over(own))
+        if ((rs.openDb(dsn)) == false) {
+            status = "no database engine could be opened"
+            return false
+        }
+        session = rs
+        engine = "rangerdb"
+        return true
+    }
+
+    sfn regionOf:string (i:int) {
+        def k:int (i - ((idiv i 4) * 4))
+        if (k == 0) {
+            return "Nordics"
+        }
+        if (k == 1) {
+            return "DACH"
+        }
+        if (k == 2) {
+            return "Baltics"
+        }
+        return "Benelux"
+    }
+
+    sfn countryOf:string (i:int) {
+        def k:int (i - ((idiv i 12) * 12))
+        if (k == 0) {
+            return "Finland"
+        }
+        if (k == 1) {
+            return "Germany"
+        }
+        if (k == 2) {
+            return "Estonia"
+        }
+        if (k == 3) {
+            return "Netherlands"
+        }
+        if (k == 4) {
+            return "Sweden"
+        }
+        if (k == 5) {
+            return "Austria"
+        }
+        if (k == 6) {
+            return "Latvia"
+        }
+        if (k == 7) {
+            return "Belgium"
+        }
+        if (k == 8) {
+            return "Norway"
+        }
+        if (k == 9) {
+            return "Switzerland"
+        }
+        if (k == 10) {
+            return "Lithuania"
+        }
+        return "Luxembourg"
+    }
+
+    sfn monthOf:string (i:int) {
+        def k:int (i - ((idiv i 6) * 6))
+        if (k == 0) {
+            return "2026-01"
+        }
+        if (k == 1) {
+            return "2026-02"
+        }
+        if (k == 2) {
+            return "2026-03"
+        }
+        if (k == 3) {
+            return "2026-04"
+        }
+        if (k == 4) {
+            return "2026-05"
+        }
+        return "2026-06"
+    }
+
+    sfn columns:[DBColumn] () {
+        def cols:[DBColumn]
+        push cols (DBColumn.createKey("id" 2))
+        push cols (DBColumn.create("region" 4))
+        push cols (DBColumn.create("country" 4))
+        push cols (DBColumn.create("month" 4))
+        push cols (DBColumn.create("revenue" 3))
+        push cols (DBColumn.create("units" 2))
+        return cols
+    }
+
+    ; Demo data, deterministic so two runs show the same sheet. Only written
+    ; when the table is empty, so pointing --db-dsn at a real file opens what
+    ; is in the file instead.
+    fn seed:void (table:string wanted:int) {
+        def batch:[DBMutation]
+        def i:int 0
+        while (i < wanted) {
+            def m:DBMutation (DBMutation.makeInsert(table))
+            m.withValue("id" (DBValue.fromInt((i + 1))))
+            m.withValue("region" (DBValue.fromString((GridDbLauncher.regionOf(i)))))
+            m.withValue("country" (DBValue.fromString((GridDbLauncher.countryOf(i)))))
+            m.withValue("month" (DBValue.fromString((GridDbLauncher.monthOf(i)))))
+            def spread:int (i - ((idiv i 17) * 17))
+            def revenue:double (to_double ((12000 + (spread * 3100)) + ((i - ((idiv i 7) * 7)) * 900)))
+            m.withValue("revenue" (DBValue.fromDouble(revenue)))
+            m.withValue("units" (DBValue.fromInt((20 + (i - ((idiv i 23) * 23))))))
+            push batch m
+            i = (i + 1)
+        }
+        session.mutateAll(batch)
+    }
+
+    fn tableExists:boolean (table:string) {
+        def names:[string] (session.tableNames())
+        def n:int (array_length names)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt names i) == table) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Open the engine, make sure there is something in it, and put it on a
+    ; sheet. Everything after this is the ordinary editor.
+    fn start:boolean (app:GridApp driver:string dsn:string table:string seedRows:int) {
+        if ((this.openSession(driver dsn)) == false) {
+            return false
+        }
+        def fresh:boolean ((this.tableExists(table)) == false)
+        if fresh {
+            session.createTable(table (GridDbLauncher.columns()))
+        }
+        def probe:QuerySpec (QuerySpec.forTable(table))
+        def existing:int (session.countRows(probe))
+        if (existing == 0) {
+            if (seedRows > 0) {
+                this.seed(table seedRows)
+            }
+        }
+        def spec:QuerySpec (QuerySpec.forTable(table))
+        spec.orderBy("id" true)
+        def keys:[string]
+        push keys "id"
+        def ok:boolean (app.bindDatabase(session spec keys ("DB " + table)))
+        rows = app.db.loadedRows
+        if (ok == false) {
+            status = (engine + ": " + app.db.status)
+            return false
+        }
+        status = (engine + ": " + table + ", " + (to_string rows) + " rows - edit a cell and it is written back")
+        app.view.status = status
+        return true
+    }
+
+    ; Engines the host could reach, for the console line the server prints.
+    sfn availableList:string () {
+        def out:string "rangerdb"
+        if (HostSqlBackend.isAvailable("sqlite")) {
+            out = (out + " sqlite")
+        }
+        if (HostSqlBackend.isAvailable("duckdb")) {
+            out = (out + " duckdb")
+        }
+        return out
+    }
+}
