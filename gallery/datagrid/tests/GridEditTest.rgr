@@ -62,6 +62,27 @@ class GridEditTest {
         return ""
     }
 
+    ; Where a given run of text landed, out of a built display list. Reading
+    ; the picture back is the only way to check that two cells sit on the same
+    ; line without re-deriving the layout in the test.
+    ; The LAST one: the text being edited appears twice, once in the formula
+    ; bar at the top of the window and once in the cell, and it is the cell
+    ; that is in question here.
+    sfn textY:int (dl:EVGDisplayList text:string) {
+        def found:int -1
+        def i:int 0
+        while (i < (dl.count())) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == 3) {
+                if (cmd.text == text) {
+                    found = (to_int cmd.y)
+                }
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
     sfn select:void (app:GridApp r:int c:int) {
         app.sel.anchor.row = r
         app.sel.anchor.col = c
@@ -797,10 +818,12 @@ class GridEditTest {
         def growInput:UIInput (new UIInput)
         GridEditTest.pressKey(grow growInput (UIKey.down()) false false)
         c.eqInt("down past the last row moves" grow.sel.active.row 6)
-        c.eqInt("and the sheet grew" grow.model.rowCount 7)
+        ; At least that big. A frame also keeps the sheet covering the window,
+        ; so the exact number is the window's business, not this test's.
+        c.ok("and the sheet grew" (grow.model.rowCount >= 7))
         GridEditTest.pressKey(grow growInput (UIKey.right()) false false)
         c.eqInt("right past the last column moves" grow.sel.active.col 4)
-        c.eqInt("and the sheet grew" grow.model.colCount 5)
+        c.ok("and the sheet grew" (grow.model.colCount >= 5))
         ; growTo must never wipe sizes the way resize() does.
         c.eqInt("column width kept" (grow.model.colWidth(0)) 137)
         c.eqInt("row height kept" (grow.model.rowHeight(0)) 33)
@@ -809,9 +832,11 @@ class GridEditTest {
         grow.commitEdit()
         c.eqStr("typed into the new cell" (grow.model.getCell(6 4)) "new cell")
         ; growTo only ever grows.
+        def keptRows:int grow.model.rowCount
+        def keptCols:int grow.model.colCount
         grow.model.growTo(2 2)
-        c.eqInt("growTo never shrinks rows" grow.model.rowCount 7)
-        c.eqInt("growTo never shrinks cols" grow.model.colCount 5)
+        c.eqInt("growTo never shrinks rows" grow.model.rowCount keptRows)
+        c.eqInt("growTo never shrinks cols" grow.model.colCount keptCols)
         c.ok("still renders" ((strlen (grow.sceneJson())) > 50))
 
         print "== paste can land outside the current extent =="
@@ -1969,6 +1994,129 @@ class GridEditTest {
         tb.undoEdit()
         def stD:CellStyle (tb.model.getCellStyle(1 0))
         c.ok("undo restored the bold" stD.bold)
+
+        print "== the sheet is at least as big as the window shows =="
+        ; A sheet comes out of a file only as big as its used range, so the
+        ; grid stopped where the numbers stopped and the space beside it
+        ; belonged to no cell — nothing to click. The arrow keys hid it,
+        ; because they grow the sheet as the caret walks: the keyboard could
+        ; reach cells the mouse could not.
+        def vp:GridApp (new GridApp)
+        vp.init("gallery/pdf_writer/assets/fonts")
+        vp.model.resize(3 2)
+        vp.model.setCell(0 0 "a")
+        vp.sheetView.markDirty()
+        vp.sheetView.rebuild()
+        vp.grid.updateVisible(vp.model)
+        c.eqInt("a small sheet starts small" vp.model.colCount 2)
+        def vpIn:UIInput (new UIInput)
+        vpIn.newFrame()
+        vp.update(vpIn)
+        c.ok("one frame fills the window across" (vp.model.colCount > 2))
+        c.ok("and down" (vp.model.rowCount > 3))
+        def wideX:int ((vp.grid.x + vp.grid.rowHeaderW) + 600)
+        def bodyY:int (((vp.grid.headerTop()) + vp.grid.colHeaderH) + 30)
+        def far:CellPos (vp.grid.hitTest(vp.model wideX bodyY))
+        c.ok("so a click well past the content lands on a cell" (far.col > 1))
+        c.ok("a real one, not the last one clamped" (far.row >= 0))
+        ; …and the cells it made are empty, so nothing was invented: what a
+        ; save writes follows the CONTENT, and there is none out here.
+        c.eqStr("the new cells are empty" (vp.model.getCell(0 5)) ""
+        )
+        c.eqStr("all of them" (vp.model.getCell(20 7)) ""
+        )
+
+        print "== a formula being typed sits on the cell's own line =="
+        ; The syntax painter draws a formula so its references keep their
+        ; colours, and it used to place the text at a fixed offset from the
+        ; cell's top corner — four pixels below the line every other cell in
+        ; the row is on, with the bottom of every letter cut off by the clip.
+        def al:GridApp (new GridApp)
+        al.init("gallery/pdf_writer/assets/fonts")
+        al.model.growTo(8 3)
+        al.model.setCell(2 1 "102")
+        al.model.setCell(4 1 "104")
+        al.sheetView.markDirty()
+        al.sheetView.rebuild()
+        al.grid.updateVisible(al.model)
+        GridEditTest.select(al 3 1)
+        al.beginEdit("=SUM(" true)
+        al.view.status = ""
+        al.view.editCaret = al.editCaret
+        al.view.windows = al.windows
+        def alDl:EVGDisplayList (al.view.buildDisplayList(al.model al.sel al.grid al.editing al.editBuf al.book))
+        def yAbove:int (GridEditTest.textY(alDl "102"))
+        def yEdit:int (GridEditTest.textY(alDl "=SUM("))
+        def yBelow:int (GridEditTest.textY(alDl "104"))
+        c.ok("the row above was found" (yAbove > 0))
+        c.ok("the row below too" (yBelow > 0))
+        ; One row apart above and below; the edited one exactly between them.
+        def step:int (idiv (yBelow - yAbove) 2)
+        c.eqInt("the formula is on its own row's line" yEdit (yAbove + step))
+
+        print "== a click only points where a reference could go =="
+        ; Excel calls this point mode. After a closing bracket there is nothing
+        ; a reference could mean, so a click there means what a click means
+        ; everywhere else: finish this edit and select what was clicked.
+        ; Without the distinction, clicking around after =SUM(F2:F14) appended
+        ; to it and produced =SUM(F2:F14)F19.
+        def pm:GridApp (new GridApp)
+        pm.init("gallery/pdf_writer/assets/fonts")
+        pm.model.growTo(24 6)
+        def pmr:int 0
+        while (pmr < 15) {
+            pm.model.setCellRaw(pmr 5 (to_string (pmr + 1)))
+            pmr = (pmr + 1)
+        }
+        pm.sheetView.markDirty()
+        pm.sheetView.rebuild()
+        pm.engine.rebuildAll()
+        pm.grid.updateVisible(pm.model)
+        GridEditTest.select(pm 17 1)
+        pm.beginEdit("=SUM(" true)
+        c.ok("after an opening bracket a click points" (pm.canPickAtCaret()))
+        def pmIn:UIInput (new UIInput)
+        def f2:GridRect (pm.grid.cellRect(pm.model 1 5))
+        pmIn.newFrame()
+        pmIn.setPointerPos((f2.x + 4) (f2.y + 4))
+        pmIn.setPointerDown(true)
+        pm.update(pmIn)
+        def f14:GridRect (pm.grid.cellRect(pm.model 13 5))
+        pmIn.newFrame()
+        pmIn.setPointerPos((f14.x + 4) (f14.y + 4))
+        pmIn.setPointerDown(true)
+        pm.update(pmIn)
+        pmIn.newFrame()
+        pmIn.setPointerPos((f14.x + 4) (f14.y + 4))
+        pmIn.setPointerDown(false)
+        pm.update(pmIn)
+        c.eqStr("dragging picks the range" pm.editBuf "=SUM(F2:F14"
+        )
+        pm.insertAtCaret(")")
+        c.ok("after the closing bracket it does not point" ((pm.canPickAtCaret()) == false))
+        def f19:GridRect (pm.grid.cellRect(pm.model 18 5))
+        pmIn.newFrame()
+        pmIn.setPointerPos((f19.x + 4) (f19.y + 4))
+        pmIn.setPointerDown(true)
+        pm.update(pmIn)
+        pmIn.newFrame()
+        pmIn.setPointerPos((f19.x + 4) (f19.y + 4))
+        pmIn.setPointerDown(false)
+        pm.update(pmIn)
+        c.ok("the click finished the edit instead" (pm.editing == false))
+        c.eqStr("with the formula it had" (pm.model.getFormula(17 1)) "SUM(F2:F14)"
+        )
+        c.eqStr("and the right answer" (pm.model.getCell(17 1)) "104"
+        )
+        c.eqInt("and selected what was clicked" pm.sel.active.row 18)
+        c.eqInt("in its column" pm.sel.active.col 5)
+        ; The operators a reference CAN follow.
+        c.ok("after an equals" (GridApp.startsReference(61)))
+        c.ok("after a comma" (GridApp.startsReference(44)))
+        c.ok("after a plus" (GridApp.startsReference(43)))
+        c.ok("but not after a bracket that closes" ((GridApp.startsReference(41)) == false))
+        c.ok("nor after a digit" ((GridApp.startsReference(53)) == false))
+        c.ok("nor after a letter" ((GridApp.startsReference(65)) == false))
 
         print "== the rest of the formatting commands =="
         GridEditTest.selectRange(tb 4 0 4 2)

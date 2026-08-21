@@ -105,6 +105,12 @@ class GridView {
     def fbTextX:int 0
     def fbTextY:int 0
     def fbFontSize:double 13.0
+    ; Where the text of the cell being edited was actually drawn, so the caret
+    ; can stand on the same line rather than at a guessed offset from the
+    ; cell's top corner.
+    def editTextX:int 0
+    def editTextY:int 0
+    def editTextPx:double 13.0
     ; Set during paint for tests/hosts: formula edits always own the bar caret.
     def caretInFormulaBar:boolean false
     def focused:boolean true
@@ -786,8 +792,28 @@ class GridView {
                 }
             }
             if formulaEdit {
-                this.paintFormulaBarText(dl txt (rect.x + 4) (rect.y + 3) cellPx)
+                ; A formula being typed is drawn by the syntax painter so its
+                ; references keep their colours — but it is still text in a
+                ; cell, and it sits where the cell's text sits. `rect.y + 3`
+                ; put it four pixels below its own line and the cell's clip
+                ; then cut the bottom off every letter.
+                def editLineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+                if (editLineH < 8) {
+                    editLineH = 8
+                }
+                def editTop:int (this.textTopFor(rect st editLineH 1 cellPx))
+                editTextX = (rect.x + 4)
+                editTextY = editTop
+                editTextPx = cellPx
+                this.paintFormulaBarText(dl txt (rect.x + 4) editTop cellPx)
             } {
+                editTextX = (rect.x + 4)
+                editTextPx = cellPx
+                def plainLineH:int (to_int (ctx.tr.lineHeight(cellPx)))
+                if (plainLineH < 8) {
+                    plainLineH = 8
+                }
+                editTextY = (this.textTopFor(rect paintStyle plainLineH 1 cellPx))
                 if st.wrapText {
                     this.paintWrapped(dl txt rect paintStyle cellPx col)
                 } {
@@ -1488,8 +1514,19 @@ class GridView {
                             }
                             upTo = (substring editBuf 0 cc)
                         }
-                        def ew:int (to_int (ctx.tr.measureWidth(upTo fontSize)))
-                        this.pushRect(dl (to_double (ar.x + 4 + ew)) (to_double (ar.y + 3)) 2.0 (to_double (ar.h - 6)) theme.activeBorder)
+                        ; Measured in the CELL's type, not the view's default,
+                        ; and standing on the line the text was drawn on.
+                        this.applyFaceNamed("" false false)
+                        def ew:int (to_int (ctx.tr.measureWidth(upTo editTextPx)))
+                        def caretH:int (to_int editTextPx)
+                        def caretY:int editTextY
+                        if (caretY < (ar.y + 1)) {
+                            caretY = (ar.y + 1)
+                        }
+                        if (((caretY + caretH) + 2) > (ar.y + ar.h)) {
+                            caretY = (((ar.y + ar.h) - caretH) - 2)
+                        }
+                        this.pushRect(dl (to_double ((editTextX + ew) + 1)) (to_double caretY) 2.0 (to_double caretH) theme.activeBorder)
                     }
                 }
             }

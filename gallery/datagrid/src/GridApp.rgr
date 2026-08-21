@@ -4341,6 +4341,90 @@ class GridApp {
         editCaret = pickTokEnd
     }
 
+    ; Whether a character can be the one BEFORE a reference.
+    ;
+    ; A reference can begin after `=`, after an opening bracket, after an
+    ; argument separator, or after an operator — and nowhere else. In
+    ; particular not after a closing bracket, a digit or a letter, because
+    ; there is nothing a reference could mean there.
+    sfn startsReference:boolean (ch:int) {
+        if (ch == 61) {
+            return true
+        }
+        if (ch == 40) {
+            return true
+        }
+        if (ch == 123) {
+            return true
+        }
+        if (ch == 44) {
+            return true
+        }
+        if (ch == 59) {
+            return true
+        }
+        if (ch == 58) {
+            return true
+        }
+        if (ch == 43) {
+            return true
+        }
+        if (ch == 45) {
+            return true
+        }
+        if (ch == 42) {
+            return true
+        }
+        if (ch == 47) {
+            return true
+        }
+        if (ch == 94) {
+            return true
+        }
+        if (ch == 38) {
+            return true
+        }
+        if (ch == 60) {
+            return true
+        }
+        if (ch == 62) {
+            return true
+        }
+        return false
+    }
+
+    ; Would a click on a cell insert a reference here?
+    ;
+    ; Excel calls this "point mode", and it is on only where a reference could
+    ; legally begin. Anywhere else a click means what a click means everywhere
+    ; else in a spreadsheet: finish this edit and select what was clicked.
+    ; Without the distinction, clicking around after `=SUM(F2:F14)` appended
+    ; references to a finished formula and produced `=SUM(F2:F14)F19`, which
+    ; is not a formula at all — and which the engine then had to reject.
+    fn canPickAtCaret:boolean () {
+        if ((this.isFormulaEdit()) == false) {
+            return false
+        }
+        this.clampCaret()
+        ; A reference just picked stays replaceable: clicking again after
+        ; dragging a range out replaces it rather than ending the edit.
+        if (pickTokStart >= 0) {
+            if (pickTokEnd == editCaret) {
+                return true
+            }
+        }
+        def i:int editCaret
+        while (i > 0) {
+            def ch:int (charAt editBuf (i - 1))
+            if (ch == 32) {
+                i = (i - 1)
+                continue
+            }
+            return (GridApp.startsReference(ch))
+        }
+        return false
+    }
+
     fn beginFormulaPickAt:void (row:int col:int) {
         ; A fresh click with the caret still on the last pick replaces it;
         ; otherwise insert at the caret (type a comma first for another arg).
@@ -4640,6 +4724,58 @@ class GridApp {
             cols = 16384
         }
         if ((rows <= model.rowCount) && (cols <= model.colCount)) {
+            return
+        }
+        model.growTo(rows cols)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    ; Keep the sheet at least as big as the window can show.
+    ;
+    ; A sheet comes out of a file only as big as its USED range, so the grid
+    ; stopped where the numbers stopped and the space to the right of it
+    ; belonged to no cell at all — nothing to click, nothing to select. The
+    ; arrow keys hid it, because `ensureExtent` grows the sheet as the caret
+    ; walks; so the keyboard could reach places the mouse could not, which is
+    ; the shape the report took.
+    ;
+    ; Excel and Sheets both show a sheet that carries on past its content.
+    ; This keeps enough empty rows and columns to cover what is on screen, and
+    ; does nothing at all once they are there — which is every frame but the
+    ; few after a load, a resize or a scroll. `usedRow` / `usedCol` are about
+    ; CONTENT, so nothing here widens what gets saved.
+    fn ensureViewportFilled:void () {
+        def needW:int (grid.scrollX + (grid.viewportW()))
+        def needH:int (grid.scrollY + (grid.viewportH()))
+        def haveW:int (grid.geoTotalW(model))
+        def haveH:int (grid.geoTotalH(model))
+        def cols:int model.colCount
+        def rows:int model.rowCount
+        if (haveW < needW) {
+            def missW:int (needW - haveW)
+            def stepW:int model.defaultColW
+            if (stepW < 8) {
+                stepW = 8
+            }
+            cols = ((cols + (idiv missW stepW)) + 2)
+        }
+        if (haveH < needH) {
+            def missH:int (needH - haveH)
+            def stepH:int model.defaultRowH
+            if (stepH < 8) {
+                stepH = 8
+            }
+            rows = ((rows + (idiv missH stepH)) + 2)
+        }
+        if (cols > 16384) {
+            cols = 16384
+        }
+        if (rows > 1048576) {
+            rows = 1048576
+        }
+        if ((cols == model.colCount) && (rows == model.rowCount)) {
             return
         }
         model.growTo(rows cols)
@@ -5402,7 +5538,7 @@ class GridApp {
                             ; While typing a formula, a click on another cell
                             ; inserts A1 / A1:B2 at the caret — it must not
                             ; commit the edit or move the cell being written.
-                            if (this.isFormulaEdit()) {
+                            if (this.canPickAtCaret()) {
                                 if ((hit.row != sel.active.row) || (hit.col != sel.active.col)) {
                                     this.beginFormulaPickAt(hit.row hit.col)
                                     dragging = true
@@ -5519,6 +5655,9 @@ class GridApp {
     }
 
     fn update:void (input:UIInput) {
+        ; The window may be showing more sheet than the sheet has. Cheap when
+        ; it is not, which is almost always.
+        this.ensureViewportFilled()
         ; A visible dialog owns the frame.
         if (this.updateDialogs(input)) {
             return
