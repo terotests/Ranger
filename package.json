@@ -193,6 +193,7 @@
     "rangerdb:bench": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/bench/db_bench.rgr -d=./gallery/rangerdb/bin -o=db_bench.js -nodecli && node ./gallery/rangerdb/bin/db_bench.js",
     "datagrid:db:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridDbTest.rgr -d=./gallery/datagrid/bin -o=GridDbTest.js -nodecli && node ./gallery/datagrid/bin/GridDbTest.js",
     "datagrid:db:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/src/db_demo.rgr -d=./gallery/datagrid/bin -o=db_demo.js -nodecli && node ./gallery/datagrid/bin/db_demo.js",
+    "datagrid:textfit:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridTextFitTest.rgr -d=./gallery/datagrid/bin -o=GridTextFitTest.js -nodecli && node ./gallery/datagrid/bin/GridTextFitTest.js",
     "datagrid:db:module": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/datagrid/src/db_app.rgr -d=./gallery/datagrid/bin -o=grid_db_module.cjs",
     "datagrid:db:window": "npm run datagrid:db:module && node gallery/datagrid/web/serve.mjs --open --db ${RANGERDB_ENGINE:-auto}",
     "datagrid:db:window:sqlite": "npm run datagrid:db:module && node gallery/datagrid/web/serve.mjs --open --db sqlite",

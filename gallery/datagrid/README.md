@@ -287,6 +287,37 @@ edit refused, sorts (which re-runs the query) and leaves this behind:
 
 ![A workbook sheet whose rows come from DuckDB](artifacts/db_sheet.png)
 
+## Text stays inside its box
+
+Every component that draws editable or truncated text asks the same three
+questions, and every component that answered them for itself got them slightly
+wrong. `gallery/evg/EVGTextFit.rgr` answers them once:
+
+```text
+field width
+|<------------------------->|
+SELECT id, country, revenue FROM sales WHERE revenue > 900000
+                     ^ caret
+->  the window that fits AND contains the caret, and where the caret
+    sits inside it
+```
+
+Clipping is not enough on its own: the software painter honours a clip
+rectangle **per draw call**, so a text command whose origin is inside the box is
+drawn whole and runs out the other side — which is exactly what a long query in
+the SQL box did, across the panel and over the sheet behind it. Text that must
+not escape a box has to be **cut** to the box, on every backend.
+
+`EVGWindow`'s input control, the grid's cell labels and the formula field all
+go through it now, and the display-list primitives (`addRect`, `addFrame`,
+`addText`, `addClip`) live on `EVGDisplayList` itself, so a dialog and the grid
+behind it cannot drift into two encodings of the same command.
+
+`npm run datagrid:textfit:test` checks it on the display list rather than on
+the picture: for every piece of text that starts inside a panel, does it end
+inside it too? (It fails on the code from before the fix — that is what makes
+it a test.)
+
 ## Editing
 
 The grid is an editor, not just a viewer. Every mutation goes through

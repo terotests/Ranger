@@ -1,0 +1,162 @@
+; ==============================================================================
+; EVGTextFit - one implementation of "text that stays inside its box".
+; ==============================================================================
+;
+; Every component that draws editable or truncated text needs the same three
+; answers, and every component that answers them for itself gets them slightly
+; wrong. The dialog input drew its value from the left edge and let a long
+; value run out of the field, across the panel and over the sheet behind it;
+; the grid had its own label-trimming routine that the dialog could not reach.
+;
+;     field width
+;     |<------------------------->|
+;     SELECT id, country, revenue FROM sales WHERE revenue > 900000
+;                          ^ caret
+;     ->  the window that fits AND contains the caret, and where the caret
+;         sits inside it
+;
+; Clipping alone does not solve it: a display list's clip rectangle is honoured
+; per DRAW CALL by the software painter (a text command whose origin is inside
+; the clip is drawn whole), and the WebGL and SDL hosts scissor at different
+; granularities again. Text that must not escape a box has to be CUT to the
+; box, on every backend, which is what this file does.
+;
+; Used by EVGWindow's input control and by the DataGrid's formula bar and cell
+; labels, so all of them cut the same way.
+; ==============================================================================
+
+Import "../game_engine/ui/UITextRenderer.rgr"
+
+; The part of a string a field can show, and where the caret is inside it.
+class EVGFieldView {
+    def text:string ""
+    ; Index of the first character drawn - a hit test has to add this back.
+    def start:int 0
+    ; Caret offset in pixels from the text origin.
+    def caretX:double 0.0
+    ; True when the string did not fit and something was left out.
+    def clipped:boolean false
+
+    Constructor () {
+    }
+}
+
+class EVGTextFit {
+    ; What to draw in a single-line field of `width` pixels so that the caret
+    ; is visible and no glyph leaves the box.
+    ;
+    ; The window is grown from the caret: back to the left while there is room,
+    ; then on to the right with what is left. That gives the two behaviours a
+    ; text field is expected to have - typing at the end scrolls the text left,
+    ; and moving the caret back brings the earlier text into view - without a
+    ; scroll offset that anything else has to remember.
+    sfn fieldView:EVGFieldView (tr:UITextRenderer text:string caret:int size:double width:double) {
+        def view:EVGFieldView (new EVGFieldView)
+        def n:int (strlen text)
+        if (n == 0) {
+            return view
+        }
+        def whole:double (tr.measureWidth(text size))
+        def c:int caret
+        if (c < 0) {
+            c = 0
+        }
+        if (c > n) {
+            c = n
+        }
+        if (whole <= width) {
+            view.text = text
+            view.start = 0
+            view.caretX = (tr.measureWidth((substring text 0 c) size))
+            return view
+        }
+        ; Walk the left edge forward until the text from there to the caret
+        ; fits. Measuring is the only honest way: "WWWW" and "iiii" are not the
+        ; same number of pixels.
+        def start:int 0
+        while (start < c) {
+            def head:string (substring text start c)
+            if ((tr.measureWidth(head size)) <= width) {
+                break
+            }
+            start = (start + 1)
+        }
+        ; Then take as much of the tail as still fits.
+        def stop:int c
+        while (stop < n) {
+            def candidate:string (substring text start (stop + 1))
+            if ((tr.measureWidth(candidate size)) > width) {
+                break
+            }
+            stop = (stop + 1)
+        }
+        view.text = (substring text start stop)
+        view.start = start
+        view.caretX = (tr.measureWidth((substring text start c) size))
+        view.clipped = true
+        return view
+    }
+
+    ; A label cut to fit a width, with an ellipsis when it had to be cut. The
+    ; cut is measured rather than counted.
+    sfn fitLabel:string (tr:UITextRenderer text:string size:double maxW:int) {
+        if (maxW <= 0) {
+            return ""
+        }
+        def w:double (tr.measureWidth(text size))
+        if (w <= (to_double maxW)) {
+            return text
+        }
+        def ell:string "…"
+        def ellW:double (tr.measureWidth(ell size))
+        def room:double ((to_double maxW) - ellW)
+        if (room <= 0.0) {
+            return ell
+        }
+        def n:int (strlen text)
+        def keep:int 0
+        def i:int 1
+        while (i <= n) {
+            def part:string (substring text 0 i)
+            if ((tr.measureWidth(part size)) > room) {
+                break
+            }
+            keep = i
+            i = (i + 1)
+        }
+        if (keep == 0) {
+            return ell
+        }
+        return ((substring text 0 keep) + ell)
+    }
+
+    ; Which character a pointer landed on, inside a window that starts at
+    ; `start`. The same measurement the caret is drawn with, so a click puts
+    ; the caret where the user pointed rather than one glyph away.
+    sfn caretIndexAt:int (tr:UITextRenderer text:string start:int size:double localX:double) {
+        def n:int (strlen text)
+        if (localX <= 0.0) {
+            return start
+        }
+        def i:int start
+        while (i <= n) {
+            def prefix:string (substring text start i)
+            def w:double (tr.measureWidth(prefix size))
+            if (w >= localX) {
+                if (i == start) {
+                    return start
+                }
+                def prev:string (substring text start (i - 1))
+                def pw:double (tr.measureWidth(prev size))
+                def d0:double (localX - pw)
+                def d1:double (w - localX)
+                if (d0 <= d1) {
+                    return (i - 1)
+                }
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}

@@ -1,0 +1,178 @@
+; ==============================================================================
+; GridTextFitTest - text stays inside the box it was drawn in.
+; ==============================================================================
+;
+; The bug this exists for: a long value typed into a dialog's field was drawn
+; from the field's left edge at full length, so it ran out of the field, across
+; the panel and over the sheet behind it. Clipping does not fix that on its own
+; - the software painter honours a clip rectangle per DRAW CALL, so a text
+; command whose origin is inside the box is drawn whole - so the text has to be
+; CUT to the box.
+;
+; The check is made on the display list rather than on the picture: for every
+; piece of text that starts inside a panel, does it end inside it too?
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class FitCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got  [" + got + "]")
+            print ("       want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class GridTextFitTest {
+    sfn longQuery:string () {
+        return "SELECT id, country, region, revenue, units FROM sales WHERE revenue > 900000 AND region = 'Nordics' ORDER BY revenue DESC LIMIT 25"
+    }
+
+    ; The widest right edge of any text that STARTS inside [x0, x1).
+    sfn textRightEdgeIn:double (app:GridApp dl:EVGDisplayList x0:double x1:double y0:double y1:double) {
+        def worst:double x0
+        def n:int (dl.count())
+        def i:int 0
+        while (i < n) {
+            def c:EVGDrawCmd (dl.at(i))
+            if (c.kind == 3) {
+                if (c.x >= x0) {
+                    if (c.x < x1) {
+                        if (c.y >= y0) {
+                            if (c.y < y1) {
+                                def w:double (app.view.ctx.tr.measureWidth(c.text c.fontSize))
+                                def right:double (c.x + w)
+                                if (right > worst) {
+                                    worst = right
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return worst
+    }
+
+    sfn buildList:EVGDisplayList (app:GridApp) {
+        return (app.view.buildDisplayList(app.model app.sel app.grid app.editing app.editBuf app.book))
+    }
+
+    sfn main:void () {
+        def c:FitCheck (new FitCheck)
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def tr:UITextRenderer app.view.ctx.tr
+
+        print "== the shared fitter =="
+        def shortView:EVGFieldView (EVGTextFit.fieldView(tr "abc" 3 13.0 400.0))
+        c.eqStr("text that fits is shown whole" shortView.text "abc")
+        c.ok("and is not marked clipped" (shortView.clipped == false))
+
+        def long:string (GridTextFitTest.longQuery())
+        def tail:EVGFieldView (EVGTextFit.fieldView(tr long (strlen long) 13.0 200.0))
+        c.ok("a long value is cut" tail.clipped)
+        c.ok("what is drawn fits the field" ((tr.measureWidth(tail.text 13.0)) <= 200.0))
+        c.ok("the caret is inside the field" (tail.caretX <= 200.0))
+        c.ok("with the caret at the end, the end is what is shown" (tail.start > 0))
+
+        def head:EVGFieldView (EVGTextFit.fieldView(tr long 0 13.0 200.0))
+        c.eqInt("with the caret at the start, the start is shown" head.start 0)
+        c.ok("and that window fits too" ((tr.measureWidth(head.text 13.0)) <= 200.0))
+
+        def middle:EVGFieldView (EVGTextFit.fieldView(tr long 60 13.0 200.0))
+        c.ok("a caret in the middle stays visible" (middle.caretX <= 200.0))
+        c.ok("and the window contains it" (middle.start <= 60))
+
+        ; A click lands on the character it pointed at, in the window that is
+        ; actually on screen.
+        def probe:double (tr.measureWidth((substring long tail.start (tail.start + 5)) 13.0))
+        def hit:int (EVGTextFit.caretIndexAt(tr long tail.start 13.0 probe))
+        c.eqInt("a hit test is measured in the same window" hit (tail.start + 5))
+
+        def label:string (EVGTextFit.fitLabel(tr long 13.0 120))
+        c.ok("a trimmed label fits" ((tr.measureWidth(label 13.0)) <= 120.0))
+        c.ok("and says it was trimmed" (GridTextFitTest.endsWithEllipsis(label)))
+
+        print "== a dialog field =="
+        app.dbSqlText = (GridTextFitTest.longQuery())
+        app.openSqlDialog()
+        c.ok("the dialog is open" app.sqlDialog.visible)
+        def dl:EVGDisplayList (GridTextFitTest.buildList(app))
+        def panelX:double (to_double app.sqlDialog.x)
+        def panelRight:double (to_double (app.sqlDialog.x + app.sqlDialog.w))
+        def panelY:double (to_double app.sqlDialog.y)
+        def panelBottom:double (to_double (app.sqlDialog.y + app.sqlDialog.h))
+        def worst:double (GridTextFitTest.textRightEdgeIn(app dl panelX panelRight panelY panelBottom))
+        ; A check that found nothing to look at would pass for the wrong
+        ; reason, so it has to have seen text at all.
+        c.ok("the dialog draws text" (worst > panelX))
+        c.ok("no text escapes the dialog" (worst <= panelRight))
+
+        ; The same, with the caret at the start of the value: the window moves,
+        ; and it still fits.
+        def field:EVGControl (app.sqlDialog.controlById(701))
+        field.caret = 0
+        def dl2:EVGDisplayList (GridTextFitTest.buildList(app))
+        def worst2:double (GridTextFitTest.textRightEdgeIn(app dl2 panelX panelRight panelY panelBottom))
+        c.ok("nor with the caret at the other end" (worst2 <= panelRight))
+
+        print "== the formula bar =="
+        app.sqlDialog.close()
+        def formula:string "=CONCATENATE(\"a very long formula that goes on and on\", \"and keeps going past the end of the field\", A1, B2, C3)"
+        app.sel.active.row = 0
+        app.sel.active.col = 0
+        app.beginEdit(formula true)
+        def dl3:EVGDisplayList (GridTextFitTest.buildList(app))
+        def fx:double (to_double app.view.fbFieldX)
+        def fright:double (to_double (app.view.fbFieldX + app.view.fbFieldW))
+        def fy:double (to_double app.view.fbFieldY)
+        def fbottom:double (to_double (app.view.fbFieldY + app.view.fbFieldH))
+        def worst3:double (GridTextFitTest.textRightEdgeIn(app dl3 fx fright fy fbottom))
+        c.ok("the formula field draws text" (worst3 > fx))
+        c.ok("no text escapes the formula field" (worst3 <= fright))
+        app.cancelEdit()
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    sfn endsWithEllipsis:boolean (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return false
+        }
+        return ((substring text (n - 1) n) == "…")
+    }
+}

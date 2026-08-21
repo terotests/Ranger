@@ -89,9 +89,11 @@ try {
   must("the sheet is a database sheet", body.includes("DB sales"));
   must("rows from the database are drawn", body.includes("Finland"));
 
-  // Click a country cell, type, Enter - exactly the events the browser sends.
-  await post({ type: "pointer", x: 250, y: 150, down: true });
-  await post({ type: "pointer", x: 250, y: 150, down: false });
+  // Put the caret on a known cell and type into it. Naming the cell rather
+  // than clicking a pixel is what makes this survive a change in row height
+  // or toolbar size: the sheet is id, region, country, month, revenue, units,
+  // so C2 is the first country and E2 is its revenue.
+  await command("nav.goto", "C2");
   await post({ type: "text", text: "SmokeLand" });
   await post({ type: "key", key: "enter" });
   await sleep(300);
@@ -100,8 +102,7 @@ try {
   must("the database took it", after.includes("updated in sales"));
 
   // A value the column cannot hold must be refused and undone.
-  await post({ type: "pointer", x: 560, y: 150, down: true });
-  await post({ type: "pointer", x: 560, y: 150, down: false });
+  await command("nav.goto", "E2");
   await post({ type: "text", text: "not-a-number" });
   await post({ type: "key", key: "enter" });
   await sleep(300);
