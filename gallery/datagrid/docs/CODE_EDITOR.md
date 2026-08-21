@@ -58,6 +58,49 @@ that keeps its indent.
 
 The SDL binary takes a path: `code_editor_sdl gallery/datagrid/src/script/JsTokens.rgr`.
 
+## Tested with a real keyboard, against a real reference
+
+```bash
+npm run datagrid:editor:keys:test        # 43 checks, Playwright, real key events
+npm run datagrid:editor:compare:setup    # once
+npm run datagrid:editor:compare          # the same keys, next to CodeMirror 6
+```
+
+The dump-DOM smoke calls the app's own methods. The **keyboard suite** presses
+keys: Playwright sends them the way a keyboard does — through focus, `keydown`,
+`beforeinput` and composition — so what it tests is the part of a canvas editor
+that is impossible to unit test and easiest to get wrong: whether someone who
+never touches the mouse can use it at all.
+
+A canvas is a picture. It has no text for a screen reader to read and no caret
+for one to follow, so the page keeps a hidden `<textarea>` holding **the
+caret's line, with the caret in the right column** — the technique Monaco and
+CodeMirror 5 both use. Focus lives there, the canvas is `aria-hidden`, and the
+mirror is re-synced after every edit and every caret move. That one decision is
+what buys IME composition, dead keys, a mobile keyboard, the paste event and a
+screen reader that announces the line you are on, all at once.
+
+Tab is the other half. In a code editor Tab indents; in a web page a Tab that
+never returns is a **keyboard trap** (WCAG 2.1.2). So Escape arms an escape
+hatch — CodeMirror's own rule — the live region says so out loud, and the next
+Tab moves focus out. Shift+Tab always leaves. The test presses Escape, presses
+Tab, and asserts focus is gone; the compare bench asserts the same thing and
+fails the run if it is not.
+
+What the suite covers: focus order into and out of the editor, the ARIA roles
+and the accessible name, typing, Enter, Backspace, Home/End, Ctrl+Home/End,
+Ctrl+arrow by word, Shift+arrow selection, PageUp/PageDown, the textarea mirror
+tracking the caret, IME composition arriving as one string, paste with an
+announcement, undo, and that WebGL is still drawing in colour after all of it.
+
+**CodeMirror 6 is the behavioural reference.** `web/editor/compare` opens both
+editors in one browser, gives them the same document and the same key presses,
+and prints where each caret landed — currently **19 of 19 steps agree**. The
+bench has already paid for itself: a plain arrow with a selection open used to
+collapse it *and* move on a character, where every text field collapses to the
+edge and stops. Three rows went red, the fix was six lines, and the unit test
+holds it now.
+
 ## The lexer is not a parser
 
 `JsTokens` knows keywords, identifiers, the workbook API's own names, numbers,

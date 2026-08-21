@@ -13,6 +13,8 @@ import { renderDisplayList } from "./gl/evg-webgl.js";
 window.__pageStarted = true;
 
 const canvas = document.getElementById("screen");
+const ta = document.getElementById("a11y");
+const liveEl = document.getElementById("live");
 const statusEl = document.getElementById("status");
 const backendEl = document.getElementById("backend");
 const cmdsEl = document.getElementById("cmds");
@@ -87,6 +89,9 @@ const web = new (engineOrExplain(
   "datagrid:editor:web",
 ))();
 web.start(canvas.width, canvas.height);
+// Published so a test can ask the app what it thinks is true, rather than
+// inferring it from pixels.
+window.__editorWeb = web;
 
 let pointerDown = false;
 let redraws = 0;
@@ -127,11 +132,20 @@ function draw() {
   redraws += 1;
 }
 
-function afterInput() {
-  draw();
-}
-
 // --- input -------------------------------------------------------------------
+//
+// The canvas is a PICTURE: `aria-hidden`, not focusable, with no text in it
+// for a screen reader to read and no caret for it to follow. The focusable
+// element is a hidden <textarea> holding the CURRENT LINE with the caret in
+// the right column — the technique Monaco and CodeMirror 5 both use, because
+// it is the only one that gives an assistive technology something real to
+// announce, and the only one that gets IME composition, dead keys, a mobile
+// keyboard and the paste event for free.
+//
+// Editing arrives as `beforeinput`, which says what the browser was ASKED to
+// do (insertText, deleteContentBackward, insertFromPaste, historyUndo…). We
+// prevent it, do it to our own model, and re-mirror the line. Navigation is
+// taken in `keydown` because a caret move is not an input event.
 
 function canvasCoords(ev) {
   const rect = canvas.getBoundingClientRect();
@@ -147,7 +161,6 @@ const KEY_MAP = {
   Backspace: "backspace",
   Enter: "enter",
   Tab: "tab",
-  Escape: "escape",
   ArrowLeft: "left",
   ArrowRight: "right",
   ArrowUp: "up",
@@ -158,11 +171,60 @@ const KEY_MAP = {
   PageUp: "pageUp",
   PageDown: "pageDown",
 };
+// The chords the editor answers itself. Everything else keeps its browser
+// meaning — Ctrl+T must still open a tab.
 const CTRL_CHORD = /^[aklzyAKLZY]$/;
 
+/** Say something to a screen reader, once. */
+function announce(message) {
+  if (!liveEl) return;
+  liveEl.textContent = "";
+  // A live region only speaks when its text CHANGES, so the same message
+  // twice in a row needs the clear in between.
+  window.setTimeout(() => {
+    liveEl.textContent = message;
+  }, 10);
+}
+
+/** Put the caret's line into the textarea, with the caret where the caret is.
+ *  This is what an assistive technology reads: focus is in a text field whose
+ *  value is the current line, so "up arrow" announces the line above and
+ *  "right arrow" announces the next character, without the canvas being
+ *  involved at all. */
+let mirroring = false;
+function mirrorLine() {
+  if (!ta) return;
+  mirroring = true;
+  const line = web.currentLine();
+  if (ta.value !== line) ta.value = line;
+  const col = Math.max(0, Math.min(line.length, web.caretCol()));
+  let from = col;
+  let to = col;
+  // A selection inside one line is mirrored too, so Shift+arrow announces a
+  // growing selection rather than a moving caret.
+  if (web.hasSelection() && web.anchorLine() === web.caretLine()) {
+    const anchor = Math.max(0, Math.min(line.length, web.anchorCol()));
+    from = Math.min(anchor, col);
+    to = Math.max(anchor, col);
+  }
+  try {
+    ta.setSelectionRange(from, to);
+  } catch (_) {
+    /* a detached textarea has no selection to set */
+  }
+  mirroring = false;
+}
+
+function afterInput() {
+  draw();
+  mirrorLine();
+}
+
+// Focus follows the pointer, but the caret is placed from the canvas: the
+// textarea has `pointer-events: none` so a click reaches the picture.
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
-  canvas.focus();
+  ta?.focus({ preventScroll: true });
   pointerDown = true;
   const { x, y } = canvasCoords(ev);
   web.pointer(x, y, true, ev.shiftKey, ev.ctrlKey || ev.metaKey);
@@ -197,42 +259,143 @@ canvas.addEventListener(
   { passive: false },
 );
 
-canvas.addEventListener("keydown", (ev) => {
+// --- the keyboard ------------------------------------------------------------
+//
+// Tab inserts indentation, which in a code editor is what people want and in a
+// WEB PAGE is a keyboard trap: a user who arrives on this editor with the Tab
+// key must be able to leave with it (WCAG 2.1.2). So Escape arms an escape
+// hatch — exactly CodeMirror's rule — and the next Tab moves focus instead of
+// indenting. Shift+Tab always moves focus backwards.
+
+let tabEscapes = false;
+let composing = false;
+
+ta?.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    tabEscapes = true;
+    web.key("escape", ev.shiftKey, ev.ctrlKey || ev.metaKey);
+    announce("Press Tab to move focus out of the editor, or keep typing.");
+    afterInput();
+    return;
+  }
+  if (ev.key === "Tab") {
+    if (tabEscapes || ev.shiftKey) {
+      tabEscapes = false;
+      announce("Leaving the editor.");
+      return; // the browser moves focus
+    }
+    ev.preventDefault();
+    web.key("tab", false, false);
+    afterInput();
+    return;
+  }
+  if (ev.key !== "Shift" && ev.key !== "Control" && ev.key !== "Alt" && ev.key !== "Meta") {
+    tabEscapes = false;
+  }
   const special = KEY_MAP[ev.key];
   if (special) {
+    // Backspace, Delete and Enter also arrive as `beforeinput`; taking them
+    // here and preventing the default stops them being applied twice.
     ev.preventDefault();
     web.key(special, ev.shiftKey, ev.ctrlKey || ev.metaKey);
     afterInput();
     return;
   }
   if (ev.ctrlKey || ev.metaKey) {
-    // Ctrl+V is served by the paste event below — the only way to read the
-    // OS clipboard without asking for a permission the page does not need.
-    if (ev.key === "v" || ev.key === "V") return;
+    if (ev.key === "v" || ev.key === "V") return; // the paste event serves it
     if (CTRL_CHORD.test(ev.key)) {
       ev.preventDefault();
       web.text(ev.key, ev.shiftKey, true);
+      if (ev.key === "k" || ev.key === "K") announce("Opened " + web.documentName());
       afterInput();
     }
     return;
   }
-  if (ev.key.length === 1) {
-    ev.preventDefault();
-    web.text(ev.key, ev.shiftKey, false);
-    afterInput();
-  }
 });
 
-canvas.addEventListener("paste", (ev) => {
+// Composition (IME, dead keys): let the textarea do its job, and take the
+// finished string. Preventing input during composition breaks it outright.
+ta?.addEventListener("compositionstart", () => {
+  composing = true;
+});
+ta?.addEventListener("compositionend", (ev) => {
+  composing = false;
+  const text = ev.data || "";
+  if (text) web.text(text, false, false);
+  afterInput();
+});
+
+ta?.addEventListener("beforeinput", (ev) => {
+  if (composing) return;
+  const type = ev.inputType;
+  // Navigation and the keys handled in keydown never reach the model twice:
+  // those were prevented before the browser could ask for an input.
+  if (type === "insertText" && ev.data) {
+    ev.preventDefault();
+    web.text(ev.data, false, false);
+    afterInput();
+    return;
+  }
+  if (type === "insertFromPaste" || type === "insertFromDrop") {
+    const text = ev.dataTransfer ? ev.dataTransfer.getData("text/plain") : "";
+    ev.preventDefault();
+    if (text) {
+      web.text(text, false, false);
+      announce("Pasted " + text.length + " characters.");
+    }
+    afterInput();
+    return;
+  }
+  if (type === "insertLineBreak" || type === "insertParagraph") {
+    ev.preventDefault();
+    web.key("enter", false, false);
+    afterInput();
+    return;
+  }
+  if (type === "deleteContentBackward") {
+    ev.preventDefault();
+    web.key("backspace", false, false);
+    afterInput();
+    return;
+  }
+  if (type === "deleteContentForward") {
+    ev.preventDefault();
+    web.key("delete", false, false);
+    afterInput();
+    return;
+  }
+  if (type === "historyUndo" || type === "historyRedo") {
+    ev.preventDefault();
+    web.text(type === "historyUndo" ? "z" : "y", false, true);
+    afterInput();
+    return;
+  }
+  // Anything else: keep the model authoritative by refusing it and
+  // re-mirroring, rather than letting the textarea and the document disagree.
+  ev.preventDefault();
+  mirrorLine();
+});
+
+// Ctrl+V arrives as a paste event in browsers that do not send beforeinput for
+// it; both paths end in the same call, and the model is idempotent about it.
+ta?.addEventListener("paste", (ev) => {
   const text = ev.clipboardData?.getData("text/plain") || "";
   if (!text) return;
   ev.preventDefault();
   web.text(text, false, false);
+  announce("Pasted " + text.length + " characters.");
   afterInput();
 });
 
+ta?.addEventListener("focus", () => {
+  mirrorLine();
+  draw();
+});
+
 // The caret blinks, so something has to ask for a frame even when nobody is
-// typing. `draw` returns immediately when the scene is unchanged.
+// typing. `draw` returns immediately when the scene is unchanged, which it is
+// for 29 frames out of every 30.
 function loop() {
   web.tick();
   draw();
@@ -339,8 +502,9 @@ function runSelftest() {
   } catch (err) {
     statusEl.textContent = "font load failed: " + err.message;
   }
-  canvas.focus();
+  ta?.focus({ preventScroll: true });
   draw();
+  mirrorLine();
   if (new URLSearchParams(location.search).has("selftest")) {
     try {
       runSelftest();

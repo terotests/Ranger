@@ -120,6 +120,51 @@ class CodeEditorWeb {
         page.nextSample()
     }
 
+    ; --- what an accessible host needs to mirror -------------------------------
+    ; A canvas cannot be read by a screen reader, so the page keeps a hidden
+    ; <textarea> holding the CURRENT LINE with the caret in the right column —
+    ; the technique Monaco and CodeMirror 5 use. These are what it mirrors.
+    fn caretLine:int () {
+        return page.editor.sel.caret.line
+    }
+
+    fn caretCol:int () {
+        return page.editor.sel.caret.col
+    }
+
+    fn anchorLine:int () {
+        return page.editor.sel.anchor.line
+    }
+
+    fn anchorCol:int () {
+        return page.editor.sel.anchor.col
+    }
+
+    fn hasSelection:boolean () {
+        def collapsed:boolean (page.editor.sel.isCollapsed())
+        return (collapsed == false)
+    }
+
+    fn lineText:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (page.editor.buf.lineCount())) {
+            return ""
+        }
+        return (page.editor.buf.lineAt(i))
+    }
+
+    fn currentLine:string () {
+        return (this.lineText((this.caretLine())))
+    }
+
+    ; How long the last full re-lex took, in microseconds — the number the
+    ; compare bench needs to say WHERE an insert's cost went.
+    fn lexMicros:int () {
+        return page.lexUs
+    }
+
     fn width:int () {
         return page.W
     }

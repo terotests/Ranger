@@ -1,0 +1,343 @@
+/**
+ * keyboard.mjs — the code editor, driven by a real keyboard, in a real browser.
+ *
+ * The dump-DOM smoke beside this file calls the app's own methods; this one
+ * presses keys. Playwright sends them the way a keyboard does — through focus,
+ * `keydown`, `beforeinput` and composition — so what is under test is the part
+ * of a canvas editor that is easiest to get wrong and impossible to unit test:
+ * whether a person who never touches the mouse can use it at all.
+ *
+ * That includes the two things a canvas gets wrong by default:
+ *   * a canvas has no text and no caret for a screen reader, so the page keeps
+ *     a hidden <textarea> mirroring the caret's line — checked here;
+ *   * Tab in a code editor indents, which in a web page is a KEYBOARD TRAP
+ *     (WCAG 2.1.2). Escape arms an escape hatch and the next Tab leaves —
+ *     also checked here, because a trap that is only documented is still a
+ *     trap.
+ *
+ *   node gallery/datagrid/web/editor/keyboard.mjs [--port 8897] [--headed]
+ */
+import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright-core";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const DIST = path.join(HERE, "dist");
+const PORT = parseInt(argVal("--port", "8897"), 10);
+
+function argVal(flag, dflt) {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
+}
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".ttf": "font/ttf",
+};
+
+function serve() {
+  const server = http.createServer((req, res) => {
+    const rel = decodeURIComponent((req.url || "/").split("?")[0]);
+    const file = path.join(DIST, rel === "/" ? "index.html" : rel);
+    if (!file.startsWith(DIST) || !fs.existsSync(file)) {
+      res.writeHead(404);
+      res.end("no");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": MIME[path.extname(file)] || "application/octet-stream",
+      "cache-control": "no-store",
+    });
+    res.end(fs.readFileSync(file));
+  });
+  return new Promise((resolve) => server.listen(PORT, "127.0.0.1", () => resolve(server)));
+}
+
+/** The browser Playwright has, wherever this machine put it. Its own
+ *  `executablePath()` names the version it was built against, which is not
+ *  always the version that is installed. */
+function findChromium() {
+  const guesses = [process.env.CHROME_PATH];
+  try {
+    guesses.push(chromium.executablePath());
+  } catch (_) {
+    /* not installed the usual way */
+  }
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || "/opt/pw-browsers";
+  try {
+    for (const dir of fs.readdirSync(root)) {
+      if (!dir.startsWith("chromium")) continue;
+      for (const rel of ["chrome-linux/chrome", "chrome-linux64/chrome", "chrome-mac/Chromium.app/Contents/MacOS/Chromium"]) {
+        guesses.push(path.join(root, dir, rel));
+      }
+    }
+  } catch (_) {
+    /* none */
+  }
+  guesses.push("/usr/bin/chromium", "/usr/bin/google-chrome");
+  for (const g of guesses) {
+    if (g && fs.existsSync(g)) return g;
+  }
+  return null;
+}
+
+const checks = [];
+function check(name, ok, detail) {
+  checks.push({ name, ok: !!ok });
+  console.log(`  ${ok ? "PASS" : "FAIL"} ${name}${detail !== undefined && !ok ? " — " + detail : ""}`);
+}
+
+/** What the app thinks is true, read out of the page. */
+async function state(page) {
+  return page.evaluate(() => {
+    const ta = document.getElementById("a11y");
+    const doc = window.__editorDoc;
+    const texts = doc ? doc.list.cmds.filter((c) => c.k === 3 && c.text) : [];
+    const colours = new Set(texts.map((c) => JSON.stringify(c.c)));
+    return {
+      caretLine: window.__web.caretLine(),
+      caretCol: window.__web.caretCol(),
+      lines: window.__web.lineCount(),
+      hasSelection: window.__web.hasSelection(),
+      currentLine: window.__web.currentLine(),
+      text: window.__web.documentText(),
+      docName: window.__web.documentName(),
+      cmds: doc ? doc.list.cmds.length : 0,
+      textRuns: texts.length,
+      colours: colours.size,
+      focused: document.activeElement === ta,
+      taValue: ta.value,
+      taStart: ta.selectionStart,
+      taEnd: ta.selectionEnd,
+      live: document.getElementById("live").textContent,
+    };
+  });
+}
+
+async function main() {
+  if (!fs.existsSync(path.join(DIST, "code_editor_web.js"))) {
+    console.error("no build in " + DIST + " — run: npm run datagrid:editor:web");
+    process.exit(1);
+  }
+  const exe = findChromium();
+  if (!exe) {
+    console.error("no Chromium for Playwright — set CHROME_PATH");
+    process.exit(1);
+  }
+  const server = await serve();
+  const browser = await chromium.launch({
+    executablePath: exe,
+    headless: !process.argv.includes("--headed"),
+    args: [
+      "--no-sandbox",
+      "--use-gl=angle",
+      "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
+      "--no-proxy-server",
+      "--proxy-bypass-list=<-loopback>",
+    ],
+  });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    const pageErrors = [];
+    page.on("pageerror", (e) => pageErrors.push(e.message));
+    await page.goto(`http://127.0.0.1:${PORT}/index.html`);
+    await page.waitForFunction(() => window.__editorReady === true, null, { timeout: 30000 });
+    // The facade, where the assertions can reach it.
+    await page.evaluate(() => {
+      window.__web = window.__web || null;
+    });
+    await page.addInitScript(() => {});
+    // `web` is a module-scope const; the page publishes it for the test.
+    await page.evaluate(() => {
+      // eslint-disable-next-line no-undef
+      window.__web = window.__editorWeb;
+    });
+
+    console.log("\n== it draws, and it is reachable by keyboard ==");
+    let s = await state(page);
+    check("WebGL drew the page", s.cmds > 100, s.cmds);
+    check("with highlighted text", s.colours >= 4, s.colours);
+
+    // A keyboard user arrives from the page ABOVE the editor, so that is
+    // where the walk starts: put the sequential-focus starting point on the
+    // heading and press Tab once. (Blurring instead would leave the starting
+    // point ON the editor, and Tab would step past it — which is a fact about
+    // sequential navigation, not about this page.)
+    await page.evaluate(() => {
+      const h = document.querySelector("header h1");
+      h.tabIndex = -1;
+      h.focus();
+    });
+    await page.keyboard.press("Tab");
+    s = await state(page);
+    check("Tab reaches the editor", s.focused);
+
+    const roles = await page.evaluate(() => {
+      const ta = document.getElementById("a11y");
+      const canvas = document.getElementById("screen");
+      return {
+        role: ta.getAttribute("role"),
+        multiline: ta.getAttribute("aria-multiline"),
+        label: ta.getAttribute("aria-label"),
+        described: !!document.getElementById(ta.getAttribute("aria-describedby")),
+        canvasHidden: canvas.getAttribute("aria-hidden"),
+        live: document.getElementById("live").getAttribute("aria-live"),
+      };
+    });
+    check("the focusable element says it is a textbox", roles.role === "textbox", roles.role);
+    check("and that it is multi-line", roles.multiline === "true");
+    check("and has a name", (roles.label || "").length > 4, roles.label);
+    check("and points at its key help", roles.described);
+    check("the canvas is hidden from assistive tech", roles.canvasHidden === "true");
+    check("there is a live region for announcements", roles.live === "polite");
+
+    console.log("\n== typing ==");
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.type("const typed = 42;");
+    s = await state(page);
+    check("what was typed is in the document", s.text.includes("const typed = 42;"));
+    check("the caret is after it", s.caretCol === 17, s.caretCol);
+    check("and it reached the picture", await page.evaluate(() =>
+      window.__editorDoc.list.cmds.some((c) => c.k === 3 && c.text.includes("typed"))));
+
+    await page.keyboard.press("Enter");
+    s = await state(page);
+    check("Enter opened a line", s.caretLine === 1 && s.caretCol === 0, s.caretLine + ":" + s.caretCol);
+    await page.keyboard.press("Backspace");
+    s = await state(page);
+    check("Backspace joined it back", s.caretLine === 0 && s.caretCol === 17, s.caretLine + ":" + s.caretCol);
+
+    console.log("\n== moving ==");
+    await page.keyboard.press("Home");
+    s = await state(page);
+    check("Home goes to the start of the line", s.caretCol === 0);
+    await page.keyboard.press("Control+ArrowRight");
+    s = await state(page);
+    check("Ctrl+Right crosses a word", s.caretCol === 5, s.caretCol);
+    await page.keyboard.press("Control+ArrowRight");
+    s = await state(page);
+    check("and the next one", s.caretCol === 11, s.caretCol);
+    await page.keyboard.press("Control+ArrowLeft");
+    s = await state(page);
+    check("Ctrl+Left goes back", s.caretCol === 6, s.caretCol);
+    await page.keyboard.press("End");
+    s = await state(page);
+    check("End is the end of the line", s.caretCol === s.currentLine.length, s.caretCol + " of " + s.currentLine.length);
+    await page.keyboard.press("Control+End");
+    s = await state(page);
+    check("Ctrl+End is the end of the document", s.caretLine === s.lines - 1, s.caretLine);
+    await page.keyboard.press("Control+Home");
+    s = await state(page);
+    check("Ctrl+Home is the start", s.caretLine === 0 && s.caretCol === 0);
+    await page.keyboard.press("PageDown");
+    const afterPage = await state(page);
+    check("PageDown moved a screenful", afterPage.caretLine > 10, afterPage.caretLine);
+    await page.keyboard.press("PageUp");
+    s = await state(page);
+    check("PageUp came back", s.caretLine === 0, s.caretLine);
+
+    console.log("\n== selecting ==");
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.keyboard.press("Shift+ArrowRight");
+    s = await state(page);
+    check("Shift+Right selects", s.hasSelection);
+    check("and the mirror shows the selection", s.taEnd - s.taStart === 2, s.taStart + ".." + s.taEnd);
+    await page.keyboard.press("Shift+ArrowDown");
+    s = await state(page);
+    check("Shift+Down keeps it open", s.hasSelection && s.caretLine === 1);
+    await page.keyboard.press("ArrowLeft");
+    s = await state(page);
+    check("a plain arrow collapses it", !s.hasSelection);
+
+    console.log("\n== what a screen reader is given ==");
+    await page.keyboard.press("Control+Home");
+    s = await state(page);
+    check("the textarea holds the caret's line", s.taValue === s.currentLine, s.taValue);
+    check("with the caret in the right column", s.taStart === s.caretCol, s.taStart + " vs " + s.caretCol);
+    await page.keyboard.press("ArrowDown");
+    s = await state(page);
+    check("moving down mirrors the next line", s.taValue === s.currentLine, s.taValue);
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    s = await state(page);
+    check("and the column follows the caret", s.taStart === s.caretCol, s.taStart + " vs " + s.caretCol);
+
+    console.log("\n== the keyboard trap, and the way out ==");
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Tab");
+    s = await state(page);
+    check("Tab indents inside the editor", s.currentLine.startsWith("  "), s.currentLine.slice(0, 8));
+    check("and focus stayed put", s.focused);
+    await page.keyboard.press("Escape");
+    // The live region is cleared and re-filled a tick later, because a region
+    // that is set to the text it already holds says nothing at all.
+    const announced = await page
+      .waitForFunction(
+        () => (document.getElementById("live").textContent || "").toLowerCase().includes("tab"),
+        null,
+        { timeout: 3000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    s = await state(page);
+    check("Escape says how to leave", announced, s.live);
+    await page.keyboard.press("Tab");
+    s = await state(page);
+    check("and then Tab leaves the editor", !s.focused);
+    await page.keyboard.press("Shift+Tab");
+    s = await state(page);
+    check("Shift+Tab comes back to it", s.focused);
+
+    console.log("\n== IME, paste, undo ==");
+    await page.keyboard.press("Control+End");
+    // A composition, as an IME sends one: keydown 229, composition events, no
+    // plain keypress anywhere.
+    await page.evaluate(() => {
+      const ta = document.getElementById("a11y");
+      ta.dispatchEvent(new CompositionEvent("compositionstart", { data: "", bubbles: true }));
+      ta.dispatchEvent(new CompositionEvent("compositionupdate", { data: "かん", bubbles: true }));
+      ta.dispatchEvent(new CompositionEvent("compositionend", { data: "漢字", bubbles: true }));
+    });
+    s = await state(page);
+    check("a composed string is inserted whole", s.text.includes("漢字"));
+
+    const before = (await state(page)).text;
+    await page.evaluate(() => {
+      const ta = document.getElementById("a11y");
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "// pasted line\n");
+      ta.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    s = await state(page);
+    check("paste arrives as text", s.text.includes("// pasted line"), s.text.length - before.length);
+    check("and is announced", (s.live || "").toLowerCase().includes("pasted"), s.live);
+
+    await page.keyboard.press("Control+z");
+    s = await state(page);
+    check("Ctrl+Z undoes it", !s.text.includes("// pasted line"));
+
+    console.log("\n== and it is still drawing ==");
+    s = await state(page);
+    check("the scene survived all of that", s.cmds > 100, s.cmds);
+    check("still in colour", s.colours >= 4, s.colours);
+    check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
+
+    const failed = checks.filter((c) => !c.ok).length;
+    console.log(`\n  ${checks.length - failed} passed, ${failed} failed`);
+    if (failed) process.exitCode = 1;
+    else console.log("\nthe editor is usable without a mouse, on WebGL, in a real browser");
+  } finally {
+    await browser.close();
+    server.close();
+  }
+}
+
+main().catch((e) => {
+  console.error("keyboard test failed:", e && e.stack ? e.stack : e);
+  process.exit(1);
+});

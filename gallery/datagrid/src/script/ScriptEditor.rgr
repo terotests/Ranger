@@ -25,6 +25,7 @@ Import "JsTokens.rgr"
 Import "../../../text_editor/src/EditorBuffer.rgr"
 Import "../../../text_editor/src/EditorSelection.rgr"
 Import "../../../text_editor/src/EditorLayout.rgr"
+Import "../../../text_editor/src/EditorStyle.rgr"
 Import "../../../evg/EVGDisplayList.rgr"
 Import "../../../evg/EVGColor.rgr"
 Import "../../../evg/EVGCodepoint.rgr"
@@ -500,15 +501,141 @@ class ScriptEditor {
         this.markEdited(p)
     }
 
+    ; --- word and document movement -------------------------------------------
+    ; Ctrl+arrow, Ctrl+Home and Ctrl+End are not decoration: they are how a
+    ; keyboard-only user crosses a file. Word boundaries come from EditorWord,
+    ; the same ones double-click selection uses, so a word means one thing in
+    ; this editor rather than two.
+    fn wordLeftCol:int (line:int col:int) {
+        def s:string (buf.lineAt(line))
+        def i:int col
+        while (i > 0) {
+            def ch:int (charAt s (i - 1))
+            if (EditorWord.isWordChar(ch)) {
+                break
+            }
+            i = (i - 1)
+        }
+        if (i == 0) {
+            return 0
+        }
+        return (EditorWord.wordStart(s (i - 1)))
+    }
+
+    fn wordRightCol:int (line:int col:int) {
+        def s:string (buf.lineAt(line))
+        def n:int (strlen s)
+        def i:int col
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (EditorWord.isWordChar(ch)) {
+                break
+            }
+            i = (i + 1)
+        }
+        if (i >= n) {
+            return n
+        }
+        return (EditorWord.wordEnd(s i))
+    }
+
+    fn moveWord:void (dir:int extend:boolean) {
+        def line:int sel.caret.line
+        def col:int sel.caret.col
+        if (dir < 0) {
+            if (col == 0) {
+                if (line == 0) {
+                    return
+                }
+                def prevLen:int (strlen (buf.lineAt(line - 1)))
+                this.moveCaret((line - 1) prevLen extend)
+                layout.preferCol = sel.caret.col
+                return
+            }
+            def target:int (this.wordLeftCol(line col))
+            if (target >= col) {
+                target = (col - 1)
+            }
+            this.moveCaret(line target extend)
+            layout.preferCol = sel.caret.col
+            return
+        }
+        def len:int (strlen (buf.lineAt(line)))
+        if (col >= len) {
+            if (line >= ((buf.lineCount()) - 1)) {
+                return
+            }
+            this.moveCaret((line + 1) 0 extend)
+            layout.preferCol = 0
+            return
+        }
+        def right:int (this.wordRightCol(line col))
+        if (right <= col) {
+            right = (col + 1)
+        }
+        this.moveCaret(line right extend)
+        layout.preferCol = sel.caret.col
+    }
+
+    fn moveDocumentStart:void (extend:boolean) {
+        this.moveCaret(0 0 extend)
+        layout.preferCol = 0
+    }
+
+    fn moveDocumentEnd:void (extend:boolean) {
+        def last:int ((buf.lineCount()) - 1)
+        def len:int (strlen (buf.lineAt(last)))
+        this.moveCaret(last len extend)
+        layout.preferCol = len
+    }
+
+    ; True when it did the collapsing: an open selection and no Shift.
+    fn collapseToEdge:boolean (toEnd:boolean shift:boolean) {
+        if shift {
+            return false
+        }
+        if (sel.isCollapsed()) {
+            return false
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        if toEnd {
+            this.moveCaret(b.line b.col false)
+        } {
+            this.moveCaret(a.line a.col false)
+        }
+        layout.preferCol = sel.caret.col
+        return true
+    }
+
     ; --- input ----------------------------------------------------------------
     fn handleKey:boolean (key:int shift:boolean ctrl:boolean) {
         if (key == (UIKey.left())) {
+            if ctrl {
+                this.moveWord(-1 shift)
+                return true
+            }
+            ; A plain arrow with a selection open COLLAPSES it to the edge it
+            ; points at — it does not also move a character. That is what every
+            ; text field does, and what CodeMirror does; the bench in
+            ; web/editor/compare is where the difference showed up.
+            if (this.collapseToEdge(false shift)) {
+                return true
+            }
             def p:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col -1))
             this.moveCaret(p.line p.col shift)
             layout.preferCol = sel.caret.col
             return true
         }
         if (key == (UIKey.right())) {
+            if ctrl {
+                this.moveWord(1 shift)
+                return true
+            }
+            if (this.collapseToEdge(true shift)) {
+                return true
+            }
             def p2:EditorPos (buf.moveCodepoint(sel.caret.line sel.caret.col 1))
             this.moveCaret(p2.line p2.col shift)
             layout.preferCol = sel.caret.col
@@ -533,11 +660,19 @@ class ScriptEditor {
             return true
         }
         if (key == (UIKey.home())) {
+            if ctrl {
+                this.moveDocumentStart(shift)
+                return true
+            }
             this.moveCaret(sel.caret.line 0 shift)
             layout.preferCol = 0
             return true
         }
         if (key == (UIKey.end())) {
+            if ctrl {
+                this.moveDocumentEnd(shift)
+                return true
+            }
             def len:int (strlen (buf.lineAt(sel.caret.line)))
             this.moveCaret(sel.caret.line len shift)
             layout.preferCol = len

@@ -639,8 +639,17 @@ window at all, from one source.
 npm run datagrid:editor:web:serve  # the page, on :8001, no host process
 npm run datagrid:editor:sdl        # Ranger → C++ → SDL2 + OpenGL binary
 npm run datagrid:editor:web:test   # headless Chrome types into it: 12 checks
+npm run datagrid:editor:keys:test  # Playwright, real key events: 43 checks
+npm run datagrid:editor:compare    # the same keys, beside CodeMirror 6
 npm run datagrid:editor:sdl:smoke  # 20 frames through OpenGL, headless
 ```
+
+It is meant to be usable without a mouse: focus lives in a hidden `<textarea>`
+mirroring the caret's line (so a screen reader has something to read and IME,
+dead keys and paste all work), the canvas is `aria-hidden`, and Escape arms the
+way out of the Tab key so the editor is not a keyboard trap. **CodeMirror 6 is
+the reference** — the compare bench gives both editors the same document and
+the same key presses and prints where each caret landed: 19 of 19 steps agree.
 
 The text model is [`gallery/text_editor`](../text_editor)'s — buffer, selection
 and layout — rather than a third one written for this. Details, keys and what
