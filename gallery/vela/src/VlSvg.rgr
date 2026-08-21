@@ -62,6 +62,40 @@ class VlSvgWriter {
         return out
     }
 
+    ; The group's opening tag, and what a reader is told about it. Three cases,
+    ; each the reference's: a guide with a sentence is a SYMBOL carrying it, a
+    ; guide the chart silenced (the grid) is hidden along with everything it
+    ; draws, and anything else is a container.
+    fn groupOpen:string (cmd:VlDrawCommand) {
+        if (cmd.hidden) {
+            return "<g aria-hidden=\"true\">"
+        }
+        if ((strlen cmd.label) > 0) {
+            def out:string "<g role=\"graphics-symbol\" aria-roledescription=\""
+            out = (((out + (VlSvgWriter.escapeAttribute(cmd.roleDescription))) + "\" aria-label=\"") + (VlSvgWriter.escapeAttribute(cmd.label)))
+            return (out + "\">")
+        }
+        if (cmd.role == "mark") {
+            return "<g role=\"graphics-object\">"
+        }
+        return "<g>"
+    }
+
+    ; What a reader is told about one drawn shape, as attributes. A mark that
+    ; carries a description is a symbol and says what it is; everything else is
+    ; furniture and is announced as nothing.
+    fn ariaAttributes:string (cmd:VlDrawCommand) {
+        if ((strlen cmd.label) > 0) {
+            def out:string " aria-label=\""
+            out = ((out + (VlSvgWriter.escapeAttribute(cmd.label))) + "\" role=\"graphics-symbol\"")
+            if ((strlen cmd.roleDescription) > 0) {
+                out = (((out + " aria-roledescription=\"") + (VlSvgWriter.escapeAttribute(cmd.roleDescription))) + "\"")
+            }
+            return out
+        }
+        return " aria-hidden=\"true\""
+    }
+
     ; One element per command. The EVG backend merges a run of same-paint
     ; geometry into a single path because a document with fewer elements draws
     ; faster; this one does not, because a one-to-one document is what makes a
@@ -79,11 +113,16 @@ class VlSvgWriter {
     }
 
     fn element:string (cmd:VlDrawCommand originX:double originY:double) {
+        ; A group is written as a group, because the accessibility tree is
+        ; made of them: an axis is ONE thing to a reader — a sentence about a
+        ; scale — and the ticks and labels inside it are not four more. Drawn
+        ; flat, a chart read out loud was a list of numbers with no axis
+        ; anywhere in it.
         if (cmd.op == "group-begin") {
-            return ""
+            return (this.groupOpen(cmd))
         }
         if (cmd.op == "group-end") {
-            return ""
+            return "</g>"
         }
         ; Nothing invisible is written out at all. A renderer that ignores an
         ; opacity attribute would otherwise paint what the overlap pass had
@@ -112,6 +151,7 @@ class VlSvgWriter {
             return ""
         }
         def out:string (("<path d=\"" + data) + "\"")
+        out = (out + (this.ariaAttributes(cmd)))
         out = (out + (this.paintAttributes(cmd)))
         return (out + "/>")
     }
@@ -126,6 +166,7 @@ class VlSvgWriter {
         out = (out + ")\"")
         out = ((((out + " x2=\"") + (VlJson.formatNumber((cmd.x2 - cmd.x) 4))) + "\" y2=\"") + (VlJson.formatNumber((cmd.y2 - cmd.y) 4)))
         out = (out + "\"")
+        out = (out + (this.ariaAttributes(cmd)))
         out = (out + (this.paintAttributes(cmd)))
         return (out + "/>")
     }
@@ -243,6 +284,10 @@ class VlSvgWriter {
         if (cmd.opacity != 1.0) {
             out = ((((out + " opacity=\"") + (VlJson.formatNumber(cmd.opacity 4))) + "\""))
         }
+        ; A label a reader can already read is furniture to the accessibility
+        ; tree — the axis it belongs to carries the sentence about it — and a
+        ; text MARK, which is data drawn as words, carries its own.
+        out = (out + (this.ariaAttributes(cmd)))
         ; A label written on several lines is ONE text element with a span per
         ; line, each after the first stepped down by a line and put back at the
         ; left edge — which is how the reference writes it, and the page is

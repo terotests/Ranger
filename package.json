@@ -89,6 +89,7 @@
     "vela:compiler": "node gallery/vela/tools/reference/compiler.mjs",
     "vela:render": "node gallery/vela/tools/reference/render.mjs",
     "vela:coverage": "node gallery/vela/tools/reference/coverage.mjs",
+    "vela:aria": "node gallery/vela/tools/reference/aria.mjs",
     "vela:chart": "bash gallery/vela/tools/chart-api-demo.sh",
     "vela:chart:check": "node gallery/vela/tools/reference/chart_api.mjs",
     "vela:types": "node gallery/vela/tools/reference/compiler.mjs gallery/vela/tests/chart_types",

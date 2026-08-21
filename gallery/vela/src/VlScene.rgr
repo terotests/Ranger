@@ -115,6 +115,24 @@ class VlSceneMark {
     ; band down, and means the part that hangs below to be cut rather than to
     ; make the page taller.
     def clipped:boolean false
+    ; What a screen reader is told about this mark, and whether it is told
+    ; anything at all. These are NOT part of the scene: the reference computes
+    ; them in its renderer, from the scale rather than from the data, and the
+    ; parity comparison would report a description the reference's scenegraph
+    ; does not carry. They travel with the mark because the renderer is where
+    ; they are needed and the scale is not there.
+    def ariaLabel:string ""
+    ; What KIND of thing the sentence is about — "axis", "legend", "title".
+    ; The reference names it separately from the sentence, and a reader is told
+    ; both.
+    def ariaKind:string ""
+    def ariaHidden:boolean false
+    ; Where this mark sits in the stack of the group that holds it. A guide
+    ; states it — `"zindex": 1` on an axis means its ticks are drawn OVER the
+    ; data rather than under it, which is how a heatmap keeps its tick marks
+    ; visible against the cells they point at. Marks with the same zindex keep
+    ; the order they were built in.
+    def zorder:int 0
     def items:[VlSceneItem]
 
     fn addItem:VlSceneItem () {

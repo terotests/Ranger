@@ -318,6 +318,60 @@ The reference is an **optional** dev dependency. Without it the parity step says
 that nothing was compared and the rest of the suite still runs — a silent skip
 would read as a pass.
 
+### And a picture is not everything the chart says
+
+A chart is also read by people who never see it, and to them it is a document
+of `aria-label` sentences rather than a picture. That text comes from two
+places and only one of them was ever compared. The per-mark sentence — `"c: A;
+v: 30"` — is computed from the DATA and lives in the scene, so the parity
+harness already held it item for item. The sentence about a guide —
+
+> X-axis titled 'c' for a discrete scale with 4 values: A, B, C, D
+
+— is computed by the RENDERER, from the scale, and appears in neither
+scenegraph. Nothing compared it, and `VlSvg.rgr` emitted no accessibility
+markup at all: eighty-eight charts that were exact to a quarter of a pixel said
+*nothing whatsoever* to a screen reader.
+
+`tools/reference/aria.mjs` is the comparison. It renders each spec with both
+implementations and reads back every labelled element in document order — what
+it says, what role it claims, and how much of the document is announced as
+nothing:
+
+```
+                 Vega JSON
+                  │      │
+       official vega     Vela
+                  │      │
+          view.toSVG()   vela_svg
+                  │      │
+                  └ diff ┘        labels, roles, and what is hidden
+```
+
+Its first run agreed on **20 of 88** charts. It now agrees on all 88, over 956
+labels, and runs as a step of `tests/run.sh`:
+
+```
+npm run vela:aria
+```
+
+What it caught:
+
+| What was wrong | What the reference does |
+| --- | --- |
+| **Nothing was announced at all** — no `aria-label`, no `role`, no `aria-hidden` anywhere in the document | a chart is a document with a structure: guides are `graphics-symbol`s carrying a sentence, data marks are symbols carrying their own row, mark containers are `graphics-object`s, and the grid — which the spec marks `"aria": false` — is hidden along with everything it draws |
+| A domain of nine categories was read out in full | past seven values the reference names the first five and then the last: "9 values: A, B, C, D, E, ending with I". A reader gets the shape of the domain rather than a recital of it |
+| Every line, area, arc, rule and label was announced with no idea what kind of thing it was | an item that carries a description but no role description is called `"<marktype> mark"`. Vega-Lite states one for a bar; for everything else the RENDERER fills it in |
+| A month axis was read as `1325376000000, 1328054400000, …` | the guide's own `format`/`formatType` decide what a value IS, and a date specifier written for an axis is *abbreviated* — the reference expands `%a` to `%A` and `%b` to `%B` before speaking them, because a reader has no label width to fit in. "January, February, March, April" |
+| A domain of 0 to 3 was read "from 0 to 3", and shares of a whole "from 0 to 1" | the ends are formatted the way the TICKS are formatted — a shared precision taken from a five-tick step, and the axis' own specifier — so they read "0.0 to 3.0" and "0% to 100%" |
+| A time axis read "06:00:00 PM" | `%X` is `%-I:%M:%S %p`; the hour is not padded |
+| A faceted chart handed over ten unlabelled strips | every title is announced, a chart's own and the one over each column of a trellis: `Title text 'g'` |
+| A legend for `strokeDash` was announced "for stroke dash" | only a COLOUR is called one. Every other channel keeps the name the grammar gives it |
+| A heatmap's axes were announced before its cells | ordering is `zindex`, and this was a DRAWING defect the accessibility harness found: `"zindex": 1` on an axis means its ticks and domain line are drawn *over* the data. Drawn under a heatmap's cells they are simply invisible. Nothing else could see it — parity matches marks by role, and the ink comparison does not care what order ink arrives in |
+
+The last row is the point of having the harness at all: two of the things it
+found are not accessibility bugs.
+
 ### And a suite of chosen charts is not coverage
 
 Everything above holds Vela to a quarter of a pixel on `tests/specs`. That is a

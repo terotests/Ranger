@@ -533,45 +533,11 @@ class VlAxis {
         return out
     }
 
-    ; The text of a tick set. A specification's own format applies to each value
-    ; on its own; without one the set shares a precision chosen from its step,
-    ; which is why an unformatted axis reads 0.0, 0.5, 1.0 rather than 0, 0.5, 1.
+    ; The text of a tick set. It is the SCALE's rule — `tickFormat` is a scale
+    ; method in the reference — and a guide's ARIA sentence needs the same one,
+    ; so it lives there and this is the axis' door to it.
     sfn labelSet:[string] (values:[double] format:string) {
-        if ((strlen format) == 0) {
-            return (VlScale.tickLabels(values))
-        }
-        def spec:VlFormatSpec (VlFormat.parse(format))
-        ; A specifier that names a TYPE but no precision takes its precision
-        ; from the tick step, which is what `scale.tickFormat` does and what an
-        ; axis needs: `"format": "%"` on shares of a whole means 0%, 50%, 100%
-        ; and not six decimal places of each. The step is measured in the units
-        ; the label is printed in, so a percentage's step is a hundred times
-        ; the scale's own.
-        ; An SI format on an AXIS names one prefix for the whole set rather
-        ; than the nearest one for each label. The prefix is chosen from the
-        ; end of the scale and every tick is written in it — which is what
-        ; makes the middle of a population pyramid read "0M" and not "0", and
-        ; a tick a thousand times smaller than its neighbour read "0.001M"
-        ; rather than "1k".
-        if (spec.type == "s") {
-            return (VlFormat.siOver(values spec))
-        }
-        if (spec.precision < 0) {
-            def scaled:[double]
-            for values v0:double vi0 {
-                if (spec.type == "%") {
-                    push scaled (v0 * 100.0)
-                } {
-                    push scaled v0
-                }
-            }
-            spec.precision = (VlScale.tickDecimals(scaled))
-        }
-        def out:[string]
-        for values v:double idx {
-            push out (VlFormat.applySpec(v spec))
-        }
-        return out
+        return (VlScale.labelSet(values format))
     }
 
     ; --------------------------------------------------------------- build ----
@@ -590,6 +556,17 @@ class VlAxis {
         def mark (new VlSceneMark())
         mark.markType = "group"
         mark.role = "axis"
+        ; What a reader who cannot see the axis is told it says. The reference
+        ; writes this in its RENDERER — it is not in the scenegraph — and it is
+        ; built from the scale rather than from the ticks: "X-axis titled 'c'
+        ; for a discrete scale with 4 values: A, B, C, D". An axis the chart
+        ; marked `"aria": false` — the grid, which rules the plot and says
+        ; nothing — is hidden from a reader instead.
+        mark.ariaHidden = (! (adef.boolOr("aria" true)))
+        if (! mark.ariaHidden) {
+            mark.ariaLabel = (VlAxis.ariaLabel(adef sc orient))
+            mark.ariaKind = "axis"
+        }
         def group:VlSceneItem (mark.addItem())
         group.setString("orient" orient)
         group.setNumber("offset" axisOffset)
@@ -778,6 +755,25 @@ class VlAxis {
     ; crossing scale's own range, so an inverted y range and an ascending band
     ; range draw their grid lines in opposite directions — and the reference
     ; records that difference.
+    ; "X-axis titled 'c' for a discrete scale with 4 values: A, B, C, D", which
+    ; is the sentence the reference's renderer writes. Every part of it is
+    ; measured against that renderer rather than invented: the axis is named
+    ; for the direction it runs in, a title is quoted where there is one, a
+    ; band or a point scale is called DISCRETE whatever it is underneath, and
+    ; what follows is either the values there are or the ends of the range.
+    sfn ariaLabel:string (adef:VlJson sc:VlScale orient:string) {
+        def out:string "Y-axis"
+        if ((orient == "bottom") || (orient == "top")) {
+            out = "X-axis"
+        }
+        def title:string (adef.stringOr("title" ""))
+        if ((strlen title) > 0) {
+            out = (((out + " titled '") + title) + "'")
+        }
+        out = (((out + " for a ") + (sc.ariaKind())) + " scale")
+        return (out + (sc.ariaValues((adef.stringOr("format" "")) (adef.stringOr("formatType" "")))))
+    }
+
     fn buildGrid:VlSceneMark (ticks:[VlAxisTickValue] vertical:boolean gridFrom:double gridTo:double) {
         def mark (new VlSceneMark())
         mark.markType = "rule"
