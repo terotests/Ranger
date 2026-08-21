@@ -1,0 +1,381 @@
+; ==============================================================================
+; vela_chart_page.rgr — the chart API, as a page of the EVG showcase.
+; ==============================================================================
+;   vela_chart_page <out.tsx> [--title=…] [--source=<this file>]
+;
+; The other generated chart pages take a Vega specification and draw it. This
+; one takes no specification at all: every chart on it is built by CALLING
+; `VlChart` — and beside each chart the page prints the calls that built it.
+;
+;     the calls below ─→ VlChart ─→ Vega-Lite ─→ VlCompile ─→ Vega
+;                                                      │
+;                                                 VlRuntime
+;                                                      │
+;                                            VlSceneCommands ─→ VlEvg ─→ page
+;
+; The code on the page is not a transcription. It is read out of THIS FILE, at
+; the markers around each chart's own calls, so what the page shows and what
+; the page drew cannot drift apart: change a call and the printed line changes
+; with it. Without the source the tool refuses rather than printing a caption
+; that says nothing — a page claiming to show the code that ran is worse than
+; no page if the code is stale.
+; ==============================================================================
+
+Import "../src/VlChart.rgr"
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+Import "../src/VlCommand.rgr"
+Import "../src/VlEvg.rgr"
+
+class VelaChartPage {
+
+    ; One writer for the whole page, so the palette slots are numbered once
+    ; across every chart on it and the generated stylesheet matches.
+    sfn sharedWriter:VlEvgWriter () {
+        def w (new VlEvgWriter())
+        w.useClasses = true
+        return w
+    }
+
+    sfn dirOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path 0 (lastSep + 1))
+        }
+        return "./"
+    }
+
+    sfn nameOf:string (path:string) {
+        def lastSep:int (lastIndexOf path "/")
+        if (lastSep >= 0) {
+            return (substring path (lastSep + 1) (strlen path))
+        }
+        return path
+    }
+
+    sfn hasPrefix:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == prefix)
+    }
+
+    ; --- the data every chart on the page reads ------------------------------
+    ; Quarterly sales and cost for two regions. One dataset, several views of
+    ; it: the numbers are a value that sits beside the charts rather than
+    ; inside any of them.
+    sfn quarters:VlDataset () {
+        def d (VlDataset.create())
+        d.row().str("region" "Länsi").str("quarter" "2016-01-01").num("sales" 120.0).num("cost" 82.0)
+        d.row().str("region" "Länsi").str("quarter" "2016-04-01").num("sales" 145.0).num("cost" 91.0)
+        d.row().str("region" "Länsi").str("quarter" "2016-07-01").num("sales" 132.0).num("cost" 88.0)
+        d.row().str("region" "Länsi").str("quarter" "2016-10-01").num("sales" 168.0).num("cost" 99.0)
+        d.row().str("region" "Itä").str("quarter" "2016-01-01").num("sales" 93.0).num("cost" 71.0)
+        d.row().str("region" "Itä").str("quarter" "2016-04-01").num("sales" 88.0).num("cost" 66.0)
+        d.row().str("region" "Itä").str("quarter" "2016-07-01").num("sales" 104.0).num("cost" 74.0)
+        d.row().str("region" "Itä").str("quarter" "2016-10-01").num("sales" 121.0).num("cost" 80.0)
+        return d
+    }
+
+    ; --- the charts ----------------------------------------------------------
+    ; Everything between a `--snippet` marker and its `--end` is what the page
+    ; prints beside the chart it built.
+
+    sfn totals:VlChart () {
+        def rows:VlDataset (VelaChartPage.quarters())
+        ; --snippet totals
+        def chart (VlChart.create(rows))
+        chart.size(150 95)
+        def bars (chart.bar())
+        bars.x("region").keepOrder()
+        bars.y("sales").aggregate("sum").title("myynti")
+        ; --end
+        return chart
+    }
+
+    ; Neither channel says what it is: `quarter` holds ISO dates and `sales`
+    ; holds numbers, and the dataset is what answers.
+    sfn overTime:VlChart () {
+        def rows:VlDataset (VelaChartPage.quarters())
+        ; --snippet overTime
+        def chart (VlChart.create(rows))
+        chart.size(100 85)
+        def line (chart.line())
+        line.withPoints(true)
+        line.x("quarter").y("sales").color("region")
+        ; --end
+        return chart
+    }
+
+    ; The view carries the encoding and both marks inherit it: one set of axes,
+    ; one legend, two marks.
+    sfn layered:VlChart () {
+        def rows:VlDataset (VelaChartPage.quarters())
+        ; --snippet layered
+        def chart (VlChart.create(rows))
+        chart.size(100 85)
+        chart.x("quarter").y("sales").color("region")
+        chart.area().markOpacity(0.35)
+        chart.line()
+        ; --end
+        return chart
+    }
+
+    sfn grouped:VlChart () {
+        def rows:VlDataset (VelaChartPage.quarters())
+        ; --snippet grouped
+        def chart (VlChart.create(rows))
+        chart.size(100 85)
+        def bars (chart.bar())
+        bars.x("quarter").timeUnit("yearquarter").type("ordinal")
+        bars.y("sales").color("region").xOffset("region")
+        ; --end
+        return chart
+    }
+
+    ; --- the code beside the chart -------------------------------------------
+    ; Read out of this file rather than written twice. A line inside a marked
+    ; region is printed as it stands, with the indentation the source has taken
+    ; off; a comment line inside one is left out, because a comment on the page
+    ; would be a caption pretending to be code.
+    sfn snippet:[string] (source:string name:string) {
+        def out:[string]
+        def marker:string ("; --snippet " + name)
+        def lines:[string] (strsplit source (strfromcode 10))
+        def inside:boolean false
+        for lines line:string li {
+            def bare:string (trim line)
+            if inside {
+                if (bare == "; --end") {
+                    return out
+                }
+                if (! (VelaChartPage.hasPrefix(bare ";"))) {
+                    push out bare
+                }
+            } {
+                if (bare == marker) {
+                    inside = true
+                }
+            }
+        }
+        return out
+    }
+
+    ; --- one cell: the calls, the chart they built, and what it cost ---------
+    sfn cell:string (writer:VlEvgWriter chart:VlChart title:string lines:[string]) {
+        def nl:string (strfromcode 10)
+        for chart.errors e:string ei {
+            print ((("error in " + title) + ": ") + e)
+        }
+        def apiErrors:int (array_length chart.errors)
+        if (apiErrors > 0) {
+            return ""
+        }
+        def spec:VlJson (chart.toSpec())
+
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec(spec))
+        for compiler.errors e:string ei {
+            print ((("error in " + title) + ": ") + e)
+        }
+        def compileErrors:int (array_length compiler.errors)
+        if (compileErrors > 0) {
+            return ""
+        }
+
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(vg))
+        for rt.errors e:string ei {
+            print ((("error in " + title) + ": ") + e)
+        }
+        def runErrors:int (array_length rt.errors)
+        if (runErrors > 0) {
+            return ""
+        }
+
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def root:VlSceneItem (itemAt scene.items 0)
+        def drawn:string (writer.writeChart(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY"))))
+
+        def out:string ("        <View className=\"chartCell\">" + nl)
+        out = ((((out + "          <Label className=\"subhead\">") + title) + "</Label>") + nl)
+        out = ((out + "          <View className=\"codeBlock\">") + nl)
+        for lines line:string li {
+            def safe:string (VelaChartPage.forPage(line))
+            out = ((((out + "            <Label className=\"codeLine\">{\"") + safe) + "\"}</Label>") + nl)
+        }
+        out = ((out + "          </View>") + nl)
+        out = (out + drawn)
+        out = ((((out + "          <Label className=\"caption\">") + (VlJson.intToText((list.count())))) + " piirtokomentoa</Label>") + nl)
+        out = ((out + "        </View>") + nl)
+        return out
+    }
+
+    ; A line of Ranger source, on a page whose text is markup. JSX text is
+    ; tokenised as if it were code — a double quote opens a string there, and
+    ; `x("region")` came out as `x(region )` — so a line goes into the page as
+    ; a string LITERAL in an expression container, which is the one place the
+    ; parser keeps a quote. What has to be escaped for that literal is escaped
+    ; here: a backslash and a double quote, and nothing else needs to be.
+    sfn forPage:string (line:string) {
+        def out:string ""
+        def n:int (strlen line)
+        def i:int 0
+        while (i < n) {
+            def c:string (substring line i (i + 1))
+            if (c == "\\") {
+                out = (out + "\\\\")
+            } {
+                if (c == "\"") {
+                    out = (out + "\\\"")
+                } {
+                    out = (out + c)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn main:void () {
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 1) {
+            print "usage: vela_chart_page <out.tsx> [--title=…] [--source=…]"
+            return
+        }
+        def outputPath:string (shell_arg 0)
+        def title:string "Kaavio-API"
+        def sourcePath:string "gallery/vela/tools/vela_chart_page.rgr"
+        def ai:int 1
+        while (ai < argCount) {
+            def flag:string (shell_arg ai)
+            if (VelaChartPage.hasPrefix(flag "--title=")) {
+                title = (substring flag 8 (strlen flag))
+            }
+            if (VelaChartPage.hasPrefix(flag "--source=")) {
+                sourcePath = (substring flag 9 (strlen flag))
+            }
+            ai = (ai + 1)
+        }
+
+        ; The page prints the calls that drew it, so it needs them. Without the
+        ; source there is nothing honest to print.
+        def sourceDir:string (VelaChartPage.dirOf(sourcePath))
+        def sourceName:string (VelaChartPage.nameOf(sourcePath))
+        def source@(optional):string (read_file sourceDir sourceName)
+        if (null? source) {
+            print ("could not read " + sourcePath)
+            print "the page prints the calls that built its charts, so it is not written without them"
+            return
+        }
+        def text:string (unwrap source)
+
+        def writer:VlEvgWriter (VelaChartPage.sharedWriter())
+        def nl:string (strfromcode 10)
+        def page:string ""
+        page = ((page + "// GENERATED by gallery/vela/tools/vela_chart_page.rgr — do not edit by hand.") + nl)
+        page = ((page + "//") + nl)
+        page = ((page + "// No specification was read to draw this page. Every chart on it was built") + nl)
+        page = ((page + "// by CALLING gallery/vela/src/VlChart.rgr, and the lines printed beside each") + nl)
+        page = ((page + "// chart are the calls that built it — read out of the tool's own source, so") + nl)
+        page = ((page + "// the code on the page and the code that drew it cannot drift apart.") + nl)
+        page = ((page + "//") + nl)
+        page = ((page + "// Regenerate with:  npm run vela:showcase") + nl)
+        page = (page + nl)
+        page = ((page + "import { View, Label, Path } from \"./evg_types\";") + nl)
+        page = (page + nl)
+        page = ((page + "function render() {") + nl)
+        page = ((page + "  return (") + nl)
+        page = ((page + "    <View className=\"page\">") + nl)
+        page = ((((page + "      <Label className=\"title\">") + title) + "</Label>") + nl)
+        page = ((page + "      <View className=\"rule\" />") + nl)
+        ; What the page is, on the page: it is the one here whose charts came
+        ; from a program rather than from a specification, and that is not
+        ; visible from the charts themselves.
+        page = ((page + "      <Label className=\"body\">{\"Yhtäkään spesifikaatiota ei luettu. Jokainen kaavio on rakennettu kutsumalla VlChart-rajapintaa, ja kaavion yllä lukevat rivit ovat ne kutsut jotka sen piirsivät — luettuna generaattorin omasta lähdekoodista, jotta sivun koodi ja sivun piirtänyt koodi eivät voi erkaantua.\"}</Label>") + nl)
+
+        def titles:[string]
+        push titles "Summa alueittain"
+        push titles "Aikasarja · tyypit datasta"
+        push titles "Jaettu enkoodaus · kaksi merkkiä"
+        push titles "Ryhmitellyt pylväät"
+
+        def names:[string]
+        push names "totals"
+        push names "overTime"
+        push names "layered"
+        push names "grouped"
+
+        def charts:[VlChart]
+        def totals:VlChart (VelaChartPage.totals())
+        push charts totals
+        def overTime:VlChart (VelaChartPage.overTime())
+        push charts overTime
+        def layered:VlChart (VelaChartPage.layered())
+        push charts layered
+        def grouped:VlChart (VelaChartPage.grouped())
+        push charts grouped
+
+        ; Two to a row, as the other generated chart pages are laid out.
+        def index:int 0
+        def inRow:int 0
+        def drawn:int 0
+        while (index < (array_length charts)) {
+            if (inRow == 0) {
+                page = ((page + "      <View className=\"row chartRow\">") + nl)
+            }
+            def one:VlChart (itemAt charts index)
+            def name:string (itemAt names index)
+            def heading:string (itemAt titles index)
+            def lines:[string] (VelaChartPage.snippet(text name))
+            if ((array_length lines) == 0) {
+                print (("no snippet called '" + name) + "' in the source")
+            }
+            def section:string (VelaChartPage.cell(writer one heading lines))
+            if ((strlen section) > 0) {
+                drawn = (drawn + 1)
+            }
+            page = (page + section)
+            inRow = (inRow + 1)
+            if (inRow == 2) {
+                page = ((page + "      </View>") + nl)
+                inRow = 0
+            }
+            index = (index + 1)
+        }
+        if (inRow > 0) {
+            page = ((page + "      </View>") + nl)
+        }
+
+        page = ((page + "    </View>") + nl)
+        page = ((page + "  );") + nl)
+        page = ((page + "}") + nl)
+        page = (page + nl)
+        page = ((page + "export default render;") + nl)
+
+        write_file (VelaChartPage.dirOf(outputPath)) (VelaChartPage.nameOf(outputPath)) page
+        print ((((("wrote " + outputPath) + " · ") + (VlJson.intToText(drawn))) + " of ") + (VlJson.intToText((array_length charts))) + " charts")
+
+        def cssPath:string (VelaChartPage.cssPathFor(outputPath))
+        write_file (VelaChartPage.dirOf(cssPath)) (VelaChartPage.nameOf(cssPath)) (writer.defaultCss())
+        print ("wrote " + cssPath)
+    }
+
+    ; pages/chart_api.tsx  ->  themes/chart_api-default.css
+    sfn cssPathFor:string (pagePath:string) {
+        def dir:string (VelaChartPage.dirOf(pagePath))
+        def name:string (VelaChartPage.nameOf(pagePath))
+        def stem:string name
+        def dot:int (lastIndexOf name ".")
+        if (dot > 0) {
+            stem = (substring name 0 dot)
+        }
+        def parent:string dir
+        def cut:int (lastIndexOf (substring dir 0 ((strlen dir) - 1)) "/")
+        if (cut >= 0) {
+            parent = (substring dir 0 (cut + 1))
+        }
+        return (((parent + "themes/") + stem) + "-default.css")
+    }
+}

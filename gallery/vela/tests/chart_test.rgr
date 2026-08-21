@@ -1,0 +1,398 @@
+; ==============================================================================
+; chart_test.rgr — the chart API builds the specification a person would write.
+; ==============================================================================
+; The API in `VlChart.rgr` has one job: produce a Vega-Lite specification. So
+; the test for it is not "does the JSON look plausible" — it is whether the
+; specification it builds and the specification somebody would have written by
+; hand are the SAME CHART. Both go through `VlCompile`, and the Vega they
+; compile to is compared text for text.
+;
+; That comparison is strict in the useful direction: it is blind to how the
+; Vega-Lite was spelled and sensitive to everything that reaches the runtime —
+; a channel typed as a quantity instead of a name, a stack that is not stacked,
+; a scale with a different domain, a mark property that never made it through.
+;
+; Then each built chart is RUN. A specification that compiles and produces no
+; marks is not a chart, and the count is printed so a change that quietly draws
+; less is visible in the output rather than only in a golden file.
+; ==============================================================================
+
+Import "../src/VlChart.rgr"
+Import "../src/VlCompile.rgr"
+Import "../src/VlRuntime.rgr"
+
+class VlChartTest {
+    def failures:int 0
+    def checks:int 0
+
+    fn check:void (name:string got:string want:string) {
+        checks = (checks + 1)
+        if (got == want) {
+            print ("ok   " + name)
+        } {
+            failures = (failures + 1)
+            print ("FAIL " + name)
+            print ("  got  " + got)
+            print ("  want " + want)
+        }
+    }
+
+    fn checkTrue:void (name:string got:boolean) {
+        this.check(name (? got "true" "false") "true")
+    }
+
+    ; --- the data every chart below reads ------------------------------------
+    ; Three regions, two quarters, two series. Small enough to write out by
+    ; hand in the expected specification, which is the point: the hand-written
+    ; side has to be readable or it is not a check on anything.
+    fn salesData:VlDataset () {
+        def d (VlDataset.create())
+        d.row().str("region" "North").str("quarter" "2016-01-01").num("sales" 120.0).num("cost" 80.0)
+        d.row().str("region" "South").str("quarter" "2016-01-01").num("sales" 93.0).num("cost" 71.0)
+        d.row().str("region" "North").str("quarter" "2016-04-01").num("sales" 145.0).num("cost" 90.0)
+        d.row().str("region" "South").str("quarter" "2016-04-01").num("sales" 88.0).num("cost" 66.0)
+        return d
+    }
+
+    sfn dataText:string () {
+        return "\"data\":{\"values\":[{\"region\":\"North\",\"quarter\":\"2016-01-01\",\"sales\":120,\"cost\":80},{\"region\":\"South\",\"quarter\":\"2016-01-01\",\"sales\":93,\"cost\":71},{\"region\":\"North\",\"quarter\":\"2016-04-01\",\"sales\":145,\"cost\":90},{\"region\":\"South\",\"quarter\":\"2016-04-01\",\"sales\":88,\"cost\":66}]}"
+    }
+
+    ; --- the comparison ------------------------------------------------------
+    ; Compile a specification, and answer the Vega it became. A compiler error
+    ; answers the error instead, so a refusal fails the test it belongs to
+    ; rather than passing as an empty match.
+    sfn compiled:string (spec:VlJson) {
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec(spec))
+        def n:int (array_length compiler.errors)
+        if (n > 0) {
+            def joined:string "refused:"
+            for compiler.errors e:string ei {
+                joined = ((joined + " ") + e)
+            }
+            return joined
+        }
+        def w (new VlJsonWriter())
+        return (w.write(vg))
+    }
+
+    sfn parsed:VlJson (text:string) {
+        def p (new VlJsonParser())
+        def v:VlJson (p.parse(text))
+        if (! p.ok) {
+            print ("  the hand-written spec is not valid JSON: " + p.err)
+        }
+        return v
+    }
+
+    ; How many things a chart actually draws — every item of every mark that is
+    ; not a group, at every depth.
+    sfn drawnItems:int (mark:VlSceneMark) {
+        def total:int 0
+        if (mark.markType != "group") {
+            total = (array_length mark.items)
+        }
+        for mark.items item:VlSceneItem ii {
+            for item.marks child:VlSceneMark ci {
+                def sub:int (VlChartTest.drawnItems(child))
+                total = (total + sub)
+            }
+        }
+        return total
+    }
+
+    ; The whole check for one chart: no errors from the API, the same Vega as
+    ; the hand-written specification, and a scene with something in it.
+    fn sameChart:void (name:string chart:VlChart written:string) {
+        def spec:VlJson (chart.toSpec())
+        def errorCount:int (array_length chart.errors)
+        if (errorCount > 0) {
+            for chart.errors e:string ei {
+                print ("  api error: " + e)
+            }
+        }
+        this.check((name + " builds without error") (to_string errorCount) "0")
+
+        def byHand:VlJson (VlChartTest.parsed(written))
+        def gotVega:string (VlChartTest.compiled(spec))
+        def wantVega:string (VlChartTest.compiled(byHand))
+        this.check((name + " compiles to the same Vega") gotVega wantVega)
+        ; Both sides refusing is not agreement. The comparison above would pass
+        ; on two identical refusals, which is exactly the silent skip this
+        ; repository refuses to have anywhere else.
+        def refusal:string (substring gotVega 0 8)
+        this.checkTrue((name + " was compiled rather than refused") (refusal != "refused:"))
+
+        ; And it draws. `compiled` has already reported a refusal as text, so
+        ; running it is only worth doing when it produced Vega.
+        def p (new VlJsonParser())
+        def vg:VlJson (p.parse(gotVega))
+        if (p.ok) {
+            def rt (new VlRuntime())
+            def scene:VlSceneMark (rt.run(vg))
+            def runErrors:int (array_length rt.errors)
+            if (runErrors > 0) {
+                for rt.errors e:string ei {
+                    print ("  runtime error: " + e)
+                }
+            }
+            def items:int (VlChartTest.drawnItems(scene))
+            this.check((name + " runs") (to_string runErrors) "0")
+            this.checkTrue((name + " draws something") (items > 0))
+            print (((("     " + name) + ": ") + (to_string items)) + " drawn items")
+        }
+    }
+
+    ; --- the charts ----------------------------------------------------------
+
+    ; A bar chart is the whole API in four calls, and the types of both its
+    ; channels are read off the data rather than stated.
+    fn testBar:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(300 200)
+        chart.bar().x("region").keepOrder().y("sales").aggregate("sum")
+        def want:string ("{\"width\":300,\"height\":200," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"sales\",\"aggregate\":\"sum\",\"type\":\"quantitative\"}}}")
+        this.sameChart("bar" chart want)
+    }
+
+    ; Grouped: a colour and an offset, both reading the same column.
+    fn testGroupedBar:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(300 200)
+        chart.bar().x("quarter").type("ordinal").y("sales").color("region").xOffset("region")
+        def want:string ("{\"width\":300,\"height\":200," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"quarter\",\"type\":\"ordinal\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"},\"xOffset\":{\"field\":\"region\",\"type\":\"nominal\"}}}")
+        this.sameChart("grouped bar" chart want)
+    }
+
+    ; Stacked, normalised, and with the legend turned off — three properties
+    ; that each belong to a different channel and are set through the cursor.
+    fn testStackedBar:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(300 200)
+        chart.bar().x("quarter").type("ordinal").y("sales").aggregate("sum").stack("normalize").color("region").noLegend()
+        def want:string ("{\"width\":300,\"height\":200," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"quarter\",\"type\":\"ordinal\"},\"y\":{\"field\":\"sales\",\"aggregate\":\"sum\",\"stack\":\"normalize\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"legend\":null,\"type\":\"nominal\"}}}")
+        this.sameChart("normalised stack" chart want)
+    }
+
+    ; A column of ISO dates is an instant: nobody said `temporal` anywhere.
+    fn testLine:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(320 180)
+        chart.line().interpolate("monotone").x("quarter").y("sales").color("region")
+        def want:string ("{\"width\":320,\"height\":180," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":{\"type\":\"line\",\"interpolate\":\"monotone\"},\"encoding\":{\"x\":{\"field\":\"quarter\",\"type\":\"temporal\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"}}}")
+        this.sameChart("line" chart want)
+    }
+
+    ; The G2 idea: the view carries the encoding and the marks inherit it. Two
+    ; marks, one set of axes, one legend — and the specification that comes out
+    ; states every channel on every layer, because that is what the compiler
+    ; reads and what a person reviewing a diff can check.
+    fn testLayered:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(320 180)
+        chart.x("quarter").y("sales").color("region")
+        chart.area().markOpacity(0.4)
+        chart.line()
+        def want:string ("{\"width\":320,\"height\":180," + (VlChartTest.dataText()))
+        def shared:string "\"encoding\":{\"x\":{\"field\":\"quarter\",\"type\":\"temporal\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"}}"
+        want = ((((want + ",\"layer\":[{\"mark\":{\"type\":\"area\",\"opacity\":0.4},") + shared) + "},{\"mark\":\"line\",") + shared) + "}]}")
+        this.sameChart("layered area and line" chart want)
+    }
+
+    ; A mark that carries properties is written as an object; one that does not
+    ; is written as the string it is. Both forms appear above.
+    fn testScatter:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(240 240)
+        chart.point().filled(true).markSize(70.0).x("cost").y("sales").color("region")
+        def want:string ("{\"width\":240,\"height\":240," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":{\"type\":\"point\",\"filled\":true,\"size\":70},\"encoding\":{\"x\":{\"field\":\"cost\",\"type\":\"quantitative\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"}}}")
+        this.sameChart("scatter" chart want)
+    }
+
+    ; A histogram has no y column at all: the bar's height is how many rows
+    ; fell in the bin.
+    fn testHistogram:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(240 160)
+        chart.bar().x("sales").maxBins(4).count("y")
+        def want:string ("{\"width\":240,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"sales\",\"bin\":{\"maxbins\":4},\"type\":\"quantitative\"},\"y\":{\"aggregate\":\"count\",\"type\":\"quantitative\"}}}")
+        this.sameChart("histogram" chart want)
+    }
+
+    ; No axes at all, and a hole in the middle.
+    fn testDonut:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(200 200)
+        chart.arc().innerRadius(40.0).theta("sales").aggregate("sum").color("region")
+        def want:string ("{\"width\":200,\"height\":200," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":{\"type\":\"arc\",\"innerRadius\":40},\"encoding\":{\"theta\":{\"field\":\"sales\",\"aggregate\":\"sum\",\"type\":\"quantitative\"},\"color\":{\"field\":\"region\",\"type\":\"nominal\"}}}")
+        this.sameChart("donut" chart want)
+    }
+
+    ; A matrix of one colour per cell, and a named scheme on the colour scale.
+    fn testHeatmap:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(200 120)
+        chart.rect().x("quarter").type("ordinal").y("region").color("sales").aggregate("sum").scheme("blues")
+        def want:string ("{\"width\":200,\"height\":120," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"rect\",\"encoding\":{\"x\":{\"field\":\"quarter\",\"type\":\"ordinal\"},\"y\":{\"field\":\"region\",\"type\":\"nominal\"},\"color\":{\"field\":\"sales\",\"aggregate\":\"sum\",\"scale\":{\"scheme\":\"blues\"},\"type\":\"quantitative\"}}}")
+        this.sameChart("heat map" chart want)
+    }
+
+    ; The two transforms the compiler carries, in the order they were said.
+    fn testTransforms:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(300 200)
+        chart.filter("datum.sales > 90")
+        chart.calculate("datum.sales - datum.cost" "margin")
+        chart.bar().x("region").keepOrder().y("margin").aggregate("sum")
+        def want:string ("{\"width\":300,\"height\":200," + (VlChartTest.dataText()))
+        want = (want + ",\"transform\":[{\"filter\":\"datum.sales > 90\"},{\"calculate\":\"datum.sales - datum.cost\",\"as\":\"margin\"}]")
+        want = (want + ",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"margin\",\"aggregate\":\"sum\",\"type\":\"quantitative\"}}}")
+        this.sameChart("transforms" chart want)
+    }
+
+    ; --- what the API answers on its own -------------------------------------
+
+    fn testInference:void () {
+        def d (this.salesData())
+        this.check("a column of numbers is a quantity" (d.fieldType("sales")) "quantitative")
+        this.check("a column of names is nominal" (d.fieldType("region")) "nominal")
+        this.check("a column of ISO dates is temporal" (d.fieldType("quarter")) "temporal")
+        this.check("a column that is not there is nothing" (d.fieldType("profit")) "")
+        this.checkTrue("a year on its own is not a date" (! (VlDataset.looksLikeDate("2016"))))
+        this.checkTrue("a quarter label is not a date" (! (VlDataset.looksLikeDate("Q1 2016"))))
+        this.checkTrue("an instant is a date" (VlDataset.looksLikeDate("2016-01-01T00:00:00Z")))
+    }
+
+    ; A column the data does not have is the mistake this API can catch and
+    ; Vega-Lite cannot: it would draw an empty axis and say nothing.
+    fn testUnknownColumn:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.bar().x("region").y("profit")
+        def spec:VlJson (chart.toSpec())
+        this.check("an unknown column is an error" (to_string (array_length chart.errors)) "1")
+        def first:string (itemAt chart.errors 0)
+        this.check("and it says which one" first "the data has no column called 'profit'")
+        ; Building the specification twice is one mistake, not two: a caller
+        ; that writes the spec out and then hands it on calls `toSpec` twice.
+        def again:VlJson (chart.toSpec())
+        this.check("and says it once" (to_string (array_length chart.errors)) "1")
+    }
+
+    ; The mark added last, for a caller that built one and let go of it.
+    fn testLatest:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.bar().x("region")
+        def bar:VlChartMark (chart.latest())
+        bar.y("sales")
+        this.check("the last mark is the one that was added" (to_string (array_length chart.marks)) "1")
+        this.check("and setting a channel on it reached the chart" (to_string (array_length bar.enc.keys)) "2")
+        def empty (VlChart.create(rows))
+        def loose:VlChartMark (empty.latest())
+        this.check("a chart with no marks says so" (to_string (array_length empty.errors)) "1")
+        this.check("and does not grow one" (to_string (array_length empty.marks)) "0")
+    }
+
+    ; What this layer does not cover, it hands through — and the layer that
+    ; knows says what it cannot do. A bin written with a step is valid
+    ; Vega-Lite and is not compiled here, and the answer is that sentence
+    ; rather than a chart with the wrong number of bars in it.
+    fn testEscapeHatchRefusal:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(240 160)
+        def step (VlJson.objectValue())
+        step.setMember("step" (VlJson.numberValue(25.0)))
+        def binned (VlJson.objectValue())
+        binned.setMember("field" (VlJson.stringValue("sales")))
+        binned.setMember("bin" step)
+        binned.setMember("type" (VlJson.stringValue("quantitative")))
+        chart.bar().encodeJson("x" binned).count("y")
+        this.check("a channel written out is not an API error" (to_string (array_length chart.errors)) "0")
+        def spec:VlJson (chart.toSpec())
+        def out:string (VlChartTest.compiled(spec))
+        this.check("and the compiler says what it cannot do" out "refused: a bin written with 'step' is not compiled here a bin written with 'step' is not compiled here")
+    }
+
+    fn testNoMarks:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        def spec:VlJson (chart.toSpec())
+        this.check("a chart with no marks is an error" (to_string (array_length chart.errors)) "1")
+    }
+
+    ; A dataset is a value: two charts can read the same one, and neither can
+    ; change what the other sees.
+    fn testSharedDataset:void () {
+        def d (this.salesData())
+        def a (VlChart.create(d))
+        a.bar().x("region").keepOrder().y("sales").aggregate("sum")
+        def b (VlChart.create(d))
+        b.line().x("quarter").y("cost").color("region")
+        def aText:string (a.toText())
+        def bText:string (b.toText())
+        this.checkTrue("two charts, one dataset" (aText != bText))
+        this.check("neither chart reported an error" (to_string ((array_length a.errors) + (array_length b.errors))) "0")
+    }
+
+    ; Column-wise filling: the caller holds arrays, not records.
+    fn testColumns:void () {
+        def d (VlDataset.create())
+        d.strings("name" ([] _:string ( "a" "b" "c" )))
+        d.numbers("value" ([] _:double ( 1.0 2.0 3.0 )))
+        this.check("three rows" (to_string (d.count())) "3")
+        def w (new VlJsonWriter())
+        def values:VlJson (d.toValues())
+        this.check("built row by row" (w.write(values)) "{\"values\":[{\"name\":\"a\",\"value\":1},{\"name\":\"b\",\"value\":2},{\"name\":\"c\",\"value\":3}]}")
+    }
+
+    fn run:void () {
+        this.testInference()
+        this.testColumns()
+        this.testUnknownColumn()
+        this.testEscapeHatchRefusal()
+        this.testLatest()
+        this.testNoMarks()
+        this.testSharedDataset()
+        this.testBar()
+        this.testGroupedBar()
+        this.testStackedBar()
+        this.testLine()
+        this.testLayered()
+        this.testScatter()
+        this.testHistogram()
+        this.testDonut()
+        this.testHeatmap()
+        this.testTransforms()
+        if (failures > 0) {
+            print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
+        } {
+            print (("all " + (to_string checks)) + " chart api tests passed")
+        }
+    }
+
+    sfn main:void () {
+        def t (new VlChartTest())
+        t.run()
+    }
+}

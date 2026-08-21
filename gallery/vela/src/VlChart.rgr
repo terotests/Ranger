@@ -1,0 +1,871 @@
+; ==============================================================================
+; VlChart.rgr — Vela's own chart API: marks and channels, in Ranger.
+; ==============================================================================
+; Vela runs a specification. Until now the only way to hand it one was to write
+; that specification out as JSON — which is what `gallery/datagrid` does, in
+; three hundred lines of string concatenation, quote by escaped quote. This is
+; the other front door: an API that a program calls, which builds the same
+; Vega-Lite value the parser would have produced.
+;
+;     def data (VlDataset.create())
+;     data.row().str("region" "North").num("sales" 120.0)
+;     data.row().str("region" "South").num("sales"  93.0)
+;
+;     def chart (VlChart.create(data))
+;     chart.size(300 200)
+;     chart.bar().x("region").y("sales")
+;
+;     def spec:VlJson (chart.toSpec())    ; → VlCompile → VlRuntime → a picture
+;
+; Four ideas are borrowed, and it is worth saying which from where:
+;
+;   * **the fluent surface is not the engine** (AntV G2). Every call writes into
+;     a specification; `toSpec` hands that specification over and the API is
+;     done. Nothing here computes a scale, a layout or a pixel — the runtime
+;     that already does all three is the only thing that draws.
+;   * **a view's encoding is inherited by its marks** (G2 again). `chart.x(…)`
+;     is said once and every mark added to the chart reads it, so a line and
+;     the points on top of it are two marks and one set of axes rather than two
+;     charts. Inheritance is resolved HERE, at emit time: each layer comes out
+;     carrying its channels in full, because a spec that states everything is
+;     one the compiler already handles and one a person can read in a diff.
+;   * **a channel need not state its type** (Observable Plot). A column of
+;     numbers is quantitative, a column of ISO dates is temporal, anything else
+;     is nominal — read off the data rather than asked for. A field the data
+;     does not have is an ERROR rather than a guess: `errors` is non-empty and
+;     the caller can say so instead of drawing an empty axis.
+;   * **the data is a value beside the chart, not a thing inside it**
+;     (Apache ECharts). `VlDataset` is built once and can be given to several
+;     charts; a spreadsheet's selection becomes one dataset and a dashboard's
+;     six panels read it.
+;
+; What this file deliberately does NOT do: draw, measure, scale, lay out, or
+; know what a pixel is. It imports `VlJson` and nothing else, so the API layer
+; cannot grow a dependency on the runtime by accident — and a caller that wants
+; the runtime imports it directly, exactly as one that hands it parsed JSON
+; does.
+; ==============================================================================
+
+Import "VlJson.rgr"
+
+; ------------------------------------------------------------------------------
+; One row, built field by field. `row()` hands one back already attached to the
+; dataset, so nothing has to be pushed anywhere by the caller.
+; ------------------------------------------------------------------------------
+class VlDataRow {
+    def obj:VlJson (VlJson.objectValue())
+    def owner@(weak):VlDataset
+
+    fn num:VlDataRow (field:string value:double) {
+        obj.setMember(field (VlJson.numberValue(value)))
+        return this
+    }
+    ; A count is an integer and prints as one: 12, not 12.0.
+    fn whole:VlDataRow (field:string value:int) {
+        obj.setMember(field (VlJson.intValue(value)))
+        return this
+    }
+    fn str:VlDataRow (field:string value:string) {
+        obj.setMember(field (VlJson.stringValue(value)))
+        return this
+    }
+    fn flag:VlDataRow (field:string value:boolean) {
+        obj.setMember(field (VlJson.boolValue(value)))
+        return this
+    }
+    fn json:VlDataRow (field:string value:VlJson) {
+        obj.setMember(field value)
+        return this
+    }
+    ; Back to the dataset, so rows can be chained one after another.
+    fn back:VlDataset () {
+        if (!null? owner) {
+            return (unwrap owner)
+        }
+        return (VlDataset.create())
+    }
+}
+
+; ------------------------------------------------------------------------------
+; A named table. Rows are JSON objects — the same values the parser produces for
+; `"data": {"values": […]}` — so a dataset built here and one read off disk are
+; the same thing to everything downstream.
+; ------------------------------------------------------------------------------
+class VlDataset {
+    def rows:[VlJson]
+    def name:string ""
+
+    sfn create:VlDataset () {
+        def d (new VlDataset())
+        return d
+    }
+
+    fn row:VlDataRow () {
+        def r (new VlDataRow())
+        r.owner = this
+        push rows r.obj
+        return r
+    }
+
+    fn addRow:VlDataset (row:VlJson) {
+        push rows row
+        return this
+    }
+
+    ; Rows as they came out of the JSON parser: a dataset can be a selection
+    ; from a grid, a file somebody read, or a literal.
+    fn fromValues:VlDataset (values:VlJson) {
+        def i:int 0
+        def n:int (values.count())
+        while (i < n) {
+            push rows (values.at(i))
+            i = (i + 1)
+        }
+        return this
+    }
+
+    ; Column-wise filling, for a caller that holds arrays rather than records —
+    ; a spreadsheet column, a series of measurements. Row `i` of every column
+    ; is the same row.
+    fn numbers:VlDataset (field:string values:[double]) {
+        for values v:double i {
+            def r:VlJson (this.rowAt(i))
+            r.setMember(field (VlJson.numberValue(v)))
+        }
+        return this
+    }
+    fn strings:VlDataset (field:string values:[string]) {
+        for values v:string i {
+            def r:VlJson (this.rowAt(i))
+            r.setMember(field (VlJson.stringValue(v)))
+        }
+        return this
+    }
+
+    fn rowAt:VlJson (index:int) {
+        while ((array_length rows) <= index) {
+            push rows (VlJson.objectValue())
+        }
+        return (itemAt rows index)
+    }
+
+    fn count:int () {
+        return (array_length rows)
+    }
+
+    fn hasField:boolean (field:string) {
+        for rows r:VlJson i {
+            if (r.has(field)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; What kind of thing a column holds, in Vega-Lite's vocabulary. Numbers are
+    ; a quantity, an ISO date is an instant, everything else is a name. Read
+    ; from the rows rather than declared, because the rows are already here —
+    ; and a column that is empty answers nothing, so the caller can tell "no
+    ; such column" from "a column of names".
+    fn fieldType:string (field:string) {
+        def sawNumber:boolean false
+        def sawText:boolean false
+        def sawDate:boolean false
+        def sawAny:boolean false
+        for rows r:VlJson i {
+            if (r.has(field)) {
+                def v:VlJson (r.get(field))
+                if (! (v.isNull())) {
+                    sawAny = true
+                    if (v.isNumber()) {
+                        sawNumber = true
+                    }
+                    if (v.isString()) {
+                        sawText = true
+                        if (VlDataset.looksLikeDate(v.str)) {
+                            sawDate = true
+                        }
+                    }
+                }
+            }
+        }
+        if (! sawAny) {
+            return ""
+        }
+        if (sawText) {
+            if (sawDate) {
+                return "temporal"
+            }
+            return "nominal"
+        }
+        if (sawNumber) {
+            return "quantitative"
+        }
+        return "nominal"
+    }
+
+    ; "2016-01-01", "2016-01-01T12:00:00Z", "2016-01". Four digits, a dash and
+    ; a digit is enough to tell a date from a name and is what the data written
+    ; by every tool in this repository looks like. Anything else is a name: a
+    ; chart that read "Q1 2016" as an instant would put every quarter on the
+    ; same tick and say nothing about it.
+    sfn looksLikeDate:boolean (text:string) {
+        def n:int (strlen text)
+        if ((n < 6) || (n > 40)) {
+            return false
+        }
+        def i:int 0
+        while (i < 4) {
+            def c:int (charAt text i)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        def sep:int (charAt text 4)
+        if (sep != 45) {
+            return false
+        }
+        def d:int (charAt text 5)
+        if ((d < 48) || (d > 57)) {
+            return false
+        }
+        return true
+    }
+
+    ; `{"values": […]}` — the data block of a specification.
+    fn toValues:VlJson () {
+        def list (VlJson.arrayValue())
+        for rows r:VlJson i {
+            push list.arr r
+        }
+        def obj (VlJson.objectValue())
+        obj.setMember("values" list)
+        return obj
+    }
+}
+
+; ------------------------------------------------------------------------------
+; One mark and the channels it reads. Every setter answers the mark, so a mark
+; is written as one sentence:
+;
+;     chart.bar().x("region").y("sales").aggregate("sum")
+;
+; `aggregate`, `bin`, `title` and the rest apply to the channel most recently
+; named — the cursor — which is what makes that sentence read in the order it
+; is thought. `on("y")` moves the cursor back to a channel already set.
+; ------------------------------------------------------------------------------
+class VlChartMark {
+    def markType:string "point"
+    ; Mark-level properties: `{"type": "line", "interpolate": "monotone"}`.
+    ; Empty means the mark is written as the bare string it is.
+    def props:VlJson (VlJson.objectValue())
+    def enc:VlJson (VlJson.objectValue())
+    def cursor:string ""
+    def owner@(weak):VlChart
+
+    fn note:void (message:string) {
+        if (!null? owner) {
+            def o:VlChart (unwrap owner)
+            o.error(message)
+        }
+    }
+
+    ; --- channels ------------------------------------------------------------
+    ; Every one of these names a COLUMN. A constant goes through `valueNumber`
+    ; / `valueString`, and the two are kept apart on purpose: `.color("red")`
+    ; meaning a column called red and `.color("#c00")` meaning paint it red
+    ; cannot both be true, and the version that guesses is the one that draws
+    ; a chart nobody asked for.
+    fn channel:VlChartMark (name:string field:string) {
+        def ch (VlJson.objectValue())
+        ch.setMember("field" (VlJson.stringValue(field)))
+        enc.setMember(name ch)
+        cursor = name
+        return this
+    }
+    fn x:VlChartMark (field:string) {
+        return (this.channel("x" field))
+    }
+    fn y:VlChartMark (field:string) {
+        return (this.channel("y" field))
+    }
+    fn x2:VlChartMark (field:string) {
+        return (this.channel("x2" field))
+    }
+    fn y2:VlChartMark (field:string) {
+        return (this.channel("y2" field))
+    }
+    fn color:VlChartMark (field:string) {
+        return (this.channel("color" field))
+    }
+    fn fill:VlChartMark (field:string) {
+        return (this.channel("fill" field))
+    }
+    fn stroke:VlChartMark (field:string) {
+        return (this.channel("stroke" field))
+    }
+    fn size:VlChartMark (field:string) {
+        return (this.channel("size" field))
+    }
+    fn shape:VlChartMark (field:string) {
+        return (this.channel("shape" field))
+    }
+    fn opacity:VlChartMark (field:string) {
+        return (this.channel("opacity" field))
+    }
+    fn theta:VlChartMark (field:string) {
+        return (this.channel("theta" field))
+    }
+    fn radius:VlChartMark (field:string) {
+        return (this.channel("radius" field))
+    }
+    fn detail:VlChartMark (field:string) {
+        return (this.channel("detail" field))
+    }
+    fn text:VlChartMark (field:string) {
+        return (this.channel("text" field))
+    }
+    fn order:VlChartMark (field:string) {
+        return (this.channel("order" field))
+    }
+    fn column:VlChartMark (field:string) {
+        return (this.channel("column" field))
+    }
+    fn row:VlChartMark (field:string) {
+        return (this.channel("row" field))
+    }
+    ; What separates the bars of a grouped bar chart, in the direction the
+    ; category axis runs.
+    fn xOffset:VlChartMark (field:string) {
+        return (this.channel("xOffset" field))
+    }
+    fn yOffset:VlChartMark (field:string) {
+        return (this.channel("yOffset" field))
+    }
+    ; A count has no column to read: it is one number per group.
+    fn count:VlChartMark (channel:string) {
+        def ch (VlJson.objectValue())
+        ch.setMember("aggregate" (VlJson.stringValue("count")))
+        ch.setMember("type" (VlJson.stringValue("quantitative")))
+        enc.setMember(channel ch)
+        cursor = channel
+        return this
+    }
+    ; A channel set to a constant rather than to a column.
+    fn valueNumber:VlChartMark (channel:string value:double) {
+        def ch (VlJson.objectValue())
+        ch.setMember("value" (VlJson.numberValue(value)))
+        enc.setMember(channel ch)
+        cursor = channel
+        return this
+    }
+    fn valueString:VlChartMark (channel:string value:string) {
+        def ch (VlJson.objectValue())
+        ch.setMember("value" (VlJson.stringValue(value)))
+        enc.setMember(channel ch)
+        cursor = channel
+        return this
+    }
+    ; The whole channel, written out, for whatever this API does not cover.
+    ; Vega-Lite is larger than any fluent surface over it, and an escape hatch
+    ; that lands in the same specification is better than a wrapper that has to
+    ; grow a method before anyone can draw anything.
+    fn encodeJson:VlChartMark (channel:string definition:VlJson) {
+        enc.setMember(channel definition)
+        cursor = channel
+        return this
+    }
+
+    ; --- the channel most recently named -------------------------------------
+    fn on:VlChartMark (channel:string) {
+        if (enc.has(channel)) {
+            cursor = channel
+        } {
+            this.note(("no channel called '" + channel) + "' has been set on this mark")
+        }
+        return this
+    }
+    fn cursorChannel:VlJson () {
+        if ((strlen cursor) == 0) {
+            this.note("a channel property was set before any channel was named")
+            return (VlJson.objectValue())
+        }
+        return (enc.get(cursor))
+    }
+    fn setOnCursor:VlChartMark (key:string value:VlJson) {
+        def ch:VlJson (this.cursorChannel())
+        ch.setMember(key value)
+        return this
+    }
+    fn aggregate:VlChartMark (op:string) {
+        return (this.setOnCursor("aggregate" (VlJson.stringValue(op))))
+    }
+    fn bin:VlChartMark () {
+        return (this.setOnCursor("bin" (VlJson.boolValue(true))))
+    }
+    ; How many bins at most. `bin` and `maxbins` are the two forms the
+    ; compiler carries; a bin written any other way is refused BY NAME when it
+    ; is compiled, which is where a refusal belongs — this layer would have to
+    ; keep its own list of what the layer below supports, and a list like that
+    ; is wrong the first time the layer below grows.
+    fn maxBins:VlChartMark (count:int) {
+        def b (VlJson.objectValue())
+        b.setMember("maxbins" (VlJson.intValue(count)))
+        return (this.setOnCursor("bin" b))
+    }
+    fn timeUnit:VlChartMark (unit:string) {
+        return (this.setOnCursor("timeUnit" (VlJson.stringValue(unit))))
+    }
+    ; quantitative | nominal | ordinal | temporal, when the data cannot say —
+    ; a column of years is numbers and is usually a category.
+    fn type:VlChartMark (kind:string) {
+        return (this.setOnCursor("type" (VlJson.stringValue(kind))))
+    }
+    fn title:VlChartMark (label:string) {
+        return (this.setOnCursor("title" (VlJson.stringValue(label))))
+    }
+    fn format:VlChartMark (pattern:string) {
+        def axis (VlJson.objectValue())
+        axis.setMember("format" (VlJson.stringValue(pattern)))
+        return (this.setOnCursor("axis" axis))
+    }
+    ; "zero" | "normalize" | "center", or nothing stacked at all.
+    fn stack:VlChartMark (how:string) {
+        return (this.setOnCursor("stack" (VlJson.stringValue(how))))
+    }
+    fn noStack:VlChartMark () {
+        return (this.setOnCursor("stack" (VlJson.nullValue())))
+    }
+    ; The order a discrete scale runs in. `sortBy` names a column; `keepOrder`
+    ; is the one every spreadsheet wants — the order the rows arrived in,
+    ; rather than alphabetical.
+    fn sortBy:VlChartMark (field:string) {
+        return (this.setOnCursor("sort" (VlJson.stringValue(field))))
+    }
+    fn keepOrder:VlChartMark () {
+        return (this.setOnCursor("sort" (VlJson.nullValue())))
+    }
+    fn scaleJson:VlChartMark (scale:VlJson) {
+        return (this.setOnCursor("scale" scale))
+    }
+    fn scaleType:VlChartMark (kind:string) {
+        def s (VlJson.objectValue())
+        s.setMember("type" (VlJson.stringValue(kind)))
+        return (this.setOnCursor("scale" s))
+    }
+    fn scheme:VlChartMark (name:string) {
+        def s (VlJson.objectValue())
+        s.setMember("scheme" (VlJson.stringValue(name)))
+        return (this.setOnCursor("scale" s))
+    }
+    fn noLegend:VlChartMark () {
+        return (this.setOnCursor("legend" (VlJson.nullValue())))
+    }
+    fn noAxis:VlChartMark () {
+        return (this.setOnCursor("axis" (VlJson.nullValue())))
+    }
+
+    ; --- properties of the mark itself ---------------------------------------
+    fn propNumber:VlChartMark (key:string value:double) {
+        props.setMember(key (VlJson.numberValue(value)))
+        return this
+    }
+    fn propString:VlChartMark (key:string value:string) {
+        props.setMember(key (VlJson.stringValue(value)))
+        return this
+    }
+    fn propFlag:VlChartMark (key:string value:boolean) {
+        props.setMember(key (VlJson.boolValue(value)))
+        return this
+    }
+    fn filled:VlChartMark (value:boolean) {
+        return (this.propFlag("filled" value))
+    }
+    fn markSize:VlChartMark (value:double) {
+        return (this.propNumber("size" value))
+    }
+    fn markColor:VlChartMark (value:string) {
+        return (this.propString("color" value))
+    }
+    fn markOpacity:VlChartMark (value:double) {
+        return (this.propNumber("opacity" value))
+    }
+    ; "monotone", "step-after", "basis" … — how a line joins its points.
+    fn interpolate:VlChartMark (kind:string) {
+        return (this.propString("interpolate" kind))
+    }
+    ; A line that shows the points it was drawn through.
+    fn withPoints:VlChartMark (value:boolean) {
+        return (this.propFlag("point" value))
+    }
+    fn innerRadius:VlChartMark (value:double) {
+        return (this.propNumber("innerRadius" value))
+    }
+    fn cornerRadius:VlChartMark (value:double) {
+        return (this.propNumber("cornerRadius" value))
+    }
+    fn tooltip:VlChartMark (value:boolean) {
+        return (this.propFlag("tooltip" value))
+    }
+    ; Back to the chart, when the next thing to say is about the view.
+    fn chart:VlChart () {
+        if (!null? owner) {
+            return (unwrap owner)
+        }
+        def empty:VlDataset (VlDataset.create())
+        return (VlChart.create(empty))
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The view: data, the channels every mark on it shares, how big it is, and the
+; marks themselves. One mark comes out as a plain specification; several come
+; out as a layer, each layer carrying the shared channels in full.
+; ------------------------------------------------------------------------------
+class VlChart {
+    def data:VlDataset
+    def marks:[VlChartMark]
+    ; Channels said once for the whole view; a mark that names the same channel
+    ; wins over them.
+    def enc:VlJson (VlJson.objectValue())
+    def cursor:string ""
+    ; width, height, title, background — everything above the encoding.
+    def props:VlJson (VlJson.objectValue())
+    def transforms:VlJson (VlJson.arrayValue())
+    def cfg:VlJson (VlJson.objectValue())
+    ; What could not be built, said out loud. A chart that names a column its
+    ; data does not have is the case this exists for: Vega-Lite would draw an
+    ; empty axis and say nothing.
+    def errors:[string]
+
+    sfn create:VlChart (data:VlDataset) {
+        def c (new VlChart())
+        c.data = data
+        return c
+    }
+
+    ; --- marks ---------------------------------------------------------------
+    fn mark:VlChartMark (markType:string) {
+        def m (new VlChartMark())
+        m.markType = markType
+        m.owner = this
+        push marks m
+        return m
+    }
+    fn bar:VlChartMark () {
+        return (this.mark("bar"))
+    }
+    fn line:VlChartMark () {
+        return (this.mark("line"))
+    }
+    fn area:VlChartMark () {
+        return (this.mark("area"))
+    }
+    fn point:VlChartMark () {
+        return (this.mark("point"))
+    }
+    fn circle:VlChartMark () {
+        return (this.mark("circle"))
+    }
+    fn square:VlChartMark () {
+        return (this.mark("square"))
+    }
+    fn tick:VlChartMark () {
+        return (this.mark("tick"))
+    }
+    fn rule:VlChartMark () {
+        return (this.mark("rule"))
+    }
+    fn rect:VlChartMark () {
+        return (this.mark("rect"))
+    }
+    fn arc:VlChartMark () {
+        return (this.mark("arc"))
+    }
+    fn label:VlChartMark () {
+        return (this.mark("text"))
+    }
+    fn boxplot:VlChartMark () {
+        return (this.mark("boxplot"))
+    }
+    ; The mark added last, for a caller that built one and let go of it. A
+    ; chart with no marks answers a mark that belongs to nothing rather than
+    ; quietly adding one: a `point` nobody asked for would draw.
+    fn latest:VlChartMark () {
+        def n:int (array_length marks)
+        if (n > 0) {
+            return (itemAt marks (n - 1))
+        }
+        this.error("the chart has no marks, so there is no last one")
+        def loose (new VlChartMark())
+        loose.owner = this
+        return loose
+    }
+
+    ; --- channels shared by every mark ---------------------------------------
+    fn channel:VlChart (name:string field:string) {
+        def ch (VlJson.objectValue())
+        ch.setMember("field" (VlJson.stringValue(field)))
+        enc.setMember(name ch)
+        cursor = name
+        return this
+    }
+    fn x:VlChart (field:string) {
+        return (this.channel("x" field))
+    }
+    fn y:VlChart (field:string) {
+        return (this.channel("y" field))
+    }
+    fn color:VlChart (field:string) {
+        return (this.channel("color" field))
+    }
+    fn detail:VlChart (field:string) {
+        return (this.channel("detail" field))
+    }
+    fn encodeJson:VlChart (channel:string definition:VlJson) {
+        enc.setMember(channel definition)
+        cursor = channel
+        return this
+    }
+    fn on:VlChart (channel:string) {
+        if (enc.has(channel)) {
+            cursor = channel
+        } {
+            this.error(("no channel called '" + channel) + "' has been set on this view")
+        }
+        return this
+    }
+    fn setOnCursor:VlChart (key:string value:VlJson) {
+        if ((strlen cursor) == 0) {
+            this.error("a channel property was set before any channel was named")
+            return this
+        }
+        def ch:VlJson (enc.get(cursor))
+        ch.setMember(key value)
+        return this
+    }
+    fn type:VlChart (kind:string) {
+        return (this.setOnCursor("type" (VlJson.stringValue(kind))))
+    }
+    fn title:VlChart (label:string) {
+        return (this.setOnCursor("title" (VlJson.stringValue(label))))
+    }
+    fn timeUnit:VlChart (unit:string) {
+        return (this.setOnCursor("timeUnit" (VlJson.stringValue(unit))))
+    }
+    fn keepOrder:VlChart () {
+        return (this.setOnCursor("sort" (VlJson.nullValue())))
+    }
+
+    ; --- the view itself -----------------------------------------------------
+    fn size:VlChart (width:int height:int) {
+        props.setMember("width" (VlJson.intValue(width)))
+        props.setMember("height" (VlJson.intValue(height)))
+        return this
+    }
+    fn width:VlChart (value:int) {
+        props.setMember("width" (VlJson.intValue(value)))
+        return this
+    }
+    fn height:VlChart (value:int) {
+        props.setMember("height" (VlJson.intValue(value)))
+        return this
+    }
+    fn heading:VlChart (text:string) {
+        props.setMember("title" (VlJson.stringValue(text)))
+        return this
+    }
+    fn background:VlChart (colour:string) {
+        props.setMember("background" (VlJson.stringValue(colour)))
+        return this
+    }
+    fn propJson:VlChart (key:string value:VlJson) {
+        props.setMember(key value)
+        return this
+    }
+    fn configJson:VlChart (config:VlJson) {
+        for config.keys k:string ki {
+            cfg.setMember(k (config.get(k)))
+        }
+        return this
+    }
+
+    ; --- transforms ----------------------------------------------------------
+    ; Only the two the compiler carries. Anything else is refused by name at
+    ; compile time rather than dropped here, which is the same answer arriving
+    ; from the layer that knows.
+    fn filter:VlChart (expression:string) {
+        def t (VlJson.objectValue())
+        t.setMember("filter" (VlJson.stringValue(expression)))
+        push transforms.arr t
+        return this
+    }
+    fn calculate:VlChart (expression:string as:string) {
+        def t (VlJson.objectValue())
+        t.setMember("calculate" (VlJson.stringValue(expression)))
+        t.setMember("as" (VlJson.stringValue(as)))
+        push transforms.arr t
+        return this
+    }
+    fn transformJson:VlChart (transform:VlJson) {
+        push transforms.arr transform
+        return this
+    }
+
+    ; Said once. `toSpec` may be called more than once — a caller that writes
+    ; the specification out and then hands it on calls it twice — and the same
+    ; missing column reported twice reads as two mistakes.
+    fn error:void (message:string) {
+        for errors said:string ei {
+            if (said == message) {
+                return
+            }
+        }
+        push errors message
+    }
+
+    ; --- emitting the specification ------------------------------------------
+    ; A deep copy, because a view's channel is inherited by every mark and each
+    ; copy then has its own type filled in. Sharing one object would make two
+    ; layers the same object, and a change to one of them a change to both.
+    sfn copyOf:VlJson (v:VlJson) {
+        if (v.isArray()) {
+            def list (VlJson.arrayValue())
+            def i:int 0
+            def n:int (v.count())
+            while (i < n) {
+                def child:VlJson (v.at(i))
+                push list.arr (VlChart.copyOf(child))
+                i = (i + 1)
+            }
+            return list
+        }
+        if (v.isObject()) {
+            def obj (VlJson.objectValue())
+            for v.keys k:string ki {
+                def member:VlJson (v.get(k))
+                obj.setMember(k (VlChart.copyOf(member)))
+            }
+            return obj
+        }
+        return v
+    }
+
+    ; The view's channels, then the mark's own on top of them.
+    fn mergedEncoding:VlJson (m:VlChartMark) {
+        def out (VlJson.objectValue())
+        for enc.keys k:string ki {
+            def shared:VlJson (enc.get(k))
+            out.setMember(k (VlChart.copyOf(shared)))
+        }
+        for m.enc.keys mk:string mi {
+            def own:VlJson (m.enc.get(mk))
+            out.setMember(mk (VlChart.copyOf(own)))
+        }
+        this.resolveTypes(out)
+        return out
+    }
+
+    ; What a channel is, when the channel did not say. This is the whole of the
+    ; Observable Plot ergonomics: a caller writes `.x("date")` and the data
+    ; decides whether that is an instant or a name.
+    fn resolveTypes:void (encoding:VlJson) {
+        for encoding.keys k:string ki {
+            def ch:VlJson (encoding.get(k))
+            if (ch.isObject()) {
+                if (! (ch.has("type"))) {
+                    if (! (ch.has("value"))) {
+                        def kind:string (this.inferType(ch))
+                        if ((strlen kind) > 0) {
+                            ch.setMember("type" (VlJson.stringValue(kind)))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn inferType:string (ch:VlJson) {
+        if (ch.has("bin")) {
+            return "quantitative"
+        }
+        if (ch.has("timeUnit")) {
+            return "temporal"
+        }
+        if (ch.has("aggregate")) {
+            return "quantitative"
+        }
+        if (! (ch.has("field"))) {
+            return ""
+        }
+        def field:string (ch.stringOr("field" ""))
+        if ((data.count()) == 0) {
+            return "nominal"
+        }
+        def kind:string (data.fieldType(field))
+        if ((strlen kind) == 0) {
+            this.error(("the data has no column called '" + field) + "'")
+            return "nominal"
+        }
+        return kind
+    }
+
+    ; A mark with no properties of its own is written as the string it is —
+    ; `"mark": "bar"` — because that is what a person writes and what every
+    ; golden file in this repository holds.
+    sfn markValue:VlJson (m:VlChartMark) {
+        def n:int (array_length m.props.keys)
+        if (n == 0) {
+            return (VlJson.stringValue(m.markType))
+        }
+        def obj (VlJson.objectValue())
+        obj.setMember("type" (VlJson.stringValue(m.markType)))
+        for m.props.keys k:string ki {
+            obj.setMember(k (m.props.get(k)))
+        }
+        return obj
+    }
+
+    ; The whole thing: a Vega-Lite specification, ready for VlCompile.
+    fn toSpec:VlJson () {
+        def out (VlJson.objectValue())
+        for props.keys k:string ki {
+            out.setMember(k (props.get(k)))
+        }
+        out.setMember("data" (data.toValues()))
+        if ((transforms.count()) > 0) {
+            out.setMember("transform" transforms)
+        }
+        def markCount:int (array_length marks)
+        if (markCount == 0) {
+            this.error("the chart has no marks")
+            return out
+        }
+        if (markCount == 1) {
+            def only:VlChartMark (itemAt marks 0)
+            out.setMember("mark" (VlChart.markValue(only)))
+            out.setMember("encoding" (this.mergedEncoding(only)))
+        } {
+            def layers (VlJson.arrayValue())
+            for marks m:VlChartMark mi {
+                def layer (VlJson.objectValue())
+                layer.setMember("mark" (VlChart.markValue(m)))
+                layer.setMember("encoding" (this.mergedEncoding(m)))
+                push layers.arr layer
+            }
+            out.setMember("layer" layers)
+        }
+        def cfgCount:int (array_length cfg.keys)
+        if (cfgCount > 0) {
+            out.setMember("config" cfg)
+        }
+        return out
+    }
+
+    fn toText:string () {
+        def spec:VlJson (this.toSpec())
+        def w (new VlJsonWriter())
+        return (w.write(spec))
+    }
+}

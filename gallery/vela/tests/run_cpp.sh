@@ -38,7 +38,7 @@ mkdir -p "$OUT"
 status=0
 
 say "compile to C++"
-for tool in vela_scene vela_commands vela_evg vela_compile vela_svg; do
+for tool in vela_scene vela_commands vela_evg vela_compile vela_svg vela_chart; do
   log=$(node --max-old-space-size=8192 bin/output.js -l=cpp "$VELA/tools/$tool.rgr" \
     -d="$OUT" -o="$tool.cpp" -nodecli 2>&1)
   if ! echo "$log" | grep -q "\[OK\]"; then
@@ -48,9 +48,21 @@ for tool in vela_scene vela_commands vela_evg vela_compile vela_svg; do
   fi
   printf '  %-14s %s lines\n' "$tool.cpp" "$(wc -l < "$OUT/$tool.cpp" | tr -d ' ')"
 done
+# The chart API's own suite, which is a test rather than a tool: it builds
+# specifications by calling the API, compiles them and runs them. Natively,
+# that is the API, the Vega-Lite compiler and the runtime with no JavaScript
+# anywhere underneath any of them.
+log=$(node --max-old-space-size=8192 bin/output.js -l=cpp "$VELA/tests/chart_test.rgr" \
+  -d="$OUT" -o="chart_test.cpp" -nodecli 2>&1)
+if ! echo "$log" | grep -q "\[OK\]"; then
+  echo "$log" | grep -A3 "\[FAIL\]" | head -40
+  echo "FAILED to compile chart_test.rgr to C++" >&2
+  exit 1
+fi
+printf '  %-14s %s lines\n' "chart_test.cpp" "$(wc -l < "$OUT/chart_test.cpp" | tr -d ' ')"
 
 say "build with $CXX"
-for tool in vela_scene vela_commands vela_evg vela_compile vela_svg; do
+for tool in vela_scene vela_commands vela_evg vela_compile vela_svg vela_chart chart_test; do
   if "$CXX" -std=c++17 -O1 -o "$OUT/$tool" "$OUT/$tool.cpp" 2> "$OUT/$tool.log"; then
     echo "  ok   $tool"
   else
@@ -125,6 +137,37 @@ for src in $VELA/tests/specs/*.vl.json; do
   fi
 done
 [ $status -eq 0 ] && echo "  $compiled sources compiled identically"
+
+# The chart API, natively: the same checks against the same hand-written
+# specifications, and the same charts drawn to the same SVG. An API that builds
+# a specification is portable in a way a JavaScript charting library is not,
+# and this is where that claim is either true or not.
+say "the chart api, from the native binary"
+node "$VELA/bin/chart_test.js" > "$OUT/chart_test.js.txt" 2>&1
+"$OUT/chart_test" > "$OUT/chart_test.cpp.txt" 2>&1
+if diff -q "$OUT/chart_test.js.txt" "$OUT/chart_test.cpp.txt" > /dev/null; then
+  echo "  ok   $(tail -1 "$OUT/chart_test.cpp.txt")"
+else
+  echo "  DIFF chart_test"; diff "$OUT/chart_test.js.txt" "$OUT/chart_test.cpp.txt" | head -10; status=1
+fi
+if ! grep -q "chart api tests passed" "$OUT/chart_test.cpp.txt"; then
+  tail -5 "$OUT/chart_test.cpp.txt"; status=1
+fi
+
+say "and the charts it draws, byte for byte"
+mkdir -p "$OUT/chart-api-js" "$OUT/chart-api-cpp"
+node "$VELA/bin/vela_chart.js" "$OUT/chart-api-js/" > /dev/null
+"$OUT/vela_chart" "$OUT/chart-api-cpp/" > /dev/null
+apiCharts=0
+for f in "$OUT/chart-api-js"/*; do
+  name=$(basename "$f")
+  if diff -q "$f" "$OUT/chart-api-cpp/$name" > /dev/null; then
+    apiCharts=$((apiCharts + 1))
+  else
+    echo "  DIFF $name"; diff "$f" "$OUT/chart-api-cpp/$name" | head -6; status=1
+  fi
+done
+[ $status -eq 0 ] && echo "  $apiCharts files, identical to the JavaScript build"
 
 # A time zone is a rule with arithmetic in it — negative offsets, floor
 # division, a summer window that wraps the new year — which is exactly the kind
