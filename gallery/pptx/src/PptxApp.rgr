@@ -124,7 +124,10 @@ class PptxApp {
     ; Editing. The viewer is the default and the editor is a mode on top of
     ; it — a deck you opened to read cannot be changed by a stray click.
     def editor:PptxEditor (new PptxEditor())
-    def editMode:boolean false
+    ; The deck opens ready to be edited. It used to open read-only, with the
+    ; editor behind a toolbar toggle, which meant the first thing anyone did —
+    ; click the slide — turned the page instead of picking a shape up.
+    def editMode:boolean true
     def dragMode:int 0          ; 0 none, 1 move, 2 resize, 3 marquee, 4 rotate
     ; The rubber band, in slide points, while a drag over empty canvas is
     ; happening.
@@ -161,6 +164,7 @@ class PptxApp {
     ; has to be the whole frame rather than the old status band alone.
     fn initFrame:void () {
         toolbar.build()
+        toolbar.editOn = editMode
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (toolbarH + statusH)
         view.chromeW = (this.panelWidth())
@@ -592,28 +596,16 @@ class PptxApp {
                 return (this.runCommand(t.command t.arg))
             }
         }
-        ; In edit mode the slide is a canvas, not a page: a click selects and
-        ; a drag moves, and the left / right thirds stop turning the page.
+        ; The slide is a canvas, not a page: a click selects and a drag moves.
+        ;
+        ; Clicking the left or right third of it used to turn the page, which
+        ; is how a deck is READ and the exact opposite of how one is edited —
+        ; the first click anyone made on a shape moved the deck out from under
+        ; them. Turning the page is the panel, the arrow keys, and the strip;
+        ; a present mode can have the click back (phase E6).
         if editMode {
             if (this.editPointer(px py pressed down released)) {
                 return true
-            }
-        }
-        if pressed {
-            ; Clicking the left or right third of the SLIDE turns the page —
-            ; the way a deck is read. It used to be the whole window, which
-            ; meant the status band was a navigation button too.
-            if (py >= toolbarH) {
-                if (py < (H - statusH)) {
-                    if (px < (idiv W 3)) {
-                        this.prevSlide()
-                        return true
-                    }
-                    if (px > (idiv (W * 2) 3)) {
-                        this.nextSlide()
-                        return true
-                    }
-                }
             }
         }
         return false
@@ -629,8 +621,21 @@ class PptxApp {
         while (i < (input.keyCount())) {
             def k:int (input.keyAt(i))
             def taken:boolean false
-            if editMode {
-                taken = (this.textKey(k input.shiftDown))
+            ; Page keys always turn the page, whatever is selected. The arrows
+            ; cannot: with a shape picked up they nudge it, which is what every
+            ; editor does — so there has to be a key that means the deck.
+            if (k == (UIKey.pageDown())) {
+                this.runCommand("slide.next" "")
+                taken = true
+            }
+            if (k == (UIKey.pageUp())) {
+                this.runCommand("slide.prev" "")
+                taken = true
+            }
+            if (taken == false) {
+                if editMode {
+                    taken = (this.textKey(k input.shiftDown))
+                }
             }
             if (taken == false) {
                 if (k == (UIKey.f2())) {

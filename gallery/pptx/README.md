@@ -86,7 +86,9 @@ The viewer is a mode away from being an editor. `PptxEdit.rgr` is the editing
 core — host-agnostic, in slide points — and `PptxApp` is the only place a
 window pixel becomes one:
 
-- [x] Edit mode (`edit.toggle`, Ctrl+E). A deck opened to read stays read-only
+- [x] A deck opens **ready to edit**: clicking the slide selects, and turning
+      the page is the panel, the strip, Page Up / Page Down, or the arrows when
+      nothing is selected. `edit.toggle` (Ctrl+E) turns editing off for reading
 - [x] Click to select, shift-click to add, Ctrl+A for the lot; master / layout
       chrome is drawn but never selectable
 - [x] Drag to move, eight handles to resize, rotation-aware hit testing

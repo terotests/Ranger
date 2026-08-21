@@ -364,9 +364,11 @@ async function selftest() {
   {
     web.run("slide.first", "");
     await draw();
-    ok("a deck opens in the viewer, not the editor", web.editing() === false);
+    ok("a deck opens ready to edit", web.editing() === true);
     ok("the edit toggle is a command", web.run("edit.toggle", ""));
-    ok("and it turns editing on", web.editing() === true);
+    ok("and it turns editing off", web.editing() === false);
+    web.run("edit.toggle", "");
+    ok("and back on", web.editing() === true);
     const before = JSON.parse(web.scene()).list.cmds.length;
     ok("insert a box", web.run("shape.rect", ""));
     await draw();
@@ -390,8 +392,7 @@ async function selftest() {
     ok("undo is a command too", web.run("edit.undo", ""));
     await draw();
     ok("delete takes the inserted shape away", web.run("edit.delete", "") || (web.selectionCount() | 0) === 0);
-    web.run("edit.toggle", "");
-    ok("and the viewer comes back", web.editing() === false);
+    ok("editing is still on at the end of it", web.editing() === true);
   }
 
   // Typing into a shape: F2 puts a caret in the selected shape, and what is
@@ -451,7 +452,6 @@ async function selftest() {
   // Direct manipulation: a rubber band over the slide, the clipboard, and the
   // grid — all through the same command surface a toolbar button uses.
   {
-    web.run("edit.toggle", "");
     if (!web.editing()) web.run("edit.toggle", "");
     web.run("shape.rect", "");
     await draw();
@@ -487,7 +487,6 @@ async function selftest() {
     web.run("edit.undo", "");
     web.run("edit.undo", "");
     web.run("edit.undo", "");
-    web.run("edit.toggle", "");
     await draw();
   }
 

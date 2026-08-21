@@ -86,8 +86,16 @@ Decisions worth keeping (and their reasons):
 - **Undo hands back new objects.** Restoring replaces the deck's slides with
   the snapshot's copies, so a held `PptxShape` reference is stale by design —
   a host looks shapes up by id again.
-- **Editing is a mode.** A deck opened to read cannot be changed by a stray
-  click; `edit.toggle` (Ctrl+E) is what arms it.
+- **Editing is the default, and the slide is a canvas.** This was the other
+  way round to begin with — a deck opened read-only and clicking the left or
+  right third of the slide turned the page — and it made the editor unusable
+  in the way only a real user notices: the first click anyone made on a shape
+  moved the deck out from under them. Clicking the slide now selects, always;
+  turning the page is the panel, the strip, Page Up / Page Down, and the arrow
+  keys when nothing is selected (with a shape selected the arrows nudge it,
+  which is why the page keys had to start meaning what they say). `edit.toggle`
+  (Ctrl+E) still exists, and now turns editing OFF — for reading, and for the
+  present mode of phase E6, which is where clicking to advance belongs.
 
 ## Phase E2 — text that has a caret (done)
 

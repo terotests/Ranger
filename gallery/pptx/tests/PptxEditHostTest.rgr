@@ -5,8 +5,9 @@
 ; `PptxEditorTest` checks the model operations. This checks the seam above
 ; them: that a press in window pixels lands on the right shape in slide
 ; points, that a drag is one history step, that the selection is drawn into
-; the same display list as the slide, and that a viewer which is not in edit
-; mode still turns the page when you click it.
+; the same display list as the slide, and that clicking the slide never turns
+; the page — which it did, once, and which made the editor unusable: the first
+; click on a shape moved the deck out from under it.
 ;
 ;   npm run pptx:editor:host:test
 ; ==============================================================================
@@ -165,17 +166,16 @@ class PptxEditHostTest {
         c.ok("every editing button is on the strip" (missing == 0))
         c.ok("and the command table has heard of them all" (unknown == 0))
 
-        print "-- edit mode is a mode, and it is off to begin with --"
-        c.ok("a deck opens in the viewer" (app.editMode == false))
+        print "-- edit mode is a mode, and the deck opens in it --"
+        c.ok("a deck opens ready to edit" app.editMode)
+        c.ok("and the strip says so" app.toolbar.editOn)
         c.ok("the toggle is a command" (app.runCommand("edit.toggle" "")))
-        c.ok("edit mode is on" app.editMode)
-        c.ok("the strip shows it" app.toolbar.editOn)
+        c.ok("editing can be turned off" (app.editMode == false))
         app.runCommand("edit.toggle" "")
-        c.ok("and it turns back off" (app.editMode == false))
+        c.ok("and back on" app.editMode)
 
         print "-- a click in the slide picks a shape up --"
         def app2:PptxApp (PptxEditHostTest.build())
-        app2.runCommand("edit.toggle" "")
         def sh:PptxShape (PptxEditHostTest.firstShape(app2))
         def cxPt:double (sh.x + (sh.width * 0.5))
         def cyPt:double (sh.y + (sh.height * 0.5))
@@ -214,7 +214,6 @@ class PptxEditHostTest {
 
         print "-- the selection is drawn into the same display list --"
         def bare:PptxApp (PptxEditHostTest.build())
-        bare.runCommand("edit.toggle" "")
         def plain:EVGDisplayList (bare.buildFrame())
         def plainCount:int (plain.count())
         def sh2:PptxShape (PptxEditHostTest.firstShape(bare))
@@ -227,7 +226,6 @@ class PptxEditHostTest {
 
         print "-- a corner handle resizes --"
         def app3:PptxApp (PptxEditHostTest.build())
-        app3.runCommand("edit.toggle" "")
         def sh3:PptxShape (PptxEditHostTest.firstShape(app3))
         app3.editor.select(sh3.editId)
         def hx:int (PptxEditHostTest.screenX(app3 (sh3.x + sh3.width)))
@@ -246,7 +244,6 @@ class PptxEditHostTest {
 
         print "-- a caret inside a shape --"
         def app5:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
-        app5.runCommand("edit.toggle" "")
         def texts:[PptxShape] (app5.editor.editableShapes())
         def target@(optional):PptxShape
         def ti:int 0
@@ -282,8 +279,7 @@ class PptxEditHostTest {
             c.ok("a click lands on the column it was measured from" ((back.para == 0) && (back.col == 3)))
             ; It is drawn, and a selection is drawn behind it.
             def noCaret:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
-            noCaret.runCommand("edit.toggle" "")
-            noCaret.editor.select(ts.editId)
+                noCaret.editor.select(ts.editId)
             def plainCount:int ((noCaret.buildFrame()).count())
             def withCaret:int ((app5.buildFrame()).count())
             c.ok("the caret is drawn into the frame" (withCaret > plainCount))
@@ -305,7 +301,6 @@ class PptxEditHostTest {
 
         print "-- a caret on a wrapped line --"
         def app6:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
-        app6.runCommand("edit.toggle" "")
         def boxId:int (app6.editor.addTextBox(60.0 260.0 200.0 120.0 "The quick brown fox jumps over the lazy dog and keeps going for a while"))
         app6.editor.beginTextEdit(boxId)
         def wrapped@(optional):PptxShape (app6.editor.findShape(boxId))
@@ -342,7 +337,6 @@ class PptxEditHostTest {
 
         print "-- a rubber band, a rotation handle and a lock --"
         def app7:PptxApp (PptxEditHostTest.buildDeck("02-shapes.pptx"))
-        app7.runCommand("edit.toggle" "")
         def all7:[PptxShape] (app7.editor.editableShapes())
         c.ok("the fixture has shapes to band over" ((array_length all7) >= 2))
         if ((array_length all7) >= 2) {
@@ -403,7 +397,6 @@ class PptxEditHostTest {
 
         print "-- a mirrored picture, and the format painter --"
         def app8:PptxApp (PptxEditHostTest.buildDeck("16-image-png.pptx"))
-        app8.runCommand("edit.toggle" "")
         def pics:[PptxShape] (app8.editor.editableShapes())
         def picId:int 0
         def pi:int 0
@@ -440,7 +433,6 @@ class PptxEditHostTest {
 
         print "-- a turned shape's chrome and its axes --"
         def appR:PptxApp (PptxEditHostTest.buildDeck("02-shapes.pptx"))
-        appR.runCommand("edit.toggle" "")
         def rShapes:[PptxShape] (appR.editor.editableShapes())
         if ((array_length rShapes) > 0) {
             def rs:PptxShape (itemAt rShapes 0)
@@ -528,12 +520,51 @@ class PptxEditHostTest {
             c.ok("the strip still works over the panel" (app9.index != beforeIdx))
         }
 
-        print "-- the viewer is still a viewer --"
+        print "-- clicking the slide never turns the page --"
         def viewer:PptxApp (PptxEditHostTest.buildDeck("04-multi.pptx"))
         def before:int viewer.index
+        ; The right-hand third of the window, which used to be "next slide".
         viewer.pointer(700 400 true true false)
-        c.ok("a click on the right third still turns the page" (viewer.index != before))
-        c.ok("and nothing was selected by it" ((viewer.editor.selectionCount()) == 0))
+        viewer.pointer(700 400 false false true)
+        c.ok("a click on the right of the slide stays on the slide" (viewer.index == before))
+        ; And the left-hand third, which used to be "previous slide".
+        viewer.gotoSlide(1)
+        viewer.pointer(320 400 true true false)
+        viewer.pointer(320 400 false false true)
+        c.ok("and a click on the left stays too" (viewer.index == 1))
+        ; The ways that DO turn the page still do.
+        viewer.gotoSlide(0)
+        c.ok("the strip turns it" (viewer.runCommand("slide.next" "")))
+        c.ok("and the deck moved" (viewer.index == 1))
+        ; An arrow with nothing selected is the deck; with a shape selected it
+        ; is the shape, which is why Page Down exists.
+        viewer.editor.clearSelection()
+        def keyInput (new UIInput)
+        keyInput.newFrame()
+        keyInput.pushKey((UIKey.left()))
+        viewer.update(keyInput)
+        c.ok("an arrow with nothing selected turns it" (viewer.index == 0))
+        def shapes0:[PptxShape] (viewer.editor.editableShapes())
+        if ((array_length shapes0) > 0) {
+            def s0:PptxShape (itemAt shapes0 0)
+            viewer.editor.select(s0.editId)
+            def x0:double s0.x
+            def nudge (new UIInput)
+            nudge.newFrame()
+            nudge.pushKey((UIKey.right()))
+            viewer.update(nudge)
+            c.ok("an arrow with a shape selected moves the shape" (viewer.index == 0))
+            def moved0@(optional):PptxShape (viewer.editor.findShape(s0.editId))
+            if (!null? moved0) {
+                def m0:PptxShape (unwrap moved0)
+                c.ok("and it really moved" (m0.x > x0))
+            }
+            def pager (new UIInput)
+            pager.newFrame()
+            pager.pushKey((UIKey.pageDown()))
+            viewer.update(pager)
+            c.ok("but Page Down still turns the page" (viewer.index == 1))
+        }
 
         print "-- inserting, deleting, and the slide list --"
         def app4:PptxApp (PptxEditHostTest.build())
