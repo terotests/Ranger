@@ -190,9 +190,21 @@ class BookPreflight {
     ; the colour space, which it genuinely cannot satisfy yet.
     fn checkDelivery:void (doc:BookDocument report:BookPreflightReport) {
         if (spec.colourSpace == "cmyk") {
-            def msg:string ("this book is RGB and " + spec.name + " wants CMYK - a separation has to happen somewhere, and doing it at the press means nobody chose the profile")
-            def it:BookPreflightItem (BookPreflightItem.create("warning" "colour-space" msg -1 ""))
-            report.add(it)
+            ; The exporter can separate text and vectors on the way out. It
+            ; cannot separate a JPEG, so a book with pictures in it cannot be
+            ; delivered as a conformant CMYK file without the pictures arriving
+            ; that way - and saying "CMYK" while shipping RGB pictures is worse
+            ; than saying nothing.
+            def pictures:int (BookPreflight.imageCount(doc))
+            if (pictures > 0) {
+                def msg:string ((to_string pictures) + " picture(s) are RGB and " + spec.name + " wants CMYK - text and vectors separate on export, a JPEG does not; supply the pictures in CMYK, or send the job to an RGB workflow")
+                def it:BookPreflightItem (BookPreflightItem.create("error" "colour-space" msg -1 ""))
+                report.add(it)
+            } {
+                def msg0:string ("this book is RGB and " + spec.name + " wants CMYK - export with -colors cmyk and an intent, so the separation is one somebody chose")
+                def it0:BookPreflightItem (BookPreflightItem.create("warning" "colour-space" msg0 -1 ""))
+                report.add(it0)
+            }
         }
         if spec.cropMarks {
             def msg2:string "this supplier asks for crop marks and the exporter adds none"
@@ -217,6 +229,28 @@ class BookPreflight {
             report.add(it2)
             i = (i + 1)
         }
+    }
+
+    ; Pictures actually placed on a page, which is not the same as assets in
+    ; the document: an asset nobody used costs nothing at the press.
+    sfn imageCount:int (doc:BookDocument) {
+        def n:int 0
+        def pi:int 0
+        while (pi < (doc.pageCount())) {
+            def p:BookPage (doc.pageAt(pi))
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.kind == "image") {
+                    if (doc.hasAsset(f.assetId)) {
+                        n = (n + 1)
+                    }
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+        return n
     }
 
     fn checkPages:void (doc:BookDocument report:BookPreflightReport) {

@@ -27,6 +27,16 @@ class EVGPDFTool {
     def fontsOverride:string ""
     def strictFonts:boolean false
     def bleed:double 0.0
+    ; Print finishing. Off by default: an ordinary PDF stays exactly the file
+    ; it was, and a claim to be a print file is something you ask for.
+    def colorMode:string "rgb"
+    def pdfxProfile:string ""
+    def intentId:string "FOGRA39"
+    def intentInfo:string "Coated FOGRA39 (ISO 12647-2:2004)"
+    def docTitle:string ""
+    def docAuthor:string ""
+    ; Refuse to write a file that claims a conformance it does not have.
+    def strictPrint:boolean false
     
     Constructor () {
         def sl (new EVGStyleLoader())
@@ -88,11 +98,57 @@ class EVGPDFTool {
                 }
             }
 
+            if (arg == "-colors") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    colorMode = (shell_arg i)
+                }
+            }
+
+            if (arg == "-pdfx") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    pdfxProfile = (shell_arg i)
+                }
+            }
+
+            if (arg == "-intent") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    intentId = (shell_arg i)
+                }
+            }
+
+            if (arg == "-intent-info") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    intentInfo = (shell_arg i)
+                }
+            }
+
+            if (arg == "-title") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    docTitle = (shell_arg i)
+                }
+            }
+
+            if (arg == "-author") {
+                if ((i + 1) < argCount) {
+                    i = i + 1
+                    docAuthor = (shell_arg i)
+                }
+            }
+
             if (arg == "-fonts") {
                 if ((i + 1) < argCount) {
                     i = i + 1
                     fontsOverride = (shell_arg i)
                 }
+            }
+
+            if (arg == "-strict-print") {
+                strictPrint = true
             }
 
             if (arg == "-strict-fonts") {
@@ -150,6 +206,12 @@ class EVGPDFTool {
         print "  -css FILE  Apply a CSS subset stylesheet (repeatable)"
         print "  -theme T   Theme name selecting .theme-T rules"
         print "  -bleed PT  Print bleed in points on every side (adds TrimBox)"
+        print "  -colors M  rgb (default) or cmyk - converts fills, strokes and text"
+        print "  -pdfx V    X-4 or X-1a - identifies the file, adds the output intent"
+        print "  -intent ID Printing condition, e.g. FOGRA39 or 'CGATS TR 001'"
+        print "  -title S   Document title, for the info dictionary and the XMP"
+        print "  -author S  Document author"
+        print "  -strict-print  Fail rather than write a file that claims PDF/X it does not meet"
         print "  -fonts DIR Directory to search for font families"
         print "  -strict-fonts  Fail instead of measuring with guessed widths"
         print "  -debug     Enable debug output"
@@ -228,8 +290,31 @@ class EVGPDFTool {
         renderer.setMeasurer(ttfMeasurer)
         renderer.setStrictFonts(strictFonts)
         renderer.setBleed(bleed)
+        renderer.setColorMode(colorMode)
+        renderer.setPdfxProfile(pdfxProfile)
+        renderer.setOutputIntent(intentId intentInfo)
+        renderer.setDocumentInfo(docTitle docAuthor)
+        if ((strlen pdfxProfile) > 0) {
+            print (("  Print finishing: PDF/" + pdfxProfile) + ", " + colorMode + ", intent " + intentId)
+        }
         
         def pdfData:buffer (renderer.render(root))
+
+        ; What the print finishing did, and what it could not do. A file that
+        ; claims PDF/X it does not meet is worse than one that claims nothing.
+        def finishing:string (renderer.finishingReport())
+        if ((strlen finishing) > 0) {
+            print finishing
+        }
+        def issues:int (renderer.conformanceIssues())
+        if (issues > 0) {
+            if strictPrint {
+                print "FAILED: -strict-print, and this file would not pass a PDF/X check."
+                ; A non-zero status, so a build script stops here rather than
+                ; carrying on and reporting success for the rest of the job.
+                exit 2
+            }
+        }
 
         ; Surface anything the text engine could not measure honestly. A page
         ; that silently fell back to guessed widths looks fine on screen and

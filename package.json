@@ -461,6 +461,7 @@
     "engine:spawner:native": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/ranger_games/spawner_native_runner.rgr -d=./tests/.output -o=spawner_native_runner.js -nodecli && node ./tests/.output/spawner_native_runner.js 30",
     "engine:vocalfx": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/scripting/vocal_fx_runner_demo.rgr -d=./tests/.output -o=vocal_fx_runner_demo.js -nodecli && node ./tests/.output/vocal_fx_runner_demo.js 170",
     "engine:vocalfx:selftest": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/game_engine/scripting/vocal_fx_selftest.rgr -d=./tests/.output -o=vocal_fx_selftest.js -nodecli && node ./tests/.output/vocal_fx_selftest.js",
+    "pdf:print:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pdf_writer/test/print_finishing_test.rgr -d=./gallery/pdf_writer/bin -o=print_finishing_test.js -nodecli && node ./gallery/pdf_writer/bin/print_finishing_test.js",
     "pdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/core/PDFWriter.rgr -d=./gallery/pdf_writer/bin -o=pdf_writer.js -nodecli",
     "pdf:run": "node ./gallery/pdf_writer/bin/pdf_writer.js",
     "pdf": "npm run pdf:compile && npm run pdf:run",

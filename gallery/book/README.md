@@ -229,7 +229,7 @@ those requirements as data — `layflat-210`, `hardcover-a4`, `softcover-a5`,
 | `cover.pdf` | back, spine and front on one landscape sheet |
 | `print.json` | extent, trim, bleed, spine width, cover sheet — the fields a print-on-demand API asks for |
 | `preflight.txt` | what a printer would complain about |
-| `render.sh` | the exact commands that made the PDFs, with the computed page sizes in them |
+| `render.sh` | the exact commands that made the PDFs, with the computed page sizes **and the finishing flags** in them |
 
 Three rules are assertions rather than settings, because they are not
 negotiable:
@@ -264,9 +264,42 @@ picture under the dpi floor, ink that stops at the trim instead of bleeding
 past it, and text in the gutter — which is checked against a **larger** margin
 than the cut edges, on whichever side of the page the spine is.
 
-Still missing for a professional workflow: CMYK and ICC output (preflight
-warns when an RGB book is bound for a CMYK press, which is as far as it can
-get today), and a real PDF/X conformance stamp.
+### Finishing: what makes it a print file
+
+The exported PDF identifies itself and says what its colours are for:
+
+| | |
+| --- | --- |
+| `%PDF-1.6` | PDF/X-4 is a 1.6 feature set; claiming it in a 1.5 header is the contradiction a preflight tool opens with |
+| XMP `GTS_PDFXVersion` | where PDF/X is *identified* — not a dictionary key |
+| `/OutputIntents` | the printing condition: `sRGB IEC61966-2.1` for a print-on-demand job, `FOGRA39` for coated offset. A registered characterization name stands in for an embedded ICC profile |
+| `/Trapped /False` | not optional — a file that does not say cannot be PDF/X |
+| `/Info`, `MediaBox`, `TrimBox` | title and author, the sheet, and where the finished page is cut |
+
+**CMYK.** `-colors cmyk` separates every fill, stroke and glyph to process ink
+on the way out, with maximum black generation — so pure black comes out as
+**100% K and nothing else**, which matters more than accuracy does: text
+separated into four inks goes soft the moment the registration drifts.
+
+It is a *device* conversion. No profile is consulted, so it is what a press
+would do to untagged RGB anyway, done where it can at least be declared —
+and the exporter says so rather than letting the number look authoritative.
+
+**The gap is pictures, and it is not papered over.** Text and vectors separate;
+a JPEG does not. An untagged DeviceRGB image inside a file whose output intent
+is a CMYK condition is a PDF/X conformance failure, so the exporter counts
+them, says which two ways out there are (supply CMYK pictures, or keep the job
+in RGB with an RGB intent — which several print-on-demand services prefer),
+and under `-strict-print` **refuses to write the file at all**. A PDF that
+claims PDF/X and is not one is worse than a PDF that claims nothing.
+
+```bash
+npm run book:print                # layflat 210: RGB intent, clean PDF/X-4
+npm run book:print -- offset-sewn  # CMYK: separates, then stops on the pictures
+```
+
+Still missing: an embedded ICC profile (the intent is a registered name), a
+real ICC transform behind the CMYK conversion, and CMYK image data.
 
 ## Using it
 

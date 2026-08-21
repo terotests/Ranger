@@ -63,6 +63,13 @@ class BookPrintSpec {
     ; do CMYK, but preflight can still say when a book is being sent to a CMYK
     ; workflow as RGB.
     def colourSpace:string "rgb"
+    ; The printing condition the file declares. PDF/X requires one, and it is
+    ; what makes the numbers in the file mean something: the same 0/0/0 is a
+    ; different black on a coated sheet and on a screen. A registered
+    ; characterization name stands in for an embedded ICC profile, so the
+    ; declaration costs nothing and is still checkable.
+    def outputIntentId:string "sRGB IEC61966-2.1"
+    def outputIntentInfo:string "sRGB IEC61966-2.1"
     def pdfProfile:string "PDF/X-4"
     ; A cover is nearly always a separate file: back, spine and front as one
     ; landscape sheet whose width depends on how thick the book came out.
@@ -143,8 +150,22 @@ class BookPrintSpec {
         out = (out + "  safety     " + (BookPrintSpec.mmText(safetyOuter)) + " mm outer, " + (BookPrintSpec.mmText(safetyInner)) + " mm at the spine\n")
         out = (out + "  pages      " + (to_string minPages) + "-" + (to_string maxPages) + ", multiples of " + (to_string pageMultiple) + "\n")
         out = (out + "  images     " + (BookPrintSpec.intText(targetDpi)) + " dpi at print size (" + (BookPrintSpec.intText(minimumDpi)) + " dpi floor)\n")
-        out = (out + "  delivery   " + pdfProfile + ", " + colourSpace + ", single pages in reading order, page 1 recto\n")
+        out = (out + "  delivery   " + pdfProfile + ", " + colourSpace + ", intent " + outputIntentId + "\n")
+        out = (out + "             single pages in reading order, page 1 recto, blanks included\n")
         return out
+    }
+
+    ; "PDF/X-4" as the tool wants it, which is the version without the prefix.
+    fn pdfxFlag:string () {
+        def n:int (strlen pdfProfile)
+        if (n < 5) {
+            return ""
+        }
+        def head:string (substring pdfProfile 0 4)
+        if (head != "PDF/") {
+            return ""
+        }
+        return (substring pdfProfile 4 n)
     }
 
     sfn mmText:string (points:double) {
@@ -241,6 +262,8 @@ class BookPrintSpec {
         s.maxPages = 400
         s.colourSpace = "cmyk"
         s.pdfProfile = "PDF/X-1a"
+        s.outputIntentId = "FOGRA39"
+        s.outputIntentInfo = "Coated FOGRA39 (ISO 12647-2:2004)"
         return s
     }
 

@@ -1,0 +1,212 @@
+; ==============================================================================
+; print_finishing_test.rgr - the parts of a PDF that make it a PRINT file
+; ==============================================================================
+;
+;   npm run pdf:print:test
+;
+; Everything checked here is invisible in a viewer and decisive at a press: the
+; separation of colour to process ink, the claim to be PDF/X, the printing
+; condition that claim is about, and the /Trapped value without which the claim
+; is not one.
+;
+; The conversion assertions are the interesting ones. A device RGB-to-CMYK
+; conversion is not accurate and does not pretend to be, but it has to get one
+; thing exactly right: pure black must come out as 100% K and nothing else.
+; Black text separated into four inks goes soft the moment the registration
+; drifts, and it is the most common way a file that looked fine prints badly.
+; ==============================================================================
+
+Import "../src/core/EVGPDFRenderer.rgr"
+
+class PrintCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def label:string (name + " (got " + (to_string got) + " want " + (to_string want) + ")")
+        this.ok(label (d <= tol))
+    }
+}
+
+class PrintFinishingTest {
+    sfn hasSub:boolean (haystack:string needle:string) {
+        def hl:int (strlen haystack)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (nl > hl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            def piece:string (substring haystack i (i + nl))
+            if (piece == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn testConversion:void (c:PrintCheck) {
+        print "-- RGB to process ink --"
+        def black:[double] (EVGPDFRenderer.toCmyk(0.0 0.0 0.0))
+        c.near("black is no cyan" (itemAt black 0) 0.0 0.0001)
+        c.near("no magenta" (itemAt black 1) 0.0 0.0001)
+        c.near("no yellow" (itemAt black 2) 0.0 0.0001)
+        c.near("and all black - text in four inks goes soft" (itemAt black 3) 1.0 0.0001)
+
+        def white:[double] (EVGPDFRenderer.toCmyk(1.0 1.0 1.0))
+        c.near("white is no ink at all" (itemAt white 3) 0.0 0.0001)
+        c.near("and none of the others" (itemAt white 0) 0.0 0.0001)
+
+        def red:[double] (EVGPDFRenderer.toCmyk(1.0 0.0 0.0))
+        c.near("red is magenta and yellow" (itemAt red 1) 1.0 0.0001)
+        c.near("with no cyan" (itemAt red 0) 0.0 0.0001)
+        c.near("and no black" (itemAt red 3) 0.0 0.0001)
+
+        ; A mid grey is black ink only: the same reasoning as text.
+        def grey:[double] (EVGPDFRenderer.toCmyk(0.5 0.5 0.5))
+        c.near("a neutral grey is black ink" (itemAt grey 3) 0.5 0.0001)
+        c.near("and nothing else" (itemAt grey 0) 0.0 0.0001)
+    }
+
+    sfn testOperators:void (c:PrintCheck) {
+        print "-- the operators that reach the page --"
+        def r (new EVGPDFRenderer())
+        c.ok("an ordinary file is RGB" ((r.isCmyk()) == false))
+        def rgbFill:string (r.fillOp(1.0 0.0 0.0))
+        c.ok("and writes rg" (PrintFinishingTest.hasSub(rgbFill "rg")))
+        r.setColorMode("cmyk")
+        c.ok("switched, it is CMYK" (r.isCmyk()))
+        def cmykFill:string (r.fillOp(1.0 0.0 0.0))
+        c.ok("fills write k" (PrintFinishingTest.hasSub(cmykFill " k")))
+        def cmykStroke:string (r.strokeOp(1.0 0.0 0.0))
+        c.ok("strokes write K" (PrintFinishingTest.hasSub(cmykStroke " K")))
+        c.ok("and no rg survives" ((PrintFinishingTest.hasSub(cmykFill "rg")) == false))
+    }
+
+    sfn testIdentification:void (c:PrintCheck) {
+        print "-- the claim, and what it obliges --"
+        def r (new EVGPDFRenderer())
+        c.ok("nothing is claimed by default" ((r.wantsFinishing()) == false))
+        c.ok("and the header is unchanged" ((r.headerLine()) == "%PDF-1.5\n"))
+        def plainCatalog:string (r.catalogBody(3 0 0))
+        c.ok("an ordinary catalog carries no metadata" ((PrintFinishingTest.hasSub(plainCatalog "/Metadata")) == false))
+
+        r.setPdfxProfile("X-4")
+        r.setOutputIntent("FOGRA39" "Coated FOGRA39 (ISO 12647-2:2004)")
+        r.setDocumentInfo("A Book" "An Author")
+        c.ok("a claim is made" (r.wantsFinishing()))
+        ; PDF/X-4 is a PDF 1.6 feature set; claiming it in a 1.5 header is the
+        ; contradiction a preflight tool opens with.
+        c.ok("the header follows the claim" ((r.headerLine()) == "%PDF-1.6\n"))
+
+        def xmp:string (r.xmpPacket())
+        c.ok("PDF/X is identified in the XMP" (PrintFinishingTest.hasSub(xmp "GTS_PDFXVersion>PDF/X-4")))
+        c.ok("the title is in it" (PrintFinishingTest.hasSub(xmp "A Book")))
+        c.ok("and the packet is closed" (PrintFinishingTest.hasSub(xmp "<?xpacket end=")))
+
+        def intent:string (r.outputIntentBody())
+        c.ok("the output intent names the condition" (PrintFinishingTest.hasSub(intent "(FOGRA39)")))
+        c.ok("as a GTS_PDFX intent" (PrintFinishingTest.hasSub(intent "/S /GTS_PDFX")))
+
+        def info:string (r.infoBody())
+        ; Not optional: a file that does not say whether it has been trapped
+        ; cannot be PDF/X.
+        c.ok("Trapped is stated" (PrintFinishingTest.hasSub(info "/Trapped /False")))
+        c.ok("and the author is there" (PrintFinishingTest.hasSub(info "(An Author)")))
+
+        def catalog:string (r.catalogBody(3 8 9))
+        c.ok("the catalog points at the metadata" (PrintFinishingTest.hasSub(catalog "/Metadata 8 0 R")))
+        c.ok("and at the intent" (PrintFinishingTest.hasSub(catalog "/OutputIntents [9 0 R]")))
+        def trailer:string (r.trailerBody(12 3 10))
+        c.ok("the trailer points at the info dictionary" (PrintFinishingTest.hasSub(trailer "/Info 10 0 R")))
+    }
+
+    sfn testEscaping:void (c:PrintCheck) {
+        print "-- strings that would break the file --"
+        def s:string (EVGPDFRenderer.pdfString("a (b) c\\d"))
+        c.ok("parentheses are escaped" (PrintFinishingTest.hasSub(s "\\(b\\)")))
+        def x:string (EVGPDFRenderer.xmlEscape("a & b < c"))
+        c.ok("XML entities are escaped" (PrintFinishingTest.hasSub(x "&amp;")))
+        ; The buffer writes one byte per UTF-16 unit, so anything non-ASCII
+        ; would go into the file as a single truncated byte. The XMP is kept
+        ; ASCII by escaping instead - which also makes its /Length arithmetic
+        ; trivially right.
+        def esc:string (EVGPDFRenderer.xmlEscape("Karhu joka laski lehtiä"))
+        c.ok("a non-ASCII character becomes a numeric reference" (PrintFinishingTest.hasSub(esc "&#228;")))
+        c.ok("and the rest survives" (PrintFinishingTest.hasSub(esc "Karhu joka laski lehti")))
+        def onlyAscii:boolean true
+        def ei:int 0
+        while (ei < (strlen esc)) {
+            def code:int (charAt esc ei)
+            if (code > 126) {
+                onlyAscii = false
+            }
+            ei = (ei + 1)
+        }
+        c.ok("so the packet is pure ASCII" onlyAscii)
+        c.ok("and its length in bytes is its length in characters" ((EVGPDFRenderer.byteLength(esc)) == (strlen esc)))
+
+        ; A PDF text string cannot carry raw units either: outside ASCII it has
+        ; to be UTF-16BE with a byte-order mark.
+        def plain:string (EVGPDFRenderer.pdfTextString("A Book"))
+        c.ok("ASCII stays a literal string" (plain == "(A Book)"))
+        def wide:string (EVGPDFRenderer.pdfTextString("lehtiä"))
+        c.ok("anything else becomes UTF-16 with a BOM" (PrintFinishingTest.hasSub(wide "<FEFF")))
+        c.ok("with the umlaut encoded" (PrintFinishingTest.hasSub(wide "00E4")))
+    }
+
+    sfn testHonesty:void (c:PrintCheck) {
+        print "-- what it will not claim --"
+        def r (new EVGPDFRenderer())
+        r.setPdfxProfile("X-4")
+        r.setColorMode("cmyk")
+        c.ok("no pictures, no problem" ((r.conformanceIssues()) == 0))
+        ; Three RGB JPEGs inside a file whose intent is a CMYK condition is a
+        ; conformance failure, not a cosmetic one.
+        r.rgbImages = 3
+        c.ok("RGB pictures in a CMYK claim are counted" ((r.conformanceIssues()) == 3))
+        def report:string (r.finishingReport())
+        c.ok("and reported" (PrintFinishingTest.hasSub(report "WARNING")))
+        c.ok("with the way out named" (PrintFinishingTest.hasSub(report "RGB output intent")))
+
+        ; The same pictures in an RGB workflow are exactly right.
+        r.setColorMode("rgb")
+        c.ok("an RGB job with RGB pictures is clean" ((r.conformanceIssues()) == 0))
+    }
+
+    sfn main:void () {
+        print "== print finishing =="
+        def c (new PrintCheck())
+        PrintFinishingTest.testConversion(c)
+        PrintFinishingTest.testOperators(c)
+        PrintFinishingTest.testIdentification(c)
+        PrintFinishingTest.testEscaping(c)
+        PrintFinishingTest.testHonesty(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

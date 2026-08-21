@@ -130,14 +130,24 @@ the extent and the paper and builds the cover as its own landscape document.
 cover, a `print.json` manifest carrying the fields a print-on-demand API asks
 for, and the render commands with the computed sizes in them.
 
+Done (stage 5b): the exported PDF finishes itself. `%PDF-1.6`, an XMP packet
+identifying PDF/X-4 or X-1a, an `/OutputIntents` naming the printing condition,
+`/Trapped /False`, and an `/Info` dictionary — written only when the file is
+asked to claim conformance, so an ordinary PDF is unchanged. `-colors cmyk`
+separates fills, strokes and glyphs to process ink with maximum black
+generation, so pure black is 100% K. Images are the remaining gap and are
+counted and reported rather than assumed away; `-strict-print` refuses to write
+a file that claims PDF/X it does not meet.
+
 Left:
 
-1. **CMYK and ICC.** Everything is RGB. This is a PDF writer change rather than
-   a book engine change; preflight already says when an RGB book is bound for a
-   CMYK press, which is as far as it can get from here.
-2. **PDF/X conformance** — the output intent, the metadata and the flag a print
-   shop asks for. The boxes are right already.
-3. **Crop and registration marks**, for the suppliers that want them. Off by
+1. **An ICC transform behind the CMYK conversion.** What is there is a device
+   conversion, declared as one. A profiled one needs an ICC engine.
+2. **CMYK image data.** Decoding a JPEG and re-encoding it as a four-component
+   Adobe JPEG is the missing piece; the decoder and the encoder both exist.
+3. **An embedded output profile** (`DestOutputProfile`), rather than the
+   registered characterization name that stands in for it now.
+4. **Crop and registration marks**, for the suppliers that want them. Off by
    default and it should stay that way: an unwanted set of marks is a reprint.
 4. **A supplier's own cover template as input**, so the generated arithmetic can
    be checked against their file rather than replacing it.

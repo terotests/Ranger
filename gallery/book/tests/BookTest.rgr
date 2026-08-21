@@ -506,6 +506,14 @@ class BookTest {
         def named:BookPrintSpec (BookPrintSpec.byName("offset-sewn"))
         c.eqStr("specs can be looked up by name" named.name "offset-sewn")
         c.eqStr("and offset wants CMYK" named.colourSpace "cmyk")
+
+        ; The printing condition the file will declare. It is what makes the
+        ; numbers mean something - the same 0/0/0 is a different black on a
+        ; coated sheet and on a screen.
+        c.eqStr("offset declares a coated press" named.outputIntentId "FOGRA39")
+        c.eqStr("and a print-on-demand book declares sRGB" spec.outputIntentId "sRGB IEC61966-2.1")
+        c.eqStr("the PDF/X version comes off the profile" (spec.pdfxFlag()) "X-4")
+        c.eqStr("in the form the exporter takes" (named.pdfxFlag()) "X-1a")
     }
 
     sfn testCoverArithmetic:void (c:Check) {
@@ -657,6 +665,34 @@ class BookTest {
         }
         c.ok("an RGB book bound for a CMYK press says so" sawColour)
         c.eqInt("and 24 pages is an extent offset can bind" (r3.countOf("error")) 0)
+
+        ; With pictures in it the same book is not a warning but an error: text
+        ; and vectors separate on export, and a JPEG does not.
+        def api4 (BookApi.create("Pictures to CMYK" "a4"))
+        api4.defaultStyles()
+        api4.usePrintSpec((BookPrintSpec.offsetSewn()))
+        def p4:int 0
+        while (p4 < 24) {
+            api4.page("")
+            p4 = (p4 + 1)
+        }
+        api4.asset("big" "big.jpg" 4000.0 4000.0)
+        def firstPage:BookPage (api4.doc.pageAt(0))
+        def pic (BookFrame.imageFrame("i" 100.0 100.0 200.0 200.0 "big"))
+        firstPage.addFrame(pic)
+        def r4:BookPreflightReport (api4.runPreflight())
+        def colourError:boolean false
+        def m:int 0
+        while (m < (r4.count())) {
+            def it4:BookPreflightItem (r4.itemAtIndex(m))
+            if (it4.code == "colour-space") {
+                if (it4.severity == "error") {
+                    colourError = true
+                }
+            }
+            m = (m + 1)
+        }
+        c.ok("an RGB picture in a CMYK job is an error, not a note" colourError)
     }
 
     ; `contains` is a reserved method name in Ranger, so this is not called that.

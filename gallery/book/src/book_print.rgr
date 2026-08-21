@@ -135,21 +135,42 @@ class BookPrint {
         def cwPt:double (BookUnits.mm(cw))
         def chPt:double (BookUnits.mm(ch))
         def tool:string "node gallery/pdf_writer/bin/evg_pdf_tool.js"
+
+        ; The finishing arguments: the colours, the claim, and the printing
+        ; condition the claim is about. `-strict-print` is on deliberately - a
+        ; file that says PDF/X and is not one is worse than a file that says
+        ; nothing, so the script fails rather than writing it.
+        def finish:string ""
+        def pdfx:string (spec.pdfxFlag())
+        if ((strlen pdfx) > 0) {
+            finish = (" -pdfx " + pdfx)
+            finish = (finish + " -intent \"" + spec.outputIntentId + "\"")
+            finish = (finish + " -intent-info \"" + spec.outputIntentInfo + "\"")
+            if (spec.colourSpace == "cmyk") {
+                finish = (finish + " -colors cmyk")
+            }
+            finish = (finish + " -strict-print")
+        }
+        def meta:string (" -title \"" + doc.title + "\" -author \"" + doc.author + "\"")
+
         def out:string "#!/usr/bin/env bash\n"
         out = (out + "# Written by book_print.rgr. The page sizes are computed from the print\n")
         out = (out + "# spec and the extent, which is why this is a file rather than a paragraph\n")
         out = (out + "# of numbers to retype.\n")
         out = (out + "set -e\n")
         out = (out + "cd \"$(dirname \"$0\")/../../..\"\n")
-        out = (out + "\n# The interior: single pages, reading order, trim plus bleed on every side.\n")
+        out = (out + "\n# The interior: single pages, reading order, trim plus bleed on every side,\n")
+        out = (out + "# identified as a print file and told which printing condition it is for.\n")
         out = (out + tool + " \\\n")
         out = (out + "  gallery/book/output/interior.tsx gallery/book/output/interior.pdf \\\n")
         out = (out + "  -w " + (BookRenderer.num(doc.pageWidth)) + " -h " + (BookRenderer.num(doc.pageHeight)))
-        out = (out + " -bleed " + (BookRenderer.num(spec.bleed)) + "\n")
+        out = (out + " -bleed " + (BookRenderer.num(spec.bleed)))
+        out = (out + finish + meta + "\n")
         out = (out + "\n# The cover: one landscape sheet, back | spine | front.\n")
         out = (out + tool + " \\\n")
         out = (out + "  gallery/book/output/cover.tsx gallery/book/output/cover.pdf \\\n")
-        out = (out + "  -w " + (BookRenderer.num(cwPt)) + " -h " + (BookRenderer.num(chPt)) + "\n")
+        out = (out + "  -w " + (BookRenderer.num(cwPt)) + " -h " + (BookRenderer.num(chPt)))
+        out = (out + finish + meta + "\n")
         return out
     }
 
@@ -178,6 +199,7 @@ class BookPrint {
         out = (out + "  \"spineMm\": " + (BookCoverSpec.mm1(spine)) + ",\n")
         out = (out + "  \"coverSheetMm\": [" + (BookCoverSpec.mm1(cw)) + ", " + (BookCoverSpec.mm1(ch)) + "],\n")
         out = (out + "  \"colourSpace\": \"" + spec.colourSpace + "\",\n")
+        out = (out + "  \"outputIntent\": \"" + (BookApi.jsonString(spec.outputIntentId)) + "\",\n")
         out = (out + "  \"pdfProfile\": \"" + spec.pdfProfile + "\",\n")
         out = (out + "  \"cropMarks\": " + (BookApi.jsonBool(spec.cropMarks)) + ",\n")
         out = (out + "  \"targetDpi\": " + (BookPrintSpec.intText(spec.targetDpi)) + ",\n")
