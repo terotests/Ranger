@@ -2229,6 +2229,25 @@ class GridView {
             this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 3)) 8.0 2.0 (EVGColor.rgb(40 140 70)))
             return
         }
+        ; A stack of platters, which is what everything has drawn a database as
+        ; since the disk pack: a lid, two bands under it, and a shaded top so
+        ; it reads as a cylinder rather than as three lines.
+        if (k == (ToolIcon.database())) {
+            def dbInk:EVGColor theme.activeBorder
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 7)) 10.0 1.0 (EVGColor.rgb(150 185 235)))
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 2)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 3)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 4)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy - 4)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 1)) 1.0 2.0 dbInk)
+            return
+        }
+        if (k == (ToolIcon.sqlBox())) {
+            this.pushToolText(dl "SQL" cx cy 9.0 theme.activeBorder false)
+            return
+        }
         if (k == (ToolIcon.freeze())) {
             this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 1.0 theme.activeBorder)
             this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 1.0 14.0 theme.activeBorder)

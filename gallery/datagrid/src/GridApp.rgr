@@ -203,6 +203,19 @@ class GridApp {
     def sqlDialog:EVGWindow (new EVGWindow)
     def dbSqlText:string ""
     def dbSqlStatus:string ""
+    ; The connection window: what this workbook is talking to, and the way to
+    ; point it somewhere else. The app cannot open a database itself - naming
+    ; an engine is the host's job, the same way opening a file picker is - so
+    ; asking for one is a REQUEST the host reads and clears, like fileRequest.
+    def connDialog:EVGWindow (new EVGWindow)
+    def dbDriver:string ""
+    def dbDsn:string ""
+    def dbTable:string ""
+    def dbRequest:string ""
+    def dbRequestDriver:string ""
+    def dbRequestDsn:string ""
+    def dbRequestTable:string ""
+    def dbConnStatus:string ""
     def colorDialogOp:string "color"
     ; The border gallery. Three toolbar words could not say "a medium red line
     ; under this block and nothing else", so the buttons open this instead:
@@ -479,6 +492,168 @@ class GridApp {
         return (this.bindDatabaseSql(session trimmed "SQL"))
     }
 
+    ; What the host connected, so the connection window can say it. The app
+    ; only ever holds a DBSession; which driver and which data source produced
+    ; it is knowledge the host has.
+    fn noteConnection:void (driver:string dsn:string table:string) {
+        dbDriver = driver
+        dbDsn = dsn
+        dbTable = table
+        ; The window that asked for this connection is still on screen showing
+        ; the OLD one - the host answers after the click, not during it - so it
+        ; is rebuilt here rather than left lying about what is connected.
+        if connDialog.visible {
+            this.reopenConnectionDialog()
+        }
+    }
+
+    ; --- the connection window --------------------------------------------------
+    fn connectionEngine:string () {
+        if (db.bound == false) {
+            return "not connected"
+        }
+        return (db.session.engineName())
+    }
+
+    fn connectionSource:string () {
+        if ((strlen dbDsn) == 0) {
+            return ":memory:"
+        }
+        return dbDsn
+    }
+
+    fn connectionTable:string () {
+        if ((strlen db.writeTable) > 0) {
+            return db.writeTable
+        }
+        return dbTable
+    }
+
+    fn connectionKeys:string () {
+        def n:int (array_length db.keyNames)
+        if (n == 0) {
+            return "none - the sheet is read only"
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (itemAt db.keyNames i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn connectionRows:string () {
+        def out:string (to_string db.loadedRows)
+        if (db.totalRows > db.loadedRows) {
+            out = (out + " of " + (to_string db.totalRows))
+        }
+        return (out + " rows")
+    }
+
+    fn openConnectionDialog:void () {
+        this.buildDialogs()
+        if editing {
+            this.commitEdit()
+        }
+        connDialog.title = "Database connection"
+        connDialog.w = 470
+        connDialog.labelW = 96
+        connDialog.reset()
+        def driverValue:string dbDriver
+        if ((strlen driverValue) == 0) {
+            driverValue = "auto"
+        }
+        connDialog.addInput(721 "Engine" driverValue)
+        connDialog.addInput(722 "Data source" (this.connectionSource()))
+        connDialog.addInput(723 "Table" (this.connectionTable()))
+        connDialog.addSeparator()
+        connDialog.addLabel(("connected: " + (this.connectionEngine())))
+        if db.bound {
+            connDialog.addLabel(("rows: " + (this.connectionRows())))
+            connDialog.addLabel(("key columns: " + (this.connectionKeys())))
+            def caps:DBCapabilities (db.session.capabilities())
+            connDialog.addLabel(("engine can: " + (caps.describe())))
+            def fb:string db.session.lastFallback
+            if ((strlen fb) > 0) {
+                connDialog.addLabel(("ranger did: " + fb))
+            } {
+                connDialog.addLabel("ranger did: nothing - the engine took it all")
+            }
+            if db.readOnly {
+                connDialog.addLabel(("read only: " + db.readOnlyReason))
+            }
+            def err:string (db.session.lastError())
+            if ((strlen err) > 0) {
+                connDialog.addLabel(("last error: " + err))
+            }
+        } {
+            connDialog.addLabel("no database is open")
+        }
+        if ((strlen dbConnStatus) > 0) {
+            connDialog.addLabel(dbConnStatus)
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 731
+        push labels "Close"
+        push ids 732
+        push labels "Refresh"
+        push ids 733
+        push labels "Connect"
+        connDialog.addButtonRow(ids labels 733)
+        connDialog.finish()
+        def px:int (grid.x + (idiv (W - connDialog.w) 2))
+        def py:int (grid.y + 50)
+        connDialog.openWithin(px py W H)
+        windows.raise(connDialog)
+        connDialog.focusedId = 721
+        view.focused = true
+    }
+
+    ; Connecting is the host's part. The app writes down what was asked for and
+    ; whoever is hosting - the window server, the SDL binary, a test - reads it,
+    ; opens the engine and calls bindDatabase. A host that ignores it loses
+    ; nothing: the sheet it already has keeps working.
+    fn requestConnection:void (driver:string dsn:string table:string) {
+        dbRequest = "connect"
+        dbRequestDriver = driver
+        dbRequestDsn = dsn
+        dbRequestTable = table
+        dbConnStatus = ("connecting to " + driver + " " + dsn + " …")
+        view.status = dbConnStatus
+    }
+
+    fn takeDbRequest:string () {
+        def r:string dbRequest
+        dbRequest = ""
+        return r
+    }
+
+    fn connectFromDialog:void () {
+        def driver:string (trim (connDialog.inputValue(721)))
+        def dsn:string (trim (connDialog.inputValue(722)))
+        def table:string (trim (connDialog.inputValue(723)))
+        if ((strlen table) == 0) {
+            dbConnStatus = "name a table to open"
+            this.reopenConnectionDialog()
+            return
+        }
+        this.requestConnection(driver dsn table)
+        this.reopenConnectionDialog()
+    }
+
+    fn reopenConnectionDialog:void () {
+        def kx:int connDialog.x
+        def ky:int connDialog.y
+        this.openConnectionDialog()
+        connDialog.x = kx
+        connDialog.y = ky
+    }
+
     ; --- the SQL box ----------------------------------------------------------
     fn openSqlDialog:void () {
         this.buildDialogs()
@@ -631,6 +806,7 @@ class GridApp {
         commands.addArg("db.filter" "Filter this column in the database" "Data" "")
         commands.add("db.page.next" "Next page of rows" "Data" "")
         commands.add("db.page.prev" "Previous page of rows" "Data" "")
+        commands.add("db.connection" "Database connection…" "Data" "Ctrl+D")
         commands.add("db.sql.dialog" "SQL query…" "Data" "Ctrl+Q")
         commands.addArg("db.sql" "Run a SQL query as a sheet" "Data" "")
         commands.add("select.all" "Select all" "Select" "Ctrl+A")
@@ -989,6 +1165,10 @@ class GridApp {
     fn runDbCommand:boolean (id:string arg:string) {
         ; The SQL box is about the CONNECTION, not about the sheet in front of
         ; the user, so it works from anywhere in the workbook.
+        if (id == "db.connection") {
+            this.openConnectionDialog()
+            return true
+        }
         if (id == "db.sql.dialog") {
             this.openSqlDialog()
             return true
@@ -2524,6 +2704,9 @@ class GridApp {
         sqlDialog.w = 460
         sqlDialog.title = "SQL query"
         windows.add(sqlDialog)
+        connDialog.w = 460
+        connDialog.title = "Database connection"
+        windows.add(connDialog)
         dialogsReady = true
     }
 
@@ -4642,6 +4825,19 @@ class GridApp {
             }
             if (findDialog.activated == 511) {
                 findDialog.close()
+            }
+        }
+        if (connDialog.activated > 0) {
+            if (connDialog.activated == 733) {
+                this.connectFromDialog()
+            }
+            if (connDialog.activated == 732) {
+                this.refreshDatabaseSheet()
+                dbConnStatus = db.status
+                this.reopenConnectionDialog()
+            }
+            if (connDialog.activated == 731) {
+                connDialog.close()
             }
         }
         if (sqlDialog.activated > 0) {
@@ -7351,6 +7547,13 @@ class GridApp {
                         this.commitEdit()
                     }
                     this.openFindDialog()
+                }
+                ; Ctrl+D shows what the workbook is connected to.
+                if ((ch == 100) || (ch == 68)) {
+                    if editing {
+                        this.commitEdit()
+                    }
+                    this.openConnectionDialog()
                 }
                 ; Ctrl+Q opens the SQL box - the query is the thing you edit
                 ; when the sheet is a database sheet.

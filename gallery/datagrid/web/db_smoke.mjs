@@ -46,6 +46,19 @@ async function scene() {
   return await res.text();
 }
 
+// /scene.json answers 204 when nothing changed, so a fetch right after an
+// event can miss the frame that carries the answer. Poll for it.
+async function sceneContaining(text, tries) {
+  let last = "";
+  for (let i = 0; i < tries; i++) {
+    const body = await scene();
+    if (body) last = body;
+    if (last.includes(text)) return last;
+    await sleep(200);
+  }
+  return last;
+}
+
 async function post(event) {
   await fetch(BASE + "/input", {
     method: "POST",
@@ -140,6 +153,52 @@ try {
   await sleep(300);
   const oneColumn = (await scene()) || queried;
   must("the new query replaced the sheet", oneColumn.includes("country"));
+
+  // --- the connection window, opened by its BUTTON ---------------------------
+  // Ctrl+D is the browser's bookmark, so the button is the path that works in
+  // a page. This clicks it where the toolbar says it is.
+  // The SQL box is still up from the step above, and it is modal - a click on
+  // the toolbar behind it is swallowed, which is what a modal is for.
+  await post({ type: "key", key: "escape" });
+  await sleep(150);
+  const bar = await (await fetch(BASE + "/toolbar")).json();
+  const dbButton = bar.items.find((i) => i.command === "db.connection");
+  must("the toolbar has a database button", !!dbButton);
+  must("and one for the SQL box", !!bar.items.find((i) => i.command === "db.sql.dialog"));
+  if (dbButton) {
+    const bx = dbButton.x + Math.floor(dbButton.w / 2);
+    const by = dbButton.y + Math.floor(dbButton.h / 2);
+    await post({ type: "pointer", x: bx, y: by, down: true });
+    await post({ type: "pointer", x: bx, y: by, down: false });
+    await sleep(250);
+    const clicked = (await scene()) || oneColumn;
+    must("clicking it opens the connection window", clicked.includes("Database connection"));
+  }
+
+  await command("db.connection", "");
+  await sleep(200);
+  const connOpen = (await scene()) || oneColumn;
+  must("the connection window is on screen", connOpen.includes("Database connection"));
+  must("it names the engine it is connected to", connOpen.includes("connected: "));
+  must("and what that engine can do", connOpen.includes("engine can: "));
+  must("and which columns identify a row", connOpen.includes("key columns: "));
+
+  // The Engine field has focus: clear it, type another engine, Enter is
+  // Connect. RangerDB is always present, so this switch works anywhere.
+  for (let i = 0; i < 14; i++) {
+    await post({ type: "key", key: "backspace" });
+  }
+  await post({ type: "text", text: "rangerdb" });
+  await post({ type: "key", key: "enter" });
+  // What is checked here is the WINDOW, not the status bar: the status bar is
+  // also the app's tooltip surface (the toolbar's hot label writes itself
+  // there every frame), so which of the two wrote last depends on where the
+  // pointer is resting. The window's own lines are the connection's state.
+  const switched = await sceneContaining("connected: rangerdb", 20);
+  must("the host connected the engine that was asked for", switched.includes("connected: rangerdb"));
+  must("and the server says the same", serverLog.includes("connected: rangerdb"));
+  must("and the window shows the new connection, not the question", switched.includes("rangerdb: sales"));
+  must("and the sheet came back with it", switched.includes("Finland"));
 
   console.log(failed === 0 ? "ALL PASS" : "FAILURES");
 } catch (e) {
