@@ -179,6 +179,52 @@ second and re-uploading a picture it had already drawn.
 - Oracles: openpyxl semantic; LibreOffice visual + formula CSV when available
 - Bench: `datagrid:bench`, `datagrid:formula:bench`
 
+## Database sheets
+
+A sheet whose rows are a database query, and whose edits are `UPDATE`s. The
+engine is not named anywhere in the grid: it comes in as a `DBSession` from
+[`gallery/rangerdb`](../rangerdb/README.md), and the same sheet works over
+RangerDB (pure Ranger), SQLite or DuckDB.
+
+```text
+   query result                        edited cell
+        │                                   │
+  GridDbSource.loadInto             GridDbSource.cellEdited
+        │                                   │
+  SpreadsheetModel   <-- the grid -->   DBMutation -> DBSession -> engine
+```
+
+```ranger
+def keys:[string]
+push keys "id"
+app.bindDatabase(session spec keys "DB sales")
+```
+
+The sheet is an ordinary `SpreadsheetModel`, so every formula, format, chart
+and .xlsx export keeps working over it — `=SUM(C2:C5)` sums a database column,
+and a workbook can hold an .xlsx sheet next to a live table.
+
+Three rules, each of which is a bug if it is missing:
+
+1. **No key columns, no writing.** A result with no identity for its rows (an
+   aggregate, a join, a `SELECT` that dropped the key) is read only and says
+   so, instead of writing an `UPDATE` that matches whatever it matches.
+2. **A refused value never stays on the sheet.** Text typed into a numeric
+   column, or a write the engine rejected, puts the loaded value back: a cell
+   showing something the database does not hold is a lie the next formula
+   believes.
+3. **Sorting and filtering re-run the query.** Sorting the loaded page would
+   order one screen of a million rows and call it sorted. `db.filter`,
+   `db.page.next` and the header sort all rebuild the `QuerySpec` and ask the
+   engine again.
+
+The blank row after the last one inserts, once its key columns have something
+in them. `db.row.delete` deletes. `db.refresh` re-runs. With
+`db.autoCommit = false` the edits collect instead, and `db.commit` writes them
+in one transaction where the engine has them.
+
+`npm run datagrid:db:test` runs all of it over all three engines (81/81).
+
 ## Editing
 
 The grid is an editor, not just a viewer. Every mutation goes through
