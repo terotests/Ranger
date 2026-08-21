@@ -110,6 +110,11 @@ class GridView {
     ; cell's top corner.
     ; The insertion point a carried column would drop at, or -1.
     def colDropAt:int -1
+    ; The span of selected text inside the field being edited, as character
+    ; offsets, or -1 -1 for none. Drawn as a band behind the letters, which is
+    ; what a text field looks like everywhere.
+    def editSelA:int -1
+    def editSelB:int -1
     def editTextX:int 0
     def editTextY:int 0
     def editTextPx:double 13.0
@@ -807,6 +812,9 @@ class GridView {
                 editTextX = (rect.x + 4)
                 editTextY = editTop
                 editTextPx = cellPx
+                if (caretInFormulaBar == false) {
+                    this.paintTextSelection(dl txt (rect.x + 4) editTop cellPx editLineH)
+                }
                 this.paintFormulaBarText(dl txt (rect.x + 4) editTop cellPx)
             } {
                 editTextX = (rect.x + 4)
@@ -1074,6 +1082,37 @@ class GridView {
     }
 
     ; Draw formula-bar text with each A1 / range tinted to match its overlay.
+    ; The band behind selected text. Measured, not counted: proportional type
+    ; means the fifth character is not five character-widths in.
+    fn paintTextSelection:void (dl:EVGDisplayList text:string x:int y:int size:double h:int) {
+        if (editSelA < 0) {
+            return
+        }
+        if (editSelB <= editSelA) {
+            return
+        }
+        def n:int (strlen text)
+        def a:int editSelA
+        def b:int editSelB
+        if (a > n) {
+            a = n
+        }
+        if (b > n) {
+            b = n
+        }
+        if (b <= a) {
+            return
+        }
+        this.applyFaceNamed("" false false)
+        def x0:int (to_int (ctx.tr.measureWidth((substring text 0 a) size)))
+        def x1:int (to_int (ctx.tr.measureWidth((substring text 0 b) size)))
+        def w:int (x1 - x0)
+        if (w < 1) {
+            return
+        }
+        this.pushRect(dl (to_double (x + x0)) (to_double y) (to_double w) (to_double h) theme.selection)
+    }
+
     fn paintFormulaBarText:void (dl:EVGDisplayList text:string x:int y:int size:double) {
         if ((strlen text) == 0) {
             return
@@ -1178,6 +1217,9 @@ class GridView {
         fbTextX = (fieldX + 6)
         fbTextY = (fieldY + 3)
         fbFontSize = 13.0
+        if caretInFormulaBar {
+            this.paintTextSelection(dl shown (fieldX + 6) (fieldY + 3) 13.0 (fieldH - 6))
+        }
         this.paintFormulaBarText(dl shown (fieldX + 6) (fieldY + 3) 13.0)
         ; Formula edits always put the solid caret here, even when editing was
         ; entered from the cell (F2 / typing). There must be only one caret.

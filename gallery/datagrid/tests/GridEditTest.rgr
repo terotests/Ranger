@@ -97,6 +97,17 @@ class GridEditTest {
         app.sel.active.col = c1
     }
 
+    ; A Ctrl chord through the real UIInput path — Ctrl+A and friends arrive
+    ; as TEXT with the modifier set, not as keys.
+    sfn chord:void (app:GridApp input:UIInput letter:string) {
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText(letter)
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
+    }
+
     ; One key press through the real UIInput path, with modifiers.
     sfn pressKey:void (app:GridApp input:UIInput key:int shift:boolean ctrl:boolean) {
         input.newFrame()
@@ -1042,6 +1053,88 @@ class GridEditTest {
         cd.update(cdIn)
         c.eqStr("a click moved nothing" (cd.model.getCell(0 1)) "B"
         )
+
+        print "== the keyboard belongs to whatever is being edited =="
+        ; Ctrl+A in a text field means "all of this text". It used to commit
+        ; the edit and select the whole sheet instead, which is the opposite
+        ; of what was asked — and the sign that nothing owned the keyboard.
+        def fo:GridApp (new GridApp)
+        fo.init("gallery/pdf_writer/assets/fonts")
+        fo.model.growTo(20 5)
+        fo.sheetView.markDirty()
+        fo.sheetView.rebuild()
+        fo.grid.updateVisible(fo.model)
+        fo.render()
+        GridEditTest.select(fo 2 1)
+        def foIn:UIInput (new UIInput)
+        fo.beginEdit("=SUM(A1:A9)" true)
+        c.ok("nothing is selected to begin with" ((fo.hasTextSelection()) == false))
+        GridEditTest.chord(fo foIn "a")
+        c.ok("Ctrl+A selects the text" (fo.hasTextSelection()))
+        c.eqStr("all of it" (fo.selectedText()) "=SUM(A1:A9)"
+        )
+        c.ok("and the edit is still open" fo.editing)
+        c.eqInt("the sheet was not selected instead" fo.sel.active.row 2)
+        ; Typing replaces what is selected, as a field does.
+        foIn.newFrame()
+        foIn.pushText("4")
+        fo.update(foIn)
+        c.eqStr("typing replaces it" fo.editBuf "4"
+        )
+        c.ok("and nothing is selected after" ((fo.hasTextSelection()) == false))
+        ; Shift with a caret move extends.
+        fo.beginEdit("hello world" true)
+        GridEditTest.pressKey(fo foIn (UIKey.home()) false false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        c.eqStr("shift and right extends" (fo.selectedText()) "he"
+        )
+        GridEditTest.pressKey(fo foIn (UIKey.end()) true false)
+        c.eqStr("shift and end takes the rest" (fo.selectedText()) "hello world"
+        )
+        ; …and the clipboard follows the focus too.
+        GridEditTest.pressKey(fo foIn (UIKey.home()) false false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.chord(fo foIn "c")
+        c.eqStr("Ctrl+C copies the text, not the cells" fo.clipboardKind "text"
+        )
+        c.eqStr("the text it had" fo.clipboardTsv "hello"
+        )
+        c.ok("and the edit survives it" fo.editing)
+        GridEditTest.pressKey(fo foIn (UIKey.end()) false false)
+        GridEditTest.chord(fo foIn "v")
+        c.eqStr("Ctrl+V pastes into the field" fo.editBuf "hello worldhello"
+        )
+        GridEditTest.pressKey(fo foIn (UIKey.home()) false false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.chord(fo foIn "x")
+        c.eqStr("Ctrl+X takes it out" fo.editBuf " worldhello"
+        )
+        ; Backspace over a selection removes the selection, not one character.
+        fo.beginEdit("abcdef" true)
+        fo.selectAllText()
+        GridEditTest.pressKey(fo foIn (UIKey.backspace()) false false)
+        c.eqStr("backspace clears a selection whole" fo.editBuf ""
+        )
+        ; And with nothing being edited, Ctrl+A is the sheet's again.
+        fo.cancelEdit()
+        GridEditTest.select(fo 2 1)
+        GridEditTest.chord(fo foIn "a")
+        c.ok("with no edit open it selects the sheet" ((fo.sel.isSingle()) == false))
+        ; The view is told what to draw a band behind.
+        fo.beginEdit("=1+2" true)
+        fo.selectAllText()
+        fo.render()
+        c.eqInt("the view knows where the band starts" fo.view.editSelA 0)
+        c.eqInt("and where it ends" fo.view.editSelB 4)
 
         print "== a flick carries =="
         ; A wheel notch is a shove, not a step. Notches that arrive together

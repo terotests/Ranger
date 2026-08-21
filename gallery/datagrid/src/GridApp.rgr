@@ -91,6 +91,8 @@ class GridApp {
     ; How fast the sheet is still moving, in pixels per frame, and what is
     ; left of a flick. A wheel notch is a shove, not a step: a slow one moves
     ; the sheet a little, a fast one carries.
+    ; Where a text selection started inside the edit buffer, or -1 for none.
+    def editSelAnchor:int -1
     def flingX:double 0.0
     def flingY:double 0.0
     ; What is left over when a frame's travel is not a whole number of pixels.
@@ -3940,6 +3942,7 @@ class GridApp {
         engine.recalcDirty()
         ; Wrapped text that now needs a second line needs the room for it.
         this.growRowToFit(r)
+        editSelAnchor = -1
         editing = false
         editBuf = ""
         editCaret = 0
@@ -4510,6 +4513,7 @@ class GridApp {
     }
 
     fn beginEdit:void (seed:string clearFirst:boolean) {
+        editSelAnchor = -1
         this.clearFormulaPick()
         if clearFirst {
             editBuf = seed
@@ -4597,7 +4601,144 @@ class GridApp {
         }
     }
 
+    ; --- selected text inside whatever is being edited -----------------------
+    ;
+    ; The keyboard belongs to somebody. While an edit is open that somebody is
+    ; the text field — the formula bar or the cell — and Ctrl+A means "all of
+    ; this text", not "all of this sheet". While no edit is open the grid has
+    ; it and Ctrl+A means the sheet. That is the whole of the focus question
+    ; here, and answering it is what let the fields keep their own shortcuts.
+    ;
+    ; `editSelAnchor` is where a selection started, or -1 for none; the caret
+    ; is the other end, so a selection is the span between them and shift plus
+    ; any caret move extends it.
+    ; Ctrl+C / Ctrl+X inside a field. The text goes on the same clipboard the
+    ; sheet uses, so it can be pasted into a cell, into another field, or out
+    ; of the program entirely.
+    fn copyTextSelection:void (cut:boolean) {
+        def taken:string (this.selectedText())
+        if ((strlen taken) == 0) {
+            return
+        }
+        clipboardKind = "text"
+        clipboardTsv = taken
+        clipboardSeq = (clipboardSeq + 1)
+        clipboardPng = ""
+        clipboardSvg = ""
+        clipboardChartJson = ""
+        view.status = "copied"
+        if cut {
+            this.deleteTextSelection()
+            view.status = "cut"
+        }
+    }
+
+    ; Ctrl+V inside a field: whatever text is on the clipboard, over whatever
+    ; is selected. A tab or a newline would end the edit rather than land in
+    ; it, so they become spaces.
+    fn pasteIntoField:void () {
+        def text:string clipboardTsv
+        if ((strlen text) == 0) {
+            return
+        }
+        def flat:string ""
+        def i:int 0
+        while (i < (strlen text)) {
+            def ch2:int (charAt text i)
+            if ((ch2 == 9) || (ch2 == 10)) {
+                flat = (flat + " ")
+            } {
+                if (ch2 != 13) {
+                    flat = (flat + (substring text i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        this.insertAtCaret(flat)
+    }
+
+    fn hasTextSelection:boolean () {
+        if (editing == false) {
+            return false
+        }
+        if (editSelAnchor < 0) {
+            return false
+        }
+        return (editSelAnchor != editCaret)
+    }
+
+    fn selectionStart:int () {
+        if ((this.hasTextSelection()) == false) {
+            return editCaret
+        }
+        if (editSelAnchor < editCaret) {
+            return editSelAnchor
+        }
+        return editCaret
+    }
+
+    fn selectionEnd:int () {
+        if ((this.hasTextSelection()) == false) {
+            return editCaret
+        }
+        if (editSelAnchor > editCaret) {
+            return editSelAnchor
+        }
+        return editCaret
+    }
+
+    fn selectedText:string () {
+        if ((this.hasTextSelection()) == false) {
+            return ""
+        }
+        return (substring editBuf (this.selectionStart()) (this.selectionEnd()))
+    }
+
+    fn selectAllText:void () {
+        editSelAnchor = 0
+        editCaret = (strlen editBuf)
+    }
+
+    fn clearTextSelection:void () {
+        editSelAnchor = -1
+    }
+
+    ; Take the selected text out, leaving the caret where it was. Every insert
+    ; and every delete goes through here first, which is what makes typing
+    ; over a selection replace it rather than push it along.
+    fn deleteTextSelection:boolean () {
+        if ((this.hasTextSelection()) == false) {
+            return false
+        }
+        def a:int (this.selectionStart())
+        def b:int (this.selectionEnd())
+        def head:string (substring editBuf 0 a)
+        def tail:string (substring editBuf b (strlen editBuf))
+        editBuf = (head + tail)
+        editCaret = a
+        editSelAnchor = -1
+        pickTokStart = -1
+        pickTokEnd = -1
+        return true
+    }
+
+    ; Move the caret, taking the selection with it or dropping it.
+    fn caretTo:void (at:int extend:boolean) {
+        if extend {
+            if (editSelAnchor < 0) {
+                editSelAnchor = editCaret
+            }
+        } {
+            editSelAnchor = -1
+        }
+        editCaret = at
+        this.clampCaret()
+        pickTokStart = -1
+        pickTokEnd = -1
+    }
+
     fn insertAtCaret:void (text:string) {
+        this.deleteTextSelection()
         this.clampCaret()
         ; Typing (or any non-pick insert) ends the replaceable pick token.
         if (formulaPicking == false) {
@@ -4612,6 +4753,9 @@ class GridApp {
     }
 
     fn backspaceAtCaret:void () {
+        if (this.deleteTextSelection()) {
+            return
+        }
         this.clampCaret()
         if (editCaret <= 0) {
             return
@@ -4626,6 +4770,9 @@ class GridApp {
     }
 
     fn deleteAtCaret:void () {
+        if (this.deleteTextSelection()) {
+            return
+        }
         this.clampCaret()
         def n:int (strlen editBuf)
         if (editCaret >= n) {
@@ -4901,20 +5048,23 @@ class GridApp {
                 this.deleteAtCaret()
                 return
             }
+            ; Shift with any caret move extends the selection, which is what
+            ; every text field on every platform does and what this had no
+            ; answer for at all.
             if (key == (UIKey.left())) {
-                this.moveCaret(-1)
+                this.caretTo((editCaret - 1) extend)
                 return
             }
             if (key == (UIKey.right())) {
-                this.moveCaret(1)
+                this.caretTo((editCaret + 1) extend)
                 return
             }
             if (key == (UIKey.home())) {
-                editCaret = 0
+                this.caretTo(0 extend)
                 return
             }
             if (key == (UIKey.end())) {
-                editCaret = (strlen editBuf)
+                this.caretTo((strlen editBuf) extend)
                 return
             }
             return
@@ -6144,13 +6294,26 @@ class GridApp {
             while (ti < tn) {
                 def ch:int (charAt t ti)
                 if ((ch == 97) || (ch == 65)) {
+                    ; Whoever owns the keyboard. A field that cannot answer
+                    ; Ctrl+A is not really a field, and committing the edit to
+                    ; select the sheet instead — which is what this did — is
+                    ; the opposite of what was asked.
                     if editing {
-                        this.commitEdit()
+                        this.selectAllText()
+                    } {
+                        sel.selectAll(model)
+                        grid.ensureCellVisible(model sel.active.row sel.active.col)
                     }
-                    sel.selectAll(model)
-                    grid.ensureCellVisible(model sel.active.row sel.active.col)
                 }
                 if ((ch == 99) || (ch == 67)) {
+                    ; Text selected inside a field is what Ctrl+C means then.
+                    ; Committing the edit and copying CELLS instead — which is
+                    ; what this did — throws away the thing that was selected.
+                    if (this.hasTextSelection()) {
+                        this.copyTextSelection(false)
+                        ti = (ti + 1)
+                        continue
+                    }
                     if editing {
                         this.commitEdit()
                     }
@@ -6168,12 +6331,23 @@ class GridApp {
                     }
                 }
                 if ((ch == 120) || (ch == 88)) {
+                    if (this.hasTextSelection()) {
+                        this.copyTextSelection(true)
+                        ti = (ti + 1)
+                        continue
+                    }
                     if editing {
                         this.commitEdit()
                     }
                     this.cutSelection()
                 }
                 if ((ch == 118) || (ch == 86)) {
+                    ; Into a field, a paste is text — into a sheet it is cells.
+                    if editing {
+                        this.pasteIntoField()
+                        ti = (ti + 1)
+                        continue
+                    }
                     if input.shiftDown {
                         this.openPasteSpecial()
                     } {
@@ -6305,7 +6479,19 @@ class GridApp {
         }
     }
 
+    ; The selected span of the field being edited, handed to the view. It is
+    ; the app that knows what is selected; the view only draws it.
+    fn publishTextSelection:void () {
+        view.editSelA = -1
+        view.editSelB = -1
+        if (this.hasTextSelection()) {
+            view.editSelA = (this.selectionStart())
+            view.editSelB = (this.selectionEnd())
+        }
+    }
+
     fn render:void () {
+        this.publishTextSelection()
         ; Keep a toolbar tooltip / save note visible; only fall back to the
         ; version stamp when nothing more useful is showing.
         def tip:string (view.toolbar.hotLabel())
@@ -6334,6 +6520,7 @@ class GridApp {
     }
 
     fn sceneJson:string () {
+        this.publishTextSelection()
         def tip2:string (view.toolbar.hotLabel())
         if ((strlen tip2) > 0) {
             view.status = tip2

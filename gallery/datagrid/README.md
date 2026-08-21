@@ -1014,6 +1014,16 @@ has weight and short enough that it stops where it was thrown. A hand on the
 sheet stops it dead, the way a finger stops a flick. The browser page keeps
 drawing while it coasts; the window already draws every frame.
 
+**The keyboard belongs to somebody.** While an edit is open that somebody is
+the text field — the formula bar or the cell — and `Ctrl+A` means "all of this
+text". While no edit is open the grid has it and `Ctrl+A` means the sheet. That
+one question is the whole of the focus problem here, and answering it is what
+let the fields have their own shortcuts: shift with any caret move extends a
+selection, typing and Backspace replace it whole, and `Ctrl+C` / `Ctrl+X` /
+`Ctrl+V` move text rather than cells. The selection is a span between an anchor
+and the caret, drawn as a band behind the letters, and the app hands the view
+the span rather than the view working it out.
+
 **A column header is a handle.** Press and it selects the column; drag and it
 picks the column up, with a line showing where it will land. Which one a press
 means is decided by whether the pointer travels, so there is no third gesture
