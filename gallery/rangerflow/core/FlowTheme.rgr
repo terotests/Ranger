@@ -1,0 +1,147 @@
+; ============================================================================
+; FlowTheme.rgr — every colour and measurement in one place.
+; ============================================================================
+;
+; Not decoration: the same theme is read by the interactive renderer and by the
+; PDF exporter, so "what colour is a selected table header" has exactly one
+; answer and a printed diagram matches the one on screen.
+; ============================================================================
+
+Import "../../evg/EVGColor.rgr"
+
+class FlowTheme {
+    def name:string "light"
+
+    ; canvas
+    def background:string "#f7f8fa"
+    def dotColor:string "#c9ced6"
+    def gridColor:string "#e6e9ee"
+    ; 0 none, 1 dots, 2 lines, 3 cross
+    def backgroundVariant:int 1
+    def backgroundGap:double 20.0
+    def backgroundDotSize:double 1.4
+
+    ; node
+    def nodeFill:string "#ffffff"
+    def nodeBorder:string "#b9c0cc"
+    def nodeText:string "#1f2430"
+    def nodeMutedText:string "#6b7280"
+    def nodeRadius:double 6.0
+    def nodeBorderWidth:double 1.0
+    def nodeShadow:boolean true
+
+    ; header strip of a compartment node
+    def headerFill:string "#eef2f8"
+    def headerText:string "#111827"
+    def headerAccent:string "#3b82f6"
+    def sectionRule:string "#dfe3ea"
+    def rowAltFill:string "#fafbfc"
+
+    ; selection / interaction
+    def selectedBorder:string "#2563eb"
+    def selectedFill:string "#eff6ff"
+    def selectionBox:string "#2563eb"
+    def selectionBoxFill:string "#2563eb"
+    def selectionBoxAlpha:double 0.12
+    def hoverBorder:string "#60a5fa"
+    def portFill:string "#ffffff"
+    def portBorder:string "#64748b"
+    def portActive:string "#2563eb"
+    def portRadius:double 3.5
+
+    ; edges
+    def edgeColor:string "#7b8494"
+    def edgeSelected:string "#2563eb"
+    def edgeWidth:double 1.4
+    def edgeLabelText:string "#4b5563"
+    def edgeLabelFill:string "#ffffff"
+    def markerSize:double 9.0
+
+    ; type accents for ERD / UML rows
+    def keyColor:string "#b45309"
+    def fkColor:string "#7c3aed"
+    def typeColor:string "#6b7280"
+
+    ; panels (minimap, controls)
+    def panelFill:string "#ffffff"
+    def panelBorder:string "#d5dae2"
+    def minimapNode:string "#9aa3b2"
+    def minimapView:string "#2563eb"
+
+    ; text
+    def fontFamily:string "Noto Sans"
+    def monoFamily:string "Noto Sans"
+    def headerFontSize:double 13.0
+    def rowFontSize:double 11.0
+    def labelFontSize:double 11.0
+
+    Constructor () {
+    }
+
+    sfn light:FlowTheme () {
+        return (new FlowTheme)
+    }
+
+    ; A dark theme that is the same document with different values — the point
+    ; of keeping them all here rather than beside the code that draws them.
+    sfn dark:FlowTheme () {
+        def t (new FlowTheme)
+        t.name = "dark"
+        t.background = "#12151c"
+        t.dotColor = "#2b313c"
+        t.gridColor = "#1e2430"
+        t.nodeFill = "#1b202a"
+        t.nodeBorder = "#39414f"
+        t.nodeText = "#e6e9ef"
+        t.nodeMutedText = "#98a2b3"
+        t.headerFill = "#232a36"
+        t.headerText = "#f3f5f8"
+        t.headerAccent = "#60a5fa"
+        t.sectionRule = "#333c4a"
+        t.rowAltFill = "#1f2530"
+        t.selectedBorder = "#60a5fa"
+        t.selectedFill = "#1d2735"
+        t.selectionBox = "#60a5fa"
+        t.hoverBorder = "#93c5fd"
+        t.portFill = "#1b202a"
+        t.portBorder = "#8b95a6"
+        t.portActive = "#60a5fa"
+        t.edgeColor = "#7f8a9c"
+        t.edgeSelected = "#60a5fa"
+        t.edgeLabelText = "#c3cad6"
+        t.edgeLabelFill = "#1b202a"
+        t.keyColor = "#fbbf24"
+        t.fkColor = "#c4b5fd"
+        t.typeColor = "#98a2b3"
+        t.panelFill = "#1b202a"
+        t.panelBorder = "#39414f"
+        t.minimapNode = "#5b6577"
+        t.minimapView = "#60a5fa"
+        return t
+    }
+
+    fn color:EVGColor (spec:string) {
+        return (EVGColor.parse(spec))
+    }
+
+    ; A node's fill, honouring a per-node override and the selected state.
+    fn nodeFillFor:string (override:string selected:boolean) {
+        if ((strlen override) > 0) {
+            return override
+        }
+        if selected {
+            return selectedFill
+        }
+        return nodeFill
+    }
+
+    fn nodeBorderFor:string (override:string selected:boolean) {
+        if selected {
+            return selectedBorder
+        }
+        if ((strlen override) > 0) {
+            return override
+        }
+        return nodeBorder
+    }
+}

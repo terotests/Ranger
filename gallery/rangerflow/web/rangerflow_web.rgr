@@ -1,0 +1,259 @@
+; ============================================================================
+; rangerflow_web.rgr — the editor, with no host process.
+; ============================================================================
+;
+;   browser event → RangerFlowWeb → FlowEditor          (in this tab)
+;   FlowEditor.sceneJson() → EVGDisplayList → evg-webgl.js   (in this tab)
+;
+; Ranger compiles to JavaScript, so the app simply *is* in the page. There is
+; no server in the middle and no scene fetched sixty times a second from a
+; process on the same machine: the editor runs in the tab, hands the WebGL
+; renderer a display list, and the only thing fetched is what a browser cannot
+; make for itself — the font faces and a `.sql` file to open.
+;
+; This class is a facade and nothing else. Every decision it might be tempted
+; to make lives one layer down, where the tests can reach it.
+; ============================================================================
+
+Import "../core/FlowEditor.rgr"
+Import "../domains/erd/SqlSchemaReader.rgr"
+Import "../domains/erd/SchemaToGraph.rgr"
+Import "../domains/uml/UMLModel.rgr"
+Import "../layout/LayeredLayout.rgr"
+Import "../layout/ForceLayout.rgr"
+
+class RangerFlowWeb {
+    def graph:FlowGraph (new FlowGraph)
+    def editor:FlowEditor (new FlowEditor)
+    def sim:FlowSimulation (new FlowSimulation)
+    def simRunning:boolean false
+    def input:FlowInput (new FlowInput)
+    def status:string ""
+    def layoutName:string "layered"
+    ; Kept here because `loadSql` builds a new editor, and an editor that
+    ; forgot the canvas size culls everything and draws nothing.
+    def viewW:double 1200.0
+    def viewH:double 800.0
+
+    Constructor () {
+    }
+
+    fn init:void (w:double h:double) {
+        editor = (FlowEditor.of(graph))
+        this.resize(w h)
+    }
+
+    fn resize:void (w:double h:double) {
+        viewW = w
+        viewH = h
+        editor.setSize(w h)
+    }
+
+    ; --------------------------------------------------------------- input --
+    fn pointerDown:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerDown(input)
+        if simRunning {
+            editor.pinWhileDragging = true
+            sim.alpha = 0.35
+        }
+    }
+
+    fn pointerMove:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerMove(input)
+    }
+
+    fn pointerUp:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerUp(input)
+    }
+
+    fn wheel:void (x:double y:double delta:double) {
+        input.x = x
+        input.y = y
+        editor.wheel(input delta)
+    }
+
+    fn keyDown:boolean (key:string shift:boolean ctrl:boolean) {
+        return (editor.keyDown(key shift ctrl))
+    }
+
+    fn fitView:void () {
+        editor.fitView()
+    }
+
+    ; ------------------------------------------------------------- content --
+    ; The page fetches the .sql and hands over the text; nothing here opens a
+    ; file, which is what makes the bundle loadable in a browser at all.
+    fn loadSql:boolean (sql:string) {
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sql))
+        if ((schema.tableCount()) == 0) {
+            status = "no CREATE TABLE statements found"
+            return false
+        }
+        def s2g (new SchemaToGraph)
+        graph = (s2g.build(schema))
+        editor = (FlowEditor.of(graph))
+        editor.setSize(viewW viewH)
+        this.applyLayout()
+        status = ((to_string (schema.tableCount())) + " tables, " + (to_string (array_length schema.foreignKeys)) + " relationships")
+        return true
+    }
+
+    fn applyLayout:void () {
+        if (layoutName == "force") {
+            sim = (FlowSimulation.of(graph))
+            sim.chargeStrength = -1400.0
+            sim.linkDistance = 220.0
+            sim.linkStrengthFixed = 0.06
+            sim.xEnabled = true
+            sim.yEnabled = true
+            sim.collideEnabled = true
+            sim.pullPositions()
+            simRunning = true
+            editor.pinWhileDragging = true
+            return
+        }
+        simRunning = false
+        editor.pinWhileDragging = false
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "LR"
+        lay.layerGap = 160.0
+        lay.nodeGap = 40.0
+        lay.run()
+        SchemaToGraph.faceEdges(graph)
+    }
+
+    fn setLayout:void (name:string) {
+        layoutName = name
+        this.applyLayout()
+    }
+
+    fn setNotation:void (name:string) {
+        editor.view.notation = name
+    }
+
+    fn setTheme:void (name:string) {
+        if (name == "dark") {
+            editor.view.theme = (FlowTheme.dark())
+        } {
+            editor.view.theme = (FlowTheme.light())
+        }
+    }
+
+    fn setBackgroundVariant:void (v:int) {
+        editor.view.theme.backgroundVariant = v
+    }
+
+    fn setSnap:void (on:boolean) {
+        editor.snapToGrid = on
+    }
+
+    fn setEdgeType:void (kind:string) {
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            e.edgeType = kind
+            k = (k + 1)
+        }
+    }
+
+    ; ---------------------------------------------------------------- frame --
+    ; One tick of the simulation per frame when it is running, then the scene.
+    fn frame:string () {
+        if simRunning {
+            if ((sim.isSettled()) == false) {
+                sim.tick()
+                SchemaToGraph.faceEdges(graph)
+            }
+        }
+        return (editor.sceneJson())
+    }
+
+    fn sceneJson:string () {
+        return (editor.sceneJson())
+    }
+
+    fn svg:string () {
+        def sc:FlowScene (editor.view.buildForExport(24.0))
+        return (sc.toSvg())
+    }
+
+    ; What the page prints in its status bar, and what the smoke test reads
+    ; back out of the DOM to prove the editor actually did something.
+    fn stats:string () {
+        def v:FlowView editor.view
+        def out:string ("nodes=" + (to_string (graph.nodeCount())))
+        out = (out + " edges=" + (to_string (graph.edgeCount())))
+        out = (out + " drawn=" + (to_string v.drawnNodes))
+        out = (out + " culled=" + (to_string v.culledNodes))
+        out = (out + " selected=" + (to_string (graph.selectedNodeCount())))
+        out = (out + " zoom=" + (EVGDisplayList.num(v.viewport.zoom)))
+        out = (out + " sim=" + (to_string simRunning))
+        if simRunning {
+            out = (out + " alpha=" + (EVGDisplayList.num(sim.alpha)))
+        }
+        return out
+    }
+
+    fn statusText:string () {
+        return status
+    }
+
+    ; A scripted session the page can run with `?selftest=1`: select a table,
+    ; drag it, box-select everything, undo. There is no browser-driver library
+    ; here, so the page tests itself and writes the result where headless
+    ; Chrome's --dump-dom can be read back.
+    fn selfTest:string () {
+        if ((graph.nodeCount()) == 0) {
+            return "FAIL no nodes"
+        }
+        def report:string ""
+        editor.fitView()
+        def n:FlowNode (graph.nodeAt(0))
+        def sx:double (editor.view.viewport.toScreenX((n.centerX())))
+        def sy:double (editor.view.viewport.toScreenY((n.centerY())))
+        this.pointerDown(sx sy false false)
+        this.pointerUp(sx sy false false)
+        if (n.selected == false) {
+            return "FAIL click did not select"
+        }
+        report = (report + "select ok; ")
+        def beforeX:double n.x
+        this.pointerDown(sx sy false false)
+        this.pointerMove((sx + 40.0) (sy + 25.0) false false)
+        this.pointerUp((sx + 40.0) (sy + 25.0) false false)
+        if (n.x <= beforeX) {
+            return "FAIL drag did not move the node"
+        }
+        report = (report + "drag ok; ")
+        this.keyDown("z" false true)
+        def back:double (fabs (n.x - beforeX))
+        if (back > 0.001) {
+            return "FAIL undo did not restore"
+        }
+        report = (report + "undo ok; ")
+        this.keyDown("a" false true)
+        if ((graph.selectedNodeCount()) != (graph.nodeCount())) {
+            return "FAIL select all"
+        }
+        report = (report + "select-all ok; ")
+        graph.clearSelection()
+        def json:string (editor.sceneJson())
+        if ((strlen json) < 100) {
+            return "FAIL empty scene"
+        }
+        report = (report + "scene " + (to_string (strlen json)) + " bytes; ")
+        return ("PASS " + report + (this.stats()))
+    }
+}

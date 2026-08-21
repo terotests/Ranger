@@ -1,0 +1,844 @@
+; ============================================================================
+; EdgeRouter.rgr — where an edge goes, and how it is decorated when it lands.
+; ============================================================================
+;
+; Two things live here, deliberately apart:
+;
+;   ROUTING      source point + side → target point + side → a path
+;   DECORATION   what is drawn at the ends of that path
+;
+; They are separate because a foreign key is one relationship and three
+; pictures: crow's foot, UML multiplicity, or a plain arrow. Splitting the
+; semantics from the ornament means a diagram can switch notation without the
+; model changing a byte — which is exactly what a schema viewer is asked to do.
+;
+; The path is built once and consumed three ways: as an SVG `d` string for the
+; EVG element tree (and from there PDF and HTML), as a flattened polyline for
+; the GPU and for hit testing, and as a length/mid-point for placing a label.
+; One construction, so the PDF and the editor cannot draw different lines.
+;
+; The curve maths is React Flow's, function for function: `getBezierPath`'s
+; control-point offset (including the `sqrt` fallback when the target is behind
+; the source), and an orthogonal router with rounded corners in the shape of
+; `getSmoothStepPath`.
+; ============================================================================
+
+Import "GraphModel.rgr"
+
+; One segment of a path. `kind`: 0 move, 1 line, 2 cubic, 3 quadratic.
+class EdgeSeg {
+    def kind:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def c1x:double 0.0
+    def c1y:double 0.0
+    def c2x:double 0.0
+    def c2y:double 0.0
+
+    Constructor () {
+    }
+}
+
+class EdgePath {
+    def segs:[EdgeSeg]
+    ; Filled by `flatten`, and by everything that needs a point rather than a
+    ; curve: hit testing, GPU strokes, arrow angles.
+    def flat:[double]
+    def flatSteps:int 0
+
+    Constructor () {
+    }
+
+    fn moveTo:void (x:double y:double) {
+        def s (new EdgeSeg)
+        s.kind = 0
+        s.x = x
+        s.y = y
+        push segs s
+    }
+
+    fn lineTo:void (x:double y:double) {
+        def s (new EdgeSeg)
+        s.kind = 1
+        s.x = x
+        s.y = y
+        push segs s
+    }
+
+    fn curveTo:void (c1x:double c1y:double c2x:double c2y:double x:double y:double) {
+        def s (new EdgeSeg)
+        s.kind = 2
+        s.c1x = c1x
+        s.c1y = c1y
+        s.c2x = c2x
+        s.c2y = c2y
+        s.x = x
+        s.y = y
+        push segs s
+    }
+
+    fn quadTo:void (cx:double cy:double x:double y:double) {
+        def s (new EdgeSeg)
+        s.kind = 3
+        s.c1x = cx
+        s.c1y = cy
+        s.x = x
+        s.y = y
+        push segs s
+    }
+
+    fn segCount:int () {
+        return (array_length segs)
+    }
+
+    ; The `d` attribute an EVG `<path>` takes — the export path.
+    fn svgPath:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length segs)) {
+            def s:EdgeSeg (itemAt segs i)
+            if (i > 0) {
+                out = (out + " ")
+            }
+            if (s.kind == 0) {
+                out = (out + "M " + (EdgePath.n(s.x)) + " " + (EdgePath.n(s.y)))
+            }
+            if (s.kind == 1) {
+                out = (out + "L " + (EdgePath.n(s.x)) + " " + (EdgePath.n(s.y)))
+            }
+            if (s.kind == 2) {
+                out = (out + "C " + (EdgePath.n(s.c1x)) + " " + (EdgePath.n(s.c1y)))
+                out = (out + " " + (EdgePath.n(s.c2x)) + " " + (EdgePath.n(s.c2y)))
+                out = (out + " " + (EdgePath.n(s.x)) + " " + (EdgePath.n(s.y)))
+            }
+            if (s.kind == 3) {
+                out = (out + "Q " + (EdgePath.n(s.c1x)) + " " + (EdgePath.n(s.c1y)))
+                out = (out + " " + (EdgePath.n(s.x)) + " " + (EdgePath.n(s.y)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Two decimals is plenty for a diagram and keeps an exported path readable.
+    sfn n:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def av:double v
+        if neg {
+            av = (0.0 - v)
+        }
+        def scaled:int (to_int ((av * 100.0) + 0.5))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = ("0" + fs)
+        }
+        def out:string ((to_string whole) + "." + fs)
+        if neg {
+            if (scaled > 0) {
+                out = ("-" + out)
+            }
+        }
+        return out
+    }
+
+    ; Flatten to a polyline. `steps` is the subdivision of each curve; the
+    ; renderer picks it from the zoom, so a line drawn at 4x is not a decagon.
+    fn flatten:[double] (steps:int) {
+        clear flat
+        flatSteps = steps
+        def cx:double 0.0
+        def cy:double 0.0
+        def i:int 0
+        while (i < (array_length segs)) {
+            def s:EdgeSeg (itemAt segs i)
+            if (s.kind == 0) {
+                push flat s.x
+                push flat s.y
+                cx = s.x
+                cy = s.y
+            }
+            if (s.kind == 1) {
+                push flat s.x
+                push flat s.y
+                cx = s.x
+                cy = s.y
+            }
+            if (s.kind == 2) {
+                def k:int 1
+                while (k <= steps) {
+                    def t:double ((to_double k) / (to_double steps))
+                    def mt:double (1.0 - t)
+                    def a:double ((mt * mt) * mt)
+                    def b:double (((3.0 * mt) * mt) * t)
+                    def c:double (((3.0 * mt) * t) * t)
+                    def d:double ((t * t) * t)
+                    def px:double ((((a * cx) + (b * s.c1x)) + (c * s.c2x)) + (d * s.x))
+                    def py:double ((((a * cy) + (b * s.c1y)) + (c * s.c2y)) + (d * s.y))
+                    push flat px
+                    push flat py
+                    k = (k + 1)
+                }
+                cx = s.x
+                cy = s.y
+            }
+            if (s.kind == 3) {
+                def k2:int 1
+                while (k2 <= steps) {
+                    def t2:double ((to_double k2) / (to_double steps))
+                    def mt2:double (1.0 - t2)
+                    def a2:double (mt2 * mt2)
+                    def b2:double ((2.0 * mt2) * t2)
+                    def c2:double (t2 * t2)
+                    def px2:double (((a2 * cx) + (b2 * s.c1x)) + (c2 * s.x))
+                    def py2:double (((a2 * cy) + (b2 * s.c1y)) + (c2 * s.y))
+                    push flat px2
+                    push flat py2
+                    k2 = (k2 + 1)
+                }
+                cx = s.x
+                cy = s.y
+            }
+            i = (i + 1)
+        }
+        return flat
+    }
+
+    fn pointCount:int () {
+        return (idiv (array_length flat) 2)
+    }
+
+    fn px:double (i:int) {
+        return (itemAt flat (i * 2))
+    }
+
+    fn py:double (i:int) {
+        def at:int ((i * 2) + 1)
+        return (itemAt flat at)
+    }
+
+    fn totalLength:double () {
+        def total:double 0.0
+        def n:int (this.pointCount())
+        def i:int 1
+        while (i < n) {
+            def dx:double ((this.px(i)) - (this.px((i - 1))))
+            def dy:double ((this.py(i)) - (this.py((i - 1))))
+            total = (total + (sqrt ((dx * dx) + (dy * dy))))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; The point half way along, where an edge label goes.
+    fn midX:double () {
+        def n:int (this.pointCount())
+        if (n == 0) {
+            return 0.0
+        }
+        def half:int (idiv n 2)
+        return (this.px(half))
+    }
+
+    fn midY:double () {
+        def n:int (this.pointCount())
+        if (n == 0) {
+            return 0.0
+        }
+        def half:int (idiv n 2)
+        return (this.py(half))
+    }
+
+    ; Distance from a point to the polyline — edge hit testing, which React
+    ; Flow gets from the browser's `pointer-events` on a fat invisible stroke
+    ; and a renderer without a DOM has to compute.
+    fn distanceTo:double (qx:double qy:double) {
+        def best:double 1000000000.0
+        def n:int (this.pointCount())
+        if (n == 0) {
+            return best
+        }
+        def i:int 1
+        while (i < n) {
+            def x1:double (this.px((i - 1)))
+            def y1:double (this.py((i - 1)))
+            def x2:double (this.px(i))
+            def y2:double (this.py(i))
+            def dx:double (x2 - x1)
+            def dy:double (y2 - y1)
+            def len2:double ((dx * dx) + (dy * dy))
+            def t:double 0.0
+            if (len2 > 0.0) {
+                t = ((((qx - x1) * dx) + ((qy - y1) * dy)) / len2)
+                if (t < 0.0) { t = 0.0 }
+                if (t > 1.0) { t = 1.0 }
+            }
+            def cxp:double (x1 + (dx * t))
+            def cyp:double (y1 + (dy * t))
+            def ex:double (qx - cxp)
+            def ey:double (qy - cyp)
+            def d:double (sqrt ((ex * ex) + (ey * ey)))
+            if (d < best) {
+                best = d
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The direction the path arrives from, in degrees, for orienting a marker.
+    fn endAngle:boolean () {
+        return true
+    }
+
+    fn angleAtEnd:double () {
+        def n:int (this.pointCount())
+        if (n < 2) {
+            return 0.0
+        }
+        def dx:double ((this.px((n - 1))) - (this.px((n - 2))))
+        def dy:double ((this.py((n - 1))) - (this.py((n - 2))))
+        return (atan2 dy dx)
+    }
+
+    fn angleAtStart:double () {
+        def n:int (this.pointCount())
+        if (n < 2) {
+            return 0.0
+        }
+        def dx:double ((this.px(0)) - (this.px(1)))
+        def dy:double ((this.py(0)) - (this.py(1)))
+        return (atan2 dy dx)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Router
+; ---------------------------------------------------------------------------
+class EdgeRouter {
+    ; React Flow's `calculateControlOffset`. The `sqrt` branch is what stops an
+    ; edge that goes backwards from folding into a hairpin: the control point
+    ; grows with the square root of the overlap, not linearly with it.
+    sfn controlOffset:double (distance:double curvature:double) {
+        if (distance >= 0.0) {
+            return (0.5 * distance)
+        }
+        def d:double (0.0 - distance)
+        def r:double (sqrt d)
+        return (((curvature * 25.0) * r))
+    }
+
+    sfn controlX:double (side:int x1:double y1:double x2:double y2:double c:double) {
+        if (side == 3) {
+            def off:double (EdgeRouter.controlOffset((x1 - x2) c))
+            return (x1 - off)
+        }
+        if (side == 1) {
+            def off2:double (EdgeRouter.controlOffset((x2 - x1) c))
+            return (x1 + off2)
+        }
+        return x1
+    }
+
+    sfn controlY:double (side:int x1:double y1:double x2:double y2:double c:double) {
+        if (side == 0) {
+            def off:double (EdgeRouter.controlOffset((y1 - y2) c))
+            return (y1 - off)
+        }
+        if (side == 2) {
+            def off2:double (EdgeRouter.controlOffset((y2 - y1) c))
+            return (y1 + off2)
+        }
+        return y1
+    }
+
+    sfn bezier:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int curvature:double) {
+        def p (new EdgePath)
+        def c1x:double (EdgeRouter.controlX(s1 x1 y1 x2 y2 curvature))
+        def c1y:double (EdgeRouter.controlY(s1 x1 y1 x2 y2 curvature))
+        def c2x:double (EdgeRouter.controlX(s2 x2 y2 x1 y1 curvature))
+        def c2y:double (EdgeRouter.controlY(s2 x2 y2 x1 y1 curvature))
+        p.moveTo(x1 y1)
+        p.curveTo(c1x c1y c2x c2y x2 y2)
+        return p
+    }
+
+    sfn straight:EdgePath (x1:double y1:double x2:double y2:double) {
+        def p (new EdgePath)
+        p.moveTo(x1 y1)
+        p.lineTo(x2 y2)
+        return p
+    }
+
+    ; The orthogonal corner list, in the shape React Flow's `getPoints` builds:
+    ; leave the source along its side's normal, arrive at the target along
+    ; its own, and turn at the midpoint between them.
+    sfn stepPoints:[double] (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
+        def pts:[double]
+        def ax:double (x1 + ((FlowPosition.normalX(s1)) * offset))
+        def ay:double (y1 + ((FlowPosition.normalY(s1)) * offset))
+        def bx:double (x2 + ((FlowPosition.normalX(s2)) * offset))
+        def by:double (y2 + ((FlowPosition.normalY(s2)) * offset))
+        push pts x1
+        push pts y1
+        push pts ax
+        push pts ay
+        def horizontalA:boolean false
+        if (s1 == 1) { horizontalA = true }
+        if (s1 == 3) { horizontalA = true }
+        def horizontalB:boolean false
+        if (s2 == 1) { horizontalB = true }
+        if (s2 == 3) { horizontalB = true }
+        if horizontalA {
+            if horizontalB {
+                ; ─┐  ┌─   both sides horizontal: one vertical run between them
+                def mx:double ((ax + bx) * 0.5)
+                push pts mx
+                push pts ay
+                push pts mx
+                push pts by
+            } {
+                ; horizontal out, vertical in: a single corner
+                push pts bx
+                push pts ay
+            }
+        } {
+            if horizontalB {
+                push pts ax
+                push pts by
+            } {
+                def my:double ((ay + by) * 0.5)
+                push pts ax
+                push pts my
+                push pts bx
+                push pts my
+            }
+        }
+        push pts bx
+        push pts by
+        push pts x2
+        push pts y2
+        return (EdgeRouter.dedupe(pts))
+    }
+
+    ; Consecutive identical corners make a zero-length segment, which turns
+    ; into a NaN normal in the stroke tessellator and a missing edge on the GPU.
+    sfn dedupe:[double] (pts:[double]) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt pts yat)
+            def keep:boolean true
+            if ((array_length out) >= 2) {
+                def lx:double (itemAt out ((array_length out) - 2))
+                def ly:double (itemAt out ((array_length out) - 1))
+                def dx:double (x - lx)
+                def dy:double (y - ly)
+                def adx:double (fabs dx)
+                def ady:double (fabs dy)
+                if (adx < 0.01) {
+                    if (ady < 0.01) {
+                        keep = false
+                    }
+                }
+            }
+            if keep {
+                push out x
+                push out y
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn step:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
+        def pts:[double] (EdgeRouter.stepPoints(x1 y1 s1 x2 y2 s2 offset))
+        def p (new EdgePath)
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt pts yat)
+            if (i == 0) {
+                p.moveTo(x y)
+            } {
+                p.lineTo(x y)
+            }
+            i = (i + 1)
+        }
+        return p
+    }
+
+    ; The same corners, with each turn replaced by a quadratic — React Flow's
+    ; `getBend`, whose radius shrinks when the two legs are too short for it.
+    sfn smoothStep:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double radius:double) {
+        def pts:[double] (EdgeRouter.stepPoints(x1 y1 s1 x2 y2 s2 offset))
+        def p (new EdgePath)
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return p
+        }
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt pts yat)
+            if (i == 0) {
+                p.moveTo(x y)
+                i = (i + 1)
+                continue
+            }
+            if (i == (n - 1)) {
+                p.lineTo(x y)
+                i = (i + 1)
+                continue
+            }
+            def prevX:double (itemAt pts ((i - 1) * 2))
+            def prevYat:int (((i - 1) * 2) + 1)
+            def prevY:double (itemAt pts prevYat)
+            def nextX:double (itemAt pts ((i + 1) * 2))
+            def nextYat:int (((i + 1) * 2) + 1)
+            def nextY:double (itemAt pts nextYat)
+            def r:double radius
+            def d1:double (EdgeRouter.dist(prevX prevY x y))
+            def d2:double (EdgeRouter.dist(x y nextX nextY))
+            ; A corner that does not turn is not a corner: rounding a collinear
+            ; point put a curve in the middle of a straight run and left a
+            ; visible kink where the two halves met.
+            def cross:double (((x - prevX) * (nextY - y)) - ((y - prevY) * (nextX - x)))
+            def acr:double (fabs cross)
+            if (acr < 0.01) {
+                p.lineTo(x y)
+                i = (i + 1)
+                continue
+            }
+            def half1:double (d1 * 0.5)
+            def half2:double (d2 * 0.5)
+            if (half1 < r) { r = half1 }
+            if (half2 < r) { r = half2 }
+            if (r < 0.5) {
+                p.lineTo(x y)
+                i = (i + 1)
+                continue
+            }
+            def inX:double (x + (((prevX - x) / d1) * r))
+            def inY:double (y + (((prevY - y) / d1) * r))
+            def outX:double (x + (((nextX - x) / d2) * r))
+            def outY:double (y + (((nextY - y) / d2) * r))
+            p.lineTo(inX inY)
+            p.quadTo(x y outX outY)
+            i = (i + 1)
+        }
+        return p
+    }
+
+    sfn dist:double (x1:double y1:double x2:double y2:double) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def d:double (sqrt ((dx * dx) + (dy * dy)))
+        if (d < 0.0001) {
+            return 0.0001
+        }
+        return d
+    }
+
+    ; The one entry point the view and the exporters call.
+    sfn route:EdgePath (g:FlowGraph e:FlowEdge) {
+        def x1:double (g.endpointX(e true))
+        def y1:double (g.endpointY(e true))
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def s1:int (g.edgeSide(e true))
+        def s2:int (g.edgeSide(e false))
+        return (EdgeRouter.routeBetween(x1 y1 s1 x2 y2 s2 e.edgeType))
+    }
+
+    sfn routeBetween:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int kind:string) {
+        if (kind == "straight") {
+            return (EdgeRouter.straight(x1 y1 x2 y2))
+        }
+        if (kind == "step") {
+            return (EdgeRouter.step(x1 y1 s1 x2 y2 s2 20.0))
+        }
+        if (kind == "smoothstep") {
+            return (EdgeRouter.smoothStep(x1 y1 s1 x2 y2 s2 20.0 8.0))
+        }
+        if (kind == "orthogonal") {
+            return (EdgeRouter.smoothStep(x1 y1 s1 x2 y2 s2 24.0 6.0))
+        }
+        if (kind == "simplebezier") {
+            return (EdgeRouter.bezier(x1 y1 s1 x2 y2 s2 0.15))
+        }
+        return (EdgeRouter.bezier(x1 y1 s1 x2 y2 s2 0.25))
+    }
+
+    ; Which sides two boxes should face each other with, when nobody said.
+    ; A schema diagram lays tables out left to right and top to bottom, and an
+    ; edge that leaves the wrong side crosses its own node to get anywhere.
+    sfn preferredSides:int (ax:double ay:double aw:double ah:double bx:double by:double bw:double bh:double) {
+        def acx:double (ax + (aw * 0.5))
+        def acy:double (ay + (ah * 0.5))
+        def bcx:double (bx + (bw * 0.5))
+        def bcy:double (by + (bh * 0.5))
+        def dx:double (bcx - acx)
+        def dy:double (bcy - acy)
+        def adx:double (fabs dx)
+        def ady:double (fabs dy)
+        if (adx >= ady) {
+            if (dx >= 0.0) {
+                return 1
+            }
+            return 3
+        }
+        if (dy >= 0.0) {
+            return 2
+        }
+        return 0
+    }
+
+    sfn oppositeSide:int (side:int) {
+        if (side == 0) { return 2 }
+        if (side == 1) { return 3 }
+        if (side == 2) { return 0 }
+        return 1
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Decoration
+; ---------------------------------------------------------------------------
+; What is drawn where an edge meets a node. The model says "one customer has
+; many orders"; this says whether that reads as a crow's foot, as `1` and `*`,
+; or as a plain arrow head. Nothing above this line knows the difference.
+;
+; Everything is built in a local frame: `fwd` runs along the edge toward the
+; endpoint, `side` is perpendicular. `place` maps that to flow space, so one
+; description serves an edge arriving from any direction.
+class DecoShape {
+    def filled:boolean false
+    def closed:boolean false
+    def pts:[double]
+
+    Constructor () {
+    }
+}
+
+class EdgeDecoration {
+    def shapes:[DecoShape]
+
+    Constructor () {
+    }
+
+    fn shapeCount:int () {
+        return (array_length shapes)
+    }
+
+    fn shapeAt:DecoShape (i:int) {
+        return (itemAt shapes i)
+    }
+
+    ; kind: "" | "none" | "arrow" | "arrowclosed" | "circle"
+    ;       | "one" | "many" | "zero-one" | "one-one" | "zero-many" | "one-many"
+    ;       | "diamond" | "diamond-filled" | "triangle"
+    ;
+    ; The crow's-foot family reads outward from the node: the marks nearest the
+    ; node are the minimum (a bar for one, a circle for zero) and the fork
+    ; further out is the "many".
+    sfn build:EdgeDecoration (kind:string x:double y:double angle:double size:double) {
+        def d (new EdgeDecoration)
+        if ((strlen kind) == 0) {
+            return d
+        }
+        if (kind == "none") {
+            return d
+        }
+        def ux:double (cos angle)
+        def uy:double (sin angle)
+        if (kind == "arrow") {
+            def s (new DecoShape)
+            EdgeDecoration.put(s x y ux uy (0.0 - size) size)
+            EdgeDecoration.put(s x y ux uy 0.0 0.0)
+            def back:double (0.0 - size)
+            def negs:double (0.0 - size)
+            EdgeDecoration.put(s x y ux uy back negs)
+            push d.shapes s
+            return d
+        }
+        if (kind == "arrowclosed") {
+            def s2 (new DecoShape)
+            s2.filled = true
+            s2.closed = true
+            def b2:double (0.0 - size)
+            def h2:double (size * 0.6)
+            def nh2:double (0.0 - h2)
+            EdgeDecoration.put(s2 x y ux uy 0.0 0.0)
+            EdgeDecoration.put(s2 x y ux uy b2 h2)
+            EdgeDecoration.put(s2 x y ux uy b2 nh2)
+            push d.shapes s2
+            return d
+        }
+        if (kind == "circle") {
+            def sc (new DecoShape)
+            sc.filled = true
+            sc.closed = true
+            EdgeDecoration.circle(sc x y (size * 0.45) 12)
+            push d.shapes sc
+            return d
+        }
+        if (kind == "triangle") {
+            def st (new DecoShape)
+            st.closed = true
+            def bt:double (0.0 - (size * 1.3))
+            def ht:double (size * 0.8)
+            def nht:double (0.0 - ht)
+            EdgeDecoration.put(st x y ux uy 0.0 0.0)
+            EdgeDecoration.put(st x y ux uy bt ht)
+            EdgeDecoration.put(st x y ux uy bt nht)
+            push d.shapes st
+            return d
+        }
+        if (kind == "diamond") {
+            def sd (new DecoShape)
+            sd.closed = true
+            EdgeDecoration.diamond(sd x y ux uy size false)
+            push d.shapes sd
+            return d
+        }
+        if (kind == "diamond-filled") {
+            def sf (new DecoShape)
+            sf.closed = true
+            sf.filled = true
+            EdgeDecoration.diamond(sf x y ux uy size true)
+            push d.shapes sf
+            return d
+        }
+        ; --- crow's foot ------------------------------------------------------
+        def wantsMany:boolean false
+        def wantsOne:boolean false
+        def wantsZero:boolean false
+        if (kind == "many")      { wantsMany = true }
+        if (kind == "zero-many") { wantsMany = true }
+        if (kind == "one-many")  { wantsMany = true }
+        if (kind == "one")       { wantsOne = true }
+        if (kind == "one-one")   { wantsOne = true }
+        if (kind == "one-many")  { wantsOne = true }
+        if (kind == "zero-one")  { wantsZero = true }
+        if (kind == "zero-many") { wantsZero = true }
+        def span:double (size * 0.75)
+        def nspan:double (0.0 - span)
+        if wantsMany {
+            def fork (new DecoShape)
+            def tip:double 0.0
+            def back:double (0.0 - size)
+            EdgeDecoration.put(fork x y ux uy back span)
+            EdgeDecoration.put(fork x y ux uy tip 0.0)
+            EdgeDecoration.put(fork x y ux uy back nspan)
+            push d.shapes fork
+            def stem (new DecoShape)
+            EdgeDecoration.put(stem x y ux uy back 0.0)
+            EdgeDecoration.put(stem x y ux uy tip 0.0)
+            push d.shapes stem
+        }
+        ; The minimum marker sits behind the fork when there is one.
+        def barAt:double (0.0 - size)
+        if (wantsMany == false) {
+            barAt = (0.0 - (size * 0.4))
+        } {
+            barAt = (0.0 - (size * 1.7))
+        }
+        if wantsOne {
+            def bar (new DecoShape)
+            EdgeDecoration.put(bar x y ux uy barAt span)
+            EdgeDecoration.put(bar x y ux uy barAt nspan)
+            push d.shapes bar
+        }
+        if (kind == "one-one") {
+            def bar2 (new DecoShape)
+            def second:double (barAt - (size * 0.55))
+            EdgeDecoration.put(bar2 x y ux uy second span)
+            EdgeDecoration.put(bar2 x y ux uy second nspan)
+            push d.shapes bar2
+        }
+        if wantsZero {
+            def circ (new DecoShape)
+            circ.closed = true
+            def cAt:double (barAt - (size * 0.6))
+            def cxp:double (x + (ux * cAt))
+            def cyp:double (y + (uy * cAt))
+            EdgeDecoration.circle(circ cxp cyp (size * 0.4) 12)
+            push d.shapes circ
+        }
+        return d
+    }
+
+    ; Local (fwd, side) → flow space. `fwd` is negative going back up the edge.
+    sfn put:void (s:DecoShape x:double y:double ux:double uy:double fwd:double side:double) {
+        def nx:double (0.0 - uy)
+        def ny:double ux
+        push s.pts ((x + (ux * fwd)) + (nx * side))
+        push s.pts ((y + (uy * fwd)) + (ny * side))
+    }
+
+    sfn circle:void (s:DecoShape cx:double cy:double r:double steps:int) {
+        def pi:double (M_PI)
+        def i:int 0
+        while (i < steps) {
+            def t:double (((2.0 * pi) * (to_double i)) / (to_double steps))
+            push s.pts (cx + (r * (cos t)))
+            push s.pts (cy + (r * (sin t)))
+            i = (i + 1)
+        }
+    }
+
+    sfn diamond:void (s:DecoShape x:double y:double ux:double uy:double size:double filled:boolean) {
+        def len:double (size * 1.6)
+        def halfW:double (size * 0.55)
+        def nhalf:double (0.0 - halfW)
+        def mid:double (0.0 - (len * 0.5))
+        EdgeDecoration.put(s x y ux uy 0.0 0.0)
+        EdgeDecoration.put(s x y ux uy mid halfW)
+        def back:double (0.0 - len)
+        EdgeDecoration.put(s x y ux uy back 0.0)
+        EdgeDecoration.put(s x y ux uy mid nhalf)
+    }
+
+    ; The notation layer: a relationship's cardinality, as the marker name the
+    ; chosen notation would draw for it. "crowfoot" | "uml" | "plain".
+    ;   cardinality: "1" | "0..1" | "*" | "1..*" | "0..*" | ""
+    sfn markerFor:string (notation:string cardinality:string optional:boolean) {
+        if (notation == "plain") {
+            return "arrowclosed"
+        }
+        if (notation == "uml") {
+            return "arrow"
+        }
+        ; crow's foot
+        if (cardinality == "1") {
+            if optional {
+                return "zero-one"
+            }
+            return "one-one"
+        }
+        if (cardinality == "0..1") {
+            return "zero-one"
+        }
+        if (cardinality == "*") {
+            return "many"
+        }
+        if (cardinality == "0..*") {
+            return "zero-many"
+        }
+        if (cardinality == "1..*") {
+            return "one-many"
+        }
+        if ((strlen cardinality) == 0) {
+            return ""
+        }
+        return "many"
+    }
+}

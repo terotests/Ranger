@@ -1,0 +1,127 @@
+# RangerFlow feature parity
+
+Two references, both MIT, both benchmarked on **behaviour** rather than markup:
+
+- **[React Flow](https://reactflow.dev)** (`@xyflow/react`) for the interaction
+  core — custom nodes, multiple handles, pan/zoom, selection, node resizing and
+  viewport-limited rendering are its core use cases.
+- **[`db-schema-viewer`](https://github.com/maxgfr/db-schema-viewer)** for the
+  ER-diagram domain — tables as nodes, relations as edges, crow's-foot / UML /
+  Chen notation switching, PK/FK fields, schema grouping, minimap, zoom, and a
+  wide set of importers.
+
+`drawdb` is a useful *product* reference for what an ERD editor should feel
+like, but it is AGPL-3.0 — used here only as a source of UI ideas, never of
+code.
+
+Status keys: **✓** done · **~** partial · **·** not yet.
+
+## React Flow — interaction core
+
+| Behaviour | RangerFlow | Notes |
+| --- | :---: | --- |
+| Pan the canvas | ✓ | `panOnDrag`, drag on empty pane |
+| Zoom at the cursor | ✓ | the flow point under the pointer is invariant — asserted |
+| Zoom limits | ✓ | `minZoom` / `maxZoom` |
+| Fit to screen | ✓ | `fitView(padding)`, `f` or `Ctrl+0` |
+| Zoom in / out controls | ✓ | the four-button control panel, hit-tested in the core |
+| Drag a node | ✓ | |
+| Drag several selected nodes | ✓ | one undo entry for the whole group |
+| Click to select | ✓ | |
+| Shift-click to add / remove | ✓ | |
+| Rectangle (box) selection | ✓ | shift-drag on the pane |
+| Select all | ✓ | `Ctrl+A` |
+| Delete selection | ✓ | `Delete` / `Backspace`, takes attached edges with it |
+| Escape cancels | ✓ | clears selection and any drag in progress |
+| Undo / redo | ✓ | `Ctrl+Z` / `Ctrl+Shift+Z`; moves, connects and deletes |
+| Snap to grid | ✓ | position and size |
+| Connect by dragging from a handle | ✓ | port-level, with a live preview curve |
+| Connection validation | ✓ | `canConnect`: roles, duplicates, self-loops |
+| Connection limits per handle | ✓ | `FlowPort.connectionLimit` |
+| Multiple handles per node | ✓ | any number, any side, at any offset |
+| Node resizing | ✓ | bottom-right grip on a selected resizable node |
+| Custom node types | ✓ | compartment nodes; a domain supplies the rows |
+| Edge selection | ✓ | distance to the flattened path, not a fat invisible stroke |
+| Edge types: bezier, straight, step, smoothstep | ✓ | bezier matches `getBezierPath` exactly |
+| Edge labels | ✓ | boxed, at the path mid-point |
+| Markers (arrow, closed arrow) | ✓ | plus crow's foot and UML ornaments |
+| Background: dots, lines, cross, none | ✓ | anchored to flow space, so it slides under a pan |
+| MiniMap | ✓ | union of graph and viewport, so it works when you pan away |
+| Controls panel | ✓ | zoom in / out / fit / toggle minimap |
+| Viewport-limited rendering | ✓ | off-screen nodes dropped while building; counted |
+| Dark mode | ✓ | one theme object, read by the renderer *and* the exporters |
+| Hidden nodes / edges | ✓ | `hidden` respected by draw, hit test and bounds |
+| Per-node draggable/selectable/connectable | ✓ | |
+| Reconnect an edge by dragging its end | · | |
+| Sub-flows / node parenting | ~ | `parentId` is carried; containment is not enforced |
+| Node toolbar / floating UI | · | |
+| Touch: pinch to zoom | · | pointer events are handled; gesture recognition is not |
+| Helper lines / alignment guides | · | |
+
+## `db-schema-viewer` — ER diagram
+
+| Behaviour | RangerFlow | Notes |
+| --- | :---: | --- |
+| Tables as nodes | ✓ | compartment node: header + column rows + indexes + constraints |
+| Relations as edges | ✓ | one edge per foreign key |
+| Column-level connection points | ✓ | a port each side of every column row |
+| Primary key marking | ✓ | `PK` badge, emphasised row |
+| Foreign key marking | ✓ | `FK` badge and trailing tag |
+| Nullability | ✓ | `*` suffix on `NOT NULL` |
+| Data types | ✓ | right-aligned, `showTypes` toggles |
+| Indexes | ✓ | own compartment |
+| Check constraints | ✓ | own compartment |
+| Composite primary keys | ✓ | every member badged |
+| Self-referencing tables | ✓ | in the fixture and the tests |
+| Many-to-many join tables | ✓ | `product_categories` |
+| Crow's-foot notation | ✓ | one / zero-one / many / one-many / zero-many |
+| UML notation | ✓ | same model, different ornament |
+| Plain-arrow notation | ✓ | |
+| Chen notation | · | |
+| Cardinality inference | ✓ | many-to-one unless the FK columns are unique; optional when nullable |
+| Auto layout | ✓ | layered (Sugiyama) and force (d3) |
+| MiniMap / zoom / pan | ✓ | from the core |
+| Keys-only view for big schemas | ✓ | `SchemaToGraph.keysOnly` |
+| Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
+| SQL DDL import | ✓ | `SqlSchemaReader` |
+| JSON import / export | ✓ | `FlowGraphJson` |
+| Prisma / DBML / ORM importers | · | on the list |
+| Live database introspection | · | the interface is designed, not written |
+| ERD → `CREATE TABLE` generation | · | the model is already the right shape |
+
+## Export
+
+| Output | RangerFlow | How |
+| --- | :---: | --- |
+| PDF | ✓ | EVG element tree → `EVGPDFRenderer`, TrueType embedded, real text |
+| SVG | ✓ | from the same scene |
+| HTML | ✓ | EVG tree → `EVGHTMLRenderer` |
+| Scene JSON (display list) | ✓ | what the WebGL page consumes |
+| Graph JSON | ✓ | the model, for round-tripping and diffing |
+| PNG | ~ | `EVGRasterRenderer` takes the same tree; not wired up here yet |
+
+## Rendering backends
+
+| Backend | Status |
+| --- | --- |
+| WebGL 2 (`evg-webgl.js`) | ✓ — checked in headless Chrome, stencil-backed path fills |
+| PDF / HTML | ✓ |
+| SoftCanvas / framebuffer | ✓ by construction — same `EVGDisplayList` |
+| SDL2 + OpenGL (C++ target) | · — the portable half exists; the platform shim does not |
+
+## Performance
+
+`npm run rangerflow:bench -- N`. Node 22, this container, single core.
+
+| | 100 nodes | 500 nodes | 1000 nodes |
+| --- | --- | --- | --- |
+| force layout, 300 ticks | 57 ms | 265 ms | 570 ms |
+| layered layout | 2 ms | 7 ms | 14 ms |
+| scene build (fit) | 4 ms | 13 ms | 18 ms |
+| node drag, per frame | 1.8 ms | 3.1 ms | 8.1 ms |
+
+Numbers are from this machine and are meant for tracking regressions, not for
+comparing against a browser on someone else's laptop. What they are here to
+show is the shape: layered layout and scene building are linear, the force
+layout is `n log n` per tick, and a drag stays inside a frame budget well past
+the size where a DOM-based editor stops being comfortable.

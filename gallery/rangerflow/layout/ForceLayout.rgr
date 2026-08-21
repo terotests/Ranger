@@ -1,0 +1,892 @@
+; ============================================================================
+; ForceLayout.rgr — d3-force, in Ranger, on a Barnes-Hut quadtree.
+; ============================================================================
+;
+; The benchmark for this file is React Flow's force-layout example, which is
+; `@xyflow/react` wired to `d3-force`: a many-body charge, a link spring, and a
+; weak pull toward the origin on each axis, with the node you are dragging
+; pinned through `fx`/`fy`. Matching it means matching d3's *model*, not just
+; producing something that spreads out — so the parameter names, the defaults,
+; the alpha schedule and the velocity integration below are d3's.
+;
+;   alpha  += (alphaTarget - alpha) * alphaDecay
+;   forces each apply, writing into node.vx / node.vy
+;   x += (vx *= velocityDecay)          — unless the node is pinned
+;
+; What is not d3 is the tree's extent: d3's quadtree grows by doubling from the
+; first point inserted, this one squares the bounding box of all of them. The
+; Barnes-Hut criterion (`w²/θ² < l²`) is the same, so approximations are drawn
+; at very nearly the same places, but this is not bit-for-bit d3 and does not
+; claim to be. What IS reproduced exactly is the coincident-point handling —
+; two nodes at the same coordinates get d3's `jiggle`, from d3's own LCG, or
+; they would repel each other along a zero-length vector forever.
+;
+; It is pure Ranger: no browser, no timers. `tick()` advances one step, which
+; is what makes a layout testable — `ForceTest` asserts on positions after a
+; fixed number of ticks, and gets the same numbers on every target.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+
+; d3's `lcg.js`, value for value: the same generator, so "random" jitter is
+; reproducible across runs, machines and target languages. A layout that moves
+; when nothing changed cannot be regression-tested.
+class FlowRandom {
+    def state:int 1
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        state = 1
+    }
+
+    fn next:double () {
+        def a:int 1664525
+        def c:int 1013904223
+        def m:int 4294967296
+        def v:int ((a * state) + c)
+        state = (v % m)
+        def sd:double (to_double state)
+        def md:double (to_double m)
+        return (sd / md)
+    }
+
+    ; d3-force's `jiggle`: a nudge small enough not to disturb the layout, big
+    ; enough that two coincident points stop dividing by zero.
+    fn jiggle:double () {
+        def r:double (this.next())
+        return ((r - 0.5) * 0.000001)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Barnes-Hut quadtree
+; ---------------------------------------------------------------------------
+; Parallel arrays rather than a node class with four child pointers: the tree
+; is rebuilt every tick, and every target Ranger compiles to would rather grow
+; six flat arrays than allocate n objects sixty times a second.
+class FlowQuadtree {
+    ; cell bounds
+    def x0:[double]
+    def y0:[double]
+    def x1:[double]
+    def y1:[double]
+    ; 4 entries per cell, -1 for an empty quadrant
+    def kids:[int]
+    def leafFlag:[boolean]
+    ; leaf payload: a slice of `leafPts`
+    def leafStart:[int]
+    def leafLen:[int]
+    def leafPts:[int]
+    ; accumulated: total strength and its |strength|-weighted centre
+    def value:[double]
+    def wx:[double]
+    def wy:[double]
+    ; largest collision radius anywhere in the subtree, for forceCollide
+    def maxR:[double]
+
+    def maxDepth:int 26
+    def cellCount:int 0
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        clear x0
+        clear y0
+        clear x1
+        clear y1
+        clear kids
+        clear leafFlag
+        clear leafStart
+        clear leafLen
+        clear leafPts
+        clear value
+        clear wx
+        clear wy
+        clear maxR
+        cellCount = 0
+    }
+
+    fn newCell:int (ax:double ay:double bx:double by:double) {
+        push x0 ax
+        push y0 ay
+        push x1 bx
+        push y1 by
+        push kids -1
+        push kids -1
+        push kids -1
+        push kids -1
+        push leafFlag true
+        push leafStart 0
+        push leafLen 0
+        push value 0.0
+        push wx 0.0
+        push wy 0.0
+        push maxR 0.0
+        def idx:int cellCount
+        cellCount = (cellCount + 1)
+        return idx
+    }
+
+    ; Accessors rather than reaching into the arrays from outside. Beyond
+    ; taste: `itemAt tree.value i` read through a field of another class
+    ; resolved to nothing and every charge came out zero, which is the kind of
+    ; silence a physics bug gets to keep for a long time.
+    fn valueAt:double (i:int)   { return (itemAt value i) }
+    fn wxAt:double (i:int)      { return (itemAt wx i) }
+    fn wyAt:double (i:int)      { return (itemAt wy i) }
+    fn x0At:double (i:int)      { return (itemAt x0 i) }
+    fn y0At:double (i:int)      { return (itemAt y0 i) }
+    fn x1At:double (i:int)      { return (itemAt x1 i) }
+    fn y1At:double (i:int)      { return (itemAt y1 i) }
+    fn maxRAt:double (i:int)    { return (itemAt maxR i) }
+    fn isLeafAt:boolean (i:int) { return (itemAt leafFlag i) }
+    fn leafStartAt:int (i:int)  { return (itemAt leafStart i) }
+    fn leafLenAt:int (i:int)    { return (itemAt leafLen i) }
+    fn leafPtAt:int (i:int)     { return (itemAt leafPts i) }
+
+    fn childOf:int (cell:int q:int) {
+        def at:int ((cell * 4) + q)
+        return (itemAt kids at)
+    }
+
+    fn setChild:void (cell:int q:int v:int) {
+        def at:int ((cell * 4) + q)
+        set_at kids at v
+    }
+
+    ; Build over the node centres. `strengths` is per node (charge), `radii` is
+    ; per node (collision); either may be empty when that force is off.
+    fn build:int (g:FlowGraph strengths:[double] radii:[double]) {
+        this.reset()
+        def n:int (g.nodeCount())
+        if (n == 0) {
+            return -1
+        }
+        def minX:double 0.0
+        def minY:double 0.0
+        def maxX:double 0.0
+        def maxY:double 0.0
+        def all:[int]
+        def i:int 0
+        while (i < n) {
+            def nd:FlowNode (g.nodeAt(i))
+            if (i == 0) {
+                minX = nd.simX
+                maxX = nd.simX
+                minY = nd.simY
+                maxY = nd.simY
+            } {
+                if (nd.simX < minX) { minX = nd.simX }
+                if (nd.simX > maxX) { maxX = nd.simX }
+                if (nd.simY < minY) { minY = nd.simY }
+                if (nd.simY > maxY) { maxY = nd.simY }
+            }
+            push all i
+            i = (i + 1)
+        }
+        ; A square root cell, because the Barnes-Hut test compares one cell
+        ; width against the distance and a rectangle would make that test mean
+        ; different things on the two axes.
+        def spanX:double (maxX - minX)
+        def spanY:double (maxY - minY)
+        def span:double spanX
+        if (spanY > span) {
+            span = spanY
+        }
+        if (span < 1.0) {
+            span = 1.0
+        }
+        span = (span * 1.0000001)
+        def root:int (this.buildCell(g all strengths radii minX minY (minX + span) (minY + span) 0))
+        return root
+    }
+
+    fn buildCell:int (g:FlowGraph pts:[int] strengths:[double] radii:[double] ax:double ay:double bx:double by:double depth:int) {
+        def cell:int (this.newCell(ax ay bx by))
+        def n:int (array_length pts)
+        def leaf:boolean false
+        if (n <= 1) { leaf = true }
+        if (depth >= maxDepth) { leaf = true }
+        if leaf {
+            set_at leafFlag cell true
+            set_at leafStart cell (array_length leafPts)
+            set_at leafLen cell n
+            def k:int 0
+            while (k < n) {
+                push leafPts (itemAt pts k)
+                k = (k + 1)
+            }
+            this.accumulateLeaf(g cell strengths radii)
+            return cell
+        }
+        set_at leafFlag cell false
+        def midX:double ((ax + bx) * 0.5)
+        def midY:double ((ay + by) * 0.5)
+        def q0:[int]
+        def q1:[int]
+        def q2:[int]
+        def q3:[int]
+        def i:int 0
+        while (i < n) {
+            def pi:int (itemAt pts i)
+            def nd:FlowNode (g.nodeAt(pi))
+            def right:boolean (nd.simX >= midX)
+            def below:boolean (nd.simY >= midY)
+            if below {
+                if right { push q3 pi } { push q2 pi }
+            } {
+                if right { push q1 pi } { push q0 pi }
+            }
+            i = (i + 1)
+        }
+        if ((array_length q0) > 0) {
+            def c0:int (this.buildCell(g q0 strengths radii ax ay midX midY (depth + 1)))
+            this.setChild(cell 0 c0)
+        }
+        if ((array_length q1) > 0) {
+            def c1:int (this.buildCell(g q1 strengths radii midX ay bx midY (depth + 1)))
+            this.setChild(cell 1 c1)
+        }
+        if ((array_length q2) > 0) {
+            def c2:int (this.buildCell(g q2 strengths radii ax midY midX by (depth + 1)))
+            this.setChild(cell 2 c2)
+        }
+        if ((array_length q3) > 0) {
+            def c3:int (this.buildCell(g q3 strengths radii midX midY bx by (depth + 1)))
+            this.setChild(cell 3 c3)
+        }
+        this.accumulateInternal(cell)
+        return cell
+    }
+
+    fn accumulateLeaf:void (g:FlowGraph cell:int strengths:[double] radii:[double]) {
+        def start:int (itemAt leafStart cell)
+        def len:int (itemAt leafLen cell)
+        def total:double 0.0
+        def weight:double 0.0
+        def sx:double 0.0
+        def sy:double 0.0
+        def rmax:double 0.0
+        def k:int 0
+        while (k < len) {
+            def pi:int (itemAt leafPts (start + k))
+            def nd:FlowNode (g.nodeAt(pi))
+            def s:double 0.0
+            if (pi < (array_length strengths)) {
+                s = (itemAt strengths pi)
+            }
+            def c:double (fabs s)
+            total = (total + s)
+            weight = (weight + c)
+            sx = (sx + (c * nd.simX))
+            sy = (sy + (c * nd.simY))
+            if (pi < (array_length radii)) {
+                def r:double (itemAt radii pi)
+                if (r > rmax) { rmax = r }
+            }
+            k = (k + 1)
+        }
+        set_at value cell total
+        set_at maxR cell rmax
+        if (weight > 0.0) {
+            set_at wx cell (sx / weight)
+            set_at wy cell (sy / weight)
+        } {
+            ; Zero total charge still needs a position, or the collide pass
+            ; would prune against the origin.
+            if (len > 0) {
+                def first:int (itemAt leafPts start)
+                def fn0:FlowNode (g.nodeAt(first))
+                set_at wx cell fn0.simX
+                set_at wy cell fn0.simY
+            }
+        }
+    }
+
+    fn accumulateInternal:void (cell:int) {
+        def total:double 0.0
+        def weight:double 0.0
+        def sx:double 0.0
+        def sy:double 0.0
+        def rmax:double 0.0
+        def q:int 0
+        while (q < 4) {
+            def c:int (this.childOf(cell q))
+            if (c >= 0) {
+                def v:double (itemAt value c)
+                def av:double (fabs v)
+                total = (total + v)
+                weight = (weight + av)
+                sx = (sx + (av * (itemAt wx c)))
+                sy = (sy + (av * (itemAt wy c)))
+                def r:double (itemAt maxR c)
+                if (r > rmax) { rmax = r }
+            }
+            q = (q + 1)
+        }
+        set_at value cell total
+        set_at maxR cell rmax
+        if (weight > 0.0) {
+            set_at wx cell (sx / weight)
+            set_at wy cell (sy / weight)
+        } {
+            def mx:double (((itemAt x0 cell) + (itemAt x1 cell)) * 0.5)
+            def my:double (((itemAt y0 cell) + (itemAt y1 cell)) * 0.5)
+            set_at wx cell mx
+            set_at wy cell my
+        }
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The simulation
+; ---------------------------------------------------------------------------
+; One class rather than d3's registry of pluggable force objects: the five
+; forces a graph editor actually uses are all here, each behind a flag, and a
+; Ranger class field is cheaper to compile to nine target languages than an
+; interface with closures. The parameters are d3's, name for name.
+class FlowSimulation {
+    def graph:FlowGraph (new FlowGraph)
+    def rnd:FlowRandom (new FlowRandom)
+    def tree:FlowQuadtree (new FlowQuadtree)
+
+    ; --- alpha schedule (d3.forceSimulation defaults) -----------------------
+    def alpha:double 1.0
+    def alphaMin:double 0.001
+    def alphaDecay:double 0.0228
+    def alphaTarget:double 0.0
+    ; d3 stores 1 - the public `velocityDecay`; the public default is 0.4.
+    def velocityDecay:double 0.6
+    def ticks:int 0
+
+    ; --- forceManyBody ------------------------------------------------------
+    def chargeEnabled:boolean true
+    def chargeStrength:double -30.0
+    def theta:double 0.9
+    def distanceMin:double 1.0
+    ; No exponent notation: `1.0e15` parses as 1.0, which quietly made every
+    ; charge fall outside the maximum distance and the whole many-body force a
+    ; no-op. Written out, and squared at use, it is a billion units.
+    def distanceMax:double 1000000000.0
+
+    ; --- forceLink ----------------------------------------------------------
+    def linkEnabled:boolean true
+    def linkDistance:double 30.0
+    def linkIterations:int 1
+    ; d3 derives strength from the endpoint degrees; a fixed value overrides it
+    ; (which is what the React Flow example does, with 0.05).
+    def linkStrengthFixed:double -1.0
+
+    ; --- forceX / forceY ----------------------------------------------------
+    def xEnabled:boolean false
+    def xStrength:double 0.1
+    def xTarget:double 0.0
+    def yEnabled:boolean false
+    def yStrength:double 0.1
+    def yTarget:double 0.0
+
+    ; --- forceCollide -------------------------------------------------------
+    ; Off by default, like d3. A graph editor usually wants it on, because a
+    ; node is a box and boxes that overlap are unreadable — `useNodeRadius`
+    ; takes the radius from the drawn size instead of a constant.
+    def collideEnabled:boolean false
+    def collideRadius:double 1.0
+    def collideStrength:double 1.0
+    def collideIterations:int 1
+    def useNodeRadius:boolean true
+    def collidePadding:double 8.0
+
+    ; --- forceCenter --------------------------------------------------------
+    def centerEnabled:boolean false
+    def centerX:double 0.0
+    def centerY:double 0.0
+    def centerStrength:double 1.0
+
+    ; per-node / per-link caches, rebuilt by `initialize`
+    def chargeStrengths:[double]
+    def collideRadii:[double]
+    def linkStrengths:[double]
+    def linkDistances:[double]
+    def linkBias:[double]
+
+    Constructor () {
+    }
+
+    sfn of:FlowSimulation (g:FlowGraph) {
+        def s (new FlowSimulation)
+        s.graph = g
+        s.initialize()
+        return s
+    }
+
+    ; The React Flow force-layout example's numbers: a strong charge, a long
+    ; and weak link, and a gentle pull to the origin on both axes. This is the
+    ; configuration the parity tests compare against.
+    sfn reactFlowExample:FlowSimulation (g:FlowGraph strength:double distance:double) {
+        def s (new FlowSimulation)
+        s.graph = g
+        s.chargeStrength = strength
+        s.linkDistance = distance
+        s.linkStrengthFixed = 0.05
+        s.xEnabled = true
+        s.xStrength = 0.08
+        s.yEnabled = true
+        s.yStrength = 0.08
+        s.initialize()
+        return s
+    }
+
+    ; ---------------------------------------------------------------- setup --
+    fn initialize:void () {
+        graph.reindex()
+        this.placeNodes()
+        this.initializeStrengths()
+        this.initializeLinks()
+    }
+
+    ; d3's `initializeNodes`: a phyllotaxis spiral, so a graph with no starting
+    ; positions does not begin with every node on top of every other one.
+    fn placeNodes:void () {
+        def initialRadius:double 10.0
+        def root5:double (sqrt 5.0)
+        def pi:double (M_PI)
+        def initialAngle:double (pi * (3.0 - root5))
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            n.index = i
+            if (n.placed == false) {
+                def fi:double (to_double i)
+                def radius:double (initialRadius * (sqrt (0.5 + fi)))
+                def angle:double (fi * initialAngle)
+                n.simX = (radius * (cos angle))
+                n.simY = (radius * (sin angle))
+                n.vx = 0.0
+                n.vy = 0.0
+                n.placed = true
+                n.syncToModel()
+            } {
+                n.syncFromModel()
+            }
+            if n.hasFx { n.simX = n.fx }
+            if n.hasFy { n.simY = n.fy }
+            i = (i + 1)
+        }
+    }
+
+    ; Take the current model positions as the simulation's state. Called after
+    ; anything outside the simulation moved a node — a drag, an import, a
+    ; different layout algorithm running first.
+    fn pullPositions:void () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            n.syncFromModel()
+            n.placed = true
+            i = (i + 1)
+        }
+    }
+
+    fn initializeStrengths:void () {
+        clear chargeStrengths
+        clear collideRadii
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            push chargeStrengths chargeStrength
+            def r:double collideRadius
+            if useNodeRadius {
+                def hw:double (n.width * 0.5)
+                def hh:double (n.height * 0.5)
+                def rr:double hw
+                if (hh > rr) { rr = hh }
+                r = (rr + collidePadding)
+            }
+            push collideRadii r
+            i = (i + 1)
+        }
+    }
+
+    ; d3's `forceLink.initialize`: strength defaults to 1 / min(deg(s), deg(t))
+    ; and the bias splits the correction between the two ends by their degrees,
+    ; so a hub is moved less than the leaf hanging off it.
+    fn initializeLinks:void () {
+        clear linkStrengths
+        clear linkDistances
+        clear linkBias
+        def deg:[int] (graph.degrees())
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            def ds:int 1
+            def dt:int 1
+            if (e.sourceIndex >= 0) { ds = (itemAt deg e.sourceIndex) }
+            if (e.targetIndex >= 0) { dt = (itemAt deg e.targetIndex) }
+            if (ds < 1) { ds = 1 }
+            if (dt < 1) { dt = 1 }
+            def dsd:double (to_double ds)
+            def dtd:double (to_double dt)
+            def lower:double dsd
+            if (dtd < lower) { lower = dtd }
+            def st:double (1.0 / lower)
+            if (linkStrengthFixed >= 0.0) {
+                st = linkStrengthFixed
+            }
+            push linkStrengths st
+            push linkDistances linkDistance
+            push linkBias (dsd / (dsd + dtd))
+            k = (k + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------- the ticker --
+    fn isSettled:boolean () {
+        return (alpha < alphaMin)
+    }
+
+    fn restart:void () {
+        alpha = 1.0
+    }
+
+    fn stop:void () {
+        alpha = 0.0
+    }
+
+    fn reheat:double (a:double) {
+        alpha = a
+        return alpha
+    }
+
+    fn tick:void () {
+        alpha = (alpha + ((alphaTarget - alpha) * alphaDecay))
+        if chargeEnabled  { this.applyManyBody() }
+        if linkEnabled    { this.applyLinks() }
+        if xEnabled       { this.applyAxisX() }
+        if yEnabled       { this.applyAxisY() }
+        if collideEnabled { this.applyCollide() }
+        if centerEnabled  { this.applyCenter() }
+        this.integrate()
+        ticks = (ticks + 1)
+    }
+
+    fn tickTimes:void (n:int) {
+        def i:int 0
+        while (i < n) {
+            this.tick()
+            i = (i + 1)
+        }
+    }
+
+    ; Run until settled, with a hard cap so a pathological graph cannot hang a
+    ; headless export. d3 does 300 ticks to reach alphaMin with the defaults.
+    fn run:int (maxTicks:int) {
+        def i:int 0
+        while (i < maxTicks) {
+            if (this.isSettled()) {
+                return i
+            }
+            this.tick()
+            i = (i + 1)
+        }
+        return i
+    }
+
+    ; d3's integration step, including the rule that a pinned node keeps its
+    ; place and loses its velocity rather than drifting back next tick.
+    fn integrate:void () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.hasFx {
+                n.simX = n.fx
+                n.vx = 0.0
+            } {
+                n.vx = (n.vx * velocityDecay)
+                n.simX = (n.simX + n.vx)
+            }
+            if n.hasFy {
+                n.simY = n.fy
+                n.vy = 0.0
+            } {
+                n.vy = (n.vy * velocityDecay)
+                n.simY = (n.simY + n.vy)
+            }
+            n.syncToModel()
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------- forces ----
+    fn applyManyBody:void () {
+        def empty:[double]
+        def root:int (tree.build(graph chargeStrengths empty))
+        if (root < 0) {
+            return
+        }
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            this.chargeVisit(root n)
+            i = (i + 1)
+        }
+    }
+
+    fn chargeVisit:void (cell:int n:FlowNode) {
+        def v:double (tree.valueAt(cell))
+        if (v == 0.0) {
+            return
+        }
+        def dx:double ((tree.wxAt(cell)) - n.simX)
+        def dy:double ((tree.wyAt(cell)) - n.simY)
+        def w:double ((tree.x1At(cell)) - (tree.x0At(cell)))
+        def l:double ((dx * dx) + (dy * dy))
+        def theta2:double (theta * theta)
+        def dmax2:double (distanceMax * distanceMax)
+        def dmin2:double (distanceMin * distanceMin)
+        ; Barnes-Hut: far enough away that the whole cell can act as one point.
+        def crit:double ((w * w) / theta2)
+        if (crit < l) {
+            if (l < dmax2) {
+                if (dx == 0.0) {
+                    dx = (rnd.jiggle())
+                    l = (l + (dx * dx))
+                }
+                if (dy == 0.0) {
+                    dy = (rnd.jiggle())
+                    l = (l + (dy * dy))
+                }
+                if (l < dmin2) {
+                    l = (sqrt (dmin2 * l))
+                }
+                def f:double ((v * alpha) / l)
+                n.vx = (n.vx + (dx * f))
+                n.vy = (n.vy + (dy * f))
+            }
+            return
+        }
+        def isLeaf:boolean (tree.isLeafAt(cell))
+        if (isLeaf == false) {
+            def q:int 0
+            while (q < 4) {
+                def c:int (tree.childOf(cell q))
+                if (c >= 0) {
+                    this.chargeVisit(c n)
+                }
+                q = (q + 1)
+            }
+            return
+        }
+        if (l >= dmax2) {
+            return
+        }
+        ; A leaf near enough to matter: every point in it acts on `n` directly.
+        def start:int (tree.leafStartAt(cell))
+        def len:int (tree.leafLenAt(cell))
+        def sameOnly:boolean true
+        def k:int 0
+        while (k < len) {
+            def pi:int (tree.leafPtAt((start + k)))
+            if (pi != n.index) {
+                sameOnly = false
+            }
+            k = (k + 1)
+        }
+        if sameOnly {
+            return
+        }
+        if (dx == 0.0) {
+            dx = (rnd.jiggle())
+            l = (l + (dx * dx))
+        }
+        if (dy == 0.0) {
+            dy = (rnd.jiggle())
+            l = (l + (dy * dy))
+        }
+        if (l < dmin2) {
+            l = (sqrt (dmin2 * l))
+        }
+        def j:int 0
+        while (j < len) {
+            def pj:int (tree.leafPtAt((start + j)))
+            if (pj != n.index) {
+                def s:double (itemAt chargeStrengths pj)
+                def f2:double ((s * alpha) / l)
+                n.vx = (n.vx + (dx * f2))
+                n.vy = (n.vy + (dy * f2))
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; d3's forceLink, including the "measure from where the node is *going* to
+    ; be" detail: the spring reads `x + vx`, not `x`, which is what keeps a
+    ; chain of links from oscillating.
+    fn applyLinks:void () {
+        def it:int 0
+        while (it < linkIterations) {
+            def k:int 0
+            while (k < (graph.edgeCount())) {
+                def e:FlowEdge (graph.edgeAt(k))
+                if (e.sourceIndex >= 0) {
+                    if (e.targetIndex >= 0) {
+                        def s:FlowNode (graph.nodeAt(e.sourceIndex))
+                        def t:FlowNode (graph.nodeAt(e.targetIndex))
+                        def dx:double (((t.simX + t.vx) - s.simX) - s.vx)
+                        def dy:double (((t.simY + t.vy) - s.simY) - s.vy)
+                        if (dx == 0.0) { dx = (rnd.jiggle()) }
+                        if (dy == 0.0) { dy = (rnd.jiggle()) }
+                        def l:double (sqrt ((dx * dx) + (dy * dy)))
+                        def dist:double (itemAt linkDistances k)
+                        def st:double (itemAt linkStrengths k)
+                        def f:double ((((l - dist) / l) * alpha) * st)
+                        def fx:double (dx * f)
+                        def fy:double (dy * f)
+                        def b:double (itemAt linkBias k)
+                        t.vx = (t.vx - (fx * b))
+                        t.vy = (t.vy - (fy * b))
+                        def ib:double (1.0 - b)
+                        s.vx = (s.vx + (fx * ib))
+                        s.vy = (s.vy + (fy * ib))
+                    }
+                }
+                k = (k + 1)
+            }
+            it = (it + 1)
+        }
+    }
+
+    fn applyAxisX:void () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            n.vx = (n.vx + (((xTarget - n.simX) * xStrength) * alpha))
+            i = (i + 1)
+        }
+    }
+
+    fn applyAxisY:void () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            n.vy = (n.vy + (((yTarget - n.simY) * yStrength) * alpha))
+            i = (i + 1)
+        }
+    }
+
+    ; d3's forceCenter: a rigid translation of the whole layout, applied to
+    ; positions rather than velocities, so it recentres without adding energy.
+    fn applyCenter:void () {
+        def n:int (graph.nodeCount())
+        if (n == 0) {
+            return
+        }
+        def sx:double 0.0
+        def sy:double 0.0
+        def i:int 0
+        while (i < n) {
+            def nd:FlowNode (graph.nodeAt(i))
+            sx = (sx + nd.simX)
+            sy = (sy + nd.simY)
+            i = (i + 1)
+        }
+        def cnt:double (to_double n)
+        def dx:double (((sx / cnt) - centerX) * centerStrength)
+        def dy:double (((sy / cnt) - centerY) * centerStrength)
+        def k:int 0
+        while (k < n) {
+            def nd2:FlowNode (graph.nodeAt(k))
+            nd2.simX = (nd2.simX - dx)
+            nd2.simY = (nd2.simY - dy)
+            k = (k + 1)
+        }
+    }
+
+    fn applyCollide:void () {
+        def empty:[double]
+        def it:int 0
+        while (it < collideIterations) {
+            def root:int (tree.build(graph empty collideRadii))
+            if (root < 0) {
+                return
+            }
+            def i:int 0
+            while (i < (graph.nodeCount())) {
+                def n:FlowNode (graph.nodeAt(i))
+                def ri:double (itemAt collideRadii i)
+                def xi:double (n.simX + n.vx)
+                def yi:double (n.simY + n.vy)
+                this.collideVisit(root n ri xi yi)
+                i = (i + 1)
+            }
+            it = (it + 1)
+        }
+    }
+
+    fn collideVisit:void (cell:int n:FlowNode ri:double xi:double yi:double) {
+        def rj:double (tree.maxRAt(cell))
+        def r:double (ri + rj)
+        ; Prune: nothing in this cell can be within `r` of the node.
+        def ax:double (tree.x0At(cell))
+        def ay:double (tree.y0At(cell))
+        def bx:double (tree.x1At(cell))
+        def by:double (tree.y1At(cell))
+        if (ax > (xi + r)) { return }
+        if (bx < (xi - r)) { return }
+        if (ay > (yi + r)) { return }
+        if (by < (yi - r)) { return }
+        def isLeaf:boolean (tree.isLeafAt(cell))
+        if (isLeaf == false) {
+            def q:int 0
+            while (q < 4) {
+                def c:int (tree.childOf(cell q))
+                if (c >= 0) {
+                    this.collideVisit(c n ri xi yi)
+                }
+                q = (q + 1)
+            }
+            return
+        }
+        def start:int (tree.leafStartAt(cell))
+        def len:int (tree.leafLenAt(cell))
+        def k:int 0
+        while (k < len) {
+            def pj:int (tree.leafPtAt((start + k)))
+            ; `>` and not `!=`: each pair is resolved once, from the lower
+            ; index, which is how d3 keeps the correction symmetric.
+            if (pj > n.index) {
+                def other:FlowNode (graph.nodeAt(pj))
+                def rjj:double (itemAt collideRadii pj)
+                def rr:double (ri + rjj)
+                def dx:double ((xi - other.simX) - other.vx)
+                def dy:double ((yi - other.simY) - other.vy)
+                def l:double ((dx * dx) + (dy * dy))
+                if (l < (rr * rr)) {
+                    if (dx == 0.0) {
+                        dx = (rnd.jiggle())
+                        l = (l + (dx * dx))
+                    }
+                    if (dy == 0.0) {
+                        dy = (rnd.jiggle())
+                        l = (l + (dy * dy))
+                    }
+                    def dl:double (sqrt l)
+                    def f:double (((rr - dl) / dl) * collideStrength)
+                    def px:double (dx * f)
+                    def py:double (dy * f)
+                    def ri2:double (ri * ri)
+                    def rj2:double (rjj * rjj)
+                    def share:double (rj2 / (ri2 + rj2))
+                    n.vx = (n.vx + (px * share))
+                    n.vy = (n.vy + (py * share))
+                    def inv:double (1.0 - share)
+                    other.vx = (other.vx - (px * inv))
+                    other.vy = (other.vy - (py * inv))
+                }
+            }
+            k = (k + 1)
+        }
+    }
+}
