@@ -179,7 +179,12 @@ they are thought: `.y("sales").aggregate("sum").stack("normalize")`. They are
 
 Properties of the mark itself: `filled`, `markSize`, `markColor`,
 `markOpacity`, `interpolate`, `withPoints`, `innerRadius`, `cornerRadius`,
-`tooltip`, and `propNumber` / `propString` / `propFlag` for the rest.
+`thickness`, `strokeWidth`, `orient`, `extent`, and `propNumber` /
+`propString` / `propFlag` for the rest.
+
+What a reader is shown when they point at a mark: `tooltip(true)` for every
+column the mark encodes, `tooltipField("c")` for one, `tooltipFields([…])` for
+a list of them in the order they should be read.
 
 A channel names a **column**; a constant is said as a constant. `.color("red")`
 meaning a column called red and `.color("#c00")` meaning paint it red cannot
@@ -365,8 +370,9 @@ in [`tests/chart_types`](tests/chart_types/) and go through both implementations
 npm run vela:types      # Ranger and official Vega-Lite, scene against scene
 ```
 
-**35 of 37 draw exactly what the reference draws.** Getting there fixed nine
-defects, each of which was invisible from the suite that existed:
+**All 37 draw exactly what the reference draws.** Getting there fixed nine
+defects and added one missing feature, none of them visible from the suite
+that existed:
 
 | what was wrong | what the reference does |
 | --- | --- |
@@ -379,12 +385,32 @@ defects, each of which was invisible from the suite that existed:
 | A **second axis stood on both sides of the plot** | a layer that does not share a scale gets its axis on the far side and no grid — and the grid axis is *dropped* rather than kept with its grid turned off, because an axis with no ink still reserves room beside the plot |
 | A **polar column collapsed to one wedge** | an angle read from a CATEGORY is a **band of the circle** — one slice per category, all the same size — and the length of the wedge inside it is what the chart measures. Typed as a number, a category answered nothing and every wedge came out at the same degenerate angle. The radius is then what accumulates, so a polar column stacks by default the way a bar does, and the stack beats a stated `innerRadius` |
 
-What still differs, and it is worth naming precisely rather than rounding up:
+The last two took a **feature** rather than a fix, and it is worth saying what
+it was: an error bar's description named `lower_y` and `upper_y` where the
+reference names the mean and the error either side of it, because those extra
+names come from a **tooltip** — and Vela had no tooltips at all. `"tooltip":
+true` on a mark was read by nobody, and a `tooltip` channel was read as a
+position channel naming no column. All three shapes the reference writes are
+compiled now, and each produces the signal text it writes:
 
+| what the chart says | what the mark carries |
+| --- | --- |
+| `{"type": "bar", "tooltip": true}` | an object of every column the mark encodes |
+| `"tooltip": {"field": "c"}` | that one value, on its own |
+| `"tooltip": [{"field": "c", "title": "Extra"}, …]` | an object of exactly those, in that order |
 
-* **`errorbar` / `errorband`** — the geometry, the styles, the names and the
-  aria role now match; the `description` string a screen reader is handed still
-  lists the two ends where the reference lists the mean and both ends.
+A tooltip is also what the mark's **description** says, so the two are one
+sentence written twice: one function decides what a value looks like, and the
+separator a list of values is joined by is the only difference between them.
+The rule for what is named twice is the reference's own and is not obvious — a
+channel is named once per COLUMN and a tooltip entry once per NAME, which is
+what lets an interval's upper end be told as `upper_y` (the column) *and* as
+"Mean + stderr of y" (what it means), while the column a chart is grouped by,
+named the same both times, is told once.
+
+The API says it as `mark.tooltip(true)`, `mark.tooltipField("c")` or
+`mark.tooltipFields(([] _:string ("region" "quarter")))` — and the types inside
+that list are read off the data like every other channel's.
 
 A polar **column** and a **rose** draw now; what is still missing from that
 family is the rest of a polar coordinate system — a *line* or an *area* bent
