@@ -189,15 +189,38 @@ each slide, so the written master and layout are blank and every slide carries
 its own picture. It looks like what was on screen — which is the contract a
 "save" has — and it is not the file that came in.
 
-### Phase E3b — saving the file you opened
+### Phase E3b — saving the file you opened (done)
 
-Round-tripping a deck we did not author is the hard half. Parts the model does
-not describe (SmartArt, embedded objects, animations, notes) are dropped today,
-and the template is baked into the slides. The fix is not a bigger serializer:
-it is keeping the **original package** and rewriting only the parts that were
-touched — slide XML for edited slides, new parts for new ones, everything else
-copied through byte for byte. That also needs the parser to record where each
-shape came from, which is the same bookkeeping E2 wants for text runs.
+`PptxWriter.saveOver` keeps the package the deck was read from. Every part is
+copied through byte for byte and only the slides that were **touched** are
+written again, along with the three parts that have to agree with the slide
+list: `ppt/presentation.xml` (its `sldIdLst` replaced, everything else — slide
+size, master list, default text style — left exactly as the authoring tool
+wrote it), its relationships, and `[Content_Types].xml` (the original entries,
+minus parts that left, plus the ones the edit brought in). A deck of forty
+slides with one edited word changes one part.
+
+`PptxSlide.dirty` is what makes that possible: `pushSnapshot` marks the slide
+the step was on, cloning carries the mark through undo, and a save clears them.
+Because the master and the layouts survive, a slide writes only what the slide
+itself declares — the resolved chrome would otherwise be baked in on top of the
+master that still draws it — and a picture already in the package is
+referenced where it lies rather than copied under a new name.
+
+`npm run pptx:writer:test` grew 20 checks for it, and the ones that matter are
+the negative ones: after editing one slide of a five-slide deck, **four slide
+parts are byte-identical to the original** and one is not; every part of the
+original package is still present; the chrome comes back `inherited` rather
+than as shapes on the slide; no picture was duplicated; a new slide gets a part
+of its own and a deleted slide's part leaves with it. The `--visual` oracle
+renders the kept-package save as well as the flat one: 42 slides, all identical
+to the original render.
+
+Still dropped when a slide is rewritten: what is on THAT slide and not in the
+model (SmartArt, embedded objects, animations on that slide). Untouched slides
+keep all of it. Narrowing that further means keeping the original XML for the
+shapes an edit did not touch, which is a shape-level provenance the parser does
+not record yet.
 
 ## Phase E4 — the rest of the direct manipulation
 

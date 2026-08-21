@@ -1635,12 +1635,23 @@ class PptxApp {
         return (0 - 1)
     }
 
+    ; Saving keeps the file that was opened: `saveOver` copies every part of
+    ; the original package through and rewrites only the slides that were
+    ; touched, so the master, the layouts and everything else the model does
+    ; not describe survive an edit. A deck that came from nowhere — a browser
+    ; that was handed bytes and lost them, or a deck built in memory — is
+    ; written from the model instead.
     fn saveDeck:boolean (path:string name:string) {
         if (loaded == false) {
             return false
         }
         def writer (new PptxWriter())
-        writer.save(presentation path name)
+        if (parser.pkg.isOpen) {
+            writer.saveOver(presentation parser.pkg path name)
+        } {
+            writer.save(presentation path name)
+        }
+        PptxWriter.markSaved(presentation)
         editor.dirty = false
         status = ("saved " + name)
         return true
@@ -1651,6 +1662,9 @@ class PptxApp {
         def writer (new PptxWriter())
         if (loaded == false) {
             return (buffer_alloc 0)
+        }
+        if (parser.pkg.isOpen) {
+            return (writer.toBufferOver(presentation parser.pkg))
         }
         return (writer.toBuffer(presentation))
     }

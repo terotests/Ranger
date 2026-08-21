@@ -118,7 +118,16 @@ def verify(path):
         by_id = {r.get("Id"): r.get("Target") for r in pres_rels.findall(f"{{{R_NS}}}Relationship")}
         masters = pres.findall(f".//{{{P_NS}}}sldMasterId")
         slides = pres.findall(f".//{{{P_NS}}}sldId")
-        ok(f"{name}: names a slide master", len(masters) == 1)
+        # A package that has a master must name it, and one that has none must
+        # not claim to. The second half matters because a deck written OVER an
+        # existing package keeps whatever it was given — including a minimal
+        # test deck with no master at all — so "must have a master" would be
+        # reporting the input, not the output.
+        has_master_part = any(n.startswith("ppt/slideMasters/") and n.endswith(".xml") and "_rels" not in n for n in names)
+        if has_master_part:
+            ok(f"{name}: names its slide master", len(masters) == 1)
+        else:
+            ok(f"{name}: names no master, and has none", len(masters) == 0)
         ok(f"{name}: names at least one slide", len(slides) >= 1)
         missing = [s.get(f"{{{OR_NS}}}id") for s in masters + slides if s.get(f"{{{OR_NS}}}id") not in by_id]
         ok(f"{name}: every slide id has a relationship", not missing, ", ".join(str(m) for m in missing))

@@ -27,10 +27,15 @@
 
 Import "PptxModel.rgr"
 Import "../../zip/ZipWriter.rgr"
+Import "OpcPackage.rgr"
 
 class PptxWriteMedia {
     def part:string ""          ; the model's package path
-    def name:string ""          ; the name we write it under
+    def name:string ""          ; file name inside ppt/media
+    def path:string ""          ; where it lands in the output package
+    ; A picture that is already in the package we are writing over is
+    ; referenced where it lies rather than copied under a new name.
+    def existing:boolean false
     def bytes:buffer (buffer_alloc 0)
 
     Constructor () {
@@ -41,7 +46,18 @@ class PptxWriter {
     def zip:ZipWriter (new ZipWriter)
     def media:[PptxWriteMedia]
     def charts:[string]
+    def chartPaths:[string]
     def shapeId:int 1
+    ; Which media and which charts the slide being written uses, so its
+    ; relationship part names those and not every picture in the deck.
+    def slideMediaUse:[int]
+    def slideChartUse:[int]
+    ; Parts of the package being written over, when there is one.
+    def sourceParts:[string:boolean]
+    def overMode:boolean false
+    ; In over mode the master's chrome is already in the package, so a slide
+    ; writes only what the slide itself declares.
+    def skipInherited:boolean false
 
     Constructor () {
     }
@@ -390,24 +406,93 @@ class PptxWriter {
         media = m
         def c:[string]
         charts = c
+        def cp:[string]
+        chartPaths = cp
+        def sp:[string:boolean]
+        sourceParts = sp
+        overMode = false
+        this.resetSlideUse()
     }
 
-    fn mediaNameFor:string (part:string bytes:buffer) {
+    fn resetSlideUse:void () {
+        def mu:[int]
+        slideMediaUse = mu
+        def cu:[int]
+        slideChartUse = cu
+    }
+
+    fn noteMediaUse:void (idx:int) {
+        def i:int 0
+        while (i < (array_length slideMediaUse)) {
+            if ((itemAt slideMediaUse i) == idx) {
+                return
+            }
+            i = (i + 1)
+        }
+        push slideMediaUse idx
+    }
+
+    sfn relTargetFrom:string (fromDir:string path:string) {
+        ; Everything in a presentation package lives under ppt/, so a part is
+        ; named from a slide as "../<rest>".
+        if ((indexOf path "ppt/") == 0) {
+            return ("../" + (substring path 4 (strlen path)))
+        }
+        return ("/" + path)
+    }
+
+    fn freePart:string (prefix:string suffix:string taken:[string:boolean]) {
+        def n:int 1
+        while (n < 10000) {
+            def candidate:string ((prefix + (to_string n)) + suffix)
+            def inSource@(optional):boolean (get sourceParts candidate)
+            def inTaken@(optional):boolean (get taken candidate)
+            if (null? inSource) {
+                if (null? inTaken) {
+                    return candidate
+                }
+            }
+            n = (n + 1)
+        }
+        return ((prefix + "9999") + suffix)
+    }
+
+    fn mediaIndexFor:int (part:string bytes:buffer) {
         def i:int 0
         while (i < (array_length media)) {
             def m:PptxWriteMedia (itemAt media i)
             if (m.part == part) {
-                return m.name
+                return i
             }
             i = (i + 1)
         }
         def ext:string (PptxWriter.extensionOf(part))
         def entry (new PptxWriteMedia())
         entry.part = part
-        entry.name = ("image" + (to_string ((array_length media) + 1)) + "." + ext)
         entry.bytes = bytes
+        def known@(optional):boolean (get sourceParts part)
+        if (!null? known) {
+            ; Already in the package: reference it where it lies.
+            entry.existing = true
+            entry.path = part
+            entry.name = part
+        } {
+            def taken:[string:boolean]
+            def j:int 0
+            while (j < (array_length media)) {
+                def m2:PptxWriteMedia (itemAt media j)
+                set taken m2.path true
+                j = (j + 1)
+            }
+            def path:string ("ppt/media/image" + (to_string ((array_length media) + 1)) + "." + ext)
+            if overMode {
+                path = (this.freePart("ppt/media/image" ("." + ext) taken))
+            }
+            entry.path = path
+            entry.name = path
+        }
         push media entry
-        return entry.name
+        return ((array_length media) - 1)
     }
 
     sfn extensionOf:string (part:string) {
@@ -493,28 +578,19 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Picture " + (to_string id))
         }
-        def file:string (this.mediaNameFor(shape.imagePart shape.imageBytes))
+        def idx:int (this.mediaIndexFor(shape.imagePart shape.imageBytes))
+        this.noteMediaUse(idx)
         ; Relationship ids are names, not numbers: naming the pictures and the
         ; charts apart means neither has to know how many of the other there
         ; will turn out to be.
-        def rid:string ("rIdImg" + (to_string ((this.mediaIndexOf(file)) + 1)))
+        def rid:string ("rIdImg" + (to_string (idx + 1)))
         def out:string ("<p:pic><p:nvPicPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>")
         out = (out + "<p:blipFill><a:blip r:embed=\"" + rid + "\"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>")
         out = (out + "<p:spPr>" + (PptxWriter.xfrmXml(shape "a:xfrm" false)) + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>")
         return (out + "</p:pic>")
     }
 
-    fn mediaIndexOf:int (name:string) {
-        def i:int 0
-        while (i < (array_length media)) {
-            def m:PptxWriteMedia (itemAt media i)
-            if (m.name == name) {
-                return i
-            }
-            i = (i + 1)
-        }
-        return 0
-    }
+
 
     fn groupXml:string (shape:PptxShape) {
         def id:int (this.nextId())
@@ -586,6 +662,7 @@ class PptxWriter {
 
     fn slideXml:string (slide:PptxSlide) {
         shapeId = 1
+        this.resetSlideUse()
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld>"
         if slide.bg.isSet {
             out = (out + "<p:bg><p:bgPr><a:solidFill>" + (PptxWriter.colorXml(slide.bg)) + "</a:solidFill><a:effectLst/></p:bgPr></p:bg>")
@@ -594,23 +671,46 @@ class PptxWriter {
         def i:int 0
         while (i < (array_length slide.shapes)) {
             def sh:PptxShape (itemAt slide.shapes i)
-            out = (out + (this.shapeXml(sh)))
+            def write:boolean true
+            if skipInherited {
+                if sh.inherited {
+                    write = false
+                }
+            }
+            if write {
+                out = (out + (this.shapeXml(sh)))
+            }
             i = (i + 1)
         }
         return (out + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>")
     }
 
-    fn slideRelsXml:string () {
-        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>"
+    ; A slide names the layout it follows, whatever the package already said
+    ; about it, and the pictures and charts THIS slide uses — not every one in
+    ; the deck.
+    fn slideRelsXmlFor:string (layoutTarget:string keep:[OpcRelationship]) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+        if ((strlen layoutTarget) > 0) {
+            out = (out + "<Relationship Id=\"rIdLayout\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"" + layoutTarget + "\"/>")
+        }
+        def k:int 0
+        while (k < (array_length keep)) {
+            def rel:OpcRelationship (itemAt keep k)
+            out = (out + "<Relationship Id=\"" + rel.id + "\" Type=\"" + rel.type + "\" Target=\"" + rel.target + "\"/>")
+            k = (k + 1)
+        }
         def i:int 0
-        while (i < (array_length media)) {
-            def m:PptxWriteMedia (itemAt media i)
-            out = (out + "<Relationship Id=\"rIdImg" + (to_string (i + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/" + m.name + "\"/>")
+        while (i < (array_length slideMediaUse)) {
+            def idx:int (itemAt slideMediaUse i)
+            def m:PptxWriteMedia (itemAt media idx)
+            out = (out + "<Relationship Id=\"rIdImg" + (to_string (idx + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"" + (PptxWriter.relTargetFrom("ppt/slides" m.path)) + "\"/>")
             i = (i + 1)
         }
         def j:int 0
-        while (j < (array_length charts)) {
-            out = (out + "<Relationship Id=\"rIdChart" + (to_string (j + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"../charts/chart" + (to_string (j + 1)) + ".xml\"/>")
+        while (j < (array_length slideChartUse)) {
+            def cidx:int (itemAt slideChartUse j)
+            def cpath:string (itemAt chartPaths cidx)
+            out = (out + "<Relationship Id=\"rIdChart" + (to_string (cidx + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"" + (PptxWriter.relTargetFrom("ppt/slides" cpath)) + "\"/>")
             j = (j + 1)
         }
         return (out + "</Relationships>")
@@ -624,6 +724,18 @@ class PptxWriter {
     ; it is what makes a chart draw before the workbook is opened.
     fn chartFrameXml:string (shape:PptxShape) {
         push charts (PptxWriter.chartXml(shape.chart))
+        def taken:[string:boolean]
+        def ci:int 0
+        while (ci < (array_length chartPaths)) {
+            set taken (itemAt chartPaths ci) true
+            ci = (ci + 1)
+        }
+        def path:string ("ppt/charts/chart" + (to_string (array_length charts)) + ".xml")
+        if overMode {
+            path = (this.freePart("ppt/charts/chart" ".xml" taken))
+        }
+        push chartPaths path
+        push slideChartUse ((array_length charts) - 1)
         def rid:string ("rIdChart" + (to_string (array_length charts)))
         def id:int (this.nextId())
         def name:string shape.name
@@ -794,15 +906,20 @@ class PptxWriter {
     fn build:void (pres:PptxPresentation) {
         this.resetMedia()
         zip.create()
-        ; Slides first: writing them is what discovers the media.
+        skipInherited = false
+        ; Slides first: writing them is what discovers the media and the
+        ; charts, and each slide's relationship part names what that slide
+        ; turned out to use.
         def slideBodies:[string]
+        def slideRels:[string]
         def i:int 0
         while (i < (array_length pres.slides)) {
             def slide:PptxSlide (itemAt pres.slides i)
             push slideBodies (this.slideXml(slide))
+            def keep:[OpcRelationship]
+            push slideRels (this.slideRelsXmlFor("../slideLayouts/slideLayout1.xml" keep))
             i = (i + 1)
         }
-        this.addXml("[Content_Types].xml" (this.contentTypesXml(pres)))
         this.addXml("_rels/.rels" (PptxWriter.rootRelsXml()))
         this.addXml("ppt/presentation.xml" (this.presentationXml(pres)))
         this.addXml("ppt/_rels/presentation.xml.rels" (this.presentationRelsXml(pres)))
@@ -811,28 +928,414 @@ class PptxWriter {
         this.addXml("ppt/slideMasters/_rels/slideMaster1.xml.rels" (PptxWriter.masterRelsXml()))
         this.addXml("ppt/slideLayouts/slideLayout1.xml" (PptxWriter.layoutXml()))
         this.addXml("ppt/slideLayouts/_rels/slideLayout1.xml.rels" (PptxWriter.layoutRelsXml()))
-        ; Every slide names every picture in the package. A rels file per slide
-        ; that listed only its own would be tidier and is not worth a second
-        ; walk of the tree while the ids have to agree with the blips.
-        def rels:string (this.slideRelsXml())
         def j:int 0
         while (j < (array_length slideBodies)) {
             def nm:string ("ppt/slides/slide" + (to_string (j + 1)) + ".xml")
             this.addXml(nm (itemAt slideBodies j))
-            this.addXml(("ppt/slides/_rels/slide" + (to_string (j + 1)) + ".xml.rels") rels)
+            this.addXml(("ppt/slides/_rels/slide" + (to_string (j + 1)) + ".xml.rels") (itemAt slideRels j))
             j = (j + 1)
         }
         def k:int 0
         while (k < (array_length media)) {
             def m:PptxWriteMedia (itemAt media k)
-            zip.addFile(("ppt/media/" + m.name) m.bytes)
+            zip.addFile(m.path m.bytes)
             k = (k + 1)
         }
         def c:int 0
         while (c < (array_length charts)) {
-            this.addXml(("ppt/charts/chart" + (to_string (c + 1)) + ".xml") (itemAt charts c))
+            this.addXml((itemAt chartPaths c) (itemAt charts c))
             c = (c + 1)
         }
+        this.addXml("[Content_Types].xml" (this.contentTypesXml(pres)))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Saving the file that was opened
+    ; --------------------------------------------------------------------------
+    ;
+    ; `build` writes a deck from the model alone, which loses everything the
+    ; model does not describe — the master, the layouts, notes, SmartArt, the
+    ; document properties. This one keeps the package it was read from: every
+    ; part is copied through byte for byte, and only the slides that were
+    ; TOUCHED are written again, along with the three parts that have to agree
+    ; with the slide list (the presentation, its relationships, and the content
+    ; types). A deck of forty slides with one edited word changes one part.
+    ;
+    ; Because the master and the layouts survive, a slide writes only what the
+    ; slide itself declares: the resolved chrome would otherwise be baked in on
+    ; top of the master that still draws it.
+    fn buildOver:void (pres:PptxPresentation pkg:OpcPackage) {
+        this.resetMedia()
+        zip.create()
+        overMode = true
+        skipInherited = true
+        def parts:[string] (pkg.listParts())
+        def p0:int 0
+        while (p0 < (array_length parts)) {
+            set sourceParts (itemAt parts p0) true
+            p0 = (p0 + 1)
+        }
+
+        ; --- where each slide will live
+        def slidePaths:[string]
+        def claimed:[string:boolean]
+        def si:int 0
+        while (si < (array_length pres.slides)) {
+            def slide:PptxSlide (itemAt pres.slides si)
+            def path:string slide.partPath
+            if ((strlen path) > 0) {
+                def already@(optional):boolean (get claimed path)
+                if (!null? already) {
+                    path = ""
+                }
+            }
+            if ((strlen path) == 0) {
+                path = (this.freePart("ppt/slides/slide" ".xml" claimed))
+            }
+            set claimed path true
+            push slidePaths path
+            si = (si + 1)
+        }
+
+        ; --- the slides themselves
+        def written:[string:boolean]
+        def newParts:[string]
+        def defaultLayout:string (PptxWriter.firstLayout(parts))
+        def sj:int 0
+        while (sj < (array_length pres.slides)) {
+            def slide2:PptxSlide (itemAt pres.slides sj)
+            def path2:string (itemAt slidePaths sj)
+            def isNew:boolean true
+            def known@(optional):boolean (get sourceParts path2)
+            if (!null? known) {
+                isNew = false
+            }
+            def rewrite:boolean isNew
+            if slide2.dirty {
+                rewrite = true
+            }
+            if rewrite {
+                def body:string (this.slideXml(slide2))
+                def keep:[OpcRelationship]
+                def layoutTarget:string ""
+                if (isNew == false) {
+                    def relsPath:string (OpcPackage.relsPathFor(path2))
+                    def relXml:string (pkg.readXml(relsPath))
+                    def olds:[OpcRelationship] (pkg.parseRelationships(relXml))
+                    def ri:int 0
+                    while (ri < (array_length olds)) {
+                        def rel:OpcRelationship (itemAt olds ri)
+                        ; Pictures and charts are named again from what the
+                        ; slide now holds; everything else the slide pointed at
+                        ; — its layout, its notes, a hyperlink — is kept.
+                        def drop:boolean false
+                        if ((indexOf rel.type "/image") >= 0) {
+                            drop = true
+                        }
+                        if ((indexOf rel.type "/chart") >= 0) {
+                            drop = true
+                        }
+                        if (drop == false) {
+                            push keep rel
+                        }
+                        ri = (ri + 1)
+                    }
+                }
+                if (isNew) {
+                    layoutTarget = defaultLayout
+                    if ((strlen slide2.layoutPart) > 0) {
+                        layoutTarget = (PptxWriter.relTargetFrom("ppt/slides" slide2.layoutPart))
+                    }
+                }
+                this.addXml(path2 body)
+                set written path2 true
+                push newParts path2
+                def relsOut:string (OpcPackage.relsPathFor(path2))
+                this.addXml(relsOut (this.slideRelsXmlFor(layoutTarget keep)))
+                set written relsOut true
+            }
+            sj = (sj + 1)
+        }
+
+        ; --- everything else, byte for byte
+        def keptOverrides:[string]
+        def ci:int 0
+        while (ci < (array_length parts)) {
+            def part:string (itemAt parts ci)
+            def copyIt:boolean true
+            if (part == "[Content_Types].xml") {
+                copyIt = false
+            }
+            if (part == "ppt/presentation.xml") {
+                copyIt = false
+            }
+            if (part == "ppt/_rels/presentation.xml.rels") {
+                copyIt = false
+            }
+            def already2@(optional):boolean (get written part)
+            if (!null? already2) {
+                copyIt = false
+            }
+            ; A slide that is no longer in the deck, and its relationships,
+            ; leave with it.
+            if (PptxWriter.isSlidePart(part)) {
+                def stillUsed:boolean false
+                def ui:int 0
+                while (ui < (array_length slidePaths)) {
+                    if ((itemAt slidePaths ui) == part) {
+                        stillUsed = true
+                    }
+                    ui = (ui + 1)
+                }
+                if (stillUsed == false) {
+                    copyIt = false
+                }
+            }
+            if (PptxWriter.isSlideRelsPart(part)) {
+                def owner:string (PptxWriter.slideOfRels(part))
+                def stillUsed2:boolean false
+                def uj:int 0
+                while (uj < (array_length slidePaths)) {
+                    if ((itemAt slidePaths uj) == owner) {
+                        stillUsed2 = true
+                    }
+                    uj = (uj + 1)
+                }
+                if (stillUsed2 == false) {
+                    copyIt = false
+                }
+            }
+            if copyIt {
+                zip.addFile(part (pkg.readBinary(part)))
+                set written part true
+            }
+            ci = (ci + 1)
+        }
+
+        ; --- media and charts the edit introduced
+        def mi:int 0
+        while (mi < (array_length media)) {
+            def m:PptxWriteMedia (itemAt media mi)
+            if (m.existing == false) {
+                zip.addFile(m.path m.bytes)
+                set written m.path true
+                push newParts m.path
+            }
+            mi = (mi + 1)
+        }
+        def chi:int 0
+        while (chi < (array_length charts)) {
+            def cpath:string (itemAt chartPaths chi)
+            def seen@(optional):boolean (get written cpath)
+            if (null? seen) {
+                this.addXml(cpath (itemAt charts chi))
+                set written cpath true
+                push newParts cpath
+            }
+            chi = (chi + 1)
+        }
+
+        ; --- the three parts that have to agree with the slide list
+        def presXml:string (pkg.readXml("ppt/presentation.xml"))
+        this.addXml("ppt/presentation.xml" (PptxWriter.presentationWithSlides(presXml slidePaths)))
+        def presRelsXml:string (pkg.readXml("ppt/_rels/presentation.xml.rels"))
+        this.addXml("ppt/_rels/presentation.xml.rels" (PptxWriter.presentationRelsWith(pkg presRelsXml slidePaths)))
+        def ctXml:string (pkg.readXml("[Content_Types].xml"))
+        this.addXml("[Content_Types].xml" (PptxWriter.contentTypesWith(ctXml written newParts)))
+    }
+
+    sfn isSlidePart:boolean (part:string) {
+        if ((indexOf part "ppt/slides/slide") != 0) {
+            return false
+        }
+        return ((indexOf part ".xml") > 0)
+    }
+
+    sfn isSlideRelsPart:boolean (part:string) {
+        return ((indexOf part "ppt/slides/_rels/slide") == 0)
+    }
+
+    sfn slideOfRels:string (part:string) {
+        def base:string (substring part (strlen "ppt/slides/_rels/") (strlen part))
+        def cut:int (indexOf base ".rels")
+        if (cut > 0) {
+            base = (substring base 0 cut)
+        }
+        return ("ppt/slides/" + base)
+    }
+
+    sfn firstLayout:string (parts:[string]) {
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            if ((indexOf p "ppt/slideLayouts/slideLayout") == 0) {
+                if ((indexOf p ".rels") < 0) {
+                    return (PptxWriter.relTargetFrom("ppt/slides" p))
+                }
+            }
+            i = (i + 1)
+        }
+        return "../slideLayouts/slideLayout1.xml"
+    }
+
+    ; The slide list, and nothing else: a presentation part carries the slide
+    ; size, the master list, the default text style and whatever else the
+    ; authoring tool put there, and none of that is ours to regenerate.
+    sfn presentationWithSlides:string (xml:string slidePaths:[string]) {
+        def list:string "<p:sldIdLst>"
+        def i:int 0
+        while (i < (array_length slidePaths)) {
+            list = (list + "<p:sldId id=\"" + (to_string (256 + i)) + "\" r:id=\"rIdSld" + (to_string (i + 1)) + "\"/>")
+            i = (i + 1)
+        }
+        list = (list + "</p:sldIdLst>")
+        def start:int (indexOf xml "<p:sldIdLst")
+        if (start < 0) {
+            ; No list at all: put one after the master list, which every
+            ; presentation has.
+            def anchor:int (indexOf xml "</p:sldMasterIdLst>")
+            if (anchor < 0) {
+                return xml
+            }
+            def cut:int (anchor + (strlen "</p:sldMasterIdLst>"))
+            return ((substring xml 0 cut) + list + (substring xml cut (strlen xml)))
+        }
+        def closeTag:int (indexOfFrom xml "</p:sldIdLst>" start)
+        if (closeTag >= 0) {
+            def after:int (closeTag + (strlen "</p:sldIdLst>"))
+            return ((substring xml 0 start) + list + (substring xml after (strlen xml)))
+        }
+        def selfEnd:int (indexOfFrom xml "/>" start)
+        if (selfEnd < 0) {
+            return xml
+        }
+        return ((substring xml 0 start) + list + (substring xml (selfEnd + 2) (strlen xml)))
+    }
+
+    sfn presentationRelsWith:string (pkg:OpcPackage xml:string slidePaths:[string]) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+        def olds:[OpcRelationship] (pkg.parseRelationships(xml))
+        def i:int 0
+        while (i < (array_length olds)) {
+            def rel:OpcRelationship (itemAt olds i)
+            if ((indexOf rel.type "/slide") < 0) {
+                out = (out + "<Relationship Id=\"" + rel.id + "\" Type=\"" + rel.type + "\" Target=\"" + rel.target + "\"/>")
+            } {
+                ; slideMaster and slideLayout also contain "/slide"; only the
+                ; plain slide relationships are replaced.
+                if ((indexOf rel.type "/slideMaster") >= 0) {
+                    out = (out + "<Relationship Id=\"" + rel.id + "\" Type=\"" + rel.type + "\" Target=\"" + rel.target + "\"/>")
+                } {
+                    if ((indexOf rel.type "/slideLayout") >= 0) {
+                        out = (out + "<Relationship Id=\"" + rel.id + "\" Type=\"" + rel.type + "\" Target=\"" + rel.target + "\"/>")
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length slidePaths)) {
+            def target:string (itemAt slidePaths j)
+            if ((indexOf target "ppt/") == 0) {
+                target = (substring target 4 (strlen target))
+            }
+            out = (out + "<Relationship Id=\"rIdSld" + (to_string (j + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"" + target + "\"/>")
+            j = (j + 1)
+        }
+        return (out + "</Relationships>")
+    }
+
+    ; The original content types, minus the parts that left, plus the ones the
+    ; edit brought in.
+    sfn contentTypesWith:string (xml:string written:[string:boolean] newParts:[string]) {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+        def seenExt:[string:boolean]
+        def pos:int 0
+        def len:int (strlen xml)
+        while (pos < len) {
+            def idx:int (indexOfFrom xml "<Default" pos)
+            if (idx < 0) {
+                pos = len
+            } {
+                def end:int (indexOfFrom xml ">" idx)
+                if (end < 0) {
+                    pos = len
+                } {
+                    def tag:string (substring xml idx (end + 1))
+                    def ext:string (OpcPackage.attrValue(tag "Extension"))
+                    def ct:string (OpcPackage.attrValue(tag "ContentType"))
+                    if ((strlen ext) > 0) {
+                        out = (out + "<Default Extension=\"" + ext + "\" ContentType=\"" + ct + "\"/>")
+                        set seenExt ext true
+                    }
+                    pos = (end + 1)
+                }
+            }
+        }
+        ; A picture the edit added may be of a kind the deck had none of.
+        def needed:[string] ([] _:string ( "png" "jpeg" "gif" ))
+        def types:[string] ([] _:string ( "image/png" "image/jpeg" "image/gif" ))
+        def ni:int 0
+        while (ni < (array_length needed)) {
+            def ext2:string (itemAt needed ni)
+            def have@(optional):boolean (get seenExt ext2)
+            if (null? have) {
+                out = (out + "<Default Extension=\"" + ext2 + "\" ContentType=\"" + (itemAt types ni) + "\"/>")
+                set seenExt ext2 true
+            }
+            ni = (ni + 1)
+        }
+        def kept:[string:boolean]
+        def pos2:int 0
+        while (pos2 < len) {
+            def idx2:int (indexOfFrom xml "<Override" pos2)
+            if (idx2 < 0) {
+                pos2 = len
+            } {
+                def end2:int (indexOfFrom xml ">" idx2)
+                if (end2 < 0) {
+                    pos2 = len
+                } {
+                    def tag2:string (substring xml idx2 (end2 + 1))
+                    def name:string (OpcPackage.attrValue(tag2 "PartName"))
+                    def ct2:string (OpcPackage.attrValue(tag2 "ContentType"))
+                    def part:string name
+                    if ((indexOf part "/") == 0) {
+                        part = (substring part 1 (strlen part))
+                    }
+                    def exists@(optional):boolean (get written part)
+                    if (!null? exists) {
+                        out = (out + "<Override PartName=\"" + name + "\" ContentType=\"" + ct2 + "\"/>")
+                        set kept part true
+                    }
+                    pos2 = (end2 + 1)
+                }
+            }
+        }
+        def pi:int 0
+        while (pi < (array_length newParts)) {
+            def np:string (itemAt newParts pi)
+            def already@(optional):boolean (get kept np)
+            if (null? already) {
+                def ct3:string (PptxWriter.contentTypeOf(np))
+                if ((strlen ct3) > 0) {
+                    out = (out + "<Override PartName=\"/" + np + "\" ContentType=\"" + ct3 + "\"/>")
+                    set kept np true
+                }
+            }
+            pi = (pi + 1)
+        }
+        return (out + "</Types>")
+    }
+
+    sfn contentTypeOf:string (part:string) {
+        if (PptxWriter.isSlidePart(part)) {
+            return "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
+        }
+        if ((indexOf part "ppt/charts/chart") == 0) {
+            return "application/vnd.openxmlformats-officedocument.drawingml.chart+xml"
+        }
+        return ""
     }
 
     fn toBuffer:buffer (pres:PptxPresentation) {
@@ -843,5 +1346,25 @@ class PptxWriter {
     fn save:void (pres:PptxPresentation path:string name:string) {
         this.build(pres)
         zip.save(path name)
+    }
+
+    fn saveOver:void (pres:PptxPresentation pkg:OpcPackage path:string name:string) {
+        this.buildOver(pres pkg)
+        zip.save(path name)
+    }
+
+    fn toBufferOver:buffer (pres:PptxPresentation pkg:OpcPackage) {
+        this.buildOver(pres pkg)
+        return (zip.toBuffer())
+    }
+
+    ; A save is what makes the slides clean again.
+    sfn markSaved:void (pres:PptxPresentation) {
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            sl.dirty = false
+            i = (i + 1)
+        }
     }
 }

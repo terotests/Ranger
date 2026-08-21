@@ -233,7 +233,12 @@ class PptxShape {
 }
 
 class PptxSlide {
+    ; The part this slide came out of, and whether anything has been done to it
+    ; since. A save that keeps the file it opened rewrites only the slides that
+    ; were touched — everything else is copied through byte for byte, which is
+    ; how the parts nobody here models survive being edited around.
     def partPath:string ""
+    def dirty:boolean false
     def width:double 720.0      ; pt (default 10")
     def height:double 540.0     ; pt (default 7.5")
     def shapes:[PptxShape]

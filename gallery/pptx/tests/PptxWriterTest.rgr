@@ -14,6 +14,7 @@ Import "../src/PptxWriter.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"
 Import "../src/PptxEdit.rgr"
+Import "../src/OpcPackage.rgr"
 
 class PptxWriterTest {
     def passed:int 0
@@ -47,6 +48,8 @@ class PptxWriterTest {
         this.testFlattening()
         this.testPictures()
         this.testEditedDeck()
+        this.testSaveOver()
+        this.testSaveOverStructure()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -412,6 +415,220 @@ class PptxWriterTest {
         this.check("the pictures came back" (pics > 0))
         this.check("and every one of them carries its bytes" (pics == withBytes))
         p2.close()
+    }
+
+
+    ; --- saving the file that was opened -------------------------------------
+    ;
+    ; The flat writer loses everything the model does not describe. This is the
+    ; other route: keep the package, rewrite the slides that were touched.
+
+    fn testSaveOver:void () {
+        print "--- save over: the parts nobody edited are untouched ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open the business deck" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ; Touch slide 2 and nothing else.
+        ed.gotoSlide(1)
+        def shapes:[PptxShape] (ed.editableShapes())
+        this.check("slide two has something to move" ((array_length shapes) > 0))
+        if ((array_length shapes) == 0) {
+            return
+        }
+        def first:PptxShape (itemAt shapes 0)
+        ed.select(first.editId)
+        ed.moveSelection(15.0 5.0)
+        def slide1:PptxSlide (itemAt pres.slides 0)
+        def slide2:PptxSlide (itemAt pres.slides 1)
+        this.check("the edited slide is marked" slide2.dirty)
+        this.check("and the others are not" (slide1.dirty == false))
+
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-business.pptx")
+        PptxWriter.markSaved(pres)
+        this.check("saving clears the marks" (slide2.dirty == false))
+
+        def out (new OpcPackage())
+        def opened:boolean (out.openParts("gallery/pptx/bin" "over-business.pptx"))
+        this.check("the written package opens" opened)
+        if (opened == false) {
+            return
+        }
+        ; Every part of the original is still there.
+        def missing:int 0
+        def srcParts:[string] (parser.pkg.listParts())
+        def i:int 0
+        while (i < (array_length srcParts)) {
+            def part:string (itemAt srcParts i)
+            if ((out.hasPart(part)) == false) {
+                missing = (missing + 1)
+            }
+            i = (i + 1)
+        }
+        this.check("every part of the original survives" (missing == 0))
+        ; The slides nobody touched are byte for byte the same.
+        def changed:int 0
+        def same:int 0
+        def j:int 0
+        while (j < (array_length srcParts)) {
+            def part2:string (itemAt srcParts j)
+            if ((indexOf part2 "ppt/slides/slide") == 0) {
+                if ((indexOf part2 ".rels") < 0) {
+                    def a:buffer (parser.pkg.readBinary(part2))
+                    def b:buffer (out.readBinary(part2))
+                    if (PptxWriterTest.sameBytes(a b)) {
+                        same = (same + 1)
+                    } {
+                        changed = (changed + 1)
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+        this.check("exactly one slide was rewritten" (changed == 1))
+        this.check("and the rest came through untouched" (same == 4))
+        ; The master and the layouts came through, so the chrome is inherited
+        ; again rather than baked into the slides.
+        def p2 (new PptxParser())
+        def ok2:boolean (p2.openParts("gallery/pptx/bin" "over-business.pptx"))
+        this.check("it reopens as a deck" ok2)
+        if (ok2 == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        this.check("same number of slides" ((back.slideCount()) == (pres.slideCount())))
+        def inherited:int 0
+        def authored:int 0
+        def bslide:PptxSlide (itemAt back.slides 1)
+        def k:int 0
+        while (k < (array_length bslide.shapes)) {
+            def sh:PptxShape (itemAt bslide.shapes k)
+            if sh.inherited {
+                inherited = (inherited + 1)
+            } {
+                authored = (authored + 1)
+            }
+            k = (k + 1)
+        }
+        this.check("the chrome is inherited, not baked in" (inherited > 0))
+        this.check("and the slide still has its own shapes" (authored > 0))
+        ; The edit is in the file.
+        def moved:PptxShape (itemAt bslide.shapes 0)
+        def foundMove:boolean false
+        def m:int 0
+        while (m < (array_length bslide.shapes)) {
+            def cand:PptxShape (itemAt bslide.shapes m)
+            if (cand.inherited == false) {
+                if (this.near(cand.x (first.x))) {
+                    foundMove = true
+                }
+            }
+            m = (m + 1)
+        }
+        this.check("the move that was made is in the file" foundMove)
+        ; Pictures were referenced where they lay rather than copied.
+        def mediaCopies:int 0
+        def outParts:[string] (out.listParts())
+        def q:int 0
+        while (q < (array_length outParts)) {
+            def op:string (itemAt outParts q)
+            if ((indexOf op "ppt/media/") == 0) {
+                mediaCopies = (mediaCopies + 1)
+            }
+            q = (q + 1)
+        }
+        this.check("no picture was duplicated" (mediaCopies == 2))
+        p2.close()
+        out.close()
+        parser.close()
+    }
+
+    fn testSaveOverStructure:void () {
+        print "--- save over: slides added and removed ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "04-multi.pptx")) == false) {
+            this.check("open 04-multi" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def before:int (pres.slideCount())
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(0)
+        ed.duplicateSlide()
+        def id:int (ed.addShapeAt("roundRect" 60.0 60.0 200.0 80.0))
+        ed.setShapeText(id "On a slide that did not exist")
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-multi.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "over-multi.pptx"))
+        this.check("a deck with a new slide opens" ok)
+        if (ok == false) {
+            return
+        }
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        this.check("it has one more slide" ((back.slideCount()) == (before + 1)))
+        def added:PptxSlide (itemAt back.slides 1)
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length added.shapes)) {
+            def sh:PptxShape (itemAt added.shapes i)
+            if sh.hasText {
+                if ((sh.text.plainText()) == "On a slide that did not exist") {
+                    found = true
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("the new slide carries what was put on it" found)
+        this.check("the new slide got a part of its own" ((strlen added.partPath) > 0))
+        p2.close()
+
+        ; …and taking one away removes its part.
+        def p3 (new PptxParser())
+        p3.openParts("gallery/pptx/bin" "over-multi.pptx")
+        def pres3:PptxPresentation ((new PptxResolver()).resolvePresentation((p3.parsePresentation())))
+        def ed3 (new PptxEditor())
+        ed3.attach(pres3)
+        ed3.gotoSlide(1)
+        def goneName:string ((itemAt pres3.slides 1).partPath)
+        ed3.deleteSlide()
+        def w3 (new PptxWriter())
+        w3.saveOver(pres3 p3.pkg "gallery/pptx/bin" "over-multi-less.pptx")
+        p3.close()
+        def out3 (new OpcPackage())
+        if (out3.openParts("gallery/pptx/bin" "over-multi-less.pptx")) {
+            this.check("the deleted slide's part is gone" ((out3.hasPart(goneName)) == false))
+            def p4 (new PptxParser())
+            if (p4.openParts("gallery/pptx/bin" "over-multi-less.pptx")) {
+                def back4:PptxPresentation ((new PptxResolver()).resolvePresentation((p4.parsePresentation())))
+                this.check("and the deck is one shorter" ((back4.slideCount()) == before))
+                p4.close()
+            }
+            out3.close()
+        }
+    }
+
+    sfn sameBytes:boolean (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if (n != (buffer_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get a i) != (buffer_get b i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
 }

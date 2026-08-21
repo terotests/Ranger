@@ -243,6 +243,7 @@ class PptxClone {
     sfn slide:PptxSlide (src:PptxSlide) {
         def sl (new PptxSlide())
         sl.partPath = src.partPath
+        sl.dirty = src.dirty
         sl.width = src.width
         sl.height = src.height
         sl.bg = (PptxClone.color(src.bg))
@@ -684,6 +685,14 @@ class PptxEditor {
         history = kept
         historyPos = ((array_length history) - 1)
         dirty = true
+        ; Which slide the step was on, so a save can leave the others alone.
+        if (label != "open") {
+            def cur@(optional):PptxSlide (this.currentSlide())
+            if (!null? cur) {
+                def sl:PptxSlide (unwrap cur)
+                sl.dirty = true
+            }
+        }
     }
 
     fn restoreSnapshot:void (snap:PptxEditSnapshot) {
@@ -1910,6 +1919,7 @@ class PptxEditor {
 
     fn addSlide:boolean () {
         def slide (new PptxSlide())
+        slide.dirty = true
         slide.width = doc.slideWidth
         slide.height = doc.slideHeight
         slide.bg = (PptxColor.srgbOf("FFFFFF"))
@@ -1940,6 +1950,10 @@ class PptxEditor {
         }
         def src:PptxSlide (unwrap cur)
         def copy:PptxSlide (PptxClone.slide(src))
+        ; A copy is a new slide, not the one it was copied from: it cannot
+        ; claim the part its original lives in.
+        copy.partPath = ""
+        copy.dirty = true
         def j:int 0
         while (j < (array_length copy.shapes)) {
             def sh:PptxShape (itemAt copy.shapes j)

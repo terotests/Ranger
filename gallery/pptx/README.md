@@ -99,19 +99,23 @@ window pixel becomes one:
       place the caret; typing inside a bold word stays bold and styling a
       selection splits the runs it covers
 - [x] Undo / redo — a drag is one step, a burst of typing is one step
-- [x] **Save**: the model is written back out as a `.pptx` (`PptxWriter.rgr`),
-      checked three ways: a round trip through our own parser, a Python script
+- [x] **Save keeps the file you opened**: every part of the original package is
+      copied through and only the slides you touched are rewritten, so the
+      master, the layouts and everything else the model does not describe
+      survive an edit (`saveOver`); a deck with no package behind it is
+      written from the model instead
+- [x] Checked three ways: a round trip through our own parser, a Python script
       that reads the package with `zipfile` alone, and a pixel comparison in
-      which 21 written slides redraw byte for byte. In the browser it is a
+      which 42 written slides redraw byte for byte. In the browser saving is a
       download; Ctrl+S
 - [x] The selection outline and its handles are pushed into the same
       `EVGDisplayList` as the slide, so WebGL and SoftCanvas both draw them and
       an export has none of them
 
 Not yet: a caret that follows a WRAPPED line (a paragraph that wraps reports
-one line box, so the caret is exact on its first line), keeping the parts of a
-deck the model does not describe when saving (what is written is flat — the
-template is baked into the slides), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
+one line box, so the caret is exact on its first line), keeping what is on an
+EDITED slide that the model does not describe (untouched slides keep
+everything), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
 governs them — none of this is derived from another editor's source.
 
 ```bash
