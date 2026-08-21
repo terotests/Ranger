@@ -304,6 +304,16 @@ class CodeEditorPage {
         return h
     }
 
+    fn selectWordAt:void (px:int py:int) {
+        editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
+        editor.selectWordAt(ctx.tr px py)
+    }
+
+    fn selectLineAt:void (px:int py:int) {
+        editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
+        editor.selectLineAt(ctx.tr px py)
+    }
+
     fn update:void (inp:UIInput) {
         editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
         if inp.pointerPressed {
@@ -327,6 +337,13 @@ class CodeEditorPage {
             while (ti < tn) {
                 def ch:int (charAt t ti)
                 ; The page's own two chords; everything else is the editor's.
+                if (ch == 32) {
+                    ; Ctrl+Space: the list, whatever has been typed so far.
+                    def opened:boolean (editor.requestCompletions())
+                    if (opened == false) {
+                        status = "nothing to suggest here"
+                    }
+                } {
                 if ((ch == 101) || (ch == 69)) {
                     this.jumpToNextProblem()
                 } {
@@ -338,6 +355,7 @@ class CodeEditorPage {
                     } {
                         editor.handleCtrlChar(ch)
                     }
+                }
                 }
                 }
                 ti = (ti + 1)
@@ -366,6 +384,51 @@ class CodeEditorPage {
         if (d.line >= 0) {
             status = (d.label())
         }
+    }
+
+    ; --- when to paint at all ---------------------------------------------------
+    ; The caret blinks off the CLOCK rather than off a frame counter, so a page
+    ; that is not painting still knows when the next blink is due.
+    fn blinkPhase:int () {
+        def ms:double (wall_clock_ms)
+        def phase:double (ms / 500.0)
+        return (to_int phase)
+    }
+
+    ; A cheap fingerprint of everything the picture depends on. Building the
+    ; display list and serializing it is milliseconds; this is a handful of
+    ; string joins — so the host asks this sixty times a second and builds a
+    ; scene only when the answer changed. Before it existed the page rebuilt
+    ; and re-serialized the whole document on every animation frame whether or
+    ; not anything had happened, which is most of what "fps 4" was.
+    fn revision:string () {
+        def r:string (to_string editor.buf.version)
+        str_append r ("|" + (to_string editor.sel.caret.line))
+        str_append r (":" + (to_string editor.sel.caret.col))
+        str_append r ("|" + (to_string editor.sel.anchor.line))
+        str_append r (":" + (to_string editor.sel.anchor.col))
+        str_append r ("|" + (to_string editor.layout.scrollLine))
+        str_append r ("|" + (to_string W))
+        str_append r ("x" + (to_string H))
+        str_append r ("|" + (to_string (this.blinkPhase())))
+        str_append r ("|" + docName)
+        str_append r ("|" + status)
+        if editor.focused {
+            str_append r "|f"
+        }
+        ; Diagnostics can change without an edit — the full pass runs after a
+        ; pause in the typing — so what is currently shown is part of it. Read
+        ; directly rather than through problemCount(), which would run the
+        ; pass this is supposed to be cheaper than.
+        str_append r ("|" + (to_string (array_length editor.diagnostics)))
+        str_append r (":" + (to_string editor.diagVersion))
+        ; The completion list is part of the picture, so opening it has to
+        ; count as a change — otherwise the popup appears on the next blink.
+        if editor.completionOpen {
+            str_append r ("|c" + (to_string (array_length editor.completions)))
+            str_append r (":" + (to_string editor.completionIndex))
+        }
+        return r
     }
 
     ; --- painting -------------------------------------------------------------
@@ -443,7 +506,7 @@ class CodeEditorPage {
         this.pushText(dl hint (to_double (nameW + 28)) 8.0 12.0 barMuted)
 
         editor.setBounds(0 (this.editorTop()) W (this.editorHeight()))
-        editor.paint(dl ctx.tr frame)
+        editor.paint(dl ctx.tr (this.blinkPhase()))
 
         ; status
         def sy:int (H - statusH)

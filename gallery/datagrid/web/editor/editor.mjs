@@ -15,10 +15,10 @@ window.__pageStarted = true;
 const canvas = document.getElementById("screen");
 const ta = document.getElementById("a11y");
 const liveEl = document.getElementById("live");
+const listEl = document.getElementById("suggestions");
 const statusEl = document.getElementById("status");
 const backendEl = document.getElementById("backend");
 const cmdsEl = document.getElementById("cmds");
-const fpsEl = document.getElementById("fps");
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -94,8 +94,6 @@ web.start(canvas.width, canvas.height);
 window.__editorWeb = web;
 
 let pointerDown = false;
-let redraws = 0;
-let fpsT0 = performance.now();
 let lastScene = "";
 let sceneW = canvas.width;
 let sceneH = canvas.height;
@@ -129,7 +127,6 @@ function draw() {
   }
   window.__evgStats = stats;
   window.__editorDoc = doc;
-  redraws += 1;
 }
 
 // --- input -------------------------------------------------------------------
@@ -173,7 +170,8 @@ const KEY_MAP = {
 };
 // The chords the editor answers itself. Everything else keeps its browser
 // meaning — Ctrl+T must still open a tab.
-const CTRL_CHORD = /^[aklzyAKLZY]$/;
+const CTRL_CHORD = /^[aeklzyAEKLZY]$/;
+const CLIPBOARD_CHORD = /^[cxvCXV]$/;
 
 /** Say something to a screen reader, once. */
 function announce(message) {
@@ -215,14 +213,59 @@ function mirrorLine() {
   mirroring = false;
 }
 
+/** The completion list, mirrored into the DOM so it exists for assistive
+ *  technology as well as for the eye. The popup itself is drawn on the canvas,
+ *  which a screen reader cannot see at all — so the textarea becomes a
+ *  combobox, the options live in a hidden listbox, and `aria-activedescendant`
+ *  says which one is picked. */
+let lastCompletionKey = "";
+function mirrorCompletions() {
+  if (!ta || !listEl) return;
+  const open = web.completionOpen();
+  const count = open ? web.completionCount() : 0;
+  const index = open ? web.completionIndex() : -1;
+  const key = open ? count + ":" + index + ":" + web.completionLabel(0) : "";
+  if (key === lastCompletionKey) return;
+  lastCompletionKey = key;
+  ta.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!open) {
+    listEl.replaceChildren();
+    ta.removeAttribute("aria-activedescendant");
+    return;
+  }
+  const rows = [];
+  for (let i = 0; i < count; i += 1) {
+    const li = document.createElement("li");
+    li.id = "cmp-" + i;
+    li.setAttribute("role", "option");
+    li.setAttribute("aria-selected", i === index ? "true" : "false");
+    li.textContent = web.completionLabel(i) + " — " + web.completionDetail(i);
+    rows.push(li);
+  }
+  listEl.replaceChildren(...rows);
+  ta.setAttribute("aria-activedescendant", "cmp-" + index);
+  announce(
+    count + (count === 1 ? " suggestion, " : " suggestions, ") +
+      web.completionLabel(index) + " selected.",
+  );
+}
+
 function afterInput() {
   draw();
+  lastRev = web.revision();
   mirrorLine();
+  mirrorCompletions();
 }
 
 // Focus follows the pointer, but the caret is placed from the canvas: the
 // textarea has `pointer-events: none` so a click reaches the picture.
 canvas.addEventListener("pointerdown", (ev) => {
+  // The browser moves focus on mousedown AFTER this handler runs, and the
+  // canvas is not focusable — so the default action would take the keyboard
+  // straight back off the textarea and give it to <body>. Clicking into the
+  // editor and then typing did nothing at all until this line existed, and no
+  // test caught it because every test focused the editor with the KEYBOARD.
+  ev.preventDefault();
   canvas.setPointerCapture(ev.pointerId);
   ta?.focus({ preventScroll: true });
   pointerDown = true;
@@ -245,6 +288,25 @@ function release(ev) {
   web.pointer(x, y, false, ev.shiftKey, ev.ctrlKey || ev.metaKey);
   afterInput();
 }
+canvas.addEventListener("dblclick", (ev) => {
+  ev.preventDefault();
+  const { x, y } = canvasCoords(ev);
+  web.selectWord(x, y);
+  ta?.focus({ preventScroll: true });
+  afterInput();
+});
+
+// The third click of a burst is a `click` with `detail === 3` — there is no
+// "triple click" event, and `dblclick` has already been and gone by then.
+canvas.addEventListener("click", (ev) => {
+  if (ev.detail < 3) return;
+  ev.preventDefault();
+  const { x, y } = canvasCoords(ev);
+  web.selectLine(x, y);
+  ta?.focus({ preventScroll: true });
+  afterInput();
+});
+
 canvas.addEventListener("pointerup", release);
 canvas.addEventListener("pointercancel", release);
 
@@ -302,8 +364,19 @@ ta?.addEventListener("keydown", (ev) => {
     afterInput();
     return;
   }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === " ") {
+    // Ctrl+Space is the one chord the browser has no opinion about, and the
+    // one every editor uses for "suggest something".
+    ev.preventDefault();
+    web.text(" ", false, true);
+    afterInput();
+    return;
+  }
   if (ev.ctrlKey || ev.metaKey) {
-    if (ev.key === "v" || ev.key === "V") return; // the paste event serves it
+    // c / x / v are NOT handled here: pressing them has to reach the browser
+    // so it fires copy / cut / paste on the textarea, which is the only way to
+    // touch the system clipboard without asking for a permission.
+    if (CLIPBOARD_CHORD.test(ev.key)) return;
     if (CTRL_CHORD.test(ev.key)) {
       ev.preventDefault();
       web.text(ev.key, ev.shiftKey, true);
@@ -379,6 +452,27 @@ ta?.addEventListener("beforeinput", (ev) => {
 
 // Ctrl+V arrives as a paste event in browsers that do not send beforeinput for
 // it; both paths end in the same call, and the model is idempotent about it.
+// Copy and cut answer from the MODEL. Letting the textarea do it is right for
+// a selection inside one line — the mirror holds exactly that — and silently
+// wrong for every other: three selected lines copied one. On macOS it is Cmd,
+// which is why the chord check below tests `metaKey` as well.
+ta?.addEventListener("copy", (ev) => {
+  const text = web.selectionText();
+  if (!text) return; // nothing selected: let the browser do whatever it likes
+  ev.preventDefault();
+  ev.clipboardData?.setData("text/plain", text);
+  announce("Copied " + text.length + " characters.");
+});
+
+ta?.addEventListener("cut", (ev) => {
+  const text = web.cutSelection();
+  if (!text) return;
+  ev.preventDefault();
+  ev.clipboardData?.setData("text/plain", text);
+  announce("Cut " + text.length + " characters.");
+  afterInput();
+});
+
 ta?.addEventListener("paste", (ev) => {
   const text = ev.clipboardData?.getData("text/plain") || "";
   if (!text) return;
@@ -396,15 +490,22 @@ ta?.addEventListener("focus", () => {
 // The caret blinks, so something has to ask for a frame even when nobody is
 // typing. `draw` returns immediately when the scene is unchanged, which it is
 // for 29 frames out of every 30.
+let lastRev = "";
+
 function loop() {
-  web.tick();
-  draw();
-  const now = performance.now();
-  if (now - fpsT0 >= 1000) {
-    fpsEl.textContent = String(redraws);
-    redraws = 0;
-    fpsT0 = now;
+  // Ask the cheap question first. Building the display list and serializing it
+  // is milliseconds of work; `revision()` is a few string joins, and between
+  // keystrokes the answer is the same one it was last frame.
+  const rev = web.revision();
+  if (rev !== lastRev) {
+    lastRev = rev;
+    draw();
   }
+  // No frame counter in the header: the page deliberately does NOT redraw when
+  // nothing changed, so a frames-per-second reading of an idle editor is 2 and
+  // means nothing at all. The numbers worth watching — lines, tokens, lex and
+  // check times, draw commands — are in the status bar, and they come from the
+  // editor rather than from the loop.
   requestAnimationFrame(loop);
 }
 

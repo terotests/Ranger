@@ -23,6 +23,7 @@
 
 Import "lang/EditorLanguage.rgr"
 Import "lang/CodeTokens.rgr"
+Import "lang/Completion.rgr"
 Import "lang/EditorDiagnostic.rgr"
 Import "../../../text_editor/src/EditorBuffer.rgr"
 Import "../../../text_editor/src/EditorSelection.rgr"
@@ -53,6 +54,11 @@ class ScriptEditorTheme {
     def punct:EVGColor (EVGColor.rgb(137 221 255))
     def tag:EVGColor (EVGColor.rgb(247 118 142))
     def attr:EVGColor (EVGColor.rgb(224 175 104))
+    ; The completion popup.
+    def popupBg:EVGColor (EVGColor.rgb(36 40 59))
+    def popupEdge:EVGColor (EVGColor.rgb(65 72 104))
+    def popupPick:EVGColor (EVGColor.rgb(52 63 102))
+    def popupDetail:EVGColor (EVGColor.rgb(118 128 154))
     ; Diagnostics.
     def errorInk:EVGColor (EVGColor.rgb(247 118 142))
     def warningInk:EVGColor (EVGColor.rgb(224 175 104))
@@ -124,6 +130,20 @@ class ScriptEditor {
     def diagnoseBudgetUs:int 8000
     def idleMs:double 350.0
     def lastEditMs:double 0.0
+    ; --- completion -----------------------------------------------------------
+    ; The list, whether it is up, which row is picked, and the column the word
+    ; being completed starts at — replacing from there is what makes accepting
+    ; a suggestion an edit rather than an append.
+    def completions:[Completion]
+    def completionOpen:boolean false
+    def completionIndex:int 0
+    def completionStart:int 0
+    def completionLine:int 0
+    ; How many rows the popup shows at once.
+    def completionRows:int 8
+    ; Whether typing opens the list by itself. A host that wants Ctrl+Space
+    ; only turns this off; nothing else changes.
+    def autoComplete:boolean true
     ; True while what is shown came from the cheap pass alone — the status bar
     ; can say so rather than implying the document has been fully checked.
     def quickOnly:boolean false
@@ -300,6 +320,92 @@ class ScriptEditor {
         return true
     }
 
+    ; --- completion -------------------------------------------------------------
+    ; Ask the plugin. Nothing here knows what a candidate is or why one sorts
+    ; before another — see lang/EditorLanguage.rgr.
+    fn openCompletions:boolean () {
+        def line:int sel.caret.line
+        def col:int sel.caret.col
+        completions = (language.complete(buf.lines line col))
+        def n:int (array_length completions)
+        if (n == 0) {
+            completionOpen = false
+            return false
+        }
+        def text:string (buf.lineAt(line))
+        completionStart = (EditorLanguage.prefixStart(text col))
+        completionLine = line
+        completionIndex = 0
+        completionOpen = true
+        return true
+    }
+
+    fn closeCompletions:void () {
+        completionOpen = false
+        clear completions
+    }
+
+    ; After an edit: keep the list up while the word is still being typed, and
+    ; take it down the moment the caret leaves the word it belongs to.
+    fn refreshCompletions:void () {
+        if (completionOpen == false) {
+            return
+        }
+        if (sel.caret.line != completionLine) {
+            this.closeCompletions()
+            return
+        }
+        if (sel.caret.col < completionStart) {
+            this.closeCompletions()
+            return
+        }
+        this.openCompletions()
+    }
+
+    fn completionCount:int () {
+        return (array_length completions)
+    }
+
+    fn completionAt:Completion (i:int) {
+        return (itemAt completions i)
+    }
+
+    fn moveCompletion:void (delta:int) {
+        def n:int (array_length completions)
+        if (n == 0) {
+            return
+        }
+        def next:int (completionIndex + delta)
+        while (next < 0) {
+            next = (next + n)
+        }
+        while (next >= n) {
+            next = (next - n)
+        }
+        completionIndex = next
+    }
+
+    ; Replace the word being typed with the picked one. Not an insertion: the
+    ; three letters that opened the list are part of what is being replaced.
+    fn acceptCompletion:boolean () {
+        if (completionOpen == false) {
+            return false
+        }
+        def n:int (array_length completions)
+        if (n == 0) {
+            this.closeCompletions()
+            return false
+        }
+        def pick:Completion (itemAt completions completionIndex)
+        def line:int completionLine
+        def from:int completionStart
+        def to:int sel.caret.col
+        this.closeCompletions()
+        def p:EditorPos (buf.replaceRange(line from line to pick.insert true))
+        this.markEdited(p)
+        return true
+    }
+
     ; --- tokens ---------------------------------------------------------------
     fn ensureTokens:void () {
         if (tokenVersion == buf.version) {
@@ -373,7 +479,9 @@ class ScriptEditor {
         push dl.cmds c
     }
 
-    fn paint:void (dl:EVGDisplayList tr:UITextRenderer frame:int) {
+    ; `blink` is a phase, not a frame count: the page derives it from the
+    ; clock so a page that only repaints when something changed still blinks.
+    fn paint:void (dl:EVGDisplayList tr:UITextRenderer blink:int) {
         layout.syncMetrics(tr)
         layout.clampScroll(buf)
         this.ensureTokens()
@@ -427,8 +535,7 @@ class ScriptEditor {
         ; Caret: on for half a second, off for half a second, at 60 fps.
         if focused {
             if ((caretLine >= first) && (caretLine <= last)) {
-                def phase:int (idiv frame 30)
-                def on:int (phase - ((idiv phase 2) * 2))
+                def on:int (blink - ((idiv blink 2) * 2))
                 if (on == 0) {
                     def cx:int (layout.caretPixelX(tr buf caretLine sel.caret.col))
                     def cy:int (layout.caretPixelY(caretLine))
@@ -436,6 +543,10 @@ class ScriptEditor {
                 }
             }
         }
+        ; The completion list, over the text and inside the panel's clip: a
+        ; popup that could be drawn outside the editor would be drawn over the
+        ; status bar the first time someone typed on the last line.
+        this.paintCompletions(dl tr)
         this.popClip(dl)
         def edge:EVGDrawCmd (new EVGDrawCmd)
         edge.kind = 1
@@ -449,6 +560,93 @@ class ScriptEditor {
         edge.b = (theme.border.blue())
         edge.a = (theme.border.alpha())
         push dl.cmds edge
+    }
+
+    fn paintCompletions:void (dl:EVGDisplayList tr:UITextRenderer) {
+        if (completionOpen == false) {
+            return
+        }
+        def n:int (array_length completions)
+        if (n == 0) {
+            return
+        }
+        def shown:int n
+        if (shown > completionRows) {
+            shown = completionRows
+        }
+        ; Scroll the window of rows so the picked one is always in it.
+        def first:int 0
+        if (completionIndex >= shown) {
+            first = ((completionIndex - shown) + 1)
+        }
+        def rowH:int (layout.lineHeight + 2)
+        def widest:double 120.0
+        def i:int 0
+        while (i < shown) {
+            def c:Completion (itemAt completions (first + i))
+            def w:double (tr.measureWidth((c.label + "   " + c.detail) layout.fontSize))
+            if (w > widest) {
+                widest = w
+            }
+            i = (i + 1)
+        }
+        def boxW:double (widest + 28.0)
+        def boxH:double (to_double (rowH * shown))
+        def x:double (to_double (layout.caretPixelX(tr buf completionLine completionStart)))
+        def y:double (to_double ((layout.caretPixelY(completionLine)) + layout.lineHeight + 2))
+        ; Flip above the caret when there is no room below it.
+        def bottom:double (y + boxH)
+        def limit:double (to_double (layout.y + layout.h))
+        if (bottom > limit) {
+            y = ((to_double (layout.caretPixelY(completionLine))) - boxH - 2.0)
+        }
+        def right:double (x + boxW)
+        def edgeX:double (to_double ((layout.x + layout.w) - 8))
+        if (right > edgeX) {
+            x = (edgeX - boxW)
+        }
+        if (x < (to_double layout.x)) {
+            x = (to_double layout.x)
+        }
+        this.pushRect(dl (x + 2.0) (y + 2.0) boxW boxH (EVGColor.rgba(10 12 20 0.45)))
+        this.pushRect(dl x y boxW boxH theme.popupBg)
+        def border:EVGDrawCmd (new EVGDrawCmd)
+        border.kind = 1
+        border.x = x
+        border.y = y
+        border.w = boxW
+        border.h = boxH
+        border.thickness = 1.0
+        border.r = (theme.popupEdge.red())
+        border.g = (theme.popupEdge.green())
+        border.b = (theme.popupEdge.blue())
+        border.a = (theme.popupEdge.alpha())
+        push dl.cmds border
+        def r:int 0
+        while (r < shown) {
+            def idx:int (first + r)
+            def c2:Completion (itemAt completions idx)
+            def ry:double (y + (to_double (rowH * r)))
+            def ink:EVGColor theme.plain
+            if (idx == completionIndex) {
+                this.pushRect(dl (x + 1.0) ry (boxW - 2.0) (to_double rowH) theme.popupPick)
+            }
+            if (c2.kind == (CompletionKind.builtin())) {
+                ink = theme.builtin
+            }
+            if (c2.kind == (CompletionKind.keyword())) {
+                ink = theme.keyword
+            }
+            this.pushText(dl tr c2.label (x + 8.0) (ry + 1.0) layout.fontSize ink)
+            def labelW:double (tr.measureWidth(c2.label layout.fontSize))
+            this.pushText(dl tr c2.detail ((x + 20.0) + labelW) (ry + 1.0) (layout.fontSize * 0.85) theme.popupDetail)
+            r = (r + 1)
+        }
+        ; How many are not shown, said rather than implied by a scrollbar.
+        if (n > shown) {
+            def more:string ("+" + (to_string (n - shown)) + " more")
+            this.pushText(dl tr more (x + 8.0) (y + boxH + 1.0) (layout.fontSize * 0.8) theme.popupDetail)
+        }
     }
 
     ; A wave, drawn as rectangles rather than a font glyph or a path: every
@@ -674,6 +872,7 @@ class ScriptEditor {
 
     fn backspace:void () {
         if (this.deleteSelection()) {
+            this.refreshCompletions()
             return
         }
         def line:int sel.caret.line
@@ -690,6 +889,7 @@ class ScriptEditor {
         def before:EditorPos (buf.moveCodepoint(line col -1))
         def p2:EditorPos (buf.deleteRange(before.line before.col line col))
         this.markEdited(p2)
+        this.refreshCompletions()
     }
 
     fn deleteForward:void () {
@@ -733,6 +933,33 @@ class ScriptEditor {
         def keep:int want
         this.moveCaret(line col extend)
         layout.preferCol = keep
+    }
+
+    ; --- the clipboard's half of the model --------------------------------------
+    ; The host owns the system clipboard; what belongs here is the text a
+    ; selection stands for, across as many lines as it covers. The browser
+    ; page used to let the hidden textarea answer Ctrl+C by itself, which is
+    ; right for a selection inside one line and silently WRONG for any other:
+    ; the mirror only ever holds the caret's line, so a three-line selection
+    ; copied one line and lost the rest without saying so.
+    fn selectionText:string () {
+        if (sel.isCollapsed()) {
+            return ""
+        }
+        def a:EditorPos (new EditorPos)
+        def b:EditorPos (new EditorPos)
+        sel.normalized(a b)
+        return (buf.textInRange(a.line a.col b.line b.col))
+    }
+
+    ; Cut is copy plus this, and the host does them in that order.
+    fn cutSelection:string () {
+        def text:string (this.selectionText())
+        if ((strlen text) == 0) {
+            return ""
+        }
+        this.deleteSelection()
+        return text
     }
 
     fn selectAll:void () {
@@ -860,6 +1087,35 @@ class ScriptEditor {
 
     ; --- input ----------------------------------------------------------------
     fn handleKey:boolean (key:int shift:boolean ctrl:boolean) {
+        ; While the list is up it owns the keys that mean "which one" — and
+        ; only those. Everything else keeps its meaning, which is what makes a
+        ; completion list something you can ignore.
+        if completionOpen {
+            if (key == (UIKey.up())) {
+                this.moveCompletion(-1)
+                return true
+            }
+            if (key == (UIKey.down())) {
+                this.moveCompletion(1)
+                return true
+            }
+            if (key == (UIKey.enter())) {
+                return (this.acceptCompletion())
+            }
+            if (key == (UIKey.tab())) {
+                return (this.acceptCompletion())
+            }
+            if (key == (UIKey.escape())) {
+                this.closeCompletions()
+                return true
+            }
+            if (key == (UIKey.left())) {
+                this.closeCompletions()
+            }
+            if (key == (UIKey.right())) {
+                this.closeCompletions()
+            }
+        }
         if (key == (UIKey.left())) {
             if ctrl {
                 this.moveWord(-1 shift)
@@ -969,17 +1225,64 @@ class ScriptEditor {
             return false
         }
         this.insert(s)
+        ; Two word characters is the point where a guess is worth making. Under
+        ; that the list is everything, which is not a suggestion.
+        if completionOpen {
+            this.refreshCompletions()
+        } {
+            if (autoComplete) {
+                def line:string (buf.lineAt(sel.caret.line))
+                def prefix:string (EditorLanguage.prefixAt(line sel.caret.col))
+                if ((strlen prefix) >= 2) {
+                    this.openCompletions()
+                }
+            }
+        }
         return true
+    }
+
+    ; Ctrl+Space: ask for the list whatever the prefix is.
+    fn requestCompletions:boolean () {
+        return (this.openCompletions())
     }
 
     fn pointerDown:void (tr:UITextRenderer px:int py:int extend:boolean) {
         focused = true
+        this.closeCompletions()
         def hit:EditorPos (layout.hitTest(tr buf px py))
         this.moveCaret(hit.line hit.col extend)
         layout.preferCol = sel.caret.col
         if (extend == false) {
             sel.setAnchor(hit.line hit.col)
         }
+    }
+
+    ; Double click takes the word under the pointer, triple click the line —
+    ; the two selections every text surface has, and the ones `EditorWord`
+    ; already knows how to find, so a word means the same thing here as it does
+    ; to Ctrl+arrow.
+    fn selectWordAt:void (tr:UITextRenderer px:int py:int) {
+        focused = true
+        this.closeCompletions()
+        def hit:EditorPos (layout.hitTest(tr buf px py))
+        def s:string (buf.lineAt(hit.line))
+        def from:int (EditorWord.wordStart(s hit.col))
+        def to:int (EditorWord.wordEnd(s hit.col))
+        sel.setAnchor(hit.line from)
+        sel.setCaret(hit.line to)
+        layout.preferCol = to
+        layout.ensureCaretVisible(buf sel)
+    }
+
+    fn selectLineAt:void (tr:UITextRenderer px:int py:int) {
+        focused = true
+        this.closeCompletions()
+        def hit:EditorPos (layout.hitTest(tr buf px py))
+        def len:int (strlen (buf.lineAt(hit.line)))
+        sel.setAnchor(hit.line 0)
+        sel.setCaret(hit.line len)
+        layout.preferCol = len
+        layout.ensureCaretVisible(buf sel)
     }
 
     fn pointerDrag:void (tr:UITextRenderer px:int py:int) {

@@ -1,0 +1,55 @@
+; ==============================================================================
+; Completion.rgr — one thing the editor could type for you
+; ==============================================================================
+;
+; Deliberately thin. A completion is a word, a note about where it came from,
+; and a kind the painter can colour by — not a snippet engine, not a template
+; language, and not a promise about types. What makes the list useful is which
+; words are in it, and that is the plugin's business.
+; ==============================================================================
+
+class CompletionKind {
+    sfn keyword:int ()  { return 0 }
+    sfn builtin:int ()  { return 1 }
+    sfn word:int ()     { return 2 }
+    sfn member:int ()   { return 3 }
+
+    sfn name:string (kind:int) {
+        if (kind == 0) {
+            return "keyword"
+        }
+        if (kind == 1) {
+            return "api"
+        }
+        if (kind == 3) {
+            return "member"
+        }
+        return "word"
+    }
+}
+
+class Completion {
+    def label:string ""
+    ; What is written where the caret is. Usually the label; a plugin that
+    ; completes `sheetRows(` rather than `sheetRows` puts that here.
+    def insert:string ""
+    ; The grey half of the row: where this came from, or what it is.
+    def detail:string ""
+    def kind:int 0
+    ; Lower sorts first. A plugin decides what "better" means for its language;
+    ; the editor does not re-rank.
+    def rank:int 0
+
+    Constructor () {
+    }
+
+    sfn create:Completion (label:string detail:string kind:int rank:int) {
+        def c:Completion (new Completion)
+        c.label = label
+        c.insert = label
+        c.detail = detail
+        c.kind = kind
+        c.rank = rank
+        return c
+    }
+}

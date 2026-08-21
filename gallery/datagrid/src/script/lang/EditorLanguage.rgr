@@ -29,6 +29,7 @@
 
 Import "EditorDiagnostic.rgr"
 Import "CodeTokens.rgr"
+Import "Completion.rgr"
 
 class EditorLanguage {
     Constructor () {
@@ -88,7 +89,158 @@ class EditorLanguage {
         return out
     }
 
+    ; What could be typed here. `line` and `col` are where the caret is; the
+    ; plugin decides what counts as the word being completed and what may
+    ; follow it, because "what is a word" is already a language question.
+    ;
+    ; Called on a keystroke, so the same rule as quickDiagnose applies: answer
+    ; from what is cheap to know. Neither plugin here parses to do it.
+    fn complete:[Completion] (lines:[string] line:int col:int) {
+        def none:[Completion]
+        return none
+    }
+
     ; --- helpers every plugin needs --------------------------------------------
+    ; The word being typed, ending at the caret. Shared because every language
+    ; that has identifiers agrees about this much, and a plugin that disagrees
+    ; can ignore it.
+    sfn prefixAt:string (line:string col:int) {
+        def start:int (EditorLanguage.prefixStart(line col))
+        return (substring line start col)
+    }
+
+    sfn prefixStart:int (line:string col:int) {
+        def i:int col
+        def n:int (strlen line)
+        if (i > n) {
+            i = n
+        }
+        while (i > 0) {
+            def ch:int (charAt line (i - 1))
+            def word:boolean false
+            if ((ch >= 65) && (ch <= 90)) {
+                word = true
+            }
+            if ((ch >= 97) && (ch <= 122)) {
+                word = true
+            }
+            if ((ch >= 48) && (ch <= 57)) {
+                word = true
+            }
+            if (ch == 95) {
+                word = true
+            }
+            if (ch == 36) {
+                word = true
+            }
+            if (word == false) {
+                return i
+            }
+            i = (i - 1)
+        }
+        return 0
+    }
+
+    ; Case-insensitive prefix match — what every completion list does, because
+    ; nobody wants to remember whether the API said `sheetRows` or `SheetRows`.
+    sfn matchesPrefix:boolean (candidate:string prefix:string) {
+        def pn:int (strlen prefix)
+        if (pn == 0) {
+            return true
+        }
+        if ((strlen candidate) < pn) {
+            return false
+        }
+        def head:string (substring candidate 0 pn)
+        return ((EditorLanguage.lower(head)) == (EditorLanguage.lower(prefix)))
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if ((ch >= 65) && (ch <= 90)) {
+                ch = (ch + 32)
+            }
+            str_append out (strfromcode ch)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Every distinct word in the document, so a name typed once can be typed
+    ; again with three letters. Cheap: one pass, no parse, and the caller caps
+    ; how many it keeps.
+    sfn wordsIn:[string] (lines:[string] skip:string limit:int) {
+        def out:[string]
+        def li:int 0
+        def ln:int (array_length lines)
+        while (li < ln) {
+            def s:string (itemAt lines li)
+            def n:int (strlen s)
+            def i:int 0
+            while (i < n) {
+                def start:int i
+                def isWord:boolean false
+                while (i < n) {
+                    def ch:int (charAt s i)
+                    def w:boolean false
+                    if ((ch >= 65) && (ch <= 90)) {
+                        w = true
+                    }
+                    if ((ch >= 97) && (ch <= 122)) {
+                        w = true
+                    }
+                    if (ch == 95) {
+                        w = true
+                    }
+                    if isWord {
+                        if ((ch >= 48) && (ch <= 57)) {
+                            w = true
+                        }
+                    }
+                    if (w == false) {
+                        break
+                    }
+                    isWord = true
+                    i = (i + 1)
+                }
+                if isWord {
+                    def word:string (substring s start i)
+                    if ((strlen word) > 2) {
+                        if (word != skip) {
+                            if ((EditorLanguage.isInList(word out)) == false) {
+                                if ((array_length out) < limit) {
+                                    push out word
+                                }
+                            }
+                        }
+                    }
+                } {
+                    i = (i + 1)
+                }
+            }
+            li = (li + 1)
+        }
+        return out
+    }
+
+    sfn isInList:boolean (word:string list:[string]) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            def w:string (itemAt list i)
+            if (w == word) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+
     sfn hasSuffix:boolean (s:string suffix:string) {
         def n:int (strlen suffix)
         def len:int (strlen s)
