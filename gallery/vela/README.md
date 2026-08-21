@@ -115,6 +115,13 @@ It has a page of its own on the [EVG showcase](https://terotests.github.io/Range
 built it, read out of the generating tool's own source so the two cannot drift
 apart. It is the only page there that no specification was written for.
 
+And a **live** one beside it at
+[`/evg/chart-api/`](https://terotests.github.io/Ranger/evg/chart-api/): the API
+compiled to a browser bundle, with a page that dispatches the lines you type to
+it method by method and redraws as you edit — the calls, the Vega-Lite they
+built, and the Vega it compiles to, all three on the page. `npm run
+showcase:api` opens it in a real browser and checks that it runs.
+
 [**CHART_API.md**](CHART_API.md) is the design: what was taken from AntV G2,
 Observable Plot, Vega-Lite and ECharts, the whole surface, how it is checked,
 and what is not there yet.
@@ -1084,6 +1091,7 @@ gallery/vela/
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
 │   ├── vela_chart.rgr    charts built by CALLING the API, drawn to SVG
 │   ├── vela_chart_page.rgr  the same, as a showcase page that prints the calls
+│   ├── vela_chart_web.rgr   the API, dispatched from a browser: /evg/chart-api/
 │   ├── vela_web.rgr      the same, with no file system: for the browser
 │   └── reference/        the harness that compares against official Vega
 ├── web/                  paste a specification, see what it draws

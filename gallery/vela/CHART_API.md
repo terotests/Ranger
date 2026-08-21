@@ -279,6 +279,47 @@ takes. Three defects came out of six demo charts, none of them in the API.
 None of the three is about the API. All three were invisible from the specs the
 suite already had, which is the argument for the front door existing.
 
+## A page that runs the API rather than showing what it drew
+
+A PDF proves the API built a chart **once, on a build machine, in Node**. It
+says nothing about whether the thing that drew it still runs where a reader is.
+`tools/vela_chart_web.rgr` is the other half: the API compiled to a browser
+bundle, and a page that dispatches what a reader types to it —
+
+```
+gallery/evg/showcase/dist/chart-api/     →  published at /evg/chart-api/
+```
+
+Type `chart.bar().x("region")` and the page calls `VlChart.bar()` and then
+`VlChartMark.x("region")`; the chart redraws as you edit, and the Vega-Lite
+those calls built is on the tab beside it. Edit the **data** and it redraws
+too, which is the difference between a live page and a picture of one.
+
+It is an interpreter over the real methods and not a second implementation:
+there is no chart type anywhere in that file and no specification is written by
+hand. A name the API does not have is refused *by name* —
+
+```
+line 2: a chart has no method 'colour'
+'x' needs its argument in quotes: region
+the data has no column called 'profit'
+```
+
+— because a playground that quietly ignored a line would teach the wrong API.
+The third of those is the API's own check, running in the browser: the dataset
+is there, so it knows what is in it.
+
+```bash
+npm run showcase        # build it into gallery/evg/showcase/dist/chart-api
+npm run showcase:api    # open it in a real browser and check that it RUNS
+```
+
+The browser check is the point of the exercise, so it checks through the page
+rather than around it: every preset draws a different chart, an unknown method
+is refused by name, editing the data redraws, the inferred column types are
+shown, the specification and the Vega are both on the page, and a page error or
+a console error fails the run. **16 checks, in Chromium.**
+
 ## What two other catalogues say is missing
 
 An API is only as wide as the charts underneath it, so the surface was measured
