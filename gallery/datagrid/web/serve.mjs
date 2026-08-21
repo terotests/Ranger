@@ -7,6 +7,11 @@
  *           → gallery/evg/gl/evg-webgl.js (WebGL 2)
  *
  *   node gallery/datagrid/web/serve.mjs [--port 8766] [--open] [--headless-smoke]
+ *
+ *   --db <engine>   open a DATABASE sheet instead of an .xlsx: "auto" (DuckDB
+ *                   if installed, else SQLite, else RangerDB), or name one.
+ *                   --db-dsn (default :memory:), --db-table (default sales),
+ *                   --db-rows (rows to seed an empty table with).
  */
 import http from "node:http";
 import fs from "node:fs";
@@ -33,14 +38,25 @@ const PORT = parseInt(argVal("--port", "8766"), 10);
 const DO_OPEN = hasFlag("--open");
 const HEADLESS_SMOKE = hasFlag("--headless-smoke");
 
-const modPath = path.resolve(__dirname, "../bin/grid_app_module.cjs");
+// A database sheet needs the module that carries the engine adapters with it;
+// the plain viewer build deliberately does not have them, so that the C++ /
+// SDL build never compiles a JavaScript host binding.
+const DB_DRIVER = argVal("--db", "");
+const modName = DB_DRIVER ? "grid_db_module.cjs" : "grid_app_module.cjs";
+const modPath = path.resolve(__dirname, "../bin/" + modName);
 if (!fs.existsSync(modPath)) {
   console.error("Missing " + modPath);
-  console.error("Run: npm run datagrid:module");
+  console.error("Run: npm run " + (DB_DRIVER ? "datagrid:db:module" : "datagrid:module"));
   process.exit(1);
 }
 
-const { GridApp, UIInput, UIKey } = require(modPath);
+// Where the compiled Ranger finds its SQL host. Resolved here rather than from
+// the process's working directory, so the server runs from anywhere.
+process.env.RANGERDB_HOST =
+  process.env.RANGERDB_HOST ||
+  path.resolve(ROOT, "gallery/rangerdb/host/sync_sql.cjs");
+
+const { GridApp, UIInput, UIKey, GridDbLauncher } = require(modPath);
 const fontDir = path.resolve(ROOT, "gallery/pdf_writer/assets/fonts");
 const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
 
@@ -48,12 +64,29 @@ const app = new GridApp();
 app.init(fontDir);
 // Default showcase workbook (M4+): multi-sheet, formats, formulas, CF.
 // Override: node serve.mjs --xlsx gallery/datagrid/fixtures/sales.xlsx
+let dbLauncher = null;
+if (DB_DRIVER) {
+  dbLauncher = new GridDbLauncher();
+  const ok = dbLauncher.start(
+    app,
+    DB_DRIVER === "auto" ? "" : DB_DRIVER,
+    argVal("--db-dsn", ":memory:"),
+    argVal("--db-table", "sales"),
+    parseInt(argVal("--db-rows", "120"), 10),
+  );
+  console.log("  engines: " + GridDbLauncher.availableList());
+  console.log((ok ? "  " : "  database failed: ") + dbLauncher.status);
+  if (!ok) process.exit(1);
+}
 const xlsxArg = argVal("--xlsx", "");
 const xlsxPath = path.resolve(
   ROOT,
   xlsxArg || "gallery/datagrid/fixtures/business-workbook.xlsx",
 );
-if (fs.existsSync(xlsxPath)) {
+if (DB_DRIVER) {
+  // The database sheet IS the document here; loading a workbook on top of it
+  // would replace the book the sheet lives in.
+} else if (fs.existsSync(xlsxPath)) {
   const password = argVal("--password", "");
   const ok = password
     ? app.loadXlsxPassword(xlsxPath, password)

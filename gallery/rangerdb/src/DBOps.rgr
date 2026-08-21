@@ -1,0 +1,514 @@
+; ==============================================================================
+; DBOps - the relational operators, over chunks.
+; ==============================================================================
+;
+; Filter / Project / Sort / Limit / Aggregate, each taking a DataChunk and
+; producing a DataChunk. They live here rather than inside RangerDB because
+; they have two callers:
+;
+;   1. RangerDB, which executes a QuerySpec with them and nothing else;
+;   2. DBSession, which runs whatever part of a QuerySpec the backend it is
+;      talking to said it could NOT do (DBCapabilities). A backend that cannot
+;      group has its rows grouped here, and the caller never learns the
+;      difference.
+;
+; That is the point of stating capabilities instead of assuming them: a backend
+; implements what it can do well, and the missing half runs over the chunks it
+; did return.
+; ==============================================================================
+
+Import "DataChunk.rgr"
+Import "DBQuery.rgr"
+
+class DBOps {
+    ; ---------------------------------------------------------------- filter --
+    sfn filterChunk:DataChunk (input:DataChunk f:DBFilter) {
+        def out:DataChunk (input.shapeCopy())
+        if (f.isEmpty()) {
+            def i0:int 0
+            while (i0 < input.rowCount) {
+                out.appendRowFrom(input i0)
+                i0 = (i0 + 1)
+            }
+            return out
+        }
+        def i:int 0
+        while (i < input.rowCount) {
+            if (f.matchesRow(input i)) {
+                out.appendRowFrom(input i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------- project --
+    ; Column subset and order. A name the input does not have is dropped rather
+    ; than invented: a projection is not a place to fail a whole query.
+    sfn projectChunk:DataChunk (input:DataChunk names:[string]) {
+        def n:int (array_length names)
+        if (n == 0) {
+            return input
+        }
+        def out:DataChunk (new DataChunk)
+        def picked:[int]
+        def i:int 0
+        while (i < n) {
+            def name:string (itemAt names i)
+            def ci:int (input.columnIndex(name))
+            if (ci >= 0) {
+                def col:DBColumn (input.columnAt(ci))
+                out.addColumn((col.copy()))
+                push picked ci
+            }
+            i = (i + 1)
+        }
+        def rows:int input.rowCount
+        def r:int 0
+        while (r < rows) {
+            def c:int 0
+            def m:int (array_length picked)
+            while (c < m) {
+                def src:ValueVector (input.vectorAt((itemAt picked c)))
+                def dst:ValueVector (out.vectorAt(c))
+                dst.appendFrom(src r)
+                c = (c + 1)
+            }
+            out.rowCount = (out.rowCount + 1)
+            r = (r + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------ sort --
+    ; Stable merge sort over an index array. Stability matters: sorting by
+    ; region and then by revenue is how a spreadsheet user expects two sorts to
+    ; compose, and an unstable sort quietly loses the first one.
+    sfn sortChunk:DataChunk (input:DataChunk sorts:[DBSort]) {
+        def ns:int (array_length sorts)
+        if (ns == 0) {
+            return input
+        }
+        def order:[int]
+        def i:int 0
+        while (i < input.rowCount) {
+            push order i
+            i = (i + 1)
+        }
+        def cols:[int]
+        def dirs:[boolean]
+        def si:int 0
+        while (si < ns) {
+            def s:DBSort (itemAt sorts si)
+            push cols (input.columnIndex(s.column))
+            push dirs s.ascending
+            si = (si + 1)
+        }
+        def sorted:[int] (DBOps.mergeSort(input order cols dirs))
+        def out:DataChunk (input.shapeCopy())
+        def k:int 0
+        def cnt:int (array_length sorted)
+        while (k < cnt) {
+            out.appendRowFrom(input (itemAt sorted k))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn mergeSort:[int] (chunk:DataChunk order:[int] cols:[int] dirs:[boolean]) {
+        def n:int (array_length order)
+        if (n < 2) {
+            return order
+        }
+        def mid:int (idiv n 2)
+        def left:[int]
+        def right:[int]
+        def i:int 0
+        while (i < mid) {
+            push left (itemAt order i)
+            i = (i + 1)
+        }
+        while (i < n) {
+            push right (itemAt order i)
+            i = (i + 1)
+        }
+        def ls:[int] (DBOps.mergeSort(chunk left cols dirs))
+        def rs:[int] (DBOps.mergeSort(chunk right cols dirs))
+        def out:[int]
+        def a:int 0
+        def b:int 0
+        def la:int (array_length ls)
+        def lb:int (array_length rs)
+        while (true) {
+            if (a >= la) {
+                break
+            }
+            if (b >= lb) {
+                break
+            }
+            def ra:int (itemAt ls a)
+            def rb:int (itemAt rs b)
+            def c:int (DBOps.compareRows(chunk ra rb cols dirs))
+            if (c <= 0) {
+                push out ra
+                a = (a + 1)
+            } {
+                push out rb
+                b = (b + 1)
+            }
+        }
+        while (a < la) {
+            push out (itemAt ls a)
+            a = (a + 1)
+        }
+        while (b < lb) {
+            push out (itemAt rs b)
+            b = (b + 1)
+        }
+        return out
+    }
+
+    sfn compareRows:int (chunk:DataChunk rowA:int rowB:int cols:[int] dirs:[boolean]) {
+        def n:int (array_length cols)
+        def i:int 0
+        while (i < n) {
+            def ci:int (itemAt cols i)
+            if (ci >= 0) {
+                def va:DBValue (chunk.valueAt(rowA ci))
+                def vb:DBValue (chunk.valueAt(rowB ci))
+                def c:int (va.compareWith(vb))
+                if (c != 0) {
+                    def asc:boolean (itemAt dirs i)
+                    if asc {
+                        return c
+                    }
+                    return (0 - c)
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; ----------------------------------------------------------------- limit --
+    sfn limitChunk:DataChunk (input:DataChunk offset:int limit:int) {
+        if (offset <= 0) {
+            if (limit <= 0) {
+                return input
+            }
+            if (limit >= input.rowCount) {
+                return input
+            }
+        }
+        def out:DataChunk (input.shapeCopy())
+        def start:int offset
+        if (start < 0) {
+            start = 0
+        }
+        def stop:int input.rowCount
+        if (limit > 0) {
+            def wanted:int (start + limit)
+            if (wanted < stop) {
+                stop = wanted
+            }
+        }
+        def i:int start
+        while (i < stop) {
+            out.appendRowFrom(input i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------- aggregate --
+    sfn aggregateChunk:DataChunk (input:DataChunk groupBy:[string] aggs:[DBAggregate]) {
+        def acc:AggState (new AggState)
+        acc.begin(input groupBy aggs)
+        acc.consume(input)
+        return (acc.finish())
+    }
+
+    ; The group key is the grouping columns as text, joined by a unit separator
+    ; (ASCII 31) so the map can be a plain [string:int] on every target.
+    sfn groupKeyOf:string (chunk:DataChunk row:int cols:[int]) {
+        def sep:string (strfromcode 31)
+        def key:string ""
+        def n:int (array_length cols)
+        def i:int 0
+        while (i < n) {
+            def ci:int (itemAt cols i)
+            def part:string ""
+            if (ci >= 0) {
+                part = (chunk.stringAt(row ci))
+            }
+            key = (key + sep + part)
+            i = (i + 1)
+        }
+        return key
+    }
+
+    ; -------------------------------------------------------------- pipeline --
+    ; Everything a QuerySpec says, applied to rows that are already in memory.
+    ; RangerDB runs this after its scan; DBSession runs the leftovers of it
+    ; after a backend has done as much as it could.
+    sfn applySpec:DataChunk (input:DataChunk spec:QuerySpec) {
+        def rows:DataChunk (DBOps.filterChunk(input spec.filter))
+        if (spec.hasAggregates()) {
+            def grouped:DataChunk (DBOps.aggregateChunk(rows spec.groupBy spec.aggregates))
+            def sortedG:DataChunk (DBOps.sortChunk(grouped spec.sorts))
+            return (DBOps.limitChunk(sortedG spec.offset spec.limit))
+        }
+        def projected:DataChunk (DBOps.projectChunk(rows spec.columns))
+        def sorted:DataChunk (DBOps.sortChunk(projected spec.sorts))
+        return (DBOps.limitChunk(sorted spec.offset spec.limit))
+    }
+}
+
+; Accumulator for GROUP BY, kept as a class so a scan can feed it chunk after
+; chunk without ever materialising the rows it is summarising. That is the one
+; thing a columnar engine must not lose: SUM over ten million rows should cost
+; ten million adds and one output row, not ten million row objects.
+class AggState {
+    def groupCols:[int]
+    def groupNames:[string]
+    def aggs:[DBAggregate]
+    def aggCols:[int]
+    def keyIndex:[string:int]
+    def keys:[string]
+    ; The grouping columns' values, one single-row chunk per group.
+    def keyValues:[DataChunk]
+    def counts:[int]
+    ; Flat accumulators, indexed group * aggCount + agg.
+    def sums:[double]
+    def mins:[DBValue]
+    def maxs:[DBValue]
+    def seen:[boolean]
+    def nonNull:[int]
+    def outColumns:[DBColumn]
+
+    Constructor () {
+    }
+
+    fn begin:void (input:DataChunk groupBy:[string] aggregates:[DBAggregate]) {
+        def gn:int (array_length groupBy)
+        def i:int 0
+        while (i < gn) {
+            def name:string (itemAt groupBy i)
+            push groupNames name
+            push groupCols (input.columnIndex(name))
+            i = (i + 1)
+        }
+        def an:int (array_length aggregates)
+        i = 0
+        while (i < an) {
+            def a:DBAggregate (itemAt aggregates i)
+            push aggs a
+            push aggCols (input.columnIndex(a.column))
+            i = (i + 1)
+        }
+        ; Output shape: the grouping columns as they were, then one column per
+        ; aggregate. COUNT is an int, AVG is always a double, MIN and MAX keep
+        ; the kind of the column they read.
+        i = 0
+        while (i < gn) {
+            def gcIdx:int (itemAt groupCols i)
+            def gname:string (itemAt groupNames i)
+            def kind:int 4
+            if (gcIdx >= 0) {
+                def gcol:DBColumn (input.columnAt(gcIdx))
+                kind = gcol.kind
+            }
+            push outColumns (DBColumn.create(gname kind))
+            i = (i + 1)
+        }
+        i = 0
+        while (i < an) {
+            def a2:DBAggregate (itemAt aggs i)
+            def akind:int 3
+            if (a2.fnKind == 0) {
+                akind = 2
+            }
+            if (a2.fnKind == 3) {
+                akind = (this.sourceKind(input i))
+            }
+            if (a2.fnKind == 4) {
+                akind = (this.sourceKind(input i))
+            }
+            push outColumns (DBColumn.create(a2.alias akind))
+            i = (i + 1)
+        }
+    }
+
+    fn sourceKind:int (input:DataChunk aggIndex:int) {
+        def ci:int (itemAt aggCols aggIndex)
+        if (ci < 0) {
+            return 3
+        }
+        def c:DBColumn (input.columnAt(ci))
+        return c.kind
+    }
+
+    fn consume:void (input:DataChunk) {
+        def an:int (array_length aggs)
+        def r:int 0
+        while (r < input.rowCount) {
+            def key:string (DBOps.groupKeyOf(input r groupCols))
+            def gi:int -1
+            def found@(optional):int (get keyIndex key)
+            if (!null? found) {
+                gi = (unwrap found)
+            }
+            if (gi < 0) {
+                gi = (array_length keys)
+                push keys key
+                set keyIndex key gi
+                push counts 0
+                def kv:DataChunk (new DataChunk)
+                def gc:int 0
+                def gn:int (array_length groupCols)
+                while (gc < gn) {
+                    def gcIdx:int (itemAt groupCols gc)
+                    def kind:int 4
+                    if (gcIdx >= 0) {
+                        def col:DBColumn (input.columnAt(gcIdx))
+                        kind = col.kind
+                    }
+                    def vec:ValueVector (kv.addColumn((DBColumn.create((itemAt groupNames gc) kind))))
+                    if (gcIdx >= 0) {
+                        vec.appendValue((input.valueAt(r gcIdx)))
+                    } {
+                        vec.appendNull()
+                    }
+                    gc = (gc + 1)
+                }
+                kv.rowCount = 1
+                push keyValues kv
+                def a:int 0
+                while (a < an) {
+                    push sums 0.0
+                    push nonNull 0
+                    push seen false
+                    push mins (new DBValue)
+                    push maxs (new DBValue)
+                    a = (a + 1)
+                }
+            }
+            def c0:int (itemAt counts gi)
+            set_at counts gi (c0 + 1)
+            def ai:int 0
+            while (ai < an) {
+                def slot:int ((gi * an) + ai)
+                def colIdx:int (itemAt aggCols ai)
+                if (colIdx >= 0) {
+                    def v:DBValue (input.valueAt(r colIdx))
+                    if (v.isNull == false) {
+                        set_at nonNull slot ((itemAt nonNull slot) + 1)
+                        set_at sums slot ((itemAt sums slot) + (v.asDouble()))
+                        def wasSeen:boolean (itemAt seen slot)
+                        if wasSeen {
+                            def curMin:DBValue (itemAt mins slot)
+                            if ((v.compareWith(curMin)) < 0) {
+                                set_at mins slot v
+                            }
+                            def curMax:DBValue (itemAt maxs slot)
+                            if ((v.compareWith(curMax)) > 0) {
+                                set_at maxs slot v
+                            }
+                        } {
+                            set_at mins slot v
+                            set_at maxs slot v
+                            set_at seen slot true
+                        }
+                    }
+                }
+                ai = (ai + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn finish:DataChunk () {
+        def out:DataChunk (new DataChunk)
+        def cn:int (array_length outColumns)
+        def i:int 0
+        while (i < cn) {
+            out.addColumn((itemAt outColumns i))
+            i = (i + 1)
+        }
+        def gn:int (array_length groupCols)
+        def an:int (array_length aggs)
+        def groups:int (array_length keys)
+        ; No grouping columns and no rows still has an answer: COUNT is 0 and
+        ; SUM of nothing is null, the way SQL says.
+        if (groups == 0) {
+            if (gn == 0) {
+                def vals:[DBValue]
+                def a0:int 0
+                while (a0 < an) {
+                    def agg0:DBAggregate (itemAt aggs a0)
+                    if (agg0.fnKind == 0) {
+                        push vals (DBValue.fromInt(0))
+                    } {
+                        push vals (DBValue.nullOf(3))
+                    }
+                    a0 = (a0 + 1)
+                }
+                out.appendRow(vals)
+            }
+            return out
+        }
+        def g:int 0
+        while (g < groups) {
+            def row:[DBValue]
+            def kv:DataChunk (itemAt keyValues g)
+            def k:int 0
+            while (k < gn) {
+                push row (kv.valueAt(0 k))
+                k = (k + 1)
+            }
+            def ai:int 0
+            while (ai < an) {
+                def slot:int ((g * an) + ai)
+                def agg:DBAggregate (itemAt aggs ai)
+                def cnt:int (itemAt counts g)
+                def nn:int (itemAt nonNull slot)
+                if (agg.fnKind == 0) {
+                    push row (DBValue.fromInt(cnt))
+                }
+                if (agg.fnKind == 1) {
+                    if (nn == 0) {
+                        push row (DBValue.nullOf(3))
+                    } {
+                        push row (DBValue.fromDouble((itemAt sums slot)))
+                    }
+                }
+                if (agg.fnKind == 2) {
+                    if (nn == 0) {
+                        push row (DBValue.nullOf(3))
+                    } {
+                        def s:double (itemAt sums slot)
+                        push row (DBValue.fromDouble((s / (to_double nn))))
+                    }
+                }
+                if (agg.fnKind == 3) {
+                    if (nn == 0) {
+                        push row (DBValue.nullOf(3))
+                    } {
+                        push row (itemAt mins slot)
+                    }
+                }
+                if (agg.fnKind == 4) {
+                    if (nn == 0) {
+                        push row (DBValue.nullOf(3))
+                    } {
+                        push row (itemAt maxs slot)
+                    }
+                }
+                ai = (ai + 1)
+            }
+            out.appendRow(row)
+            g = (g + 1)
+        }
+        return out
+    }
+}

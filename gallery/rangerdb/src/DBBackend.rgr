@@ -1,0 +1,393 @@
+; ==============================================================================
+; DBBackend / DBCapabilities / DBSession - the engine seam.
+; ==============================================================================
+;
+;              application (DataGrid, Vela, a CLI)
+;                              |
+;                          DBSession        capability fallbacks, write-back
+;                              |
+;                         DBBackend         one small contract
+;                   /          |          \
+;             RangerDB      DuckDB       SQLite
+;             (Ranger)      (host)       (host)
+;
+; The contract is deliberately small and the capability list is deliberately
+; explicit. "Any database engine" means backends that cannot do the same
+; things: DuckDB groups ten million rows without noticing, a first RangerDB may
+; only scan and filter, and something reading a CSV over HTTP can do neither.
+; A backend states what it can do; DBSession pushes down exactly that and
+; executes the rest itself over the chunks that came back. Nothing above the
+; session has to branch on which engine is underneath.
+;
+; Every method here is synchronous. That is not an oversight: a spreadsheet
+; repaints in a loop and needs an answer now, Ranger has no generics to build a
+; Task type on, and `async` exists on exactly one Ranger target. An engine that
+; is asynchronous in its host language (DuckDB is) is made synchronous in the
+; host adapter, where each platform already has an answer for that - see
+; host/README.md.
+; ==============================================================================
+
+Import "DataChunk.rgr"
+Import "DBQuery.rgr"
+Import "DBOps.rgr"
+
+class DBCapabilities {
+    ; Can it be handed raw SQL text at all?
+    def sqlText:boolean false
+    ; Which parts of a QuerySpec it will honour if they are set.
+    def filterPushdown:boolean false
+    def sortPushdown:boolean false
+    def aggregatePushdown:boolean false
+    def pagination:boolean false
+    ; Does execSpec return only the projected columns?
+    def projection:boolean false
+    ; Write side.
+    def writes:boolean false
+    def transactions:boolean false
+    ; Can it answer a row count without returning the rows?
+    def rowCounts:boolean false
+    ; Does it hand back the result a chunk at a time, or all at once?
+    def streaming:boolean false
+
+    Constructor () {
+    }
+
+    ; What a full engine claims. Adapters start from this and switch off what
+    ; they do not have.
+    sfn full:DBCapabilities () {
+        def c:DBCapabilities (new DBCapabilities)
+        c.sqlText = true
+        c.filterPushdown = true
+        c.sortPushdown = true
+        c.aggregatePushdown = true
+        c.pagination = true
+        c.projection = true
+        c.writes = true
+        c.transactions = true
+        c.rowCounts = true
+        c.streaming = true
+        return c
+    }
+
+    fn describe:string () {
+        def out:string ""
+        if sqlText {
+            out = (out + "sql ")
+        }
+        if filterPushdown {
+            out = (out + "filter ")
+        }
+        if sortPushdown {
+            out = (out + "sort ")
+        }
+        if aggregatePushdown {
+            out = (out + "aggregate ")
+        }
+        if pagination {
+            out = (out + "page ")
+        }
+        if projection {
+            out = (out + "project ")
+        }
+        if writes {
+            out = (out + "writes ")
+        }
+        if transactions {
+            out = (out + "tx ")
+        }
+        if rowCounts {
+            out = (out + "count ")
+        }
+        if streaming {
+            out = (out + "stream")
+        }
+        return (trim out)
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The contract. A backend overrides what it supports; the defaults here are the
+; honest answers of an engine that supports nothing, so a half-written adapter
+; fails visibly instead of pretending.
+; ------------------------------------------------------------------------------
+class DBBackend {
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    fn engineName:string () {
+        return "none"
+    }
+
+    fn capabilities:DBCapabilities () {
+        return (new DBCapabilities)
+    }
+
+    fn openDb:boolean (dsn:string) {
+        return false
+    }
+
+    fn closeDb:void () {
+    }
+
+    fn tableNames:[string] () {
+        def empty:[string]
+        return empty
+    }
+
+    fn tableColumns:[DBColumn] (table:string) {
+        def empty:[DBColumn]
+        return empty
+    }
+
+    ; Run as much of the spec as `capabilities` claims. Anything not claimed
+    ; may be ignored - the session will do it.
+    fn execSpec:DataChunk (spec:QuerySpec) {
+        return (new DataChunk)
+    }
+
+    ; Rows the spec's filter selects, without returning them. Only called when
+    ; capabilities.rowCounts is set.
+    fn countRows:int (spec:QuerySpec) {
+        return 0
+    }
+
+    fn execSql:DataChunk (sql:string) {
+        errorText = "engine does not take SQL"
+        return (new DataChunk)
+    }
+
+    fn applyMutation:int (mutation:DBMutation) {
+        errorText = "engine is read only"
+        return 0
+    }
+
+    fn createTable:boolean (table:string columns:[DBColumn]) {
+        errorText = "engine cannot create tables"
+        return false
+    }
+
+    fn beginTx:boolean () {
+        return false
+    }
+
+    fn commitTx:boolean () {
+        return false
+    }
+
+    fn rollbackTx:boolean () {
+        return false
+    }
+
+    fn lastError:string () {
+        return errorText
+    }
+}
+
+; ------------------------------------------------------------------------------
+; DBSession - what applications actually hold.
+; ------------------------------------------------------------------------------
+class DBSession {
+    def backend:DBBackend (new DBBackend)
+    ; Set by query(): what the backend did NOT do and this session had to.
+    def lastFallback:string ""
+
+    Constructor () {
+    }
+
+    sfn over:DBSession (backend:DBBackend) {
+        def s:DBSession (new DBSession)
+        s.backend = backend
+        return s
+    }
+
+    fn engineName:string () {
+        return (backend.engineName())
+    }
+
+    fn capabilities:DBCapabilities () {
+        return (backend.capabilities())
+    }
+
+    fn openDb:boolean (dsn:string) {
+        return (backend.openDb(dsn))
+    }
+
+    fn closeDb:void () {
+        backend.closeDb()
+    }
+
+    fn tableNames:[string] () {
+        return (backend.tableNames())
+    }
+
+    fn tableColumns:[DBColumn] (table:string) {
+        return (backend.tableColumns(table))
+    }
+
+    ; The whole spec, whoever ends up doing the work.
+    fn query:DataChunk (spec:QuerySpec) {
+        def caps:DBCapabilities (backend.capabilities())
+        def pushed:QuerySpec (spec.copy())
+        def rest:QuerySpec (new QuerySpec)
+        rest.table = spec.table
+        lastFallback = ""
+        def localWork:boolean false
+        if (caps.filterPushdown == false) {
+            rest.filter = (spec.filter.copy())
+            pushed.filter = (new DBFilter)
+            if ((spec.filter.isEmpty()) == false) {
+                lastFallback = (lastFallback + "filter ")
+                localWork = true
+            }
+        }
+        if (caps.aggregatePushdown == false) {
+            def na:int (array_length spec.aggregates)
+            if (na > 0) {
+                def ai:int 0
+                while (ai < na) {
+                    push rest.aggregates (itemAt spec.aggregates ai)
+                    ai = (ai + 1)
+                }
+                def gi:int 0
+                def ng:int (array_length spec.groupBy)
+                while (gi < ng) {
+                    push rest.groupBy (itemAt spec.groupBy gi)
+                    gi = (gi + 1)
+                }
+                clear pushed.aggregates
+                clear pushed.groupBy
+                lastFallback = (lastFallback + "aggregate ")
+                localWork = true
+            }
+        }
+        if (caps.sortPushdown == false) {
+            def ns:int (array_length spec.sorts)
+            if (ns > 0) {
+                def si:int 0
+                while (si < ns) {
+                    push rest.sorts (itemAt spec.sorts si)
+                    si = (si + 1)
+                }
+                clear pushed.sorts
+                lastFallback = (lastFallback + "sort ")
+                localWork = true
+            }
+        }
+        if (caps.pagination == false) {
+            if (spec.offset > 0) {
+                localWork = true
+            }
+            if (spec.limit > 0) {
+                localWork = true
+            }
+            rest.offset = spec.offset
+            rest.limit = spec.limit
+            pushed.offset = 0
+            pushed.limit = 0
+            if (localWork) {
+                lastFallback = (lastFallback + "page ")
+            }
+        }
+        ; A projection pushed down would throw away the columns the local work
+        ; still needs, so it only goes down when there is no local work left.
+        if localWork {
+            clear pushed.columns
+            def ci:int 0
+            def nc:int (array_length spec.columns)
+            while (ci < nc) {
+                push rest.columns (itemAt spec.columns ci)
+                ci = (ci + 1)
+            }
+        } {
+            if (caps.projection == false) {
+                clear pushed.columns
+                def ci2:int 0
+                def nc2:int (array_length spec.columns)
+                while (ci2 < nc2) {
+                    push rest.columns (itemAt spec.columns ci2)
+                    ci2 = (ci2 + 1)
+                }
+            }
+        }
+        def chunk:DataChunk (backend.execSpec(pushed))
+        lastFallback = (trim lastFallback)
+        if ((strlen lastFallback) == 0) {
+            def restCols:int (array_length rest.columns)
+            if (restCols == 0) {
+                return chunk
+            }
+        }
+        return (DBOps.applySpec(chunk rest))
+    }
+
+    ; One window of a result, for a virtualised grid: rows [start, start+count).
+    fn fetchRange:DataChunk (spec:QuerySpec start:int count:int) {
+        def windowed:QuerySpec (spec.copy())
+        windowed.offset = (spec.offset + start)
+        windowed.limit = count
+        return (this.query(windowed))
+    }
+
+    fn countRows:int (spec:QuerySpec) {
+        def caps:DBCapabilities (backend.capabilities())
+        if caps.rowCounts {
+            if caps.filterPushdown {
+                return (backend.countRows(spec))
+            }
+        }
+        def counting:QuerySpec (spec.copy())
+        counting.offset = 0
+        counting.limit = 0
+        def chunk:DataChunk (this.query(counting))
+        return chunk.rowCount
+    }
+
+    fn execSql:DataChunk (sql:string) {
+        def caps:DBCapabilities (backend.capabilities())
+        if (caps.sqlText == false) {
+            return (new DataChunk)
+        }
+        return (backend.execSql(sql))
+    }
+
+    fn createTable:boolean (table:string columns:[DBColumn]) {
+        return (backend.createTable(table columns))
+    }
+
+    fn mutate:int (mutation:DBMutation) {
+        return (backend.applyMutation(mutation))
+    }
+
+    ; Write-back of a whole edited block, in one transaction where there is
+    ; one. The count returned is rows affected; a mutation that affected
+    ; nothing is reported through `lastError` by the backend.
+    fn mutateAll:int (mutations:[DBMutation]) {
+        def n:int (array_length mutations)
+        if (n == 0) {
+            return 0
+        }
+        def caps:DBCapabilities (backend.capabilities())
+        def inTx:boolean false
+        if caps.transactions {
+            inTx = (backend.beginTx())
+        }
+        def total:int 0
+        def i:int 0
+        while (i < n) {
+            def m:DBMutation (itemAt mutations i)
+            def affected:int (backend.applyMutation(m))
+            total = (total + affected)
+            i = (i + 1)
+        }
+        if inTx {
+            backend.commitTx()
+        }
+        return total
+    }
+
+    fn lastError:string () {
+        return (backend.lastError())
+    }
+}

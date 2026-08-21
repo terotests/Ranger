@@ -1,0 +1,511 @@
+; ==============================================================================
+; QuerySpec - what to ask for, said as data rather than as SQL text.
+; ==============================================================================
+;
+; A database API whose only entry point is `query(sql:string)` forces every
+; backend to own a SQL parser before it can answer anything. RangerDB would
+; have to be a SQL implementation before it could be a database at all, and the
+; DataGrid would have to build strings to say "sort by column 3".
+;
+; So the primary interface is structured:
+;
+;     QuerySpec { table, columns, filter, sorts, groupBy, aggregates,
+;                 offset, limit }
+;
+; A SQL engine turns that into SQL (SqlText.rgr). RangerDB executes it
+; directly. And because a QuerySpec cannot express everything SQL can, raw SQL
+; stays available as an escape hatch on the session - the structured form is
+; what the UI layers use, not the only thing anyone may say.
+; ==============================================================================
+
+Import "DBValue.rgr"
+Import "DataChunk.rgr"
+
+class DBOp {
+    sfn eq:int () {
+        return 0
+    }
+    sfn ne:int () {
+        return 1
+    }
+    sfn lt:int () {
+        return 2
+    }
+    sfn le:int () {
+        return 3
+    }
+    sfn gt:int () {
+        return 4
+    }
+    sfn ge:int () {
+        return 5
+    }
+    ; Substring match, case insensitive - what a grid's filter box means.
+    sfn hasText:int () {
+        return 6
+    }
+    sfn beginsWith:int () {
+        return 7
+    }
+    sfn isNull:int () {
+        return 8
+    }
+    sfn notNull:int () {
+        return 9
+    }
+    ; Value is one of a set - what "check these three countries" means.
+    sfn oneOf:int () {
+        return 10
+    }
+
+    sfn opName:string (op:int) {
+        if (op == 0) {
+            return "="
+        }
+        if (op == 1) {
+            return "<>"
+        }
+        if (op == 2) {
+            return "<"
+        }
+        if (op == 3) {
+            return "<="
+        }
+        if (op == 4) {
+            return ">"
+        }
+        if (op == 5) {
+            return ">="
+        }
+        if (op == 6) {
+            return "contains"
+        }
+        if (op == 7) {
+            return "startswith"
+        }
+        if (op == 8) {
+            return "is null"
+        }
+        if (op == 9) {
+            return "is not null"
+        }
+        return "in"
+    }
+}
+
+class DBPredicate {
+    def column:string ""
+    def op:int 0
+    def value:DBValue (new DBValue)
+    def values:[DBValue]
+
+    Constructor () {
+    }
+
+    sfn compare:DBPredicate (column:string op:int value:DBValue) {
+        def p:DBPredicate (new DBPredicate)
+        p.column = column
+        p.op = op
+        p.value = value
+        return p
+    }
+
+    sfn equals:DBPredicate (column:string value:DBValue) {
+        return (DBPredicate.compare(column 0 value))
+    }
+
+    sfn nullCheck:DBPredicate (column:string wantNull:boolean) {
+        def p:DBPredicate (new DBPredicate)
+        p.column = column
+        p.op = 9
+        if wantNull {
+            p.op = 8
+        }
+        return p
+    }
+
+    sfn inSet:DBPredicate (column:string values:[DBValue]) {
+        def p:DBPredicate (new DBPredicate)
+        p.column = column
+        p.op = 10
+        def n:int (array_length values)
+        def i:int 0
+        while (i < n) {
+            push p.values (itemAt values i)
+            i = (i + 1)
+        }
+        return p
+    }
+
+    fn matches:boolean (v:DBValue) {
+        if (op == 8) {
+            return v.isNull
+        }
+        if (op == 9) {
+            return (! v.isNull)
+        }
+        if (op == 10) {
+            def n:int (array_length values)
+            def i:int 0
+            while (i < n) {
+                def cand:DBValue (itemAt values i)
+                if (v.equalsValue(cand)) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (op == 6) {
+            def hay:string (to_lowercase (v.asString()))
+            def needle:string (to_lowercase (value.asString()))
+            if ((strlen needle) == 0) {
+                return true
+            }
+            return (DBPredicate.hasSub(hay needle))
+        }
+        if (op == 7) {
+            def hay2:string (to_lowercase (v.asString()))
+            def pre:string (to_lowercase (value.asString()))
+            def plen:int (strlen pre)
+            if (plen == 0) {
+                return true
+            }
+            if ((strlen hay2) < plen) {
+                return false
+            }
+            return ((substring hay2 0 plen) == pre)
+        }
+        ; A null never satisfies an ordering comparison, as in SQL.
+        if v.isNull {
+            return false
+        }
+        def c:int (v.compareWith(value))
+        if (op == 0) {
+            return (c == 0)
+        }
+        if (op == 1) {
+            return (c != 0)
+        }
+        if (op == 2) {
+            return (c < 0)
+        }
+        if (op == 3) {
+            return (c <= 0)
+        }
+        if (op == 4) {
+            return (c > 0)
+        }
+        return (c >= 0)
+    }
+
+    sfn hasSub:boolean (hay:string needle:string) {
+        def hl:int (strlen hay)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (hl < nl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            def part:string (substring hay i (i + nl))
+            if (part == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
+
+; A conjunction (or disjunction) of predicates. Deliberately not a tree: the
+; grid's filter row, "country = FI AND revenue > 1000", is a list, and a list
+; is what every engine can push down without a planner.
+class DBFilter {
+    def predicates:[DBPredicate]
+    def matchAll:boolean true
+
+    Constructor () {
+    }
+
+    fn isEmpty:boolean () {
+        return ((array_length predicates) == 0)
+    }
+
+    fn add:void (p:DBPredicate) {
+        push predicates p
+    }
+
+    fn matchesRow:boolean (chunk:DataChunk row:int) {
+        def n:int (array_length predicates)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while (i < n) {
+            def p:DBPredicate (itemAt predicates i)
+            def ci:int (chunk.columnIndex(p.column))
+            def hit:boolean false
+            if (ci >= 0) {
+                def v:DBValue (chunk.valueAt(row ci))
+                hit = (p.matches(v))
+            }
+            if matchAll {
+                if (hit == false) {
+                    return false
+                }
+            } {
+                if hit {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return matchAll
+    }
+
+    fn copy:DBFilter () {
+        def f:DBFilter (new DBFilter)
+        f.matchAll = matchAll
+        def n:int (array_length predicates)
+        def i:int 0
+        while (i < n) {
+            push f.predicates (itemAt predicates i)
+            i = (i + 1)
+        }
+        return f
+    }
+}
+
+class DBSort {
+    def column:string ""
+    def ascending:boolean true
+
+    Constructor () {
+    }
+
+    sfn create:DBSort (column:string ascending:boolean) {
+        def s:DBSort (new DBSort)
+        s.column = column
+        s.ascending = ascending
+        return s
+    }
+}
+
+class DBAggFn {
+    sfn countRows:int () {
+        return 0
+    }
+    sfn sumOf:int () {
+        return 1
+    }
+    sfn avgOf:int () {
+        return 2
+    }
+    sfn minOf:int () {
+        return 3
+    }
+    sfn maxOf:int () {
+        return 4
+    }
+
+    sfn aggName:string (fn:int) {
+        if (fn == 1) {
+            return "SUM"
+        }
+        if (fn == 2) {
+            return "AVG"
+        }
+        if (fn == 3) {
+            return "MIN"
+        }
+        if (fn == 4) {
+            return "MAX"
+        }
+        return "COUNT"
+    }
+}
+
+class DBAggregate {
+    def fnKind:int 0
+    def column:string ""
+    def alias:string ""
+
+    Constructor () {
+    }
+
+    sfn create:DBAggregate (fnKind:int column:string alias:string) {
+        def a:DBAggregate (new DBAggregate)
+        a.fnKind = fnKind
+        a.column = column
+        a.alias = alias
+        if ((strlen alias) == 0) {
+            def nm:string (DBAggFn.aggName(fnKind))
+            a.alias = (nm + "(" + column + ")")
+        }
+        return a
+    }
+}
+
+class QuerySpec {
+    def table:string ""
+    ; Empty means every column of the table, in declaration order.
+    def columns:[string]
+    def filter:DBFilter (new DBFilter)
+    def sorts:[DBSort]
+    def groupBy:[string]
+    def aggregates:[DBAggregate]
+    def offset:int 0
+    ; <= 0 means no limit.
+    def limit:int 0
+
+    Constructor () {
+    }
+
+    sfn forTable:QuerySpec (table:string) {
+        def q:QuerySpec (new QuerySpec)
+        q.table = table
+        return q
+    }
+
+    fn selectColumn:void (name:string) {
+        push columns name
+    }
+
+    fn whereIs:void (column:string op:int value:DBValue) {
+        filter.add((DBPredicate.compare(column op value)))
+    }
+
+    fn orderBy:void (column:string ascending:boolean) {
+        push sorts (DBSort.create(column ascending))
+    }
+
+    fn groupOn:void (column:string) {
+        push groupBy column
+    }
+
+    fn aggregate:void (fnKind:int column:string alias:string) {
+        push aggregates (DBAggregate.create(fnKind column alias))
+    }
+
+    fn page:void (start:int rows:int) {
+        offset = start
+        limit = rows
+    }
+
+    fn hasAggregates:boolean () {
+        return ((array_length aggregates) > 0)
+    }
+
+    fn copy:QuerySpec () {
+        def q:QuerySpec (new QuerySpec)
+        q.table = table
+        def i:int 0
+        def n:int (array_length columns)
+        while (i < n) {
+            push q.columns (itemAt columns i)
+            i = (i + 1)
+        }
+        q.filter = (filter.copy())
+        i = 0
+        n = (array_length sorts)
+        while (i < n) {
+            push q.sorts (itemAt sorts i)
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length groupBy)
+        while (i < n) {
+            push q.groupBy (itemAt groupBy i)
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length aggregates)
+        while (i < n) {
+            push q.aggregates (itemAt aggregates i)
+            i = (i + 1)
+        }
+        q.offset = offset
+        q.limit = limit
+        return q
+    }
+}
+
+; ------------------------------------------------------------------------
+; Write side. A mutation is data too, for the same reason a query is: an
+; engine that cannot take SQL still has to be told what changed, and an
+; editor has to be able to describe an edit without knowing which engine is
+; underneath.
+; ------------------------------------------------------------------------
+class DBMutationKind {
+    sfn insertRow:int () {
+        return 0
+    }
+    sfn updateRow:int () {
+        return 1
+    }
+    sfn deleteRow:int () {
+        return 2
+    }
+}
+
+class DBMutation {
+    def kind:int 1
+    def table:string ""
+    ; Which row: column names and the values that identify it.
+    def keyColumns:[string]
+    def keyValues:[DBValue]
+    ; What to write.
+    def setColumns:[string]
+    def setValues:[DBValue]
+
+    Constructor () {
+    }
+
+    sfn makeUpdate:DBMutation (table:string) {
+        def m:DBMutation (new DBMutation)
+        m.kind = 1
+        m.table = table
+        return m
+    }
+
+    sfn makeInsert:DBMutation (table:string) {
+        def m:DBMutation (new DBMutation)
+        m.kind = 0
+        m.table = table
+        return m
+    }
+
+    sfn makeDelete:DBMutation (table:string) {
+        def m:DBMutation (new DBMutation)
+        m.kind = 2
+        m.table = table
+        return m
+    }
+
+    fn withKey:void (column:string value:DBValue) {
+        push keyColumns column
+        push keyValues value
+    }
+
+    fn withValue:void (column:string value:DBValue) {
+        push setColumns column
+        push setValues value
+    }
+
+    fn keyFilter:DBFilter () {
+        def f:DBFilter (new DBFilter)
+        def n:int (array_length keyColumns)
+        def i:int 0
+        while (i < n) {
+            def col:string (itemAt keyColumns i)
+            def v:DBValue (itemAt keyValues i)
+            f.add((DBPredicate.equals(col v)))
+            i = (i + 1)
+        }
+        return f
+    }
+}

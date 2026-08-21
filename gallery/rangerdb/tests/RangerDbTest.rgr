@@ -1,0 +1,179 @@
+; RangerDB against the shared backend contract, plus the things only an
+; in-process engine can be asked about: column pruning, row groups, tombstones
+; and the text snapshot.
+
+Import "DbContract.rgr"
+Import "../src/DbWire.rgr"
+
+class RangerDbTest {
+    sfn mentions:boolean (hay:string needle:string) {
+        def h:string (to_lowercase hay)
+        def hl:int (strlen h)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (hl < nl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            if ((substring h i (i + nl)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def check:DbCheck (new DbCheck)
+        def backend:RangerDbBackend (new RangerDbBackend)
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        DbContract.runAll(session check)
+
+        print "== engine internals =="
+        def engine:RangerDbEngine backend.engine
+        def table:string (DbContract.tableName())
+        def t:RdbTable (engine.tableNamed(table))
+        check.eqInt("live rows" t.liveRows 6)
+        check.eqInt("one row group so far" (t.groupCount()) 1)
+
+        ; Column pruning: a query naming two columns must not read five.
+        def two:QuerySpec (QuerySpec.forTable(table))
+        two.selectColumn("region")
+        two.aggregate(1 "revenue" "total")
+        two.groupOn("region")
+        def out:DataChunk (engine.execSpec(two))
+        check.eqInt("scan touched only the columns asked for" engine.scannedColumns 2)
+
+        ; Row groups: 2500 rows over a group size of 1024 is three groups, and
+        ; the scan still answers the same question.
+        def big:string "rdb_groups"
+        def cols:[DBColumn]
+        push cols (DBColumn.createKey("id" 2))
+        push cols (DBColumn.create("bucket" 4))
+        push cols (DBColumn.create("value" 3))
+        engine.createTable(big cols)
+        def bt:RdbTable (engine.tableNamed(big))
+        def i:int 0
+        while (i < 2500) {
+            def row:[DBValue]
+            push row (DBValue.fromInt(i))
+            def bucket:string "even"
+            if ((i - ((idiv i 2) * 2)) == 1) {
+                bucket = "odd"
+            }
+            push row (DBValue.fromString(bucket))
+            push row (DBValue.fromDouble((to_double i)))
+            bt.appendRow(row)
+            i = (i + 1)
+        }
+        check.eqInt("row groups" (bt.groupCount()) 3)
+        def sumSpec:QuerySpec (QuerySpec.forTable(big))
+        sumSpec.groupOn("bucket")
+        sumSpec.aggregate(1 "value" "total")
+        sumSpec.orderBy("bucket" true)
+        def sums:DataChunk (engine.execSpec(sumSpec))
+        check.eqInt("two buckets" sums.rowCount 2)
+        if (sums.rowCount == 2) {
+            check.eqNum("even sum" (sums.doubleAt(0 1)) 1561250.0)
+            check.eqNum("odd sum" (sums.doubleAt(1 1)) 1562500.0)
+        }
+        check.eqInt("aggregate scanned every row" engine.scannedRows 2500)
+
+        ; A limit with no sort stops the scan early.
+        def headSpec:QuerySpec (QuerySpec.forTable(big))
+        headSpec.page(0 10)
+        def head:DataChunk (engine.execSpec(headSpec))
+        check.eqInt("head row count" head.rowCount 10)
+        check.ok("limit stopped the scan early" (engine.scannedRows < 2500))
+
+        ; Tombstones: a delete leaves every other row's id alone.
+        def del:DBMutation (DBMutation.makeDelete(big))
+        del.withKey("id" (DBValue.fromInt(5)))
+        engine.applyMutation(del)
+        check.eqInt("live rows after delete" bt.liveRows 2499)
+        def afterSpec:QuerySpec (QuerySpec.forTable(big))
+        afterSpec.whereIs("id" 0 (DBValue.fromInt(6)))
+        def after:DataChunk (engine.execSpec(afterSpec))
+        check.eqInt("neighbour row still there" after.rowCount 1)
+        def goneSpec:QuerySpec (QuerySpec.forTable(big))
+        goneSpec.whereIs("id" 0 (DBValue.fromInt(5)))
+        def goneChunk:DataChunk (engine.execSpec(goneSpec))
+        check.eqInt("deleted row is gone" goneChunk.rowCount 0)
+
+        ; Snapshot round trip.
+        def text:string (engine.saveTableText(table))
+        def other:RangerDbEngine (new RangerDbEngine)
+        def loaded:boolean (other.loadTableText(text))
+        check.ok("snapshot loads" loaded)
+        def reSpec:QuerySpec (QuerySpec.forTable(table))
+        reSpec.orderBy("id" true)
+        def restored:DataChunk (other.execSpec(reSpec))
+        check.eqInt("snapshot row count" restored.rowCount 6)
+        if (restored.rowCount == 6) {
+            check.eqStr("snapshot values" (restored.stringAt(3 2)) "Germany")
+            def nullBack:DBValue (restored.valueAt(5 3))
+            check.ok("snapshot keeps null" nullBack.isNull)
+        }
+        def escaped:DataChunk (new DataChunk)
+        escaped.addColumn((DBColumn.create("note" 4)))
+        def tricky:[DBValue]
+        push tricky (DBValue.fromString(("a" + (strfromcode 9) + "b" + (strfromcode 10) + "c")))
+        escaped.appendRow(tricky)
+        def wire:string (DbWire.encodeChunk("notes" escaped))
+        def back:DataChunk (DbWire.decodeChunk(wire))
+        check.eqInt("escaped chunk row count" back.rowCount 1)
+        if (back.rowCount == 1) {
+            check.eqStr("tabs and newlines survive" (back.stringAt(0 0)) ("a" + (strfromcode 9) + "b" + (strfromcode 10) + "c"))
+        }
+
+        print "== sql front end =="
+        ; RangerSQL parses; SqlFront plans into the same QuerySpec the
+        ; structured API builds; the engine runs one execution path.
+        def inserted:DataChunk (session.execSql(("INSERT INTO " + table + " (id, region, country, revenue, units) VALUES (11, 'Iberia', 'Spain', 425000.0, 55)")))
+        if (inserted.rowCount == 1) {
+            def iv:DBValue (inserted.valueAt(0 0))
+            check.eqInt("sql insert affected one row" (iv.asInt()) 1)
+        }
+        def afterInsert:QuerySpec (QuerySpec.forTable(table))
+        check.eqInt("row count after sql insert" (session.countRows(afterInsert)) 7)
+
+        def updated:DataChunk (session.execSql(("UPDATE " + table + " SET units = 57 WHERE id = 11")))
+        if (updated.rowCount == 1) {
+            def uv:DBValue (updated.valueAt(0 0))
+            check.eqInt("sql update affected one row" (uv.asInt()) 1)
+        }
+        def readBack:DataChunk (session.execSql(("SELECT units FROM " + table + " WHERE id = 11")))
+        if (readBack.rowCount == 1) {
+            def rv:DBValue (readBack.valueAt(0 0))
+            check.eqInt("sql update wrote the value" (rv.asInt()) 57)
+        }
+        def deleted:DataChunk (session.execSql(("DELETE FROM " + table + " WHERE id = 11")))
+        if (deleted.rowCount == 1) {
+            def dv:DBValue (deleted.valueAt(0 0))
+            check.eqInt("sql delete affected one row" (dv.asInt()) 1)
+        }
+        check.eqInt("row count after sql delete" (session.countRows(afterInsert)) 6)
+
+        ; What it will NOT do is guess: a query the planner cannot express as a
+        ; QuerySpec has to come back as an error rather than as wrong rows.
+        def joined:DataChunk (session.execSql(("SELECT a FROM " + table + " JOIN other ON other.id = " + table + ".id")))
+        check.eqInt("an unsupported query returns nothing" joined.rowCount 0)
+        def joinError:string (session.lastError())
+        check.ok("and says what was in the way" (RangerDbTest.mentions(joinError "join")))
+        def broken:DataChunk (session.execSql("SELECT FROM"))
+        check.eqInt("a broken query returns nothing" broken.rowCount 0)
+        check.ok("and reports the parse error" ((strlen (session.lastError())) > 0))
+
+        print ("passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

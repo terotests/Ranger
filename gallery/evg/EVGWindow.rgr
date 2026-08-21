@@ -30,6 +30,7 @@
 
 Import "EVGColor.rgr"
 Import "EVGDisplayList.rgr"
+Import "EVGTextFit.rgr"
 Import "../game_engine/ui/UITextRenderer.rgr"
 Import "../game_engine/ui/UIInput.rgr"
 
@@ -1088,56 +1089,21 @@ class EVGWindow {
     }
 
     ; --- painting -------------------------------------------------------------
+    ; The three primitives this file draws with. They delegate to the display
+    ; list's own encoders so a dialog and the grid behind it cannot drift into
+    ; two encodings of the same command.
     fn rect:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int col:EVGColor) {
-        def c:EVGDrawCmd (new EVGDrawCmd)
-        c.kind = 0
-        c.x = (to_double rx)
-        c.y = (to_double ry)
-        c.w = (to_double rw)
-        c.h = (to_double rh)
-        c.r = (col.red())
-        c.g = (col.green())
-        c.b = (col.blue())
-        c.a = (col.alpha())
-        push dl.cmds c
+        dl.addRect((to_double rx) (to_double ry) (to_double rw) (to_double rh) col)
     }
 
     fn frame:void (dl:EVGDisplayList rx:int ry:int rw:int rh:int thick:double col:EVGColor) {
-        def c:EVGDrawCmd (new EVGDrawCmd)
-        c.kind = 1
-        c.x = (to_double rx)
-        c.y = (to_double ry)
-        c.w = (to_double rw)
-        c.h = (to_double rh)
-        c.thickness = thick
-        c.r = (col.red())
-        c.g = (col.green())
-        c.b = (col.blue())
-        c.a = (col.alpha())
-        push dl.cmds c
+        dl.addFrame((to_double rx) (to_double ry) (to_double rw) (to_double rh) thick col)
     }
 
     fn text:void (dl:EVGDisplayList s:string tx:int ty:int size:double col:EVGColor tr:UITextRenderer bold:boolean) {
-        if ((strlen s) == 0) {
-            return
-        }
-        def c:EVGDrawCmd (new EVGDrawCmd)
-        c.kind = 3
-        c.x = (to_double tx)
-        c.y = (to_double ty)
-        c.w = (tr.measureWidth(s size))
-        c.h = (tr.lineHeight(size))
-        c.text = s
-        c.fontFamily = tr.fontFamily
-        c.fontSize = size
-        if bold {
-            c.fontWeight = "bold"
-        }
-        c.r = (col.red())
-        c.g = (col.green())
-        c.b = (col.blue())
-        c.a = (col.alpha())
-        push dl.cmds c
+        def w:double (tr.measureWidth(s size))
+        def h:double (tr.lineHeight(size))
+        dl.addText(s (to_double tx) (to_double ty) size col tr.fontFamily bold false w h)
     }
 
     ; Appends this window to the host's display list. `pageW/pageH` are only
@@ -1271,10 +1237,15 @@ class EVGWindow {
                     edge2 = theme.muted
                 }
                 this.frame(dl fx cy fw c.h 1.0 edge2)
-                this.text(dl c.value (fx + 5) (cy + 4) fontSize theme.text tr false)
+                ; What fits, not what was typed: a value longer than the field
+                ; used to be drawn from the left edge and run out of the box,
+                ; across the panel and over the document behind it. The window
+                ; follows the caret, so typing at the end scrolls the text.
+                def room:double (to_double (fw - 10))
+                def shown:EVGFieldView (EVGTextFit.fieldView(tr c.value c.caret fontSize room))
+                this.text(dl shown.text (fx + 5) (cy + 4) fontSize theme.text tr false)
                 if (focusedId == c.id) {
-                    def upto:string (substring c.value 0 c.caret)
-                    def caretX:int (to_int (tr.measureWidth(upto fontSize)))
+                    def caretX:int (to_int shown.caretX)
                     this.rect(dl ((fx + 5) + caretX) (cy + 3) 1 (c.h - 6) theme.text)
                 }
             }

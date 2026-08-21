@@ -1,0 +1,153 @@
+; ==============================================================================
+; db_bench - the same queries, timed on every engine behind the same API.
+; ==============================================================================
+;
+; What this is honest about: the load phase inserts one row per call through
+; the neutral mutation API, so it measures the API round trip and not the
+; engine's bulk loader. DuckDB is the one that suffers from that - every insert
+; is a message to the worker thread and back - and it says so rather than
+; looking slow for a reason nobody explains. The QUERY numbers are the ones
+; worth reading.
+; ==============================================================================
+
+Import "../src/RangerDB.rgr"
+Import "../src/HostSql.rgr"
+
+class DbBench {
+    sfn rowCount:int () {
+        return 20000
+    }
+
+    sfn tableName:string () {
+        return "bench"
+    }
+
+    sfn columns:[DBColumn] () {
+        def cols:[DBColumn]
+        push cols (DBColumn.createKey("id" 2))
+        push cols (DBColumn.create("region" 4))
+        push cols (DBColumn.create("country" 4))
+        push cols (DBColumn.create("revenue" 3))
+        push cols (DBColumn.create("units" 2))
+        return cols
+    }
+
+    sfn regionOf:string (i:int) {
+        def k:int (i - ((idiv i 4) * 4))
+        if (k == 0) {
+            return "Nordics"
+        }
+        if (k == 1) {
+            return "DACH"
+        }
+        if (k == 2) {
+            return "Baltics"
+        }
+        return "Benelux"
+    }
+
+    sfn load:double (session:DBSession rows:int) {
+        session.createTable((DbBench.tableName()) (DbBench.columns()))
+        def t0:double (wall_clock_ms)
+        def batch:[DBMutation]
+        def i:int 0
+        while (i < rows) {
+            def m:DBMutation (DBMutation.makeInsert((DbBench.tableName())))
+            m.withValue("id" (DBValue.fromInt(i)))
+            m.withValue("region" (DBValue.fromString((DbBench.regionOf(i)))))
+            m.withValue("country" (DBValue.fromString(("C" + (to_string (i - ((idiv i 50) * 50)))))))
+            m.withValue("revenue" (DBValue.fromDouble((to_double (i * 3)))))
+            m.withValue("units" (DBValue.fromInt((i - ((idiv i 97) * 97)))))
+            push batch m
+            i = (i + 1)
+        }
+        session.mutateAll(batch)
+        def t1:double (wall_clock_ms)
+        return (t1 - t0)
+    }
+
+    sfn timeSpec:double (session:DBSession spec:QuerySpec expectRows:int label:string) {
+        def t0:double (wall_clock_ms)
+        def chunk:DataChunk (session.query(spec))
+        def t1:double (wall_clock_ms)
+        if (expectRows >= 0) {
+            if (chunk.rowCount != expectRows) {
+                print ("  !! " + label + " returned " + (to_string chunk.rowCount) + " rows, expected " + (to_string expectRows))
+            }
+        }
+        return (t1 - t0)
+    }
+
+    sfn ms:string (v:double) {
+        def whole:int (to_int (v * 10.0))
+        def d:double ((to_double whole) / 10.0)
+        return (to_string d)
+    }
+
+    sfn runEngine:void (name:string session:DBSession) {
+        def rows:int (DbBench.rowCount())
+        def loadMs:double (DbBench.load(session rows))
+
+        def scan:QuerySpec (QuerySpec.forTable((DbBench.tableName())))
+        def scanMs:double (DbBench.timeSpec(session scan rows "scan"))
+
+        def sum:QuerySpec (QuerySpec.forTable((DbBench.tableName())))
+        sum.whereIs("region" 0 (DBValue.fromString("Nordics")))
+        sum.aggregate(1 "revenue" "total")
+        def sumMs:double (DbBench.timeSpec(session sum 1 "filtered sum"))
+
+        def group:QuerySpec (QuerySpec.forTable((DbBench.tableName())))
+        group.groupOn("region")
+        group.aggregate(1 "revenue" "total")
+        group.aggregate(0 "id" "n")
+        def groupMs:double (DbBench.timeSpec(session group 4 "group by"))
+
+        def page:QuerySpec (QuerySpec.forTable((DbBench.tableName())))
+        page.orderBy("revenue" false)
+        page.page(10000 60)
+        def pageMs:double (DbBench.timeSpec(session page 60 "sorted page"))
+
+        def head:QuerySpec (QuerySpec.forTable((DbBench.tableName())))
+        head.page(0 60)
+        def headMs:double (DbBench.timeSpec(session head 60 "unsorted page"))
+
+        def point:QuerySpec (QuerySpec.forTable((DbBench.tableName())))
+        point.whereIs("id" 0 (DBValue.fromInt(17654)))
+        def pointMs:double (DbBench.timeSpec(session point 1 "point lookup"))
+
+        def update:DBMutation (DBMutation.makeUpdate((DbBench.tableName())))
+        update.withKey("id" (DBValue.fromInt(17654)))
+        update.withValue("units" (DBValue.fromInt(42)))
+        def u0:double (wall_clock_ms)
+        session.mutate(update)
+        def u1:double (wall_clock_ms)
+
+        print (name + " | " + (DbBench.ms(loadMs)) + " | " + (DbBench.ms(scanMs)) + " | " + (DbBench.ms(sumMs)) + " | " + (DbBench.ms(groupMs)) + " | " + (DbBench.ms(pageMs)) + " | " + (DbBench.ms(headMs)) + " | " + (DbBench.ms(pointMs)) + " | " + (DbBench.ms((u1 - u0))))
+    }
+
+    sfn runHost:void (driver:string) {
+        if ((HostSqlBackend.isAvailable(driver)) == false) {
+            print (driver + " | not installed")
+            return
+        }
+        def backend:HostSqlBackend (HostSqlBackend.forDriver(driver))
+        def session:DBSession (DBSession.over(backend))
+        if ((session.openDb(":memory:")) == false) {
+            print (driver + " | could not open")
+            return
+        }
+        DbBench.runEngine(driver session)
+        session.closeDb()
+    }
+
+    sfn main:void () {
+        print ("rows = " + (to_string (DbBench.rowCount())) + ", all times in ms")
+        print "engine | load | scan | filter+SUM | GROUP BY | sorted page | head page | point | update"
+        def backend:RangerDbBackend (new RangerDbBackend)
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        DbBench.runEngine("rangerdb" session)
+        DbBench.runHost("sqlite")
+        DbBench.runHost("duckdb")
+    }
+}

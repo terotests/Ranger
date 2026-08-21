@@ -3,7 +3,8 @@
  *
  *   node gallery/vela/tools/reference/compiler.mjs
  *
- * Every committed `.vl.json` goes down two paths:
+ * Every `.vl.json` in the suite — or in a directory named on the command line —
+ * goes down two paths:
  *
  *        a Vega-Lite specification
  *          │                    │
@@ -35,7 +36,12 @@ import { execFileSync } from 'child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VELA = path.resolve(__dirname, '..', '..');
 const ROOT = path.resolve(VELA, '..', '..');
-const SPEC_DIR = path.join(VELA, 'tests', 'specs');
+// Which specifications to compare. The committed suite by default; a directory
+// on the command line otherwise, which is how the charts the chart API builds
+// are held to the same standard as the ones a person wrote:
+//
+//   npm run vela:chart && node …/compiler.mjs gallery/vela/bin/chart-api
+const SPEC_DIR = process.argv[2] ? path.resolve(ROOT, process.argv[2]) : path.join(VELA, 'tests', 'specs');
 const COMPILE_TOOL = path.join(VELA, 'bin', 'vela_compile.js');
 const SCENE_TOOL = path.join(VELA, 'bin', 'vela_scene.js');
 

@@ -1,0 +1,44 @@
+; The same contract, against the engines the host has. A driver that is not
+; installed is reported as skipped rather than failed - the point of the
+; scoreboard is which engines answer the same, not which machine has what.
+
+Import "DbContract.rgr"
+Import "../src/HostSql.rgr"
+
+class HostDbTest {
+    sfn runDriver:int (driver:string dsn:string check:DbCheck) {
+        def here:boolean (HostSqlBackend.isAvailable(driver))
+        if (here == false) {
+            print ("== " + driver + ": not installed, skipped ==")
+            return 0
+        }
+        def backend:HostSqlBackend (HostSqlBackend.forDriver(driver))
+        def session:DBSession (DBSession.over(backend))
+        def opened:boolean (session.openDb(dsn))
+        if (opened == false) {
+            print ("== " + driver + ": could not open: " + (session.lastError()) + " ==")
+            check.ok((driver + " opens") false)
+            return 0
+        }
+        DbContract.runAll(session check)
+        session.closeDb()
+        return 1
+    }
+
+    sfn main:void () {
+        def check:DbCheck (new DbCheck)
+        def ran:int 0
+        ran = (ran + (HostDbTest.runDriver("sqlite" ":memory:" check)))
+        ran = (ran + (HostDbTest.runDriver("duckdb" ":memory:" check)))
+        print ("engines=" + (to_string ran) + " passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (ran == 0) {
+            print "NO ENGINE"
+            return
+        }
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

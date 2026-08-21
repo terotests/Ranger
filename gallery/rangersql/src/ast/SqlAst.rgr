@@ -1,0 +1,800 @@
+; ==============================================================================
+; SqlAst - one flat arena of nodes, addressed by int.
+; ==============================================================================
+;
+; SQLGlot's expression tree is a graph of Python objects with parents, and that
+; is exactly the shape that is pleasant on a garbage-collected target and
+; painful on Rust, C++ and Swift. So the tree here is an ARENA:
+;
+;     SqlAst.nodes[45]        not   node.parent.this.args["expressions"][0]
+;
+; A node holds its kind, its text, some flags, and a list of (role, child id)
+; pairs. Roles rather than fixed slots because a SELECT has projections, a
+; FROM, joins, a WHERE, a GROUP BY, a HAVING, an ORDER BY, a LIMIT and an
+; OFFSET, and inventing six named int fields for that would be a worse version
+; of the same list.
+;
+;     SELECT a + 1 AS z FROM foo
+;
+;     Select
+;       PROJECTION -> Alias
+;                       THIS  -> Binary "+"
+;                                  LEFT  -> Column a
+;                                  RIGHT -> Number 1
+;                       ALIAS -> Identifier z
+;       FROM       -> Table foo
+;
+; Nothing here knows about SQL text: the tokenizer and the parser build this,
+; the generator reads it, and the analysis passes walk it.
+; ==============================================================================
+
+class SqlKind {
+    sfn nullValue:int () {
+        return 1
+    }
+    sfn boolValue:int () {
+        return 2
+    }
+    sfn numberValue:int () {
+        return 3
+    }
+    sfn stringValue:int () {
+        return 4
+    }
+    sfn identifier:int () {
+        return 5
+    }
+    sfn column:int () {
+        return 6
+    }
+    sfn star:int () {
+        return 7
+    }
+    sfn table:int () {
+        return 8
+    }
+    sfn aliasNode:int () {
+        return 9
+    }
+    sfn parameter:int () {
+        return 10
+    }
+    sfn binary:int () {
+        return 20
+    }
+    sfn unary:int () {
+        return 21
+    }
+    sfn isNull:int () {
+        return 22
+    }
+    sfn inList:int () {
+        return 23
+    }
+    sfn between:int () {
+        return 24
+    }
+    sfn likeNode:int () {
+        return 25
+    }
+    sfn caseNode:int () {
+        return 26
+    }
+    sfn whenNode:int () {
+        return 27
+    }
+    sfn castNode:int () {
+        return 28
+    }
+    sfn functionCall:int () {
+        return 29
+    }
+    sfn paren:int () {
+        return 30
+    }
+    sfn existsNode:int () {
+        return 31
+    }
+    sfn subquery:int () {
+        return 32
+    }
+    sfn dataType:int () {
+        return 33
+    }
+    sfn tuple:int () {
+        return 34
+    }
+    sfn subscript:int () {
+        return 35
+    }
+    sfn windowSpec:int () {
+        return 36
+    }
+    sfn commentNode:int () {
+        return 37
+    }
+    sfn insertNode:int () {
+        return 60
+    }
+    sfn updateNode:int () {
+        return 61
+    }
+    sfn deleteNode:int () {
+        return 62
+    }
+    sfn assignment:int () {
+        return 63
+    }
+    sfn valuesNode:int () {
+        return 64
+    }
+    sfn selectNode:int () {
+        return 40
+    }
+    sfn joinNode:int () {
+        return 42
+    }
+    sfn orderItem:int () {
+        return 45
+    }
+    sfn setOperation:int () {
+        return 48
+    }
+    sfn withNode:int () {
+        return 49
+    }
+    sfn cteNode:int () {
+        return 50
+    }
+
+    sfn kindName:string (kind:int) {
+        if (kind == 1) {
+            return "null"
+        }
+        if (kind == 2) {
+            return "boolean"
+        }
+        if (kind == 3) {
+            return "number"
+        }
+        if (kind == 4) {
+            return "string"
+        }
+        if (kind == 5) {
+            return "identifier"
+        }
+        if (kind == 6) {
+            return "column"
+        }
+        if (kind == 7) {
+            return "star"
+        }
+        if (kind == 8) {
+            return "table"
+        }
+        if (kind == 9) {
+            return "alias"
+        }
+        if (kind == 10) {
+            return "parameter"
+        }
+        if (kind == 20) {
+            return "binary"
+        }
+        if (kind == 21) {
+            return "unary"
+        }
+        if (kind == 22) {
+            return "is"
+        }
+        if (kind == 23) {
+            return "in"
+        }
+        if (kind == 24) {
+            return "between"
+        }
+        if (kind == 25) {
+            return "like"
+        }
+        if (kind == 26) {
+            return "case"
+        }
+        if (kind == 27) {
+            return "when"
+        }
+        if (kind == 28) {
+            return "cast"
+        }
+        if (kind == 29) {
+            return "function"
+        }
+        if (kind == 30) {
+            return "paren"
+        }
+        if (kind == 31) {
+            return "exists"
+        }
+        if (kind == 32) {
+            return "subquery"
+        }
+        if (kind == 33) {
+            return "datatype"
+        }
+        if (kind == 34) {
+            return "tuple"
+        }
+        if (kind == 35) {
+            return "subscript"
+        }
+        if (kind == 36) {
+            return "window"
+        }
+        if (kind == 37) {
+            return "comment"
+        }
+        if (kind == 60) {
+            return "insert"
+        }
+        if (kind == 61) {
+            return "update"
+        }
+        if (kind == 62) {
+            return "delete"
+        }
+        if (kind == 63) {
+            return "assignment"
+        }
+        if (kind == 64) {
+            return "values"
+        }
+        if (kind == 40) {
+            return "select"
+        }
+        if (kind == 42) {
+            return "join"
+        }
+        if (kind == 45) {
+            return "ordered"
+        }
+        if (kind == 48) {
+            return "setop"
+        }
+        if (kind == 49) {
+            return "with"
+        }
+        if (kind == 50) {
+            return "cte"
+        }
+        return "unknown"
+    }
+}
+
+; What a child IS to its parent. A parser that says `attach(sel role child)`
+; reads like the grammar it came from, and a generator asking for
+; `childAt(sel (SqlRole.whereClause()))` cannot pick up the HAVING by mistake.
+class SqlRole {
+    sfn thisOperand:int () {
+        return 1
+    }
+    sfn leftOperand:int () {
+        return 2
+    }
+    sfn rightOperand:int () {
+        return 3
+    }
+    sfn projection:int () {
+        return 4
+    }
+    sfn fromClause:int () {
+        return 5
+    }
+    sfn joinClause:int () {
+        return 6
+    }
+    sfn whereClause:int () {
+        return 7
+    }
+    sfn groupClause:int () {
+        return 8
+    }
+    sfn havingClause:int () {
+        return 9
+    }
+    sfn orderClause:int () {
+        return 10
+    }
+    sfn limitClause:int () {
+        return 11
+    }
+    sfn offsetClause:int () {
+        return 12
+    }
+    sfn argument:int () {
+        return 13
+    }
+    sfn aliasName:int () {
+        return 14
+    }
+    sfn onClause:int () {
+        return 15
+    }
+    sfn whenClause:int () {
+        return 16
+    }
+    sfn thenClause:int () {
+        return 17
+    }
+    sfn elseClause:int () {
+        return 18
+    }
+    sfn typeName:int () {
+        return 19
+    }
+    sfn cteClause:int () {
+        return 20
+    }
+    sfn bodyClause:int () {
+        return 21
+    }
+    sfn usingClause:int () {
+        return 22
+    }
+    sfn lowBound:int () {
+        return 23
+    }
+    sfn highBound:int () {
+        return 24
+    }
+    sfn qualifier:int () {
+        return 25
+    }
+    sfn overClause:int () {
+        return 26
+    }
+    sfn partitionClause:int () {
+        return 27
+    }
+    sfn frameClause:int () {
+        return 28
+    }
+    sfn distinctOn:int () {
+        return 29
+    }
+    sfn targetClause:int () {
+        return 30
+    }
+    sfn columnList:int () {
+        return 31
+    }
+    sfn valueRow:int () {
+        return 32
+    }
+    sfn setClause:int () {
+        return 33
+    }
+    ; A comment written next to this node. SQLGlot keeps these, and a
+    ; formatter that drops the one comment in a query is not a formatter.
+    sfn commentClause:int () {
+        return 34
+    }
+    ; The letters in front of a string literal: N'x', E'x', x'ff'.
+    sfn literalPrefix:int () {
+        return 35
+    }
+
+    sfn roleName:string (role:int) {
+        if (role == 1) {
+            return "this"
+        }
+        if (role == 2) {
+            return "left"
+        }
+        if (role == 3) {
+            return "right"
+        }
+        if (role == 4) {
+            return "expressions"
+        }
+        if (role == 5) {
+            return "from"
+        }
+        if (role == 6) {
+            return "joins"
+        }
+        if (role == 7) {
+            return "where"
+        }
+        if (role == 8) {
+            return "group"
+        }
+        if (role == 9) {
+            return "having"
+        }
+        if (role == 10) {
+            return "order"
+        }
+        if (role == 11) {
+            return "limit"
+        }
+        if (role == 12) {
+            return "offset"
+        }
+        if (role == 13) {
+            return "args"
+        }
+        if (role == 14) {
+            return "alias"
+        }
+        if (role == 15) {
+            return "on"
+        }
+        if (role == 16) {
+            return "when"
+        }
+        if (role == 17) {
+            return "then"
+        }
+        if (role == 18) {
+            return "else"
+        }
+        if (role == 19) {
+            return "type"
+        }
+        if (role == 20) {
+            return "with"
+        }
+        if (role == 21) {
+            return "body"
+        }
+        if (role == 22) {
+            return "using"
+        }
+        if (role == 23) {
+            return "low"
+        }
+        if (role == 24) {
+            return "high"
+        }
+        if (role == 25) {
+            return "qualifier"
+        }
+        if (role == 26) {
+            return "over"
+        }
+        if (role == 27) {
+            return "partition"
+        }
+        if (role == 28) {
+            return "frame"
+        }
+        if (role == 29) {
+            return "distinct_on"
+        }
+        if (role == 30) {
+            return "target"
+        }
+        if (role == 31) {
+            return "columns"
+        }
+        if (role == 32) {
+            return "values"
+        }
+        if (role == 33) {
+            return "set"
+        }
+        if (role == 34) {
+            return "comments"
+        }
+        if (role == 35) {
+            return "prefix"
+        }
+        return "child"
+    }
+}
+
+; Bit flags. One int rather than a dozen booleans, because a node carries at
+; most a handful of these and they are all "how was this written".
+class SqlFlag {
+    sfn distinctFlag:int () {
+        return 1
+    }
+    sfn descFlag:int () {
+        return 2
+    }
+    sfn nullsFirstFlag:int () {
+        return 4
+    }
+    sfn nullsLastFlag:int () {
+        return 8
+    }
+    sfn notFlag:int () {
+        return 16
+    }
+    sfn allFlag:int () {
+        return 32
+    }
+    sfn quotedFlag:int () {
+        return 64
+    }
+    sfn outerFlag:int () {
+        return 128
+    }
+    sfn explicitAsFlag:int () {
+        return 256
+    }
+    sfn starArgFlag:int () {
+        return 512
+    }
+    ; IN (SELECT ...) as opposed to IN ((SELECT ...)) - one paren belongs to
+    ; IN itself and the other to the subquery, and the difference survives a
+    ; round trip only if the tree remembers which one it saw.
+    sfn directSubqueryFlag:int () {
+        return 1024
+    }
+    sfn distinctOnFlag:int () {
+        return 2048
+    }
+    ; ORDER BY x ASC was written out; ORDER BY x means the same thing and is
+    ; not the same text.
+    sfn explicitAscFlag:int () {
+        return 4096
+    }
+    ; A comment written BEFORE the thing it belongs to rather than after it.
+    sfn leadingCommentFlag:int () {
+        return 8192
+    }
+
+    sfn hasFlag:boolean (flags:int flag:int) {
+        def rest:int (flags - ((idiv flags (flag * 2)) * (flag * 2)))
+        return (rest >= flag)
+    }
+
+    sfn withFlag:int (flags:int flag:int) {
+        if (SqlFlag.hasFlag(flags flag)) {
+            return flags
+        }
+        return (flags + flag)
+    }
+}
+
+class SqlNode {
+    def kind:int 0
+    ; Identifier name, literal text, operator symbol, function name - whatever
+    ; this kind of node is called.
+    def text:string ""
+    def flags:int 0
+    ; Parallel arrays: roles[i] is what kids[i] is to this node.
+    def roles:[int]
+    def kids:[int]
+    ; Where it came from, for errors.
+    def pos:int 0
+
+    Constructor () {
+    }
+}
+
+class SqlAst {
+    def nodes:[SqlNode]
+    def root:int -1
+
+    Constructor () {
+    }
+
+    fn newNode:int (kind:int text:string) {
+        def n:SqlNode (new SqlNode)
+        n.kind = kind
+        n.text = text
+        push nodes n
+        return ((array_length nodes) - 1)
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn nodeAt:SqlNode (id:int) {
+        if (id < 0) {
+            return (new SqlNode)
+        }
+        if (id >= (array_length nodes)) {
+            return (new SqlNode)
+        }
+        return (itemAt nodes id)
+    }
+
+    fn kindOf:int (id:int) {
+        def n:SqlNode (this.nodeAt(id))
+        return n.kind
+    }
+
+    fn textOf:string (id:int) {
+        def n:SqlNode (this.nodeAt(id))
+        return n.text
+    }
+
+    fn setText:void (id:int text:string) {
+        def n:SqlNode (this.nodeAt(id))
+        n.text = text
+    }
+
+    fn flagsOf:int (id:int) {
+        def n:SqlNode (this.nodeAt(id))
+        return n.flags
+    }
+
+    fn hasFlag:boolean (id:int flag:int) {
+        def n:SqlNode (this.nodeAt(id))
+        return (SqlFlag.hasFlag(n.flags flag))
+    }
+
+    fn addFlag:void (id:int flag:int) {
+        def n:SqlNode (this.nodeAt(id))
+        n.flags = (SqlFlag.withFlag(n.flags flag))
+    }
+
+    fn attach:void (parent:int role:int child:int) {
+        if (child < 0) {
+            return
+        }
+        def n:SqlNode (this.nodeAt(parent))
+        push n.roles role
+        push n.kids child
+    }
+
+    ; The first child in that role, or -1. Most roles hold exactly one child.
+    fn childAt:int (parent:int role:int) {
+        def n:SqlNode (this.nodeAt(parent))
+        def count:int (array_length n.roles)
+        def i:int 0
+        while (i < count) {
+            if ((itemAt n.roles i) == role) {
+                return (itemAt n.kids i)
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn childrenOf:[int] (parent:int role:int) {
+        def out:[int]
+        def n:SqlNode (this.nodeAt(parent))
+        def count:int (array_length n.roles)
+        def i:int 0
+        while (i < count) {
+            if ((itemAt n.roles i) == role) {
+                push out (itemAt n.kids i)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn hasChild:boolean (parent:int role:int) {
+        return ((this.childAt(parent role)) >= 0)
+    }
+
+    ; Replace whatever was in a role with one child - what a rewrite pass does.
+    fn setChild:void (parent:int role:int child:int) {
+        def n:SqlNode (this.nodeAt(parent))
+        def count:int (array_length n.roles)
+        def i:int 0
+        while (i < count) {
+            if ((itemAt n.roles i) == role) {
+                set_at n.kids i child
+                return
+            }
+            i = (i + 1)
+        }
+        this.attach(parent role child)
+    }
+
+    ; Every node under this one, parents before children.
+    fn walk:[int] (start:int) {
+        def out:[int]
+        if (start < 0) {
+            return out
+        }
+        def stack:[int]
+        push stack start
+        while ((array_length stack) > 0) {
+            def id:int (itemAt stack ((array_length stack) - 1))
+            removeLast stack
+            push out id
+            def n:SqlNode (this.nodeAt(id))
+            def count:int (array_length n.kids)
+            def i:int (count - 1)
+            while (i >= 0) {
+                push stack (itemAt n.kids i)
+                i = (i - 1)
+            }
+        }
+        return out
+    }
+
+    fn findKind:[int] (start:int kind:int) {
+        def out:[int]
+        def all:[int] (this.walk(start))
+        def n:int (array_length all)
+        def i:int 0
+        while (i < n) {
+            def id:int (itemAt all i)
+            if ((this.kindOf(id)) == kind) {
+                push out id
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------ json --
+    ; The tree as text, so a test can compare a parse against a fixture and a
+    ; cross-target run can compare its answer against every other target's.
+    fn toJson:string (id:int) {
+        if (id < 0) {
+            return "null"
+        }
+        def n:SqlNode (this.nodeAt(id))
+        def out:string ("{\"type\":\"" + (SqlKind.kindName(n.kind)) + "\"")
+        if ((strlen n.text) > 0) {
+            out = (out + ",\"text\":" + (SqlAst.jsonString(n.text)))
+        }
+        if (n.flags != 0) {
+            out = (out + ",\"flags\":" + (to_string n.flags))
+        }
+        def count:int (array_length n.kids)
+        def i:int 0
+        def lastRole:int -1
+        def open:boolean false
+        while (i < count) {
+            def role:int (itemAt n.roles i)
+            def kid:int (itemAt n.kids i)
+            if (role != lastRole) {
+                if open {
+                    out = (out + "]")
+                    open = false
+                }
+                out = (out + ",\"" + (SqlRole.roleName(role)) + "\":[")
+                open = true
+                lastRole = role
+            } {
+                out = (out + ",")
+            }
+            out = (out + (this.toJson(kid)))
+            i = (i + 1)
+        }
+        if open {
+            out = (out + "]")
+        }
+        return (out + "}")
+    }
+
+    sfn jsonString:string (raw:string) {
+        def q:string (strfromcode 34)
+        def bs:string (strfromcode 92)
+        def out:string q
+        def n:int (strlen raw)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt raw i)
+            if (c == 34) {
+                out = (out + bs + q)
+            } {
+                if (c == 92) {
+                    out = (out + bs + bs)
+                } {
+                    if (c == 10) {
+                        out = (out + bs + "n")
+                    } {
+                        if (c == 9) {
+                            out = (out + bs + "t")
+                        } {
+                            out = (out + (strfromcode c))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + q)
+    }
+}
