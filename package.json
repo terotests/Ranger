@@ -178,6 +178,7 @@
     "pptx:fixtures": "python3 gallery/pptx/tools/make_fixtures.py",
     "pptx:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxTest.rgr -d=./gallery/pptx/bin -o=PptxTest.js -nodecli && node ./gallery/pptx/bin/PptxTest.js",
     "pptx:geom:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxGeomTest.rgr -d=./gallery/pptx/bin -o=PptxGeomTest.js -nodecli && node ./gallery/pptx/bin/PptxGeomTest.js",
+    "pptx:text:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxTextEditTest.rgr -d=./gallery/pptx/bin -o=PptxTextEditTest.js -nodecli && node ./gallery/pptx/bin/PptxTextEditTest.js",
     "pptx:editor:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxEditorTest.rgr -d=./gallery/pptx/bin -o=PptxEditorTest.js -nodecli && node ./gallery/pptx/bin/PptxEditorTest.js",
     "pptx:frame:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxFrameTest.rgr -d=./gallery/pptx/bin -o=PptxFrameTest.js -nodecli && node ./gallery/pptx/bin/PptxFrameTest.js",
     "pptx:writer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxWriterTest.rgr -d=./gallery/pptx/bin -o=PptxWriterTest.js -nodecli && node ./gallery/pptx/bin/PptxWriterTest.js",

@@ -43,6 +43,7 @@ gallery/pptx/
     PptxToEvg.rgr       ResolvedSlide → EVG + display list
     PptxView.rgr        SoftCanvas / sceneJson (+ image cache)
     PptxEdit.rgr        editing core: selection, transforms, history
+    PptxTextEdit.rgr    the caret inside a shape, and the runs it splits
     PptxWriter.rgr      model → OPC package (save)
     PptxApp.rgr         UIInput navigation + editing host
     pptx_demo.rgr       headless PNG demo
@@ -93,6 +94,10 @@ window pixel becomes one:
 - [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
       on a shape's text
 - [x] Slides: add, duplicate, delete, reorder
+- [x] A **text caret**: F2 to type in the selected shape, arrows and word
+      steps, shift-selection, Home/End, Enter to split a paragraph, click to
+      place the caret; typing inside a bold word stays bold and styling a
+      selection splits the runs it covers
 - [x] Undo / redo — a drag is one step, a burst of typing is one step
 - [x] **Save**: the model is written back out as a `.pptx` (`PptxWriter.rgr`),
       checked three ways: a round trip through our own parser, a Python script
@@ -103,14 +108,16 @@ window pixel becomes one:
       `EVGDisplayList` as the slide, so WebGL and SoftCanvas both draw them and
       an export has none of them
 
-Not yet: a text caret (typing appends), keeping the parts of a deck the model
-does not describe when saving (what is written is flat — the template is baked
-into the slides), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
+Not yet: a caret that follows a WRAPPED line (a paragraph that wraps reports
+one line box, so the caret is exact on its first line), keeping the parts of a
+deck the model does not describe when saving (what is written is flat — the
+template is baked into the slides), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
 governs them — none of this is derived from another editor's source.
 
 ```bash
 npm run pptx:geom:test          # presets and custGeom, as paths
 npm run pptx:editor:test        # the editing core
+npm run pptx:text:test          # the caret, the runs it splits
 npm run pptx:editor:host:test   # pointer, keys, overlay, commands
 npm run pptx:writer:test        # write a deck, read it back, compare
 npm run pptx:writer:verify      # …and check the package from outside

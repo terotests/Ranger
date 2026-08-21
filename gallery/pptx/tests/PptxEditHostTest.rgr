@@ -175,6 +175,65 @@ class PptxEditHostTest {
             c.ok("the shape grew" (s4.width > w0))
         }
 
+        print "-- a caret inside a shape --"
+        def app5:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
+        app5.runCommand("edit.toggle" "")
+        def texts:[PptxShape] (app5.editor.editableShapes())
+        def target@(optional):PptxShape
+        def ti:int 0
+        while (ti < (array_length texts)) {
+            def cand:PptxShape (itemAt texts ti)
+            if cand.hasText {
+                if ((strlen (cand.text.plainText())) > 4) {
+                    if (null? target) {
+                        target = cand
+                    }
+                }
+            }
+            ti = (ti + 1)
+        }
+        c.ok("the fixture has a shape with text in it" (!null? target))
+        if (!null? target) {
+            def ts:PptxShape (unwrap target)
+            app5.editor.select(ts.editId)
+            c.ok("F2 is a command as well as a key" (app5.runCommand("text.edit" "")))
+            c.ok("there is a caret now" (app5.editor.isEditingText()))
+            ; The caret is a rectangle inside the shape it is in.
+            def shapeBox:PptxEditRect (app5.shapeScreenBox(ts))
+            def atEnd:PptxEditRect (app5.caretRect(ts app5.editor.caret))
+            c.ok("the caret has height" (atEnd.h > 2.0))
+            c.ok("and it is inside the shape" ((atEnd.x >= (shapeBox.x - 1.0)) && (atEnd.x <= ((shapeBox.x + shapeBox.w) + 1.0))))
+            def atStart:PptxEditRect (app5.caretRect(ts (PptxTextPos.of(0 0))))
+            c.ok("the end of the line is further right than its start" (atEnd.x > atStart.x))
+            ; Measured there, measured back: clicking on a caret's own
+            ; rectangle puts the caret back where it was.
+            def probe:PptxTextPos (PptxTextPos.of(0 3))
+            def r3:PptxEditRect (app5.caretRect(ts probe))
+            def back:PptxTextPos (app5.caretFromPoint(ts (to_int (r3.x + 1.0)) (to_int (r3.y + 2.0))))
+            c.ok("a click lands on the column it was measured from" ((back.para == 0) && (back.col == 3)))
+            ; It is drawn, and a selection is drawn behind it.
+            def noCaret:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
+            noCaret.runCommand("edit.toggle" "")
+            noCaret.editor.select(ts.editId)
+            def plainCount:int ((noCaret.buildFrame()).count())
+            def withCaret:int ((app5.buildFrame()).count())
+            c.ok("the caret is drawn into the frame" (withCaret > plainCount))
+            app5.editor.selectAllText()
+            def withSel:int ((app5.buildFrame()).count())
+            c.ok("and a selection is drawn behind it" (withSel > withCaret))
+            ; A press inside keeps the caret; a press outside gives it up.
+            def cx:int (to_int (shapeBox.x + (shapeBox.w * 0.5)))
+            def cy:int (to_int (shapeBox.y + (shapeBox.h * 0.5)))
+            app5.pointer(cx cy true true false)
+            app5.pointer(cx cy false false true)
+            c.ok("a press inside still has the caret" (app5.editor.isEditingText()))
+            c.ok("and did not start a drag" (app5.dragMode == 0))
+            def outX:int (to_int (shapeBox.x + shapeBox.w + 30.0))
+            app5.pointer(outX cy true true false)
+            app5.pointer(outX cy false false true)
+            c.ok("a press outside stops typing" ((app5.editor.isEditingText()) == false))
+        }
+
         print "-- the viewer is still a viewer --"
         def viewer:PptxApp (PptxEditHostTest.buildDeck("04-multi.pptx"))
         def before:int viewer.index

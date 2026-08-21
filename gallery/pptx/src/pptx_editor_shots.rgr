@@ -107,6 +107,32 @@ class PptxEditorShots {
         app4.runCommand("edit.fill" "ED7D31")
         PptxEditorShots.shot(app4 "04_insert_and_type.png")
 
+        ; 5 — a caret in a shape, with a word selected behind it
+        def app5:PptxApp (PptxEditorShots.open("01-text.pptx"))
+        app5.runCommand("edit.toggle" "")
+        def shapes5:[PptxShape] (app5.editor.editableShapes())
+        def picked:int 0
+        def si:int 0
+        while (si < (array_length shapes5)) {
+            def cand:PptxShape (itemAt shapes5 si)
+            if cand.hasText {
+                if ((strlen (cand.text.plainText())) > 6) {
+                    if (picked == 0) {
+                        picked = cand.editId
+                    }
+                }
+            }
+            si = (si + 1)
+        }
+        if (picked > 0) {
+            app5.editor.select(picked)
+            app5.runCommand("text.edit" "")
+            app5.editor.setCaretPos(0 0 false)
+            app5.editor.moveCaretBy("wordRight" true)
+            app5.editor.moveCaretBy("wordRight" true)
+            PptxEditorShots.shot(app5 "05_text_caret.png")
+        }
+
         print "done"
     }
 }

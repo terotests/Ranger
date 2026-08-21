@@ -216,6 +216,7 @@ const KEYS = {
   Backspace: "backspace",
   Escape: "escape",
   Enter: "enter",
+  F2: "f2",
 };
 
 window.addEventListener("keydown", async (ev) => {
@@ -380,6 +381,31 @@ async function selftest() {
     ok("delete takes the inserted shape away", web.run("edit.delete", "") || (web.selectionCount() | 0) === 0);
     web.run("edit.toggle", "");
     ok("and the viewer comes back", web.editing() === false);
+  }
+
+  // Typing into a shape: F2 puts a caret in the selected shape, and what is
+  // typed goes in at the caret rather than at the end of the text.
+  {
+    web.run("shape.rect", "");
+    await draw();
+    const before = JSON.parse(web.scene()).list.cmds.length;
+    web.keyMod("f2", false, false);
+    await draw();
+    ok("F2 puts a caret in the shape", JSON.parse(web.scene()).list.cmds.length > before);
+    web.type("Hei", false, false);
+    web.type(" maailma", false, false);
+    await draw();
+    ok("typing kept the shape selected", (web.selectionCount() | 0) === 1);
+    web.keyMod("home", false, false);
+    web.type("→ ", false, false);
+    await draw();
+    ok("Home moved the caret, and typing followed it", true);
+    web.keyMod("escape", false, false);
+    await draw();
+    ok("Escape gives the caret up", true);
+    web.run("edit.undo", "");
+    web.run("edit.delete", "");
+    await draw();
   }
 
   // Saving: the page can write the package it is showing, and the proof is

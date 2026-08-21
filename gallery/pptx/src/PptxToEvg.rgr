@@ -18,6 +18,20 @@ Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
+; One paragraph's line box inside a shape, in painter pixels.
+class PptxParaBox {
+    def index:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def fontSize:double 18.0
+    def align:string "left"
+
+    Constructor () {
+    }
+}
+
 class PptxToEvg {
     def scale:double 1.0        ; extra zoom on top of pt→px
 
@@ -332,6 +346,72 @@ class PptxToEvg {
             pi = (pi + 1)
         }
         return h
+    }
+
+    ; Where each paragraph sits inside a shape's box, in the same pixels the
+    ; painter uses. A caret has to agree with the glyphs, so the stacking is
+    ; not written twice: `emitTextBody` and this walk the same arithmetic.
+    ;
+    ; Wrapping is the one thing it does not follow — the display list hands a
+    ; `maxWidth` to the renderer and the renderer decides where the line
+    ; breaks, so a paragraph that wraps reports one box here and the caret is
+    ; right only on its first line. That is the next piece of work, not a
+    ; rounding error.
+    fn paragraphBoxes:[PptxParaBox] (shape:PptxShape x:double y:double w:double h:double) {
+        def out:[PptxParaBox]
+        def body:PptxTextBody shape.text
+        def padL:double (this.ptToPx(body.insetL))
+        def padT:double (this.ptToPx(body.insetT))
+        def padR:double (this.ptToPx(body.insetR))
+        def padB:double (this.ptToPx(body.insetB))
+        def contentW:double ((w - padL) - padR)
+        if (contentW < 8.0) {
+            contentW = 8.0
+        }
+        def contentH:double ((h - padT) - padB)
+        def blockH:double (this.estimateTextBlockHeight(body contentW))
+        def originY:double (y + padT)
+        if (body.anchor == "ctr") {
+            originY = (y + padT + ((contentH - blockH) * 0.5))
+        }
+        if (body.anchor == "b") {
+            originY = (y + padT + (contentH - blockH))
+        }
+        if (originY < (y + padT)) {
+            originY = (y + padT)
+        }
+        def ty:double originY
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            ty = (ty + (this.ptToPx(para.spaceBeforePt)))
+            def fontSize:double 18.0
+            if ((array_length para.runs) > 0) {
+                def r0:PptxTextRun (itemAt para.runs 0)
+                fontSize = (this.ptToPx(r0.fontSizePt))
+            }
+            def lineH:double (fontSize * (para.lineSpacingPct / 100.0) * 1.2)
+            if (lineH < (fontSize * 1.15)) {
+                lineH = (fontSize * 1.15)
+            }
+            def box (new PptxParaBox())
+            box.index = pi
+            box.x = (x + padL)
+            box.y = ty
+            box.w = contentW
+            box.h = lineH
+            box.fontSize = fontSize
+            box.align = (this.alignToken(para.align))
+            if para.hasBullet {
+                box.x = (box.x + ((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0)))
+                box.w = (box.w - (((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0))))
+            }
+            push out box
+            ty = (ty + lineH)
+            ty = (ty + (this.ptToPx(para.spaceAfterPt)))
+            pi = (pi + 1)
+        }
+        return out
     }
 
     fn emitTextBody:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {

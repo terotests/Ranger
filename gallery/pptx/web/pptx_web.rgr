@@ -196,6 +196,7 @@ class PptxWeb {
         if (name == "escape")   { return (UIKey.escape()) }
         if (name == "backspace") { return (UIKey.backspace()) }
         if (name == "enter")    { return (UIKey.enter()) }
+        if (name == "f2")       { return (UIKey.f2()) }
         return (UIKey.none())
     }
 

@@ -18,6 +18,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
+Import "PptxTextEdit.rgr"
 
 ; A rectangle in slide points. Ranger returns one value; a bounding box is four.
 class PptxEditRect {
@@ -290,6 +291,11 @@ class PptxEditor {
     def guideX:[double]
     def guideY:[double]
     def minSizePt:double 4.0
+    ; Text editing. Zero means the deck is being arranged rather than written
+    ; in — a shape is picked up and moved, not typed into.
+    def editingId:int 0
+    def caret:PptxTextPos (new PptxTextPos())
+    def anchor:PptxTextPos (new PptxTextPos())
 
     Constructor () {
     }
@@ -446,6 +452,7 @@ class PptxEditor {
     fn clearSelection:void () {
         def s:[int]
         selection = s
+        editingId = 0
     }
 
     fn selectionCount:int () {
@@ -1800,18 +1807,30 @@ class PptxEditor {
     }
 
     fn setTextBold:boolean (bold:boolean) {
+        if (this.styleTextRange("bold" bold 0.0 "")) {
+            return true
+        }
         return (this.applyRunStyle("bold" bold 0.0 ""))
     }
 
     fn setTextItalic:boolean (italic:boolean) {
+        if (this.styleTextRange("italic" italic 0.0 "")) {
+            return true
+        }
         return (this.applyRunStyle("italic" italic 0.0 ""))
     }
 
     fn setTextSizePt:boolean (size:double) {
+        if (this.styleTextRange("size" false size "")) {
+            return true
+        }
         return (this.applyRunStyle("size" false size ""))
     }
 
     fn setTextColorHex:boolean (hex:string) {
+        if (this.styleTextRange("color" false 0.0 hex)) {
+            return true
+        }
         return (this.applyRunStyle("color" false 0.0 hex))
     }
 
@@ -2035,6 +2054,277 @@ class PptxEditor {
         PptxEditor.setBodyText(sh.text cut)
         this.pushCoalesced("typing")
         return true
+    }
+
+
+    ; --- the caret ------------------------------------------------------------
+
+    fn isEditingText:boolean () {
+        return (editingId > 0)
+    }
+
+    fn editingShape@(optional):PptxShape () {
+        if (editingId <= 0) {
+            def __none@(optional):PptxShape
+            return __none
+        }
+        return (this.findShape(editingId))
+    }
+
+    fn beginTextEdit:boolean (id:int) {
+        def hit@(optional):PptxShape (this.findShape(id))
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        if (sh.kind == 1) {
+            return false
+        }
+        if (sh.kind == 2) {
+            return false
+        }
+        sh.hasText = true
+        if ((array_length sh.text.paragraphs) == 0) {
+            def para (new PptxParagraph())
+            para.align = sh.text.defAlign
+            push sh.text.paragraphs para
+        }
+        ; Selecting clears the caret — picking a different shape stops typing
+        ; into the last one — so the selection is made FIRST and the caret set
+        ; after it.
+        this.select(id)
+        editingId = id
+        def end:PptxTextPos (PptxTextEdit.docEnd(sh.text))
+        caret = end
+        anchor = (end.copy())
+        return true
+    }
+
+    fn endTextEdit:void () {
+        editingId = 0
+    }
+
+    fn textSelectionEmpty:boolean () {
+        return (caret.isSame(anchor))
+    }
+
+    fn selectedText:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return ""
+        }
+        def sh:PptxShape (unwrap hit)
+        return (PptxTextEdit.textInRange(sh.text anchor caret))
+    }
+
+    fn caretText:string () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return ""
+        }
+        def sh:PptxShape (unwrap hit)
+        return (sh.text.plainText())
+    }
+
+    fn setCaretPos:void (para:int col:int extend:boolean) {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return
+        }
+        def sh:PptxShape (unwrap hit)
+        def pos:PptxTextPos (PptxTextPos.of(para col))
+        PptxTextEdit.clamp(sh.text pos)
+        caret = pos
+        if (extend == false) {
+            anchor = (pos.copy())
+        }
+    }
+
+    fn selectAllText:void () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return
+        }
+        def sh:PptxShape (unwrap hit)
+        anchor = (PptxTextEdit.docStart(sh.text))
+        caret = (PptxTextEdit.docEnd(sh.text))
+    }
+
+    ; "left" "right" "up" "down" "home" "end" "wordLeft" "wordRight"
+    fn moveCaretBy:boolean (dir:string extend:boolean) {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        def body:PptxTextBody sh.text
+        ; An unextended move out of a selection collapses to its near end,
+        ; which is what a left arrow means when something is selected.
+        if (extend == false) {
+            if ((this.textSelectionEmpty()) == false) {
+                def cmpv:int (PptxTextEdit.cmp(anchor caret))
+                if (dir == "left") {
+                    if (cmpv < 0) {
+                        caret = (anchor.copy())
+                    }
+                    anchor = (caret.copy())
+                    return true
+                }
+                if (dir == "right") {
+                    if (cmpv > 0) {
+                        caret = (anchor.copy())
+                    }
+                    anchor = (caret.copy())
+                    return true
+                }
+            }
+        }
+        def next:PptxTextPos (caret.copy())
+        if (dir == "left") {
+            next = (PptxTextEdit.moveLeft(body caret))
+        }
+        if (dir == "right") {
+            next = (PptxTextEdit.moveRight(body caret))
+        }
+        if (dir == "up") {
+            next = (PptxTextEdit.moveUp(body caret))
+        }
+        if (dir == "down") {
+            next = (PptxTextEdit.moveDown(body caret))
+        }
+        if (dir == "home") {
+            next = (PptxTextEdit.lineStart(body caret))
+        }
+        if (dir == "end") {
+            next = (PptxTextEdit.lineEnd(body caret))
+        }
+        if (dir == "wordLeft") {
+            next = (PptxTextEdit.wordLeft(body caret))
+        }
+        if (dir == "wordRight") {
+            next = (PptxTextEdit.wordRight(body caret))
+        }
+        caret = next
+        if (extend == false) {
+            anchor = (next.copy())
+        }
+        return true
+    }
+
+    fn dropSelectedText:boolean () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        if (this.textSelectionEmpty()) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        def at:PptxTextPos (PptxTextEdit.deleteRange(sh.text anchor caret))
+        caret = at
+        anchor = (at.copy())
+        return true
+    }
+
+    fn typeAtCaret:boolean (text:string) {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        if ((strlen text) == 0) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        this.dropSelectedText()
+        def at:PptxTextPos (PptxTextEdit.insertAt(sh.text caret text))
+        caret = at
+        anchor = (at.copy())
+        this.pushCoalesced("typing")
+        return true
+    }
+
+    fn newlineAtCaret:boolean () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        this.dropSelectedText()
+        def at:PptxTextPos (PptxTextEdit.splitAt(sh.text caret))
+        caret = at
+        anchor = (at.copy())
+        this.pushSnapshot("newline")
+        return true
+    }
+
+    fn backspaceAtCaret:boolean () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        if ((this.textSelectionEmpty()) == false) {
+            this.dropSelectedText()
+            this.pushCoalesced("typing")
+            return true
+        }
+        def from:PptxTextPos (PptxTextEdit.moveLeft(sh.text caret))
+        if (from.isSame(caret)) {
+            return false
+        }
+        def at:PptxTextPos (PptxTextEdit.deleteRange(sh.text from caret))
+        caret = at
+        anchor = (at.copy())
+        this.pushCoalesced("typing")
+        return true
+    }
+
+    fn deleteAtCaret:boolean () {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        if ((this.textSelectionEmpty()) == false) {
+            this.dropSelectedText()
+            this.pushCoalesced("typing")
+            return true
+        }
+        def to:PptxTextPos (PptxTextEdit.moveRight(sh.text caret))
+        if (to.isSame(caret)) {
+            return false
+        }
+        def at:PptxTextPos (PptxTextEdit.deleteRange(sh.text caret to))
+        caret = at
+        anchor = (at.copy())
+        this.pushCoalesced("typing")
+        return true
+    }
+
+    ; A style command while a caret is in the text means the SELECTION, and a
+    ; style command otherwise means the whole shape. Both are what a user
+    ; expects, and the difference is only which one is in front of them.
+    fn styleTextRange:boolean (what:string flag:boolean size:double text:string) {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        if (this.textSelectionEmpty()) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        PptxTextEdit.applyStyle(sh.text anchor caret what flag size text)
+        this.pushSnapshot(("text " + what))
+        return true
+    }
+
+    fn selectionIsAll:boolean (what:string) {
+        def hit@(optional):PptxShape (this.editingShape())
+        if (null? hit) {
+            return false
+        }
+        def sh:PptxShape (unwrap hit)
+        return (PptxTextEdit.rangeIsAll(sh.text anchor caret what))
     }
 
 }

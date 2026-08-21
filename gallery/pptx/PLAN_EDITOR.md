@@ -89,20 +89,55 @@ Decisions worth keeping (and their reasons):
 - **Editing is a mode.** A deck opened to read cannot be changed by a stray
   click; `edit.toggle` (Ctrl+E) is what arms it.
 
-## Phase E2 — text that has a caret
+## Phase E2 — text that has a caret (done)
 
-Today typing appends to the end of a shape's text and backspace takes one off
-the end. A real editor needs a caret, a selection inside the text, and runs
-that can differ inside one paragraph.
+`src/PptxTextEdit.rgr` puts a caret inside a shape. A position is a paragraph
+and a column in UTF-16 units of that paragraph's plain text — the unit `strlen`
+and `substring` already count in, so nothing is converted before an edit, and
+`EVGCodepoint` is what steps over a surrogate pair so the caret never lands
+inside one.
 
-The pieces already exist in `gallery/text_editor`: `EditorBuffer` (lines,
-runs, undo), `EditorSelection` (caret, shift-arrows, word/line selection) and
-`EditorLayout` (measured wrapping). E2 is binding a shape's `PptxTextBody` to
-those and painting the caret into the same display list — not writing a second
-text engine.
+The runs are the point of it. Typing inside a bold word stays bold (the style
+comes from the run to the left of the caret, the way every editor does it),
+styling a selection **splits** the runs it covers and leaves the rest alone,
+and runs that end up saying the same thing merge back into one — without that
+last part a paragraph grows a run per keystroke. What is in it: insert
+(including multi-line text), delete over a range and across paragraphs, Enter
+splitting a paragraph and passing on its alignment, bullet and level, character
+and word movement, Home/End, shift-selection, select-all, and bold / italic /
+size / colour over a selection with a "is all of it already bold?" question
+behind the toggle.
 
-Also here: bullets and numbering as real paragraph properties rather than a
-painted prefix, indent levels, line and paragraph spacing, hyperlinks.
+It is **not** `EditorBuffer` from the text editor, and that is a decision
+rather than an oversight: that buffer's runs carry a weight and a font name
+over a line of plain text, and OOXML's runs carry the text itself along with a
+size and a colour. One of the two would have to be converted on every
+keystroke. What is shared is `EVGCodepoint`, and the measuring that the host
+does.
+
+The host side is the seam that had to be got right: the model says "paragraph
+2, column 7" and the window needs a rectangle. `PptxToEvg.paragraphBoxes` walks
+the same stacking arithmetic `emitTextBody` does — so a caret cannot drift from
+the glyphs by disagreeing about where a paragraph starts — and `PptxApp`
+measures the text before the caret run by run through the same text renderer
+that will draw it, alignment included. Clicking maps back the other way. F2 (or
+Enter) puts the caret in the selected shape, Escape gives it up, a click inside
+moves it, a click outside ends it, and the caret and its selection are drawn
+into the same display list as the slide.
+
+75 checks in `npm run pptx:text:test` and 12 more in the host suite, including
+the round trip that matters: click on a caret's own rectangle and the caret
+comes back to the column it was measured from.
+
+### Phase E2b — the line, not the paragraph
+
+One thing is deliberately left: a paragraph that **wraps** reports one line box,
+so the caret is right on the first line of it and approximate after that. The
+display list hands a `maxWidth` to the renderer and the renderer decides where
+the break falls, so fixing this means the wrap itself has to be shared — one
+layout pass producing the lines, used by the painter and by the caret. Also
+here: bullets and numbering as real paragraph properties rather than a painted
+prefix, indent levels, line and paragraph spacing, hyperlinks.
 
 ## Phase E3 — writing `.pptx` back out (done, flat)
 
