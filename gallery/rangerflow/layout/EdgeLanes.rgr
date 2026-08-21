@@ -981,7 +981,7 @@ class EdgeOverlap {
                             if (i == e.targetIndex) { skip = true }
                             if (skip == false) {
                                 def nd:FlowNode (g.nodeAt(i))
-                                if (nd.hidden == false) {
+                                if (EdgeOverlap.blocks(nd)) {
                                     if (EdgeOverlap.pathEntersRect(p nd)) {
                                         total = (total + 1)
                                     }
@@ -1006,6 +1006,16 @@ class EdgeOverlap {
     ; corridor ends up drawn along a border, and a border is where the box
     ; stops — the same half-pixel the router's own clearance test allows, so
     ; the router and this meter agree on what counts as a crossing.
+    ; A frame — a swimlane, a sub-flow box — is the paper the diagram is drawn
+    ; on. Lines cross it because that is what it is for, and counting those
+    ; would drown the count that matters in noise.
+    sfn blocks:boolean (nd:FlowNode) {
+        if nd.hidden {
+            return false
+        }
+        return (nd.nodeType != "group")
+    }
+
     sfn pathEntersRect:boolean (p:EdgePath nd:FlowNode) {
         def full:FlowRect (nd.rect())
         def eps:double 0.5

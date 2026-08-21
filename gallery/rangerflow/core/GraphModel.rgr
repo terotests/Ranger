@@ -19,6 +19,8 @@
 ; the picture and the pointer cannot disagree.
 ; ============================================================================
 
+Import "FlowShapes.rgr"
+
 ; Which side of a node a handle sits on. Ints rather than strings so a hot
 ; loop compares numbers, with names kept for serialization.
 class FlowPosition {
@@ -298,6 +300,10 @@ class FlowNode {
     def height:double 40.0
     ; "default" | "input" | "output" | "group"
     def nodeType:string "default"
+    ; What the node is drawn as — see FlowShapes. Empty or "rect" is the
+    ; rectangle every table and class has always been; a flowchart's meaning
+    ; lives here, because a decision that is not a diamond is not a decision.
+    def shape:string "rect"
     def sourcePosition:int 1
     def targetPosition:int 3
 
@@ -555,17 +561,17 @@ class FlowNode {
     ; Where an edge leaves or arrives. React Flow puts a handle at the middle
     ; of the named side; so does this.
     fn handleX:double (side:int) {
-        if (side == 1) { return (x + width) }
-        if (side == 3) { return x }
-        def hw:double (width * 0.5)
-        return (x + hw)
+        return (FlowShapes.anchorX(shape x y width height side))
     }
 
     fn handleY:double (side:int) {
-        if (side == 2) { return (y + height) }
-        if (side == 0) { return y }
-        def hh:double (height * 0.5)
-        return (y + hh)
+        return (FlowShapes.anchorY(shape x y width height side))
+    }
+
+    ; Inside the SHAPE, not inside the bounding box: the corner beside a
+    ; diamond looks like empty canvas and has to behave like it.
+    fn holdsPoint:boolean (px:double py:double) {
+        return (FlowShapes.holdsShape(shape x y width height px py))
     }
 
     fn syncFromModel:void () {
@@ -1275,8 +1281,7 @@ class FlowGraph {
         while (i >= 0) {
             def n:FlowNode (itemAt nodes i)
             if (n.hidden == false) {
-                def r:FlowRect (n.rect())
-                if (r.holds(px py)) {
+                if (n.holdsPoint(px py)) {
                     return i
                 }
             }

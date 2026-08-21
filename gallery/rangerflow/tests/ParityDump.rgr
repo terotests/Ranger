@@ -427,12 +427,73 @@ class ParityDump {
     }
 
     fn probeAll:void () {
+        this.probeAuthoring()
         this.probeViewportBehaviour()
         this.probeSelection()
         this.probeDragging()
         this.probeConnecting()
         this.probeResizeAndSnap()
         this.probeEdgesAndChrome()
+    }
+
+    ; What a toolbar does. React Flow documents `connectOnClick` and
+    ; `node.parentId`, so both are rows in the scorecard and both have to be
+    ; driven through the real editor to claim them.
+    fn probeAuthoring:void () {
+        def ed:FlowEditor (this.twoNodeEditor())
+        def inp (new FlowInput)
+        ed.connectOnClick = true
+        inp.x = 40.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        inp.x = 340.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        def made:boolean ((ed.graph.edgeCount()) == 1)
+        this.probe("connectOnClick" made "clicking two nodes in turn joins them")
+
+        ; Sub-flows: a child moves with its parent and keeps its own position.
+        def ed2:FlowEditor (this.twoNodeEditor())
+        def frame:FlowNode (ed2.graph.nodeById("a"))
+        frame.nodeType = "group"
+        frame.width = 400.0
+        frame.height = 300.0
+        def child:FlowNode (ed2.graph.nodeById("b"))
+        child.parentId = "a"
+        child.x = 60.0
+        child.y = 60.0
+        child.syncFromModel()
+        def before:double child.x
+        frame.selected = true
+        ed2.beginDrag()
+        ed2.mode = 2
+        ed2.pressX = 0.0
+        ed2.pressY = 0.0
+        ed2.lastX = 0.0
+        ed2.lastY = 0.0
+        def inp2 (new FlowInput)
+        inp2.x = 70.0
+        inp2.y = 0.0
+        ed2.pointerMove(inp2)
+        ed2.pointerUp(inp2)
+        def carried:boolean (ParityDump.near((child.x - before) 70.0 0.001))
+        this.probe("subFlowDrag" carried "dragging a parent carries its children")
+
+        ; The palette: one call, one node, one undo step.
+        def ed3:FlowEditor (this.twoNodeEditor())
+        def n0:int (ed3.graph.nodeCount())
+        def added:FlowNode (ed3.addNode("New" "diamond" 200.0 200.0))
+        def grew:boolean ((ed3.graph.nodeCount()) == (n0 + 1))
+        def shaped:boolean (added.shape == "diamond")
+        def undone:boolean (ed3.undo.undo(ed3.graph))
+        def gone:boolean ((ed3.graph.nodeCount()) == n0)
+        def all:boolean grew
+        if (shaped == false) { all = false }
+        if (undone == false) { all = false }
+        if (gone == false) { all = false }
+        this.probe("addNode" all "a node can be added, shaped, and taken back")
     }
 
     fn probeViewportBehaviour:void () {

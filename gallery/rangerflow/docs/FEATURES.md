@@ -89,6 +89,14 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Edge routing / lane separation | ✓ | channel routing plus a port fan; segment pairs drawn on top of each other 16 → 1 on the fixture, 12 → 0 on the UML one |
 | Edge routing around obstacles | ✓ | dummy-vertex chains in the layered layout, plus an orthogonal-grid repair pass for nodes moved by hand: 2 of 1261 drop positions still cross, 0 of 429 on the UML diagram (`npm run rangerflow:drag`) |
 | Edge crossing minimisation | ✓ | layered ordering, plus a transpose pass over the tracks in each corridor: the UML diagram goes 2 → 0 and averages 1.88 → 0.24 crossings over 748 drag positions |
+| Node shapes | ✓ | twelve outlines (`core/FlowShapes.rgr`): rect, stadium, diamond, parallelogram, trapezoid, hexagon, cylinder, document, ellipse, circle, note, predefined — drawn, hit-tested and anchored from one ring of points |
+| ATK / ISO 5807 flowchart | ✓ | `domains/flowchart/`: kinds, `kyllä`/`ei` branch labels, shape per kind |
+| Organisation chart | ✓ | `domains/business/`: units coloured, matrix reports dashed |
+| Swimlane process | ✓ | `domains/business/`: lanes as group nodes with real parenting — drag the lane, the steps follow |
+| Sub-flows / parenting | ✓ | `node.parentId`; a dragged parent carries its children (probe `subFlowDrag`) |
+| Toolbar: add a node | ✓ | eleven shapes, one undo step each (`FlowEditor.addNode`) |
+| Toolbar: click to connect | ✓ | React Flow's `connectOnClick` (probe `connectOnClick`) |
+| Toolbar: rename the selection | ✓ | renames as you type, no dialog over the canvas |
 | Drag an edge's corner by hand | ✓ | grab any interior segment; it slides across itself only, and a hand-placed route is left alone by every later pass |
 | MiniMap / zoom / pan | ✓ | from the core |
 | Keys-only view for big schemas | ✓ | `SchemaToGraph.keysOnly` |

@@ -19,6 +19,8 @@ Import "../core/FlowEditor.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
+Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/ForceLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
@@ -149,6 +151,15 @@ class RangerFlowWeb {
         }
         if (name == "flow") {
             return (this.loadFlowchart())
+        }
+        if (name == "atk") {
+            return (this.loadAtkChart())
+        }
+        if (name == "org") {
+            return (this.loadOrgChart())
+        }
+        if (name == "process") {
+            return (this.loadProcess())
         }
         return (this.loadSqlFixture())
     }
@@ -328,6 +339,226 @@ class RangerFlowWeb {
         return true
     }
 
+    ; ------------------------------------------------- business and ATK ----
+    ; The ATK chart in the shapes it is supposed to be in — a stadium for the
+    ; start, a diamond for the decision, a drum for the register, a page with a
+    ; wavy foot for the printed invoice. The shape is the sentence; the label
+    ; only says which one.
+    fn loadAtkChart:boolean () {
+        def c (new Flowchart)
+        c.start("alku" "Alku")
+        c.step("tilaus" "Lue tilaus" (FlowKind.io()))
+        c.step("asiakas" "Asiakasrekisteri" (FlowKind.database()))
+        c.step("tarkista" "Tarkista luottotiedot" (FlowKind.process()))
+        c.step("luotto" "Luotto kunnossa?" (FlowKind.decision()))
+        c.step("varasto" "Varaa tuotteet" (FlowKind.process()))
+        c.step("saldo" "Riittääkö saldo?" (FlowKind.decision()))
+        c.step("jalki" "Merkitse jälkitoimitukseen" (FlowKind.process()))
+        c.step("laskuta" "Muodosta lasku" (FlowKind.predefined()))
+        c.step("lasku" "Lasku asiakkaalle" (FlowKind.document()))
+        c.step("hylkaa" "Ilmoita hylkäys" (FlowKind.manual()))
+        c.step("loppu" "Loppu" (FlowKind.terminator()))
+        c.link("alku" "tilaus")
+        c.link("tilaus" "tarkista")
+        c.link("asiakas" "tarkista")
+        c.link("tarkista" "luotto")
+        c.branch("luotto" "varasto" "kyllä")
+        c.branch("luotto" "hylkaa" "ei")
+        c.link("varasto" "saldo")
+        c.branch("saldo" "laskuta" "kyllä")
+        c.branch("saldo" "jalki" "ei")
+        c.link("jalki" "laskuta")
+        c.link("laskuta" "lasku")
+        c.link("lasku" "loppu")
+        c.link("hylkaa" "loppu")
+        def g:FlowGraph (c.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 70.0
+        lay.nodeGap = 46.0
+        lay.run()
+        Flowchart.faceEdges(graph)
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " vaihetta, " + (to_string (g.edgeCount())) + " yhteyttä — ATK-kaavio ISO 5807:n muodoilla")
+        return true
+    }
+
+    fn loadOrgChart:boolean () {
+        def o (new OrgChart)
+        o.unitColor("Johto" "#eef2ff")
+        o.unitColor("Tuotanto" "#eefaf1")
+        o.unitColor("Myynti" "#fff5e9")
+        o.unitColor("Talous" "#f7effb")
+        o.person("tj" "Aino Virtanen" "toimitusjohtaja" "Johto" "")
+        o.person("cto" "Markus Laine" "teknologiajohtaja" "Johto" "tj")
+        o.person("cfo" "Riikka Salo" "talousjohtaja" "Talous" "tj")
+        o.person("myynti" "Pekka Nieminen" "myyntijohtaja" "Myynti" "tj")
+        o.person("kehitys" "Sanna Koskinen" "kehityspäällikkö" "Tuotanto" "cto")
+        o.person("yllapito" "Otto Mäkelä" "ylläpitopäällikkö" "Tuotanto" "cto")
+        o.person("kirjanpito" "Liisa Aho" "kirjanpitäjä" "Talous" "cfo")
+        o.person("avain" "Tuomas Heikkinen" "avainasiakaspäällikkö" "Myynti" "myynti")
+        def matrix:OrgPerson (o.person("analyytikko" "Elina Rantala" "data-analyytikko" "Talous" "kehitys"))
+        matrix.dotted = true
+        def g:FlowGraph (o.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 70.0
+        lay.nodeGap = 34.0
+        lay.run()
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " henkilöä — katkoviiva on matriisiraportointi")
+        return true
+    }
+
+    ; The lanes are placed by the domain rather than by a layout, because who
+    ; does the work is not something an algorithm may decide. Dragging a lane
+    ; takes its steps with it — that is what `parentId` buys.
+    fn loadProcess:boolean () {
+        def p (new SwimlaneProcess)
+        p.lane("asiakas" "Asiakas")
+        p.lane("myynti" "Myynti")
+        p.lane("varasto" "Varasto")
+        p.lane("talous" "Talous")
+        p.step("tilaa" "Tekee tilauksen" "asiakas" (FlowShape.stadium()))
+        p.step("vastaanota" "Vastaanota tilaus" "myynti" (FlowShape.rect()))
+        p.step("luotto" "Luotto ok?" "myynti" (FlowShape.diamond()))
+        p.step("kerays" "Kerää tuotteet" "varasto" (FlowShape.rect()))
+        p.step("toimitus" "Lähetä toimitus" "varasto" (FlowShape.rect()))
+        p.step("laskuta" "Laskuta" "talous" (FlowShape.rect()))
+        p.step("suoritus" "Kirjaa suoritus" "talous" (FlowShape.rect()))
+        p.step("saapuu" "Vastaanottaa tavaran" "asiakas" (FlowShape.stadium()))
+        p.link("tilaa" "vastaanota")
+        p.link("vastaanota" "luotto")
+        p.branch("luotto" "kerays" "kyllä")
+        p.link("kerays" "toimitus")
+        p.link("toimitus" "laskuta")
+        p.link("laskuta" "suoritus")
+        p.link("toimitus" "saapuu")
+        def g:FlowGraph (p.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (array_length p.laneIds)) + " uimarataa — raahaa rataa, niin sen vaiheet tulevat mukana")
+        return true
+    }
+
+    ; ---------------------------------------------------------- authoring ---
+    ; What the toolbar calls. Every one of them is one undo step, and every one
+    ; re-routes afterwards, because a new box in the middle of a corridor is
+    ; exactly the case the repair pass exists for.
+    fn addNode:string (label:string shape:string) {
+        def n:FlowNode (editor.addNodeAtCentre(label shape))
+        this.reroute()
+        return n.id
+    }
+
+    fn addNodeAt:string (label:string shape:string sx:double sy:double) {
+        def fx:double (editor.flowX(sx))
+        def fy:double (editor.flowY(sy))
+        def n:FlowNode (editor.addNode(label shape fx fy))
+        this.reroute()
+        return n.id
+    }
+
+    fn setConnectMode:void (on:boolean) {
+        editor.connectOnClick = on
+        editor.clickConnectFrom = ""
+        if on {
+            status = "yhdistä: klikkaa lähde, sitten kohde"
+        } {
+            status = "valinta"
+        }
+    }
+
+    fn connectMode:boolean () {
+        return editor.connectOnClick
+    }
+
+    fn connect:boolean (sourceId:string targetId:string) {
+        def ok:boolean (editor.connectNodes(sourceId targetId))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn deleteSelection:boolean () {
+        def ok:boolean (editor.deleteSelection())
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn undo:boolean () {
+        def ok:boolean (editor.undo.undo(graph))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn redo:boolean () {
+        def ok:boolean (editor.undo.redo(graph))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn selectedLabel:string () {
+        def n:FlowNode (editor.selectedNode())
+        return n.label
+    }
+
+    fn selectedId:string () {
+        return (editor.selectedNodeId())
+    }
+
+    fn renameSelected:boolean (label:string) {
+        return (editor.renameSelected(label))
+    }
+
+    fn setSelectedShape:boolean (shape:string) {
+        def ok:boolean (editor.setSelectedShape(shape))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    ; The same two passes pointer-up runs, so an edited diagram is routed the
+    ; way a dragged one is and there is only one answer to "why is that line
+    ; there".
+    fn reroute:void () {
+        if simRunning {
+            return
+        }
+        EdgeLanes.reset(graph)
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+    }
+
     ; ------------------------------------------------------------- content --
     ; The page fetches the .sql and hands over the text; nothing here opens a
     ; file, which is what makes the bundle loadable in a browser at all.
@@ -363,6 +594,13 @@ class RangerFlowWeb {
         }
         simRunning = false
         editor.pinWhileDragging = false
+        ; "none" means the positions came from the domain and are part of what
+        ; the diagram says — a swimlane's rows are who does the work, and a
+        ; layout free to move a box between them is free to reassign it.
+        if (layoutName == "none") {
+            this.reroute()
+            return
+        }
         def lay:LayeredLayout (LayeredLayout.of(graph))
         lay.direction = "LR"
         lay.layerGap = 160.0
@@ -521,6 +759,53 @@ class RangerFlowWeb {
             return "FAIL select all"
         }
         report = (report + "select-all ok; ")
+        graph.clearSelection()
+
+        ; The toolbar, driven the way the buttons drive it. A palette that
+        ; adds a node nobody can find, or a connect mode that makes no edge, is
+        ; a toolbar that looks like it works — so the test adds two boxes, joins
+        ; them, renames one, and takes it all back again.
+        def nodes0:int (graph.nodeCount())
+        def edges0:int (graph.edgeCount())
+        def idA:string (this.addNode("Testi A" (FlowShape.diamond())))
+        def idB:string (this.addNode("Testi B" (FlowShape.cylinder())))
+        if ((graph.nodeCount()) != (nodes0 + 2)) {
+            simRunning = wasRunning
+            return "FAIL the palette did not add two nodes"
+        }
+        if ((this.connect(idA idB)) == false) {
+            simRunning = wasRunning
+            return "FAIL connect made no edge"
+        }
+        if ((graph.edgeCount()) != (edges0 + 1)) {
+            simRunning = wasRunning
+            return "FAIL the new edge is not in the graph"
+        }
+        def added:FlowNode (graph.nodeById(idB))
+        ; The palette selects what it just added, which is what makes the name
+        ; field work without a second click.
+        if ((this.selectedId()) != idB) {
+            simRunning = wasRunning
+            return "FAIL the new node is not selected"
+        }
+        this.renameSelected("Nimetty")
+        if (added.label != "Nimetty") {
+            simRunning = wasRunning
+            return "FAIL rename"
+        }
+        ; Three undos: the edge, then each node.
+        this.undo()
+        this.undo()
+        this.undo()
+        if ((graph.nodeCount()) != nodes0) {
+            simRunning = wasRunning
+            return "FAIL undo left the added nodes behind"
+        }
+        if ((graph.edgeCount()) != edges0) {
+            simRunning = wasRunning
+            return "FAIL undo left the added edge behind"
+        }
+        report = (report + "toolbar ok; ")
         graph.clearSelection()
         def json:string (editor.sceneJson())
         if ((strlen json) < 100) {

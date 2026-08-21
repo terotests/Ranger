@@ -23,8 +23,8 @@ places, not whether it was written with the same commands.
 | Node bounds | `getNodesBounds` | 2/2 — 100% | 0.000 px |
 | Selection overlap | `getRectsOverlappingArea` | 5/5 — 100% | 0.438 px |
 | Force layout | `d3-force` | 5/5 — 100% | 0.065 % shape |
-| Behaviour | `probes against FlowEditor` | 42/50 — 84% | — |
-| **Overall** | mean of the 7 families | **97.7%** | |
+| Behaviour | `probes against FlowEditor` | 45/51 — 88% | — |
+| **Overall** | mean of the 7 families | **98.3%** | |
 
 The overall figure is the mean of the family percentages, not of the cases:
 320 edge paths and 50 capabilities are not 370 equally important facts, and a
@@ -111,7 +111,7 @@ which is worse than `todo`, because it means the documentation lies.
 | Drag handle selector | `node.dragHandle` | · todo | — |
 | Helper lines / alignment | `(example: helper lines)` | · todo | — |
 
-### Connecting — 7/9
+### Connecting — 8/9
 
 | Capability | React Flow | Status | Probe |
 | --- | --- | --- | --- |
@@ -123,21 +123,22 @@ which is worse than `todo`, because it means the documentation lies.
 | Source / target handle roles | `<Handle type=…>` | ✓ done | `portRoles` |
 | Several handles per node | `(example: multiple handles)` | ✓ done | `multipleHandles` |
 | Reconnect an edge by its end | `onReconnect` | · todo | — |
-| Connect on click | `connectOnClick` | · todo | — |
+| Connect on click | `connectOnClick` | ✓ done | `connectOnClick` |
 
-### Nodes and edges — 7/9
+### Nodes and edges — 9/10
 
 | Capability | React Flow | Status | Probe |
 | --- | --- | --- | --- |
 | Custom node types | `nodeTypes` | ✓ done | `edgeTypes` |
 | Node resizing | `<NodeResizer />` | ✓ done | `resizeNode` |
+| Add a node from a palette | `(example: add node on edge drop)` | ✓ done | `addNode` |
 | Minimum node size | `<NodeResizer minWidth>` | ✓ done | `resizeMinSize` |
 | Edge selection | `edgesFocusable` | ✓ done | `edgeSelect` |
 | Four edge types | `edgeTypes` | ✓ done | `edgeTypes` |
 | Edge labels | `edge.label` | ✓ done | `edgeLabels` |
 | Edge markers | `markerEnd` | ✓ done | `markers` |
 | Node toolbar | `<NodeToolbar />` | · todo | — |
-| Sub-flows / parenting | `node.parentId` | · todo | — |
+| Sub-flows / parenting | `node.parentId` | ✓ done | `subFlowDrag` |
 
 ### Chrome and rendering — 4/4
 

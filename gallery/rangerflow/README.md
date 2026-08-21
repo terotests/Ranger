@@ -27,15 +27,18 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 209 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 285 assertions: model, forces, router, editor, SQL, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
+npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
+npm run rangerflow:org         # an organisation chart
+npm run rangerflow:process     # a swimlane process
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
 npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
 npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
-npm run rangerflow:web:test    # …or run all four demos in headless Chrome
+npm run rangerflow:web:test    # …or run all seven demos in headless Chrome
 npm run rangerflow:parity      # score it against React Flow — see below
 npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
 ```
@@ -43,7 +46,7 @@ npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL windo
 ## The demos, in a browser
 
 `npm run rangerflow:demo:web` builds the static page, serves it, and prints
-four URLs. They are the same editor with different graphs in it — the `demo`
+the URLs. They are the same editor with different graphs in it — the `demo`
 dropdown in the page switches between them, and `?scenario=` picks one on load:
 
 | | |
@@ -52,15 +55,30 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=uml`](http://localhost:8080/?scenario=uml) | a UML class diagram — the same compartment node with different words in it |
 | [`?scenario=force`](http://localhost:8080/?scenario=force) | React Flow's force-layout example: d3-force running live, and a node you drag pins while you hold it |
 | [`?scenario=flow`](http://localhost:8080/?scenario=flow) | a plain flowchart — the core with no domain on top of it |
+| [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
+| [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
+| [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 
 Drag to pan, wheel to zoom, shift-drag to box select, drag a handle to connect,
 `Delete`, `Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen,
 and **open .sql** reads a schema in the tab without uploading it anywhere.
 
-Every one of the four is checked on every `npm run rangerflow:web:test`: the
-page drives itself through select → drag → undo → select-all inside real
-headless Chrome and reports what the GL context actually did, so a scenario
-cannot rot unnoticed behind the default one.
+The second row is a **toolbar**, and it is not a demo of a toolbar: every
+button calls one method on the app, which calls one method on `FlowEditor`, so
+the same authoring runs in the SDL window and in a headless test.
+
+| | |
+| --- | --- |
+| the eleven shape buttons | add a node of that shape at the middle of the view, selected and ready to be named |
+| **connect** | React Flow's `connectOnClick`: click the source, click the target. Clicking the pane cancels |
+| **delete** / **undo** / **redo** | the same three the keyboard does, for a reader who is holding a mouse |
+| the **name** field | renames the selected node as you type — no dialog over the canvas showing you the thing you are naming |
+
+Every scenario is checked on every `npm run rangerflow:web:test`: the page
+drives itself through select → drag → undo → select-all → **add two nodes,
+join them, rename one, undo it all** inside real headless Chrome, and reports
+what the GL context actually did. A scenario cannot rot unnoticed behind the
+default one, and neither can a toolbar button.
 
 ## …and in a window
 
@@ -102,11 +120,82 @@ The UML class diagram is the same primitive with different words in it, which
 is the argument for keeping the core free of tables: `domains/uml/UMLModel.rgr`
 is 250 lines, and most of them are the model rather than the drawing.
 
+## The shape is the sentence
+
+A table and a class are both rectangles, so the model got away for a long time
+with never saying what a node *looked* like. A flowchart cannot. A diamond is a
+decision, a parallelogram is input or output, a drum is stored data, and a page
+with a wavy foot is something printed — a reader who knows the convention has
+read half the diagram before reading a word of it, and drawing all four as
+rectangles does not make a plainer chart, it makes a wrong one.
+
+`core/FlowShapes.rgr` is one function: a rectangle and a shape name in, a ring
+of points out. The ring does three jobs, which is why there is only one of it:
+
+- **drawing** — `FlowScene.polygon`, which every backend already handled, so a
+  hexagon reaches the PDF, the SVG and the GPU by the road the rectangles took;
+- **hit testing** — the editor asks whether the pointer is inside the ring, not
+  inside the bounding box, so the corner beside a diamond is empty canvas the
+  way it looks like it should be;
+- **handles** — the anchor for a side is where that side's outline crosses the
+  node's middle, so an arrow into a parallelogram ends on the slope rather than
+  in the air beside it.
+
+Curves are cut into segments rather than emitted as arcs, because the display
+list has polygons and polylines and no beziers. A rounded end drawn as sixteen
+segments is indistinguishable at any zoom a reader uses; a second code path
+that only some backends implemented would be a rounded end in the browser and a
+hexagon in the PDF.
+
+The same rule caught a real one on the way in. `SceneItem.dash` was written
+into the SVG as `stroke-dasharray` and dropped on the floor by the display
+list, so an organisation chart's dotted matrix report came out dotted in the
+PDF and **solid on the GPU**. The dashes are now cut in `FlowScene` — once, by
+arc length — so both backends draw the same line by construction.
+
+## Three more diagrams, and no more core
+
+```text
+  ╭────────╮   ┌ Asiakas ─────────────────────┐   ┌──────────────┐
+  │  Alku  │   │ ╭──────╮      ┌──────────┐   │   │ Aino Virtanen│
+  ╰───┬────╯   │ │ tilaa├──┐   │          │   │   ├──────────────┤
+   ╱──┴──╱     └─╰──────╯──┼───┴──────────┴───┘   │ toimitusjohtaja│
+      │        ┌ Myynti ───┼──────────────────┐   └───────┬──────┘
+      ◇ ei ►   │       ┌───▼────┐    ◇        │       ┌───┴───┐
+   kyllä       │       │ tarkista│ ► luotto?  │       ▼       ▼
+```
+
+- **ATK-kaavio** (`domains/flowchart/`) — the ISO 5807 shapes, `kyllä` / `ei`
+  on the branches, and a `FlowKind` that says *what a step is* while
+  `FlowKind.shapeFor` is the whole of the translation to *what it is drawn as*.
+- **Organisaatiokaavio** (`domains/business/`) — a tree through the same
+  layered layout, units coloured, and the matrix report drawn dashed because
+  every organisation has one and no chart admits to it.
+- **Uimaratakaavio** (`domains/business/`) — lanes as `nodeType = "group"`
+  nodes, and the steps inside them carrying the lane's id in `parentId`. That
+  is React Flow's sub-flow model, and it buys the behaviour that makes lanes
+  worth having: **drag the lane and its steps come with it**, because
+  `FlowEditor.beginDrag` takes a selected node's descendants as well as the
+  node. It is not a coordinate space — a child's position stays absolute —
+  which is the right simplification here: a swimlane is a region a step is
+  *in*, not a canvas it is drawn on.
+
+The lanes are placed by the domain rather than by a layout, and that is the
+point rather than a shortcut: a swimlane's rows are *who does the work*, and a
+layout free to move a box between rows is a layout free to reassign the work.
+The columns still come from the links — longest path from the start — so a step
+that waits for two others stands to the right of both.
+
+A frame is also not an obstacle. `EdgeOverlap.blocks` skips group nodes, so a
+line crossing a lane is not counted as a line drawn through a box: it is what a
+lane is for, and counting it would drown the number that matters in noise.
+
 ## The layers
 
 | Layer | Files | What it is |
 | --- | --- | --- |
 | Model | `core/GraphModel.rgr` | nodes, ports, edges, compartments, viewport, selection, hit tests |
+| | `core/FlowShapes.rgr` | what a node is, as an outline: the twelve shapes, their handles, and point-in-shape |
 | Routing | `core/EdgeRouter.rgr` | bezier / step / smoothstep paths, arrow and crow's-foot decoration |
 | Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo, dragging an edge's corners by hand |
 | Scene | `core/FlowView.rgr`, `core/FlowScene.rgr` | the picture, once, for four backends |
@@ -116,6 +205,8 @@ is 250 lines, and most of them are the model rather than the drawing.
 | | `layout/OrthoRouter.rgr` | an orthogonal visibility grid and a bend-charging Dijkstra, run as a repair pass for whatever the layout never saw |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |
+| | `domains/flowchart/*` | the ATK chart: kinds, branch labels, and which shape each kind is |
+| | `domains/business/*` | an organisation chart, and a swimlane process with real lanes |
 | Export | `export/FlowExport.rgr` | PDF, HTML, SVG, scene JSON, graph JSON |
 
 Everything above the scene is pure: no browser, no timers, no file system. That
