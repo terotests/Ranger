@@ -516,8 +516,28 @@ class VlChartMark {
     fn cornerRadius:VlChartMark (value:double) {
         return (this.propNumber("cornerRadius" value))
     }
+    ; `tooltip(true)` shows every column the mark encodes. The two below say
+    ; which columns instead: one field, or a list of them in the order they
+    ; should be read. A tooltip is also what the mark's description says, so
+    ; what a reader is shown by pointing and what they are told by listening
+    ; stay the same sentence.
     fn tooltip:VlChartMark (value:boolean) {
         return (this.propFlag("tooltip" value))
+    }
+    fn tooltipField:VlChartMark (field:string) {
+        return (this.channel("tooltip" field))
+    }
+    fn tooltipFields:VlChartMark (fields:[string]) {
+        def list (VlJson.arrayValue())
+        for fields field:string fi {
+            def one (VlJson.objectValue())
+            one.setMember("field" (VlJson.stringValue(field)))
+            push list.arr one
+        }
+        enc.setMember("tooltip" list)
+        ; A list is not a channel, so the cursor does not move onto it: the
+        ; next `.title(…)` belongs to whatever was named before.
+        return this
     }
     ; How thick a tick is drawn, across its band. A hi-lo-open-close chart's
     ; open and close are ticks, and a two-pixel one is what makes them read as
@@ -839,6 +859,25 @@ class VlChart {
     fn resolveTypes:void (encoding:VlJson) {
         for encoding.keys k:string ki {
             def ch:VlJson (encoding.get(k))
+            ; A channel may be a LIST — `tooltip` is — and every field in it
+            ; is typed the same way a channel is. Skipped, a column of dates
+            ; came out as a name and a tooltip printed thirteen digits.
+            if (ch.isArray()) {
+                def i:int 0
+                def n:int (ch.count())
+                while (i < n) {
+                    def one:VlJson (ch.at(i))
+                    if (one.isObject()) {
+                        if (! (one.has("type"))) {
+                            def listKind:string (this.inferType(one))
+                            if ((strlen listKind) > 0) {
+                                one.setMember("type" (VlJson.stringValue(listKind)))
+                            }
+                        }
+                    }
+                    i = (i + 1)
+                }
+            }
             if (ch.isObject()) {
                 if (! (ch.has("type"))) {
                     if (! (ch.has("value"))) {

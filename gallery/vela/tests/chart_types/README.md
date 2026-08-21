@@ -41,5 +41,5 @@ invented and tiny on purpose: what is being tested is the type, not the numbers.
 | `multicolored_line` | MultiColoredLine |
 | `polar_column`, `polar_stacked` | a polar column and a rose — theta as a CATEGORY, one band of the circle per category |
 
-What the report says today, and what each remaining difference is, is written
-up in [`../../CHART_API.md`](../../CHART_API.md#what-two-other-catalogues-say-is-missing).
+What the report says today — **37 of 37** — and what it took, is written up
+in [`../../CHART_API.md`](../../CHART_API.md#what-two-other-catalogues-say-is-missing).
