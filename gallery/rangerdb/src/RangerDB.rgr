@@ -32,6 +32,7 @@ Import "DBQuery.rgr"
 Import "DBOps.rgr"
 Import "DBBackend.rgr"
 Import "DbWire.rgr"
+Import "SqlFront.rgr"
 
 class RdbTable {
     def name:string ""
@@ -707,9 +708,11 @@ class RangerDbBackend {
         c.writes = true
         c.rowCounts = true
         c.streaming = true
-        ; No SQL front end and no transactions yet. Both are milestones, and
-        ; saying so here is what lets DBSession cover for them.
-        c.sqlText = false
+        ; SQL arrives through RangerSQL and is planned into the same
+        ; QuerySpec the structured API builds - see SqlFront.rgr. What is
+        ; still missing is transactions, and saying so here is what lets
+        ; DBSession cover for it.
+        c.sqlText = true
         c.transactions = false
         return c
     }
@@ -752,6 +755,31 @@ class RangerDbBackend {
 
     fn countRows:int (spec:QuerySpec) {
         return (engine.countRows(spec))
+    }
+
+    ; SQL is a front end over the same execution, not a second engine: the
+    ; statement becomes a QuerySpec or a DBMutation and takes the ordinary
+    ; path from there.
+    fn execSql:DataChunk (sql:string) {
+        def plan:SqlPlan (SqlFront.plan(sql))
+        if ((strlen plan.error) > 0) {
+            errorText = plan.error
+            return (new DataChunk)
+        }
+        errorText = ""
+        if (plan.isQuery()) {
+            return (engine.execSpec(plan.spec))
+        }
+        if (plan.isMutation()) {
+            def affected:int (engine.applyMutation(plan.mutation))
+            def out:DataChunk (new DataChunk)
+            def vec:ValueVector (out.addColumn((DBColumn.create("rdb_affected" 2))))
+            vec.appendInt(affected)
+            out.rowCount = 1
+            return out
+        }
+        errorText = "nothing to run"
+        return (new DataChunk)
     }
 
     fn applyMutation:int (mutation:DBMutation) {

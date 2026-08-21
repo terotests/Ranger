@@ -6,6 +6,27 @@ Import "DbContract.rgr"
 Import "../src/DbWire.rgr"
 
 class RangerDbTest {
+    sfn mentions:boolean (hay:string needle:string) {
+        def h:string (to_lowercase hay)
+        def hl:int (strlen h)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (hl < nl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            if ((substring h i (i + nl)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn main:void () {
         def check:DbCheck (new DbCheck)
         def backend:RangerDbBackend (new RangerDbBackend)
@@ -109,6 +130,44 @@ class RangerDbTest {
         if (back.rowCount == 1) {
             check.eqStr("tabs and newlines survive" (back.stringAt(0 0)) ("a" + (strfromcode 9) + "b" + (strfromcode 10) + "c"))
         }
+
+        print "== sql front end =="
+        ; RangerSQL parses; SqlFront plans into the same QuerySpec the
+        ; structured API builds; the engine runs one execution path.
+        def inserted:DataChunk (session.execSql(("INSERT INTO " + table + " (id, region, country, revenue, units) VALUES (11, 'Iberia', 'Spain', 425000.0, 55)")))
+        if (inserted.rowCount == 1) {
+            def iv:DBValue (inserted.valueAt(0 0))
+            check.eqInt("sql insert affected one row" (iv.asInt()) 1)
+        }
+        def afterInsert:QuerySpec (QuerySpec.forTable(table))
+        check.eqInt("row count after sql insert" (session.countRows(afterInsert)) 7)
+
+        def updated:DataChunk (session.execSql(("UPDATE " + table + " SET units = 57 WHERE id = 11")))
+        if (updated.rowCount == 1) {
+            def uv:DBValue (updated.valueAt(0 0))
+            check.eqInt("sql update affected one row" (uv.asInt()) 1)
+        }
+        def readBack:DataChunk (session.execSql(("SELECT units FROM " + table + " WHERE id = 11")))
+        if (readBack.rowCount == 1) {
+            def rv:DBValue (readBack.valueAt(0 0))
+            check.eqInt("sql update wrote the value" (rv.asInt()) 57)
+        }
+        def deleted:DataChunk (session.execSql(("DELETE FROM " + table + " WHERE id = 11")))
+        if (deleted.rowCount == 1) {
+            def dv:DBValue (deleted.valueAt(0 0))
+            check.eqInt("sql delete affected one row" (dv.asInt()) 1)
+        }
+        check.eqInt("row count after sql delete" (session.countRows(afterInsert)) 6)
+
+        ; What it will NOT do is guess: a query the planner cannot express as a
+        ; QuerySpec has to come back as an error rather than as wrong rows.
+        def joined:DataChunk (session.execSql(("SELECT a FROM " + table + " JOIN other ON other.id = " + table + ".id")))
+        check.eqInt("an unsupported query returns nothing" joined.rowCount 0)
+        def joinError:string (session.lastError())
+        check.ok("and says what was in the way" (RangerDbTest.mentions(joinError "join")))
+        def broken:DataChunk (session.execSql("SELECT FROM"))
+        check.eqInt("a broken query returns nothing" broken.rowCount 0)
+        check.ok("and reports the parse error" ((strlen (session.lastError())) > 0))
 
         print ("passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
         if (check.failed == 0) {

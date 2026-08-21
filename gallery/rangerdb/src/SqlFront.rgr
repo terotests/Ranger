@@ -1,0 +1,589 @@
+; ==============================================================================
+; SqlFront - RangerDB's SQL front end, on top of RangerSQL.
+; ==============================================================================
+;
+;     "SELECT region, SUM(revenue) AS total
+;      FROM sales WHERE country = 'FI' GROUP BY region ORDER BY total DESC"
+;                              |
+;                        RangerSQL parser
+;                              |
+;                         common AST
+;                              |
+;                          SqlPlanner
+;                              |
+;                          QuerySpec  ->  RangerDB execution
+;
+; This is the layer the database API was shaped to make possible. RangerDB's
+; interface is a QuerySpec, so the engine never had to own a SQL parser to be
+; usable - and now that a parser exists, SQL becomes a front end over the same
+; execution rather than a second way to reach it.
+;
+; What it will not do is guess. A query using something QuerySpec cannot say -
+; a join, a subquery, an expression in the projection - comes back as an error
+; naming what was in the way, because a planner that silently drops a WHERE
+; clause returns the wrong rows and looks like it worked.
+; ==============================================================================
+
+Import "DBQuery.rgr"
+Import "DBValue.rgr"
+Import "../../rangersql/src/core/Sql.rgr"
+
+class SqlPlanKind {
+    sfn nothing:int () {
+        return 0
+    }
+    sfn query:int () {
+        return 1
+    }
+    sfn mutation:int () {
+        return 2
+    }
+}
+
+class SqlPlan {
+    def kind:int 0
+    def spec:QuerySpec (new QuerySpec)
+    def mutation:DBMutation (new DBMutation)
+    def error:string ""
+
+    Constructor () {
+    }
+
+    fn isQuery:boolean () {
+        return (kind == 1)
+    }
+
+    fn isMutation:boolean () {
+        return (kind == 2)
+    }
+}
+
+class SqlPlanner {
+    def ast:SqlAst (new SqlAst)
+    def error:string ""
+
+    Constructor () {
+    }
+
+    fn fail:void (message:string) {
+        if ((strlen error) > 0) {
+            return
+        }
+        error = message
+    }
+
+    fn planSql:SqlPlan (sql:string) {
+        def plan:SqlPlan (new SqlPlan)
+        def parsed:SqlParseResult (Sql.parse(sql))
+        if ((parsed.okResult()) == false) {
+            plan.error = parsed.error
+            return plan
+        }
+        ast = parsed.ast
+        error = ""
+        def root:int parsed.root
+        def kind:int (ast.kindOf(root))
+        if (kind == (SqlKind.selectNode())) {
+            plan.spec = (this.buildSelect(root))
+            plan.kind = 1
+        } {
+            if (kind == (SqlKind.insertNode())) {
+                plan.mutation = (this.buildInsert(root))
+                plan.kind = 2
+            } {
+                if (kind == (SqlKind.updateNode())) {
+                    plan.mutation = (this.buildUpdate(root))
+                    plan.kind = 2
+                } {
+                    if (kind == (SqlKind.deleteNode())) {
+                        plan.mutation = (this.buildDelete(root))
+                        plan.kind = 2
+                    } {
+                        this.fail(("RangerDB cannot run a " + (SqlKind.kindName(kind)) + " statement yet"))
+                    }
+                }
+            }
+        }
+        if ((strlen error) > 0) {
+            plan.kind = 0
+            plan.error = error
+        }
+        return plan
+    }
+
+    ; ---------------------------------------------------------------- select --
+    fn buildSelect:QuerySpec (id:int) {
+        def spec:QuerySpec (new QuerySpec)
+        def sources:[int] (ast.childrenOf(id (SqlRole.fromClause())))
+        if ((array_length sources) == 0) {
+            this.fail("a query without FROM has no table to scan")
+            return spec
+        }
+        if ((array_length sources) > 1) {
+            this.fail("RangerDB has no joins yet")
+            return spec
+        }
+        def joins:[int] (ast.childrenOf(id (SqlRole.joinClause())))
+        if ((array_length joins) > 0) {
+            this.fail("RangerDB has no joins yet")
+            return spec
+        }
+        spec.table = (this.tableNameOf((itemAt sources 0)))
+        def projections:[int] (ast.childrenOf(id (SqlRole.projection())))
+        def pn:int (array_length projections)
+        def i:int 0
+        while (i < pn) {
+            this.addProjection(spec (itemAt projections i))
+            i = (i + 1)
+        }
+        def where:int (ast.childAt(id (SqlRole.whereClause())))
+        if (where >= 0) {
+            this.addCondition(spec.filter where)
+        }
+        def groups:[int] (ast.childrenOf(id (SqlRole.groupClause())))
+        def gi:int 0
+        while (gi < (array_length groups)) {
+            push spec.groupBy (this.columnNameOf((itemAt groups gi)))
+            gi = (gi + 1)
+        }
+        def having:int (ast.childAt(id (SqlRole.havingClause())))
+        if (having >= 0) {
+            this.fail("RangerDB has no HAVING yet")
+        }
+        def orders:[int] (ast.childrenOf(id (SqlRole.orderClause())))
+        def oi:int 0
+        while (oi < (array_length orders)) {
+            def item:int (itemAt orders oi)
+            def target:int (ast.childAt(item (SqlRole.thisOperand())))
+            def name:string (this.columnNameOf(target))
+            def ascending:boolean true
+            if (ast.hasFlag(item (SqlFlag.descFlag()))) {
+                ascending = false
+            }
+            spec.orderBy(name ascending)
+            oi = (oi + 1)
+        }
+        def limit:int (ast.childAt(id (SqlRole.limitClause())))
+        if (limit >= 0) {
+            def lv:DBValue (this.valueOf(limit))
+            spec.limit = (lv.asInt())
+        }
+        def offset:int (ast.childAt(id (SqlRole.offsetClause())))
+        if (offset >= 0) {
+            def ov:DBValue (this.valueOf(offset))
+            spec.offset = (ov.asInt())
+        }
+        return spec
+    }
+
+    fn tableNameOf:string (id:int) {
+        def kind:int (ast.kindOf(id))
+        if (kind == (SqlKind.aliasNode())) {
+            return (this.tableNameOf((ast.childAt(id (SqlRole.thisOperand())))))
+        }
+        if (kind == (SqlKind.table())) {
+            def name:int (ast.childAt(id (SqlRole.thisOperand())))
+            return (ast.textOf(name))
+        }
+        this.fail("RangerDB can only read a plain table")
+        return ""
+    }
+
+    ; A projection is either a column, a star, or an aggregate over a column.
+    fn addProjection:void (spec:QuerySpec id:int) {
+        def kind:int (ast.kindOf(id))
+        if (kind == (SqlKind.star())) {
+            ; SELECT * is "every column", which is what an empty column list
+            ; already means.
+            return
+        }
+        if (kind == (SqlKind.aliasNode())) {
+            def inner:int (ast.childAt(id (SqlRole.thisOperand())))
+            def aliasId:int (ast.childAt(id (SqlRole.aliasName())))
+            def alias:string (ast.textOf(aliasId))
+            def innerKind:int (ast.kindOf(inner))
+            if (innerKind == (SqlKind.functionCall())) {
+                this.addAggregate(spec inner alias)
+                return
+            }
+            push spec.columns (this.columnNameOf(inner))
+            return
+        }
+        if (kind == (SqlKind.functionCall())) {
+            this.addAggregate(spec id "")
+            return
+        }
+        if (kind == (SqlKind.column())) {
+            push spec.columns (this.columnNameOf(id))
+            return
+        }
+        this.fail(("RangerDB cannot select a " + (SqlKind.kindName(kind)) + " yet"))
+    }
+
+    fn addAggregate:void (spec:QuerySpec id:int alias:string) {
+        def name:string (to_uppercase (ast.textOf(id)))
+        def fnKind:int -1
+        if (name == "COUNT") {
+            fnKind = 0
+        }
+        if (name == "SUM") {
+            fnKind = 1
+        }
+        if (name == "AVG") {
+            fnKind = 2
+        }
+        if (name == "MIN") {
+            fnKind = 3
+        }
+        if (name == "MAX") {
+            fnKind = 4
+        }
+        if (fnKind < 0) {
+            this.fail((name + "() is not one of the aggregates RangerDB has"))
+            return
+        }
+        def column:string ""
+        def args:[int] (ast.childrenOf(id (SqlRole.argument())))
+        if ((array_length args) > 0) {
+            column = (this.columnNameOf((itemAt args 0)))
+        }
+        def label:string alias
+        if ((strlen label) == 0) {
+            if (ast.hasFlag(id (SqlFlag.starArgFlag()))) {
+                label = "COUNT(*)"
+            } {
+                label = (name + "(" + column + ")")
+            }
+        }
+        spec.aggregate(fnKind column label)
+    }
+
+    fn columnNameOf:string (id:int) {
+        def kind:int (ast.kindOf(id))
+        if (kind == (SqlKind.column())) {
+            def name:int (ast.childAt(id (SqlRole.thisOperand())))
+            return (ast.textOf(name))
+        }
+        if (kind == (SqlKind.identifier())) {
+            return (ast.textOf(id))
+        }
+        if (kind == (SqlKind.aliasNode())) {
+            return (this.columnNameOf((ast.childAt(id (SqlRole.thisOperand())))))
+        }
+        this.fail(("expected a column, found a " + (SqlKind.kindName(kind))))
+        return ""
+    }
+
+    ; ------------------------------------------------------------------ where --
+    ; WHERE is a list of comparisons joined by AND. OR, NOT and expressions on
+    ; both sides are what a filter list cannot say, and saying so is better
+    ; than dropping them.
+    fn addCondition:void (filter:DBFilter id:int) {
+        def kind:int (ast.kindOf(id))
+        if (kind == (SqlKind.paren())) {
+            this.addCondition(filter (ast.childAt(id (SqlRole.thisOperand()))))
+            return
+        }
+        if (kind == (SqlKind.binary())) {
+            def op:string (to_uppercase (ast.textOf(id)))
+            def left:int (ast.childAt(id (SqlRole.leftOperand())))
+            def right:int (ast.childAt(id (SqlRole.rightOperand())))
+            if (op == "AND") {
+                this.addCondition(filter left)
+                this.addCondition(filter right)
+                return
+            }
+            if (op == "OR") {
+                this.fail("RangerDB filters are AND lists; OR needs a real expression tree")
+                return
+            }
+            def dbOp:int (SqlPlanner.operatorFor(op))
+            if (dbOp < 0) {
+                this.fail((op + " is not a comparison RangerDB knows"))
+                return
+            }
+            def column:string (this.columnNameOf(left))
+            def value:DBValue (this.valueOf(right))
+            filter.add((DBPredicate.compare(column dbOp value)))
+            return
+        }
+        if (kind == (SqlKind.isNull())) {
+            def col:string (this.columnNameOf((ast.childAt(id (SqlRole.leftOperand())))))
+            def rhs:int (ast.childAt(id (SqlRole.rightOperand())))
+            if ((ast.kindOf(rhs)) != (SqlKind.nullValue())) {
+                this.fail("IS only compares against NULL here")
+                return
+            }
+            def wantNull:boolean true
+            if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+                wantNull = false
+            }
+            filter.add((DBPredicate.nullCheck(col wantNull)))
+            return
+        }
+        if (kind == (SqlKind.inList())) {
+            if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+                this.fail("NOT IN is not supported yet")
+                return
+            }
+            def inCol:string (this.columnNameOf((ast.childAt(id (SqlRole.leftOperand())))))
+            def values:[DBValue]
+            def args:[int] (ast.childrenOf(id (SqlRole.argument())))
+            def i:int 0
+            while (i < (array_length args)) {
+                push values (this.valueOf((itemAt args i)))
+                i = (i + 1)
+            }
+            filter.add((DBPredicate.inSet(inCol values)))
+            return
+        }
+        if (kind == (SqlKind.likeNode())) {
+            this.addLike(filter id)
+            return
+        }
+        if (kind == (SqlKind.between())) {
+            def bCol:string (this.columnNameOf((ast.childAt(id (SqlRole.thisOperand())))))
+            def low:DBValue (this.valueOf((ast.childAt(id (SqlRole.lowBound())))))
+            def high:DBValue (this.valueOf((ast.childAt(id (SqlRole.highBound())))))
+            if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+                this.fail("NOT BETWEEN is not supported yet")
+                return
+            }
+            filter.add((DBPredicate.compare(bCol 5 low)))
+            filter.add((DBPredicate.compare(bCol 3 high)))
+            return
+        }
+        this.fail(("RangerDB cannot filter on a " + (SqlKind.kindName(kind)) + " yet"))
+    }
+
+    ; LIKE 'x%' is a prefix test and LIKE '%x%' is a contains test - the two
+    ; shapes a grid's filter box produces, and the two DBPredicate has.
+    fn addLike:void (filter:DBFilter id:int) {
+        if (ast.hasFlag(id (SqlFlag.notFlag()))) {
+            this.fail("NOT LIKE is not supported yet")
+            return
+        }
+        def column:string (this.columnNameOf((ast.childAt(id (SqlRole.leftOperand())))))
+        def patternValue:DBValue (this.valueOf((ast.childAt(id (SqlRole.rightOperand())))))
+        def pattern:string (patternValue.asString())
+        def n:int (strlen pattern)
+        if (n == 0) {
+            this.fail("an empty LIKE pattern matches nothing useful")
+            return
+        }
+        def startsPercent:boolean ((charAt pattern 0) == 37)
+        def endsPercent:boolean ((charAt pattern (n - 1)) == 37)
+        def inner:string pattern
+        if startsPercent {
+            inner = (substring inner 1 (strlen inner))
+        }
+        if endsPercent {
+            def m:int (strlen inner)
+            if (m > 0) {
+                inner = (substring inner 0 (m - 1))
+            }
+        }
+        if (SqlPlanner.hasPercent(inner)) {
+            this.fail("only 'x%', '%x' and '%x%' LIKE patterns are supported")
+            return
+        }
+        if startsPercent {
+            if endsPercent {
+                filter.add((DBPredicate.compare(column 6 (DBValue.fromString(inner)))))
+                return
+            }
+            this.fail("a trailing-match LIKE ('%x') is not supported yet")
+            return
+        }
+        if endsPercent {
+            filter.add((DBPredicate.compare(column 7 (DBValue.fromString(inner)))))
+            return
+        }
+        filter.add((DBPredicate.compare(column 0 (DBValue.fromString(inner)))))
+    }
+
+    sfn hasPercent:boolean (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((charAt text i) == 37) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn operatorFor:int (op:string) {
+        if (op == "=") {
+            return 0
+        }
+        if (op == "<>") {
+            return 1
+        }
+        if (op == "!=") {
+            return 1
+        }
+        if (op == "<") {
+            return 2
+        }
+        if (op == "<=") {
+            return 3
+        }
+        if (op == ">") {
+            return 4
+        }
+        if (op == ">=") {
+            return 5
+        }
+        return -1
+    }
+
+    ; ---------------------------------------------------------------- values --
+    fn valueOf:DBValue (id:int) {
+        def kind:int (ast.kindOf(id))
+        def text:string (ast.textOf(id))
+        if (kind == (SqlKind.numberValue())) {
+            return (SqlPlanner.numberValue(text))
+        }
+        if (kind == (SqlKind.stringValue())) {
+            return (DBValue.fromString(text))
+        }
+        if (kind == (SqlKind.nullValue())) {
+            return (DBValue.nullOf(4))
+        }
+        if (kind == (SqlKind.boolValue())) {
+            return (DBValue.fromBool((text == "TRUE")))
+        }
+        if (kind == (SqlKind.paren())) {
+            return (this.valueOf((ast.childAt(id (SqlRole.thisOperand())))))
+        }
+        if (kind == (SqlKind.unary())) {
+            if (text == "-") {
+                def inner:DBValue (this.valueOf((ast.childAt(id (SqlRole.thisOperand())))))
+                if (inner.kind == 2) {
+                    return (DBValue.fromInt((0 - (inner.asInt()))))
+                }
+                return (DBValue.fromDouble((0.0 - (inner.asDouble()))))
+            }
+        }
+        this.fail(("expected a literal value, found a " + (SqlKind.kindName(kind))))
+        return (new DBValue)
+    }
+
+    ; 10 is an int, 10.5 and 1e3 are doubles - the column decides what happens
+    ; next, but the value has to arrive with a type.
+    sfn numberValue:DBValue (text:string) {
+        def isReal:boolean false
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 46) {
+                isReal = true
+            }
+            if (c == 101) {
+                isReal = true
+            }
+            if (c == 69) {
+                isReal = true
+            }
+            i = (i + 1)
+        }
+        if isReal {
+            return (DBValue.parseAs(3 text))
+        }
+        return (DBValue.parseAs(2 text))
+    }
+
+    ; ------------------------------------------------------------- mutations --
+    fn buildInsert:DBMutation (id:int) {
+        def target:int (ast.childAt(id (SqlRole.targetClause())))
+        def m:DBMutation (DBMutation.makeInsert((this.tableNameOf(target))))
+        def cols:[int] (ast.childrenOf(id (SqlRole.columnList())))
+        def rows:[int] (ast.childrenOf(id (SqlRole.valueRow())))
+        if ((array_length rows) == 0) {
+            this.fail("INSERT ... SELECT is not supported yet")
+            return m
+        }
+        if ((array_length rows) > 1) {
+            this.fail("one INSERT row at a time for now")
+            return m
+        }
+        if ((array_length cols) == 0) {
+            this.fail("INSERT needs its column list")
+            return m
+        }
+        def values:[int] (ast.childrenOf((itemAt rows 0) (SqlRole.argument())))
+        if ((array_length values) != (array_length cols)) {
+            this.fail("INSERT has a different number of values than columns")
+            return m
+        }
+        def i:int 0
+        while (i < (array_length cols)) {
+            def name:string (ast.textOf((itemAt cols i)))
+            m.withValue(name (this.valueOf((itemAt values i))))
+            i = (i + 1)
+        }
+        return m
+    }
+
+    fn buildUpdate:DBMutation (id:int) {
+        def target:int (ast.childAt(id (SqlRole.targetClause())))
+        def m:DBMutation (DBMutation.makeUpdate((this.tableNameOf(target))))
+        def sets:[int] (ast.childrenOf(id (SqlRole.setClause())))
+        def i:int 0
+        while (i < (array_length sets)) {
+            def assign:int (itemAt sets i)
+            def column:string (this.columnNameOf((ast.childAt(assign (SqlRole.leftOperand())))))
+            m.withValue(column (this.valueOf((ast.childAt(assign (SqlRole.rightOperand()))))))
+            i = (i + 1)
+        }
+        def where:int (ast.childAt(id (SqlRole.whereClause())))
+        if (where < 0) {
+            this.fail("an UPDATE with no WHERE would rewrite the whole table")
+            return m
+        }
+        def filter:DBFilter (new DBFilter)
+        this.addCondition(filter where)
+        this.keysFromFilter(m filter)
+        return m
+    }
+
+    fn buildDelete:DBMutation (id:int) {
+        def target:int (ast.childAt(id (SqlRole.targetClause())))
+        def m:DBMutation (DBMutation.makeDelete((this.tableNameOf(target))))
+        def where:int (ast.childAt(id (SqlRole.whereClause())))
+        if (where < 0) {
+            this.fail("a DELETE with no WHERE would empty the table")
+            return m
+        }
+        def filter:DBFilter (new DBFilter)
+        this.addCondition(filter where)
+        this.keysFromFilter(m filter)
+        return m
+    }
+
+    ; A mutation addresses rows by equality on named columns, which is what a
+    ; WHERE of equality comparisons already is.
+    fn keysFromFilter:void (m:DBMutation filter:DBFilter) {
+        def n:int (array_length filter.predicates)
+        def i:int 0
+        while (i < n) {
+            def p:DBPredicate (itemAt filter.predicates i)
+            if (p.op != 0) {
+                this.fail("an UPDATE or DELETE selects its rows by equality here")
+                return
+            }
+            m.withKey(p.column p.value)
+            i = (i + 1)
+        }
+    }
+}
+
+class SqlFront {
+    sfn plan:SqlPlan (sql:string) {
+        def planner:SqlPlanner (new SqlPlanner)
+        return (planner.planSql(sql))
+    }
+}

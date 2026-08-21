@@ -281,6 +281,42 @@ class DbContract {
         def fg:DataChunk (session.query(filteredGroup))
         check.eqInt("filter before group" fg.rowCount 2)
 
+        ; ------------------------------------------------------------- sql --
+        ; The escape hatch, on every engine that has one. RangerDB's SQL is
+        ; RangerSQL parsing into the same QuerySpec the structured API builds,
+        ; so these assertions are the proof that both roads reach one engine.
+        if caps.sqlText {
+            def rows:DataChunk (session.execSql(("SELECT country, revenue FROM " + table + " WHERE region = 'Nordics' ORDER BY revenue DESC")))
+            check.eqInt("sql: filtered select" rows.rowCount 3)
+            if (rows.rowCount == 3) {
+                check.eqStr("sql: ordered" (rows.stringAt(0 0)) "Finland")
+                check.eqInt("sql: projected two columns" (rows.columnCount()) 2)
+            }
+            def grouped2:DataChunk (session.execSql(("SELECT region, SUM(revenue) AS total FROM " + table + " GROUP BY region ORDER BY total DESC")))
+            check.eqInt("sql: group by" grouped2.rowCount 3)
+            if (grouped2.rowCount == 3) {
+                check.eqStr("sql: largest group first" (grouped2.stringAt(0 0)) "Nordics")
+                check.eqNum("sql: group sum" (grouped2.doubleAt(0 1)) 2830000.0)
+            }
+            def counted:DataChunk (session.execSql(("SELECT COUNT(*) AS n FROM " + table)))
+            if (counted.rowCount == 1) {
+                def nv:DBValue (counted.valueAt(0 0))
+                check.eqInt("sql: count(*)" (nv.asInt()) 6)
+            }
+            def liked:DataChunk (session.execSql(("SELECT country FROM " + table + " WHERE country LIKE 'Fin%'")))
+            check.eqInt("sql: like prefix" liked.rowCount 1)
+            def inSet2:DataChunk (session.execSql(("SELECT country FROM " + table + " WHERE country IN ('Finland', 'Austria')")))
+            check.eqInt("sql: in list" inSet2.rowCount 2)
+            def nulls2:DataChunk (session.execSql(("SELECT id FROM " + table + " WHERE revenue IS NULL")))
+            check.eqInt("sql: is null" nulls2.rowCount 1)
+            def paged2:DataChunk (session.execSql(("SELECT id FROM " + table + " ORDER BY id LIMIT 2 OFFSET 2")))
+            check.eqInt("sql: limit and offset" paged2.rowCount 2)
+            if (paged2.rowCount == 2) {
+                def pv:DBValue (paged2.valueAt(0 0))
+                check.eqInt("sql: offset landed" (pv.asInt()) 3)
+            }
+        }
+
         ; ---------------------------------------------------------- update --
         def upd:DBMutation (DBMutation.makeUpdate(table))
         upd.withKey("id" (DBValue.fromInt(3)))

@@ -449,9 +449,9 @@ class SqlGenerator {
 
     fn deleteSql:string (id:int) {
         def out:string ("DELETE FROM " + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
-        def using:[int] (ast.childrenOf(id (SqlRole.usingClause())))
-        if ((array_length using) > 0) {
-            out = (out + " USING " + (this.joinList(using ", ")))
+        def usingCols:[int] (ast.childrenOf(id (SqlRole.usingClause())))
+        if ((array_length usingCols) > 0) {
+            out = (out + " USING " + (this.joinList(usingCols ", ")))
         }
         def where:int (ast.childAt(id (SqlRole.whereClause())))
         if (where >= 0) {
@@ -526,9 +526,9 @@ class SqlGenerator {
         if (on >= 0) {
             out = (out + " ON " + (this.sqlOf(on)))
         }
-        def using:[int] (ast.childrenOf(id (SqlRole.usingClause())))
-        if ((array_length using) > 0) {
-            out = (out + " USING (" + (this.joinList(using ", ")) + ")")
+        def usingCols:[int] (ast.childrenOf(id (SqlRole.usingClause())))
+        if ((array_length usingCols) > 0) {
+            out = (out + " USING (" + (this.joinList(usingCols ", ")) + ")")
         }
         return out
     }
