@@ -465,6 +465,17 @@ class VlChartMark {
     fn noAxis:VlChartMark () {
         return (this.setOnCursor("axis" (VlJson.nullValue())))
     }
+    ; Which side of the plot this channel's axis stands on — "left", "right",
+    ; "top", "bottom". A Pareto chart's cumulative line is measured up the
+    ; right-hand side, which is the whole point of drawing it there.
+    fn axisOrient:VlChartMark (side:string) {
+        def axis (VlJson.objectValue())
+        axis.setMember("orient" (VlJson.stringValue(side)))
+        return (this.setOnCursor("axis" axis))
+    }
+    fn axisJson:VlChartMark (axis:VlJson) {
+        return (this.setOnCursor("axis" axis))
+    }
 
     ; --- properties of the mark itself ---------------------------------------
     fn propNumber:VlChartMark (key:string value:double) {
@@ -508,6 +519,24 @@ class VlChartMark {
     fn tooltip:VlChartMark (value:boolean) {
         return (this.propFlag("tooltip" value))
     }
+    ; How thick a tick is drawn, across its band. A hi-lo-open-close chart's
+    ; open and close are ticks, and a two-pixel one is what makes them read as
+    ; marks rather than as hairlines.
+    fn thickness:VlChartMark (value:double) {
+        return (this.propNumber("thickness" value))
+    }
+    fn strokeWidth:VlChartMark (value:double) {
+        return (this.propNumber("strokeWidth" value))
+    }
+    ; "horizontal" | "vertical" — which way a tick lies, or which way a bar
+    ; that has only one position channel runs.
+    fn orient:VlChartMark (value:string) {
+        return (this.propString("orient" value))
+    }
+    ; What an interval is computed from: "stderr" | "stdev" | "ci" | "iqr".
+    fn extent:VlChartMark (value:string) {
+        return (this.propString("extent" value))
+    }
     ; Back to the chart, when the next thing to say is about the view.
     fn chart:VlChart () {
         if (!null? owner) {
@@ -534,6 +563,8 @@ class VlChart {
     def props:VlJson (VlJson.objectValue())
     def transforms:VlJson (VlJson.arrayValue())
     def cfg:VlJson (VlJson.objectValue())
+    ; What the layers must not share.
+    def resolve:VlJson (VlJson.objectValue())
     ; What could not be built, said out loud. A chart that names a column its
     ; data does not have is the case this exists for: Vega-Lite would draw an
     ; empty axis and say nothing.
@@ -588,6 +619,26 @@ class VlChart {
     }
     fn boxplot:VlChartMark () {
         return (this.mark("boxplot"))
+    }
+    ; The two composite marks: an interval computed from the rows rather than
+    ; read off them. `extent` decides what the interval IS — "stderr" (the
+    ; default), "stdev", "ci" or "iqr".
+    fn errorbar:VlChartMark () {
+        return (this.mark("errorbar"))
+    }
+    fn errorband:VlChartMark () {
+        return (this.mark("errorband"))
+    }
+    ; A line whose width says something: a trail thickens with its `size`.
+    fn trail:VlChartMark () {
+        return (this.mark("trail"))
+    }
+    fn image:VlChartMark () {
+        return (this.mark("image"))
+    }
+    ; A map: the shapes come from the data and the projection places them.
+    fn geoshape:VlChartMark () {
+        return (this.mark("geoshape"))
     }
     ; The mark added last, for a caller that built one and let go of it. A
     ; chart with no marks answers a mark that belongs to nothing rather than
@@ -710,6 +761,21 @@ class VlChart {
     }
     fn transformJson:VlChart (transform:VlJson) {
         push transforms.arr transform
+        return this
+    }
+
+    ; Two marks measuring different things up the same side of the plot must
+    ; not share a scale: `chart.independent("y")` is what makes a Pareto chart
+    ; — bars against a count, a line against a running percentage — rather than
+    ; two series averaged into one axis neither of them asked for.
+    fn independent:VlChart (channel:string) {
+        def scales:VlJson (resolve.get("scale"))
+        if (! (scales.isObject())) {
+            def fresh (VlJson.objectValue())
+            resolve.setMember("scale" fresh)
+            scales = fresh
+        }
+        scales.setMember(channel (VlJson.stringValue("independent")))
         return this
     }
 
@@ -855,6 +921,10 @@ class VlChart {
                 push layers.arr layer
             }
             out.setMember("layer" layers)
+            def resolveCount:int (array_length resolve.keys)
+            if (resolveCount > 0) {
+                out.setMember("resolve" resolve)
+            }
         }
         def cfgCount:int (array_length cfg.keys)
         if (cfgCount > 0) {

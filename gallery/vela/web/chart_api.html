@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vela — chart API, live</title>
+<style>
+  :root {
+    --bg: #12151b; --panel: #171b23; --line: #2a3040; --ink: #e8ecf4;
+    --muted: #97a1b4; --accent: #7db3ff; --bad: #ff9a8f; --ok: #8fd39a;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { padding: 28px 24px 16px; max-width: 1180px; margin: 0 auto; }
+  h1 { margin: 0 0 6px; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 70ch; }
+  header a { color: var(--accent); }
+  main {
+    max-width: 1180px; margin: 0 auto; padding: 8px 24px 64px;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+  }
+  .head .grow { flex: 1; }
+  textarea {
+    width: 100%; border: 0; background: transparent; color: var(--ink);
+    font-family: var(--mono); font-size: 13px; line-height: 1.6; padding: 14px;
+    resize: vertical; outline: none; tab-size: 2;
+  }
+  #code { min-height: 240px; }
+  #data { min-height: 130px; }
+  button {
+    font: inherit; font-size: 12px; color: var(--ink); background: #202634;
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #10131a; }
+  #chart { padding: 18px; display: flex; align-items: flex-start; justify-content: center; min-height: 220px; overflow: auto; background: #fff; }
+  #chart svg { max-width: 100%; height: auto; }
+  #status { padding: 10px 14px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  #status.bad { color: var(--bad); white-space: pre-wrap; }
+  #status.good b { color: var(--ok); font-weight: 600; }
+  pre { margin: 0; padding: 14px; font-family: var(--mono); font-size: 12px; line-height: 1.55; color: var(--muted); overflow: auto; max-height: 320px; }
+  .cols { padding: 10px 14px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .cols b { color: var(--ink); font-weight: 600; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Vela — chart API, live</h1>
+  <p>
+    Jokainen rivi alla lähetetään <b>oikealle metodille</b> Rangerilla kirjoitetussa
+    <code>VlChart</code>-rajapinnassa, tässä selaimessa: kutsuista syntyy Vega-Lite-arvo,
+    joka menee <code>VlCompile</code>&nbsp;→&nbsp;<code>VlRuntime</code>&nbsp;→&nbsp;<code>VlSvg</code>
+    -ketjun läpi kuvaksi. Sivulla ei ole yhtään kaaviokirjastoa — vain tämän
+    repositorion kääntämä koodi.
+    <a href="../index.html">Takaisin showcaseen</a>
+  </p>
+</header>
+
+<main>
+  <div>
+    <section>
+      <div class="head">
+        <span>API-kutsut</span>
+        <span class="grow"></span>
+        <button type="button" data-preset="bar">Pylväät</button>
+        <button type="button" data-preset="line">Aikasarja</button>
+        <button type="button" data-preset="layer">Kerrokset</button>
+        <button type="button" data-preset="grouped">Ryhmitelty</button>
+        <button type="button" data-preset="donut">Donitsi</button>
+        <button type="button" data-preset="heat">Lämpökartta</button>
+        <button type="button" data-preset="rose">Ruusu</button>
+        <button type="button" data-preset="pareto">Pareto</button>
+      </div>
+      <textarea id="code" spellcheck="false" aria-label="API-kutsut"></textarea>
+      <div id="status">…</div>
+    </section>
+    <section style="margin-top:18px">
+      <div class="head"><span>Data (JSON)</span></div>
+      <textarea id="data" spellcheck="false" aria-label="Data"></textarea>
+      <div class="cols" id="cols"></div>
+    </section>
+  </div>
+
+  <div>
+    <section>
+      <div class="head">
+        <span>Kuva</span>
+        <span class="grow"></span>
+        <button type="button" data-view="chart" aria-pressed="true">Kaavio</button>
+        <button type="button" data-view="spec">Vega-Lite</button>
+        <button type="button" data-view="vega">Vega</button>
+      </div>
+      <div id="chart"></div>
+      <pre id="spec" class="hidden"></pre>
+      <pre id="vega" class="hidden"></pre>
+    </section>
+  </div>
+</main>
+
+<script src="vela_chart_api.js"></script>
+<script>
+const PRESETS = {
+  bar: {
+    code: `chart.size(320 200)
+chart.heading("Myynti alueittain")
+def bars (chart.bar())
+bars.x("region").keepOrder()
+bars.y("sales").aggregate("sum").title("myynti")`,
+    data: null,
+  },
+  line: {
+    code: `chart.size(320 190)
+def line (chart.line())
+line.withPoints(true)
+line.x("quarter").y("sales").color("region")`,
+    data: null,
+  },
+  layer: {
+    code: `chart.size(320 190)
+chart.x("quarter").y("sales").color("region")
+chart.area().markOpacity(0.35)
+chart.line()`,
+    data: null,
+  },
+  grouped: {
+    code: `chart.size(320 190)
+def bars (chart.bar())
+bars.x("quarter").timeUnit("yearquarter").type("ordinal")
+bars.y("sales").color("region").xOffset("region")`,
+    data: null,
+  },
+  donut: {
+    code: `chart.size(240 240)
+def wedges (chart.arc())
+wedges.innerRadius(52)
+wedges.theta("sales").aggregate("sum")
+wedges.color("region")`,
+    data: null,
+  },
+  pareto: {
+    code: `chart.size(300 180)
+chart.independent("y")
+def bars (chart.bar())
+bars.x("region").keepOrder().y("sales").aggregate("sum")
+def trend (chart.line())
+trend.withPoints(true)
+trend.x("region").keepOrder()
+trend.y("cost").aggregate("mean").axisOrient("right")`,
+    data: null,
+  },
+  rose: {
+    code: `chart.size(220 220)
+def wedges (chart.arc())
+wedges.theta("quarter").timeUnit("yearquarter").type("nominal")
+wedges.radius("sales")
+wedges.color("region")`,
+    data: null,
+  },
+  heat: {
+    code: `chart.size(300 150)
+def cells (chart.rect())
+cells.x("quarter").timeUnit("yearquarter").type("ordinal")
+cells.y("region")
+cells.color("sales").aggregate("sum").scheme("blues")`,
+    data: null,
+  },
+};
+
+const DATA = JSON.stringify([
+  { region: "Länsi", quarter: "2016-01-01", sales: 120, cost: 82 },
+  { region: "Länsi", quarter: "2016-04-01", sales: 145, cost: 91 },
+  { region: "Länsi", quarter: "2016-07-01", sales: 132, cost: 88 },
+  { region: "Länsi", quarter: "2016-10-01", sales: 168, cost: 99 },
+  { region: "Itä", quarter: "2016-01-01", sales: 93, cost: 71 },
+  { region: "Itä", quarter: "2016-04-01", sales: 88, cost: 66 },
+  { region: "Itä", quarter: "2016-07-01", sales: 104, cost: 74 },
+  { region: "Itä", quarter: "2016-10-01", sales: 121, cost: 80 }
+], null, 1);
+
+const code = document.getElementById("code");
+const data = document.getElementById("data");
+const chart = document.getElementById("chart");
+const spec = document.getElementById("spec");
+const vega = document.getElementById("vega");
+const status = document.getElementById("status");
+const cols = document.getElementById("cols");
+
+function render() {
+  if (typeof VelaChartApi === "undefined") {
+    status.className = "bad";
+    status.textContent = "vela_chart_api.js ei latautunut";
+    return;
+  }
+  let answer;
+  try {
+    answer = JSON.parse(VelaChartApi.render(code.value, data.value));
+  } catch (err) {
+    status.className = "bad";
+    status.textContent = "kutsu kaatui: " + err.message;
+    return;
+  }
+  try {
+    const kinds = JSON.parse(VelaChartApi.columns(data.value));
+    cols.innerHTML = Object.entries(kinds)
+      .map(([k, v]) => `<b>${k}</b> → ${v || "?"}`).join(" · ")
+      || "ei sarakkeita";
+  } catch (err) {
+    cols.textContent = "";
+  }
+  if (!answer.ok) {
+    status.className = "bad";
+    status.textContent = (answer.errors || ["(ei sanonut mitään)"]).join("\n");
+    chart.innerHTML = "";
+    return;
+  }
+  status.className = "good";
+  status.innerHTML = `<b>${answer.calls}</b> kutsua · <b>${answer.rows}</b> riviä · `
+    + `<b>${answer.commands}</b> piirtokomentoa`
+    + ((answer.warnings && answer.warnings.length) ? ` · ${answer.warnings.join(" · ")}` : "");
+  chart.innerHTML = answer.svg;
+  spec.textContent = answer.spec;
+  vega.textContent = answer.vega;
+}
+
+let timer = null;
+function schedule() {
+  window.clearTimeout(timer);
+  timer = window.setTimeout(render, 180);
+}
+
+for (const button of document.querySelectorAll("[data-preset]")) {
+  button.addEventListener("click", () => {
+    const preset = PRESETS[button.dataset.preset];
+    code.value = preset.code;
+    if (preset.data) data.value = preset.data;
+    render();
+  });
+}
+
+for (const button of document.querySelectorAll("[data-view]")) {
+  button.addEventListener("click", () => {
+    for (const other of document.querySelectorAll("[data-view]")) {
+      other.setAttribute("aria-pressed", String(other === button));
+    }
+    const which = button.dataset.view;
+    chart.classList.toggle("hidden", which !== "chart");
+    spec.classList.toggle("hidden", which !== "spec");
+    vega.classList.toggle("hidden", which !== "vega");
+  });
+}
+
+code.addEventListener("input", schedule);
+data.addEventListener("input", schedule);
+
+code.value = PRESETS.bar.code;
+data.value = DATA;
+render();
+</script>
+</body>
+</html>

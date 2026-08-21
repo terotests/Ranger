@@ -1,0 +1,1 @@
+{"width": 180, "height": 120, "data": {"values": [{"g": "a", "y": 3}, {"g": "a", "y": 5}, {"g": "a", "y": 7}, {"g": "a", "y": 9}, {"g": "b", "y": 6}, {"g": "b", "y": 8}, {"g": "b", "y": 10}, {"g": "b", "y": 14}]}, "mark": "errorbar", "encoding": {"x": {"field": "g", "type": "nominal"}, "y": {"field": "y", "type": "quantitative"}}}
