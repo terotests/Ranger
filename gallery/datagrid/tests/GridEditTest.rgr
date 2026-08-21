@@ -2765,6 +2765,73 @@ class GridEditTest {
         vScroll.update(up)
         c.ok("wheel up decreases scrollY" (vScroll.grid.scrollY < midY))
 
+        print "== a held key repeats: every event moves the selection =="
+        ; The delay before the first repeat and the rate after it belong to the
+        ; OS, and every host here forwards what the OS sends. What the APP owes
+        ; that arrangement is this: each event in a frame's queue has to act.
+        ; Coalescing them — treating "Down arrived" as one fact per frame
+        ; rather than a count — would make a held key move once per frame
+        ; instead of once per repeat, and would be invisible until someone
+        ; held a key down on a fast machine.
+        def rep:GridApp (new GridApp)
+        rep.init("gallery/pdf_writer/assets/fonts")
+        rep.model.growTo(200 8)
+        rep.grid.updateVisible(rep.model)
+        rep.sel.setAnchor(0 0)
+        rep.sel.setActive(0 0)
+        def held (new UIInput)
+        held.newFrame()
+        def hk:int 0
+        while (hk < 5) {
+            held.pushKey((UIKey.down()))
+            hk = (hk + 1)
+        }
+        rep.update(held)
+        c.eqInt("five Down events in one frame move five rows" rep.sel.active.row 5)
+
+        ; And across frames, the way a real repeat actually arrives.
+        def acrossFrames:int 0
+        while (acrossFrames < 7) {
+            GridEditTest.pressKey(rep held (UIKey.down()) false false)
+            acrossFrames = (acrossFrames + 1)
+        }
+        c.eqInt("and seven more over seven frames" rep.sel.active.row 12)
+
+        ; Sideways too, and Up, so this is about the queue and not about one key.
+        def sideways (new UIInput)
+        sideways.newFrame()
+        def sk:int 0
+        while (sk < 3) {
+            sideways.pushKey((UIKey.right()))
+            sk = (sk + 1)
+        }
+        rep.update(sideways)
+        c.eqInt("three Right events move three columns" rep.sel.active.col 3)
+        def back (new UIInput)
+        back.newFrame()
+        def bk:int 0
+        while (bk < 4) {
+            back.pushKey((UIKey.up()))
+            bk = (bk + 1)
+        }
+        rep.update(back)
+        c.eqInt("four Up events come four rows back" rep.sel.active.row 8)
+
+        ; Shift held down while a key repeats grows the selection by one each
+        ; time rather than starting a new one — holding shift+Down is how a
+        ; range gets selected without the mouse.
+        def growSel (new UIInput)
+        growSel.newFrame()
+        growSel.setModifiers(true false)
+        def gk:int 0
+        while (gk < 4) {
+            growSel.pushKey((UIKey.down()))
+            gk = (gk + 1)
+        }
+        rep.update(growSel)
+        c.eqInt("shift+Down held selects a range" rep.sel.active.row 12)
+        c.eqInt("and leaves the anchor where it was" rep.sel.anchor.row 8)
+
         print "== every dialog keeps its controls inside itself =="
         def dlg:GridApp (new GridApp)
         dlg.init("gallery/pdf_writer/assets/fonts")
