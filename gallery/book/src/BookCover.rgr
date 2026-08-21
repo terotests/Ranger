@@ -1,0 +1,359 @@
+; ==============================================================================
+; BookCover.rgr - the one part of the book whose size you cannot know in advance
+; ==============================================================================
+;
+; A cover is delivered as its own file, and as one landscape sheet:
+;
+;     |<-- wrap -->|<-- back -->|<-- spine -->|<-- front -->|<-- wrap -->|
+;
+; and its width depends on how thick the book turned out, which depends on the
+; page count, the paper and the binding. That is why a cover template must not
+; be guessed: the spine is arithmetic, and being 2 mm out on it puts the title
+; on the front board instead of on the spine.
+;
+;     leaves        = pages / 2          two pages to a leaf
+;     text block    = leaves x caliper   how thick the paper stack is
+;     spine         = text block + the binding's own contribution
+;
+; The binding's contribution is what differs. A softcover is the text block plus
+; the cover stock folded round it. A cased hardcover is the text block plus two
+; boards, and the case is bigger than the book on three sides (the "squares"),
+; hinged either side of the spine, and wrapped round the boards - which is where
+; the turn-in allowance comes from.
+;
+; The right thing to do in production is still to take the supplier's own
+; generated template. This exists so that a book can be proofed, budgeted and
+; laid out before that template arrives, and so that the number can be checked
+; against theirs rather than typed in from a guess.
+; ==============================================================================
+
+Import "BookPrintSpec.rgr"
+
+class BookCoverSpec {
+    ; hardcover | softcover | layflat
+    def binding:string "hardcover"
+    ; One leaf of the text block, in millimetres. 170 gsm coated silk - the
+    ; usual photo-book stock - is about 0.17 mm.
+    def paperCaliperMm:double 0.17
+    ; The cover stock, for a softcover: it goes round the block twice.
+    def coverCaliperMm:double 0.3
+    ; One board of a case. 2.5 mm is a common photo-book board.
+    def boardThicknessMm:double 2.5
+    ; How far the case stands proud of the pages on the three cut edges.
+    def squareMm:double 3.0
+    ; The joint each side of the spine, where the case bends.
+    def hingeMm:double 8.0
+    ; The turn-in: cover paper folded round the edge of the board.
+    def wrapMm:double 17.0
+    ; Bleed, for the bindings whose cover is trimmed rather than wrapped.
+    def bleedMm:double 3.0
+
+    Constructor () {
+    }
+
+    sfn hardcover:BookCoverSpec () {
+        def s (new BookCoverSpec())
+        s.binding = "hardcover"
+        return s
+    }
+
+    sfn softcover:BookCoverSpec () {
+        def s (new BookCoverSpec())
+        s.binding = "softcover"
+        s.squareMm = 0.0
+        s.hingeMm = 0.0
+        s.wrapMm = 0.0
+        return s
+    }
+
+    sfn layflat:BookCoverSpec () {
+        def s (new BookCoverSpec())
+        s.binding = "layflat"
+        ; A layflat block is made of folded sheets glued back to back, so the
+        ; leaf count is half again and the block is thicker per page.
+        s.paperCaliperMm = 0.3
+        return s
+    }
+
+    ; Paper thickness from its weight. `bulk` is the stock's volume in cm3/g -
+    ; about 0.9 for a coated silk, 1.2 or more for an uncoated bulky.
+    sfn caliperFromGsm:double (gsm:double bulk:double) {
+        return ((gsm * bulk) / 1000.0)
+    }
+
+    ; The thickness of the paper alone.
+    fn textBlockMm:double (pageCount:int) {
+        def leaves:double ((to_double pageCount) * 0.5)
+        return (leaves * paperCaliperMm)
+    }
+
+    fn spineMm:double (pageCount:int) {
+        def block:double (this.textBlockMm(pageCount))
+        if (binding == "softcover") {
+            def stock:double (coverCaliperMm * 2.0)
+            return (block + stock)
+        }
+        ; Cased: the block plus a board on each side.
+        def boards:double (boardThicknessMm * 2.0)
+        return (block + boards)
+    }
+
+    ; The board a case is made on: bigger than the page on the cut edges.
+    fn boardWidthMm:double (trimWmm:double) {
+        if (binding == "softcover") {
+            return trimWmm
+        }
+        return (trimWmm + squareMm)
+    }
+
+    fn boardHeightMm:double (trimHmm:double) {
+        if (binding == "softcover") {
+            return trimHmm
+        }
+        def both:double (squareMm * 2.0)
+        return (trimHmm + both)
+    }
+
+    ; The whole sheet the cover is printed on.
+    fn coverWidthMm:double (trimWmm:double pageCount:int) {
+        def spine:double (this.spineMm(pageCount))
+        def board:double (this.boardWidthMm(trimWmm))
+        def panels:double (board * 2.0)
+        if (binding == "softcover") {
+            def bleeds:double (bleedMm * 2.0)
+            return ((panels + spine) + bleeds)
+        }
+        def hinges:double (hingeMm * 2.0)
+        def wraps:double (wrapMm * 2.0)
+        def withHinge:double ((panels + spine) + hinges)
+        return (withHinge + wraps)
+    }
+
+    fn coverHeightMm:double (trimHmm:double) {
+        def board:double (this.boardHeightMm(trimHmm))
+        if (binding == "softcover") {
+            def bleeds:double (bleedMm * 2.0)
+            return (board + bleeds)
+        }
+        def wraps:double (wrapMm * 2.0)
+        return (board + wraps)
+    }
+
+    ; Where the front panel starts, measured from the left edge of the sheet.
+    ; The back is on the LEFT and the front on the RIGHT, because the sheet is
+    ; wrapped round the block from the back - which is also why a cover is
+    ; always the right-hand side of the sheet it is bound onto.
+    fn frontPanelXMm:double (trimWmm:double pageCount:int) {
+        def board:double (this.boardWidthMm(trimWmm))
+        def spine:double (this.spineMm(pageCount))
+        if (binding == "softcover") {
+            return ((bleedMm + board) + spine)
+        }
+        def lead:double ((wrapMm + board) + hingeMm)
+        return ((lead + spine) + hingeMm)
+    }
+
+    fn spineXMm:double (trimWmm:double pageCount:int) {
+        def board:double (this.boardWidthMm(trimWmm))
+        if (binding == "softcover") {
+            return (bleedMm + board)
+        }
+        return ((wrapMm + board) + hingeMm)
+    }
+
+    fn panelTopMm:double () {
+        if (binding == "softcover") {
+            return bleedMm
+        }
+        return wrapMm
+    }
+
+    fn describe:string (trimWmm:double trimHmm:double pageCount:int) {
+        def block:double (this.textBlockMm(pageCount))
+        def spine:double (this.spineMm(pageCount))
+        def sheetW:double (this.coverWidthMm(trimWmm pageCount))
+        def sheetH:double (this.coverHeightMm(trimHmm))
+        def out:string ("cover: " + binding + "\n")
+        out = (out + "  text block " + (BookCoverSpec.mm1(block)) + " mm over " + (to_string pageCount) + " pages\n")
+        out = (out + "  spine      " + (BookCoverSpec.mm1(spine)) + " mm\n")
+        out = (out + "  sheet      " + (BookCoverSpec.mm1(sheetW)) + " x " + (BookCoverSpec.mm1(sheetH)) + " mm\n")
+        if (binding != "softcover") {
+            def bw:double (this.boardWidthMm(trimWmm))
+            def bh:double (this.boardHeightMm(trimHmm))
+            out = (out + "  boards     " + (BookCoverSpec.mm1(bw)) + " x " + (BookCoverSpec.mm1(bh)) + " mm, " + (BookCoverSpec.mm1(squareMm)) + " mm squares, " + (BookCoverSpec.mm1(wrapMm)) + " mm turn-in\n")
+        }
+        out = (out + "  Take the supplier's own template before printing - this is the arithmetic, not their file.\n")
+        return out
+    }
+
+    sfn mm1:string (v:double) {
+        def bumped:double (v + 0.05)
+        def whole:int (floor bumped)
+        def frac:double (bumped - (to_double whole))
+        def tenths:int (floor (frac * 10.0))
+        return ((to_string whole) + "." + (to_string tenths))
+    }
+}
+
+class BookCover {
+    ; The cover as a one-page document, so everything that can draw a book can
+    ; draw the cover: the same renderer, the same PDF writer, the same preflight
+    ; arithmetic for the pictures on it.
+    ;
+    ; `withGuides` draws the folds and the spine edges. That is for a proof; the
+    ; file a printer gets must not have them.
+    sfn build:BookDocument (source:BookDocument cover:BookCoverSpec withGuides:boolean) {
+        def pageCount:int (source.pageCount())
+        def trimWmm:double (BookUnits.toMm(source.pageWidth))
+        def trimHmm:double (BookUnits.toMm(source.pageHeight))
+        def wMm:double (cover.coverWidthMm(trimWmm pageCount))
+        def hMm:double (cover.coverHeightMm(trimHmm))
+
+        def d (new BookDocument())
+        d.title = source.title
+        d.author = source.author
+        d.format = "cover"
+        d.pageWidth = (BookUnits.mm(wMm))
+        d.pageHeight = (BookUnits.mm(hMm))
+        BookCover.copyStyles(source d)
+
+        def page:BookPage (d.newPage(""))
+        page.background = "#ffffff"
+        page.numbered = false
+
+        def spineXmm:double (cover.spineXMm(trimWmm pageCount))
+        def spineWmm:double (cover.spineMm(pageCount))
+        def frontXmm:double (cover.frontPanelXMm(trimWmm pageCount))
+        def topMm:double (cover.panelTopMm())
+        def panelWmm:double (cover.boardWidthMm(trimWmm))
+        def panelHmm:double (cover.boardHeightMm(trimHmm))
+        def spineX:double (BookUnits.mm(spineXmm))
+        def spineW:double (BookUnits.mm(spineWmm))
+        def frontX:double (BookUnits.mm(frontXmm))
+        def panelTop:double (BookUnits.mm(topMm))
+        def panelW:double (BookUnits.mm(panelWmm))
+        def panelH:double (BookUnits.mm(panelHmm))
+        def backX:double (BookUnits.mm(cover.wrapMm))
+        if (cover.binding == "softcover") {
+            backX = (BookUnits.mm(cover.bleedMm))
+        }
+
+        ; The whole sheet, ink to the edge. A cover is nearly always flooded.
+        def ground (new BookFrame())
+        ground.id = (d.nextId("cover"))
+        ground.kind = "shape"
+        ground.fill = "#3b2f2a"
+        ground.layer = "background"
+        ground.x = 0.0
+        ground.y = 0.0
+        ground.w = d.pageWidth
+        ground.h = d.pageHeight
+        page.addFrame(ground)
+
+        ; The front panel's title. Kept inside the board, not inside the sheet:
+        ; the turn-in is folded out of sight.
+        def title (new BookFrame())
+        title.id = (d.nextId("title"))
+        title.kind = "text"
+        title.text = "{title}"
+        title.styleName = "cover-title"
+        def inset:double (BookUnits.mm(14.0))
+        title.x = (frontX + inset)
+        def titleW:double (panelW - inset)
+        title.w = (titleW - inset)
+        title.y = (panelTop + (panelH * 0.34))
+        title.h = (BookUnits.mm(40.0))
+        page.addFrame(title)
+
+        def author (new BookFrame())
+        author.id = (d.nextId("author"))
+        author.kind = "text"
+        author.text = "{author}"
+        author.styleName = "cover-author"
+        author.x = title.x
+        author.w = title.w
+        author.y = (title.y + (BookUnits.mm(26.0)))
+        author.h = (BookUnits.mm(20.0))
+        page.addFrame(author)
+
+        if withGuides {
+            BookCover.addGuides(d page spineX spineW frontX backX panelTop panelW panelH)
+        }
+        return d
+    }
+
+    ; The folds, for a proof only. Hairlines in a colour nobody would print.
+    sfn addGuides:void (d:BookDocument page:BookPage spineX:double spineW:double frontX:double backX:double top:double panelW:double panelH:double) {
+        def marks:[double]
+        push marks spineX
+        def spineRight:double (spineX + spineW)
+        push marks spineRight
+        push marks backX
+        def backRight:double (backX + panelW)
+        push marks backRight
+        push marks frontX
+        def frontRight:double (frontX + panelW)
+        push marks frontRight
+        def i:int 0
+        while (i < (array_length marks)) {
+            def x:double (itemAt marks i)
+            def line (new BookFrame())
+            line.id = (d.nextId("fold"))
+            line.kind = "shape"
+            line.fill = "#00c2ff"
+            line.layer = "overlay"
+            line.x = x
+            line.y = 0.0
+            line.w = 0.5
+            line.h = d.pageHeight
+            page.addFrame(line)
+            i = (i + 1)
+        }
+        def bottom:double (top + panelH)
+        def edges:[double]
+        push edges top
+        push edges bottom
+        def e:int 0
+        while (e < (array_length edges)) {
+            def y:double (itemAt edges e)
+            def line2 (new BookFrame())
+            line2.id = (d.nextId("fold"))
+            line2.kind = "shape"
+            line2.fill = "#00c2ff"
+            line2.layer = "overlay"
+            line2.x = 0.0
+            line2.y = y
+            line2.w = d.pageWidth
+            line2.h = 0.5
+            page.addFrame(line2)
+            e = (e + 1)
+        }
+    }
+
+    ; The cover borrows the book's styles and adds two of its own, so a cover
+    ; set in the book's faces is the default rather than something to remember.
+    sfn copyStyles:void (source:BookDocument target:BookDocument) {
+        def i:int 0
+        while (i < (array_length source.styles)) {
+            def s:BookStyle (itemAt source.styles i)
+            def c:BookStyle (s.copyOf())
+            target.addStyle(c)
+            i = (i + 1)
+        }
+        def base:BookStyle (source.styleFor("title"))
+        def ct:BookStyle (base.copyOf())
+        ct.name = "cover-title"
+        ct.color = "#fbf7f0"
+        ct.align = "left"
+        ct.fontSize = (base.fontSize * 0.9)
+        ct.leading = (ct.fontSize * 1.2)
+        target.addStyle(ct)
+
+        def sub:BookStyle (source.styleFor("subtitle"))
+        def ca:BookStyle (sub.copyOf())
+        ca.name = "cover-author"
+        ca.color = "#c8bda9"
+        ca.align = "left"
+        target.addStyle(ca)
+    }
+}

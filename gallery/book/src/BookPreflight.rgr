@@ -24,6 +24,7 @@
 ; ==============================================================================
 
 Import "BookFlow.rgr"
+Import "BookPrintSpec.rgr"
 
 class BookPreflightItem {
     ; error - will print wrong. warning - probably wrong. info - worth knowing.
@@ -127,25 +128,17 @@ class BookPreflightReport {
 }
 
 class BookPreflight {
-    ; Points to whole millimetres, rounded rather than truncated - "extend it
-    ; at least 2 mm" when the answer is 3 is worse than not saying it.
-    ; Below this an image is not print quality. 300 is the industry number;
-    ; 150 is the point at which the halftone is visible to anyone.
-    def targetDpi:double 300.0
-    def minimumDpi:double 150.0
-    ; How far a bleeding element must overhang the trim. 3 mm is the standard
-    ; the trade assumes when nobody says otherwise.
-    def bleedRequired:double 8.5
-    ; Text nearer the trim than this is at the mercy of the guillotine.
-    def safetyMargin:double 14.17
-    def signatureMultiple:int 4
+    ; What the printer will accept. Every number the checks below use comes from
+    ; here rather than from this file, because none of them is a property of the
+    ; book: 3 mm of bleed is a convention, a multiple of four is one binding's
+    ; arithmetic, and 300 dpi is a target somebody chose.
+    def spec:BookPrintSpec (new BookPrintSpec())
 
     Constructor () {
-        targetDpi = 300.0
-        minimumDpi = 150.0
-        bleedRequired = 8.5
-        safetyMargin = 14.17
-        signatureMultiple = 4
+    }
+
+    fn setSpec:void (s:BookPrintSpec) {
+        spec = s
     }
 
     sfn mmText:string (points:double) {
@@ -158,10 +151,54 @@ class BookPreflight {
     fn run:BookPreflightReport (doc:BookDocument flow:BookFlowResult) {
         def report (new BookPreflightReport())
         this.checkOverset(doc flow report)
+        this.checkTrim(doc report)
         this.checkPages(doc report)
-        this.checkSignature(doc report)
+        this.checkExtent(doc report)
         this.checkFonts(doc report)
+        this.checkDelivery(doc report)
         return report
+    }
+
+    ; The page has to be the size the SKU is. A 210 mm square book sent at A4
+    ; is not scaled to fit by anybody; it is rejected, or worse, accepted and
+    ; trimmed.
+    fn checkTrim:void (doc:BookDocument report:BookPreflightReport) {
+        if ((spec.trimNamed()) == false) {
+            return
+        }
+        def dw:double (doc.pageWidth - spec.trimWidth)
+        if (dw < 0.0) {
+            dw = (0.0 - dw)
+        }
+        def dh:double (doc.pageHeight - spec.trimHeight)
+        if (dh < 0.0) {
+            dh = (0.0 - dh)
+        }
+        def off:boolean ((dw > 0.5) || (dh > 0.5))
+        if off {
+            def want:string ((BookPrintSpec.mmText(spec.trimWidth)) + " x " + (BookPrintSpec.mmText(spec.trimHeight)))
+            def got:string ((BookPrintSpec.mmText(doc.pageWidth)) + " x " + (BookPrintSpec.mmText(doc.pageHeight)))
+            def msg:string ("the page is " + got + " mm and " + spec.name + " is " + want + " mm")
+            def it:BookPreflightItem (BookPreflightItem.create("error" "trim-size" msg -1 ""))
+            report.add(it)
+        }
+    }
+
+    ; What the file has to be when it is handed over. None of it is something
+    ; the engine can get wrong on its own - it emits single pages in reading
+    ; order and adds no marks - so these are stated rather than tested, except
+    ; the colour space, which it genuinely cannot satisfy yet.
+    fn checkDelivery:void (doc:BookDocument report:BookPreflightReport) {
+        if (spec.colourSpace == "cmyk") {
+            def msg:string ("this book is RGB and " + spec.name + " wants CMYK - a separation has to happen somewhere, and doing it at the press means nobody chose the profile")
+            def it:BookPreflightItem (BookPreflightItem.create("warning" "colour-space" msg -1 ""))
+            report.add(it)
+        }
+        if spec.cropMarks {
+            def msg2:string "this supplier asks for crop marks and the exporter adds none"
+            def it2:BookPreflightItem (BookPreflightItem.create("warning" "crop-marks" msg2 -1 ""))
+            report.add(it2)
+        }
     }
 
     ; ---------------------------------------------------------------------
@@ -238,14 +275,16 @@ class BookPreflight {
         def inches:double (frame.w / 72.0)
         def dpi:double (asset.naturalWidth / inches)
         def rounded:int (floor dpi)
-        if (dpi < minimumDpi) {
-            def msg:string (asset.id + " prints at " + (to_string rounded) + " dpi - below the " + (to_string (floor minimumDpi)) + " dpi floor")
+        def floorDpi:int (floor spec.minimumDpi)
+        def targetDpiInt:int (floor spec.targetDpi)
+        if (dpi < spec.minimumDpi) {
+            def msg:string (asset.id + " prints at " + (to_string rounded) + " dpi - below the " + (to_string floorDpi) + " dpi floor")
             def it:BookPreflightItem (BookPreflightItem.create("error" "low-resolution" msg page.index frame.id))
             report.add(it)
             return
         }
-        if (dpi < targetDpi) {
-            def msg2:string (asset.id + " prints at " + (to_string rounded) + " dpi - under the " + (to_string (floor targetDpi)) + " dpi target")
+        if (dpi < spec.targetDpi) {
+            def msg2:string (asset.id + " prints at " + (to_string rounded) + " dpi - under the " + (to_string targetDpiInt) + " dpi target")
             def it2:BookPreflightItem (BookPreflightItem.create("warning" "low-resolution" msg2 page.index frame.id))
             report.add(it2)
         }
@@ -268,84 +307,136 @@ class BookPreflight {
             return
         }
 
+        ; A hair of tolerance. 3 mm is 8.5039 points and a generator that wrote
+        ; 8.5 is not a bleed failure - it is a rounding difference forty times
+        ; finer than a guillotine can follow.
+        def required:double (spec.bleed - 0.1)
         def enough:boolean true
         if touchesLeft {
             def over:double (0.0 - frame.x)
-            if (over < bleedRequired) {
+            if (over < required) {
                 enough = false
             }
         }
         if touchesRight {
             def over2:double (right - page.width)
-            if (over2 < bleedRequired) {
+            if (over2 < required) {
                 enough = false
             }
         }
         if touchesTop {
             def over3:double (0.0 - frame.y)
-            if (over3 < bleedRequired) {
+            if (over3 < required) {
                 enough = false
             }
         }
         if touchesBottom {
             def over4:double (bottom - page.height)
-            if (over4 < bleedRequired) {
+            if (over4 < required) {
                 enough = false
             }
         }
         if (enough == false) {
-            def mmR:string (BookPreflight.mmText(bleedRequired))
+            def mmR:string (BookPreflight.mmText(required))
             def msg:string ("element reaches the trim without bleeding past it - extend it at least " + mmR + " mm beyond every edge it touches")
             def it:BookPreflightItem (BookPreflightItem.create("error" "no-bleed" msg page.index frame.id))
             report.add(it)
         }
     }
 
+    ; The spine side is not the same as the cut side, and the difference is the
+    ; thing people get wrong: a face placed in the middle of a spread lands in
+    ; the fold, and on a cased book the fold takes 15 mm. Which side is the
+    ; spine depends on which side of the sheet the page is bound on - the left
+    ; of a recto, the right of a verso - so the check has to know that too.
     fn checkSafety:void (doc:BookDocument page:BookPage frame:BookFrame report:BookPreflightReport) {
-        def tooLeft:boolean (frame.x < safetyMargin)
+        def recto:boolean (page.isRecto())
+        def leftLimit:double spec.safetyOuter
+        def rightLimit:double spec.safetyOuter
+        if recto {
+            leftLimit = spec.safetyInner
+        } {
+            rightLimit = spec.safetyInner
+        }
+
         def right:double (frame.x + frame.w)
-        def limitR:double (page.width - safetyMargin)
-        def tooRight:boolean (right > limitR)
-        def tooTop:boolean (frame.y < safetyMargin)
+        def bottom:double (frame.y + frame.h)
         ; A folio's frame is a drop zone, not an ink extent: the box may reach
         ; the trim while the single line inside it sits well clear. Measuring
         ; the box would report every page number in every book.
-        def bottom:double (frame.y + frame.h)
         if ((strlen frame.text) > 0) {
             def style:BookStyle (doc.styleFor(frame.styleName))
             bottom = (frame.y + style.fontSize)
         }
-        def limitB:double (page.height - safetyMargin)
+
+        def tooLeft:boolean (frame.x < leftLimit)
+        def limitR:double (page.width - rightLimit)
+        def tooRight:boolean (right > limitR)
+        def tooTop:boolean (frame.y < spec.safetyOuter)
+        def limitB:double (page.height - spec.safetyOuter)
         def tooBottom:boolean (bottom > limitB)
+
+        ; The gutter first, because it is the one with the bigger number and
+        ; the more useful message.
+        def inGutter:boolean false
+        if recto {
+            inGutter = tooLeft
+        } {
+            inGutter = tooRight
+        }
+        if inGutter {
+            def gmm:string (BookPreflight.mmText(spec.safetyInner))
+            def side:string "left"
+            if (recto == false) {
+                side = "right"
+            }
+            def gmsg:string ("text runs into the gutter - the spine is the " + side + " edge of this page and needs " + gmm + " mm clear")
+            def git:BookPreflightItem (BookPreflightItem.create("warning" "gutter" gmsg page.index frame.id))
+            report.add(git)
+            return
+        }
+
         def bad:boolean (tooLeft || tooRight)
         if (tooTop || tooBottom) {
             bad = true
         }
         if bad {
-            def mmR:string (BookPreflight.mmText(safetyMargin))
+            def mmR:string (BookPreflight.mmText(spec.safetyOuter))
             def msg:string ("text sits closer than " + mmR + " mm to the trim and may be cut")
             def it:BookPreflightItem (BookPreflightItem.create("warning" "safety-margin" msg page.index frame.id))
             report.add(it)
         }
     }
 
-    fn checkSignature:void (doc:BookDocument report:BookPreflightReport) {
+    ; How many pages the book has, against what the binding can do. Three
+    ; separate failures live here and they are not the same conversation: too
+    ; few, too many, and the wrong arithmetic.
+    fn checkExtent:void (doc:BookDocument report:BookPreflightReport) {
         def count:int (doc.pageCount())
         if (count == 0) {
             def it0:BookPreflightItem (BookPreflightItem.create("error" "empty" "the document has no pages" -1 ""))
             report.add(it0)
             return
         }
-        if (signatureMultiple < 2) {
-            return
-        }
-        def whole:int (idiv count signatureMultiple)
-        def exact:int (whole * signatureMultiple)
-        if (count != exact) {
-            def next:int (exact + signatureMultiple)
-            def msg:string ((to_string count) + " pages is not a multiple of " + (to_string signatureMultiple) + " - a printer will pad it to " + (to_string next))
-            def it:BookPreflightItem (BookPreflightItem.create("warning" "signature" msg -1 ""))
+        if (count < spec.minPages) {
+            def msg:string ((to_string count) + " pages is under the " + (to_string spec.minPages) + "-page minimum for " + spec.name)
+            def it:BookPreflightItem (BookPreflightItem.create("error" "too-few-pages" msg -1 ""))
             report.add(it)
+        }
+        if (count > spec.maxPages) {
+            def msg2:string ((to_string count) + " pages is over the " + (to_string spec.maxPages) + "-page maximum for " + spec.name)
+            def it2:BookPreflightItem (BookPreflightItem.create("error" "too-many-pages" msg2 -1 ""))
+            report.add(it2)
+        }
+        if (spec.pageMultiple > 1) {
+            def whole:int (idiv count spec.pageMultiple)
+            def exact:int (whole * spec.pageMultiple)
+            if (count != exact) {
+                def next:int (spec.roundPages(count))
+                def msg3:string ((to_string count) + " pages is not a multiple of " + (to_string spec.pageMultiple) + " - add blank pages to reach " + (to_string next) + ", in the file, not by leaving them out")
+                def it3:BookPreflightItem (BookPreflightItem.create("error" "extent" msg3 -1 ""))
+                report.add(it3)
+            }
         }
     }
 

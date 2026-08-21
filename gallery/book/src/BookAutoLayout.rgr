@@ -119,7 +119,7 @@ class BookAutoLayout {
     ; How far a full-bleed image runs past the trim. 3 mm is what the trade
     ; assumes; generating it here is what makes an auto-laid-out book pass
     ; preflight instead of merely looking right on screen.
-    def bleedOverhang:double 8.5
+    def bleedOverhang:double 8.503937007874017
     ; Keep adding pages after the story ends, until every image is placed.
     def placeAllImages:boolean true
     ; The paper. A generated page inherits it, because a book printed on cream
@@ -135,7 +135,7 @@ class BookAutoLayout {
         recipes = r
         maxPages = 400
         imageGap = 18.0
-        bleedOverhang = 8.5
+        bleedOverhang = (BookUnits.mm(3.0))
         placeAllImages = true
         captionStyle = "caption"
         captionHeight = 20.0

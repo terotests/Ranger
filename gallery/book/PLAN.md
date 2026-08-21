@@ -122,12 +122,26 @@ the half that needs a caret and a properties panel:
 
 ## Stage 5 — output that a printer accepts
 
-1. **CMYK and ICC.** Currently everything is RGB. This is a PDF writer change,
-   not a book engine change, but preflight is where it gets checked.
-2. **Crop marks, bleed marks, a slug area.** The model already carries a bleed
-   value; nothing draws it yet.
-3. **PDF/X-ready output** — the flag a print shop asks for.
-4. **EPUB**, which is the same story model with the pagination thrown away, and
+Done (stage 5a): `BookPrintSpec` holds a supplier's requirements as data and
+preflight checks against it — trim size, extent (minimum, maximum, multiple),
+bleed, outer and **gutter** safety, dpi. `BookCover` computes the spine from
+the extent and the paper and builds the cover as its own landscape document.
+`npm run book:print` writes the interior at trim + bleed with a TrimBox, the
+cover, a `print.json` manifest carrying the fields a print-on-demand API asks
+for, and the render commands with the computed sizes in them.
+
+Left:
+
+1. **CMYK and ICC.** Everything is RGB. This is a PDF writer change rather than
+   a book engine change; preflight already says when an RGB book is bound for a
+   CMYK press, which is as far as it can get from here.
+2. **PDF/X conformance** — the output intent, the metadata and the flag a print
+   shop asks for. The boxes are right already.
+3. **Crop and registration marks**, for the suppliers that want them. Off by
+   default and it should stay that way: an unwanted set of marks is a reprint.
+4. **A supplier's own cover template as input**, so the generated arithmetic can
+   be checked against their file rather than replacing it.
+5. **EPUB**, which is the same story model with the pagination thrown away, and
    is therefore nearly free once stories and styles are the source of truth.
 
 ## Design rules that should not be traded away

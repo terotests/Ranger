@@ -1,0 +1,272 @@
+; ==============================================================================
+; BookPrintSpec.rgr - what a particular printer will accept
+; ==============================================================================
+;
+; The rules a photo book has to satisfy are not properties of the book. They
+; are properties of the PRINTER, and they differ: 3 mm of bleed is the European
+; convention and not a law, a page count is a multiple of four in section-sewn
+; binding and anything at all in some digital presses, and one service wants
+; CMYK while the next one wants RGB. Hard-coding any of it produces an engine
+; that is confidently wrong for every supplier but one.
+;
+; So this file is the requirements as DATA, with presets for the print-on-demand
+; services whose photo books have a real API behind them, and preflight checks a
+; book against one of them.
+;
+; The rules that are not negotiable and are therefore assertions rather than
+; settings:
+;
+;   Page 1 is a recto.        Odd pages are on the right, even on the left, and
+;                             a cover is always the right-hand side of the sheet
+;                             it is bound onto.
+;   Single pages, in order.   The PDF is 1, 2, 3, 4 - reader's order. Printer
+;                             spreads (32-1 / 2-31) are the press's business and
+;                             producing them yourself is how a book comes back
+;                             bound inside out.
+;   A blank page is a page.   It occupies a leaf, it is counted, and it has to
+;                             be IN the file. Leaving it out silently shifts
+;                             every page after it onto the wrong side.
+;
+; A book is designed in spreads because pictures cross the gutter, and delivered
+; as single pages. Those are not in conflict: the engine lays out spreads and
+; exports leaves, which is exactly what a page-layout program is for.
+;
+; The numbers in the presets come from the suppliers' own published specs.
+; Check them against the supplier before a production run - a SKU's page range
+; is the sort of thing that changes without telling anyone.
+; ==============================================================================
+
+Import "BookModel.rgr"
+
+class BookPrintSpec {
+    def name:string "generic"
+    def supplier:string ""
+    ; The finished page, in points. 0 means "this spec does not care".
+    def trimWidth:double 0.0
+    def trimHeight:double 0.0
+    ; How far ink must run past the trim on every outer edge.
+    def bleed:double 8.5
+    ; How far from the trim the important things must stay. The spine side is
+    ; its own number and is always the bigger one: a bound edge swallows more
+    ; than a cut one, and on a thick hardcover it swallows a great deal.
+    def safetyOuter:double 14.17
+    def safetyInner:double 28.35
+    ; Page count. `multiple` is the leaf arithmetic of the binding; min and max
+    ; are what the press can physically hold.
+    def pageMultiple:int 4
+    def minPages:int 4
+    def maxPages:int 1000
+    ; Effective resolution at the size the picture is printed.
+    def targetDpi:double 300.0
+    def minimumDpi:double 150.0
+    ; What the supplier wants delivered. Informational until the PDF writer can
+    ; do CMYK, but preflight can still say when a book is being sent to a CMYK
+    ; workflow as RGB.
+    def colourSpace:string "rgb"
+    def pdfProfile:string "PDF/X-4"
+    ; A cover is nearly always a separate file: back, spine and front as one
+    ; landscape sheet whose width depends on how thick the book came out.
+    def separateCover:boolean true
+    ; Crop and registration marks. Off unless the supplier asks - an unwanted
+    ; set of marks is a reprint.
+    def cropMarks:boolean false
+
+    Constructor () {
+    }
+
+    fn trimNamed:boolean () {
+        if (trimWidth <= 0.0) {
+            return false
+        }
+        return (trimHeight > 0.0)
+    }
+
+    ; The sheet a page is delivered on: the trim plus bleed on every side.
+    ; A 210 mm square page with 3 mm of bleed is delivered as 216 mm square.
+    fn sheetWidth:double () {
+        def both:double (bleed * 2.0)
+        return (trimWidth + both)
+    }
+
+    fn sheetHeight:double () {
+        def both:double (bleed * 2.0)
+        return (trimHeight + both)
+    }
+
+    ; The nearest acceptable page count at or above `n`.
+    fn roundPages:int (n:int) {
+        def want:int n
+        if (want < minPages) {
+            want = minPages
+        }
+        if (pageMultiple > 1) {
+            def whole:int (idiv want pageMultiple)
+            def exact:int (whole * pageMultiple)
+            if (want != exact) {
+                want = (exact + pageMultiple)
+            }
+        }
+        return want
+    }
+
+    fn accepts:boolean (n:int) {
+        if (n < minPages) {
+            return false
+        }
+        if (n > maxPages) {
+            return false
+        }
+        if (pageMultiple > 1) {
+            def whole:int (idiv n pageMultiple)
+            def exact:int (whole * pageMultiple)
+            if (n != exact) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn describe:string () {
+        def out:string name
+        if ((strlen supplier) > 0) {
+            out = (out + " (" + supplier + ")")
+        }
+        out = (out + "\n")
+        if (this.trimNamed()) {
+            def wmm:string (BookPrintSpec.mmText(trimWidth))
+            def hmm:string (BookPrintSpec.mmText(trimHeight))
+            def swmm:string (BookPrintSpec.mmText((this.sheetWidth())))
+            def shmm:string (BookPrintSpec.mmText((this.sheetHeight())))
+            out = (out + "  trim       " + wmm + " x " + hmm + " mm, delivered " + swmm + " x " + shmm + " mm with bleed\n")
+        }
+        out = (out + "  bleed      " + (BookPrintSpec.mmText(bleed)) + " mm on every outer edge\n")
+        out = (out + "  safety     " + (BookPrintSpec.mmText(safetyOuter)) + " mm outer, " + (BookPrintSpec.mmText(safetyInner)) + " mm at the spine\n")
+        out = (out + "  pages      " + (to_string minPages) + "-" + (to_string maxPages) + ", multiples of " + (to_string pageMultiple) + "\n")
+        out = (out + "  images     " + (BookPrintSpec.intText(targetDpi)) + " dpi at print size (" + (BookPrintSpec.intText(minimumDpi)) + " dpi floor)\n")
+        out = (out + "  delivery   " + pdfProfile + ", " + colourSpace + ", single pages in reading order, page 1 recto\n")
+        return out
+    }
+
+    sfn mmText:string (points:double) {
+        def mm:double (BookUnits.toMm(points))
+        def bumped:double (mm + 0.05)
+        def whole:int (floor bumped)
+        def frac:double (bumped - (to_double whole))
+        def tenths:int (floor (frac * 10.0))
+        if (tenths == 0) {
+            return (to_string whole)
+        }
+        return ((to_string whole) + "." + (to_string tenths))
+    }
+
+    sfn intText:string (v:double) {
+        def n:int (floor (v + 0.5))
+        return (to_string n)
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Presets
+    ; ---------------------------------------------------------------------
+
+    ; The safe default when nobody has said anything yet: European bleed,
+    ; sections of four, 300 dpi.
+    sfn generic:BookPrintSpec () {
+        def s (new BookPrintSpec())
+        s.name = "generic"
+        return s
+    }
+
+    ; 210 x 210 mm layflat hardcover - the trim a real picture book is usually
+    ; made at, and the binding that lets a picture cross the gutter without
+    ; disappearing into it.
+    sfn layflat210:BookPrintSpec () {
+        def s (new BookPrintSpec())
+        s.name = "layflat-210"
+        s.supplier = "print-on-demand layflat hardcover"
+        s.trimWidth = (BookUnits.mm(210.0))
+        s.trimHeight = (BookUnits.mm(210.0))
+        s.bleed = (BookUnits.mm(3.0))
+        s.safetyOuter = (BookUnits.mm(5.0))
+        ; Layflat opens flat, so the gutter takes far less than a cased book's.
+        s.safetyInner = (BookUnits.mm(8.0))
+        s.pageMultiple = 2
+        s.minPages = 18
+        s.maxPages = 122
+        return s
+    }
+
+    sfn hardcoverA4:BookPrintSpec () {
+        def s (new BookPrintSpec())
+        s.name = "hardcover-a4"
+        s.supplier = "print-on-demand hardcover photo book"
+        s.trimWidth = (BookUnits.mm(210.0))
+        s.trimHeight = (BookUnits.mm(297.0))
+        s.bleed = (BookUnits.mm(3.0))
+        s.safetyOuter = (BookUnits.mm(5.0))
+        ; A cased book does not open flat; the gutter is the tightest place on
+        ; the page and the one people put faces in.
+        s.safetyInner = (BookUnits.mm(15.0))
+        s.pageMultiple = 4
+        s.minPages = 24
+        s.maxPages = 500
+        return s
+    }
+
+    sfn softcoverA5:BookPrintSpec () {
+        def s (new BookPrintSpec())
+        s.name = "softcover-a5"
+        s.supplier = "print-on-demand softcover photo book"
+        s.trimWidth = (BookUnits.mm(148.0))
+        s.trimHeight = (BookUnits.mm(210.0))
+        s.bleed = (BookUnits.mm(3.0))
+        s.safetyOuter = (BookUnits.mm(5.0))
+        s.safetyInner = (BookUnits.mm(10.0))
+        s.pageMultiple = 4
+        s.minPages = 20
+        s.maxPages = 300
+        return s
+    }
+
+    ; Traditional offset: sections of four, CMYK, and the classic picture-book
+    ; extent of 32 pages sitting comfortably inside the range.
+    sfn offsetSewn:BookPrintSpec () {
+        def s (new BookPrintSpec())
+        s.name = "offset-sewn"
+        s.supplier = "sheet-fed offset, section sewn"
+        s.bleed = (BookUnits.mm(3.0))
+        s.safetyOuter = (BookUnits.mm(8.0))
+        s.safetyInner = (BookUnits.mm(15.0))
+        s.pageMultiple = 4
+        s.minPages = 24
+        s.maxPages = 400
+        s.colourSpace = "cmyk"
+        s.pdfProfile = "PDF/X-1a"
+        return s
+    }
+
+    sfn byName:BookPrintSpec (name:string) {
+        if (name == "layflat-210") {
+            return (BookPrintSpec.layflat210())
+        }
+        if (name == "hardcover-a4") {
+            return (BookPrintSpec.hardcoverA4())
+        }
+        if (name == "softcover-a5") {
+            return (BookPrintSpec.softcoverA5())
+        }
+        if (name == "offset-sewn") {
+            return (BookPrintSpec.offsetSewn())
+        }
+        return (BookPrintSpec.generic())
+    }
+
+    sfn names:[string] () {
+        def out:[string]
+        push out "layflat-210"
+        push out "hardcover-a4"
+        push out "softcover-a5"
+        push out "offset-sewn"
+        push out "generic"
+        return out
+    }
+}

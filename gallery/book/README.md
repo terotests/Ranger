@@ -10,6 +10,7 @@ npm run book:web            # the editor, in a browser, with no server behind it
 npm run book:web:serve      # …and serve it at http://localhost:8003
 npm run book:demo           # lay the book out, check it, write SVG + TSX
 npm run book:pdf            # …and turn it into a PDF with the existing EVG tooling
+npm run book:print          # the files a printer wants: interior + cover + manifest
 npm run book:test           # 76 assertions on the engine, JavaScript
 npm run book:test:go        # the same 76 on Go (and book:test:python on Python)
 npm run book:editor:test    # 64 more on the editor and the host seam
@@ -212,6 +213,60 @@ exactly why they need computing:
 The demo deliberately fails three of them: the sample photographs bundled with
 `pdf_writer` are 500–640 px, which is genuinely too small for a 210 mm page.
 That is preflight working, not preflight misconfigured.
+
+## Getting it printed
+
+A book on screen is one artefact; a book at a press is three, and the rules it
+has to satisfy belong to the **printer**, not to the book. `BookPrintSpec` is
+those requirements as data — `layflat-210`, `hardcover-a4`, `softcover-a5`,
+`offset-sewn`, `generic` — and preflight checks against whichever one you name.
+
+`npm run book:print` writes:
+
+| File | What it is |
+| --- | --- |
+| `interior.pdf` | the pages, **single, in reading order**, page 1 a recto, blanks included, at trim + bleed with a TrimBox |
+| `cover.pdf` | back, spine and front on one landscape sheet |
+| `print.json` | extent, trim, bleed, spine width, cover sheet — the fields a print-on-demand API asks for |
+| `preflight.txt` | what a printer would complain about |
+| `render.sh` | the exact commands that made the PDFs, with the computed page sizes in them |
+
+Three rules are assertions rather than settings, because they are not
+negotiable:
+
+- **Page 1 is a recto.** Odd pages on the right, even on the left. A cover is
+  always the right-hand side of the sheet it is bound onto.
+- **Single pages, in reader's order** — 1, 2, 3, 4. Printer spreads
+  (32–1 / 2–31) are the press's business, and imposing them yourself is how a
+  book comes back bound inside out. The engine designs in spreads and exports
+  leaves, which is the whole point of a page-layout program.
+- **A blank page is a page.** It takes a leaf, it is counted, and it has to be
+  *in* the file. `padToExtent` adds real blank pages; leaving them out silently
+  moves every page after them onto the wrong side.
+
+The spine is arithmetic and the engine does it:
+
+```
+leaves     = pages / 2
+text block = leaves × caliper          0.17 mm for 170 gsm coated silk
+spine      = text block + binding      + two boards, cased; + the wrap, soft
+```
+
+`BookCoverSpec` also carries the squares (the board standing proud of the
+page), the hinge either side of the spine and the turn-in. **Take the
+supplier's own cover template before a production run** — this exists so a
+cover can be proofed and budgeted before that template arrives, and so their
+number can be checked against one rather than typed in from a guess.
+
+What preflight will not let past for a named spec: the wrong trim size, an
+extent under the minimum or over the maximum or off the binding's multiple, a
+picture under the dpi floor, ink that stops at the trim instead of bleeding
+past it, and text in the gutter — which is checked against a **larger** margin
+than the cut edges, on whichever side of the page the spine is.
+
+Still missing for a professional workflow: CMYK and ICC output (preflight
+warns when an RGB book is bound for a CMYK press, which is as far as it can
+get today), and a real PDF/X conformance stamp.
 
 ## Using it
 

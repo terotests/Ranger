@@ -91,3 +91,16 @@ faces the ENGINE loaded are invisible to it. A page that measures in Cinzel and
 never declares Cinzel to the browser draws the whole book in a fallback
 sans-serif at Cinzel's widths. Both book pages declare the same four faces the
 engine is given, and await `document.fonts.ready` before the first draw.
+
+## 7. The committed `evg_pdf_tool.js` predates its own `-bleed` flag
+
+`gallery/pdf_writer/src/tools/evg_pdf_tool.rgr` takes `-bleed PT` and the
+renderer does the right thing with it — MediaBox grows to the trim plus bleed
+on every side, and a TrimBox marks the finished page. The build committed in
+`gallery/pdf_writer/bin/` contains no reference to bleed at all, so running the
+committed tool with `-bleed` silently produces a PDF at trim size.
+
+That is the worst shape a stale build can take: the flag is accepted, nothing
+warns, and the file is wrong in a way that is invisible until a press trims
+into the picture. `npm run book:print` recompiles the tool before using it, the
+way `book:pdf` already did.

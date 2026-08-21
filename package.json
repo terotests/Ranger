@@ -33,6 +33,7 @@
     "book:web": "bash gallery/book/web/standalone/build.sh",
     "book:web:serve": "bash gallery/book/web/standalone/build.sh && python3 -m http.server -d gallery/book/web/standalone/dist 8003",
     "book:web:test": "bash gallery/book/web/standalone/build.sh && node gallery/book/web/standalone/smoke.mjs",
+    "book:print": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/book/src/book_print.rgr -d=./gallery/book/bin -o=book_print.js -nodecli && node ./gallery/book/bin/book_print.js && npm run evgpdf:compile && bash gallery/book/output/render.sh",
     "book:pdf": "npm run book:demo && npm run evgpdf:compile && node ./gallery/pdf_writer/bin/evg_pdf_tool.js ./gallery/book/output/book.tsx ./gallery/book/output/book.pdf -w 595.28 -h 595.28",
     "docs:extract": "node docs/tools/extract-operators.mjs",
     "docs:examples": "node docs/tools/build-examples.mjs",

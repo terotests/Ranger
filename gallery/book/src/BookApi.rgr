@@ -25,6 +25,7 @@
 Import "BookAutoLayout.rgr"
 Import "BookRender.rgr"
 Import "BookPreflight.rgr"
+Import "BookCover.rgr"
 
 class BookApi {
     def doc:BookDocument (new BookDocument())
@@ -210,6 +211,41 @@ class BookApi {
         if (flowValid == false) {
             this.reflow()
         }
+    }
+
+    ; What the printer will accept. Everything preflight says is measured
+    ; against this, and `padToExtent` rounds the book up to it.
+    fn usePrintSpec:void (s:BookPrintSpec) {
+        preflight.setSpec(s)
+        auto.bleedOverhang = s.bleed
+    }
+
+    fn printSpec:BookPrintSpec () {
+        return preflight.spec
+    }
+
+    ; Blank pages, actually in the book, until the extent is one the binding
+    ; can make. Leaving them out of the file instead is the classic way to get
+    ; every page after them printed on the wrong side of the leaf.
+    fn padToExtent:int () {
+        def spec:BookPrintSpec preflight.spec
+        def want:int (spec.roundPages((doc.pageCount())))
+        def added:int 0
+        while ((doc.pageCount()) < want) {
+            def blank:BookPage (doc.newPage(""))
+            blank.numbered = false
+            added = (added + 1)
+        }
+        if (added > 0) {
+            flowValid = false
+        }
+        return added
+    }
+
+    ; The cover as its own document - a separate file is how a cover is
+    ; delivered, because its width is not known until the book has an extent.
+    fn coverDocument:BookDocument (cover:BookCoverSpec withGuides:boolean) {
+        return (BookCover.build(doc cover withGuides))
     }
 
     fn runPreflight:BookPreflightReport () {

@@ -372,7 +372,7 @@ class BookTest {
             if (it.code == "missing-asset") {
                 missing = true
             }
-            if (it.code == "signature") {
+            if (it.code == "extent") {
                 signature = true
             }
             i = (i + 1)
@@ -380,7 +380,7 @@ class BookTest {
         c.ok("a 48 dpi photograph is an error" found)
         c.ok("an element that stops at the trim is an error" bleed)
         c.ok("a frame pointing at no asset is an error" missing)
-        c.ok("a page count of one is not a signature" signature)
+        c.ok("a page count of one is not an extent anything can bind" signature)
         c.ok("so the book is not printable" ((report.printable()) == false))
 
         ; The same image with bleed and enough pixels passes.
@@ -406,21 +406,27 @@ class BookTest {
         def wide (BookFrame.textFrame("w" 0.0 0.0 419.53 200.0 "main"))
         p3.addFrame(wide)
         def edge:BookPreflightReport (api3.runPreflight())
-        def sawSafety:boolean false
+        def sawClose:boolean false
         def sawBleed:boolean false
         def j:int 0
         while (j < (edge.count())) {
             def it3:BookPreflightItem (edge.itemAtIndex(j))
+            ; Page 1 is a recto, so its left edge is the spine: a frame hard
+            ; against it is a gutter problem, which is the same complaint with
+            ; the bigger number on it.
+            if (it3.code == "gutter") {
+                sawClose = true
+            }
             if (it3.code == "safety-margin") {
-                sawSafety = true
+                sawClose = true
             }
             if (it3.code == "no-bleed") {
                 sawBleed = true
             }
             j = (j + 1)
         }
-        c.ok("a text frame at the trim is a safety warning" sawSafety)
-        c.ok("and never a bleed error" (sawBleed == false))
+        c.ok("a text frame at the trim is a warning about being cut" sawClose)
+        c.ok("and never a bleed error - text is not asked to bleed" (sawBleed == false))
     }
 
     sfn testRendering:void (c:Check) {
@@ -474,6 +480,185 @@ class BookTest {
         c.ok("adding text re-flows before rendering" (BookTest.hasSub(second "two")))
     }
 
+
+    ; ---------------------------------------------------------------------
+
+    sfn testPrintSpec:void (c:Check) {
+        print "-- a printer's requirements, as data --"
+        def spec:BookPrintSpec (BookPrintSpec.layflat210())
+        c.near("the trim is 210 mm" (BookUnits.toMm(spec.trimWidth)) 210.0 0.01)
+        c.near("bleed is 3 mm" (BookUnits.toMm(spec.bleed)) 3.0 0.01)
+        ; The delivered page is the trim plus bleed on EVERY side, so 210 mm
+        ; square goes to the press as 216 mm square.
+        c.near("the delivered sheet is 216 mm" (BookUnits.toMm((spec.sheetWidth()))) 216.0 0.01)
+        c.near("the gutter needs more than the cut edge" spec.safetyInner (BookUnits.mm(8.0)) 0.01)
+        c.ok("and more than the outer margin" (spec.safetyInner > spec.safetyOuter))
+
+        def cased:BookPrintSpec (BookPrintSpec.hardcoverA4())
+        c.eqInt("a cased book is bound in fours" cased.pageMultiple 4)
+        c.ok("18 pages is not enough for it" ((cased.accepts(18)) == false))
+        c.ok("30 is not a multiple of four" ((cased.accepts(30)) == false))
+        c.ok("32 is" (cased.accepts(32)))
+        c.eqInt("30 rounds up to 32" (cased.roundPages(30)) 32)
+        c.eqInt("and 32 stays 32" (cased.roundPages(32)) 32)
+        c.eqInt("a short book is raised to the minimum" (cased.roundPages(4)) 24)
+
+        def named:BookPrintSpec (BookPrintSpec.byName("offset-sewn"))
+        c.eqStr("specs can be looked up by name" named.name "offset-sewn")
+        c.eqStr("and offset wants CMYK" named.colourSpace "cmyk")
+    }
+
+    sfn testCoverArithmetic:void (c:Check) {
+        print "-- the spine is arithmetic, not a guess --"
+        def hc:BookCoverSpec (BookCoverSpec.hardcover())
+        hc.paperCaliperMm = 0.2
+        hc.boardThicknessMm = 2.5
+        ; 32 pages is 16 leaves; 16 x 0.2 mm of paper, plus two boards.
+        c.near("the text block is the leaves, not the pages" (hc.textBlockMm(32)) 3.2 0.001)
+        c.near("the spine adds a board on each side" (hc.spineMm(32)) 8.2 0.001)
+        c.near("twice the pages is twice the paper" (hc.textBlockMm(64)) 6.4 0.001)
+
+        def sc:BookCoverSpec (BookCoverSpec.softcover())
+        sc.paperCaliperMm = 0.2
+        sc.coverCaliperMm = 0.3
+        c.near("a softcover spine is the block plus its wrap" (sc.spineMm(32)) 3.8 0.001)
+        c.ok("which is thinner than the cased one" ((sc.spineMm(32)) < (hc.spineMm(32))))
+
+        ; The sheet: two boards, the spine, the hinges and the turn-in.
+        def sheet:double (hc.coverWidthMm(210.0 32))
+        def board:double (hc.boardWidthMm(210.0))
+        c.near("the board stands proud of the page" board 213.0 0.001)
+        def expected:double ((((board * 2.0) + 8.2) + 16.0) + 34.0)
+        c.near("the sheet is everything laid end to end" sheet expected 0.001)
+        c.near("and is taller than the page by two turn-ins and two squares" (hc.coverHeightMm(210.0)) 250.0 0.001)
+
+        ; The front panel is on the RIGHT of the sheet, which is the same fact
+        ; as page 1 being a recto.
+        def frontX:double (hc.frontPanelXMm(210.0 32))
+        def spineX:double (hc.spineXMm(210.0 32))
+        c.ok("the spine sits between the panels" (spineX > 0.0))
+        c.ok("and the front panel comes after it" (frontX > spineX))
+        c.near("by exactly the spine and a hinge" (frontX - spineX) 16.2 0.001)
+
+        c.near("caliper comes off the weight and the bulk" (BookCoverSpec.caliperFromGsm(170.0 1.0)) 0.17 0.0001)
+    }
+
+    sfn testExtentAndBlanks:void (c:Check) {
+        print "-- a blank page is a page, and has to be in the file --"
+        def api (BookApi.create("Extent" "a4"))
+        api.defaultStyles()
+        def spec:BookPrintSpec (BookPrintSpec.hardcoverA4())
+        api.usePrintSpec(spec)
+        def i:int 0
+        while (i < 30) {
+            api.page("")
+            i = (i + 1)
+        }
+        c.eqInt("thirty pages to start" (api.doc.pageCount()) 30)
+        def added:int (api.padToExtent())
+        c.eqInt("two blanks reach the next multiple of four" added 2)
+        c.eqInt("so the book is thirty-two pages" (api.doc.pageCount()) 32)
+        def last:BookPage (api.doc.pageAt(31))
+        c.ok("and the blank is a real page in the document" (last.frameCount() == 0))
+        c.ok("counted, but not numbered" (last.numbered == false))
+
+        ; The pages a reader will see, and which side each is on.
+        def first:BookPage (api.doc.pageAt(0))
+        def second:BookPage (api.doc.pageAt(1))
+        c.ok("page 1 is a recto" (first.isRecto()))
+        c.ok("page 2 is a verso" ((second.isRecto()) == false))
+    }
+
+    sfn testPreflightAgainstSpec:void (c:Check) {
+        print "-- preflight answers to the printer, not to itself --"
+        def api (BookApi.create("Spec" "a5"))
+        api.defaultStyles()
+        def spec:BookPrintSpec (BookPrintSpec.hardcoverA4())
+        api.usePrintSpec(spec)
+        api.page("")
+        def report:BookPreflightReport (api.runPreflight())
+        def sawTrim:boolean false
+        def sawFew:boolean false
+        def sawExtent:boolean false
+        def i:int 0
+        while (i < (report.count())) {
+            def it:BookPreflightItem (report.itemAtIndex(i))
+            if (it.code == "trim-size") {
+                sawTrim = true
+            }
+            if (it.code == "too-few-pages") {
+                sawFew = true
+            }
+            if (it.code == "extent") {
+                sawExtent = true
+            }
+            i = (i + 1)
+        }
+        c.ok("an A5 book sent to an A4 SKU is an error" sawTrim)
+        c.ok("one page is under the minimum" sawFew)
+        c.ok("and is not a multiple of four" sawExtent)
+
+        ; The gutter is not the same edge as the cut, and which one it is
+        ; depends on the side of the sheet the page is bound on.
+        def api2 (BookApi.create("Gutter" "a4"))
+        api2.defaultStyles()
+        def spec2:BookPrintSpec (BookPrintSpec.hardcoverA4())
+        api2.usePrintSpec(spec2)
+        def recto:BookPage (api2.page(""))
+        def verso:BookPage (api2.page(""))
+        def s2:BookStory (api2.story("main"))
+        s2.addParagraph("edge" "body")
+        ; Hard against the left edge of both pages: the gutter on the recto,
+        ; the cut edge on the verso.
+        def near1 (BookFrame.textFrame("a" 6.0 100.0 200.0 100.0 "main"))
+        recto.addFrame(near1)
+        def near2 (BookFrame.textFrame("b" 6.0 100.0 200.0 100.0 ""))
+        verso.addFrame(near2)
+        def r2:BookPreflightReport (api2.runPreflight())
+        def gutterOnRecto:boolean false
+        def safetyOnVerso:boolean false
+        def k:int 0
+        while (k < (r2.count())) {
+            def it2:BookPreflightItem (r2.itemAtIndex(k))
+            if (it2.code == "gutter") {
+                if (it2.frameId == "a") {
+                    gutterOnRecto = true
+                }
+            }
+            if (it2.code == "safety-margin") {
+                if (it2.frameId == "b") {
+                    safetyOnVerso = true
+                }
+            }
+            k = (k + 1)
+        }
+        c.ok("the left edge of a recto is the gutter" gutterOnRecto)
+        c.ok("the left edge of a verso is the trim" safetyOnVerso)
+
+        ; And a CMYK workflow being handed RGB is worth saying out loud.
+        def api3 (BookApi.create("Colour" "a4"))
+        api3.defaultStyles()
+        def offset:BookPrintSpec (BookPrintSpec.offsetSewn())
+        api3.usePrintSpec(offset)
+        def p3:int 0
+        while (p3 < 24) {
+            api3.page("")
+            p3 = (p3 + 1)
+        }
+        def r3:BookPreflightReport (api3.runPreflight())
+        def sawColour:boolean false
+        def j:int 0
+        while (j < (r3.count())) {
+            def it3:BookPreflightItem (r3.itemAtIndex(j))
+            if (it3.code == "colour-space") {
+                sawColour = true
+            }
+            j = (j + 1)
+        }
+        c.ok("an RGB book bound for a CMYK press says so" sawColour)
+        c.eqInt("and 24 pages is an extent offset can bind" (r3.countOf("error")) 0)
+    }
+
     ; `contains` is a reserved method name in Ranger, so this is not called that.
     sfn hasSub:boolean (haystack:string needle:string) {
         def hl:int (strlen haystack)
@@ -514,6 +699,10 @@ class BookTest {
         BookTest.testPreflight(c)
         BookTest.testRendering(c)
         BookTest.testStaleFlow(c)
+        BookTest.testPrintSpec(c)
+        BookTest.testCoverArithmetic(c)
+        BookTest.testExtentAndBlanks(c)
+        BookTest.testPreflightAgainstSpec(c)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
