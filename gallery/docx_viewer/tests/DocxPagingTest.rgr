@@ -1,0 +1,132 @@
+; ==============================================================================
+; DocxPagingTest — reading a document is not editing one, but the keys still
+; have to do something.
+; ==============================================================================
+;
+; "Word had a problem: PageDown, or the cursor going down, did not move to the
+; next page." It did not, and the reason is one line: every caret movement in
+; the viewer asks `edit` to move a caret, and `edit` does nothing at all when
+; editing is off. There is no caret in a document you are only reading, so
+; there was nothing for the key to move — and nobody had said what it should
+; do instead.
+;
+; What it should do is what it does in every reader: turn the page. The keys
+; are the same keys, so nothing above had to learn anything; the key simply
+; means something on both sides of the edit switch now. The wheel and a swipe
+; are the same question asked with a different gesture, so they arrive as
+; travel and the viewer decides when that adds up to a page — deciding it
+; there rather than in each host is what keeps the window and the serverless
+; page feeling the same.
+;
+;   npm run docx_viewer:paging:test
+; ==============================================================================
+
+Import "../src/DocxViewer.rgr"
+
+class PagingCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class DocxPagingTest {
+    sfn open:DocxViewer (name:string) {
+        def v:DocxViewer (new DocxViewer)
+        if ((v.openFile("gallery/docx_viewer/fixtures" name)) == false) {
+            print ("  could not open " + name)
+        }
+        v.renderPage(0)
+        return v
+    }
+
+    sfn main:void () {
+        def c:PagingCheck (new PagingCheck)
+        print "== DocxPagingTest =="
+
+        ; A fixture with more than one page, or none of this can be asked.
+        def v:DocxViewer (DocxPagingTest.open("08-pages.docx"))
+        def pages:int (v.pageCount())
+        print ("  pages=" + (to_string pages))
+        c.ok("the fixture has pages to turn" (pages > 1))
+        c.ok("reading, not editing" ((v.editMode()) == false))
+        c.eqInt("starts on the first page" v.currentPage 0)
+
+        print "-- the keys turn the page --"
+        v.keyPageDown(false)
+        c.eqInt("PageDown goes forward" v.currentPage 1)
+        v.keyPageUp(false)
+        c.eqInt("PageUp comes back" v.currentPage 0)
+        v.keyDown(false)
+        c.eqInt("Down goes forward too" v.currentPage 1)
+        v.keyUp(false)
+        c.eqInt("Up comes back" v.currentPage 0)
+        v.keyRight(false)
+        c.eqInt("Right goes forward" v.currentPage 1)
+        v.keyLeft(false)
+        c.eqInt("Left comes back" v.currentPage 0)
+        v.keyEnd(false false)
+        c.eqInt("End is the last page" v.currentPage (pages - 1))
+        v.keyHome(false false)
+        c.eqInt("Home is the first" v.currentPage 0)
+
+        print "-- and stop at the ends --"
+        v.keyPageUp(false)
+        c.eqInt("there is nothing before the first page" v.currentPage 0)
+        def g:int 0
+        while (g < (pages + 4)) {
+            v.keyPageDown(false)
+            g = (g + 1)
+        }
+        c.eqInt("and nothing after the last" v.currentPage (pages - 1))
+
+        print "-- a wheel or a swipe travels before it turns --"
+        def w:DocxViewer (DocxPagingTest.open("08-pages.docx"))
+        def step:int (w.pageTurnTravel())
+        c.ok("a page is worth some travel" (step > 40))
+        ; A few small deltas — a trackpad sends dozens of these per flick —
+        ; must not throw the reader through the document.
+        def small:int 0
+        while (small < 4) {
+            w.scrollBy((idiv step 8))
+            small = (small + 1)
+        }
+        c.eqInt("half a page of travel turns nothing" w.currentPage 0)
+        w.scrollBy(step)
+        c.eqInt("a page of it turns one" w.currentPage 1)
+        ; Turning back is the same gesture the other way, and a change of
+        ; direction starts a new one rather than cancelling what is banked.
+        w.scrollBy((0 - step))
+        c.eqInt("and back" w.currentPage 0)
+        c.ok("a zero delta is not a gesture" ((w.scrollBy(0)) == false))
+
+        print "-- editing still edits --"
+        def e:DocxViewer (DocxPagingTest.open("08-pages.docx"))
+        e.setEditMode(true)
+        c.ok("edit mode is on" (e.editMode()))
+        def startPage:int e.currentPage
+        e.keyRight(false)
+        ; A caret step inside the first page must not turn it.
+        c.eqInt("Right moves the caret, not the page" e.currentPage startPage)
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

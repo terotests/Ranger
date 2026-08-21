@@ -255,6 +255,9 @@ class VlCompile {
     def dataLabel:string "data_0"
     def markLabel:string "marks"
     def forcedTypes:[string:string]
+    ; The fields a `"tooltip": [ … ]` names: read like channels, placed by
+    ; nothing, and shown when a reader points at the mark.
+    def tooltipDefs:[VlChannel]
     ; A pane of a concatenation names its scales and its own size signal apart
     ; from its neighbours', and shares whichever dimension runs across the join:
     ; panes side by side are all the same height, panes stacked are all the same
@@ -1157,13 +1160,18 @@ class VlCompile {
             farDef.setMember("field" (VlJson.stringValue(far)))
         }
         nearDef.setMember("type" (VlJson.stringValue("quantitative")))
+        ; Both ends are numbers. Left untyped, the far one was read as a
+        ; category and described by the test that keeps a list readable rather
+        ; than by `format`, so an interval's upper end was printed the way a
+        ; name is — six decimals of one, where the reference prints twelve
+        ; significant digits of a number.
+        farDef.setMember("type" (VlJson.stringValue("quantitative")))
         ; The axis is named after the COLUMN, not after the two derived ends it
         ; is drawn from. Left to name themselves, `lower_y` and `upper_y` were
         ; merged into an axis titled "lower_y, upper_y" where the reference
         ; writes "y" — the interval is a statement about y, and that is what
         ; the reader is being shown.
         nearDef.setMember("title" (VlJson.stringValue(column)))
-        farDef.setMember("title" (VlJson.stringValue(column)))
         ; What the chart said about the measured axis belongs to the end that
         ; carries the axis — its title, its scale and its guide.
         def said:VlJson measured.def0
@@ -1188,6 +1196,35 @@ class VlCompile {
         }
         encoding.setMember(axis nearDef)
         encoding.setMember((axis + "2") farDef)
+        ; What a reader is shown when they point at the interval: the three
+        ; numbers it was computed FROM, named for what they are, and then
+        ; whatever else the chart said. The ends alone are `lower_y` and
+        ; `upper_y`, which say nothing about being a mean and an error either
+        ; side of it.
+        if ((extent == "stderr") || (extent == "stdev")) {
+            def tips (VlJson.arrayValue())
+            def centreField:string ("center_" + column)
+            def nearField:string ("lower_" + column)
+            def farField:string ("upper_" + column)
+            push tips.arr (VlCompile.tipEntry(centreField (("Mean of " + column))))
+            push tips.arr (VlCompile.tipEntry(farField ((("Mean + " + extent) + " of ") + column)))
+            push tips.arr (VlCompile.tipEntry(nearField ((("Mean - " + extent) + " of ") + column)))
+            if (given.isObject()) {
+                for given.keys tk:string tki {
+                    if ((tk == axis) || (tk == (axis + "2"))) {
+                        ; the ends are named above
+                    } {
+                        def side:VlJson (given.get(tk))
+                        if (side.isObject()) {
+                            if (side.has("field")) {
+                                push tips.arr side
+                            }
+                        }
+                    }
+                }
+            }
+            encoding.setMember("tooltip" tips)
+        }
         out.setMember("encoding" encoding)
         if ((transforms.count()) > 0) {
             out.setMember("transform" transforms)
@@ -1256,6 +1293,15 @@ class VlCompile {
         def layers (VlJson.arrayValue())
         push layers.arr inner
         out.setMember("layer" layers)
+        return out
+    }
+
+    ; One line of a tooltip: a column, named for what it means.
+    sfn tipEntry:VlJson (field:string title:string) {
+        def out (VlJson.objectValue())
+        out.setMember("field" (VlJson.stringValue(field)))
+        out.setMember("type" (VlJson.stringValue("quantitative")))
+        out.setMember("title" (VlJson.stringValue(title)))
         return out
     }
 
@@ -4345,141 +4391,165 @@ class VlCompile {
             this.fail("specification has no encoding")
             return
         }
+        ; A composite mark is read, expanded and read AGAIN on this same
+        ; compiler, so the list starts empty each time: appended to, an error
+        ; bar told a reader what it was worth twice over.
+        clear tooltipDefs
         for encoding.keys key:string ki {
             def cdef:VlJson (encoding.get(key))
-            def ch (new VlChannel())
-            ch.name = key
-            ch.def0 = cdef
-            ch.defined = true
-            ch.field = (VlCompile.fieldPath((cdef.stringOr("field" ""))))
-            ch.aggregate = (cdef.stringOr("aggregate" ""))
-            def aggDef:VlJson (cdef.get("aggregate"))
-            if (aggDef.isObject()) {
-                for aggDef.keys ak:string ai {
-                    ch.aggregate = ak
-                    ch.argField = (aggDef.get(ak).asString())
+            ; A tooltip may be a LIST of fields rather than one channel:
+            ; `"tooltip": [{"field": …}, {"field": …}]` is how a chart says
+            ; what a reader should be shown when they point at a mark, and it
+            ; is not a channel — nothing is scaled or placed by it. Read as
+            ; one, it was a channel naming no column.
+            if ((key == "tooltip") && (cdef.isArray())) {
+                def ti:int 0
+                def tn:int (cdef.count())
+                while (ti < tn) {
+                    def one:VlJson (cdef.at(ti))
+                    push tooltipDefs (this.channelFrom("tooltip" one))
+                    ti = (ti + 1)
                 }
+            } {
+                push channels (this.channelFrom(key cdef))
             }
-            ch.timeUnit = (cdef.stringOr("timeUnit" ""))
-            if (cdef.has("bin")) {
-                ch.hasBin = true
-                def binDef:VlJson (cdef.get("bin"))
-                ; `"bin": "binned"` says the column ALREADY holds bin starts —
-                ; a transform upstream did the binning — so there is nothing to
-                ; compute here and no bin signal to take a domain from. Read as
-                ; a request to bin, the axis asked a signal that was never
-                ; published where its range was, and came out one tick short of
-                ; the data. It is the same statement as `{"binned": true}`,
-                ; written the short way.
-                if (binDef.isString()) {
-                    if (binDef.str == "binned") {
-                        ch.hasBin = false
-                        ch.binnedAlready = true
-                    }
-                }
-                if (binDef.isObject()) {
-                    if (binDef.boolOr("binned" false)) {
-                        ; Already binned upstream. The field keeps its own name
-                        ; and its partner channel carries the far edge.
-                        ch.hasBin = false
-                        ch.binnedAlready = true
-                        ch.binStep = (binDef.doubleOr("step" 0.0))
-                    } {
-                        if (binDef.has("maxbins")) {
-                            ch.maxbins = (to_int (binDef.doubleOr("maxbins" 10.0)))
-                        }
-                        ; `extent` says which RANGE the bins cover. Written as
-                        ; two numbers it is the range itself; written as a
-                        ; SELECTION it is whatever somebody has brushed, and
-                        ; with nothing brushed and nothing to brush with, that
-                        ; is the whole of the data — the same bins the chart
-                        ; above it draws, which is exactly what the reference
-                        ; draws too.
-                        if (binDef.has("extent")) {
-                            def stated:VlJson (binDef.get("extent"))
-                            if (stated.isArray()) {
-                                if ((stated.count()) == 2) {
-                                    ch.binExtent = stated
-                                }
-                            }
-                        }
-                        for binDef.keys bk:string bki {
-                            if ((bk != "maxbins") && (bk != "extent")) {
-                                this.fail((("a bin written with '" + bk) + "' is not compiled here"))
-                            }
-                        }
-                    }
-                }
-            }
-            ; A channel may leave its type out, and most of the published
-            ; examples do. It used to be read as `quantitative` regardless,
-            ; which turned `{"field": "variety"}` into a continuous scale over
-            ; a column of words: every bar landed at zero and the axis had one
-            ; tick on it. The type is inferred from the same three places
-            ; Vega-Lite infers it from — the transform on the channel, and
-            ; failing that, the data.
-            ch.kind = (cdef.stringOr("type" ""))
-            if ((strlen ch.kind) == 0) {
-                ch.kind = (this.inferKind(ch))
-            }
-            if (cdef.has("datum")) {
-                ch.hasDatum = true
-                ch.value = (cdef.get("datum"))
-            }
-            if (cdef.has("value")) {
-                ch.hasValue = true
-                ch.value = (cdef.get("value"))
-                ; The channel's own value is the FALLBACK — what a row the
-                ; condition does not hold for is drawn with. Which of the two
-                ; answers a static drawing shows is decided where the condition
-                ; is compiled, and decided here as well it was applied twice:
-                ; a hover chart that fades every series but one faded none of
-                ; them, because the fallback had already become the highlight.
-                def cond:VlJson (cdef.get("condition"))
-                if (cond.isObject()) {
-                    if (cond.has("param")) {
-                        ; A condition may name a FIELD rather than a value —
-                        ; `{"condition": {"param": "brush", "field":
-                        ; "Cylinders"}, "value": "grey"}` is how a chart greys
-                        ; out everything outside the brush. The field is what
-                        ; the selected rows are painted by, so the channel
-                        ; encodes it: it needs a scale to read and a key to
-                        ; name it, and without both the branch referred to a
-                        ; scale the chart never built.
-                        if (cond.has("field")) {
-                            ch.field = (VlCompile.fieldPath((cond.stringOr("field" ""))))
-                            ch.aggregate = (cond.stringOr("aggregate" ""))
-                            ch.timeUnit = (cond.stringOr("timeUnit" ""))
-                            def condType:string (cond.stringOr("type" ""))
-                            if ((strlen condType) > 0) {
-                                ch.kind = condType
-                            }
-                            ch.conditional = true
-                        }
-                    }
-                }
-            }
-            if ((strlen ch.aggregate) > 0) {
-                if ((strlen ch.field) == 0) {
-                    ch.field = ""
-                }
-            }
-            if ((strlen ch.timeUnit) > 0) {
-                ; The unit is written as one word — `yearmonthdate` — and means
-                ; the list of parts it spells out.
-                ch.timeUnits = (VlCompile.splitTimeUnit(ch.timeUnit))
-                if ((array_length ch.timeUnits) == 0) {
-                    this.fail(("the time unit '" + ch.timeUnit) + "' is not one this knows")
-                } {
-                    for ch.timeUnits tu:string tui {
-                        if (! (VlTime.unitKnown(tu))) {
-                            this.fail(((("the time unit '" + ch.timeUnit) + "' needs '") + tu) + "', which is not implemented")
-                        }
-                    }
-                }
-            }
-            push channels ch
         }
+    }
+
+    ; One channel, read from what the specification wrote for it.
+    fn channelFrom:VlChannel (key:string cdef:VlJson) {
+        def ch (new VlChannel())
+        ch.name = key
+        ch.def0 = cdef
+        ch.defined = true
+        ch.field = (VlCompile.fieldPath((cdef.stringOr("field" ""))))
+        ch.aggregate = (cdef.stringOr("aggregate" ""))
+        def aggDef:VlJson (cdef.get("aggregate"))
+        if (aggDef.isObject()) {
+            for aggDef.keys ak:string ai {
+                ch.aggregate = ak
+                ch.argField = (aggDef.get(ak).asString())
+            }
+        }
+        ch.timeUnit = (cdef.stringOr("timeUnit" ""))
+        if (cdef.has("bin")) {
+            ch.hasBin = true
+            def binDef:VlJson (cdef.get("bin"))
+            ; `"bin": "binned"` says the column ALREADY holds bin starts —
+            ; a transform upstream did the binning — so there is nothing to
+            ; compute here and no bin signal to take a domain from. Read as
+            ; a request to bin, the axis asked a signal that was never
+            ; published where its range was, and came out one tick short of
+            ; the data. It is the same statement as `{"binned": true}`,
+            ; written the short way.
+            if (binDef.isString()) {
+                if (binDef.str == "binned") {
+                    ch.hasBin = false
+                    ch.binnedAlready = true
+                }
+            }
+            if (binDef.isObject()) {
+                if (binDef.boolOr("binned" false)) {
+                    ; Already binned upstream. The field keeps its own name
+                    ; and its partner channel carries the far edge.
+                    ch.hasBin = false
+                    ch.binnedAlready = true
+                    ch.binStep = (binDef.doubleOr("step" 0.0))
+                } {
+                    if (binDef.has("maxbins")) {
+                        ch.maxbins = (to_int (binDef.doubleOr("maxbins" 10.0)))
+                    }
+                    ; `extent` says which RANGE the bins cover. Written as
+                    ; two numbers it is the range itself; written as a
+                    ; SELECTION it is whatever somebody has brushed, and
+                    ; with nothing brushed and nothing to brush with, that
+                    ; is the whole of the data — the same bins the chart
+                    ; above it draws, which is exactly what the reference
+                    ; draws too.
+                    if (binDef.has("extent")) {
+                        def stated:VlJson (binDef.get("extent"))
+                        if (stated.isArray()) {
+                            if ((stated.count()) == 2) {
+                                ch.binExtent = stated
+                            }
+                        }
+                    }
+                    for binDef.keys bk:string bki {
+                        if ((bk != "maxbins") && (bk != "extent")) {
+                            this.fail((("a bin written with '" + bk) + "' is not compiled here"))
+                        }
+                    }
+                }
+            }
+        }
+        ; A channel may leave its type out, and most of the published
+        ; examples do. It used to be read as `quantitative` regardless,
+        ; which turned `{"field": "variety"}` into a continuous scale over
+        ; a column of words: every bar landed at zero and the axis had one
+        ; tick on it. The type is inferred from the same three places
+        ; Vega-Lite infers it from — the transform on the channel, and
+        ; failing that, the data.
+        ch.kind = (cdef.stringOr("type" ""))
+        if ((strlen ch.kind) == 0) {
+            ch.kind = (this.inferKind(ch))
+        }
+        if (cdef.has("datum")) {
+            ch.hasDatum = true
+            ch.value = (cdef.get("datum"))
+        }
+        if (cdef.has("value")) {
+            ch.hasValue = true
+            ch.value = (cdef.get("value"))
+            ; The channel's own value is the FALLBACK — what a row the
+            ; condition does not hold for is drawn with. Which of the two
+            ; answers a static drawing shows is decided where the condition
+            ; is compiled, and decided here as well it was applied twice:
+            ; a hover chart that fades every series but one faded none of
+            ; them, because the fallback had already become the highlight.
+            def cond:VlJson (cdef.get("condition"))
+            if (cond.isObject()) {
+                if (cond.has("param")) {
+                    ; A condition may name a FIELD rather than a value —
+                    ; `{"condition": {"param": "brush", "field":
+                    ; "Cylinders"}, "value": "grey"}` is how a chart greys
+                    ; out everything outside the brush. The field is what
+                    ; the selected rows are painted by, so the channel
+                    ; encodes it: it needs a scale to read and a key to
+                    ; name it, and without both the branch referred to a
+                    ; scale the chart never built.
+                    if (cond.has("field")) {
+                        ch.field = (VlCompile.fieldPath((cond.stringOr("field" ""))))
+                        ch.aggregate = (cond.stringOr("aggregate" ""))
+                        ch.timeUnit = (cond.stringOr("timeUnit" ""))
+                        def condType:string (cond.stringOr("type" ""))
+                        if ((strlen condType) > 0) {
+                            ch.kind = condType
+                        }
+                        ch.conditional = true
+                    }
+                }
+            }
+        }
+        if ((strlen ch.aggregate) > 0) {
+            if ((strlen ch.field) == 0) {
+                ch.field = ""
+            }
+        }
+        if ((strlen ch.timeUnit) > 0) {
+            ; The unit is written as one word — `yearmonthdate` — and means
+            ; the list of parts it spells out.
+            ch.timeUnits = (VlCompile.splitTimeUnit(ch.timeUnit))
+            if ((array_length ch.timeUnits) == 0) {
+                this.fail(("the time unit '" + ch.timeUnit) + "' is not one this knows")
+            } {
+                for ch.timeUnits tu:string tui {
+                    if (! (VlTime.unitKnown(tu))) {
+                        this.fail(((("the time unit '" + ch.timeUnit) + "' needs '") + tu) + "', which is not implemented")
+                    }
+                }
+            }
+        }
+        return ch
     }
 
     ; ------------------------------------------------------- type inference ---
@@ -11471,7 +11541,21 @@ class VlCompile {
         }
     }
 
+    ; What a reader is shown when they point at the mark. Written beside the
+    ; description because they are the same values: one is read aloud and the
+    ; other is pointed at.
+    fn encodeTooltip:void (update:VlJson) {
+        def text:string (this.tooltipSignal())
+        if ((strlen text) == 0) {
+            return
+        }
+        def signal (VlJson.objectValue())
+        signal.setMember("signal" (VlJson.stringValue(text)))
+        update.setMember("tooltip" signal)
+    }
+
     fn encodeAria:void (update:VlJson) {
+        this.encodeTooltip(update)
         ; A mark may say what it is: a composite expands into a shape that is
         ; not what the chart asked for, and an error bar drawn as a rule is
         ; still an error bar to whoever is listening to the page.
@@ -11522,47 +11606,54 @@ class VlCompile {
     fn describeExpr:string () {
         def out:string ""
         def seen:[string:int]
-        for (this.describedChannels()) ch:VlChannel ci {
+        def namedAlready:[string:int]
+        ; The channels first, each field named once…
+        def listed:[VlChannel] (this.describedChannels())
+        ; …and then the fields a `"tooltip": [ … ]` names, which are named
+        ; again even where a channel already named them: an interval's upper
+        ; end is `upper_y` to the axis and "Mean + stderr of y" to a reader,
+        ; and the reference tells them both.
+        for tooltipDefs tip:VlChannel ti {
+            push listed tip
+        }
+        def channelCount:int (array_length (this.describedChannels()))
+        def at:int 0
+        for listed ch:VlChannel ci {
+            at = (at + 1)
             if (ch.hasValue) {
                 ; a constant is not described
             } {
               if (VlCompile.isFacetChannel(ch.name)) {
                 ; a panel is named by its header, not by every mark in it
               } {
-                if (has seen (ch.outField())) {
+                ; A channel is named once per COLUMN; a tooltip entry once per
+                ; NAME. That is what lets an interval's upper end be told twice
+                ; — as `upper_y`, which is the column, and as "Mean + stderr of
+                ; y", which is what it means — while the column the chart is
+                ; grouped by, named the same both times, is told once.
+                def repeat:boolean false
+                if (at <= channelCount) {
+                    if (has seen (ch.outField())) {
+                        repeat = true
+                    }
+                } {
+                    if (has namedAlready (ch.title())) {
+                        repeat = true
+                    }
+                }
+                if repeat {
                     ; the same field on two channels is named once
                 } {
                 if ((strlen (ch.outField())) > 0) {
                     set seen (ch.outField()) 1
+                    set namedAlready (ch.title()) 1
                     if ((strlen out) > 0) {
                         out = (out + " + \"; ")
                     } {
                         out = "\""
                     }
                     out = ((out + (ch.title())) + ": \" + ")
-                    if ch.hasBin {
-                        out = (out + (VlCompile.describeBin((ch.outField()) (ch.binEndField()))))
-                    } {
-                    ; A time unit's value is an instant however the channel
-                    ; declared its type, so it is named as a date and in the
-                    ; unit's own format — "Jan", not thirteen digits.
-                    if ((strlen ch.timeUnit) > 0) {
-                        out = (out + (VlCompile.describeUnit((ch.outField()) (VlTime.unitFormat(ch.timeUnits)))))
-                    } {
-                    if (ch.kind == "temporal") {
-                        out = (out + (VlCompile.describeDate((ch.outField()))))
-                    } {
-                        ; A normalised stack is a SHARE, so what is described is
-                        ; the segment's own length as a percentage, not the
-                        ; number it was computed from.
-                        if ((stackOffset == "normalize") && ((ch.outField()) == stackField)) {
-                            out = (out + (VlCompile.describeShare(stackField)))
-                        } {
-                            out = (out + (VlCompile.describeOne((ch.outField()) (ch.isDiscrete()))))
-                        }
-                    }
-                    }
-                    }
+                    out = (out + (this.describedValue(ch " ")))
                 }
                 }
               }
@@ -11602,10 +11693,109 @@ class VlCompile {
         return (("(timeFormat(" + (VlCompile.datumRef(field))) + ", \"%b %d, %Y\"))")
     }
 
+    ; What one channel's value LOOKS like, as an expression. One place decides
+    ; it, because the description on a mark and the tooltip a reader is shown
+    ; are the same value said twice — a bin is an interval in both, a time unit
+    ; is formatted in both, and a normalised stack is a percentage in both.
+    ; They differ in one thing: the separator a list of values is joined by.
+    fn describedValue:string (ch:VlChannel separator:string) {
+        if ch.hasBin {
+            return (VlCompile.describeBin((ch.outField()) (ch.binEndField())))
+        }
+        ; A time unit's value is an instant however the channel declared its
+        ; type, so it is named as a date and in the unit's own format — "Jan",
+        ; not thirteen digits.
+        if ((strlen ch.timeUnit) > 0) {
+            return (VlCompile.describeUnit((ch.outField()) (VlTime.unitFormat(ch.timeUnits))))
+        }
+        if (ch.kind == "temporal") {
+            return (VlCompile.describeDate((ch.outField())))
+        }
+        ; A normalised stack is a SHARE, so what is described is the segment's
+        ; own length as a percentage, not the number it was computed from.
+        if ((stackOffset == "normalize") && ((ch.outField()) == stackField)) {
+            return (VlCompile.describeShare(stackField))
+        }
+        return (VlCompile.describeOneJoined((ch.outField()) (ch.isDiscrete()) separator))
+    }
+
+    ; The same expression without the brackets the description wraps it in — a
+    ; tooltip is an object literal, and the value sits in it bare.
+    sfn unbracketed:string (text:string) {
+        def n:int (strlen text)
+        if (n < 2) {
+            return text
+        }
+        if ((substring text 0 1) != "(") {
+            return text
+        }
+        if ((substring text (n - 1) n) != ")") {
+            return text
+        }
+        return (substring text 1 (n - 1))
+    }
+
+    ; What a reader is shown when they point at a mark. Three shapes, and the
+    ; reference writes a different thing for each: a LIST of fields is an
+    ; object of exactly those, one field is that value on its own, and
+    ; `"tooltip": true` on the mark is an object of everything the mark
+    ; encodes. Nothing at all is written when the chart asked for nothing.
+    fn tooltipSignal:string () {
+        if ((array_length tooltipDefs) > 0) {
+            return (this.tooltipObject(tooltipDefs))
+        }
+        def stated:VlChannel (this.channel("tooltip"))
+        if stated.defined {
+            if ((strlen (stated.outField())) > 0) {
+                return (VlCompile.unbracketed((this.describedValue(stated "\\n"))))
+            }
+        }
+        if (markDef.boolOr("tooltip" false)) {
+            return (this.tooltipObject((this.describedChannels())))
+        }
+        return ""
+    }
+
+    fn tooltipObject:string (list:[VlChannel]) {
+        def out:string "{"
+        def seen:[string:int]
+        def first:boolean true
+        for list ch:VlChannel ci {
+            if (ch.hasValue) {
+                ; a constant is not shown
+            } {
+              if (VlCompile.isFacetChannel(ch.name)) {
+                ; a panel is named by its header
+              } {
+                if (has seen (ch.outField())) {
+                    ; the same field on two channels is shown once
+                } {
+                  if ((strlen (ch.outField())) > 0) {
+                    set seen (ch.outField()) 1
+                    if (! first) {
+                        out = (out + ", ")
+                    }
+                    first = false
+                    def value:string (this.describedValue(ch "\\n"))
+                    out = (((out + "\"") + (ch.title())) + "\": ") + (VlCompile.unbracketed(value))
+                  }
+                }
+              }
+            }
+        }
+        return (out + "}")
+    }
+
     sfn describeOne:string (field:string discrete:boolean) {
+        return (VlCompile.describeOneJoined(field discrete " "))
+    }
+
+    ; The same value, with the separator a list of them is joined by: a
+    ; description runs along one line and a tooltip has as many as it needs.
+    sfn describeOneJoined:string (field:string discrete:boolean separator:string) {
         if discrete {
             def dref:string (VlCompile.datumRef(field))
-            return ((((((("(isValid(" + dref) + ") ? isArray(") + dref) + ") ? join(") + dref) + ", ' ') : ") + dref) + " : \"\"+" + dref + ")")
+            return ((((((("(isValid(" + dref) + ") ? isArray(") + dref) + ") ? join(") + dref) + ", '" + separator + "') : ") + dref) + " : \"\"+" + dref + ")")
         }
         return ((("(format(" + (VlCompile.datumRef(field))) + ", \"\"))"))
     }

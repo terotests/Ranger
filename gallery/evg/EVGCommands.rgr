@@ -1,6 +1,11 @@
 ; ==============================================================================
-; GridCommands.rgr — everything the grid can do, by name.
+; EVGCommands.rgr — everything an application can do, by name.
 ; ==============================================================================
+;
+; This was the spreadsheet's and lived beside it, which was fine until the
+; document editor needed the same thing: a named surface a host can enumerate,
+; describe and invoke by string. It never mentioned a cell, so there was
+; nothing to change but where it sits.
 ;
 ; "GridApp is the API" was true and not much use: a host had to know the method
 ; names, their argument lists, and which of them were meant to be called from

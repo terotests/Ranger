@@ -2227,12 +2227,50 @@ class VlRuntime {
         ; The drawing surface, now that everything that will be drawn exists. A
         ; renderer reads these four and needs no idea what an axis is: make a
         ; canvas this big, translate by the origin, draw the commands.
+        ; Everything is built; now it is stacked. This is last because a guide
+        ; that draws OVER the data still has to be measured before the data is
+        ; placed — where it sits in the stack says nothing about how much room
+        ; it takes.
+        VlRuntime.restack(rootItem)
+
         def box:[double] (VlViewBox.measure(rootItem chartWidth chartHeight padding))
         rootItem.setNumber("viewWidth" (itemAt box 0))
         rootItem.setNumber("viewHeight" (itemAt box 1))
         rootItem.setNumber("originX" (itemAt box 2))
         rootItem.setNumber("originY" (itemAt box 3))
         return root
+    }
+
+    ; The marks of a group in drawing order: by the zindex each one stated,
+    ; and within one zindex in the order they were built. The reference sorts
+    ; the same way and the difference is visible — a heatmap's axis ticks are
+    ; drawn on the cells, and a chart that draws them first hides them under
+    ; the first row of rectangles.
+    sfn restack:void (item:VlSceneItem) {
+        def highest:int 0
+        def lowest:int 0
+        for item.marks probe:VlSceneMark pi {
+            if (probe.zorder > highest) {
+                highest = probe.zorder
+            }
+            if (probe.zorder < lowest) {
+                lowest = probe.zorder
+            }
+        }
+        if (highest == lowest) {
+            return
+        }
+        def ordered:[VlSceneMark]
+        def layer:int lowest
+        while (layer <= highest) {
+            for item.marks child:VlSceneMark ci {
+                if (child.zorder == layer) {
+                    push ordered child
+                }
+            }
+            layer = (layer + 1)
+        }
+        item.marks = ordered
     }
 
     ; ------------------------------------------------------------------ axes ---
@@ -2289,6 +2327,12 @@ class VlRuntime {
                 }
                 def gridEnds:[double] (this.gridEndsFor(adef))
                 def axisMark:VlSceneMark (axis.build(adef sc ticks (itemAt gridEnds 0) (itemAt gridEnds 1) chartWidth chartHeight))
+                ; An axis states where in the stack it belongs. The default is
+                ; under the data — which is what a grid line has to be — but a
+                ; heatmap asks for `"zindex": 1` so its ticks and its domain
+                ; line are drawn ON the cells rather than beneath them, and
+                ; drawn beneath them they are simply invisible.
+                axisMark.zorder = (adef.intOr("zindex" 0))
                 push rootItem.marks axisMark
                 def orient:string (adef.stringOr("orient" "left"))
                 this.growExtent(orient (axis.totalExtent))
@@ -2648,6 +2692,7 @@ class VlRuntime {
                 reachBottom = (VlRuntime.higher(reachBottom (py + legend.height)))
                 reachLeft = (VlRuntime.lower(reachLeft px))
                 reachTop = (VlRuntime.lower(reachTop py))
+                mark.zorder = (ldef.intOr("zindex" 0))
                 push rootItem.marks mark
             }
             k = (k + 1)
@@ -3121,6 +3166,12 @@ class VlRuntime {
         text.setString("baseline" "top")
         text.setString("align" "center")
         text.setNumber("angle" angle)
+        ; What a reader is told a heading is: the reference announces every
+        ; title — a chart's own and the one over each column of a trellis —
+        ; as "Title text '…'", and without it a faceted chart handed a screen
+        ; reader ten unlabelled strips and no way to tell the columns apart.
+        textMark.ariaLabel = (("Title text '" + (label.asString())) + "'")
+        textMark.ariaKind = "title"
 
         ; Where the title sits inside the group it names: along the middle of
         ; the group's own extent, and clear of the group's INK by the offset
@@ -3405,6 +3456,7 @@ class VlRuntime {
         this.encodeAxes(item axes)
         this.encodeChildMarks(item children)
         this.encodeLegendsOn(item legends)
+        VlRuntime.restack(item)
 
         def box (new VlGroupBox())
         box.role = role

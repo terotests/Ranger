@@ -817,7 +817,17 @@ class RichDocumentEdit {
         return (lastMergeCaret.copy())
     }
 
-    fn applyBold:void (paragraphId:int start:int end:int value:boolean) {
+    ; --- run properties, by name ---------------------------------------------
+    ; There was one of these, for bold, written out longhand — split the spans
+    ; at both ends, walk them, set the field, merge back. Italic, underline, a
+    ; point size and a colour are the same six lines with one field changed, and
+    ; writing them out five more times is how a file grows a bug in the fifth
+    ; copy only. So the field is a NAME, and there is one applier.
+    ;
+    ;   "bold" "italic" "underline"   flag, from `on`
+    ;   "size"                        points, from `num`
+    ;   "font" "color"                text, from `text`
+    fn applyRun:void (paragraphId:int start:int end:int what:string on:boolean num:double text:string) {
         def p:Paragraph (this.findParagraph(paragraphId))
         if (p.id != paragraphId) {
             return
@@ -831,15 +841,34 @@ class RichDocumentEdit {
         while (i < (array_length p.spans)) {
             def s:TextSpan (itemAt p.spans i)
             if ((s.start >= start) && (s.end <= end)) {
-                s.bold = value
+                if (what == "bold") {
+                    s.bold = on
+                }
+                if (what == "italic") {
+                    s.italic = on
+                }
+                if (what == "underline") {
+                    s.underline = on
+                }
+                if (what == "size") {
+                    s.fontSizePt = num
+                }
+                if (what == "font") {
+                    s.fontFamily = text
+                }
+                if (what == "color") {
+                    s.colorHex = text
+                }
             }
             i = (i + 1)
         }
         this.mergeAdjacentSpans(p)
     }
 
-    ; True when every span covering [start,end) is already bold.
-    fn rangeIsBold:boolean (paragraphId:int start:int end:int) {
+    ; True when every span covering [start,end) already has this flag on.
+    ; "Covered" matters: an empty range has nothing to be on, and answering
+    ; yes for one would make a toggle turn bold OFF on an empty selection.
+    fn rangeIsOn:boolean (paragraphId:int start:int end:int what:string) {
         def p:Paragraph (this.findParagraph(paragraphId))
         if (p.id != paragraphId) {
             return false
@@ -861,7 +890,17 @@ class RichDocumentEdit {
             }
             if (a < b) {
                 covered = true
-                if (s.bold == false) {
+                def on:boolean false
+                if (what == "bold") {
+                    on = s.bold
+                }
+                if (what == "italic") {
+                    on = s.italic
+                }
+                if (what == "underline") {
+                    on = s.underline
+                }
+                if (on == false) {
                     return false
                 }
             }
@@ -870,25 +909,50 @@ class RichDocumentEdit {
         return covered
     }
 
-    fn applyFont:void (paragraphId:int start:int end:int font:string) {
+    ; What the first span of a range says, for a toolbar that has to show the
+    ; face and the size of what the caret is in.
+    fn runFontOf:string (paragraphId:int offset:int) {
         def p:Paragraph (this.findParagraph(paragraphId))
         if (p.id != paragraphId) {
-            return
+            return ""
         }
-        if (start >= end) {
-            return
-        }
-        this.splitSpansAt(p start)
-        this.splitSpansAt(p end)
         def i:int 0
         while (i < (array_length p.spans)) {
             def s:TextSpan (itemAt p.spans i)
-            if ((s.start >= start) && (s.end <= end)) {
-                s.fontFamily = font
+            if ((offset >= s.start) && (offset <= s.end)) {
+                return s.fontFamily
             }
             i = (i + 1)
         }
-        this.mergeAdjacentSpans(p)
+        return ""
+    }
+
+    fn runSizeOf:double (paragraphId:int offset:int) {
+        def p:Paragraph (this.findParagraph(paragraphId))
+        if (p.id != paragraphId) {
+            return 0.0
+        }
+        def i:int 0
+        while (i < (array_length p.spans)) {
+            def s:TextSpan (itemAt p.spans i)
+            if ((offset >= s.start) && (offset <= s.end)) {
+                return s.fontSizePt
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    fn applyBold:void (paragraphId:int start:int end:int value:boolean) {
+        this.applyRun(paragraphId start end "bold" value 0.0 "")
+    }
+
+    fn rangeIsBold:boolean (paragraphId:int start:int end:int) {
+        return (this.rangeIsOn(paragraphId start end "bold"))
+    }
+
+    fn applyFont:void (paragraphId:int start:int end:int font:string) {
+        this.applyRun(paragraphId start end "font" false 0.0 font)
     }
 
     fn splitSpansAt:void (p:Paragraph offset:int) {

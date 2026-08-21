@@ -354,6 +354,31 @@ class VlChartTest {
         this.sameChart("dual axis" chart want)
     }
 
+    ; What a reader is shown when they point at a mark — and, because it is
+    ; the same sentence, what a screen reader is told.
+    fn testTooltip:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(220 160)
+        chart.bar().tooltip(true).x("region").keepOrder().y("sales").aggregate("sum")
+        def want:string ("{\"width\":220,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":{\"type\":\"bar\",\"tooltip\":true},\"encoding\":{\"x\":{\"field\":\"region\",\"sort\":null,\"type\":\"nominal\"},\"y\":{\"field\":\"sales\",\"aggregate\":\"sum\",\"type\":\"quantitative\"}}}")
+        this.sameChart("tooltip" chart want)
+    }
+
+    ; …and the columns a chart names for it, in the order it named them.
+    fn testTooltipFields:void () {
+        def rows:VlDataset (this.salesData())
+        def chart (VlChart.create(rows))
+        chart.size(220 160)
+        def dots (chart.point())
+        dots.x("cost").y("sales")
+        dots.tooltipFields(([] _:string ( "region" "quarter" )))
+        def want:string ("{\"width\":220,\"height\":160," + (VlChartTest.dataText()))
+        want = (want + ",\"mark\":\"point\",\"encoding\":{\"x\":{\"field\":\"cost\",\"type\":\"quantitative\"},\"y\":{\"field\":\"sales\",\"type\":\"quantitative\"},\"tooltip\":[{\"field\":\"region\",\"type\":\"nominal\"},{\"field\":\"quarter\",\"type\":\"temporal\"}]}}")
+        this.sameChart("tooltip fields" chart want)
+    }
+
     ; --- what the API answers on its own -------------------------------------
 
     fn testInference:void () {
@@ -475,6 +500,8 @@ class VlChartTest {
         this.testBoxplotSized()
         this.testPolarColumn()
         this.testDualAxis()
+        this.testTooltip()
+        this.testTooltipFields()
         if (failures > 0) {
             print ((("FAILURES: " + (to_string failures)) + " of ") + (to_string checks))
         } {

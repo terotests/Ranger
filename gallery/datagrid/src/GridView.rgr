@@ -14,12 +14,14 @@ Import "SpreadsheetModel.rgr"
 Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "CellStyle.rgr"
+Import "GridTheme.rgr"
 Import "ConditionalFormat.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
 Import "GridImages.rgr"
-Import "GridCommands.rgr"
+Import "../../evg/EVGCommands.rgr"
 Import "GridToolbar.rgr"
+Import "../../evg/EVGToolbarView.rgr"
 Import "SoftPainter.rgr"
 Import "script/ScriptPreview.rgr"
 Import "../../game_engine/framebuffer.rgr"
@@ -27,28 +29,6 @@ Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "WorkbookModel.rgr"
-
-class GridTheme {
-    def bg:EVGColor (EVGColor.rgb(245 247 250))
-    def headerBg:EVGColor (EVGColor.rgb(232 236 242))
-    def headerText:EVGColor (EVGColor.rgb(55 65 80))
-    def gridLine:EVGColor (EVGColor.rgb(210 216 224))
-    def cellText:EVGColor (EVGColor.rgb(30 36 48))
-    def formulaBg:EVGColor (EVGColor.rgb(255 255 255))
-    def formulaText:EVGColor (EVGColor.rgb(30 36 48))
-    def selection:EVGColor (EVGColor.rgba(50 120 220 0.22))
-    def linkText:EVGColor (EVGColor.rgb(21 78 172))
-    def noteMark:EVGColor (EVGColor.rgb(214 69 65))
-    def noteBg:EVGColor (EVGColor.rgb(255 252 228))
-    def activeBorder:EVGColor (EVGColor.rgb(40 100 210))
-    def editBg:EVGColor (EVGColor.rgb(255 252 230))
-    def statusBg:EVGColor (EVGColor.rgb(236 240 246))
-    def statusText:EVGColor (EVGColor.rgb(80 92 110))
-    def cornerBg:EVGColor (EVGColor.rgb(220 226 234))
-
-    Constructor () {
-    }
-}
 
 class GridView {
     def canvas:SoftCanvas (new SoftCanvas)
@@ -60,6 +40,10 @@ class GridView {
     ; list — see script/ScriptPreview.rgr — into this one, over the sheet.
     def preview:ScriptPreview (new ScriptPreview)
     def theme:GridTheme (new GridTheme)
+    ; The palette revision and the window-manager add count `syncWindowTheme`
+    ; last painted the dialogs for.
+    def themedRevision:int 0
+    def themedWindows:int 0
     def status:string ""
     def editCaret:int 0
     ; When true the blinking caret belongs in the formula bar, not only in the
@@ -83,6 +67,9 @@ class GridView {
     ; them, and the layout lives on the toolbar object so the hit test and the
     ; picture cannot disagree.
     def toolbar:GridToolbar (new GridToolbar)
+    ; The shared strip painter. It knows how to draw a toolbar and nothing
+    ; about spreadsheets; `paintToolbar` hands it the palette and the items.
+    def toolbarView:EVGToolbarView (new EVGToolbarView)
     ; The chart the picker is previewing, and which window to draw it in. Set
     ; by the host every frame the picker is up; zero means nothing to preview.
     def previewChart:GridChart (new GridChart)
@@ -119,6 +106,9 @@ class GridView {
     ; cell's top corner.
     ; The insertion point a carried column would drop at, or -1.
     def colDropAt:int -1
+    ; A tab being carried, and where it would land. -1 for neither.
+    def tabDragFrom:int -1
+    def tabDropSlot:int -1
     ; The span of selected text inside the field being edited, as character
     ; offsets, or -1 -1 for none. Drawn as a band behind the letters, which is
     ; what a text field looks like everywhere.
@@ -1190,8 +1180,30 @@ class GridView {
         }
     }
 
+    ; A window carries its own EVGWindowTheme and the dialogs are built lazily,
+    ; so tinting them once when the theme changes would miss every dialog that
+    ; had not been opened yet. Watching the palette's revision AND the manager's
+    ; ever-added count catches both, and costs two integer compares a frame.
+    fn syncWindowTheme:void () {
+        if (themedRevision == theme.revision) {
+            if (themedWindows == windows.added) {
+                return
+            }
+        }
+        themedRevision = theme.revision
+        themedWindows = windows.added
+        def n:int (array_length windows.windows)
+        def i:int 0
+        while (i < n) {
+            def wnd:EVGWindow (itemAt windows.windows i)
+            theme.tintWindow(wnd.theme)
+            i = (i + 1)
+        }
+    }
+
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
         grid.updateVisible(model)
+        this.syncWindowTheme()
         def dl:EVGDisplayList (new EVGDisplayList)
 
         this.pushRect(dl 0.0 0.0 (to_double pageW) (to_double pageH) theme.bg)
@@ -1706,6 +1718,12 @@ class GridView {
                     if (si == book.activeIndex) {
                         this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.formulaBg)
                     }
+                    ; The tab you are carrying is greyed where it came from,
+                    ; the way a dragged column header is: the strip has to
+                    ; show that this one has been picked up.
+                    if (si == tabDragFrom) {
+                        this.pushRect(dl (to_double tabX) (to_double tabY) (to_double tabW) (to_double grid.sheetTabH) theme.selection)
+                    }
                     this.pushText(dl shown (to_double (tabX + tabPad)) (to_double (tabY + 5)) 12.0 theme.headerText)
                     this.pushRect(dl (to_double ((tabX + tabW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
                     grid.addTabLayout(si tabX tabW)
@@ -1713,6 +1731,22 @@ class GridView {
                     si = (si + 1)
                 }
             }
+        }
+        ; The new-sheet button, after the last tab. Excel's plus, in Excel's
+        ; place, doing Excel's thing — a sheet after the one you are on.
+        def plusW:int 26
+        if ((tabX + plusW) <= (grid.x + grid.w)) {
+            grid.setTabPlus(tabX plusW)
+            def pcx:int (tabX + (idiv plusW 2))
+            def pcy:int (tabY + (idiv grid.sheetTabH 2))
+            this.pushRect(dl (to_double (pcx - 5)) (to_double pcy) 11.0 1.0 theme.headerText)
+            this.pushRect(dl (to_double pcx) (to_double (pcy - 5)) 1.0 11.0 theme.headerText)
+            this.pushRect(dl (to_double ((tabX + plusW) - 1)) (to_double tabY) 1.0 (to_double grid.sheetTabH) theme.gridLine)
+        }
+        ; Where a carried tab would land.
+        if (tabDropSlot >= 0) {
+            def dropX:int (grid.tabSlotX(tabDropSlot))
+            this.pushRect(dl (to_double (dropX - 1)) (to_double tabY) 2.0 (to_double grid.sheetTabH) theme.activeBorder)
         }
         this.pushBorder(dl (to_double grid.x) (to_double tabY) (to_double grid.w) (to_double grid.sheetTabH) 1.0 theme.gridLine)
 
@@ -1819,13 +1853,13 @@ class GridView {
         def sy2:int (grid.y + grid.h)
         if (sy2 < pageH) {
             def sh2:int (pageH - sy2)
-            this.pushRect(dl 0.0 (to_double sy2) (to_double pageW) (to_double sh2) theme.statusBg)
+            this.pushRect(dl 0.0 (to_double sy2) (to_double pageW) (to_double sh2) theme.barBg)
             def src:string book.sourcePath
             if ((strlen src) == 0) {
                 src = "(demo)"
             }
             def info:string ("sheet " + (book.activeName()) + "  sel " + (SpreadsheetModel.cellLabel(sel.active.row sel.active.col)) + "  visible " + (to_string grid.firstVisibleRow) + ".." + (to_string grid.lastVisibleRow) + "  rows=" + (to_string model.rowCount) + "  " + src + "  " + status)
-            this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.statusText)
+            this.pushText(dl info 8.0 (to_double (sy2 + 4)) 12.0 theme.barText)
             ; The one control on the status bar: making a chart out of what is
             ; selected. A shortcut alone would be a feature nobody finds.
             ; The host's own tools sit to the left of the built-in button, in
@@ -1836,16 +1870,16 @@ class GridView {
                 def tx:int (GridView.toolButtonX(pageW toolI))
                 def ty:int (GridView.chartButtonY(sy2))
                 def tw:int (GridView.toolButtonW())
-                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) theme.headerBg)
+                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) theme.barButton)
                 this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
-                this.pushText(dl tool.label (to_double (tx + 6)) (to_double (ty + 1)) 12.0 theme.statusText)
+                this.pushText(dl tool.label (to_double (tx + 6)) (to_double (ty + 1)) 12.0 theme.barText)
                 toolI = (toolI + 1)
             }
             def cbx:int (GridView.chartButtonX(pageW))
             def cby:int (GridView.chartButtonY(sy2))
-            this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.headerBg)
+            this.pushRect(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) theme.barButton)
             this.pushBorder(dl (to_double cbx) (to_double cby) (to_double (GridView.chartButtonW())) (to_double (GridView.chartButtonH())) 1.0 theme.gridLine)
-            this.pushText(dl "+ Chart" (to_double (cbx + 10)) (to_double (cby + 1)) 12.0 theme.statusText)
+            this.pushText(dl "+ Chart" (to_double (cbx + 10)) (to_double (cby + 1)) 12.0 theme.barText)
         }
 
         ; Dialogs and floating charts sit above everything, including the
@@ -2018,403 +2052,33 @@ class GridView {
     ; Icons are drawn from primitives. There is no icon font here and a sprite
     ; sheet would be a second thing to keep in step with the theme, so a button
     ; is a few rectangles and, where a letter says it best, a letter.
+    ; The toolbar draws itself. Everything about it that is not "which buttons
+    ; a spreadsheet has" lives in gallery/evg — the wrapping, the hit testing,
+    ; the hover, and the three hundred lines that draw the icons — so Word and
+    ; PowerPoint get the same strip instead of a second one that slowly stops
+    ; looking like this one.
     fn paintToolbar:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid) {
-        def y0:int (grid.toolbarY())
-        this.pushRect(dl (to_double grid.x) (to_double y0) (to_double grid.w) (to_double grid.toolbarH) theme.statusBg)
-        this.pushBorder(dl (to_double grid.x) (to_double y0) (to_double grid.w) (to_double grid.toolbarH) 1.0 theme.gridLine)
-        toolbar.layout(grid.x y0 grid.w)
-        def i:int 0
-        while (i < (toolbar.count())) {
-            def t:ToolItem (toolbar.at(i))
-            if (t.w > 0) {
-                if t.isSeparator {
-                    this.pushRect(dl (to_double (t.x + 4)) (to_double (t.y + 3)) 1.0 (to_double (t.h - 6)) theme.gridLine)
-                } {
-                    def pressed:boolean (toolbar.isPressed(i model sel))
-                    if pressed {
-                        this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.selection)
-                    }
-                    if (toolbar.hot == i) {
-                        if (pressed == false) {
-                            this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.headerBg)
-                        }
-                    }
-                    if (t.textW > 0) {
-                        this.paintToolTextButton(dl t model sel)
-                    } {
-                        this.paintToolIcon(dl t)
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-        ; A real helper tip next to the hot icon — the status bar alone is easy
-        ; to miss, and icon-only buttons need a name under the pointer.
-        if (toolbar.hot >= 0) {
-            def tip:string (toolbar.hotLabel())
-            if ((strlen tip) > 0) {
-                def ht:ToolItem (toolbar.at(toolbar.hot))
-                this.applyFace(false)
-                def tw:int (to_int ((ctx.tr.measureWidth(tip 12.0)) + 12.0))
-                def th:int 20
-                def tx:int ht.x
-                def ty:int ((ht.y + ht.h) + 4)
-                if ((tx + tw) > (grid.x + grid.w)) {
-                    tx = (((grid.x + grid.w) - tw) - 4)
-                }
-                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) theme.formulaBg)
-                this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.activeBorder)
-                this.pushText(dl tip (to_double (tx + 6)) (to_double (ty + 3)) 12.0 theme.cellText)
-            }
-        }
+        toolbar.refreshToggles(model sel)
+        toolbar.refreshLabels(model sel)
+        toolbarView.attach(ctx fontFamily)
+        toolbarView.theme = (GridView.toolbarTheme(theme))
+        toolbarView.paint(dl toolbar grid.x (grid.toolbarY()) grid.w grid.toolbarH)
     }
 
-    ; Font / size dropdown buttons: show the active cell's face or point size.
-    fn paintToolTextButton:void (dl:EVGDisplayList t:ToolItem model:SpreadsheetModel sel:GridSelection) {
-        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
-        def label:string t.label
-        if (t.command == "format.size.pick") {
-            label = (to_string (to_int st.fontSizePt))
-        }
-        if (t.command == "format.font") {
-            label = st.fontName
-            if ((strlen label) == 0) {
-                label = "Font"
-            }
-            if ((strlen label) > 10) {
-                label = (substring label 0 10)
-            }
-        }
-        this.pushBorder(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) 1.0 theme.gridLine)
-        this.pushText(dl label (to_double (t.x + 4)) (to_double (t.y + 4)) 11.0 theme.cellText)
-        ; A small chevron on the right so it reads as a dropdown.
-        def cx:int ((t.x + t.w) - 8)
-        def cy:int (t.y + (idiv t.h 2))
-        this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 7.0 1.0 theme.statusText)
-        this.pushRect(dl (to_double (cx - 2)) (to_double (cy + 1)) 5.0 1.0 theme.statusText)
-        this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 3.0 1.0 theme.statusText)
-    }
-
-    ; A glyph for one button, inside its box.
-    fn paintToolIcon:void (dl:EVGDisplayList t:ToolItem) {
-        def cx:int (t.x + (idiv t.w 2))
-        def cy:int (t.y + (idiv t.h 2))
-        def ink:EVGColor theme.cellText
-        def dim:EVGColor theme.statusText
-        def k:int t.icon
-
-        ; Letters, where a letter is the clearest icon there is.
-        if (k == (ToolIcon.bold())) {
-            this.pushToolText(dl "B" cx cy 13.0 ink true)
-            return
-        }
-        if (k == (ToolIcon.italic())) {
-            this.pushToolText(dl "I" cx cy 13.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.underline())) {
-            this.pushToolText(dl "U" cx (cy - 1) 12.0 ink false)
-            this.pushRect(dl (to_double (cx - 5)) (to_double (cy + 7)) 10.0 1.0 ink)
-            return
-        }
-        if (k == (ToolIcon.strike())) {
-            this.pushToolText(dl "S" cx cy 12.0 ink false)
-            this.pushRect(dl (to_double (cx - 5)) (to_double cy) 10.0 1.0 ink)
-            return
-        }
-        if (k == (ToolIcon.currency())) {
-            this.pushToolText(dl "$" cx cy 13.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.percent())) {
-            this.pushToolText(dl "%" cx cy 12.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.comma())) {
-            this.pushToolText(dl "," cx (cy - 2) 15.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.decMore())) {
-            this.pushToolText(dl ".0" cx cy 11.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.decLess())) {
-            this.pushToolText(dl ".00" cx cy 9.0 dim false)
-            return
-        }
-        if (k == (ToolIcon.sizeUp())) {
-            this.pushToolText(dl "A+" cx cy 12.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.sizeDown())) {
-            this.pushToolText(dl "A-" cx cy 10.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.undo())) {
-            this.paintArrowIcon(dl cx cy true ink)
-            return
-        }
-        if (k == (ToolIcon.redo())) {
-            this.paintArrowIcon(dl cx cy false ink)
-            return
-        }
-        if (k == (ToolIcon.openFile())) {
-            ; A folder with its lid open.
-            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 5)) 6.0 2.0 theme.activeBorder)
-            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 3)) 16.0 10.0 1.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 1)) 12.0 2.0 dim)
-            return
-        }
-        if (k == (ToolIcon.newFile())) {
-            ; A blank page with a folded corner.
-            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 15.0 1.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 7)) 5.0 5.0 dim)
-            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 1)) 6.0 1.0 dim)
-            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 4)) 6.0 1.0 dim)
-            return
-        }
-        if (k == (ToolIcon.report())) {
-            ; A page with a chart-ish bar on it: this button prints something.
-            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 15.0 1.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 4)) 6.0 1.0 dim)
-            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 3)) 2.0 3.0 theme.activeBorder)
-            this.pushRect(dl (to_double cx) (to_double (cy + 1)) 2.0 5.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx + 3)) (to_double (cy - 1)) 2.0 7.0 theme.activeBorder)
-            return
-        }
-        if (k == (ToolIcon.save())) {
-            ; A tray with something going into it.
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 2.0 8.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 2)) 3.0 2.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 2)) 3.0 2.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 3)) 14.0 2.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 3)) 2.0 4.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 3)) 2.0 4.0 theme.activeBorder)
-            return
-        }
-        if (k == (ToolIcon.paint())) {
-            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 6)) 10.0 5.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 1)) 2.0 8.0 dim)
-            return
-        }
-        if (k == (ToolIcon.clearFmt())) {
-            this.pushToolText(dl "A" cx (cy - 2) 12.0 dim false)
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 6)) 12.0 2.0 theme.noteMark)
-            return
-        }
-        if (k == (ToolIcon.search())) {
-            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 10.0 10.0 1.0 ink)
-            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 3)) 4.0 2.0 ink)
-            return
-        }
-        if (k == (ToolIcon.chart())) {
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 3.0 5.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 3)) 3.0 9.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx + 4)) (to_double (cy - 6)) 3.0 12.0 theme.activeBorder)
-            return
-        }
-        if (k == (ToolIcon.link())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 6.0 2.0 theme.linkText)
-            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 1)) 6.0 2.0 theme.linkText)
-            this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 1)) 4.0 2.0 theme.linkText)
-            return
-        }
-        if (k == (ToolIcon.cond())) {
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 4.0 theme.noteMark)
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 12.0 4.0 (EVGColor.rgb(120 190 120)))
-            return
-        }
-        if (k == (ToolIcon.validate())) {
-            this.pushRect(dl (to_double (cx - 5)) (to_double (cy + 1)) 4.0 2.0 (EVGColor.rgb(40 140 70)))
-            this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 3)) 8.0 2.0 (EVGColor.rgb(40 140 70)))
-            return
-        }
-        ; A stack of platters, which is what everything has drawn a database as
-        ; since the disk pack: a lid, two bands under it, and a shaded top so
-        ; it reads as a cylinder rather than as three lines.
-        if (k == (ToolIcon.database())) {
-            def dbInk:EVGColor theme.activeBorder
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 3.0 dbInk)
-            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 7)) 10.0 1.0 (EVGColor.rgb(150 185 235)))
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 2)) 12.0 3.0 dbInk)
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 3)) 12.0 3.0 dbInk)
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 4)) 1.0 2.0 dbInk)
-            this.pushRect(dl (to_double (cx + 5)) (to_double (cy - 4)) 1.0 2.0 dbInk)
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 1.0 2.0 dbInk)
-            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 1)) 1.0 2.0 dbInk)
-            return
-        }
-        if (k == (ToolIcon.sqlBox())) {
-            this.pushToolText(dl "SQL" cx cy 9.0 theme.activeBorder false)
-            return
-        }
-        if (k == (ToolIcon.freeze())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 1.0 theme.activeBorder)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 1.0 14.0 theme.activeBorder)
-            return
-        }
-        if (k == (ToolIcon.sortAsc())) {
-            this.pushToolText(dl "A1" cx cy 10.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.sortDesc())) {
-            this.pushToolText(dl "1A" cx cy 10.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.funnel())) {
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 6.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 2.0 2.0 ink)
-            return
-        }
-        if (k == (ToolIcon.insertRow())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 2)) 14.0 5.0 theme.gridLine)
-            this.pushToolText(dl "+" cx (cy - 4) 12.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.insertCol())) {
-            this.pushRect(dl (to_double (cx + 2)) (to_double (cy - 7)) 5.0 14.0 theme.gridLine)
-            this.pushToolText(dl "+" (cx - 4) cy 12.0 ink false)
-            return
-        }
-        if (k == (ToolIcon.deleteRow())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 2)) 14.0 5.0 theme.gridLine)
-            this.pushToolText(dl "-" cx (cy + 4) 12.0 theme.noteMark false)
-            return
-        }
-        if (k == (ToolIcon.merge())) {
-            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 5)) 16.0 10.0 1.0 ink)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 4)) 2.0 8.0 theme.statusBg)
-            return
-        }
-        if (k == (ToolIcon.fill())) {
-            this.pushToolText(dl "A" cx (cy - 2) 11.0 ink false)
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 6)) 14.0 4.0 (EVGColor.rgb(255 220 130)))
-            return
-        }
-        if (k == (ToolIcon.textColor())) {
-            this.pushToolText(dl "A" cx (cy - 2) 11.0 ink false)
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 6)) 14.0 4.0 theme.noteMark)
-            return
-        }
-        if (k == (ToolIcon.borderAll())) {
-            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 ink)
-            this.pushRect(dl (to_double (cx - 7)) (to_double cy) 14.0 1.0 ink)
-            this.pushRect(dl (to_double cx) (to_double (cy - 7)) 1.0 14.0 ink)
-            return
-        }
-        if (k == (ToolIcon.borderOut())) {
-            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 ink)
-            return
-        }
-        if (k == (ToolIcon.borderMore())) {
-            ; A smaller all-borders box, with room under it for the chevron
-            ; that says there is a window behind this one. Drawn at the same
-            ; size as the button beside it, the chevron landed ON the box's
-            ; bottom edge and could not be seen at all.
-            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 8)) 12.0 12.0 1.0 ink)
-            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 3)) 12.0 1.0 ink)
-            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 8)) 1.0 12.0 ink)
-            this.pushRect(dl (to_double (cx + 1)) (to_double (cy + 5)) 7.0 1.0 ink)
-            this.pushRect(dl (to_double (cx + 2)) (to_double (cy + 6)) 5.0 1.0 ink)
-            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 7)) 3.0 1.0 ink)
-            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 8)) 1.0 1.0 ink)
-            return
-        }
-        if (k == (ToolIcon.borderNone())) {
-            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 theme.gridLine)
-            return
-        }
-        if (k == (ToolIcon.alignLeft())) {
-            this.paintAlignIcon(dl cx cy 0 ink)
-            return
-        }
-        if (k == (ToolIcon.alignCenter())) {
-            this.paintAlignIcon(dl cx cy 1 ink)
-            return
-        }
-        if (k == (ToolIcon.alignRight())) {
-            this.paintAlignIcon(dl cx cy 2 ink)
-            return
-        }
-        if (k == (ToolIcon.valignTop())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 3)) 8.0 2.0 dim)
-            return
-        }
-        if (k == (ToolIcon.valignMid())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 6)) 8.0 2.0 dim)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 4)) 8.0 2.0 dim)
-            return
-        }
-        if (k == (ToolIcon.valignBot())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 5)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 1)) 8.0 2.0 dim)
-            return
-        }
-        if (k == (ToolIcon.wrapCell())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 5)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 1)) 9.0 2.0 ink)
-            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 1)) 3.0 2.0 dim)
-            return
-        }
-        ; Anything without a picture falls back to its own first letter, which
-        ; is better than an empty box.
-        if ((strlen t.label) > 0) {
-            this.pushToolText(dl (substring t.label 0 1) cx cy 12.0 ink false)
-        }
-    }
-
-    ; An arrow curving back on itself: a shaft, and a head made of a stack of
-    ; rectangles. Undo points left, redo right.
-    fn paintArrowIcon:void (dl:EVGDisplayList cx:int cy:int back:boolean col:EVGColor) {
-        def dir:int 1
-        if back {
-            dir = -1
-        }
-        ; the shaft, bending down at the far end
-        this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 4)) 12.0 2.0 col)
-        def tipX:int (cx + (dir * 6))
-        this.pushRect(dl (to_double (tipX - 1)) (to_double (cy - 4)) 2.0 7.0 col)
-        ; the head, three steps deep
-        def i:int 0
-        while (i < 4) {
-            def hx:int ((cx - (dir * 6)) + (dir * i))
-            this.pushRect(dl (to_double hx) (to_double ((cy - 4) - i)) 1.0 (to_double ((i * 2) + 2)) col)
-            i = (i + 1)
-        }
-    }
-
-    fn paintAlignIcon:void (dl:EVGDisplayList cx:int cy:int mode:int col:EVGColor) {
-        def i:int 0
-        while (i < 4) {
-            def wide:boolean ((i % 2) == 0)
-            def lw:int 14
-            if (wide == false) {
-                lw = 9
-            }
-            def lx:int (cx - 7)
-            if (wide == false) {
-                if (mode == 1) {
-                    lx = (cx - (idiv lw 2))
-                }
-                if (mode == 2) {
-                    lx = ((cx + 7) - lw)
-                }
-            }
-            this.pushRect(dl (to_double lx) (to_double ((cy - 7) + (i * 4))) (to_double lw) 2.0 col)
-            i = (i + 1)
-        }
-    }
-
-    ; Toolbar text is centred on the button rather than laid out from a corner.
-    fn pushToolText:void (dl:EVGDisplayList s:string cx:int cy:int size:double col:EVGColor bold:boolean) {
-        this.applyFaceStyled(bold false)
-        def w:double (ctx.tr.measureWidth(s size))
-        def x:double ((to_double cx) - (w / 2.0))
-        def y:double ((to_double cy) - (size * 0.62))
-        this.pushStyledText(dl s x y size col "" bold false)
+    ; The grid's palette, in the words the shared strip uses.
+    sfn toolbarTheme:EVGToolbarTheme (t:GridTheme) {
+        def p:EVGToolbarTheme (new EVGToolbarTheme)
+        p.bg = t.statusBg
+        p.line = t.gridLine
+        p.ink = t.cellText
+        p.dim = t.statusText
+        p.hotBg = t.headerBg
+        p.pressedBg = t.selection
+        p.accent = t.activeBorder
+        p.warn = t.noteMark
+        p.tipBg = t.formulaBg
+        p.link = t.linkText
+        return p
     }
 
     ; Width the grid would paint this text at, for auto-fit.

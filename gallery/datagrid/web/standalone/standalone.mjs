@@ -113,6 +113,14 @@ function engineOrExplain(name, script, command) {
 const web = new (engineOrExplain("DataGridWeb", "datagrid_web.js", "datagrid:web"))();
 web.start(canvas.width, canvas.height);
 
+// `?theme=green` — the sheet's colour scheme, applied before the first paint.
+// A name the build does not have is reported rather than silently ignored;
+// GridApp.setTheme says so by returning false.
+const wantedTheme = new URLSearchParams(location.search).get("theme");
+if (wantedTheme && !web.setTheme(wantedTheme)) {
+  console.warn("no such theme: " + wantedTheme + " (have: " + web.themeNames() + ")");
+}
+
 let pointerDown = false;
 let lastCursor = "";
 let redraws = 0;

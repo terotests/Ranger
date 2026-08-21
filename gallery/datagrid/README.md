@@ -503,6 +503,7 @@ snapshot — no DOM or SDL below the app.
 | Ctrl+S | Save the workbook as .xlsx (Save As if none yet) | — |
 | Ctrl+Shift+S | Save As… | — |
 | Ctrl+O | Open a workbook… | — |
+| Ctrl+Shift+T | Next colour theme (see below) | — |
 | Ctrl+click a link | Follows it — the host is told the target | — |
 | Ctrl+M | Chart the selection (live preview in the picker) | — |
 | Ctrl+C over a chart | Copies it as a picture — pastes into Excel and Word | — |
@@ -565,6 +566,57 @@ table, not as tab-separated text.
 
 Known gaps: cut does not rewrite formulas elsewhere that referenced the moved
 cells; paste does not tile into a larger target range; no cell-style clipboard.
+
+## Colour themes
+
+The sheet is not an element tree — `GridView` walks the model and pushes rects
+and runs of text straight into an `EVGDisplayList` — so there is no class
+attribute for `EVGStyleSheet` to select and no cascade to run over it. A class
+lookup per visible cell is exactly the cost the display list exists to avoid.
+What the list carries is **resolved colours**, and they resolve in one place:
+[`src/GridTheme.rgr`](src/GridTheme.rgr), read by every paint in the view.
+
+So a theme is that struct's fields, and a palette is derived from **one
+accent**: the chrome tints (page, toolbar strip, header band, corner, rule) are
+the accent lightened toward white, the selection wash is the accent at low
+alpha, the active-cell border is the accent itself, and the status bar along
+the bottom is the accent at full strength with white text — the one band that
+makes a theme legible at a glance. Dialogs follow: a window carries its own
+`EVGWindowTheme`, and the view re-tints the ones that exist whenever the
+palette's revision changes, so a dialog opened long after the switch is themed
+too.
+
+| Theme | Accent | |
+| --- | --- | --- |
+| `default` | slate + blue `#2864D2` | the neutral design the app has always opened with |
+| `green` | `#217346` | Excel's own green |
+| `blue` | `#185ABD` | Office blue |
+| `red` | `#B72D29` | brick |
+
+```bash
+npm run datagrid:window -- --theme green   # …or blue, or red
+# in the browser build: gallery/datagrid/web/standalone/dist/?theme=green
+```
+
+```ranger
+app.setTheme("green")                 ; false for a name this build lacks
+app.runCommand("view.theme" "blue")   ; the same switch, over the command surface
+app.runCommand("view.theme.next" "")  ; …and what Ctrl+Shift+T calls
+app.themeNames()                      ; "default green blue red" — a host's menu
+```
+
+What a theme does **not** touch is the workbook's own formatting. A cell fill,
+font colour or border read out of the `.xlsx` belongs to the document, not to
+the app — Excel does not repaint your data when you change its colour scheme
+either — so cell ink stays neutral in every theme, and so do the signals that
+have to keep reading as themselves: the comment marker, the note bubble and the
+open-editor tint.
+
+![green](artifacts/22_theme_green.png)
+
+More: [`artifacts/22_theme_blue.png`](artifacts/22_theme_blue.png),
+[`artifacts/22_theme_red.png`](artifacts/22_theme_red.png),
+[`artifacts/22_theme_dialog.png`](artifacts/22_theme_dialog.png).
 
 ## Dialogs
 

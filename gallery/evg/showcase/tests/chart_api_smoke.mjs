@@ -103,6 +103,26 @@ check("the default script draws", first.paths >= 2 && first.texts >= 3,
 check("and says what it did", /\d+ kutsua/.test(first.status) && /piirtokomentoa/.test(first.status),
   first.status.trim());
 
+// A drawn chart is also a document of sentences. `tools/reference/aria.mjs`
+// holds those against official Vega; this holds them against the BUNDLE, which
+// is the half that can silently go missing — a stale build ships a picture
+// that says nothing and every check above still passes.
+const spoken = await page.evaluate(() => {
+  const labelled = [...document.querySelectorAll("#chart svg [aria-label]")];
+  return {
+    guides: labelled.filter((e) => /axis|legend|title/.test(e.getAttribute("aria-roledescription") || ""))
+      .map((e) => e.getAttribute("aria-label")),
+    marks: labelled.length,
+    hidden: document.querySelectorAll("#chart svg [aria-hidden=\"true\"]").length,
+    roles: new Set(labelled.map((e) => e.getAttribute("role"))).size,
+  };
+});
+check("the drawing says something to a screen reader",
+  spoken.guides.some((t) => /-axis titled/.test(t)) && spoken.marks > spoken.guides.length,
+  `${spoken.guides.length} guides, ${spoken.marks} labelled elements, ${spoken.hidden} hidden`);
+check("and every labelled element claims a role", spoken.roles === 1,
+  spoken.guides[0] || "no guide sentence");
+
 // Every preset is a different chart, drawn by the same compiled API.
 const presets = await page.$$eval("[data-preset]", (els) => els.map((e) => e.dataset.preset));
 const shapes = new Map();

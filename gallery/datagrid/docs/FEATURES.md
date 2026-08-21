@@ -23,7 +23,7 @@
 ; Copy / paste / cut              | Ctrl+C/X/V, formats kept, Paste Special    | done
 ; Fill handle                     | drag active-cell handle (copy fill)       | done
 ; Merge cells                     | paint origin + hit-test → origin          | done
-; Multiple sheets                 | tabs + hidden metadata + scroll save      | done
+; Multiple sheets                 | tabs: add, rename, drag to reorder        | done
 ; Freeze panes                    | freezeRows/Cols + fixed bands             | done
 ; Undo / redo                     | transactional, value + formula per op     | done
 ; Cell formatting (fill/font/…)   | fill, bold/italic/underline/strike, size  | done
@@ -37,6 +37,7 @@
 ; Insert / delete / move columns  | data + geometry + merges + formula repair | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
+; Colour themes (app chrome)      | GridTheme: one accent → chrome + dialogs   | done
 ;
 ; Keyboard (GridApp.handleKey, fed by a portable UIInput): arrows move;
 ; Ctrl+arrow jumps to the data-block edge (edgeJump); Shift extends; Ctrl+Shift

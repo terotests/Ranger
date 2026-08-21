@@ -135,8 +135,15 @@ async function imagesFor(doc) {
   return out;
 }
 
+// The whole editor, not only the paper: the shared toolbar above the page, a
+// status line under it, and the window layer on top. The app decides all of
+// that; this file sizes the frame around the paper and hands over events.
 async function draw(force) {
-  const text = web.scene(page);
+  // The app lays the page out and sizes the frame around it in one call: a
+  // Word page is not one size, and measuring before laying out measures the
+  // page you were on.
+  web.frameFit(720);
+  const text = web.frame();
   if (!force && text === lastScene) return;
   lastScene = text;
   const doc = JSON.parse(text);
@@ -175,7 +182,21 @@ function coords(ev) {
 canvas.addEventListener("pointerdown", async (ev) => {
   canvas.focus();
   const { x, y } = coords(ev);
-  web.click(x, y, ev.shiftKey);
+  // Through the frame, so a press lands on a window, then the toolbar, then
+  // the paper — in that order, decided by the app rather than by this file.
+  web.framePointer(x, y, true, true, false, ev.shiftKey);
+  page = web.page() | 0;
+  await draw(true);
+});
+
+canvas.addEventListener("pointermove", async (ev) => {
+  const { x, y } = coords(ev);
+  if (web.framePointer(x, y, false, false, false, false)) await draw(true);
+});
+
+canvas.addEventListener("pointerup", async (ev) => {
+  const { x, y } = coords(ev);
+  web.framePointer(x, y, false, false, true, ev.shiftKey);
   await draw(true);
 });
 
@@ -193,6 +214,61 @@ const KEYS = {
   PageUp: "pageUp",
   PageDown: "pageDown",
 };
+
+// The wheel and a one-finger swipe are the same question — how far did it
+// travel — and the app decides when that adds up to a page.
+let scrollBusy = false;
+async function scrollBy(dy) {
+  if (!dy || scrollBusy) return;
+  scrollBusy = true;
+  try {
+    if (web.scroll(Math.round(dy))) {
+      page = web.page() | 0;
+      await draw(true);
+    }
+  } finally {
+    scrollBusy = false;
+  }
+}
+
+canvas.addEventListener(
+  "wheel",
+  (ev) => {
+    ev.preventDefault();
+    let dy = ev.deltaY;
+    if (ev.deltaMode === 1) dy *= 16;
+    else if (ev.deltaMode === 2) dy *= 400;
+    scrollBy(dy);
+  },
+  { passive: false }
+);
+
+let touchY = 0;
+let touching = false;
+canvas.addEventListener(
+  "touchstart",
+  (ev) => {
+    if (ev.touches.length !== 1) return;
+    touchY = ev.touches[0].clientY;
+    touching = true;
+  },
+  { passive: true }
+);
+canvas.addEventListener(
+  "touchmove",
+  (ev) => {
+    if (!touching || ev.touches.length !== 1) return;
+    const y = ev.touches[0].clientY;
+    const dy = touchY - y;
+    touchY = y;
+    ev.preventDefault();
+    scrollBy(dy);
+  },
+  { passive: false }
+);
+canvas.addEventListener("touchend", () => {
+  touching = false;
+});
 
 canvas.addEventListener("keydown", async (ev) => {
   if (ev.ctrlKey || ev.metaKey) {
@@ -219,6 +295,11 @@ canvas.addEventListener("keydown", async (ev) => {
   if (name) {
     ev.preventDefault();
     web.key(name, ev.shiftKey, false);
+    // The app owns the page number: in view mode these keys TURN the page,
+    // and in edit mode the caret can walk onto another one. Either way, what
+    // this page thinks it is showing comes back from the app rather than
+    // being guessed here.
+    page = web.page() | 0;
     await draw(true);
     return;
   }
@@ -240,11 +321,13 @@ window.addEventListener("paste", async (ev) => {
 });
 
 document.getElementById("next")?.addEventListener("click", async () => {
-  page = Math.min((web.pageCount() | 0) - 1, page + 1);
+  web.goToPage(page + 1);
+  page = web.page() | 0;
   await draw(true);
 });
 document.getElementById("prev")?.addEventListener("click", async () => {
-  page = Math.max(0, page - 1);
+  web.goToPage(page - 1);
+  page = web.page() | 0;
   await draw(true);
 });
 editEl?.addEventListener("click", async () => {
@@ -299,6 +382,39 @@ async function selftest() {
     await draw(true);
   } else {
     ok("the next page is a different picture", true);
+  }
+
+  // Reading, not editing: PageDown and a swipe have to turn the page. This
+  // used to do nothing at all — every key went to a caret, and there is no
+  // caret in a document you are only reading.
+  if ((web.pageCount() | 0) > 1) {
+    web.setEditMode(false);
+    web.goToPage(0);
+    web.key("pageDown", false, false);
+    ok("PageDown turns the page in view mode", (web.page() | 0) === 1);
+    web.key("up", false, false);
+    ok("and the arrow keys come back", (web.page() | 0) === 0);
+    const travelled = web.scroll(4000);
+    ok("a swipe turns it too", travelled && (web.page() | 0) > 0);
+    web.goToPage(0);
+    page = web.page() | 0;
+    await draw(true);
+  } else {
+    ok("PageDown turns the page in view mode", true);
+    ok("and the arrow keys come back", true);
+    ok("a swipe turns it too", true);
+  }
+
+  // The frame: the shared toolbar is IN the picture, and clicking a button in
+  // it runs a command. Word had no toolbar at all before this.
+  {
+    const cmds = JSON.parse(web.commands() || "[]");
+    ok("the app has a command surface", cmds.length > 8);
+    const wasEdit = !!web.editMode();
+    ok("a toolbar button runs its command", web.run("edit.mode", ""));
+    ok("and it did something", !!web.editMode() !== wasEdit);
+    web.run("edit.mode", "");
+    ok("the frame is wider than the paper", (web.frameWidth() | 0) > 0);
   }
 
   // Typing, through the same path a keystroke takes.

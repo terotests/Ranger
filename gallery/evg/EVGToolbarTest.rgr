@@ -1,0 +1,176 @@
+; ==============================================================================
+; EVGToolbarTest — the strip, on its own, with no application behind it.
+; ==============================================================================
+;
+; The point of pulling the toolbar out of the spreadsheet is that a second
+; application can have one, so the test that matters is the one that builds a
+; strip WITHOUT a spreadsheet: no cells, no selection, no GridFormat. If any
+; of that is still needed, this file will not compile.
+;
+; What is checked is the part that a second host will lean on and that is easy
+; to get quietly wrong: the wrapping at a given width (the bug the strip
+; started as was buttons drawn off the end of their own band), the hit test
+; landing on the button that was painted, and the pressed / hot states being
+; the owner's answer rather than something the strip guesses.
+;
+;   npm run evg:toolbar:test
+; ==============================================================================
+
+Import "EVGToolbarView.rgr"
+
+class BarCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class EVGToolbarTest {
+    ; A strip an editor that is not a spreadsheet might want.
+    sfn build:EVGToolbar () {
+        def bar:EVGToolbar (new EVGToolbar)
+        bar.add("file.save" "" "Save" (ToolIcon.save()))
+        bar.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        bar.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        bar.addSeparator()
+        bar.addToggle("format.bold" "" "Bold" (ToolIcon.bold()) "bold" "")
+        bar.addToggle("format.italic" "" "Italic" (ToolIcon.italic()) "italic" "")
+        bar.addToggle("format.underline" "" "Underline" (ToolIcon.underline()) "underline" "")
+        bar.addSeparator()
+        bar.addText("format.font" "" "Font" 96)
+        bar.addText("format.size.pick" "" "11" 52)
+        bar.add("format.color" "" "Text colour" (ToolIcon.textColor()))
+        return bar
+    }
+
+    sfn main:void () {
+        def c:BarCheck (new BarCheck)
+        print "== EVGToolbarTest =="
+
+        def bar:EVGToolbar (EVGToolbarTest.build())
+        c.eqInt("every entry is in the strip" (bar.count()) 11)
+
+        print "-- laid out where there is room --"
+        bar.layout(0 0 900)
+        c.eqInt("one row is enough at 900" bar.rows 1)
+        def i:int 0
+        def widest:int 0
+        while (i < (bar.count())) {
+            def t:ToolItem (bar.at(i))
+            if ((t.x + t.w) > widest) {
+                widest = (t.x + t.w)
+            }
+            i = (i + 1)
+        }
+        c.ok("and nothing was drawn past the end of it" (widest <= 900))
+        c.eqInt("the height matches the rows" bar.height (bar.heightFor(900)))
+
+        print "-- and wrapped where there is not --"
+        bar.layout(0 0 220)
+        c.ok("a narrow strip needs more rows" (bar.rows > 1))
+        def j:int 0
+        def over:int 0
+        while (j < (bar.count())) {
+            def t2:ToolItem (bar.at(j))
+            if (t2.w > 0) {
+                if ((t2.x + t2.w) > 220) {
+                    over = (over + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        c.eqInt("and still nothing hangs off the edge" over 0)
+        c.ok("the strip grew to hold them" ((bar.heightFor(220)) > (bar.heightFor(900))))
+
+        print "-- the hit test lands where the button was painted --"
+        bar.layout(10 40 900)
+        def k:int 0
+        def hits:int 0
+        def misses:int 0
+        while (k < (bar.count())) {
+            def t3:ToolItem (bar.at(k))
+            if (t3.isSeparator == false) {
+                def hx:int (t3.x + (idiv t3.w 2))
+                def hy:int (t3.y + (idiv t3.h 2))
+                if ((bar.hit(hx hy)) == k) {
+                    hits = (hits + 1)
+                } {
+                    misses = (misses + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        c.eqInt("every button is found under its own middle" misses 0)
+        c.ok("which is all of them" (hits > 6))
+        c.eqInt("and nothing is found above the strip" (bar.hit(20 0)) -1)
+        c.eqInt("or past its right edge" (bar.hit(2000 45)) -1)
+        ; A separator is a rule, not a button.
+        def sep:ToolItem (bar.at(3))
+        c.ok("the separator is one" sep.isSeparator)
+        c.eqInt("and cannot be clicked" (bar.hit((sep.x + 1) (sep.y + 5))) -1)
+
+        print "-- pressed and hot are the owner's answer --"
+        def b:ToolItem (bar.at(4))
+        c.eqStr("the bold button knows its command" b.command "format.bold")
+        c.eqStr("and what it is asking about" b.toggleOp "bold")
+        c.ok("it is not pressed until someone says so" (b.pressed == false))
+        b.pressed = true
+        c.ok("and then it is" ((bar.at(4)).pressed))
+        bar.hot = 4
+        c.eqStr("the tooltip is the hot button's label" (bar.hotLabel()) "Bold")
+        bar.hot = -1
+        c.eqStr("and empty when nothing is hot" (bar.hotLabel()) "")
+
+        print "-- a value button shows a value --"
+        def f:ToolItem (bar.at(8))
+        c.ok("it is wider than an icon" (f.textW > 40))
+        f.label = "Droid Serif"
+        c.eqStr("and says whatever the owner put there" ((bar.at(8)).label) "Droid Serif")
+
+        print "-- and it draws --"
+        ; The whole point: a display list, from a toolbar, with no application.
+        def view:EVGToolbarView (new EVGToolbarView)
+        def ctx:UIContext (new UIContext)
+        ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+        view.attach(ctx "Open Sans")
+        def dl:EVGDisplayList (new EVGDisplayList)
+        bar.hot = 4
+        view.paint(dl bar 0 0 900 (bar.heightFor(900)))
+        c.ok("the strip made draw commands" ((array_length dl.cmds) > 40))
+        ; The tooltip is text, and so are the letter icons.
+        def texts:int 0
+        def ti:int 0
+        while (ti < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds ti)
+            if (cmd.kind == 3) {
+                texts = (texts + 1)
+            }
+            ti = (ti + 1)
+        }
+        c.ok("including text" (texts > 3))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

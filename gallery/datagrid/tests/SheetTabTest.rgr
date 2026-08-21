@@ -1,0 +1,275 @@
+; ==============================================================================
+; SheetTabTest — the three things a tab strip is for.
+; ==============================================================================
+;
+; The strip could switch sheets and nothing else. A workbook that arrived with
+; three sheets stayed a workbook with three sheets, in that order, under those
+; names, forever — there was no way to add one, no way to rename one, and no
+; way to put them in a different order.
+;
+; The interesting half is not the list surgery, it is what a caller must not
+; have to remember:
+;
+;   * A rename has to move every formula in the workbook that names the sheet.
+;     `Costs!B4` is TEXT; rename the sheet and leave it alone and it becomes
+;     `#NAME?`. Excel rewrites them, and so must this.
+;   * Adding or moving a sheet renumbers every index anyone was holding. A
+;     chart remembers its sheet as a NUMBER, and a number that is not remapped
+;     does not become invalid — it quietly starts naming a different sheet,
+;     which is worse than an error.
+;
+; Both are tested here through the pointer as well as through the command
+; table, because the tab strip is where a person meets them: the `+` is a
+; click on painted pixels, the rename is a double click, and the reorder is a
+; drag that has to travel far enough to stop being a click.
+;
+;   npm run datagrid:sheets:test
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class SheetCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class SheetTabTest {
+    ; A workbook of three named sheets, with a cross-sheet formula on the
+    ; first one so a rename has something to break.
+    sfn build:GridApp () {
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.resize(20 8)
+        app.model.name = "Sales"
+        def costs:SpreadsheetModel (new SpreadsheetModel)
+        costs.clearSheet()
+        costs.resize(20 8)
+        costs.name = "Costs"
+        costs.setCellRaw(3 1 "40")
+        app.book.insertSheet(1 costs)
+        def notes:SpreadsheetModel (new SpreadsheetModel)
+        notes.clearSheet()
+        notes.resize(20 8)
+        notes.name = "Notes"
+        app.book.insertSheet(2 notes)
+        app.setActiveSheet(0)
+        app.model.setCellRaw(0 0 "10")
+        app.model.setFormula(1 0 "Costs!B4+A1")
+        app.engine.rebuildAll()
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        return app
+    }
+
+    sfn click:void (app:GridApp x:int y:int) {
+        def inp (new UIInput)
+        inp.newFrame()
+        inp.setPointerPos(x y)
+        inp.setPointerDown(true)
+        app.update(inp)
+        inp.newFrame()
+        inp.setPointerPos(x y)
+        inp.setPointerDown(false)
+        app.update(inp)
+    }
+
+    ; Press on one x, travel to another, release. The travel is what turns a
+    ; click into a carry, so it happens in its own frames.
+    sfn drag:void (app:GridApp fromX:int toX:int y:int) {
+        def inp (new UIInput)
+        inp.newFrame()
+        inp.setPointerPos(fromX y)
+        inp.setPointerDown(true)
+        app.update(inp)
+        def step:int fromX
+        def dir:int 12
+        if (toX < fromX) {
+            dir = -12
+        }
+        def guard:int 0
+        while (guard < 80) {
+            step = (step + dir)
+            def done:boolean false
+            if (dir > 0) {
+                if (step >= toX) {
+                    step = toX
+                    done = true
+                }
+            } {
+                if (step <= toX) {
+                    step = toX
+                    done = true
+                }
+            }
+            inp.newFrame()
+            inp.setPointerPos(step y)
+            inp.setPointerDown(true)
+            app.update(inp)
+            if done {
+                guard = 80
+            } {
+                guard = (guard + 1)
+            }
+        }
+        inp.newFrame()
+        inp.setPointerPos(toX y)
+        inp.setPointerDown(false)
+        app.update(inp)
+    }
+
+    sfn main:void () {
+        def c:SheetCheck (new SheetCheck)
+        print "== SheetTabTest =="
+
+        print "-- the workbook the rest of this is about --"
+        def app:GridApp (SheetTabTest.build())
+        c.eqInt("three sheets" (app.book.sheetCount()) 3)
+        c.eqStr("named in order" ((app.book.sheetAt(1)).name) "Costs")
+
+        print "-- a new sheet lands after the one you are on --"
+        app.setActiveSheet(0)
+        c.ok("sheet.add runs" (app.runCommand("sheet.add" "")))
+        c.eqInt("there are four now" (app.book.sheetCount()) 4)
+        c.eqInt("and the new one is active" app.book.activeIndex 1)
+        c.eqStr("with the first free SheetN name" ((app.book.sheetAt(1)).name) "Sheet4")
+        c.eqStr("the sheet that was second is third" ((app.book.sheetAt(2)).name) "Costs")
+
+        print "-- renaming moves the formulas that named it --"
+        def r:GridApp (SheetTabTest.build())
+        c.eqStr("the formula names the sheet" (r.model.getFormula(1 0)) "Costs!B4+A1")
+        c.ok("renaming succeeds" (r.runCommand("sheet.rename" "Expenses")))
+        c.eqStr("the sheet has the new name" ((r.book.sheetAt(0)).name) "Expenses")
+        ; The formula is on the sheet that was renamed, and names ANOTHER
+        ; sheet, so it must be untouched.
+        c.eqStr("a formula naming a different sheet is left alone" (r.model.getFormula(1 0)) "Costs!B4+A1")
+        r.setActiveSheet(1)
+        c.ok("renaming the OTHER sheet succeeds" (r.runCommand("sheet.rename" "Q3 Costs")))
+        r.setActiveSheet(0)
+        ; A name with a space has to come back quoted, or it will not parse.
+        c.eqStr("and the formula was rewritten, quoted" (r.model.getFormula(1 0)) "'Q3 Costs'!B4+A1")
+        r.engine.rebuildAll()
+        c.eqStr("so the value still computes" (r.model.getDisplay(1 0)) "50")
+
+        print "-- a name a formula could not write is refused --"
+        def n:GridApp (SheetTabTest.build())
+        ; An empty ARGUMENT opens the window; an empty NAME is refused.
+        c.ok("empty is refused" ((n.renameSheetTo(0 "")) == false))
+        c.ok("a name with a colon is refused" ((n.renameSheetTo(0 "A:B")) == false))
+        c.ok("a name with a bracket is refused" ((n.renameSheetTo(0 "A[1]")) == false))
+        c.ok("32 characters is refused" ((n.renameSheetTo(0 "abcdefghijabcdefghijabcdefghijab")) == false))
+        c.ok("31 is not" (n.renameSheetTo(0 "abcdefghijabcdefghijabcdefghija")))
+        c.ok("a name another sheet has is refused" ((n.renameSheetTo(0 "Costs")) == false))
+        c.ok("a name only differing in case is too" ((n.renameSheetTo(0 "costs")) == false))
+        c.ok("its own name is fine" (n.renameSheetTo(1 "Costs")))
+        c.ok("the complaint says which rule" ((strlen (GridApp.renameProblem(n.book 0 "A:B"))) > 10))
+
+        print "-- moving renumbers the charts --"
+        def m:GridApp (SheetTabTest.build())
+        m.setActiveSheet(1)
+        m.sel.setAnchor(3 1)
+        m.sel.setActive(3 1)
+        m.openChartDialog(0)
+        m.applyChartDialog()
+        c.eqInt("a chart was made" (m.view.chartLayer.count()) 1)
+        def panel:ChartPanel (m.view.chartLayer.panelAt(0))
+        c.eqInt("on the sheet it was made from" panel.chart.sheet 1)
+        c.ok("moving that sheet to the front works" (m.moveSheetTo(1 0)))
+        c.eqStr("it is the first sheet now" ((m.book.sheetAt(0)).name) "Costs")
+        def panel2:ChartPanel (m.view.chartLayer.panelAt(0))
+        c.eqInt("and the chart came with it" panel2.chart.sheet 0)
+        c.eqInt("the sheet you were on is still the sheet you are on" m.book.activeIndex 0)
+
+        print "-- adding renumbers them too --"
+        def a2:GridApp (SheetTabTest.build())
+        a2.setActiveSheet(2)
+        a2.sel.setAnchor(0 0)
+        a2.sel.setActive(0 0)
+        a2.setActiveSheet(1)
+        a2.sel.setAnchor(3 1)
+        a2.sel.setActive(3 1)
+        a2.openChartDialog(0)
+        a2.applyChartDialog()
+        def before:ChartPanel (a2.view.chartLayer.panelAt(0))
+        c.eqInt("the chart is on sheet 1" before.chart.sheet 1)
+        a2.setActiveSheet(0)
+        c.ok("a sheet is added before it" (a2.runCommand("sheet.add" "")))
+        def after:ChartPanel (a2.view.chartLayer.panelAt(0))
+        c.eqInt("the chart followed its sheet" after.chart.sheet 2)
+
+        print "== through the tab strip =="
+        def t:GridApp (SheetTabTest.build())
+        t.render()
+        def tabY:int ((t.grid.sheetTabY()) + 10)
+        c.ok("the strip was laid out" ((array_length t.grid.tabXs) == 3))
+        c.ok("and so was the new-sheet button" (t.grid.tabPlusX > 0))
+
+        ; The + button.
+        def plusX:int (t.grid.tabPlusX + (idiv t.grid.tabPlusW 2))
+        SheetTabTest.click(t plusX tabY)
+        c.eqInt("clicking + adds a sheet" (t.book.sheetCount()) 4)
+
+        ; A double click on a tab, which is the entry every host calls.
+        def t2:GridApp (SheetTabTest.build())
+        t2.render()
+        def tabMid:int ((itemAt t2.grid.tabXs 1) + (idiv (itemAt t2.grid.tabWs 1) 2))
+        c.ok("a double click on a tab is taken" (t2.autoFitAt(tabMid tabY)))
+        c.ok("and opens the rename window" t2.renameDialog.visible)
+        c.eqInt("on the tab that was clicked" t2.renameIndex 1)
+        c.eqStr("showing the name it has" (t2.renameDialog.inputValue(1201)) "Costs")
+        ; A bad name keeps the window up and says why.
+        t2.renameDialog.setInputValue(1201 "A:B")
+        t2.applyRenameDialog()
+        c.ok("a bad name keeps the window open" t2.renameDialog.visible)
+        c.ok("with a complaint" ((strlen t2.renameStatus) > 0))
+        t2.renameDialog.setInputValue(1201 "Outgoings")
+        t2.applyRenameDialog()
+        c.ok("a good one closes it" ((t2.renameDialog.visible) == false))
+        c.eqStr("and renames the sheet" ((t2.book.sheetAt(1)).name) "Outgoings")
+
+        ; Dragging the third tab to the front.
+        def t3:GridApp (SheetTabTest.build())
+        t3.render()
+        def thirdX:int ((itemAt t3.grid.tabXs 2) + (idiv (itemAt t3.grid.tabWs 2) 2))
+        def firstX:int ((itemAt t3.grid.tabXs 0) + 2)
+        SheetTabTest.drag(t3 thirdX firstX tabY)
+        c.eqStr("the dragged tab is first now" ((t3.book.sheetAt(0)).name) "Notes")
+        c.eqStr("and the others closed up behind it" ((t3.book.sheetAt(1)).name) "Sales")
+        c.eqInt("the marker is put away" t3.view.tabDropSlot -1)
+        c.eqInt("and so is the carried tab" t3.view.tabDragFrom -1)
+
+        ; A press that does not travel is still a click.
+        def t4:GridApp (SheetTabTest.build())
+        t4.render()
+        def secondX:int ((itemAt t4.grid.tabXs 1) + (idiv (itemAt t4.grid.tabWs 1) 2))
+        SheetTabTest.click(t4 secondX tabY)
+        c.eqInt("clicking a tab selects it" t4.book.activeIndex 1)
+        c.eqStr("and moves nothing" ((t4.book.sheetAt(1)).name) "Costs")
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
