@@ -19,11 +19,25 @@
 // through synthesized properties and the dictionary owns the elements.
 //
 // Coordinates: the tree is in window points with y running down from the top of
-// the content area; NSAccessibility wants screen points with y running up from
-// the bottom of the main screen. `screenRect` below is that conversion and is
-// the thing most likely to need adjusting on a multi-display setup.
+// the content area; NSAccessibility wants SCREEN points with y running up from
+// the bottom of the main screen. `screenRect` below is that conversion, and two
+// things about it turned out to matter more than the arithmetic:
+//
+//   * The window has to be the RIGHT one. Asking the application for its main
+//     window works while the app is frontmost and returns nil when it is not;
+//     the fallback can hand back a window this tree was never about, and every
+//     rectangle then lands somewhere else on screen. `dgfx_a11y_attach` takes
+//     the SDL window instead, so there is nothing to guess.
+//   * A screen rectangle goes stale when the WINDOW moves, and the tree does
+//     not change a byte when that happens. Skipping the work on an unchanged
+//     tree — which is the obvious optimization — leaves every element behind at
+//     the window's old position, which is exactly what it looks like: VoiceOver
+//     boxes drawn outside the app, over whatever is behind it. So geometry is
+//     tracked separately from content, and a move re-frames without re-parsing.
 
 #import <Cocoa/Cocoa.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_syswm.h>
 #include "dgfx_a11y.h"
 
 #include <cstdlib>
@@ -47,16 +61,17 @@ static void queuePress(NSPoint p) {
 
 @interface DgfxA11yElement : NSAccessibilityElement
 @property (nonatomic, copy) NSString* nodeId;
-// The centre of this element in WINDOW POINTS, which is the space the app
-// hit-tests in. Kept here so a press does not have to convert back from screen
-// coordinates it was only ever given for VoiceOver's benefit.
-@property (nonatomic) NSPoint appCentre;
+// This element in WINDOW POINTS — the space the app lays out and hit-tests in.
+// Kept because the screen rectangle derived from it is only valid where the
+// window was standing at the time: when the window moves, this is what the new
+// one is computed from, without going back to the JSON.
+@property (nonatomic) NSRect appRect;
 @property (nonatomic) BOOL pressable;
 @end
 
 @implementation DgfxA11yElement
 @synthesize nodeId = _nodeId;
-@synthesize appCentre = _appCentre;
+@synthesize appRect = _appRect;
 @synthesize pressable = _pressable;
 
 - (BOOL)isAccessibilityElement {
@@ -67,7 +82,7 @@ static void queuePress(NSPoint p) {
     if (!_pressable) {
         return NO;
     }
-    queuePress(_appCentre);
+    queuePress(NSMakePoint(NSMidX(_appRect), NSMidY(_appRect)));
     return YES;
 }
 @end
@@ -77,6 +92,15 @@ static void queuePress(NSPoint p) {
 static NSMutableDictionary<NSString*, DgfxA11yElement*>* g_els = nil;
 static std::string g_lastJson;
 static std::string g_lastFocus;
+static NSWindow* g_window = nil;
+// Where the window was standing when the screen rectangles were computed.
+static NSRect g_lastWindowFrame = { { 0, 0 }, { 0, 0 } };
+static NSSize g_lastViewSize = { 0, 0 };
+
+static bool logging(void) {
+    const char* v = getenv("DGFX_A11Y_LOG");
+    return v != nullptr && v[0] == '1';
+}
 
 // --- helpers -----------------------------------------------------------------
 
@@ -106,6 +130,11 @@ static NSString* roleFor(NSString* aria) {
 }
 
 static NSWindow* hostWindow(void) {
+    if (g_window != nil) {
+        return g_window;
+    }
+    // Nothing attached: guess, and accept that the guess is only right while
+    // the app is frontmost.
     NSWindow* w = [NSApp mainWindow];
     if (w == nil) {
         w = [NSApp keyWindow];
@@ -151,6 +180,26 @@ static BOOL flagFor(NSDictionary* node, NSString* key) {
 
 // --- the public half ---------------------------------------------------------
 
+extern "C" void dgfx_a11y_attach(void* sdl_window) {
+    if (sdl_window == nullptr) {
+        return;
+    }
+    @autoreleasepool {
+        SDL_SysWMinfo info;
+        SDL_VERSION(&info.version);
+        if (SDL_GetWindowWMInfo((SDL_Window*)sdl_window, &info) != SDL_TRUE) {
+            return;
+        }
+        if (info.subsystem != SDL_SYSWM_COCOA) {
+            return;
+        }
+        g_window = info.info.cocoa.window;
+        if (logging()) {
+            NSLog(@"[a11y] attached to window %@", g_window);
+        }
+    }
+}
+
 extern "C" int dgfx_a11y_active(void) {
     // Building a tree costs something on every frame; nobody should pay it when
     // nobody is listening. DGFX_A11Y=1 forces it on, which is how you look at
@@ -162,32 +211,80 @@ extern "C" int dgfx_a11y_active(void) {
     if (forced != nullptr && forced[0] == '0') {
         return 0;
     }
+    // Asked once a second, not sixty times. `isVoiceOverEnabled` reads a system
+    // preference, which means it can reach outside this process, and a frame
+    // loop is the wrong place to find out how expensive that is on a machine
+    // that is busy — which is exactly the machine somebody is starting a screen
+    // reader on. Nobody turns VoiceOver on and off within a second.
+    static double g_checkedAt = -1000.0;
+    static int g_state = 0;
+    double now = (double)SDL_GetTicks() / 1000.0;
+    if (now - g_checkedAt < 1.0) {
+        return g_state;
+    }
+    g_checkedAt = now;
     @autoreleasepool {
         NSWorkspace* ws = [NSWorkspace sharedWorkspace];
         if ([ws respondsToSelector:@selector(isVoiceOverEnabled)]) {
-            return [ws isVoiceOverEnabled] ? 1 : 0;
+            g_state = [ws isVoiceOverEnabled] ? 1 : 0;
+        } else {
+            g_state = 0;
         }
     }
-    return 0;
+    return g_state;
+}
+
+/** Put every element back where it belongs after the window moved. No JSON, no
+ *  allocation, no change to the tree the reader is walking — the same elements
+ *  with new rectangles. */
+static void reframeAll(NSWindow* window, NSView* view) {
+    for (NSString* nid in g_els) {
+        DgfxA11yElement* el = g_els[nid];
+        NSRect r = el.appRect;
+        [el setAccessibilityFrame:screenRect(window, view, r.origin.x, r.origin.y,
+                                             r.size.width, r.size.height)];
+    }
 }
 
 extern "C" void dgfx_a11y_publish(const char* json) {
     if (json == nullptr) {
         return;
     }
-    // Identical frame: the tree on screen has not changed, and reapplying it
-    // would be a lot of work to arrive back where we are.
-    if (g_lastJson == json) {
-        return;
-    }
-    g_lastJson = json;
 
     @autoreleasepool {
         NSWindow* window = hostWindow();
         NSView* view = window.contentView;
         if (window == nil || view == nil) {
+            // No window yet. Do NOT remember this tree as published, or an idle
+            // app will hand back the identical JSON for ever and this will keep
+            // returning early from a tree that was never built.
             return;
         }
+
+        NSRect winFrame = window.frame;
+        NSSize viewSize = view.bounds.size;
+        BOOL moved = !NSEqualRects(winFrame, g_lastWindowFrame)
+                  || !NSEqualSizes(viewSize, g_lastViewSize);
+        BOOL sameTree = (g_lastJson == json);
+
+        if (sameTree && !moved) {
+            return;
+        }
+        if (sameTree && moved) {
+            // The window moved and the tree did not. Re-frame and stop — this
+            // is the common case while somebody drags the window around, and
+            // it must not be mistaken for "nothing to do".
+            g_lastWindowFrame = winFrame;
+            g_lastViewSize = viewSize;
+            reframeAll(window, view);
+            if (logging()) {
+                NSLog(@"[a11y] window moved to %@ — %lu elements re-framed",
+                      NSStringFromRect(winFrame), (unsigned long)g_els.count);
+            }
+            return;
+        }
+        g_lastWindowFrame = winFrame;
+        g_lastViewSize = viewSize;
 
         NSData* data = [[NSString stringWithUTF8String:json]
             dataUsingEncoding:NSUTF8StringEncoding];
@@ -307,8 +404,8 @@ extern "C" void dgfx_a11y_publish(const char* json) {
 
             NSArray* b = n[@"b"];
             double bx = numAt(b, 0), by = numAt(b, 1), bw = numAt(b, 2), bh = numAt(b, 3);
+            el.appRect = NSMakeRect(bx, by, bw, bh);
             [el setAccessibilityFrame:screenRect(window, view, bx, by, bw, bh)];
-            el.appCentre = NSMakePoint(bx + bw / 2.0, by + bh / 2.0);
             el.pressable = flagFor(n, @"activate") || flagFor(n, @"focusable");
 
             if (parentId == nil || parentId.length == 0) {
@@ -360,6 +457,15 @@ extern "C" void dgfx_a11y_publish(const char* json) {
             NSAccessibilityPostNotification(focusEl,
                                             NSAccessibilityFocusedUIElementChangedNotification);
         }
+
+        // Only now: the tree really is up on the window, so an identical JSON
+        // next frame is genuinely nothing to do.
+        g_lastJson = json;
+        if (logging()) {
+            NSLog(@"[a11y] published %lu elements, window %@, focus %@",
+                  (unsigned long)g_els.count, NSStringFromRect(winFrame),
+                  focusId != nil ? focusId : @"(none)");
+        }
     }
 }
 
@@ -378,7 +484,7 @@ extern "C" const char* dgfx_a11y_take_press(void) {
 
 extern "C" void dgfx_a11y_reset(void) {
     @autoreleasepool {
-        NSWindow* window = hostWindow();
+        NSWindow* window = g_window != nil ? g_window : hostWindow();
         if (window != nil && window.contentView != nil) {
             [window.contentView setAccessibilityChildren:@[]];
         }
@@ -386,4 +492,7 @@ extern "C" void dgfx_a11y_reset(void) {
     }
     g_lastJson.clear();
     g_lastFocus.clear();
+    g_lastWindowFrame = NSMakeRect(0, 0, 0, 0);
+    g_lastViewSize = NSMakeSize(0, 0);
+    g_window = nil;
 }

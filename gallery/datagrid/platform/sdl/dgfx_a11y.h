@@ -43,10 +43,19 @@ extern "C" {
 // Is an assistive technology actually running? Building and publishing a tree
 // costs something on every frame, and nothing should pay it when nobody is
 // listening. macOS answers from VoiceOver's own state; other platforms say no.
+// Which window the tree belongs to. Call once after the window exists, beside
+// dgfx_install_menus. Guessing instead — asking the application for its main
+// window — worked until it did not: with the app in the background there is no
+// main window and no key window, and the fallback can hand back a window the
+// tree was never about, which puts every rectangle somewhere else on screen.
+void dgfx_a11y_attach(void* sdl_window);
+
 int dgfx_a11y_active(void);
 
-// Publish one frame's tree. Publishing the identical JSON twice is free — the
-// second call returns before parsing anything.
+// Publish one frame's tree. Publishing the identical JSON twice is nearly free:
+// the tree is not parsed again. It is NOT a no-op, though — the rectangles are
+// in screen coordinates, so a window that moved makes every one of them wrong
+// while the tree itself has not changed a byte. Call it every frame.
 void dgfx_a11y_publish(const char* json);
 
 // A reader activated something. Returns "x,y" — the centre of the element it

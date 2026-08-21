@@ -6,6 +6,10 @@
 // listening", the host builds no tree, and nothing is paid for.
 #include "dgfx_a11y.h"
 
+extern "C" void dgfx_a11y_attach(void* sdl_window) {
+    (void)sdl_window;
+}
+
 extern "C" int dgfx_a11y_active(void) {
     return 0;
 }

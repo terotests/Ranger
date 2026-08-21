@@ -189,8 +189,44 @@ also how to tell an app-side problem from a bridge-side one:
 npm run datagrid:sdl:a11y     # SDL_VIDEODRIVER=dummy … --a11y
 ```
 
-**Not verified on a Mac.** `dgfx_a11y.mm` was written and reviewed but never
-compiled or run here — this container has no macOS, no AppKit and no GPU. The
+### When it misbehaves
+
+Two things went wrong on the first real VoiceOver run, and both are worth
+knowing about because they look like different bugs than they are.
+
+**VoiceOver's cursor drawn outside the window.** The rectangles are in screen
+coordinates, and they were computed where the window was standing at the time.
+Moving the window changes none of the tree's bytes, so an optimization that
+skips unchanged trees left every element behind at the old position. Geometry is
+now tracked separately from content: a move re-frames the same elements without
+re-parsing anything. The other half of this was the bridge *guessing* which
+window the tree belonged to — right while the app is frontmost, nil when it is
+not, and the fallback can hand back a window the tree was never about.
+`dgfx_a11y_attach` takes the SDL window now, so there is nothing to guess.
+
+**"Application is not responding."** That is what an accessibility client says
+when a request times out, and a vsync-locked frame loop is a suspect: an AX
+client works synchronously, and an app that services its run loop once per frame
+can add a frame of latency to every one of a few hundred round trips. Two costs
+were removed on that suspicion — the tree is rebuilt at 15 Hz rather than 60
+(measured at 1.3 ms a time, `bench/a11y_bench.rgr`), and VoiceOver's own state
+is asked for once a second rather than sixty times, since reading it can leave
+the process. Whether that was the cause is not established.
+
+If it happens again, the thing that settles it is a sample of the hung process —
+Activity Monitor → the process → **Sample Process**, or:
+
+```bash
+sample datagrid_sdl 5 -file /tmp/dg-sample.txt
+```
+
+The main thread's stack in that file names what it was waiting for. Meanwhile
+`DGFX_A11Y=0` turns the bridge off entirely, and `DGFX_A11Y_LOG=1` prints every
+publish, re-frame and attach with the window's frame, which is how to tell a
+stale rectangle from a wrong one.
+
+**Still not verified here.** `dgfx_a11y.mm` was written and reviewed but never
+compiled or run in this container — this container has no macOS, no AppKit and no GPU. The
 Linux stub (`dgfx_a11y_stub.cpp`) and everything above it — the tree, the
 operators, the host loop — do build and run here. Design, state and the wider
 plan: [`gallery/evg/PLAN_ACCESSIBILITY.md`](../../../evg/PLAN_ACCESSIBILITY.md).

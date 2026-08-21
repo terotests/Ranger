@@ -58,6 +58,7 @@ int dgfx_pop_menu_action(void);
 // An OpenGL window has no accessible children; the app publishes the tree it
 // already builds for the browser and this hands it to NSAccessibility.
 extern \"C\" {
+void dgfx_a11y_attach(void* sdl_window);
 int dgfx_a11y_active(void);
 void dgfx_a11y_publish(const char* json);
 const char* dgfx_a11y_take_press(void);
@@ -767,6 +768,16 @@ static void dgfx_close() {
     ; Is anything actually reading? Building a tree every frame is not free, and
     ; on a platform with no bridge — or with VoiceOver off — this answers no and
     ; the host builds nothing.
+    ; Which window the tree is about. Guessing — asking the application for its
+    ; main window — is right only while the app is frontmost, and a wrong guess
+    ; puts every rectangle somewhere else on screen.
+    dgfx_a11y_attach _:void () {
+        templates {
+            cpp ( "dgfx_a11y_attach((void*)g_dgfx_win)" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
     dgfx_a11y_active _:boolean () {
         templates {
             cpp ( "(dgfx_a11y_active() != 0)" )
