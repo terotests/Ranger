@@ -383,6 +383,39 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Where the charts are, and where their tools are inside them. A chart's
+  // buttons used to be labelled, so a test could find them by reading the
+  // scene for "Copy"; they are icons now, and an icon has no text to find.
+  // This is the same question asked of the app instead of of the pixels.
+  if (url.pathname === "/charts") {
+    const layer = app.view.chartLayer;
+    const out = [];
+    for (let i = 0; i < layer.count(); i += 1) {
+      const p = layer.panelAt(i);
+      const win = p.win;
+      const tools = [];
+      for (const c of win.controls) {
+        // 8 is EVGControlKind.tool(); `value` names the glyph.
+        if (c.kind === 8) {
+          tools.push({ glyph: c.value, x: win.x + c.x, y: win.y + c.y, w: c.w, h: c.h });
+        }
+      }
+      out.push({
+        id: p.chart.id,
+        x: win.x,
+        y: win.y,
+        w: win.w,
+        h: win.h,
+        bare: !!win.bare,
+        selected: !!win.toolsOpen,
+        tools,
+      });
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ charts: out }));
+    return;
+  }
+
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(

@@ -62,6 +62,27 @@ class GridEditTest {
         return ""
     }
 
+    ; Where a given run of text landed, out of a built display list. Reading
+    ; the picture back is the only way to check that two cells sit on the same
+    ; line without re-deriving the layout in the test.
+    ; The LAST one: the text being edited appears twice, once in the formula
+    ; bar at the top of the window and once in the cell, and it is the cell
+    ; that is in question here.
+    sfn textY:int (dl:EVGDisplayList text:string) {
+        def found:int -1
+        def i:int 0
+        while (i < (dl.count())) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == 3) {
+                if (cmd.text == text) {
+                    found = (to_int cmd.y)
+                }
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
     sfn select:void (app:GridApp r:int c:int) {
         app.sel.anchor.row = r
         app.sel.anchor.col = c
@@ -74,6 +95,17 @@ class GridEditTest {
         app.sel.anchor.col = c0
         app.sel.active.row = r1
         app.sel.active.col = c1
+    }
+
+    ; A Ctrl chord through the real UIInput path — Ctrl+A and friends arrive
+    ; as TEXT with the modifier set, not as keys.
+    sfn chord:void (app:GridApp input:UIInput letter:string) {
+        input.newFrame()
+        input.setModifiers(false true)
+        input.pushText(letter)
+        app.update(input)
+        input.newFrame()
+        input.setModifiers(false false)
     }
 
     ; One key press through the real UIInput path, with modifiers.
@@ -797,10 +829,12 @@ class GridEditTest {
         def growInput:UIInput (new UIInput)
         GridEditTest.pressKey(grow growInput (UIKey.down()) false false)
         c.eqInt("down past the last row moves" grow.sel.active.row 6)
-        c.eqInt("and the sheet grew" grow.model.rowCount 7)
+        ; At least that big. A frame also keeps the sheet covering the window,
+        ; so the exact number is the window's business, not this test's.
+        c.ok("and the sheet grew" (grow.model.rowCount >= 7))
         GridEditTest.pressKey(grow growInput (UIKey.right()) false false)
         c.eqInt("right past the last column moves" grow.sel.active.col 4)
-        c.eqInt("and the sheet grew" grow.model.colCount 5)
+        c.ok("and the sheet grew" (grow.model.colCount >= 5))
         ; growTo must never wipe sizes the way resize() does.
         c.eqInt("column width kept" (grow.model.colWidth(0)) 137)
         c.eqInt("row height kept" (grow.model.rowHeight(0)) 33)
@@ -809,9 +843,11 @@ class GridEditTest {
         grow.commitEdit()
         c.eqStr("typed into the new cell" (grow.model.getCell(6 4)) "new cell")
         ; growTo only ever grows.
+        def keptRows:int grow.model.rowCount
+        def keptCols:int grow.model.colCount
         grow.model.growTo(2 2)
-        c.eqInt("growTo never shrinks rows" grow.model.rowCount 7)
-        c.eqInt("growTo never shrinks cols" grow.model.colCount 5)
+        c.eqInt("growTo never shrinks rows" grow.model.rowCount keptRows)
+        c.eqInt("growTo never shrinks cols" grow.model.colCount keptCols)
         c.ok("still renders" ((strlen (grow.sceneJson())) > 50))
 
         print "== paste can land outside the current extent =="
@@ -915,16 +951,285 @@ class GridEditTest {
         sortApp.sheetView.rebuild()
         sortApp.openHeaderMenu(1 100 100)
         sortApp.runHeaderMenu(1)
-        c.eqInt("header remains first" (itemAt sortApp.sheetView.rowOrder 0) 0)
-        def firstSorted:int (itemAt sortApp.sheetView.rowOrder 1)
-        c.eqInt("smallest value row comes first" firstSorted 2)
-        c.eqStr("name moved with sorted value" (sortApp.model.getCell(firstSorted 0)) "A")
-        c.eqStr("other columns move with the row" (sortApp.model.getCell(firstSorted 2)) "first")
-        c.eqInt("blank tail stays after populated rows" (itemAt sortApp.sheetView.rowOrder 4) 4)
+        ; A sort moves the DATA, so the sheet itself is in order afterwards
+        ; and the view is not permuting anything. That is the whole point:
+        ; what gets saved, copied and charted is what is on screen.
+        c.eqStr("the heading stays put" (sortApp.model.getCell(0 0)) "Name"
+        )
+        c.eqStr("smallest value first" (sortApp.model.getCell(1 1)) "10"
+        )
+        c.eqStr("its name came with it" (sortApp.model.getCell(1 0)) "A"
+        )
+        c.eqStr("and every other column of that row" (sortApp.model.getCell(1 2)) "first"
+        )
+        c.eqStr("then the middle one" (sortApp.model.getCell(2 1)) "20"
+        )
+        c.eqStr("then the largest" (sortApp.model.getCell(3 1)) "30"
+        )
+        c.eqStr("blank rows stay after the data" (sortApp.model.getCell(4 1)) ""
+        )
+        c.eqInt("and the view has nothing left to reorder" (itemAt sortApp.sheetView.rowOrder 1) 1)
+        c.eqInt("the header still says which column" sortApp.model.sortedCol 1)
+        c.ok("and which way" sortApp.model.sortedAsc)
+        ; One Ctrl+Z is one sort.
+        sortApp.undoEdit()
+        c.eqStr("undo puts the rows back" (sortApp.model.getCell(1 1)) "30"
+        )
+        c.eqStr("all of them" (sortApp.model.getCell(3 1)) "20"
+        )
+        sortApp.redoEdit()
+        c.eqStr("redo sorts again" (sortApp.model.getCell(1 1)) "10"
+        )
         sortApp.applySort(1 false)
-        def firstDesc:int (itemAt sortApp.sheetView.rowOrder 1)
-        c.eqInt("descending puts largest row first" firstDesc 1)
-        c.eqStr("descending keeps row intact" (sortApp.model.getCell(firstDesc 2)) "third")
+        c.eqStr("descending puts the largest first" (sortApp.model.getCell(1 1)) "30"
+        )
+        c.eqStr("with its row intact" (sortApp.model.getCell(1 2)) "third"
+        )
+        c.ok("and the header says so" (sortApp.model.sortedAsc == false))
+
+        print "== carrying a column by its header =="
+        ; A header is a handle as well as a selector. Which one a press means
+        ; is decided by whether the pointer travels: a click selects, a drag
+        ; carries, and there is no third gesture to learn.
+        def cd:GridApp (new GridApp)
+        cd.init("gallery/pdf_writer/assets/fonts")
+        cd.model.clearSheet()
+        cd.model.resize(4 4)
+        cd.model.setCellRaw(0 0 "A")
+        cd.model.setCellRaw(0 1 "B")
+        cd.model.setCellRaw(0 2 "C")
+        cd.model.setCellRaw(0 3 "D")
+        cd.model.setCellRaw(1 1 "b1")
+        cd.model.setCellRaw(2 1 "b2")
+        cd.sheetView.markDirty()
+        cd.sheetView.rebuild()
+        cd.grid.updateVisible(cd.model)
+        cd.render()
+        def cdIn:UIInput (new UIInput)
+        def cdY:int ((cd.grid.headerTop()) + 8)
+        def bX:int ((cd.grid.colScreenX(cd.model 1)) + 6)
+        def dX:int (((cd.grid.colScreenX(cd.model 3)) + (cd.model.colWidth(3))) - 2)
+        cdIn.newFrame()
+        cdIn.setPointerPos(bX cdY)
+        cdIn.setPointerDown(true)
+        cd.update(cdIn)
+        c.ok("a press on the header selects the column" (cd.sel.isSingle() == false))
+        c.ok("and arms the carry without starting it" (cd.movingColumn == false))
+        cdIn.newFrame()
+        cdIn.setPointerPos(dX cdY)
+        cdIn.setPointerDown(true)
+        cd.update(cdIn)
+        c.ok("travelling turns it into a carry" cd.movingColumn)
+        c.eqInt("carrying the column that was pressed" cd.colDragFrom 1)
+        c.ok("with somewhere to put it" (cd.colDragTo > 1))
+        c.ok("and a line showing where" (cd.view.colDropAt >= 0))
+        cdIn.newFrame()
+        cdIn.setPointerPos(dX cdY)
+        cdIn.setPointerDown(false)
+        cd.update(cdIn)
+        c.eqStr("the column landed at the end" (cd.model.getCell(0 3)) "B"
+        )
+        c.eqStr("the ones it passed closed up" (cd.model.getCell(0 1)) "C"
+        )
+        c.eqStr("and again" (cd.model.getCell(0 2)) "D"
+        )
+        c.eqStr("its cells came with it" (cd.model.getCell(1 3)) "b1"
+        )
+        c.eqStr("all of them" (cd.model.getCell(2 3)) "b2"
+        )
+        c.ok("the line is gone" (cd.view.colDropAt < 0))
+        c.ok("and the carry is over" (cd.movingColumn == false))
+        cd.undoEdit()
+        c.eqStr("one undo puts it back" (cd.model.getCell(0 1)) "B"
+        )
+        ; A press that does not travel is still just a selection.
+        cdIn.newFrame()
+        cdIn.setPointerPos(bX cdY)
+        cdIn.setPointerDown(true)
+        cd.update(cdIn)
+        cdIn.newFrame()
+        cdIn.setPointerPos((bX + 2) cdY)
+        cdIn.setPointerDown(false)
+        cd.update(cdIn)
+        c.eqStr("a click moved nothing" (cd.model.getCell(0 1)) "B"
+        )
+
+        print "== the keyboard belongs to whatever is being edited =="
+        ; Ctrl+A in a text field means "all of this text". It used to commit
+        ; the edit and select the whole sheet instead, which is the opposite
+        ; of what was asked — and the sign that nothing owned the keyboard.
+        def fo:GridApp (new GridApp)
+        fo.init("gallery/pdf_writer/assets/fonts")
+        fo.model.growTo(20 5)
+        fo.sheetView.markDirty()
+        fo.sheetView.rebuild()
+        fo.grid.updateVisible(fo.model)
+        fo.render()
+        GridEditTest.select(fo 2 1)
+        def foIn:UIInput (new UIInput)
+        fo.beginEdit("=SUM(A1:A9)" true)
+        c.ok("nothing is selected to begin with" ((fo.hasTextSelection()) == false))
+        GridEditTest.chord(fo foIn "a")
+        c.ok("Ctrl+A selects the text" (fo.hasTextSelection()))
+        c.eqStr("all of it" (fo.selectedText()) "=SUM(A1:A9)"
+        )
+        c.ok("and the edit is still open" fo.editing)
+        c.eqInt("the sheet was not selected instead" fo.sel.active.row 2)
+        ; Typing replaces what is selected, as a field does.
+        foIn.newFrame()
+        foIn.pushText("4")
+        fo.update(foIn)
+        c.eqStr("typing replaces it" fo.editBuf "4"
+        )
+        c.ok("and nothing is selected after" ((fo.hasTextSelection()) == false))
+        ; Shift with a caret move extends.
+        fo.beginEdit("hello world" true)
+        GridEditTest.pressKey(fo foIn (UIKey.home()) false false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        c.eqStr("shift and right extends" (fo.selectedText()) "he"
+        )
+        GridEditTest.pressKey(fo foIn (UIKey.end()) true false)
+        c.eqStr("shift and end takes the rest" (fo.selectedText()) "hello world"
+        )
+        ; …and the clipboard follows the focus too.
+        GridEditTest.pressKey(fo foIn (UIKey.home()) false false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.chord(fo foIn "c")
+        c.eqStr("Ctrl+C copies the text, not the cells" fo.clipboardKind "text"
+        )
+        c.eqStr("the text it had" fo.clipboardTsv "hello"
+        )
+        c.ok("and the edit survives it" fo.editing)
+        GridEditTest.pressKey(fo foIn (UIKey.end()) false false)
+        GridEditTest.chord(fo foIn "v")
+        c.eqStr("Ctrl+V pastes into the field" fo.editBuf "hello worldhello"
+        )
+        GridEditTest.pressKey(fo foIn (UIKey.home()) false false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.pressKey(fo foIn (UIKey.right()) true false)
+        GridEditTest.chord(fo foIn "x")
+        c.eqStr("Ctrl+X takes it out" fo.editBuf " worldhello"
+        )
+        ; Backspace over a selection removes the selection, not one character.
+        fo.beginEdit("abcdef" true)
+        fo.selectAllText()
+        GridEditTest.pressKey(fo foIn (UIKey.backspace()) false false)
+        c.eqStr("backspace clears a selection whole" fo.editBuf ""
+        )
+        ; And with nothing being edited, Ctrl+A is the sheet's again.
+        fo.cancelEdit()
+        GridEditTest.select(fo 2 1)
+        GridEditTest.chord(fo foIn "a")
+        c.ok("with no edit open it selects the sheet" ((fo.sel.isSingle()) == false))
+        ; The view is told what to draw a band behind.
+        fo.beginEdit("=1+2" true)
+        fo.selectAllText()
+        fo.render()
+        c.eqInt("the view knows where the band starts" fo.view.editSelA 0)
+        c.eqInt("and where it ends" fo.view.editSelB 4)
+
+        print "== a flick carries =="
+        ; A wheel notch is a shove, not a step. Notches that arrive together
+        ; add up, so a fast flick builds real speed while a slow one nudges —
+        ; and the speed decays rather than being spent, which is the whole
+        ; difference between a sheet that steps and a sheet that moves.
+        def fl:GridApp (new GridApp)
+        fl.init("gallery/pdf_writer/assets/fonts")
+        fl.model.growTo(9000 6)
+        fl.sheetView.markDirty()
+        fl.sheetView.rebuild()
+        fl.grid.updateVisible(fl.model)
+        def flIn:UIInput (new UIInput)
+        ; One notch, then let it run out.
+        flIn.newFrame()
+        flIn.addScroll(-1)
+        fl.update(flIn)
+        c.ok("a notch starts it moving" (fl.isCoasting()))
+        def guard:int 0
+        while ((fl.isCoasting()) && (guard < 600)) {
+            flIn.newFrame()
+            fl.update(flIn)
+            guard = (guard + 1)
+        }
+        def slow:int fl.grid.scrollY
+        c.ok("and it carries past the notch itself" (slow > 60))
+        c.ok("but comes to rest" ((fl.isCoasting()) == false))
+        ; Now a flick: several notches together.
+        fl.grid.scrollY = 0
+        fl.stopFling()
+        def n:int 0
+        while (n < 3) {
+            flIn.newFrame()
+            flIn.addScroll(-3)
+            fl.update(flIn)
+            n = (n + 1)
+        }
+        guard = 0
+        while ((fl.isCoasting()) && (guard < 900)) {
+            flIn.newFrame()
+            fl.update(flIn)
+            guard = (guard + 1)
+        }
+        def fast:int fl.grid.scrollY
+        c.ok("a flick goes a great deal further than a notch" (fast > (slow * 4)))
+        ; A hand on the sheet stops it dead, the way a finger stops a flick.
+        fl.grid.scrollY = 0
+        fl.stopFling()
+        flIn.newFrame()
+        flIn.addScroll(-3)
+        fl.update(flIn)
+        c.ok("moving again" (fl.isCoasting()))
+        flIn.newFrame()
+        flIn.setPointerPos(((fl.grid.x + fl.grid.rowHeaderW) + 40) (((fl.grid.headerTop()) + fl.grid.colHeaderH) + 40))
+        flIn.setPointerDown(true)
+        fl.update(flIn)
+        c.ok("and a hand on it stops it" ((fl.isCoasting()) == false))
+
+        print "== the pointer says what it is over =="
+        ; A pointer that never changes shape makes a program feel like a
+        ; picture of one. These ask the same questions the press handler asks,
+        ; in the same order, so what the pointer promises and what a click
+        ; does cannot drift apart.
+        def cu:GridApp (new GridApp)
+        cu.init("gallery/pdf_writer/assets/fonts")
+        cu.model.clearSheet()
+        cu.model.resize(8 5)
+        cu.model.setCellRaw(0 0 "A")
+        cu.model.setCellRaw(2 1 "link")
+        cu.model.setHyperlink(2 1 "https://example.com")
+        cu.sheetView.markDirty()
+        cu.sheetView.rebuild()
+        cu.grid.updateVisible(cu.model)
+        cu.render()
+        c.eqStr("over a cell" (GridCursor.label((cu.cursorAt(((cu.grid.colScreenX(cu.model 2)) + 10) ((cu.grid.rowScreenY(cu.model 4)) + 6))))) "cell"
+        )
+        c.eqStr("over the formula bar" (GridCursor.label((cu.cursorAt((cu.view.fbFieldX + 40) (cu.view.fbFieldY + 8))))) "text"
+        )
+        c.eqStr("over a column header" (GridCursor.label((cu.cursorAt(((cu.grid.colScreenX(cu.model 1)) + 10) ((cu.grid.headerTop()) + 8))))) "grab"
+        )
+        def edgeX:int (((cu.grid.colScreenX(cu.model 1)) + (cu.model.colWidth(1))) - 1)
+        c.eqStr("over a column edge" (GridCursor.label((cu.cursorAt(edgeX ((cu.grid.headerTop()) + 8))))) "resize columns"
+        )
+        c.eqStr("over a toolbar button" (GridCursor.label((cu.cursorAt((cu.grid.x + 20) ((cu.grid.toolbarY()) + 14))))) "pointing"
+        )
+        def fhr:GridRect (cu.grid.fillHandleRect(cu.model cu.sel))
+        c.eqStr("over the fill handle" (GridCursor.label((cu.cursorAt((fhr.x + 2) (fhr.y + 2))))) "fill"
+        )
+        c.eqStr("over a link" (GridCursor.label((cu.cursorAt(((cu.grid.colScreenX(cu.model 1)) + 10) ((cu.grid.rowScreenY(cu.model 2)) + 6))))) "pointing"
+        )
+        ; A browser and a window name these differently; the app names neither.
+        c.eqStr("the browser's word for a column edge" (GridCursor.cssName((GridCursor.resizeX()))) "col-resize"
+        )
+        c.eqStr("and for text" (GridCursor.cssName((GridCursor.text()))) "text"
+        )
 
         print "== double-click a header auto-fits =="
         def dz:GridApp (new GridApp)
@@ -1970,6 +2275,129 @@ class GridEditTest {
         def stD:CellStyle (tb.model.getCellStyle(1 0))
         c.ok("undo restored the bold" stD.bold)
 
+        print "== the sheet is at least as big as the window shows =="
+        ; A sheet comes out of a file only as big as its used range, so the
+        ; grid stopped where the numbers stopped and the space beside it
+        ; belonged to no cell — nothing to click. The arrow keys hid it,
+        ; because they grow the sheet as the caret walks: the keyboard could
+        ; reach cells the mouse could not.
+        def vp:GridApp (new GridApp)
+        vp.init("gallery/pdf_writer/assets/fonts")
+        vp.model.resize(3 2)
+        vp.model.setCell(0 0 "a")
+        vp.sheetView.markDirty()
+        vp.sheetView.rebuild()
+        vp.grid.updateVisible(vp.model)
+        c.eqInt("a small sheet starts small" vp.model.colCount 2)
+        def vpIn:UIInput (new UIInput)
+        vpIn.newFrame()
+        vp.update(vpIn)
+        c.ok("one frame fills the window across" (vp.model.colCount > 2))
+        c.ok("and down" (vp.model.rowCount > 3))
+        def wideX:int ((vp.grid.x + vp.grid.rowHeaderW) + 600)
+        def bodyY:int (((vp.grid.headerTop()) + vp.grid.colHeaderH) + 30)
+        def far:CellPos (vp.grid.hitTest(vp.model wideX bodyY))
+        c.ok("so a click well past the content lands on a cell" (far.col > 1))
+        c.ok("a real one, not the last one clamped" (far.row >= 0))
+        ; …and the cells it made are empty, so nothing was invented: what a
+        ; save writes follows the CONTENT, and there is none out here.
+        c.eqStr("the new cells are empty" (vp.model.getCell(0 5)) ""
+        )
+        c.eqStr("all of them" (vp.model.getCell(20 7)) ""
+        )
+
+        print "== a formula being typed sits on the cell's own line =="
+        ; The syntax painter draws a formula so its references keep their
+        ; colours, and it used to place the text at a fixed offset from the
+        ; cell's top corner — four pixels below the line every other cell in
+        ; the row is on, with the bottom of every letter cut off by the clip.
+        def al:GridApp (new GridApp)
+        al.init("gallery/pdf_writer/assets/fonts")
+        al.model.growTo(8 3)
+        al.model.setCell(2 1 "102")
+        al.model.setCell(4 1 "104")
+        al.sheetView.markDirty()
+        al.sheetView.rebuild()
+        al.grid.updateVisible(al.model)
+        GridEditTest.select(al 3 1)
+        al.beginEdit("=SUM(" true)
+        al.view.status = ""
+        al.view.editCaret = al.editCaret
+        al.view.windows = al.windows
+        def alDl:EVGDisplayList (al.view.buildDisplayList(al.model al.sel al.grid al.editing al.editBuf al.book))
+        def yAbove:int (GridEditTest.textY(alDl "102"))
+        def yEdit:int (GridEditTest.textY(alDl "=SUM("))
+        def yBelow:int (GridEditTest.textY(alDl "104"))
+        c.ok("the row above was found" (yAbove > 0))
+        c.ok("the row below too" (yBelow > 0))
+        ; One row apart above and below; the edited one exactly between them.
+        def step:int (idiv (yBelow - yAbove) 2)
+        c.eqInt("the formula is on its own row's line" yEdit (yAbove + step))
+
+        print "== a click only points where a reference could go =="
+        ; Excel calls this point mode. After a closing bracket there is nothing
+        ; a reference could mean, so a click there means what a click means
+        ; everywhere else: finish this edit and select what was clicked.
+        ; Without the distinction, clicking around after =SUM(F2:F14) appended
+        ; to it and produced =SUM(F2:F14)F19.
+        def pm:GridApp (new GridApp)
+        pm.init("gallery/pdf_writer/assets/fonts")
+        pm.model.growTo(24 6)
+        def pmr:int 0
+        while (pmr < 15) {
+            pm.model.setCellRaw(pmr 5 (to_string (pmr + 1)))
+            pmr = (pmr + 1)
+        }
+        pm.sheetView.markDirty()
+        pm.sheetView.rebuild()
+        pm.engine.rebuildAll()
+        pm.grid.updateVisible(pm.model)
+        GridEditTest.select(pm 17 1)
+        pm.beginEdit("=SUM(" true)
+        c.ok("after an opening bracket a click points" (pm.canPickAtCaret()))
+        def pmIn:UIInput (new UIInput)
+        def f2:GridRect (pm.grid.cellRect(pm.model 1 5))
+        pmIn.newFrame()
+        pmIn.setPointerPos((f2.x + 4) (f2.y + 4))
+        pmIn.setPointerDown(true)
+        pm.update(pmIn)
+        def f14:GridRect (pm.grid.cellRect(pm.model 13 5))
+        pmIn.newFrame()
+        pmIn.setPointerPos((f14.x + 4) (f14.y + 4))
+        pmIn.setPointerDown(true)
+        pm.update(pmIn)
+        pmIn.newFrame()
+        pmIn.setPointerPos((f14.x + 4) (f14.y + 4))
+        pmIn.setPointerDown(false)
+        pm.update(pmIn)
+        c.eqStr("dragging picks the range" pm.editBuf "=SUM(F2:F14"
+        )
+        pm.insertAtCaret(")")
+        c.ok("after the closing bracket it does not point" ((pm.canPickAtCaret()) == false))
+        def f19:GridRect (pm.grid.cellRect(pm.model 18 5))
+        pmIn.newFrame()
+        pmIn.setPointerPos((f19.x + 4) (f19.y + 4))
+        pmIn.setPointerDown(true)
+        pm.update(pmIn)
+        pmIn.newFrame()
+        pmIn.setPointerPos((f19.x + 4) (f19.y + 4))
+        pmIn.setPointerDown(false)
+        pm.update(pmIn)
+        c.ok("the click finished the edit instead" (pm.editing == false))
+        c.eqStr("with the formula it had" (pm.model.getFormula(17 1)) "SUM(F2:F14)"
+        )
+        c.eqStr("and the right answer" (pm.model.getCell(17 1)) "104"
+        )
+        c.eqInt("and selected what was clicked" pm.sel.active.row 18)
+        c.eqInt("in its column" pm.sel.active.col 5)
+        ; The operators a reference CAN follow.
+        c.ok("after an equals" (GridApp.startsReference(61)))
+        c.ok("after a comma" (GridApp.startsReference(44)))
+        c.ok("after a plus" (GridApp.startsReference(43)))
+        c.ok("but not after a bracket that closes" ((GridApp.startsReference(41)) == false))
+        c.ok("nor after a digit" ((GridApp.startsReference(53)) == false))
+        c.ok("nor after a letter" ((GridApp.startsReference(65)) == false))
+
         print "== the rest of the formatting commands =="
         GridEditTest.selectRange(tb 4 0 4 2)
         c.ok("centre" (tb.runCommand("format.align" "center")))
@@ -2309,6 +2737,14 @@ class GridEditTest {
         back.newFrame()
         back.addScrollX(20)
         scrollApp.update(back)
+        ; The wheel starts the sheet moving rather than stepping it, so a shove
+        ; this hard takes a moment to arrive. Let it come to rest.
+        def settle:int 0
+        while ((scrollApp.isCoasting()) && (settle < 600)) {
+            back.newFrame()
+            scrollApp.update(back)
+            settle = (settle + 1)
+        }
         c.eqInt("and it comes back to the first column" scrollApp.grid.firstVisibleCol 0)
 
         print "== vertical wheel follows UIInput (+up / -down) =="

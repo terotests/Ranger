@@ -1,0 +1,131 @@
+; ==============================================================================
+; SaveSpeedTest — a big sheet is written in time proportional to its size
+; ==============================================================================
+;
+; Loading a 500,000-row workbook took five seconds; saving the same workbook
+; never finished. Nothing in the writer looked quadratic — it built the sheet
+; XML the way every string is built in this codebase:
+;
+;     out = (out + "<row r=\"" + ... + "\">")
+;
+; On the JavaScript target that is a rope and costs nothing. On the C++ target
+; `out + x` builds a NEW std::string holding a copy of everything accumulated
+; so far, and then assigns it back. Appending a hundred and thirty megabytes
+; that way copies about nine petabytes. `str_append` — the in-place append
+; Lang.rgr already defines — copies only the suffix.
+;
+; A test that only checked the output would never see this: the file was
+; always CORRECT, it just took hours. So this one is about TIME, and it is
+; compiled to both targets because the defect only exists in one of them.
+; The budget below is deliberately loose — twenty seconds for work that now
+; takes well under one — so it fails on a quadratic writer and never on a
+; slow machine.
+;
+;   npm run datagrid:save:test
+; ==============================================================================
+
+Import "../src/WorkbookModel.rgr"
+Import "../src/SpreadsheetModel.rgr"
+Import "../src/xlsx/XlsxWriter.rgr"
+
+class SpeedCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class SaveSpeedTest {
+    ; Rows enough that a quadratic writer needs minutes and a linear one needs
+    ; milliseconds — 20,000 rows measured 13,552 ms before the fix and 76 ms
+    ; after it, on the same machine and the same compiler.
+    sfn rows:int () {
+        return 20000
+    }
+
+    sfn budgetMs:double () {
+        return 20000.0
+    }
+
+    sfn build:SpreadsheetModel (n:int) {
+        def s:SpreadsheetModel (new SpreadsheetModel)
+        s.name = "Data"
+        s.resize(n 8)
+        def a:string (strfromcode 228)
+        def town:string (("H" + a) + "meenlinna")
+        def r:int 0
+        while (r < n) {
+            s.setCellRaw(r 0 ("Row " + (to_string r)))
+            s.setCellRaw(r 1 (to_string r))
+            s.setCellRaw(r 2 "12.5")
+            s.setCellRaw(r 3 town)
+            s.setCellRaw(r 4 "Ben & Jerry <ice>")
+            r = (r + 1)
+        }
+        return s
+    }
+
+    sfn main:void () {
+        def c:SpeedCheck (new SpeedCheck)
+        print "== SaveSpeedTest =="
+
+        ; --- escaping, which the fast path rewrote from characters to runs ---
+        print "-- esc --"
+        c.eqStr("plain text is handed back" (XlsxWriter.esc("Hameenlinna")) "Hameenlinna")
+        c.eqStr("ampersand" (XlsxWriter.esc("Ben & Jerry")) "Ben &amp; Jerry")
+        c.eqStr("angle brackets" (XlsxWriter.esc("<b>x</b>")) "&lt;b&gt;x&lt;/b&gt;")
+        c.eqStr("quote" (XlsxWriter.esc("say \"hi\"")) "say &quot;hi&quot;")
+        c.eqStr("newline" (XlsxWriter.esc("a\nb")) "a&#10;b")
+        c.eqStr("tab becomes a space" (XlsxWriter.esc("a\tb")) "a b")
+        c.eqStr("empty" (XlsxWriter.esc("")) "")
+        c.eqStr("only a special" (XlsxWriter.esc("&")) "&amp;")
+        c.eqStr("specials at both ends" (XlsxWriter.esc("&x&")) "&amp;x&amp;")
+        c.eqStr("adjacent specials" (XlsxWriter.esc("<<>>")) "&lt;&lt;&gt;&gt;")
+        ; Accents survive because the untouched stretches are COPIED, not
+        ; rebuilt from character codes — the difference between the two string
+        ; models lives exactly here.
+        def a:string (strfromcode 228)
+        def town:string (("H" + a) + "meenlinna")
+        c.eqStr("accent, nothing to escape" (XlsxWriter.esc(town)) town)
+        c.eqStr("accent beside an escape" (XlsxWriter.esc((town + " & " + town))) (town + " &amp; " + town))
+
+        ; --- the sheet itself -------------------------------------------------
+        print "-- a big sheet --"
+        def n:int (SaveSpeedTest.rows())
+        def s:SpreadsheetModel (SaveSpeedTest.build(n))
+        def w:XlsxWriter (new XlsxWriter)
+
+        def t0:double (wall_clock_ms)
+        def xml:string (w.sheetXml(s))
+        def t1:double (wall_clock_ms)
+        def took:double (t1 - t0)
+        def ms:int (to_int took)
+        print ("  " + (to_string n) + " rows serialized in " + (to_string ms) + " ms")
+
+        c.ok("the sheet is complete" ((strlen xml) > (n * 100)))
+        c.ok("first row is there" ((indexOf xml "<row r=\"1\"") >= 0))
+        c.ok("last row is there" ((indexOf xml ("<row r=\"" + (to_string n) + "\"")) >= 0))
+        c.ok("text is escaped in place" ((indexOf xml "Ben &amp; Jerry &lt;ice&gt;") >= 0))
+        c.ok((("under the " + (to_string (to_int (SaveSpeedTest.budgetMs())))) + " ms budget") (took < (SaveSpeedTest.budgetMs())))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

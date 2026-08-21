@@ -145,42 +145,60 @@ class XlsxWriter {
         return out
     }
 
+    ; Most cell text has nothing in it that XML minds — a name, a number, a
+    ; date — so the loop below copies in RUNS rather than character by
+    ; character, and a string with nothing to escape is handed straight back
+    ; instead of being rebuilt into an identical copy of itself.
+    ;
+    ; Copied, not rebuilt: `(strfromcode (charAt s i))` is an identity only
+    ; where a string is code units. Where it is bytes, strfromcode encodes
+    ; each byte as a character and the file comes out with every accent
+    ; doubled — so the untouched stretches move with `substring`.
     sfn esc:string (s:string) {
+        def n:int (strlen s)
         def out:string ""
+        def run:int 0
         def i:int 0
-        while (i < (strlen s)) {
+        while (i < n) {
             def ch:int (charAt s i)
+            def rep:string ""
             if (ch == 38) {
-                out = (out + "&amp;")
+                rep = "&amp;"
             } {
                 if (ch == 60) {
-                    out = (out + "&lt;")
+                    rep = "&lt;"
                 } {
                     if (ch == 62) {
-                        out = (out + "&gt;")
+                        rep = "&gt;"
                     } {
                         if (ch == 34) {
-                            out = (out + "&quot;")
+                            rep = "&quot;"
                         } {
                             if (ch < 32) {
                                 if (ch == 10) {
-                                    out = (out + "&#10;")
+                                    rep = "&#10;"
                                 } {
-                                    out = (out + " ")
+                                    rep = " "
                                 }
-                            } {
-                                ; Copied, not rebuilt: `(strfromcode (charAt
-                                ; s i))` is an identity only where a string is
-                                ; code units. Where it is bytes, strfromcode
-                                ; encodes each byte as a character and the
-                                ; file comes out with every accent doubled.
-                                out = (out + (substring s i (i + 1)))
                             }
                         }
                     }
                 }
             }
+            if ((strlen rep) > 0) {
+                if (i > run) {
+                    str_append out (substring s run i)
+                }
+                str_append out rep
+                run = (i + 1)
+            }
             i = (i + 1)
+        }
+        if (run == 0) {
+            return s
+        }
+        if (n > run) {
+            str_append out (substring s run n)
         }
         return out
     }
@@ -231,28 +249,28 @@ class XlsxWriter {
         if (sz <= 0.0) {
             sz = 11.0
         }
-        x = (x + "<sz val=\"" + (XlsxWriter.numText(sz)) + "\"/>")
+        str_append x ("<sz val=\"" + (XlsxWriter.numText(sz)) + "\"/>")
         if st.bold {
-            x = (x + "<b/>")
+            str_append x "<b/>"
         }
         if st.italic {
-            x = (x + "<i/>")
+            str_append x "<i/>"
         }
         if st.underline {
-            x = (x + "<u/>")
+            str_append x "<u/>"
         }
         if st.strike {
-            x = (x + "<strike/>")
+            str_append x "<strike/>"
         }
         def col:string (XlsxWriter.argb(st.textRgb))
         if ((strlen col) > 0) {
-            x = (x + "<color rgb=\"" + col + "\"/>")
+            str_append x ("<color rgb=\"" + col + "\"/>")
         }
         def face:string st.fontName
         if ((strlen face) == 0) {
             face = "Calibri"
         }
-        x = (x + "<name val=\"" + face + "\"/></font>")
+        str_append x ("<name val=\"" + face + "\"/></font>")
         return (this.indexOfOrAdd(fontXml x))
     }
 
@@ -275,7 +293,7 @@ class XlsxWriter {
         def x:string ("<" + name + " style=\"" + b.style + "\">")
         def col:string (XlsxWriter.argb(b.rgb))
         if ((strlen col) > 0) {
-            x = (x + "<color rgb=\"" + col + "\"/>")
+            str_append x ("<color rgb=\"" + col + "\"/>")
         }
         return (x + "</" + name + ">")
     }
@@ -285,11 +303,11 @@ class XlsxWriter {
             return 0
         }
         def x:string "<border>"
-        x = (x + (XlsxWriter.edgeXml("left" st.borderLeft)))
-        x = (x + (XlsxWriter.edgeXml("right" st.borderRight)))
-        x = (x + (XlsxWriter.edgeXml("top" st.borderTop)))
-        x = (x + (XlsxWriter.edgeXml("bottom" st.borderBottom)))
-        x = (x + "<diagonal/></border>")
+        str_append x (XlsxWriter.edgeXml("left" st.borderLeft))
+        str_append x (XlsxWriter.edgeXml("right" st.borderRight))
+        str_append x (XlsxWriter.edgeXml("top" st.borderTop))
+        str_append x (XlsxWriter.edgeXml("bottom" st.borderBottom))
+        str_append x "<diagonal/></border>"
         return (this.indexOfOrAdd(borderXml x))
     }
 
@@ -345,65 +363,66 @@ class XlsxWriter {
             def xf:string ("<xf numFmtId=\"" + (to_string nid) + "\" fontId=\"" + (to_string fid) + "\" fillId=\"" + (to_string flid) + "\" borderId=\"" + (to_string bid) + "\" xfId=\"0\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\" applyNumberFormat=\"1\"")
             def align:string ""
             if (st.align != "left") {
-                align = (align + " horizontal=\"" + st.align + "\"")
+                str_append align (" horizontal=\"" + st.align + "\"")
             }
             if (st.valign != "bottom") {
-                align = (align + " vertical=\"" + st.valign + "\"")
+                str_append align (" vertical=\"" + st.valign + "\"")
             }
             if st.wrapText {
-                align = (align + " wrapText=\"1\"")
+                str_append align " wrapText=\"1\""
             }
             if (st.textRotation != 0) {
-                align = (align + " textRotation=\"" + (to_string st.textRotation) + "\"")
+                str_append align (" textRotation=\"" + (to_string st.textRotation) + "\"")
             }
             if ((strlen align) > 0) {
-                xf = (xf + " applyAlignment=\"1\"><alignment" + align + "/></xf>")
+                str_append xf (" applyAlignment=\"1\"><alignment" + align + "/></xf>")
             } {
-                xf = (xf + "/>")
+                str_append xf "/>"
             }
             push xfs xf
             i = (i + 1)
         }
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        out = (out + "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">")
+        str_append out "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
         if ((array_length fmtCode) > 0) {
-            out = (out + "<numFmts count=\"" + (to_string (array_length fmtCode)) + "\">")
+            str_append out ("<numFmts count=\"" + (to_string (array_length fmtCode)) + "\">")
             def f:int 0
             while (f < (array_length fmtCode)) {
-                out = (out + "<numFmt numFmtId=\"" + (to_string (itemAt fmtId f)) + "\" formatCode=\"" + (XlsxWriter.esc((itemAt fmtCode f))) + "\"/>")
+                str_append out ("<numFmt numFmtId=\"" + (to_string (itemAt fmtId f)) + "\" formatCode=\"" + (XlsxWriter.esc((itemAt fmtCode f))) + "\"/>")
                 f = (f + 1)
             }
-            out = (out + "</numFmts>")
+            str_append out "</numFmts>"
         }
-        out = (out + "<fonts count=\"" + (to_string (array_length fontXml)) + "\">")
+        str_append out ("<fonts count=\"" + (to_string (array_length fontXml)) + "\">")
         def a:int 0
         while (a < (array_length fontXml)) {
-            out = (out + (itemAt fontXml a))
+            str_append out (itemAt fontXml a)
             a = (a + 1)
         }
-        out = (out + "</fonts><fills count=\"" + (to_string (array_length fillXml)) + "\">")
+        str_append out ("</fonts><fills count=\"" + (to_string (array_length fillXml)) + "\">")
         def b:int 0
         while (b < (array_length fillXml)) {
-            out = (out + (itemAt fillXml b))
+            str_append out (itemAt fillXml b)
             b = (b + 1)
         }
-        out = (out + "</fills><borders count=\"" + (to_string (array_length borderXml)) + "\">")
+        str_append out ("</fills><borders count=\"" + (to_string (array_length borderXml)) + "\">")
         def c:int 0
         while (c < (array_length borderXml)) {
-            out = (out + (itemAt borderXml c))
+            str_append out (itemAt borderXml c)
             c = (c + 1)
         }
-        out = (out + "</borders>")
-        out = (out + "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>")
-        out = (out + "<cellXfs count=\"" + (to_string (array_length xfs)) + "\">")
+        str_append out "</borders>"
+        str_append out "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
+        str_append out ("<cellXfs count=\"" + (to_string (array_length xfs)) + "\">")
         def d:int 0
         while (d < (array_length xfs)) {
-            out = (out + (itemAt xfs d))
+            str_append out (itemAt xfs d)
             d = (d + 1)
         }
-        out = (out + "</cellXfs>")
-        out = (out + "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>")
-        return (out + "</styleSheet>")
+        str_append out "</cellXfs>"
+        str_append out "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>"
+        str_append out "</styleSheet>"
+        return out
     }
 
     ; One <r> per run, with only the properties the run actually overrides —
@@ -415,29 +434,29 @@ class XlsxWriter {
             def run:CellRun (itemAt rt.runs i)
             def props:string ""
             if run.bold {
-                props = (props + "<b/>")
+                str_append props "<b/>"
             }
             if run.italic {
-                props = (props + "<i/>")
+                str_append props "<i/>"
             }
             if run.underline {
-                props = (props + "<u/>")
+                str_append props "<u/>"
             }
             if run.strike {
-                props = (props + "<strike/>")
+                str_append props "<strike/>"
             }
             if (run.sizePt > 0.0) {
-                props = (props + "<sz val=\"" + (XlsxWriter.numText(run.sizePt)) + "\"/>")
+                str_append props ("<sz val=\"" + (XlsxWriter.numText(run.sizePt)) + "\"/>")
             }
             def col:string (XlsxWriter.argb(run.rgb))
             if ((strlen col) > 0) {
-                props = (props + "<color rgb=\"" + col + "\"/>")
+                str_append props ("<color rgb=\"" + col + "\"/>")
             }
-            out = (out + "<r>")
+            str_append out "<r>"
             if ((strlen props) > 0) {
-                out = (out + "<rPr>" + props + "</rPr>")
+                str_append out ("<rPr>" + props + "</rPr>")
             }
-            out = (out + "<t xml:space=\"preserve\">" + (XlsxWriter.esc(run.text)) + "</t></r>")
+            str_append out ("<t xml:space=\"preserve\">" + (XlsxWriter.esc(run.text)) + "</t></r>")
             i = (i + 1)
         }
         return out
@@ -462,8 +481,8 @@ class XlsxWriter {
         def lastR:int (m.usedRow())
         def lastC:int (m.usedCol())
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        out = (out + "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">")
-        out = (out + "<dimension ref=\"A1:" + (XlsxWriter.cellRef(lastR lastC)) + "\"/>")
+        str_append out "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+        str_append out ("<dimension ref=\"A1:" + (XlsxWriter.cellRef(lastR lastC)) + "\"/>")
         ; The sheet's own defaults. Everything below states only what DIFFERS
         ; from them — a file that repeated the default for every row and column
         ; would be correct and enormous — so leaving them unsaid means a
@@ -471,22 +490,22 @@ class XlsxWriter {
         ; a different shape than it went out.
         def defH:double (XlsxWriter.pxToRowPoints(m.defaultRowH))
         def defW:double (XlsxWriter.pxToColWidth(m.defaultColW))
-        out = (out + "<sheetFormatPr defaultRowHeight=\"" + (XlsxWriter.numText(defH)) + "\" defaultColWidth=\"" + (XlsxWriter.numText(defW)) + "\"/>")
+        str_append out ("<sheetFormatPr defaultRowHeight=\"" + (XlsxWriter.numText(defH)) + "\" defaultColWidth=\"" + (XlsxWriter.numText(defW)) + "\"/>")
 
         ; Freeze panes, as a pane element on the sheet view.
-        out = (out + "<sheetViews><sheetView workbookViewId=\"0\">")
+        str_append out "<sheetViews><sheetView workbookViewId=\"0\">"
         if ((m.freezeRows + m.freezeCols) > 0) {
             def topLeft:string (XlsxWriter.cellRef(m.freezeRows m.freezeCols))
-            out = (out + "<pane")
+            str_append out "<pane"
             if (m.freezeCols > 0) {
-                out = (out + " xSplit=\"" + (to_string m.freezeCols) + "\"")
+                str_append out (" xSplit=\"" + (to_string m.freezeCols) + "\"")
             }
             if (m.freezeRows > 0) {
-                out = (out + " ySplit=\"" + (to_string m.freezeRows) + "\"")
+                str_append out (" ySplit=\"" + (to_string m.freezeRows) + "\"")
             }
-            out = (out + " topLeftCell=\"" + topLeft + "\" activePane=\"bottomRight\" state=\"frozen\"/>")
+            str_append out (" topLeftCell=\"" + topLeft + "\" activePane=\"bottomRight\" state=\"frozen\"/>")
         }
-        out = (out + "</sheetView></sheetViews>")
+        str_append out "</sheetView></sheetViews>"
 
         ; Column widths and hidden flags, one <col> per column that differs
         ; from the default — a file that repeated the default for every column
@@ -498,19 +517,19 @@ class XlsxWriter {
             def w:int (m.colWidth(c))
             def hidden:boolean (m.isColHidden(c))
             if ((w != m.defaultColW) || hidden) {
-                cols = (cols + "<col min=\"" + (to_string (c + 1)) + "\" max=\"" + (to_string (c + 1)) + "\" width=\"" + (XlsxWriter.numText((XlsxWriter.pxToColWidth(w)))) + "\" customWidth=\"1\"")
+                str_append cols ("<col min=\"" + (to_string (c + 1)) + "\" max=\"" + (to_string (c + 1)) + "\" width=\"" + (XlsxWriter.numText((XlsxWriter.pxToColWidth(w)))) + "\" customWidth=\"1\"")
                 if hidden {
-                    cols = (cols + " hidden=\"1\"")
+                    str_append cols " hidden=\"1\""
                 }
-                cols = (cols + "/>")
+                str_append cols "/>"
             }
             c = (c + 1)
         }
         if ((strlen cols) > 0) {
-            out = (out + "<cols>" + cols + "</cols>")
+            str_append out ("<cols>" + cols + "</cols>")
         }
 
-        out = (out + "<sheetData>")
+        str_append out "<sheetData>"
         ; Rows are walked past the used range too: a hidden row or a custom
         ; height below the last value is still part of the sheet.
         def lastGeomR:int (m.rowCount - 1)
@@ -541,7 +560,7 @@ class XlsxWriter {
                     def ref:string (XlsxWriter.cellRef(r cc))
                     def tag:string ("<c r=\"" + ref + "\"")
                     if (sid >= 0) {
-                        tag = (tag + " s=\"" + (to_string (sid + 1)) + "\"")
+                        str_append tag (" s=\"" + (to_string (sid + 1)) + "\"")
                     }
                     def numeric:boolean (XlsxNumberFormat.wholeNumber(raw))
                     if ((strlen formula) > 0) {
@@ -549,57 +568,57 @@ class XlsxWriter {
                         ; value, which is what lets a reader show something
                         ; before it has an engine.
                         if (numeric == false) {
-                            tag = (tag + " t=\"str\"")
+                            str_append tag " t=\"str\""
                         }
-                        tag = (tag + "><f>" + (XlsxWriter.esc(formula)) + "</f>")
+                        str_append tag ("><f>" + (XlsxWriter.esc(formula)) + "</f>")
                         if ((strlen raw) > 0) {
-                            tag = (tag + "<v>" + (XlsxWriter.esc(raw)) + "</v>")
+                            str_append tag ("<v>" + (XlsxWriter.esc(raw)) + "</v>")
                         }
-                        tag = (tag + "</c>")
+                        str_append tag "</c>"
                     } {
                         if ((strlen raw) == 0) {
-                            tag = (tag + "/>")
+                            str_append tag "/>"
                         } {
                             if numeric {
-                                tag = (tag + "><v>" + raw + "</v></c>")
+                                str_append tag ("><v>" + raw + "</v></c>")
                             } {
                                 ; Text drawn in pieces goes out in pieces. An
                                 ; inline string can hold runs just as a shared
                                 ; one can, so nothing extra has to be written
                                 ; to another part of the package.
                                 if (m.hasRichText(r cc)) {
-                                    tag = (tag + " t=\"inlineStr\"><is>" + (XlsxWriter.runsXml((m.richTextAt(r cc)))) + "</is></c>")
+                                    str_append tag (" t=\"inlineStr\"><is>" + (XlsxWriter.runsXml((m.richTextAt(r cc)))) + "</is></c>")
                                 } {
-                                    tag = (tag + " t=\"inlineStr\"><is><t xml:space=\"preserve\">" + (XlsxWriter.esc(raw)) + "</t></is></c>")
+                                    str_append tag (" t=\"inlineStr\"><is><t xml:space=\"preserve\">" + (XlsxWriter.esc(raw)) + "</t></is></c>")
                                 }
                             }
                         }
                     }
-                    cells = (cells + tag)
+                    str_append cells tag
                 }
                 cc = (cc + 1)
             }
             def rowAttrs:string ""
             def h:int (m.rowHeight(r))
             if (h != m.defaultRowH) {
-                rowAttrs = (rowAttrs + " ht=\"" + (XlsxWriter.numText((XlsxWriter.pxToRowPoints(h)))) + "\" customHeight=\"1\"")
+                str_append rowAttrs (" ht=\"" + (XlsxWriter.numText((XlsxWriter.pxToRowPoints(h)))) + "\" customHeight=\"1\"")
             }
             if (m.isRowHidden(r)) {
-                rowAttrs = (rowAttrs + " hidden=\"1\"")
+                str_append rowAttrs " hidden=\"1\""
             }
             if ((strlen cells) > 0) {
-                out = (out + "<row r=\"" + (to_string (r + 1)) + "\"" + rowAttrs + ">" + cells + "</row>")
+                str_append out ("<row r=\"" + (to_string (r + 1)) + "\"" + rowAttrs + ">" + cells + "</row>")
             } {
                 if ((strlen rowAttrs) > 0) {
-                    out = (out + "<row r=\"" + (to_string (r + 1)) + "\"" + rowAttrs + "/>")
+                    str_append out ("<row r=\"" + (to_string (r + 1)) + "\"" + rowAttrs + "/>")
                 }
             }
             r = (r + 1)
         }
-        out = (out + "</sheetData>")
+        str_append out "</sheetData>"
 
         if ((array_length m.merges) > 0) {
-            out = (out + "<mergeCells count=\"" + (to_string (array_length m.merges)) + "\">")
+            str_append out ("<mergeCells count=\"" + (to_string (array_length m.merges)) + "\">")
             def mi:int 0
             while (mi < (array_length m.merges)) {
                 def parts:[string] (strsplit (itemAt m.merges mi) ",")
@@ -608,48 +627,49 @@ class XlsxWriter {
                     def mc1:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
                     def mr2:int (SpreadsheetModel.parseInt0((itemAt parts 2)))
                     def mc2:int (SpreadsheetModel.parseInt0((itemAt parts 3)))
-                    out = (out + "<mergeCell ref=\"" + (XlsxWriter.cellRef(mr1 mc1)) + ":" + (XlsxWriter.cellRef(mr2 mc2)) + "\"/>")
+                    str_append out ("<mergeCell ref=\"" + (XlsxWriter.cellRef(mr1 mc1)) + ":" + (XlsxWriter.cellRef(mr2 mc2)) + "\"/>")
                 }
                 mi = (mi + 1)
             }
-            out = (out + "</mergeCells>")
+            str_append out "</mergeCells>"
         }
 
         ; Validations come before hyperlinks in the schema's order, and a
         ; reader that checks the order will reject them the other way round.
         if ((m.validationCount()) > 0) {
-            out = (out + "<dataValidations count=\"" + (to_string (m.validationCount())) + "\">")
+            str_append out ("<dataValidations count=\"" + (to_string (m.validationCount())) + "\">")
             def vi:int 0
             while (vi < (array_length m.validations)) {
                 def v:DataValidation (itemAt m.validations vi)
-                out = (out + "<dataValidation type=\"" + v.kind + "\" operator=\"" + v.op + "\"")
+                str_append out ("<dataValidation type=\"" + v.kind + "\" operator=\"" + v.op + "\"")
                 if v.allowBlank {
-                    out = (out + " allowBlank=\"1\"")
+                    str_append out " allowBlank=\"1\""
                 }
                 if ((strlen v.errorTitle) > 0) {
-                    out = (out + " errorTitle=\"" + (XlsxWriter.esc(v.errorTitle)) + "\"")
+                    str_append out (" errorTitle=\"" + (XlsxWriter.esc(v.errorTitle)) + "\"")
                 }
                 if ((strlen v.errorText) > 0) {
-                    out = (out + " error=\"" + (XlsxWriter.esc(v.errorText)) + "\" showErrorMessage=\"1\"")
+                    str_append out (" error=\"" + (XlsxWriter.esc(v.errorText)) + "\" showErrorMessage=\"1\"")
                 }
-                out = (out + " sqref=\"" + (XlsxWriter.cellRef(v.r0 v.c0)) + ":" + (XlsxWriter.cellRef(v.r1 v.c1)) + "\">")
+                str_append out (" sqref=\"" + (XlsxWriter.cellRef(v.r0 v.c0)) + ":" + (XlsxWriter.cellRef(v.r1 v.c1)) + "\">")
                 if ((strlen v.f1) > 0) {
-                    out = (out + "<formula1>" + (XlsxWriter.esc(v.f1)) + "</formula1>")
+                    str_append out ("<formula1>" + (XlsxWriter.esc(v.f1)) + "</formula1>")
                 }
                 if ((strlen v.f2) > 0) {
-                    out = (out + "<formula2>" + (XlsxWriter.esc(v.f2)) + "</formula2>")
+                    str_append out ("<formula2>" + (XlsxWriter.esc(v.f2)) + "</formula2>")
                 }
-                out = (out + "</dataValidation>")
+                str_append out "</dataValidation>"
                 vi = (vi + 1)
             }
-            out = (out + "</dataValidations>")
+            str_append out "</dataValidations>"
         }
 
         def links:string (this.hyperlinksXml(m))
         if ((strlen links) > 0) {
-            out = (out + links)
+            str_append out links
         }
-        return (out + "</worksheet>")
+        str_append out "</worksheet>"
+        return out
     }
 
     ; External targets go through the sheet's relationship part; a target that
@@ -672,10 +692,10 @@ class XlsxWriter {
                     def lc:int (SpreadsheetModel.parseInt0((itemAt parts 1)))
                     def ref:string (XlsxWriter.cellRef(lr lc))
                     if ((charAt target 0) == 35) {
-                        out = (out + "<hyperlink ref=\"" + ref + "\" location=\"" + (XlsxWriter.esc((substring target 1 (strlen target)))) + "\"/>")
+                        str_append out ("<hyperlink ref=\"" + ref + "\" location=\"" + (XlsxWriter.esc((substring target 1 (strlen target)))) + "\"/>")
                     } {
                         rid = (rid + 1)
-                        out = (out + "<hyperlink ref=\"" + ref + "\" r:id=\"rId" + (to_string rid) + "\"/>")
+                        str_append out ("<hyperlink ref=\"" + ref + "\" r:id=\"rId" + (to_string rid) + "\"/>")
                     }
                 }
             }
@@ -700,7 +720,7 @@ class XlsxWriter {
             if ((strlen target) > 0) {
                 if ((charAt target 0) != 35) {
                     rid = (rid + 1)
-                    body = (body + "<Relationship Id=\"rId" + (to_string rid) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"" + (XlsxWriter.esc(target)) + "\" TargetMode=\"External\"/>")
+                    str_append body ("<Relationship Id=\"rId" + (to_string rid) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"" + (XlsxWriter.esc(target)) + "\" TargetMode=\"External\"/>")
                 }
             }
             i = (i + 1)
@@ -714,22 +734,23 @@ class XlsxWriter {
     ; --- package --------------------------------------------------------------
     fn contentTypesXml:string (book:WorkbookModel) {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        out = (out + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
-        out = (out + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
-        out = (out + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
-        out = (out + "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>")
+        str_append out "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+        str_append out "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+        str_append out "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+        str_append out "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
         def i:int 0
         while (i < (book.sheetCount())) {
-            out = (out + "<Override PartName=\"/xl/worksheets/sheet" + (to_string (i + 1)) + ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
+            str_append out ("<Override PartName=\"/xl/worksheets/sheet" + (to_string (i + 1)) + ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
             i = (i + 1)
         }
-        out = (out + "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>")
-        return (out + "</Types>")
+        str_append out "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
+        str_append out "</Types>"
+        return out
     }
 
     fn workbookXml:string (book:WorkbookModel) {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        out = (out + "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>")
+        str_append out "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>"
         def i:int 0
         while (i < (book.sheetCount())) {
             def sh:SpreadsheetModel (book.sheetAt(i))
@@ -737,27 +758,29 @@ class XlsxWriter {
             if ((strlen nm) == 0) {
                 nm = ("Sheet" + (to_string (i + 1)))
             }
-            out = (out + "<sheet name=\"" + (XlsxWriter.esc(nm)) + "\" sheetId=\"" + (to_string (i + 1)) + "\" r:id=\"rId" + (to_string (i + 1)) + "\"")
+            str_append out ("<sheet name=\"" + (XlsxWriter.esc(nm)) + "\" sheetId=\"" + (to_string (i + 1)) + "\" r:id=\"rId" + (to_string (i + 1)) + "\"")
             if sh.sheetHidden {
-                out = (out + " state=\"hidden\"")
+                str_append out " state=\"hidden\""
             }
-            out = (out + "/>")
+            str_append out "/>"
             i = (i + 1)
         }
-        return (out + "</sheets></workbook>")
+        str_append out "</sheets></workbook>"
+        return out
     }
 
     fn workbookRelsXml:string (book:WorkbookModel) {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        out = (out + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">")
+        str_append out "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
         def i:int 0
         while (i < (book.sheetCount())) {
-            out = (out + "<Relationship Id=\"rId" + (to_string (i + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet" + (to_string (i + 1)) + ".xml\"/>")
+            str_append out ("<Relationship Id=\"rId" + (to_string (i + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet" + (to_string (i + 1)) + ".xml\"/>")
             i = (i + 1)
         }
         def styleId:int ((book.sheetCount()) + 1)
-        out = (out + "<Relationship Id=\"rId" + (to_string styleId) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
-        return (out + "</Relationships>")
+        str_append out ("<Relationship Id=\"rId" + (to_string styleId) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
+        str_append out "</Relationships>"
+        return out
     }
 
     sfn addPart:void (z:ZipWriter name:string text:string) {

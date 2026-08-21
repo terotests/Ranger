@@ -114,6 +114,7 @@ const web = new (engineOrExplain("DataGridWeb", "datagrid_web.js", "datagrid:web
 web.start(canvas.width, canvas.height);
 
 let pointerDown = false;
+let lastCursor = "";
 let redraws = 0;
 let fpsT0 = performance.now();
 let lastScene = "";
@@ -235,6 +236,25 @@ function downloadWorkbook() {
   statusEl.textContent = "saved " + name;
 }
 
+/** A flick keeps moving after the wheel stops. The page only redraws when
+ *  something happens, so while the sheet is still coasting, something is. One
+ *  loop at a time — a second flick feeds the same one rather than starting a
+ *  race between two. */
+let coasting = false;
+async function coast() {
+  if (coasting) return;
+  coasting = true;
+  try {
+    while (web.coasting()) {
+      await new Promise((done) => requestAnimationFrame(() => done()));
+      web.idle();
+      await draw();
+    }
+  } finally {
+    coasting = false;
+  }
+}
+
 async function afterInput() {
   serveFileRequest();
   await draw();
@@ -320,8 +340,17 @@ canvas.addEventListener("pointerdown", async (ev) => {
 });
 
 canvas.addEventListener("pointermove", async (ev) => {
-  if (!pointerDown) return;
   const { x, y } = canvasCoords(ev);
+  // What the pointer is over, said out loud. The app answers with a kind and
+  // the facade turns it into a CSS name; a window turns the same kind into a
+  // system cursor. Cheap enough to ask on every move, and only written when
+  // it changes so the browser is not asked to restyle for nothing.
+  const want = web.cursorAt(x, y);
+  if (want !== lastCursor) {
+    canvas.style.cursor = want;
+    lastCursor = want;
+  }
+  if (!pointerDown) return;
   web.pointer(x, y, true, ev.shiftKey, ev.ctrlKey || ev.metaKey);
   await afterInput();
 });
@@ -352,6 +381,7 @@ canvas.addEventListener(
     if (horizontal) web.wheelX(x, y, raw < 0 ? 1 : -1);
     else web.wheel(x, y, raw < 0 ? 1 : -1);
     await afterInput();
+    coast();
   },
   { passive: false }
 );

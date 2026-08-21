@@ -139,6 +139,32 @@ class SheetView {
         this.mergeSortRows(rows tmp 0 n col asc)
     }
 
+    ; The order EVERY row would be in if the sheet were sorted by `col`.
+    ;
+    ; `rowOrder` is not this: it leaves out whatever is hidden or filtered
+    ; away, which is right for drawing and wrong for reordering the data,
+    ; where every row has to be named exactly once. Header rows stay where
+    ; they are, as they do on screen.
+    fn sortedOrder:void (col:int asc:boolean out:[int]) {
+        clear out
+        sortHeadRows = model.freezeRows
+        if (sortHeadRows == 0) {
+            sortHeadRows = (this.inferHeaderRows())
+        }
+        def all:[int]
+        def r:int 0
+        while (r < model.rowCount) {
+            push all r
+            r = (r + 1)
+        }
+        this.sortRows(all col asc)
+        def i:int 0
+        while (i < (array_length all)) {
+            push out (itemAt all i)
+            i = (i + 1)
+        }
+    }
+
     ; Keep a styled table heading (or a text heading over numeric data) above
     ; the sorted body even when the sheet did not explicitly freeze row 1.
     fn inferHeaderRows:int () {

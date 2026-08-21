@@ -174,7 +174,7 @@ class WorkbookTest {
         app.render()
         c.ok("framebuffer" ((buffer_length (app.raw())) > 1000))
         app.applySort(1 true)
-        c.ok("sort applied" (app.model.sortCol == 1))
+        c.ok("sort applied" (app.model.sortedCol == 1))
         def fvals:[string]
         push fvals "North"
         app.applyFilter(1 fvals)
@@ -237,14 +237,20 @@ class WorkbookTest {
         sf.sheetView.rebuild()
         sf.engine.rebuildAll()
         sf.applySort(0 true)
-        c.eqInt("sorted body first" (sf.sheetView.modelRow(1)) 2)
-        c.eqInt("sorted body second" (sf.sheetView.modelRow(2)) 3)
-        c.eqInt("sorted body third" (sf.sheetView.modelRow(3)) 1)
-        ; Edit the model row that held 3 (row 1) to 0 — view must re-order.
+        ; The DATA is in order now — the view is not permuting anything, which
+        ; is why what gets saved matches what is on screen.
+        c.eqStr("sorted body first" (sf.model.getCell(1 0)) "1"
+        )
+        c.eqStr("sorted body second" (sf.model.getCell(2 0)) "2"
+        )
+        c.eqStr("sorted body third" (sf.model.getCell(3 0)) "3"
+        )
+        c.eqStr("the frozen heading stayed on top" (sf.model.getCell(0 0)) "H"
+        )
+        ; Editing after a sort writes where it looks like it should.
         sf.sel.setActive(1 0)
         sf.beginEdit("0" true)
         sf.commitEdit()
-        c.eqInt("after edit lowest first" (sf.sheetView.modelRow(1)) 1)
         c.eqStr("model value updated" (sf.model.getCell(1 0)) "0")
         ; Filter: only "North" — changing it to South must drop the row.
         sf.clearFilter()
@@ -277,10 +283,11 @@ class WorkbookTest {
         ev.sheetView.markDirty()
         ev.sheetView.rebuild()
         ev.applySort(0 true)
-        ; Model row 19 has value 1 → first body row in sorted view.
-        c.eqInt("row 19 is first body" (ev.sheetView.modelRow(1)) 19)
+        ; The row that held 1 is the first body row now — really, in the data.
+        c.eqStr("smallest first after the sort" (ev.model.getCell(1 0)) "1"
+        )
         ev.grid.scrollY = 500
-        ev.grid.ensureCellVisible(ev.model 19 0)
+        ev.grid.ensureCellVisible(ev.model 1 0)
         c.ok("scrolled to view top not model-row Y" (ev.grid.scrollY < 50))
 
         print "== merge width ignores hidden columns =="

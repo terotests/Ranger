@@ -128,6 +128,9 @@ class DataGridSdl {
             k = (dgfx_pop_key)
         }
         app.update(input)
+        ; What the pointer is over, said out loud. Every edge you can drag and
+        ; every field you can type in should say so before you press it.
+        dgfx_set_cursor (app.cursorAt(mx my))
         this.serveFileRequest()
         this.serveMenuAction()
     }

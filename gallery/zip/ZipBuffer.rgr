@@ -203,40 +203,65 @@ class ZipBuffer {
 }
 
 ; GrowableZipBuffer - Dynamic buffer that grows as needed
+; A ZIP is written front to back and its size is not known until it is
+; finished, so the bytes land in a chain of fixed chunks and are consolidated
+; once at the end. Two things matter for a big sheet — a 500,000-row export is
+; well over a hundred megabytes — and neither is about the chunking itself:
+;
+;   * Bytes move in BLOCKS. `buffer_copy` is memmove on the native target and
+;     a tight loop on the others; copying a hundred megabytes one
+;     `writeUint8` call at a time is the same work with a function call
+;     around every byte of it.
+;   * A chunk remembers how full it is. The old code assumed every chunk in
+;     the list was exactly `chunkSize` long, which is true only while nobody
+;     changes the chunk size — and silently writes garbage the moment
+;     somebody does.
 class GrowableZipBuffer {
     def chunks:[buffer]
-    def chunkSize:int 4096
+    def chunkLens:[int]
+    def chunkSize:int 65536
     def currentChunk:buffer (buffer_alloc 0)
     def currentPos:int 0
     def totalSize:int 0
-    
+
     Constructor () {
         currentPos = 0
         totalSize = 0
-        def initSize:int 4096
+        def initSize:int chunkSize
         currentChunk = (buffer_alloc initSize)
     }
-    
+
+    ; Only meaningful before the first byte: the chunk being filled was
+    ; allocated at the old size and cannot be re-cut underneath itself.
     fn setChunkSize:void (size:int) {
+        if (size < 1) {
+            return
+        }
+        if (totalSize > 0) {
+            return
+        }
         chunkSize = size
+        currentChunk = (buffer_alloc size)
+        currentPos = 0
     }
-    
+
     fn allocateNewChunk:void () {
         push chunks currentChunk
+        push chunkLens currentPos
         def size:int chunkSize
         currentChunk = (buffer_alloc size)
         currentPos = 0
     }
-    
+
     fn writeUint8:void (value:int) {
         if (currentPos >= chunkSize) {
             this.allocateNewChunk()
         }
         buffer_set currentChunk currentPos value
-        currentPos = currentPos + 1
-        totalSize = totalSize + 1
+        currentPos = (currentPos + 1)
+        totalSize = (totalSize + 1)
     }
-    
+
     fn writeUint16LE:void (value:int) {
         def b0:int (value % 256)
         def b1D:double ((to_double value) / 256.0)
@@ -244,7 +269,7 @@ class GrowableZipBuffer {
         this.writeUint8(b0)
         this.writeUint8(b1)
     }
-    
+
     fn writeUint32LE:void (value:int) {
         def b0:int (value % 256)
         def rem1D:double ((to_double value) / 256.0)
@@ -260,21 +285,32 @@ class GrowableZipBuffer {
         this.writeUint8(b2)
         this.writeUint8(b3)
     }
-    
+
     fn writeBytes:void (src:buffer srcOffset:int count:int) {
-        def i 0
-        while (i < count) {
-            def b:int (buffer_get src (srcOffset + i))
-            this.writeUint8(b)
-            i = i + 1
+        def left:int count
+        def at:int srcOffset
+        while (left > 0) {
+            if (currentPos >= chunkSize) {
+                this.allocateNewChunk()
+            }
+            def room:int (chunkSize - currentPos)
+            def take:int left
+            if (take > room) {
+                take = room
+            }
+            buffer_copy currentChunk currentPos src at take
+            currentPos = (currentPos + take)
+            totalSize = (totalSize + take)
+            at = (at + take)
+            left = (left - take)
         }
     }
-    
+
     fn writeBuffer:void (src:buffer) {
         def len:int (buffer_length src)
         this.writeBytes(src 0 len)
     }
-    
+
     fn writeString:void (s:string) {
         def len:int (strlen s)
         def i 0
@@ -284,44 +320,37 @@ class GrowableZipBuffer {
             i = i + 1
         }
     }
-    
+
     fn getSize:int () {
         return totalSize
     }
-    
+
     fn toBuffer:buffer () {
         ; Consolidate all chunks into a single buffer
         def size:int totalSize
         def result:buffer (buffer_alloc size)
         def destPos:int 0
-        
-        ; Copy all complete chunks
+
         def numChunks:int (array_length chunks)
-        def chSize:int chunkSize
         def i 0
         while (i < numChunks) {
             def chunk:buffer (itemAt chunks i)
-            def j 0
-            while (j < chSize) {
-                def b:int (buffer_get chunk j)
-                buffer_set result destPos b
-                destPos = destPos + 1
-                j = j + 1
+            def used:int (itemAt chunkLens i)
+            if (used > 0) {
+                buffer_copy result destPos chunk 0 used
+                destPos = (destPos + used)
             }
             i = i + 1
         }
-        
+
         ; Copy current chunk (partial)
         def curPos:int currentPos
-        def curChunk:buffer currentChunk
-        def j 0
-        while (j < curPos) {
-            def b:int (buffer_get curChunk j)
-            buffer_set result destPos b
-            destPos = destPos + 1
-            j = j + 1
+        if (curPos > 0) {
+            def curChunk:buffer currentChunk
+            buffer_copy result destPos curChunk 0 curPos
+            destPos = (destPos + curPos)
         }
-        
+
         return result
     }
 }
