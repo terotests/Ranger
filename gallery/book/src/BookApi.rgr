@@ -1,0 +1,425 @@
+; ==============================================================================
+; BookApi.rgr - the whole engine behind one object
+; ==============================================================================
+;
+; A book editor needs two faces. One is the UI, which wants to poke at the
+; model directly - move a frame, retype a paragraph, re-flow. The other is the
+; API: a script, a server route or a batch job that wants to hand over a story
+; and some photographs and get a printable book back.
+;
+;     def api (BookApi.create("The Bear" "square-210"))
+;     api.defaultStyles()
+;     def s:BookStory (api.story("main"))
+;     s.addParagraph("Once upon a time..." "body")
+;     api.asset("p1" "photos/1.jpg" 2400.0 1800.0)
+;     api.autoLayout("main" "story")
+;     api.writeSpreads("./out" "spread")
+;     print (api.summary())
+;
+; Nothing here is new capability - it is BookModel, BookFlow, BookAutoLayout,
+; BookRender and BookPreflight with the wiring already done, and one rule
+; enforced: any call that changes the document invalidates the flow, so an
+; export can never quietly ship a stale layout.
+; ==============================================================================
+
+Import "BookAutoLayout.rgr"
+Import "BookRender.rgr"
+Import "BookPreflight.rgr"
+
+class BookApi {
+    def doc:BookDocument (new BookDocument())
+    def flowEngine:BookFlowEngine (new BookFlowEngine())
+    def auto:BookAutoLayout (new BookAutoLayout())
+    def renderer:BookRenderer (new BookRenderer())
+    def preflight:BookPreflight (new BookPreflight())
+    def flow:BookFlowResult (new BookFlowResult())
+    ; False whenever the document changed after the last flow.
+    def flowValid:boolean false
+
+    Constructor () {
+        ; One flow engine, shared with the auto-layout, so that installing a
+        ; real font measurer once affects every measurement in the book.
+        auto.setEngine(flowEngine)
+        flowValid = false
+    }
+
+    sfn create:BookApi (title:string format:string) {
+        def api (new BookApi())
+        api.doc.title = title
+        api.doc.setFormat(format)
+        return api
+    }
+
+    ; Install a text engine backed by real font faces. Do this before laying
+    ; anything out: measuring with guessed widths and printing with real ones
+    ; is how a preview and a proof end up disagreeing.
+    fn useTextEngine:void (e:EVGTextEngine) {
+        flowEngine.setTextEngine(e)
+        flowValid = false
+    }
+
+    fn invalidate:void () {
+        flowValid = false
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Authoring
+    ; ---------------------------------------------------------------------
+
+    ; A serviceable set of styles, so that a caller who does not care about
+    ; typography still gets a book rather than an error.
+    fn defaultStyles:void () {
+        def title (BookStyle.create("title" "Noto Sans" 34.0))
+        title.bold = true
+        title.align = "center"
+        title.spaceAfter = 12.0
+        doc.addStyle(title)
+
+        def subtitle (BookStyle.create("subtitle" "Noto Sans" 15.0))
+        subtitle.align = "center"
+        subtitle.color = "#555555"
+        doc.addStyle(subtitle)
+
+        def chapter (BookStyle.create("chapter" "Noto Sans" 22.0))
+        chapter.bold = true
+        chapter.spaceBefore = 18.0
+        chapter.spaceAfter = 10.0
+        chapter.keepWithNext = true
+        chapter.startsNewPage = true
+        doc.addStyle(chapter)
+
+        def body (BookStyle.create("body" "Noto Sans" 12.0))
+        body.leading = 18.0
+        body.spaceAfter = 6.0
+        body.orphans = 2
+        body.widows = 2
+        doc.addStyle(body)
+
+        def caption (BookStyle.create("caption" "Noto Sans" 9.0))
+        caption.color = "#666666"
+        caption.italic = true
+        ; A caption is short by nature, so widow control would only push whole
+        ; captions around for no gain.
+        caption.orphans = 1
+        caption.widows = 1
+        doc.addStyle(caption)
+
+        def folio (BookStyle.create("folio" "Noto Sans" 9.0))
+        folio.color = "#888888"
+        doc.addStyle(folio)
+        flowValid = false
+    }
+
+    fn addStyle:BookStyle (s:BookStyle) {
+        flowValid = false
+        return (doc.addStyle(s))
+    }
+
+    fn style:BookStyle (name:string family:string size:double) {
+        def s (BookStyle.create(name family size))
+        doc.addStyle(s)
+        flowValid = false
+        return s
+    }
+
+    ; Returns the story, creating it the first time it is asked for.
+    fn story:BookStory (id:string) {
+        flowValid = false
+        if (doc.hasStory(id)) {
+            return (doc.storyFor(id))
+        }
+        return (doc.newStory(id))
+    }
+
+    fn addText:BookParagraph (storyId:string body:string styleName:string) {
+        def s:BookStory (this.story(storyId))
+        flowValid = false
+        return (s.addParagraph(body styleName))
+    }
+
+    fn asset:BookAsset (id:string path:string w:double h:double) {
+        def a (BookAsset.create(id path w h))
+        doc.addAsset(a)
+        flowValid = false
+        return a
+    }
+
+    fn master:BookMasterPage (name:string) {
+        if (doc.hasMaster(name)) {
+            return (doc.masterFor(name))
+        }
+        def m (BookMasterPage.create(name))
+        doc.addMaster(m)
+        flowValid = false
+        return m
+    }
+
+    fn page:BookPage (masterName:string) {
+        flowValid = false
+        return (doc.newPage(masterName))
+    }
+
+    fn titlePage:BookPage () {
+        flowValid = false
+        return (auto.addTitlePage(doc))
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Layout
+    ; ---------------------------------------------------------------------
+
+    ; Every asset in the document, in the order it was added.
+    fn allAssetIds:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length doc.assets)) {
+            def a:BookAsset (itemAt doc.assets i)
+            push out a.id
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn autoLayout:BookAutoLayoutResult (storyId:string masterName:string) {
+        def ids:[string] (this.allAssetIds())
+        return (this.autoLayoutWith(storyId ids masterName))
+    }
+
+    fn autoLayoutWith:BookAutoLayoutResult (storyId:string assetIds:[string] masterName:string) {
+        def r:BookAutoLayoutResult (auto.build(doc storyId assetIds masterName))
+        ; The auto layout's own flow covers the story it was given. A document
+        ; may hold others - front matter, a colophon - so the API's flow is the
+        ; merged one, or an export would silently drop them.
+        this.reflow()
+        return r
+    }
+
+    ; Re-flow every story in the document. Cheap enough to call after any edit;
+    ; the export paths call it themselves if the document moved underneath them.
+    fn reflow:BookFlowResult () {
+        def r:BookFlowResult (flowEngine.flowAll(doc))
+        flow = r
+        flowValid = true
+        return r
+    }
+
+    fn ensureFlow:void () {
+        if (flowValid == false) {
+            this.reflow()
+        }
+    }
+
+    fn runPreflight:BookPreflightReport () {
+        this.ensureFlow()
+        def report:BookPreflightReport (preflight.run(doc flow))
+        preflight.addFontWarnings(flowEngine report)
+        return report
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Output
+    ; ---------------------------------------------------------------------
+
+    fn pageSvg:string (index:int) {
+        this.ensureFlow()
+        return (renderer.pageSvg(doc flow index))
+    }
+
+    fn spreadSvg:string (index:int) {
+        this.ensureFlow()
+        return (renderer.spreadSvg(doc flow index))
+    }
+
+    fn tsx:string () {
+        this.ensureFlow()
+        return (renderer.documentTsx(doc flow))
+    }
+
+    fn writePages:int (dir:string prefix:string) {
+        this.ensureFlow()
+        def n:int 0
+        def i:int 0
+        while (i < (doc.pageCount())) {
+            def svg:string (renderer.pageSvg(doc flow i))
+            def num:string (BookApi.pad(i + 1))
+            def name:string (prefix + "-" + num + ".svg")
+            write_file dir name svg
+            n = (n + 1)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn writeSpreads:int (dir:string prefix:string) {
+        this.ensureFlow()
+        def n:int 0
+        def total:int (doc.spreadCount())
+        def i:int 0
+        while (i < total) {
+            def svg:string (renderer.spreadSvg(doc flow i))
+            def num:string (BookApi.pad(i + 1))
+            def name:string (prefix + "-" + num + ".svg")
+            write_file dir name svg
+            n = (n + 1)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn writeTsx:void (dir:string name:string) {
+        def body:string (this.tsx())
+        write_file dir name body
+    }
+
+    sfn pad:string (n:int) {
+        if (n < 10) {
+            return ("00" + (to_string n))
+        }
+        if (n < 100) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Reporting
+    ; ---------------------------------------------------------------------
+
+    fn wordCount:int () {
+        def total:int 0
+        def si:int 0
+        while (si < (array_length doc.stories)) {
+            def s:BookStory (itemAt doc.stories si)
+            def pi:int 0
+            while (pi < (array_length s.paragraphs)) {
+                def p:BookParagraph (itemAt s.paragraphs pi)
+                def words:[string] (strsplit p.text " ")
+                def wi:int 0
+                while (wi < (array_length words)) {
+                    def w:string (itemAt words wi)
+                    if ((strlen w) > 0) {
+                        total = (total + 1)
+                    }
+                    wi = (wi + 1)
+                }
+                pi = (pi + 1)
+            }
+            si = (si + 1)
+        }
+        return total
+    }
+
+    fn summary:string () {
+        this.ensureFlow()
+        def out:string ""
+        out = (out + doc.title)
+        if ((strlen doc.author) > 0) {
+            out = (out + " - " + doc.author)
+        }
+        out = (out + "\n")
+        out = (out + "  format     " + doc.format + " (" + (BookRenderer.num(doc.pageWidth)) + " x " + (BookRenderer.num(doc.pageHeight)) + " pt)\n")
+        out = (out + "  pages      " + (to_string (doc.pageCount())) + " in " + (to_string (doc.spreadCount())) + " spreads\n")
+        out = (out + "  stories    " + (to_string (array_length doc.stories)) + ", " + (to_string (this.wordCount())) + " words\n")
+        out = (out + "  images     " + (to_string (array_length doc.assets)) + "\n")
+        out = (out + "  lines set  " + (to_string (flow.lineCount())) + "\n")
+        if flow.overflow {
+            out = (out + "  OVERSET    the story does not fit the frames\n")
+        }
+        return out
+    }
+
+    ; A machine-readable view of the laid-out book, for a host that draws the
+    ; editor. Deliberately a projection rather than the model: it carries where
+    ; things ended up, which is what a canvas needs, not how they got there.
+    fn toJson:string () {
+        this.ensureFlow()
+        def out:string "{\n"
+        out = (out + "  \"title\": \"" + (BookApi.jsonString(doc.title)) + "\",\n")
+        out = (out + "  \"author\": \"" + (BookApi.jsonString(doc.author)) + "\",\n")
+        out = (out + "  \"format\": \"" + (BookApi.jsonString(doc.format)) + "\",\n")
+        out = (out + "  \"pageWidth\": " + (BookRenderer.num(doc.pageWidth)) + ",\n")
+        out = (out + "  \"pageHeight\": " + (BookRenderer.num(doc.pageHeight)) + ",\n")
+        out = (out + "  \"overset\": " + (BookApi.jsonBool(flow.overflow)) + ",\n")
+        out = (out + "  \"pages\": [\n")
+        def pi:int 0
+        while (pi < (doc.pageCount())) {
+            def page:BookPage (doc.pageAt(pi))
+            out = (out + "    {\n")
+            out = (out + "      \"index\": " + (to_string page.index) + ",\n")
+            def rectoText:string (BookApi.jsonBool((page.isRecto())))
+            out = (out + "      \"recto\": " + rectoText + ",\n")
+            out = (out + "      \"frames\": [\n")
+            def fi:int 0
+            while (fi < (array_length page.frames)) {
+                def f:BookFrame (itemAt page.frames fi)
+                out = (out + "        {\"id\": \"" + (BookApi.jsonString(f.id)) + "\"")
+                out = (out + ", \"kind\": \"" + f.kind + "\"")
+                out = (out + ", \"x\": " + (BookRenderer.num(f.x)))
+                out = (out + ", \"y\": " + (BookRenderer.num(f.y)))
+                out = (out + ", \"w\": " + (BookRenderer.num(f.w)))
+                out = (out + ", \"h\": " + (BookRenderer.num(f.h)))
+                if ((strlen f.storyId) > 0) {
+                    out = (out + ", \"story\": \"" + (BookApi.jsonString(f.storyId)) + "\"")
+                }
+                if ((strlen f.nextFrameId) > 0) {
+                    out = (out + ", \"next\": \"" + (BookApi.jsonString(f.nextFrameId)) + "\"")
+                }
+                if ((strlen f.assetId) > 0) {
+                    out = (out + ", \"asset\": \"" + (BookApi.jsonString(f.assetId)) + "\"")
+                }
+                if f.overflowed {
+                    out = (out + ", \"overflowed\": true")
+                }
+                out = (out + "}")
+                def isLastFrame:boolean ((fi + 1) == (array_length page.frames))
+                if (isLastFrame == false) {
+                    out = (out + ",")
+                }
+                out = (out + "\n")
+                fi = (fi + 1)
+            }
+            out = (out + "      ]\n")
+            out = (out + "    }")
+            def isLastPage:boolean ((pi + 1) == (doc.pageCount()))
+            if (isLastPage == false) {
+                out = (out + ",")
+            }
+            out = (out + "\n")
+            pi = (pi + 1)
+        }
+        out = (out + "  ]\n")
+        out = (out + "}\n")
+        return out
+    }
+
+    sfn jsonBool:string (v:boolean) {
+        if v {
+            return "true"
+        }
+        return "false"
+    }
+
+    sfn jsonString:string (body:string) {
+        def out:string ""
+        def total:int (strlen body)
+        def k:int 0
+        while (k < total) {
+            def c:string (substring body k (k + 1))
+            if (c == "\\") {
+                out = (out + "\\\\")
+            } {
+                if (c == "\"") {
+                    out = (out + "\\\"")
+                } {
+                    if (c == "\n") {
+                        out = (out + "\\n")
+                    } {
+                        out = (out + c)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}

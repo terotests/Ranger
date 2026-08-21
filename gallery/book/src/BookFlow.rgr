@@ -1,0 +1,572 @@
+; ==============================================================================
+; BookFlow.rgr - continuous text in, paginated text out
+; ==============================================================================
+;
+; This is the Paged.js question asked in Ranger:
+;
+;     long story
+;         v  measure
+;     fill the column
+;         v  overflow?
+;     next column / next frame / next page
+;         v
+;     repeat until the story runs out, or the frames do
+;
+; Two rules make the difference between this and a naive "chop at the bottom
+; edge" loop, and both come from typography rather than from geometry:
+;
+;   orphans  a paragraph may not leave one line alone at the foot of a column
+;   widows   it may not carry one line alone to the top of the next
+;
+; Enforcing them is what forces the engine to be able to *retract* a decision:
+; it lays lines down, discovers the split is ugly, and pushes the whole
+; paragraph forward. A one-pass filler cannot do that, which is why the
+; paragraph - not the line - is the unit this loop works in.
+;
+; Measurement goes through EVGTextEngine, the module that exists so that layout
+; and paint cannot disagree about where a line breaks. The engine measures whole
+; candidate lines, so the real space advance is included; this file adds only
+; what a paragraph needs on top of that: a narrower first line when the style
+; indents, and a hard break at an explicit newline.
+; ==============================================================================
+
+Import "BookModel.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+; One line, placed. Everything a renderer needs is here, so the renderer never
+; has to look back at the document - it walks lines and draws them.
+class BookLine {
+    def text:string ""
+    ; Left edge of the line box (the column, not the glyphs).
+    def x:double 0.0
+    ; Top of the line box, and the baseline within it.
+    def top:double 0.0
+    def baseline:double 0.0
+    def lineHeight:double 0.0
+    ; Measured width of the glyphs.
+    def width:double 0.0
+    ; Width available to the line - what justification stretches into.
+    def maxWidth:double 0.0
+
+    def fontFamily:string "Noto Sans"
+    def fontSize:double 11.0
+    def color:string "#111111"
+    def align:string "left"
+    def bold:boolean false
+    def italic:boolean false
+
+    def frameId:string ""
+    def pageIndex:int 0
+    def column:int 0
+    def storyId:string ""
+    def paragraphIndex:int 0
+    def lineIndex:int 0
+    def lastOfParagraph:boolean false
+
+    Constructor () {
+        text = ""
+        fontFamily = "Noto Sans"
+        fontSize = 11.0
+        color = "#111111"
+        align = "left"
+    }
+
+    ; A justified line stretches unless it is the line that ends the paragraph -
+    ; stretching that one is the classic amateur giveaway.
+    fn stretches:boolean () {
+        if (align != "justify") {
+            return false
+        }
+        if lastOfParagraph {
+            return false
+        }
+        return true
+    }
+}
+
+; A candidate line, before it is known which column it lands in.
+class BookBrokenLine {
+    def text:string ""
+    def width:double 0.0
+    def ascent:double 0.0
+    def descent:double 0.0
+    def indent:double 0.0
+
+    Constructor () {
+        text = ""
+        width = 0.0
+        ascent = 0.0
+        descent = 0.0
+        indent = 0.0
+    }
+}
+
+class BookFlowResult {
+    def storyId:string ""
+    def lines:[BookLine]
+    ; True when the frames ran out before the story did - the state an editor
+    ; has to show, because the missing text is invisible by definition.
+    def overflow:boolean false
+    def overflowParagraph:int -1
+    def overflowLine:int -1
+    def framesUsed:int 0
+    def lastPage:int -1
+    def messages:[string]
+
+    Constructor () {
+        overflow = false
+        overflowParagraph = -1
+        overflowLine = -1
+        framesUsed = 0
+        lastPage = -1
+    }
+
+    fn lineCount:int () {
+        return (array_length lines)
+    }
+
+    fn lineAt:BookLine (i:int) {
+        return (itemAt lines i)
+    }
+
+    fn linesOnPage:[BookLine] (pageIndex:int) {
+        def out:[BookLine]
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:BookLine (itemAt lines i)
+            if (ln.pageIndex == pageIndex) {
+                push out ln
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn linesInFrame:[BookLine] (frameId:string) {
+        def out:[BookLine]
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:BookLine (itemAt lines i)
+            if (ln.frameId == frameId) {
+                push out ln
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn note:void (msg:string) {
+        push messages msg
+    }
+}
+
+; Where the flow currently is: a paragraph, and how far into it.
+class BookFlowCursor {
+    def paragraph:int 0
+    def line:int 0
+
+    Constructor () {
+        paragraph = 0
+        line = 0
+    }
+}
+
+class BookFlowEngine {
+    def text:EVGTextEngine (new EVGTextEngine())
+    ; Set when a frame is too small for even one line - a layout bug the author
+    ; needs told about rather than silently dropped text.
+    def strictFit:boolean false
+
+    Constructor () {
+    }
+
+    fn setTextEngine:void (e:EVGTextEngine) {
+        text = e
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Breaking one paragraph
+    ; ---------------------------------------------------------------------
+
+    ; Greedy wrap, with two things EVGTextEngine.breakLines does not do because
+    ; nothing else needed them: a first line that is narrower because the style
+    ; indents it, and the widths kept per line so justification has something to
+    ; stretch into.
+    fn breakParagraph:[BookBrokenLine] (body:string style:BookStyle width:double) {
+        def out:[BookBrokenLine]
+        def family:string style.fontFamily
+        def size:double style.fontSize
+        def indent:double style.firstLineIndent
+
+        def paragraphs:[string] (strsplit body "\n")
+        def p:int 0
+        while (p < (array_length paragraphs)) {
+            def segment:string (itemAt paragraphs p)
+            def words:[string] (strsplit segment " ")
+            def current:string ""
+            def w:int 0
+            while (w < (array_length words)) {
+                def word:string (itemAt words w)
+                if ((strlen word) > 0) {
+                    def candidate:string ""
+                    if ((strlen current) == 0) {
+                        candidate = word
+                    } {
+                        candidate = (current + " " + word)
+                    }
+                    def avail:double width
+                    if ((array_length out) == 0) {
+                        avail = (width - indent)
+                    }
+                    def metrics:EVGTextMetrics (text.measureRun(candidate family size))
+                    def tooWide:boolean (metrics.width > avail)
+                    def hasContent:boolean ((strlen current) > 0)
+                    if (tooWide && hasContent) {
+                        def first:boolean ((array_length out) == 0)
+                        def broken:BookBrokenLine (this.makeBroken(current style indent first))
+                        push out broken
+                        current = word
+                    } {
+                        current = candidate
+                    }
+                }
+                w = (w + 1)
+            }
+            ; An empty segment is still a line: a blank line between stanzas is
+            ; vertical space the author asked for.
+            def firstTail:boolean ((array_length out) == 0)
+            def tail:BookBrokenLine (this.makeBroken(current style indent firstTail))
+            push out tail
+            p = (p + 1)
+        }
+        if ((array_length out) == 0) {
+            def empty:BookBrokenLine (this.makeBroken("" style indent true))
+            push out empty
+        }
+        return out
+    }
+
+    ; Returns the line rather than appending it. An array passed to a method is
+    ; a copy on some targets - Go among them - so a helper that pushes into a
+    ; caller's array works in JavaScript and silently does nothing in Go.
+    fn makeBroken:BookBrokenLine (body:string style:BookStyle indent:double isFirst:boolean) {
+        def metrics:EVGTextMetrics (text.measureRun(body style.fontFamily style.fontSize))
+        def line (new BookBrokenLine())
+        line.text = body
+        line.width = metrics.width
+        line.ascent = metrics.ascent
+        line.descent = metrics.descent
+        if isFirst {
+            line.indent = indent
+        }
+        return line
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Filling frames
+    ; ---------------------------------------------------------------------
+
+    ; Flow the story that enters `startFrameId` through the chain of frames
+    ; linked from it. Returns every placed line plus what did not fit.
+    fn flowStory:BookFlowResult (doc:BookDocument startFrameId:string) {
+        def result (new BookFlowResult())
+        if ((doc.hasFrame(startFrameId)) == false) {
+            result.note(("no such frame: " + startFrameId))
+            return result
+        }
+        def entry:BookFrame (doc.frameFor(startFrameId))
+        def story:BookStory (doc.storyFor(entry.storyId))
+        result.storyId = entry.storyId
+
+        def cursor (new BookFlowCursor())
+        def chain:[string] (doc.frameChain(startFrameId))
+        def total:int (story.paragraphCount())
+
+        def fi:int 0
+        while (fi < (array_length chain)) {
+            def frameId:string (itemAt chain fi)
+            def frame:BookFrame (doc.frameFor(frameId))
+            def pageIndex:int (doc.pageIndexOfFrame(frameId))
+            frame.flowStartParagraph = cursor.paragraph
+            frame.flowStartLine = cursor.line
+            frame.overflowed = false
+
+            def before:int (array_length result.lines)
+            this.fillFrame(doc story frame pageIndex cursor result)
+            def after:int (array_length result.lines)
+            if (after > before) {
+                result.framesUsed = (result.framesUsed + 1)
+                result.lastPage = pageIndex
+            }
+            if (cursor.paragraph >= total) {
+                fi = (array_length chain)
+            } {
+                frame.overflowed = true
+                fi = (fi + 1)
+            }
+        }
+
+        if (cursor.paragraph < total) {
+            result.overflow = true
+            result.overflowParagraph = cursor.paragraph
+            result.overflowLine = cursor.line
+            def left:int (total - cursor.paragraph)
+            def leftText:string (to_string left)
+            result.note((leftText + " paragraph(s) did not fit the frame chain"))
+        }
+        return result
+    }
+
+    ; One frame, column by column.
+    fn fillFrame:void (doc:BookDocument story:BookStory frame:BookFrame pageIndex:int cursor:BookFlowCursor result:BookFlowResult) {
+        def cols:int frame.columns
+        if (cols < 1) {
+            cols = 1
+        }
+        def colWidth:double (frame.columnWidth())
+        def contentTop:double (frame.contentY())
+        def contentHeight:double (frame.contentH())
+        def bottom:double (contentTop + contentHeight)
+        def total:int (story.paragraphCount())
+
+        def col:int 0
+        while (col < cols) {
+            if (cursor.paragraph >= total) {
+                return
+            }
+            def colX:double (frame.columnX(col))
+            this.fillColumn(doc story frame pageIndex col colX colWidth contentTop bottom cursor result)
+            col = (col + 1)
+        }
+    }
+
+    ; One column. Everything interesting happens here.
+    fn fillColumn:void (doc:BookDocument story:BookStory frame:BookFrame pageIndex:int col:int colX:double colWidth:double top:double bottom:double cursor:BookFlowCursor result:BookFlowResult) {
+        def y:double top
+        def total:int (story.paragraphCount())
+        def placedHere:int 0
+        def guard:int 0
+
+        while (cursor.paragraph < total) {
+            guard = (guard + 1)
+            if (guard > 100000) {
+                result.note("flow guard tripped - giving up on this column")
+                return
+            }
+
+            def para:BookParagraph (story.paragraphAt(cursor.paragraph))
+            def style:BookStyle (doc.styleFor(para.styleName))
+            def leading:double (style.leadingFor())
+            def fresh:boolean (cursor.line == 0)
+
+            ; A chapter opener will not share a column with what came before it.
+            if (style.startsNewPage && fresh && (placedHere > 0)) {
+                return
+            }
+
+            ; Space before is suppressed at the top of a column: the column edge
+            ; already provides the separation, and honouring it would push the
+            ; first baseline of every page down by a different amount.
+            def spaceBefore:double 0.0
+            if (fresh && (placedHere > 0)) {
+                spaceBefore = style.spaceBefore
+            }
+
+            def lines:[BookBrokenLine] (this.breakParagraph(para.text style colWidth))
+            def lineCount:int (array_length lines)
+            def remainingLines:int (lineCount - cursor.line)
+
+            def startY:double (y + spaceBefore)
+            def room:double (bottom - startY)
+            def fitCount:int (this.linesThatFit(room leading))
+            if (fitCount > remainingLines) {
+                fitCount = remainingLines
+            }
+
+            ; The line count this column would take on geometry alone. If
+            ; typography rejects the split, the paragraph moves whole - and if
+            ; there is nothing above it to move past, this is what gets placed
+            ; anyway, because a column that places nothing never terminates.
+            def geometricFit:int fitCount
+            def moveWhole:boolean false
+            def minKeep:int style.orphans
+            if (minKeep > lineCount) {
+                minKeep = lineCount
+            }
+
+            ; --- orphans: do not leave a stub at the foot of the column ---
+            if (fresh && (lineCount > 1)) {
+                if (fitCount < minKeep) {
+                    moveWhole = true
+                }
+            }
+
+            ; --- widows: do not carry a stub to the top of the next column ---
+            def carried:int (remainingLines - fitCount)
+            if ((carried > 0) && (carried < style.widows)) {
+                def allowed:int (remainingLines - style.widows)
+                if (allowed < 1) {
+                    moveWhole = true
+                } {
+                    fitCount = allowed
+                    ; Holding lines back for the widow rule can leave an orphan
+                    ; behind - the two rules have to be satisfied together or
+                    ; the fix becomes the fault.
+                    if (fresh && (fitCount < minKeep)) {
+                        moveWhole = true
+                    }
+                }
+            }
+
+            if moveWhole {
+                if (placedHere > 0) {
+                    return
+                }
+                fitCount = geometricFit
+            }
+
+            if (fitCount <= 0) {
+                if (placedHere == 0) {
+                    ; The column cannot hold a single line. Saying so is the
+                    ; only useful thing left; advancing would silently drop the
+                    ; text, and looping would hang.
+                    def h:string (to_string leading)
+                    result.note(("frame " + frame.id + " is too short for one line at leading " + h))
+                }
+                return
+            }
+
+            ; --- place ---
+            def placed:int 0
+            while (placed < fitCount) {
+                def src:BookBrokenLine (itemAt lines (cursor.line + placed))
+                def ln (new BookLine())
+                def indent:double src.indent
+                ln.text = src.text
+                ln.x = (colX + indent)
+                ln.top = (startY + ((to_double placed) * leading))
+                ln.lineHeight = leading
+                def ascentPad:double (leading - src.ascent)
+                def half:double (ascentPad / 2.0)
+                def baseTop:double ln.top
+                ln.baseline = (baseTop + half + src.ascent)
+                ln.width = src.width
+                ln.maxWidth = (colWidth - indent)
+                ln.fontFamily = style.fontFamily
+                ln.fontSize = style.fontSize
+                ln.color = style.color
+                ln.align = style.align
+                ln.bold = style.bold
+                ln.italic = style.italic
+                ln.frameId = frame.id
+                ln.pageIndex = pageIndex
+                ln.column = col
+                ln.storyId = story.id
+                ln.paragraphIndex = cursor.paragraph
+                ln.lineIndex = (cursor.line + placed)
+                def isLast:boolean (((cursor.line + placed) + 1) == lineCount)
+                ln.lastOfParagraph = isLast
+                push result.lines ln
+                placed = (placed + 1)
+            }
+            if (para.firstPage < 0) {
+                para.firstPage = pageIndex
+            }
+            placedHere = (placedHere + fitCount)
+            def used:double ((to_double fitCount) * leading)
+            y = (startY + used)
+
+            def consumed:int (cursor.line + fitCount)
+            if (consumed >= lineCount) {
+                ; A heading that ends a column is a heading in the wrong place.
+                def nextExists:boolean ((cursor.paragraph + 1) < total)
+                def noRoom:boolean (y >= bottom)
+                if (style.keepWithNext && nextExists && noRoom) {
+                    this.retract(result fitCount)
+                    return
+                }
+                cursor.paragraph = (cursor.paragraph + 1)
+                cursor.line = 0
+                y = (y + style.spaceAfter)
+            } {
+                cursor.line = consumed
+                return
+            }
+        }
+    }
+
+    ; Take back the lines just placed, so a paragraph can move to the next
+    ; column whole. Only ever called for lines this column placed.
+    fn retract:void (result:BookFlowResult count:int) {
+        def i:int 0
+        while (i < count) {
+            removeLast result.lines
+            i = (i + 1)
+        }
+    }
+
+    ; How many lines of `leading` fit in `room`, without letting floating point
+    ; dust cost a line.
+    fn linesThatFit:int (room:double leading:double) {
+        if (leading <= 0.0) {
+            return 0
+        }
+        if (room < 0.0) {
+            return 0
+        }
+        def slack:double (room + 0.01)
+        def n:double (slack / leading)
+        def floored:int (floor n)
+        return floored
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Whole document
+    ; ---------------------------------------------------------------------
+
+    ; Flow every story that has an entry frame. Returns one result per story,
+    ; in the order the entry frames appear in the document.
+    fn flowDocument:[BookFlowResult] (doc:BookDocument) {
+        def out:[BookFlowResult]
+        def entries:[string] (doc.storyEntryFrames())
+        def i:int 0
+        while (i < (array_length entries)) {
+            def id:string (itemAt entries i)
+            def r:BookFlowResult (this.flowStory(doc id))
+            push out r
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The lines of every story, merged, for a renderer that just wants a page.
+    fn flowAll:BookFlowResult (doc:BookDocument) {
+        def merged (new BookFlowResult())
+        def parts:[BookFlowResult] (this.flowDocument(doc))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:BookFlowResult (itemAt parts i)
+            def li:int 0
+            while (li < (array_length part.lines)) {
+                def ln:BookLine (itemAt part.lines li)
+                push merged.lines ln
+                li = (li + 1)
+            }
+            def mi:int 0
+            while (mi < (array_length part.messages)) {
+                def m:string (itemAt part.messages mi)
+                push merged.messages m
+                mi = (mi + 1)
+            }
+            if part.overflow {
+                merged.overflow = true
+            }
+            merged.framesUsed = (merged.framesUsed + part.framesUsed)
+            if (part.lastPage > merged.lastPage) {
+                merged.lastPage = part.lastPage
+            }
+            i = (i + 1)
+        }
+        return merged
+    }
+}
