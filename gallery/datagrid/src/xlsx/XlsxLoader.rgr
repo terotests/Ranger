@@ -9,6 +9,7 @@ Import "XlsxWorksheet.rgr"
 Import "XlsxDrawing.rgr"
 Import "XlsxStyles.rgr"
 Import "../WorkbookModel.rgr"
+Import "../script/GridScript.rgr"
 Import "../CellStyle.rgr"
 Import "../FormulaEngine.rgr"
 
@@ -208,8 +209,30 @@ class XlsxLoader {
             firstVisible = 0
         }
         book.setActive(firstVisible)
+        this.loadScripts(pkg book)
         engine.attach(book)
         engine.rebuildAll()
         return true
+    }
+
+    ; Scripts ride along in the package under `ranger/`. Nothing here parses
+    ; them — the part is read as text and handed to the workbook, so a build
+    ; that never opens the script engine still round-trips the script.
+    fn loadScripts:void (pkg:XlsxPackage book:WorkbookModel) {
+        def names:[string] (pkg.listFiles())
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            def path:string (itemAt names i)
+            if (GridScript.isScriptPart(path)) {
+                def src:string (pkg.entryText(path))
+                def sc:GridScript (new GridScript)
+                sc.name = (GridScript.nameOfPart(path))
+                sc.source = src
+                sc.part = path
+                book.addScript(sc)
+            }
+            i = (i + 1)
+        }
     }
 }

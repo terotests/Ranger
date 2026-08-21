@@ -32,6 +32,8 @@ npm run datagrid:formula:array:test
 npm run datagrid:date:test
 npm run datagrid:formula:workbook:test
 npm run datagrid:formula:bench
+npm run datagrid:script:test
+npm run datagrid:script:smoke
 npm run datagrid:artifacts
 npm run datagrid:xlsx:fixtures
 npm run datagrid:bench -- 100000
@@ -568,6 +570,57 @@ result negative, so **every archive the repository has ever written had wrong
 CRCs**. Our own reader ignores CRCs and never noticed; Python's `zipfile`
 refuses the file outright. The same bug lived in a second copy of `CRC32.rgr`
 under `game_engine`, and both are fixed.
+
+## Reports: a script inside the workbook
+
+The workbook can carry a **script**, and the script can print. Press the last
+toolbar button (or run `script.new` from the palette) and the editor writes a
+starter report into the workbook, runs it, and shows the page:
+
+![A report over the Sales sheet, previewed in the editor](artifacts/script_report.png)
+
+That is not a screenshot of a PDF viewer. The script is TSX, evaluated by
+`ComponentEngine` — the TypeScript interpreter from
+[`gallery/pdf_writer`](../pdf_writer) — and what it returns is an **EVG**
+document. The preview is that document's own display list, copied into the
+grid's with a scale and an offset, and `Ctrl+P` hands the same tree to
+`EVGPDFRenderer`. Preview and print are one run measured with one set of fonts.
+
+```tsx
+function render() {
+  const rows = sheetText("Sales");          // as the grid displays them
+  const total = cell("Sales!B5");           // formulas give computed values
+  const live  = query("select * from orders where total > 100");   // if bound
+  return (
+    <Print><Section><Page>
+      <View flexDirection="column">
+        <Label fontSize="22px" fontWeight="bold">{param("sheet")}</Label>
+        {rows.map(…)}
+      </View>
+    </Page></Section></Print>
+  );
+}
+```
+
+The script travels **in the .xlsx**. An OPC package may carry parts its reader
+does not understand, so the source sits at `ranger/summary.tsx` inside the ZIP,
+next to `xl/`, with its content type declared. The loader reads it, the writer
+puts it back, and Excel opens the same file as an ordinary spreadsheet and
+ignores it — this is not a macro, and it is not `.xlsm`. (Excel will drop the
+part if Excel saves the file.)
+
+A **database sheet is a sheet**: the database layer loads query results into
+the same model, so a report over a live table is the same report, unchanged.
+`query()` is the other direction — a report running its own SQL — and it is a
+seam a host fills, answering "no database is bound" until one does.
+
+Full API, layout rules and limits: [`docs/SCRIPTING.md`](docs/SCRIPTING.md).
+
+```bash
+npm run datagrid:script:test       # engine, data API, .xlsx round trip
+npm run datagrid:script:smoke      # the app's own commands, headless
+npm run datagrid:script:artifacts  # the picture above, and the PDF
+```
 
 ## Charts
 

@@ -1,0 +1,320 @@
+; ==============================================================================
+; GridScriptTest — a script reads the workbook, draws a report, exports a PDF
+; ==============================================================================
+;
+; The chain under test is the whole one: TSX source → ComponentEngine (with the
+; workbook bound to it) → EVG element tree → pages → display list (what the
+; preview paints) → PDF bytes (what the exporter writes). Plus the part that
+; makes it a document rather than a session: the script survives a save and a
+; reload of the .xlsx it lives in.
+; ==============================================================================
+
+Import "../src/WorkbookModel.rgr"
+Import "../src/SpreadsheetModel.rgr"
+Import "../src/FormulaEngine.rgr"
+Import "../src/script/GridScript.rgr"
+Import "../src/script/GridScriptEngine.rgr"
+Import "../src/script/ScriptPreview.rgr"
+Import "../src/xlsx/XlsxWriter.rgr"
+Import "../src/xlsx/XlsxLoader.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+; A database that is not a database: enough rows to prove the seam is wired,
+; with no driver behind it. gallery/rangerdb subclasses this for real.
+class FakeQuery {
+    Extends(GridScriptQuery)
+
+    def calls:int 0
+
+    fn available:boolean () {
+        return true
+    }
+
+    fn run:[[string]] (sql:string) {
+        calls = (calls + 1)
+        lastError = ""
+        def rows:[[string]]
+        push rows ([] _:string ( "region" "orders" ))
+        push rows ([] _:string ( "north" "12" ))
+        push rows ([] _:string ( "south" "34" ))
+        return rows
+    }
+}
+
+class GridScriptTest {
+
+    sfn reportSource:string () {
+        return "
+function render() {
+  const rows = sheetRows('Sales');
+  const items = [];
+  for (let i = 1; i < rows.length; i++) {
+    items.push(
+      <View flexDirection='row' gap='8px'>
+        <Label width='160px'>{rows[i][0]}</Label>
+        <Label width='90px' textAlign='right'>{formatNumber(rows[i][1], '#,##0.00')}</Label>
+      </View>
+    );
+  }
+  return (
+    <Print>
+      <Section>
+        <Page>
+          <View padding='16px' flexDirection='column'>
+            <Label fontSize='22px' fontWeight='bold'>{param('sheet')} report</Label>
+            {items}
+            <Label fontWeight='bold'>Total {cell('Sales!B5')}</Label>
+          </View>
+        </Page>
+      </Section>
+    </Print>
+  );
+}
+"
+    }
+
+    sfn dbSource:string () {
+        return "
+function render() {
+  const rows = query('select region, orders from sales');
+  const lines = [];
+  for (let i = 1; i < rows.length; i++) {
+    lines.push(<Label>{rows[i][0] + ': ' + rows[i][1] + ' orders'}</Label>);
+  }
+  return (
+    <Print>
+      <Section>
+        <Page>
+          <View padding='16px' flexDirection='column'>
+            <Label fontSize='18px'>from the database</Label>
+            {lines}
+          </View>
+        </Page>
+      </Section>
+    </Print>
+  );
+}
+"
+    }
+
+    sfn buildBook:WorkbookModel () {
+        def book:WorkbookModel (new WorkbookModel)
+        def sales:SpreadsheetModel (new SpreadsheetModel)
+        sales.name = "Sales"
+        sales.resize(40 8)
+        sales.setCellRaw(0 0 "Region")
+        sales.setCellRaw(0 1 "Amount")
+        sales.setCellRaw(1 0 "North")
+        sales.setCellRaw(1 1 "1200.5")
+        sales.setCellRaw(2 0 "South")
+        sales.setCellRaw(2 1 "980")
+        sales.setCellRaw(3 0 "East")
+        sales.setCellRaw(3 1 "410.25")
+        sales.setFormula(4 1 "SUM(B2:B4)")
+        book.addSheet(sales)
+        def notes:SpreadsheetModel (new SpreadsheetModel)
+        notes.name = "Notes"
+        notes.resize(10 4)
+        notes.setCellRaw(0 0 "quarter")
+        notes.setCellRaw(0 1 "Q3")
+        book.addSheet(notes)
+        book.setActive(0)
+        def engine:FormulaEngine (new FormulaEngine)
+        engine.attach(book)
+        engine.rebuildAll()
+        return book
+    }
+
+    sfn main:void () {
+        def c:Checker (new Checker)
+
+        print "== the script sees the workbook =="
+        def book:WorkbookModel (GridScriptTest.buildBook())
+        def script:GridScript (GridScript.create("summary" (GridScriptTest.reportSource())))
+        c.eqStr("part name" script.part "ranger/summary.tsx")
+        c.eqStr("name of part" (GridScript.nameOfPart("ranger/summary.tsx")) "summary")
+        c.ok("is a script part" (GridScript.isScriptPart("ranger/summary.tsx")))
+        c.ok("xl part is not" ((GridScript.isScriptPart("xl/worksheets/sheet1.xml")) == false))
+
+        def eng:GridScriptEngine (new GridScriptEngine)
+        eng.basePath = "./gallery/datagrid/"
+        def result:GridScriptResult (eng.run(script book))
+        c.ok(("run ok (" + result.error + ")") result.ok)
+        c.eqInt("one page" (result.pageCount()) 1)
+        c.eqStr("root is a print" result.root.tagName "print")
+
+        print "== the page is a real page =="
+        def page:GridScriptPage (result.pageAt(0))
+        c.ok("A4 wide" ((page.width > 594.0) && (page.width < 596.0)))
+        c.ok("page laid out" (page.element.calculatedHeight > 0.0))
+
+        print "== the preview draws it =="
+        def preview:ScriptPreview (new ScriptPreview)
+        preview.show("summary" result)
+        c.ok("preview active" preview.active)
+        def dl:EVGDisplayList (new EVGDisplayList)
+        preview.paintInto(dl 0 0 800 500)
+        c.ok(("commands emitted (" + (to_string (dl.count())) + ")") ((dl.count()) > 8))
+        def texts:int (GridScriptTest.countText(dl))
+        c.ok(("text drawn (" + (to_string texts) + ")") (texts >= 4))
+        c.ok("scale fits the panel" (preview.lastScale < 1.0))
+        c.ok("region reached the page" (GridScriptTest.hasText(dl "North")))
+        c.ok("number formatted by the workbook" (GridScriptTest.hasText(dl "1,200.50")))
+        c.ok("formula total reached the page" (GridScriptTest.hasText(dl "2590.75")))
+        c.ok("param() named the sheet" (GridScriptTest.hasText(dl "Sales report")))
+
+        print "== the same page, as PDF =="
+        def pdf:buffer (eng.toPdf(result))
+        def size:int (buffer_length pdf)
+        c.ok(("pdf produced (" + (to_string size) + " bytes)") (size > 800))
+        c.eqStr("pdf header" (GridScriptTest.head(pdf 4)) "%PDF")
+
+        print "== the database seam =="
+        def dbEng:GridScriptEngine (new GridScriptEngine)
+        dbEng.basePath = "./gallery/datagrid/"
+        def fake:FakeQuery (new FakeQuery)
+        dbEng.setQuery(fake)
+        def dbScript:GridScript (GridScript.create("db" (GridScriptTest.dbSource())))
+        def dbResult:GridScriptResult (dbEng.run(dbScript book))
+        c.ok(("db run ok (" + dbResult.error + ")") dbResult.ok)
+        c.eqInt("query was called once" fake.calls 1)
+        def dbPreview:ScriptPreview (new ScriptPreview)
+        dbPreview.show("db" dbResult)
+        def dbDl:EVGDisplayList (new EVGDisplayList)
+        dbPreview.paintInto(dbDl 0 0 800 500)
+        c.ok("db row on the page" (GridScriptTest.hasText(dbDl "north: 12")))
+
+        print "== an unbound database says so =="
+        def bareEng:GridScriptEngine (new GridScriptEngine)
+        bareEng.basePath = "./gallery/datagrid/"
+        def bareResult:GridScriptResult (bareEng.run(dbScript book))
+        c.ok("still renders" bareResult.ok)
+        c.ok("and explains itself" ((array_length bareResult.messages) > 0))
+
+        print "== the script travels in the .xlsx =="
+        book.addScript(script)
+        c.eqInt("one script on the book" (book.scriptCount()) 1)
+        def writer:XlsxWriter (new XlsxWriter)
+        def wrote:boolean (writer.write(book "./gallery/datagrid/harness/out/script" "scripted.xlsx"))
+        c.ok(("wrote the workbook (" + writer.lastError + ")") wrote)
+        def reloaded:WorkbookModel (new WorkbookModel)
+        def loader:XlsxLoader (new XlsxLoader)
+        def read:boolean (loader.loadPath("./gallery/datagrid/harness/out/script/scripted.xlsx" reloaded))
+        c.ok(("read it back (" + loader.lastError + ")") read)
+        c.eqInt("script survived the round trip" (reloaded.scriptCount()) 1)
+        def back:GridScript (reloaded.scriptAt(0))
+        c.eqStr("same name" back.name "summary")
+        c.eqStr("same part" back.part "ranger/summary.tsx")
+        c.ok("same source" (back.source == script.source))
+        def firstSheet:SpreadsheetModel (reloaded.sheetAt(0))
+        c.eqStr("sheet came back too" firstSheet.name "Sales")
+
+        print "== and runs again from the reloaded book =="
+        def engine2:FormulaEngine (new FormulaEngine)
+        engine2.attach(reloaded)
+        engine2.rebuildAll()
+        def eng2:GridScriptEngine (new GridScriptEngine)
+        eng2.basePath = "./gallery/datagrid/"
+        def result2:GridScriptResult (eng2.run(back reloaded))
+        c.ok(("second run ok (" + result2.error + ")") result2.ok)
+        def dl2:EVGDisplayList (new EVGDisplayList)
+        def preview2:ScriptPreview (new ScriptPreview)
+        preview2.show("summary" result2)
+        preview2.paintInto(dl2 0 0 800 500)
+        c.ok("same report" (GridScriptTest.hasText(dl2 "1,200.50")))
+
+        print "== a broken script fails loudly =="
+        def bad:GridScript (GridScript.create("bad" "const x = 1;"))
+        def badResult:GridScriptResult (eng.run(bad book))
+        c.ok("not ok" (badResult.ok == false))
+        c.ok("with a reason" ((strlen badResult.error) > 0))
+
+        print ""
+        print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILED"
+            return
+        }
+        print "OK"
+    }
+
+    sfn countText:int (dl:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        def cnt:int (dl.count())
+        while (i < cnt) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == 3) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn hasText:boolean (dl:EVGDisplayList needle:string) {
+        def i:int 0
+        def cnt:int (dl.count())
+        while (i < cnt) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == 3) {
+                if (GridScriptTest.textHas(cmd.text needle)) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn textHas:boolean (haystack:string needle:string) {
+        def hn:int (strlen haystack)
+        def nn:int (strlen needle)
+        if (nn > hn) {
+            return false
+        }
+        def i:int 0
+        def limit:int (hn - nn)
+        while (i <= limit) {
+            def part:string (substring haystack i (i + nn))
+            if (part == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn head:string (b:buffer n:int) {
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def code:int (buffer_get b i)
+            out = (out + (strfromcode code))
+            i = (i + 1)
+        }
+        return out
+    }
+}

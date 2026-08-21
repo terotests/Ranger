@@ -42,6 +42,9 @@ class DataGridWeb {
     fn start:void (w:int h:int) {
         app.W = w
         app.H = h
+        ; A tab has no directory to write into: every file the app produces is
+        ; handed to the page as bytes and downloaded from there.
+        app.hostWritesFiles = true
         app.initBare()
     }
 
@@ -93,6 +96,17 @@ class DataGridWeb {
     ; The workbook as .xlsx bytes for a browser download (Save / Save As).
     fn saveWorkbookBytes:buffer () {
         return (app.saveXlsxBytes())
+    }
+
+    ; The report the app last exported, as bytes, and what to call it. The
+    ; page turns them into a download exactly as it does for the workbook —
+    ; `takeFileRequest` says "exportPdf" when there is one waiting.
+    fn reportPdfBytes:buffer () {
+        return (app.scriptPdfBytes())
+    }
+
+    fn suggestPdfName:string () {
+        return (app.suggestPdfName())
     }
 
     fn suggestSaveName:string () {

@@ -21,6 +21,7 @@ Import "GridImages.rgr"
 Import "GridCommands.rgr"
 Import "GridToolbar.rgr"
 Import "SoftPainter.rgr"
+Import "script/ScriptPreview.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -55,6 +56,9 @@ class GridView {
     ; The display-list → canvas loop, which is shared with the clipboard: a
     ; copied chart is painted by this same code onto an off-screen surface.
     def painter:SoftPainter (new SoftPainter)
+    ; A report, when one is open. It is drawn from the script's own display
+    ; list — see script/ScriptPreview.rgr — into this one, over the sheet.
+    def preview:ScriptPreview (new ScriptPreview)
     def theme:GridTheme (new GridTheme)
     def status:string ""
     def editCaret:int 0
@@ -1748,6 +1752,22 @@ class GridView {
             }
         }
 
+        ; --- report preview -------------------------------------------------
+        ; It takes the sheet's whole area, headers included: a page is a
+        ; different thing from a grid and pretending otherwise, by leaving the
+        ; column letters visible around it, only confuses which one is being
+        ; looked at. The toolbar and the status bar stay, because Save, Open
+        ; and the sheet tabs still mean what they meant.
+        if preview.active {
+            def pvTop:int headerTop
+            def pvH:int ((grid.y + grid.h) - headerTop)
+            def barH:int 22
+            this.pushRect(dl (to_double grid.x) (to_double pvTop) (to_double grid.w) (to_double barH) theme.headerBg)
+            this.pushRect(dl (to_double grid.x) (to_double ((pvTop + barH) - 1)) (to_double grid.w) 1.0 theme.gridLine)
+            this.pushText(dl (preview.headline()) (to_double (grid.x + 8)) (to_double (pvTop + 4)) 12.0 theme.headerText)
+            preview.paintInto(dl grid.x (pvTop + barH) grid.w (pvH - barH))
+        }
+
         ; status bar
         def sy2:int (grid.y + grid.h)
         if (sy2 < pageH) {
@@ -2082,6 +2102,15 @@ class GridView {
             this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 7)) 5.0 5.0 dim)
             this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 1)) 6.0 1.0 dim)
             this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 4)) 6.0 1.0 dim)
+            return
+        }
+        if (k == (ToolIcon.report())) {
+            ; A page with a chart-ish bar on it: this button prints something.
+            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 15.0 1.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 4)) 6.0 1.0 dim)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 3)) 2.0 3.0 theme.activeBorder)
+            this.pushRect(dl (to_double cx) (to_double (cy + 1)) 2.0 5.0 theme.activeBorder)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy - 1)) 2.0 7.0 theme.activeBorder)
             return
         }
         if (k == (ToolIcon.save())) {
