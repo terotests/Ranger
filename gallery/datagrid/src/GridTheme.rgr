@@ -1,0 +1,237 @@
+; ==============================================================================
+; GridTheme — the app's colours, as named palettes.
+; ==============================================================================
+;
+; The grid has no element tree and therefore no class attribute: GridView walks
+; the model and pushes rects and runs of text straight into an EVGDisplayList,
+; so a stylesheet has nothing to select and no cascade to run. EVGStyleSheet
+; styles EVGElement documents; a virtualized sheet is not one of those, and it
+; should not become one — a class lookup per visible cell is exactly the cost
+; the display list exists to avoid.
+;
+; What the display list carries instead is RESOLVED colours, and this is where
+; they resolve. One struct, read by every paint in GridView, so a theme is this
+; object's fields rather than an edit spread over two thousand lines of paint
+; code.
+;
+; A palette is derived from ONE accent rather than listed by hand: chrome tints
+; (page, header, corner, status, grid line) are the accent lightened toward
+; white, the selection wash is the accent at low alpha, and the active-cell
+; border is the accent itself. So a new theme is one accent colour.
+;
+; What a theme does NOT touch is the workbook's own formatting. A cell fill,
+; font colour or border read out of the .xlsx is the document's, not the app's,
+; and Excel does not repaint your data when you change its colour scheme
+; either. Themes are the chrome around the sheet.
+;
+;   app.setTheme("green")            ; or "blue" / "red" / "default"
+;   app.runCommand("view.theme" "blue")
+;   app.runCommand("view.theme.next" "")
+; ==============================================================================
+
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGWindow.rgr"
+
+class GridTheme {
+    ; Which palette these fields currently hold.
+    def name:string "default"
+    ; Bumped on every apply. The view watches it so dialogs created after a
+    ; theme change still get tinted — a window carries its own EVGWindowTheme,
+    ; and they are built lazily.
+    def revision:int 1
+    ; The one colour a derived palette is made of. Kept so the window layer can
+    ; be tinted from the same source as the sheet.
+    def accent:EVGColor (EVGColor.rgb(40 100 210))
+
+    def bg:EVGColor (EVGColor.rgb(245 247 250))
+    def headerBg:EVGColor (EVGColor.rgb(232 236 242))
+    def headerText:EVGColor (EVGColor.rgb(55 65 80))
+    def gridLine:EVGColor (EVGColor.rgb(210 216 224))
+    def cellText:EVGColor (EVGColor.rgb(30 36 48))
+    def formulaBg:EVGColor (EVGColor.rgb(255 255 255))
+    def formulaText:EVGColor (EVGColor.rgb(30 36 48))
+    def selection:EVGColor (EVGColor.rgba(50 120 220 0.22))
+    def linkText:EVGColor (EVGColor.rgb(21 78 172))
+    def noteMark:EVGColor (EVGColor.rgb(214 69 65))
+    def noteBg:EVGColor (EVGColor.rgb(255 252 228))
+    def activeBorder:EVGColor (EVGColor.rgb(40 100 210))
+    def editBg:EVGColor (EVGColor.rgb(255 252 230))
+    def statusBg:EVGColor (EVGColor.rgb(236 240 246))
+    def statusText:EVGColor (EVGColor.rgb(80 92 110))
+    def cornerBg:EVGColor (EVGColor.rgb(220 226 234))
+    ; The bar along the bottom, and the buttons sitting on it. Separate from
+    ; `statusBg` — which the toolbar and the formula strip also use — because
+    ; this is the one band a theme is allowed to paint in full accent: Excel
+    ; does the same, and a coloured strip is what makes a theme legible at a
+    ; glance instead of a slightly different shade of pale.
+    def barBg:EVGColor (EVGColor.rgb(236 240 246))
+    def barText:EVGColor (EVGColor.rgb(80 92 110))
+    def barButton:EVGColor (EVGColor.rgb(232 236 242))
+
+    Constructor () {
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The palettes
+    ; --------------------------------------------------------------------------
+
+    ; Every theme this build knows, in switch order, space separated. A host
+    ; that wants a menu asks for this rather than hard-coding the list.
+    sfn themeNames:string () {
+        return "default green blue red"
+    }
+
+    ; The accent a name stands for. Unknown names give back a transparent
+    ; colour, which `apply` reads as "no such theme".
+    sfn accentFor:EVGColor (name:string) {
+        def n:string (to_lowercase (trim name))
+        ; Excel's own green, #217346.
+        if (n == "green") {
+            return (EVGColor.rgb(33 115 70))
+        }
+        ; Office blue, #185ABD — a deeper blue than the neutral default's.
+        if (n == "blue") {
+            return (EVGColor.rgb(24 90 189))
+        }
+        ; The brick red Excel uses for its warning chrome, #B72D29.
+        if (n == "red") {
+            return (EVGColor.rgb(183 45 41))
+        }
+        return (EVGColor.transparent())
+    }
+
+    ; Switch palettes. Returns false — and changes nothing — for a name this
+    ; build does not have, so a host can tell a typo from a no-op.
+    fn apply:boolean (want:string) {
+        def n:string (to_lowercase (trim want))
+        if ((strlen n) == 0) {
+            return false
+        }
+        if (n == "default") {
+            this.applyDefault()
+            return true
+        }
+        def a:EVGColor (GridTheme.accentFor(n))
+        def alpha:double (a.alpha())
+        if (alpha <= 0.0) {
+            return false
+        }
+        this.applyAccent(n a)
+        return true
+    }
+
+    ; The next palette in `themeNames` order, wrapping. What a keyboard
+    ; shortcut needs: trying the themes should not mean typing their names.
+    fn cycle:string () {
+        def all:string (GridTheme.themeNames())
+        def names:[string] (strsplit all " ")
+        def count:int (array_length names)
+        if (count < 2) {
+            return name
+        }
+        def at:int 0
+        def i:int 0
+        while (i < count) {
+            def one:string (itemAt names i)
+            if (one == name) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        def next:int (at + 1)
+        if (next >= count) {
+            next = 0
+        }
+        def pick:string (itemAt names next)
+        def ok:boolean (this.apply(pick))
+        return name
+    }
+
+    ; The neutral slate the app has always opened with. Spelled out rather than
+    ; derived: it is the one palette that is a design and not a hue.
+    fn applyDefault:void () {
+        name = "default"
+        accent = (EVGColor.rgb(40 100 210))
+        bg = (EVGColor.rgb(245 247 250))
+        headerBg = (EVGColor.rgb(232 236 242))
+        headerText = (EVGColor.rgb(55 65 80))
+        gridLine = (EVGColor.rgb(210 216 224))
+        cellText = (EVGColor.rgb(30 36 48))
+        formulaBg = (EVGColor.rgb(255 255 255))
+        formulaText = (EVGColor.rgb(30 36 48))
+        selection = (EVGColor.rgba(50 120 220 0.22))
+        linkText = (EVGColor.rgb(21 78 172))
+        noteMark = (EVGColor.rgb(214 69 65))
+        noteBg = (EVGColor.rgb(255 252 228))
+        activeBorder = (EVGColor.rgb(40 100 210))
+        editBg = (EVGColor.rgb(255 252 230))
+        statusBg = (EVGColor.rgb(236 240 246))
+        statusText = (EVGColor.rgb(80 92 110))
+        cornerBg = (EVGColor.rgb(220 226 234))
+        barBg = (EVGColor.rgb(236 240 246))
+        barText = (EVGColor.rgb(80 92 110))
+        barButton = (EVGColor.rgb(232 236 242))
+        revision = (revision + 1)
+    }
+
+    ; One accent → a whole palette. The tints climb toward white in the order
+    ; the chrome stacks: page, status strip, header, corner, rule.
+    fn applyAccent:void (id:string tone:EVGColor) {
+        name = id
+        accent = tone
+        bg = (tone.lighten(0.955))
+        statusBg = (tone.lighten(0.87))
+        headerBg = (tone.lighten(0.8))
+        cornerBg = (tone.lighten(0.68))
+        gridLine = (tone.lighten(0.68))
+        headerText = (tone.darken(0.34))
+        statusText = (tone.darken(0.2))
+        ; The accent itself, once, along the bottom.
+        barBg = (tone.darken(0.08))
+        barText = (EVGColor.rgb(255 255 255))
+        barButton = (tone.lighten(0.16))
+        ; Data stays neutral: cell text is the workbook's, and tinting it would
+        ; be the app writing in the document's colours.
+        cellText = (EVGColor.rgb(30 36 48))
+        formulaBg = (EVGColor.rgb(255 255 255))
+        formulaText = (EVGColor.rgb(30 36 48))
+        selection = (tone.withAlpha(0.2))
+        activeBorder = tone
+        linkText = (tone.darken(0.18))
+        ; A comment marker and an open editor are signals, not decoration: they
+        ; keep their own colours so they still read as themselves in a red or
+        ; a green sheet.
+        noteMark = (EVGColor.rgb(214 69 65))
+        noteBg = (EVGColor.rgb(255 252 228))
+        editBg = (EVGColor.rgb(255 252 230))
+        revision = (revision + 1)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Dialogs
+    ; --------------------------------------------------------------------------
+
+    ; Windows carry their own EVGWindowTheme — the window layer is shared with
+    ; other gallery apps and knows nothing about a spreadsheet. This paints the
+    ; grid's accent onto one of them, so a dialog opened over a green sheet is
+    ; not still wearing the default blue.
+    fn tintWindow:void (wt:EVGWindowTheme) {
+        if (name == "default") {
+            wt.panel = (EVGColor.rgb(252 253 255))
+            wt.titleBg = (EVGColor.rgb(31 78 121))
+            wt.border = (EVGColor.rgb(70 110 160))
+            wt.buttonBg = (EVGColor.rgb(238 242 248))
+            wt.buttonHot = (EVGColor.rgb(219 231 245))
+            wt.accent = (EVGColor.rgb(26 115 232))
+            wt.hairline = (EVGColor.rgb(206 212 222))
+            return
+        }
+        wt.panel = (accent.lighten(0.975))
+        wt.titleBg = (accent.darken(0.28))
+        wt.border = (accent.darken(0.05))
+        wt.buttonBg = (accent.lighten(0.92))
+        wt.buttonHot = (accent.lighten(0.84))
+        wt.accent = accent
+        wt.hairline = (accent.lighten(0.72))
+    }
+}

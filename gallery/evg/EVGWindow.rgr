@@ -1378,12 +1378,19 @@ class EVGWindow {
 ; bottom-up so it lands on top.
 class EVGWindowManager {
     def windows:[EVGWindow]
+    ; How many windows have EVER been added. `wid` is not a stamp — it is the
+    ; stack position at the time of the add, and a remove makes the next one
+    ; reuse a number — so an owner that keeps per-window state (the DataGrid
+    ; tints each window's theme) watches this instead of the window count,
+    ; which an add and a remove in the same frame leave unchanged.
+    def added:int 0
 
     Constructor () {
     }
 
     fn add:void (win:EVGWindow) {
         win.wid = ((array_length windows) + 1)
+        added = (added + 1)
         push windows win
     }
 

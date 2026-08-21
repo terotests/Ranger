@@ -392,6 +392,44 @@ class DumpArtifacts {
             }
         }
 
+        print "== 22 the same sheet in each colour theme =="
+        ; Same workbook, same display list, one accent apart: the palette is the
+        ; only thing that changed between these three files.
+        def ok22:boolean (app.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx"))
+        if ok22 {
+            def s22:int 0
+            while (s22 < (app.book.sheetCount())) {
+                def sh22:SpreadsheetModel (app.book.sheetAt(s22))
+                if (sh22.name == "Summary") {
+                    app.setActiveSheet(s22)
+                }
+                s22 = (s22 + 1)
+            }
+            def themes:[string]
+            push themes "green"
+            push themes "blue"
+            push themes "red"
+            def files:[string]
+            push files "22_theme_green.png"
+            push files "22_theme_blue.png"
+            push files "22_theme_red.png"
+            def ti:int 0
+            while (ti < (array_length themes)) {
+                def okT:boolean (app.setTheme((itemAt themes ti)))
+                if okT {
+                    DumpArtifacts.writePng(app dir (itemAt files ti))
+                }
+                ti = (ti + 1)
+            }
+            ; …and the dialogs follow the sheet: the window layer keeps its own
+            ; palette, which the view re-tints from the same accent.
+            def okG:boolean (app.setTheme("green"))
+            app.openFindDialog()
+            DumpArtifacts.writePng(app dir "22_theme_dialog.png")
+            app.findDialog.close()
+            def okBack:boolean (app.setTheme("default"))
+        }
+
         print "DumpArtifacts DONE"
     }
 }

@@ -179,6 +179,20 @@ class DataGridWeb {
         app.update(input)
     }
 
+    ; The sheet's colour scheme: "default" / "green" / "blue" / "red". The page
+    ; reads it off the URL (`?theme=green`); a console can call it at any time.
+    fn setTheme:boolean (name:string) {
+        return (app.setTheme(name))
+    }
+
+    fn themeName:string () {
+        return (app.themeName())
+    }
+
+    fn themeNames:string () {
+        return (app.themeNames())
+    }
+
     fn text:void (s:string shift:boolean ctrl:boolean) {
         input.newFrame()
         input.setModifiers(shift ctrl)

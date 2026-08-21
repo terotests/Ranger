@@ -37,6 +37,7 @@
 ; Insert / delete / move columns  | data + geometry + merges + formula repair | done
 ; Comments / images / charts      |                                           | todo
 ; Collaboration                   |                                           | todo
+; Colour themes (app chrome)      | GridTheme: one accent → chrome + dialogs   | done
 ;
 ; Keyboard (GridApp.handleKey, fed by a portable UIInput): arrows move;
 ; Ctrl+arrow jumps to the data-block edge (edgeJump); Shift extends; Ctrl+Shift

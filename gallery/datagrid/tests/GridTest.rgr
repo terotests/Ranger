@@ -214,6 +214,59 @@ class GridTest {
         def scene:string (app.sceneJson())
         c.ok("sceneJson has cmds" ((strlen scene) > 50))
 
+        print "== colour themes =="
+        def wasHeaderR:int (app.view.theme.headerBg.red())
+        def wasHeaderG:int (app.view.theme.headerBg.green())
+        c.eqStr("opens on default" (app.themeName()) "default")
+        c.ok("unknown theme refused" ((app.setTheme("chartreuse")) == false))
+        c.eqStr("refusal keeps the theme" (app.themeName()) "default")
+        c.ok("green applies" (app.setTheme("green")))
+        c.eqStr("theme name" (app.themeName()) "green")
+        ; The header tint is the accent lightened, so green's green channel has
+        ; to lead its red one — and the palette cannot be the one it replaced.
+        def greenR:int (app.view.theme.headerBg.red())
+        def greenG:int (app.view.theme.headerBg.green())
+        c.ok("green header is greener than it is red" (greenG > greenR))
+        c.ok("green header differs from default" ((greenR != wasHeaderR) || (greenG != wasHeaderG)))
+        c.ok("active border is the accent" ((app.view.theme.activeBorder.green()) > (app.view.theme.activeBorder.red())))
+        ; Data stays the document's: a themed sheet does not repaint cell text.
+        c.eqInt("cell ink stays neutral" (app.view.theme.cellText.red()) 30)
+        c.ok("red applies" (app.setTheme("red")))
+        def redR:int (app.view.theme.headerBg.red())
+        def redG:int (app.view.theme.headerBg.green())
+        c.ok("red header is redder than it is green" (redR > redG))
+        c.ok("blue applies" (app.setTheme("blue")))
+        def blueB:int (app.view.theme.headerBg.blue())
+        def blueR:int (app.view.theme.headerBg.red())
+        c.ok("blue header is bluer than it is red" (blueB > blueR))
+        ; The command surface reaches the same switch as the method does.
+        c.ok("view.theme command" (app.runCommand("view.theme" "green")))
+        c.eqStr("command switched" (app.themeName()) "green")
+        c.ok("view.theme rejects a typo" ((app.runCommand("view.theme" "greeen")) == false))
+        c.ok("view.theme.next command" (app.runCommand("view.theme.next" "")))
+        c.eqStr("cycled past green" (app.themeName()) "blue")
+        ; …and cycling wraps round the end of the list: blue → red → default.
+        app.runCommand("view.theme.next" "")
+        c.eqStr("cycled past blue" (app.themeName()) "red")
+        app.runCommand("view.theme.next" "")
+        c.eqStr("cycle wraps" (app.themeName()) "default")
+        ; Dialogs are tinted from the same accent, and they are built lazily —
+        ; the view re-tints on the next paint rather than at switch time, so a
+        ; dialog opened long after the switch is themed too.
+        app.setTheme("green")
+        app.openFindDialog()
+        c.ok("dialogs exist" ((array_length app.windows.windows) > 0))
+        app.render()
+        def dlg:EVGWindow (itemAt app.windows.windows 0)
+        c.ok("dialog title follows the accent" ((dlg.theme.titleBg.green()) > (dlg.theme.titleBg.red())))
+        c.ok("back to default" (app.setTheme("default")))
+        app.render()
+        c.eqInt("default header restored" (app.view.theme.headerBg.red()) wasHeaderR)
+        def dlg2:EVGWindow (itemAt app.windows.windows 0)
+        c.ok("dialog title back to the classic blue" ((dlg2.theme.titleBg.blue()) > (dlg2.theme.titleBg.green())))
+        def themedScene:string (app.sceneJson())
+        c.ok("themed sheet still renders" ((strlen themedScene) > 50))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"
