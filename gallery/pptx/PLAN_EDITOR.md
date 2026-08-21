@@ -129,15 +129,47 @@ into the same display list as the slide.
 the round trip that matters: click on a caret's own rectangle and the caret
 comes back to the column it was measured from.
 
-### Phase E2b — the line, not the paragraph
+### Phase E2b — the line, not the paragraph (done)
 
-One thing is deliberately left: a paragraph that **wraps** reports one line box,
-so the caret is right on the first line of it and approximate after that. The
-display list hands a `maxWidth` to the renderer and the renderer decides where
-the break falls, so fixing this means the wrap itself has to be shared — one
-layout pass producing the lines, used by the painter and by the caret. Also
-here: bullets and numbering as real paragraph properties rather than a painted
-prefix, indent levels, line and paragraph spacing, hyperlinks.
+The wrap is shared now. `src/PptxTextLayout.rgr` breaks a shape's text into
+**lines** — which paragraph, which columns, where on screen, how wide — and
+three things ask it: the painter, the caret, and the click that puts the caret
+somewhere. Before this the painter handed the renderer a `maxWidth` and let it
+decide where a line broke, and the caret assumed a paragraph was one line: both
+were true separately and could not be true together, because nothing in the
+program knew where the second line of a wrapped paragraph started.
+
+Measuring is the other half, and it is one object: `PptxTextMeasure` answers
+with the real font when a host has attached its text renderer and with the old
+average-width guess when nothing has (a headless test or an export path has no
+fonts loaded, and a layout that cannot be computed at all is worse than one
+computed approximately). It switches face by weight the way the painter does,
+because a bold string is wider than the regular one and a caret that measured
+the wrong face lands short of its text.
+
+Two things fell out of it that were not the point:
+
+- A paragraph of **mixed runs** is now positioned by measurement. The painter
+  advanced the pen by `0.52em` per character between runs, so a line with a
+  size change or a bold word in it drifted — visibly, over a few words.
+- **Anchoring is exact.** Centring a text box vertically used to divide by an
+  estimated block height that guessed the line count from an average character
+  width; the line count is now known before anything is drawn.
+
+The bullet is part of the layout rather than a prefix the painter prepends: it
+is measured, the text is indented past it, and a wrapped line hangs under the
+text rather than under the bullet.
+
+25 checks in `npm run pptx:text:test` (the lines tile the paragraph with no gap
+or overlap, each fits its width, anchoring and alignment move lines without
+changing the break, a bulleted line breaks earlier and hangs correctly) and 7
+in the host suite, including the one that could not exist before: a caret in
+the middle of the SECOND line, measured out to a rectangle, clicked back in,
+comes home to the same column. `artifacts/07_wrapped_selection.png` is a
+selection running across two of four wrapped lines.
+
+Still here: bullets and numbering as real paragraph properties rather than a
+painted prefix, indent levels beyond the simple step, and hyperlinks.
 
 ## Phase E3 — writing `.pptx` back out (done, flat)
 

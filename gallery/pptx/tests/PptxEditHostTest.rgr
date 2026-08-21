@@ -234,6 +234,43 @@ class PptxEditHostTest {
             c.ok("a press outside stops typing" ((app5.editor.isEditingText()) == false))
         }
 
+        print "-- a caret on a wrapped line --"
+        def app6:PptxApp (PptxEditHostTest.buildDeck("01-text.pptx"))
+        app6.runCommand("edit.toggle" "")
+        def boxId:int (app6.editor.addTextBox(60.0 260.0 200.0 120.0 "The quick brown fox jumps over the lazy dog and keeps going for a while"))
+        app6.editor.beginTextEdit(boxId)
+        def wrapped@(optional):PptxShape (app6.editor.findShape(boxId))
+        c.ok("the text box is there" (!null? wrapped))
+        if (!null? wrapped) {
+            def ws:PptxShape (unwrap wrapped)
+            def lines:[PptxTextLine] (app6.lineBoxesFor(ws))
+            c.ok("the paragraph wrapped into several lines" ((array_length lines) > 2))
+            if ((array_length lines) > 2) {
+                def second:PptxTextLine (itemAt lines 1)
+                def third:PptxTextLine (itemAt lines 2)
+                c.ok("the second line is below the first" (second.y > ((itemAt lines 0).y)))
+                ; A caret in the middle of the second line, measured out to a
+                ; rectangle and clicked back in, comes home.
+                def mid:int (second.startCol + (idiv (second.endCol - second.startCol) 2))
+                def r:PptxEditRect (app6.caretRect(ws (PptxTextPos.of(0 mid))))
+                c.ok("the caret is on the second line's row" ((fabs (r.y - second.y)) < 0.01))
+                def back:PptxTextPos (app6.caretFromPoint(ws (to_int (r.x + 1.0)) (to_int (r.y + 2.0))))
+                c.ok("clicking it comes back to the same column" ((back.para == 0) && (back.col == mid)))
+                ; A click on the third line is on the third line, which is the
+                ; thing a per-paragraph caret could not do at all.
+                def onThird:PptxTextPos (app6.caretFromPoint(ws (to_int (third.x + 2.0)) (to_int (third.y + 2.0))))
+                c.ok("a click on the third line lands in its columns" ((onThird.col >= third.startCol) && (onThird.col <= third.endCol)))
+                ; And the selection highlight over a wrapped range draws a rect
+                ; per line rather than one enormous one.
+                app6.editor.setCaretPos(0 0 false)
+                app6.editor.setCaretPos(0 (third.endCol) true)
+                def painted:EVGDisplayList (app6.buildFrame())
+                app6.editor.setCaretPos(0 0 false)
+                def bare2:EVGDisplayList (app6.buildFrame())
+                c.ok("a wrapped selection is drawn" ((painted.count()) > (bare2.count())))
+            }
+        }
+
         print "-- the viewer is still a viewer --"
         def viewer:PptxApp (PptxEditHostTest.buildDeck("04-multi.pptx"))
         def before:int viewer.index

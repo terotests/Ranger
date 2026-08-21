@@ -1,0 +1,386 @@
+; ==============================================================================
+; PptxTextLayout - a shape's text broken into lines, once, for everyone
+; ==============================================================================
+;
+; The painter used to hand the renderer a `maxWidth` and let it decide where a
+; line breaks, and the caret assumed a paragraph was one line. Both were true
+; separately and could not be true together: nothing in the program knew where
+; the second line of a wrapped paragraph started.
+;
+; This is that knowledge, computed once from the model and the measurer, and
+; used by three things — the painter, the caret, and the click that puts the
+; caret somewhere. A line records which paragraph and which columns it covers,
+; so a position in the text and a position on the screen convert both ways.
+;
+; Coordinates are painter pixels, with the pt→px factor handed in.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "PptxTextMeasure.rgr"
+
+class PptxTextLine {
+    def para:int 0
+    def startCol:int 0
+    def endCol:int 0
+    def x:double 0.0         ; where the text of this line starts
+    def y:double 0.0         ; top of the line box
+    def w:double 0.0         ; measured width, trailing spaces trimmed
+    def h:double 0.0         ; line height
+    def size:double 18.0     ; px of the tallest run on it
+    def align:string "left"
+    def first:boolean false  ; first line of its paragraph
+    def bullet:string ""     ; drawn before the first line, when there is one
+    def bulletX:double 0.0
+    def bulletSize:double 14.0
+
+    Constructor () {
+    }
+}
+
+class PptxTextLayout {
+    ; --- measuring a slice of a paragraph ------------------------------------
+
+    sfn paraText:string (para:PptxParagraph) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs i)
+            out = (out + run.text)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The width of columns [from, to) of a paragraph, run by run, because a
+    ; slice can cross a run boundary and the halves are different sizes.
+    sfn measureSlice:double (para:PptxParagraph from:int to:int m:PptxTextMeasure scale:double) {
+        if (to <= from) {
+            return 0.0
+        }
+        def total:double 0.0
+        def at:int 0
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs i)
+            def len:int (strlen run.text)
+            def s0:int at
+            def s1:int (at + len)
+            def a:int from
+            def b:int to
+            if (a < s0) {
+                a = s0
+            }
+            if (b > s1) {
+                b = s1
+            }
+            if (b > a) {
+                def piece:string (substring run.text (a - s0) (b - s0))
+                def size:double (run.fontSizePt * scale)
+                total = (total + (m.widthOf(piece size run.bold run.italic)))
+            }
+            at = s1
+            i = (i + 1)
+        }
+        return total
+    }
+
+    sfn maxRunSize:double (para:PptxParagraph from:int to:int scale:double) {
+        def best:double 0.0
+        def at:int 0
+        def i:int 0
+        while (i < (array_length para.runs)) {
+            def run:PptxTextRun (itemAt para.runs i)
+            def len:int (strlen run.text)
+            def s0:int at
+            def s1:int (at + len)
+            def overlaps:boolean true
+            if (s1 <= from) {
+                overlaps = false
+            }
+            if (s0 >= to) {
+                overlaps = false
+            }
+            if (len == 0) {
+                if (i == 0) {
+                    overlaps = true
+                }
+            }
+            if overlaps {
+                def size:double (run.fontSizePt * scale)
+                if (size > best) {
+                    best = size
+                }
+            }
+            at = s1
+            i = (i + 1)
+        }
+        if (best <= 0.0) {
+            best = (18.0 * scale)
+        }
+        return best
+    }
+
+    ; --- breaking ------------------------------------------------------------
+
+    sfn isSpace:boolean (c:int) {
+        if (c == 32) {
+            return true
+        }
+        if (c == 9) {
+            return true
+        }
+        return false
+    }
+
+    ; The column after the next run of spaces, i.e. where the next line could
+    ; start if this were the break. A chunk is "word + the spaces after it",
+    ; which is what makes trailing spaces belong to the line above.
+    sfn nextChunk:int (text:string from:int) {
+        def n:int (strlen text)
+        def i:int from
+        def inWord:boolean true
+        while (inWord) {
+            if (i >= n) {
+                inWord = false
+            } {
+                if (PptxTextLayout.isSpace((charAt text i))) {
+                    inWord = false
+                } {
+                    i = (i + 1)
+                }
+            }
+        }
+        def inSpace:boolean true
+        while (inSpace) {
+            if (i >= n) {
+                inSpace = false
+            } {
+                if (PptxTextLayout.isSpace((charAt text i))) {
+                    i = (i + 1)
+                } {
+                    inSpace = false
+                }
+            }
+        }
+        if (i <= from) {
+            return (from + 1)
+        }
+        return i
+    }
+
+    sfn trimEndCol:int (text:string from:int to:int) {
+        def end:int to
+        while (end > from) {
+            if (PptxTextLayout.isSpace((charAt text (end - 1)))) {
+                end = (end - 1)
+            } {
+                return end
+            }
+        }
+        return from
+    }
+
+    ; The largest column that still fits, at least one past `from`, for a word
+    ; that is wider than the box on its own.
+    sfn hardBreak:int (para:PptxParagraph from:int limit:int avail:double m:PptxTextMeasure scale:double) {
+        def best:int (from + 1)
+        def col:int (from + 1)
+        while (col <= limit) {
+            def w:double (PptxTextLayout.measureSlice(para from col m scale))
+            if (w <= avail) {
+                best = col
+            } {
+                return best
+            }
+            col = (col + 1)
+        }
+        return best
+    }
+
+    ; --- the layout ----------------------------------------------------------
+    ;
+    ; `x` / `y` / `w` / `h` are the shape's box in painter pixels; the insets
+    ; are taken out here, the same way the painter used to take them out.
+    sfn layout:[PptxTextLine] (body:PptxTextBody m:PptxTextMeasure scale:double x:double y:double w:double h:double) {
+        def out:[PptxTextLine]
+        def padL:double (body.insetL * scale)
+        def padT:double (body.insetT * scale)
+        def padR:double (body.insetR * scale)
+        def padB:double (body.insetB * scale)
+        def contentW:double ((w - padL) - padR)
+        if (contentW < 8.0) {
+            contentW = 8.0
+        }
+        def contentH:double ((h - padT) - padB)
+        def contentX:double (x + padL)
+
+        def total:double 0.0
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            def text:string (PptxTextLayout.paraText(para))
+            def n:int (strlen text)
+            def indent:double ((to_double para.level) * 18.0 * scale)
+            def bullet:string ""
+            def bulletW:double 0.0
+            def bulletSize:double (PptxTextLayout.maxRunSize(para 0 n scale))
+            if para.hasBullet {
+                bullet = (para.bulletChar + " ")
+                indent = (indent + (12.0 * scale))
+                bulletW = (m.widthOf(bullet bulletSize false false))
+            }
+            def avail:double (contentW - indent - bulletW)
+            if (avail < 8.0) {
+                avail = 8.0
+            }
+            def spacing:double (para.lineSpacingPct / 100.0)
+            if (spacing < 0.8) {
+                spacing = 1.0
+            }
+            total = (total + (para.spaceBeforePt * scale))
+
+            def start:int 0
+            def more:boolean true
+            def firstLine:boolean true
+            while (more) {
+                def end:int n
+                if body.wrap {
+                    end = start
+                    def acc:double 0.0
+                    def cursor:int start
+                    def stop:boolean false
+                    while (stop == false) {
+                        if (cursor >= n) {
+                            stop = true
+                        } {
+                            def nextAt:int (PptxTextLayout.nextChunk(text cursor))
+                            def chunkW:double (PptxTextLayout.measureSlice(para cursor nextAt m scale))
+                            def fits:boolean true
+                            if ((acc + chunkW) > avail) {
+                                fits = false
+                            }
+                            if fits {
+                                acc = (acc + chunkW)
+                                cursor = nextAt
+                                end = nextAt
+                            } {
+                                if (end > start) {
+                                    stop = true
+                                } {
+                                    end = (PptxTextLayout.hardBreak(para start nextAt avail m scale))
+                                    stop = true
+                                }
+                            }
+                        }
+                    }
+                    if (end <= start) {
+                        end = n
+                        if (n > start) {
+                            end = (start + 1)
+                        }
+                    }
+                }
+                def line (new PptxTextLine())
+                line.para = pi
+                line.startCol = start
+                line.endCol = end
+                line.first = firstLine
+                line.align = para.align
+                line.size = (PptxTextLayout.maxRunSize(para start end scale))
+                def lineH:double (line.size * spacing * 1.2)
+                if (lineH < (line.size * 1.15)) {
+                    lineH = (line.size * 1.15)
+                }
+                line.h = lineH
+                def visibleEnd:int (PptxTextLayout.trimEndCol(text start end))
+                line.w = (PptxTextLayout.measureSlice(para start visibleEnd m scale))
+                def lineX:double (contentX + indent + bulletW)
+                if (para.align == "ctr") {
+                    lineX = (lineX + ((avail - line.w) * 0.5))
+                }
+                if (para.align == "r") {
+                    lineX = (lineX + (avail - line.w))
+                }
+                line.x = lineX
+                line.y = total
+                if firstLine {
+                    line.bullet = bullet
+                    line.bulletX = (contentX + indent - bulletW)
+                    if (bulletW > 0.0) {
+                        line.bulletX = (contentX + ((to_double para.level) * 18.0 * scale))
+                    }
+                    line.bulletSize = bulletSize
+                }
+                push out line
+                total = (total + lineH)
+                firstLine = false
+                start = end
+                if (start >= n) {
+                    more = false
+                }
+            }
+            total = (total + (para.spaceAfterPt * scale))
+            pi = (pi + 1)
+        }
+
+        ; Anchoring: now that every line is known, so is the block's height.
+        def originY:double (y + padT)
+        if (body.anchor == "ctr") {
+            originY = (y + padT + ((contentH - total) * 0.5))
+        }
+        if (body.anchor == "b") {
+            originY = (y + padT + (contentH - total))
+        }
+        if (originY < (y + padT)) {
+            originY = (y + padT)
+        }
+        def li:int 0
+        while (li < (array_length out)) {
+            def ln:PptxTextLine (itemAt out li)
+            ln.y = (ln.y + originY)
+            li = (li + 1)
+        }
+        return out
+    }
+
+    ; --- looking a position up -----------------------------------------------
+
+    sfn lineIndexFor:int (lines:[PptxTextLine] para:int col:int) {
+        def best:int (0 - 1)
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:PptxTextLine (itemAt lines i)
+            if (ln.para == para) {
+                if (col >= ln.startCol) {
+                    best = i
+                }
+                if (best < 0) {
+                    best = i
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The nearest line to a y, for a click that landed between or outside them.
+    sfn lineAtY:int (lines:[PptxTextLine] py:double) {
+        if ((array_length lines) == 0) {
+            return (0 - 1)
+        }
+        def best:int 0
+        def bestDist:double 1000000.0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:PptxTextLine (itemAt lines i)
+            def mid:double (ln.y + (ln.h * 0.5))
+            def d:double (fabs (py - mid))
+            if (d < bestDist) {
+                bestDist = d
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+}

@@ -44,7 +44,7 @@ web editor like PPTist does, none of the code is.
 | --- | --- |
 | E1 | Editing core: selection, hit test, transforms, snapping, z-order, group, align, insert / delete, styles, slide ops, undo / redo, host seam — **done** |
 | E2 | A caret inside a shape, run-splitting styles, measured hit test — **done** |
-| E2b | One shared wrap pass, so the caret follows a wrapped line; real bullets |
+| E2b | One shared wrap pass — painter, caret and click use the same lines — **done** |
 | E3 | Writing `.pptx` back out on `ZipWriter`, round-tripped and verified from outside — **done, flat** |
 | E3b | Saving the file you opened: original parts kept, only touched slides rewritten — **done** |
 | E4 | Marquee select, clipboard, format painter, flip / lock, crop, rulers |

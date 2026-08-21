@@ -13,6 +13,7 @@
 Import "../src/PptxModel.rgr"
 Import "../src/PptxTextEdit.rgr"
 Import "../src/PptxEdit.rgr"
+Import "../src/PptxTextLayout.rgr"
 
 class PptxTextEditTest {
     def passed:int 0
@@ -62,6 +63,10 @@ class PptxTextEditTest {
         this.testSplit()
         this.testMovement()
         this.testStyleRange()
+        this.testWrap()
+        this.testWrapCaret()
+        this.testWrapAnchorAndAlign()
+        this.testWrapBullet()
         this.testEditorCaret()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
@@ -323,4 +328,169 @@ class PptxTextEditTest {
         this.check("editing ends" ((ed.isEditingText()) == false))
         this.check("a picture cannot be typed into" ((ed.beginTextEdit(9999)) == false))
     }
+
+    ; --- the shared wrap -----------------------------------------------------
+    ;
+    ; One layout pass, used by the painter and by the caret. These check the
+    ; pass itself: no measurement of a real font here, just the estimate, which
+    ; is deterministic and enough to see where a line breaks.
+
+    fn wrapBody:PptxTextBody (text:string sizePt:double) {
+        def body (new PptxTextBody())
+        body.insetL = 0.0
+        body.insetT = 0.0
+        body.insetR = 0.0
+        body.insetB = 0.0
+        def para (new PptxParagraph())
+        def run (new PptxTextRun())
+        run.text = text
+        run.fontSizePt = sizePt
+        run.sizeSet = true
+        push para.runs run
+        push body.paragraphs para
+        return body
+    }
+
+    fn testWrap:void () {
+        print "--- one layout, for the painter and the caret ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("one two three four five six seven eight" 10.0))
+        ; 10pt at the estimate is ~5.2px per character; 100px of box is about
+        ; nineteen characters, so this has to break several times.
+        def lines:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 100.0 400.0))
+        this.check("a long paragraph is several lines" ((array_length lines) > 2))
+        ; The lines tile the paragraph: no gap, no overlap, no lost character.
+        def covered:boolean true
+        def expect:int 0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:PptxTextLine (itemAt lines i)
+            if (ln.startCol != expect) {
+                covered = false
+            }
+            if (ln.endCol < ln.startCol) {
+                covered = false
+            }
+            expect = ln.endCol
+            i = (i + 1)
+        }
+        this.check("the lines tile the paragraph" covered)
+        this.check("and end where the text ends" (expect == (strlen "one two three four five six seven eight")))
+        ; Each line fits the box it was given.
+        def fits:boolean true
+        def j:int 0
+        while (j < (array_length lines)) {
+            def ln2:PptxTextLine (itemAt lines j)
+            if (ln2.w > 100.5) {
+                fits = false
+            }
+            j = (j + 1)
+        }
+        this.check("every line fits the width" fits)
+        ; They go down the box in order.
+        def descending:boolean true
+        def k:int 1
+        while (k < (array_length lines)) {
+            def prev:PptxTextLine (itemAt lines (k - 1))
+            def cur:PptxTextLine (itemAt lines k)
+            if (cur.y <= prev.y) {
+                descending = false
+            }
+            k = (k + 1)
+        }
+        this.check("and each line is below the last" descending)
+        ; Only the first line of a paragraph is marked as such.
+        def firsts:int 0
+        def f:int 0
+        while (f < (array_length lines)) {
+            if (((itemAt lines f).first)) {
+                firsts = (firsts + 1)
+            }
+            f = (f + 1)
+        }
+        this.check("one first line per paragraph" (firsts == 1))
+        ; Wrapping off means one line, however long it is.
+        def noWrap:PptxTextBody (this.wrapBody("one two three four five six seven eight" 10.0))
+        noWrap.wrap = false
+        def single:[PptxTextLine] (PptxTextLayout.layout(noWrap m 1.0 0.0 0.0 100.0 400.0))
+        this.check("wrap off is one line" ((array_length single) == 1))
+    }
+
+    fn testWrapCaret:void () {
+        print "--- a caret on the second line ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("alpha beta gamma delta epsilon" 10.0))
+        def lines:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))
+        this.check("it wrapped" ((array_length lines) > 1))
+        if ((array_length lines) < 2) {
+            return
+        }
+        def second:PptxTextLine (itemAt lines 1)
+        ; A column on the second line finds the second line, not the first.
+        def idx:int (PptxTextLayout.lineIndexFor(lines 0 (second.startCol + 1)))
+        this.check("a column on line two lands on line two" (idx == 1))
+        ; The break itself belongs to the line that starts there — which is
+        ; where a caret sits when you press End on line one and then Right.
+        def atBreak:int (PptxTextLayout.lineIndexFor(lines 0 second.startCol))
+        this.check("the break belongs to the line that starts there" (atBreak == 1))
+        ; A click below every line lands on the last one.
+        def deep:int (PptxTextLayout.lineAtY(lines 10000.0))
+        this.check("a click below the text lands on the last line" (deep == ((array_length lines) - 1)))
+        def high:int (PptxTextLayout.lineAtY(lines (0.0 - 500.0)))
+        this.check("and above it on the first" (high == 0))
+        ; Measuring a slice of a line is monotonic: further along is wider.
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        def w1:double (PptxTextLayout.measureSlice(para second.startCol (second.startCol + 1) m 1.0))
+        def w2:double (PptxTextLayout.measureSlice(para second.startCol (second.startCol + 3) m 1.0))
+        this.check("measuring further is measuring wider" (w2 > w1))
+    }
+
+    fn testWrapAnchorAndAlign:void () {
+        print "--- anchor and alignment over real line counts ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("one two three four five six" 10.0))
+        def top:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        body.anchor = "ctr"
+        def middle:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        body.anchor = "b"
+        def bottom:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        this.check("the same text wraps the same however it is anchored" (((array_length top) == (array_length middle)) && ((array_length middle) == (array_length bottom))))
+        def t0:PptxTextLine (itemAt top 0)
+        def m0:PptxTextLine (itemAt middle 0)
+        def b0:PptxTextLine (itemAt bottom 0)
+        this.check("centred text starts lower than top-anchored" (m0.y > t0.y))
+        this.check("bottom-anchored lower still" (b0.y > m0.y))
+        ; Alignment moves the line, not the break.
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        body.anchor = "t"
+        para.align = "ctr"
+        def centred:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        this.check("centring does not change the wrap" ((array_length centred) == (array_length top)))
+        def c0:PptxTextLine (itemAt centred 0)
+        this.check("but it moves the line right" (c0.x > t0.x))
+        para.align = "r"
+        def right:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        def r0:PptxTextLine (itemAt right 0)
+        this.check("and right-aligning moves it further" (r0.x > c0.x))
+        this.check("to the far edge" ((fabs ((r0.x + r0.w) - 80.0)) < 0.6))
+    }
+
+    fn testWrapBullet:void () {
+        print "--- a bullet is part of the layout ---"
+        def m (new PptxTextMeasure())
+        def body:PptxTextBody (this.wrapBody("alpha beta gamma delta epsilon zeta" 10.0))
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        def plain:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))
+        para.hasBullet = true
+        para.bulletChar = "•"
+        def bulleted:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 90.0 400.0))
+        def first:PptxTextLine (itemAt bulleted 0)
+        this.check("the bullet is on the first line" ((strlen first.bullet) > 0))
+        this.check("and only there" (((itemAt bulleted 1).bullet) == ""))
+        this.check("the text is indented past it" (first.x > ((itemAt plain 0).x)))
+        this.check("a bulleted line has less room, so it breaks earlier" (first.endCol <= ((itemAt plain 0).endCol)))
+        def second:PptxTextLine (itemAt bulleted 1)
+        this.check("the wrapped line hangs under the text, not the bullet" ((fabs (second.x - first.x)) < 0.01))
+    }
+
 }

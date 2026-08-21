@@ -44,6 +44,8 @@ gallery/pptx/
     PptxView.rgr        SoftCanvas / sceneJson (+ image cache)
     PptxEdit.rgr        editing core: selection, transforms, history
     PptxTextEdit.rgr    the caret inside a shape, and the runs it splits
+    PptxTextLayout.rgr  text broken into lines, once, for painter and caret
+    PptxTextMeasure.rgr how wide a string is — one answer, for both
     PptxWriter.rgr      model → OPC package (save)
     PptxApp.rgr         UIInput navigation + editing host
     pptx_demo.rgr       headless PNG demo
@@ -94,6 +96,10 @@ window pixel becomes one:
 - [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
       on a shape's text
 - [x] Slides: add, duplicate, delete, reorder
+- [x] One shared **text layout**: the painter, the caret and the click all use
+      the same lines, so a caret lands on the glyphs of a wrapped line, mixed
+      runs are placed by measurement rather than by an average character width,
+      and vertical anchoring divides by a line count that is known
 - [x] A **text caret**: F2 to type in the selected shape, arrows and word
       steps, shift-selection, Home/End, Enter to split a paragraph, click to
       place the caret; typing inside a bold word stays bold and styling a
@@ -112,10 +118,9 @@ window pixel becomes one:
       `EVGDisplayList` as the slide, so WebGL and SoftCanvas both draw them and
       an export has none of them
 
-Not yet: a caret that follows a WRAPPED line (a paragraph that wraps reports
-one line box, so the caret is exact on its first line), keeping what is on an
-EDITED slide that the model does not describe (untouched slides keep
-everything), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
+Not yet: bullets as real paragraph properties rather than a painted prefix,
+keeping what is on an EDITED slide that the model does not describe (untouched
+slides keep everything), clipboard, crop, animations. `PLAN_EDITOR.md` has the phases, and the licence rule that
 governs them — none of this is derived from another editor's source.
 
 ```bash

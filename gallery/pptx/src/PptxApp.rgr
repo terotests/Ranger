@@ -1713,114 +1713,65 @@ class PptxApp {
         return (PptxEditRect.of(((sh.x * sc) + ox) ((sh.y * sc) + oy) (sh.width * sc) (sh.height * sc)))
     }
 
-    fn paraBoxesFor:[PptxParaBox] (sh:PptxShape) {
+    fn lineBoxesFor:[PptxTextLine] (sh:PptxShape) {
         def box:PptxEditRect (this.shapeScreenBox(sh))
-        view.converter.setScale((this.ptScale()) / (96.0 / 72.0))
-        return (view.converter.paragraphBoxes(sh box.x box.y box.w box.h))
+        view.converter.setScale(((this.ptScale()) / (96.0 / 72.0)))
+        return (view.converter.lineBoxes(sh box.x box.y box.w box.h))
     }
 
-    ; Width of one paragraph's text up to `col`, measured run by run so a run
-    ; in another size lands in the right place.
-    fn measurePrefix:double (sh:PptxShape paraIndex:int col:int) {
-        def sc:double (this.ptScale())
+    ; Where a column sits on a line, measured through the same object the
+    ; painter measured with — so the caret is where the glyphs are, on the
+    ; second line of a wrapped paragraph as much as on the first.
+    fn caretXOnLine:double (sh:PptxShape line:PptxTextLine col:int) {
         def body:PptxTextBody sh.text
-        def p@(optional):PptxParagraph (PptxTextEdit.paraAt(body paraIndex))
-        if (null? p) {
-            return 0.0
+        if (line.para >= (array_length body.paragraphs)) {
+            return line.x
         }
-        def para:PptxParagraph (unwrap p)
-        def total:double 0.0
-        def seen:int 0
-        def i:int 0
-        while (i < (array_length para.runs)) {
-            def run:PptxTextRun (itemAt para.runs i)
-            def len:int (strlen run.text)
-            def take:int len
-            if ((seen + len) > col) {
-                take = (col - seen)
-            }
-            if (take < 0) {
-                take = 0
-            }
-            if (take > 0) {
-                def piece:string (substring run.text 0 take)
-                def size:double (run.fontSizePt * sc)
-                total = (total + (view.ctx.measureWidth(piece size)))
-            }
-            seen = (seen + len)
-            if (seen >= col) {
-                i = (array_length para.runs)
-            } {
-                i = (i + 1)
-            }
+        def para:PptxParagraph (itemAt body.paragraphs line.para)
+        def at:int col
+        if (at < line.startCol) {
+            at = line.startCol
         }
-        return total
-    }
-
-    fn measureParagraph:double (sh:PptxShape paraIndex:int) {
-        def len:int (PptxTextEdit.paraLen(sh.text paraIndex))
-        return (this.measurePrefix(sh paraIndex len))
-    }
-
-    ; Where a column starts, in window pixels, alignment included.
-    fn caretX:double (sh:PptxShape box:PptxParaBox col:int) {
-        def prefix:double (this.measurePrefix(sh box.index col))
-        def startX:double box.x
-        if (box.align == "center") {
-            def full:double (this.measureParagraph(sh box.index))
-            startX = (box.x + ((box.w - full) * 0.5))
+        if (at > line.endCol) {
+            at = line.endCol
         }
-        if (box.align == "right") {
-            def full2:double (this.measureParagraph(sh box.index))
-            startX = (box.x + (box.w - full2))
-        }
-        return (startX + prefix)
+        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure (this.ptScale()))))
     }
 
     fn caretRect:PptxEditRect (sh:PptxShape pos:PptxTextPos) {
-        def boxes:[PptxParaBox] (this.paraBoxesFor(sh))
-        if ((array_length boxes) == 0) {
+        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        if ((array_length lines) == 0) {
             def fallback:PptxEditRect (this.shapeScreenBox(sh))
             return (PptxEditRect.of(fallback.x fallback.y 2.0 (fallback.h * 0.5)))
         }
-        def idx:int pos.para
+        def idx:int (PptxTextLayout.lineIndexFor(lines pos.para pos.col))
         if (idx < 0) {
             idx = 0
         }
-        if (idx >= (array_length boxes)) {
-            idx = ((array_length boxes) - 1)
-        }
-        def box:PptxParaBox (itemAt boxes idx)
-        def x:double (this.caretX(sh box pos.col))
-        return (PptxEditRect.of(x box.y 2.0 box.h))
+        def line:PptxTextLine (itemAt lines idx)
+        def x:double (this.caretXOnLine(sh line pos.col))
+        return (PptxEditRect.of(x line.y 2.0 line.h))
     }
 
-    ; The inverse: a click lands on a paragraph, and then on the column whose
-    ; edge is nearest to it.
+    ; The inverse: a click lands on a line, and then on the column whose edge
+    ; is nearest to it.
     fn caretFromPoint:PptxTextPos (sh:PptxShape px:int py:int) {
         def out:PptxTextPos (PptxTextPos.of(0 0))
-        def boxes:[PptxParaBox] (this.paraBoxesFor(sh))
-        if ((array_length boxes) == 0) {
+        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
+        if ((array_length lines) == 0) {
             return out
         }
-        def fy:double (to_double py)
-        def idx:int 0
-        def i:int 0
-        while (i < (array_length boxes)) {
-            def b:PptxParaBox (itemAt boxes i)
-            if (fy >= b.y) {
-                idx = i
-            }
-            i = (i + 1)
+        def idx:int (PptxTextLayout.lineAtY(lines (to_double py)))
+        if (idx < 0) {
+            idx = 0
         }
-        def box:PptxParaBox (itemAt boxes idx)
-        def len:int (PptxTextEdit.paraLen(sh.text idx))
+        def line:PptxTextLine (itemAt lines idx)
         def fx:double (to_double px)
-        def best:int 0
+        def best:int line.startCol
         def bestDist:double 1000000.0
-        def col:int 0
-        while (col <= len) {
-            def cx:double (this.caretX(sh box col))
+        def col:int line.startCol
+        while (col <= line.endCol) {
+            def cx:double (this.caretXOnLine(sh line col))
             def d:double (fabs (cx - fx))
             if (d < bestDist) {
                 bestDist = d
@@ -1828,7 +1779,7 @@ class PptxApp {
             }
             col = (col + 1)
         }
-        out.para = idx
+        out.para = line.para
         out.col = best
         return out
     }
@@ -1897,7 +1848,7 @@ class PptxApp {
             return
         }
         def sh:PptxShape (unwrap hit)
-        def boxes:[PptxParaBox] (this.paraBoxesFor(sh))
+        def lines:[PptxTextLine] (this.lineBoxesFor(sh))
         if ((editor.textSelectionEmpty()) == false) {
             def a:PptxTextPos editor.anchor
             def b:PptxTextPos editor.caret
@@ -1908,31 +1859,54 @@ class PptxApp {
                 end = a
             }
             def wash:EVGColor (EVGColor.rgba(90 140 230 0.28))
-            def pi:int start.para
-            while (pi <= end.para) {
-                if (pi < (array_length boxes)) {
-                    def box:PptxParaBox (itemAt boxes pi)
-                    def from:int 0
-                    def to:int (PptxTextEdit.paraLen(sh.text pi))
-                    if (pi == start.para) {
-                        from = start.col
+            ; A highlight per LINE the selection touches, not per paragraph —
+            ; a wrapped paragraph is several lines and the selection stops
+            ; where each of them does.
+            def i:int 0
+            while (i < (array_length lines)) {
+                def line:PptxTextLine (itemAt lines i)
+                def covered:boolean true
+                if (line.para < start.para) {
+                    covered = false
+                }
+                if (line.para > end.para) {
+                    covered = false
+                }
+                if (line.para == start.para) {
+                    if (line.endCol < start.col) {
+                        covered = false
                     }
-                    if (pi == end.para) {
-                        to = end.col
+                }
+                if (line.para == end.para) {
+                    if (line.startCol > end.col) {
+                        covered = false
                     }
-                    def x0:double (this.caretX(sh box from))
-                    def x1:double (this.caretX(sh box to))
+                }
+                if covered {
+                    def from:int line.startCol
+                    def to:int line.endCol
+                    if (line.para == start.para) {
+                        if (start.col > from) {
+                            from = start.col
+                        }
+                    }
+                    if (line.para == end.para) {
+                        if (end.col < to) {
+                            to = end.col
+                        }
+                    }
+                    def x0:double (this.caretXOnLine(sh line from))
+                    def x1:double (this.caretXOnLine(sh line to))
                     def wsel:double (x1 - x0)
                     if (wsel < 2.0) {
                         wsel = 2.0
                     }
-                    dl.addRect(x0 box.y wsel box.h wash)
+                    dl.addRect(x0 line.y wsel line.h wash)
                 }
-                pi = (pi + 1)
+                i = (i + 1)
             }
         }
         def r:PptxEditRect (this.caretRect(sh editor.caret))
         dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(20 30 60)))
     }
-
 }

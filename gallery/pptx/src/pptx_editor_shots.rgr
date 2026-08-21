@@ -133,6 +133,18 @@ class PptxEditorShots {
             PptxEditorShots.shot(app5 "05_text_caret.png")
         }
 
+        ; 6 — text that wraps, with a selection across the lines it made
+        def app6:PptxApp (PptxEditorShots.open("19-text-fidelity.pptx"))
+        PptxEditorShots.shot(app6 "06_text_fidelity.png")
+        def app7:PptxApp (PptxEditorShots.open("01-text.pptx"))
+        app7.runCommand("edit.toggle" "")
+        def wrapId:int (app7.editor.addTextBox(60.0 300.0 260.0 140.0 "The quick brown fox jumps over the lazy dog, and then keeps going until the line has to break somewhere."))
+        app7.editor.setTextSizePt(18.0)
+        app7.editor.beginTextEdit(wrapId)
+        app7.editor.setCaretPos(0 4 false)
+        app7.editor.setCaretPos(0 44 true)
+        PptxEditorShots.shot(app7 "07_wrapped_selection.png")
+
         print "done"
     }
 }

@@ -38,6 +38,7 @@ class PptxView {
         pageH = h
         canvas.init(w h)
         ctx.attach(canvas)
+        this.attachMeasurer()
         status = "no fonts yet"
     }
 
@@ -58,6 +59,13 @@ class PptxView {
         ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-BoldItalic.ttf")
         ctx.tr.fontFamily = fontFamily
         ctx.tr.applyFace()
+        this.attachMeasurer()
+    }
+
+    ; The painter's own text renderer, handed to the layout: from here on the
+    ; wrap, the caret and the click all measure with the font that will draw.
+    fn attachMeasurer:void () {
+        converter.measure.attach(ctx fontFamily)
     }
 
     fn clearImages:void () {

@@ -12,28 +12,19 @@
 
 Import "PptxModel.rgr"
 Import "PptxGeom.rgr"
+Import "PptxTextLayout.rgr"
 Import "PptxChartVela.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
-; One paragraph's line box inside a shape, in painter pixels.
-class PptxParaBox {
-    def index:int 0
-    def x:double 0.0
-    def y:double 0.0
-    def w:double 0.0
-    def h:double 0.0
-    def fontSize:double 18.0
-    def align:string "left"
-
-    Constructor () {
-    }
-}
-
 class PptxToEvg {
     def scale:double 1.0        ; extra zoom on top of pt→px
+    ; Who says how wide a string is. A host attaches its text renderer to this
+    ; and the painter, the caret and the click all measure through the one
+    ; object — the whole point of the layout below.
+    def measure:PptxTextMeasure (new PptxTextMeasure())
 
     Constructor () {
     }
@@ -309,214 +300,79 @@ class PptxToEvg {
         push dl.cmds c
     }
 
-    fn estimateTextBlockHeight:double (body:PptxTextBody contentW:double) {
-        def h:double 0.0
-        def pi:int 0
-        while (pi < (array_length body.paragraphs)) {
-            def para:PptxParagraph (itemAt body.paragraphs pi)
-            def fontSize:double 18.0
-            if ((array_length para.runs) > 0) {
-                def r0:PptxTextRun (itemAt para.runs 0)
-                fontSize = (this.ptToPx(r0.fontSizePt))
-            }
-            def lineH:double (fontSize * (para.lineSpacingPct / 100.0) * 1.2)
-            if (lineH < (fontSize * 1.15)) {
-                lineH = (fontSize * 1.15)
-            }
-            ; Rough wrap estimate: ~0.5em average char width
-            def chars:int 0
-            def ri:int 0
-            while (ri < (array_length para.runs)) {
-                def rr:PptxTextRun (itemAt para.runs ri)
-                chars = (chars + (strlen rr.text))
-                ri = (ri + 1)
-            }
-            def avgW:double (fontSize * 0.5)
-            def lines:int 1
-            if ((avgW > 0.0) && (contentW > 0.0) && body.wrap) {
-                def need:double (((to_double chars) * avgW) / contentW)
-                lines = (to_int (need + 0.999))
-                if (lines < 1) {
-                    lines = 1
-                }
-            }
-            h = (h + (this.ptToPx(para.spaceBeforePt)))
-            h = (h + ((to_double lines) * lineH))
-            h = (h + (this.ptToPx(para.spaceAfterPt)))
-            pi = (pi + 1)
-        }
-        return h
-    }
-
-    ; Where each paragraph sits inside a shape's box, in the same pixels the
-    ; painter uses. A caret has to agree with the glyphs, so the stacking is
-    ; not written twice: `emitTextBody` and this walk the same arithmetic.
-    ;
-    ; Wrapping is the one thing it does not follow — the display list hands a
-    ; `maxWidth` to the renderer and the renderer decides where the line
-    ; breaks, so a paragraph that wraps reports one box here and the caret is
-    ; right only on its first line. That is the next piece of work, not a
-    ; rounding error.
-    fn paragraphBoxes:[PptxParaBox] (shape:PptxShape x:double y:double w:double h:double) {
-        def out:[PptxParaBox]
-        def body:PptxTextBody shape.text
-        def padL:double (this.ptToPx(body.insetL))
-        def padT:double (this.ptToPx(body.insetT))
-        def padR:double (this.ptToPx(body.insetR))
-        def padB:double (this.ptToPx(body.insetB))
-        def contentW:double ((w - padL) - padR)
-        if (contentW < 8.0) {
-            contentW = 8.0
-        }
-        def contentH:double ((h - padT) - padB)
-        def blockH:double (this.estimateTextBlockHeight(body contentW))
-        def originY:double (y + padT)
-        if (body.anchor == "ctr") {
-            originY = (y + padT + ((contentH - blockH) * 0.5))
-        }
-        if (body.anchor == "b") {
-            originY = (y + padT + (contentH - blockH))
-        }
-        if (originY < (y + padT)) {
-            originY = (y + padT)
-        }
-        def ty:double originY
-        def pi:int 0
-        while (pi < (array_length body.paragraphs)) {
-            def para:PptxParagraph (itemAt body.paragraphs pi)
-            ty = (ty + (this.ptToPx(para.spaceBeforePt)))
-            def fontSize:double 18.0
-            if ((array_length para.runs) > 0) {
-                def r0:PptxTextRun (itemAt para.runs 0)
-                fontSize = (this.ptToPx(r0.fontSizePt))
-            }
-            def lineH:double (fontSize * (para.lineSpacingPct / 100.0) * 1.2)
-            if (lineH < (fontSize * 1.15)) {
-                lineH = (fontSize * 1.15)
-            }
-            def box (new PptxParaBox())
-            box.index = pi
-            box.x = (x + padL)
-            box.y = ty
-            box.w = contentW
-            box.h = lineH
-            box.fontSize = fontSize
-            box.align = (this.alignToken(para.align))
-            if para.hasBullet {
-                box.x = (box.x + ((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0)))
-                box.w = (box.w - (((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0))))
-            }
-            push out box
-            ty = (ty + lineH)
-            ty = (ty + (this.ptToPx(para.spaceAfterPt)))
-            pi = (pi + 1)
-        }
-        return out
+    ; The lines of a shape's text, in painter pixels. One layout, asked for by
+    ; the painter below and by the host that draws the caret — which is what
+    ; makes a caret land on the glyphs of a WRAPPED line and not just on the
+    ; first line of the paragraph.
+    fn lineBoxes:[PptxTextLine] (shape:PptxShape x:double y:double w:double h:double) {
+        def s:double ((96.0 / 72.0) * scale)
+        return (PptxTextLayout.layout(shape.text measure s x y w h))
     }
 
     fn emitTextBody:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def lines:[PptxTextLine] (this.lineBoxes(shape x y w h))
         def body:PptxTextBody shape.text
-        def padL:double (this.ptToPx(body.insetL))
-        def padT:double (this.ptToPx(body.insetT))
-        def padR:double (this.ptToPx(body.insetR))
-        def padB:double (this.ptToPx(body.insetB))
-        def contentW:double ((w - padL) - padR)
-        if (contentW < 8.0) {
-            contentW = 8.0
-        }
-        def contentH:double ((h - padT) - padB)
-        def blockH:double (this.estimateTextBlockHeight(body contentW))
-        def originY:double (y + padT)
-        if (body.anchor == "ctr") {
-            originY = (y + padT + ((contentH - blockH) * 0.5))
-        }
-        if (body.anchor == "b") {
-            originY = (y + padT + (contentH - blockH))
-        }
-        if (originY < (y + padT)) {
-            originY = (y + padT)
-        }
-        def ty:double originY
-        def pi:int 0
-        while (pi < (array_length body.paragraphs)) {
-            def para:PptxParagraph (itemAt body.paragraphs pi)
-            ty = (ty + (this.ptToPx(para.spaceBeforePt)))
-            def align:string (this.alignToken(para.align))
-            def maxW:double 0.0
-            if body.wrap {
-                maxW = contentW
+        def s:double ((96.0 / 72.0) * scale)
+        def li:int 0
+        while (li < (array_length lines)) {
+            def line:PptxTextLine (itemAt lines li)
+            def para:PptxParagraph (itemAt body.paragraphs line.para)
+            if ((strlen line.bullet) > 0) {
+                this.pushTextCmd(dl line.bullet line.bulletX line.y line.bulletSize (EVGColor.rgb(40 40 50)) "Calibri" shape.rotation "left" 0.0 false 0.0)
             }
-            def bulletPrefix:string ""
-            def textOriginX:double (x + padL)
-            if para.hasBullet {
-                bulletPrefix = (para.bulletChar + " ")
-                textOriginX = (textOriginX + ((to_double para.level) * (this.ptToPx(18.0))) + (this.ptToPx(12.0)))
-            }
-            ; Approximate total line width so ctr/r can place multi-run lines.
-            def approxW:double 0.0
-            def ri0:int 0
-            def lineSize:double 14.0
-            while (ri0 < (array_length para.runs)) {
-                def r0:PptxTextRun (itemAt para.runs ri0)
-                def fs0:double (this.ptToPx(r0.fontSizePt))
-                if (fs0 > lineSize) {
-                    lineSize = fs0
-                }
-                approxW = (approxW + ((to_double (strlen r0.text)) * fs0 * 0.52))
-                ri0 = (ri0 + 1)
-            }
-            if para.hasBullet {
-                approxW = (approxW + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
-            }
-            def runX:double textOriginX
-            if (align == "center") {
-                runX = (textOriginX + ((contentW - approxW) * 0.5))
-            }
-            if (align == "right") {
-                runX = (textOriginX + (contentW - approxW))
-            }
-            def singleRun:boolean ((array_length para.runs) == 1)
-            if para.hasBullet {
-                this.pushTextCmd(dl bulletPrefix runX ty lineSize (EVGColor.rgb(40 40 50)) "Calibri" shape.rotation "left" 0.0 false 0.0)
-                runX = (runX + ((to_double (strlen bulletPrefix)) * lineSize * 0.52))
-                singleRun = false
-            }
+            ; Each run's slice of this line, placed by measurement rather than
+            ; by an average character width — which is why a paragraph of two
+            ; sizes no longer draws its second half on top of its first.
+            def penX:double line.x
+            def at:int 0
             def ri:int 0
             while (ri < (array_length para.runs)) {
                 def run:PptxTextRun (itemAt para.runs ri)
-                def fontSize:double (this.ptToPx(run.fontSizePt))
-                def fontFamily:string "Calibri"
-                if ((strlen run.fontFamily) > 0) {
-                    fontFamily = run.fontFamily
+                def len:int (strlen run.text)
+                def s0:int at
+                def s1:int (at + len)
+                def a:int line.startCol
+                def b:int line.endCol
+                if (a < s0) {
+                    a = s0
                 }
-                def col:EVGColor (EVGColor.rgb(0 0 0))
-                if (run.color.isSet) {
-                    col = (this.colorFrom(run.color))
+                if (b > s1) {
+                    b = s1
                 }
-                def weight:string ""
-                if run.bold {
-                    if run.italic {
-                        weight = "bolditalic"
+                if (b > a) {
+                    def piece:string (substring run.text (a - s0) (b - s0))
+                    def fontSize:double (run.fontSizePt * s)
+                    def fontFamily:string "Calibri"
+                    if ((strlen run.fontFamily) > 0) {
+                        fontFamily = run.fontFamily
+                    }
+                    def col:EVGColor (EVGColor.rgb(0 0 0))
+                    if (run.color.isSet) {
+                        col = (this.colorFrom(run.color))
+                    }
+                    def weight:string ""
+                    if run.bold {
+                        if run.italic {
+                            weight = "bolditalic"
+                        } {
+                            weight = "bold"
+                        }
                     } {
-                        weight = "bold"
+                        if run.italic {
+                            weight = "italic"
+                        }
                     }
-                } {
-                    if run.italic {
-                        weight = "italic"
-                    }
-                }
-                if (singleRun && (para.hasBullet == false)) {
                     def c (new EVGDrawCmd())
                     c.kind = 3
-                    c.x = (x + padL)
-                    c.y = ty
-                    c.w = contentW
+                    c.x = penX
+                    c.y = line.y
+                    c.w = 0.0
                     c.h = fontSize
-                    c.text = run.text
+                    c.text = piece
                     c.fontFamily = fontFamily
                     c.fontSize = fontSize
-                    c.textAlign = align
-                    c.maxWidth = maxW
+                    c.textAlign = "left"
+                    c.maxWidth = 0.0
                     c.fontWeight = weight
                     c.r = (col.red())
                     c.g = (col.green())
@@ -524,35 +380,12 @@ class PptxToEvg {
                     c.a = (col.alpha())
                     c.rotate = shape.rotation
                     push dl.cmds c
-                } {
-                    def c2 (new EVGDrawCmd())
-                    c2.kind = 3
-                    c2.x = runX
-                    c2.y = ty
-                    c2.w = 0.0
-                    c2.h = fontSize
-                    c2.text = run.text
-                    c2.fontFamily = fontFamily
-                    c2.fontSize = fontSize
-                    c2.textAlign = "left"
-                    c2.fontWeight = weight
-                    c2.r = (col.red())
-                    c2.g = (col.green())
-                    c2.b = (col.blue())
-                    c2.a = (col.alpha())
-                    c2.rotate = shape.rotation
-                    push dl.cmds c2
-                    runX = (runX + ((to_double (strlen run.text)) * fontSize * 0.52))
+                    penX = (penX + (measure.widthOf(piece fontSize run.bold run.italic)))
                 }
+                at = s1
                 ri = (ri + 1)
             }
-            def spacing:double (para.lineSpacingPct / 100.0)
-            if (spacing < 0.8) {
-                spacing = 1.0
-            }
-            ty = (ty + (lineSize * 1.2 * spacing))
-            ty = (ty + (this.ptToPx(para.spaceAfterPt)))
-            pi = (pi + 1)
+            li = (li + 1)
         }
     }
 
