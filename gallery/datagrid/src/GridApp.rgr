@@ -18,6 +18,7 @@ Import "xlsx/XlsxLoader.rgr"
 Import "xlsx/XlsxWriter.rgr"
 Import "DateSerial.rgr"
 Import "GridCommands.rgr"
+Import "GridCursor.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridFormat.rgr"
@@ -78,6 +79,24 @@ class GridApp {
     def moveGrabR:int 0
     def moveGrabC:int 0
     ; Dragging a formula-range overlay handle rewrites that A1:B2 in the formula.
+    ; Picking a column up by its header and putting it somewhere else.
+    ;
+    ; `colDragFrom` is the column under the finger; `colDragArmed` says a press
+    ; happened but the pointer has not moved far enough yet to mean "carry
+    ; this" rather than "select this". `colDragTo` is where it would land.
+    def colDragFrom:int -1
+    def colDragTo:int -1
+    def colDragArmed:boolean false
+    def movingColumn:boolean false
+    ; How fast the sheet is still moving, in pixels per frame, and what is
+    ; left of a flick. A wheel notch is a shove, not a step: a slow one moves
+    ; the sheet a little, a fast one carries.
+    def flingX:double 0.0
+    def flingY:double 0.0
+    ; What is left over when a frame's travel is not a whole number of pixels.
+    def subX:double 0.0
+    def subY:double 0.0
+    def colDragStartX:int 0
     def formulaRangeDrag:boolean false
     def formulaRangeIdx:int 0
     def formulaRangeEdge:int 0
@@ -4827,6 +4846,8 @@ class GridApp {
     }
 
     fn moveActive:void (row:int col:int extend:boolean) {
+        ; The caret going somewhere is a deliberate move; it wins over a coast.
+        this.stopFling()
         if editing {
             this.commitEdit()
         }
@@ -5456,6 +5477,8 @@ class GridApp {
     }
 
     fn handlePress:void (input:UIInput) {
+        ; A hand on the sheet stops it moving.
+        this.stopFling()
         ; Formula-range grips (bottom / right / corner) resize the named span.
         this.refreshFormulaHilites()
         ; A real multi-cell selection's own move border has priority over a
@@ -5552,6 +5575,15 @@ class GridApp {
                         this.openHeaderMenu(hit.col input.pointerX (grid.gridOriginY()))
                     } {
                         this.selectDataColumn(hit.col input.ctrlDown)
+                        ; …and a header is also a handle. Armed, not carried:
+                        ; the pointer has to travel before a click on a header
+                        ; stops meaning "select this column".
+                        if (input.ctrlDown == false) {
+                            colDragArmed = true
+                            colDragFrom = hit.col
+                            colDragTo = hit.col
+                            colDragStartX = input.pointerX
+                        }
                     }
                 } {
                 if ((hit.col == -2) && (hit.row >= 0)) {
@@ -5626,7 +5658,222 @@ class GridApp {
     }
 
     ; Pointer drag that is not a resize: fill-handle rubber band or range select.
+    ; Where a carried column would land, from the pointer's x. The answer is
+    ; an INSERTION POINT, not a column: dragging past the middle of a column
+    ; means "after it", which is how every list that can be reordered behaves.
+    ; What the pointer is over, as a GridCursor kind.
+    ;
+    ; The questions are the same ones `handlePress` asks, in the same order, so
+    ; the shape the pointer takes and what a click actually does cannot drift
+    ; apart. A host calls this every time the pointer moves and sets its own
+    ; cursor from the answer; nothing here knows what an SDL cursor or a CSS
+    ; cursor is.
+    fn cursorAt:int (px:int py:int) {
+        ; While something is being carried or dragged, the pointer says so
+        ; wherever it happens to be.
+        if movingColumn {
+            return (GridCursor.grabbing())
+        }
+        if resizing {
+            return (GridCursor.resizeX())
+        }
+        if resizingRows {
+            return (GridCursor.resizeY())
+        }
+        if filling {
+            return (GridCursor.crosshair())
+        }
+        if (view.menuOpen) {
+            if ((this.hitHeaderMenu(px py)) >= 0) {
+                return (GridCursor.pointing())
+            }
+        }
+        if (this.toolbarHit(px py) >= 0) {
+            return (GridCursor.pointing())
+        }
+        def hit:CellPos (grid.hitTest(model px py))
+        ; The formula bar is a text field.
+        if ((hit.row == -3) && (hit.col == -3)) {
+            return (GridCursor.text())
+        }
+        ; Header edges resize; the rest of a header is a handle.
+        if ((grid.hitColResize(model px py)) >= 0) {
+            return (GridCursor.resizeX())
+        }
+        if ((grid.hitRowResize(model px py)) >= 0) {
+            return (GridCursor.resizeY())
+        }
+        if ((hit.row == -2) && (hit.col >= 0)) {
+            if (this.hitColumnMenuArrow(hit.col px py)) {
+                return (GridCursor.pointing())
+            }
+            return (GridCursor.grab())
+        }
+        if ((hit.col == -2) && (hit.row >= 0)) {
+            return (GridCursor.pointing())
+        }
+        if ((hit.row >= 0) && (hit.col >= 0)) {
+            ; The fill handle sits inside the active cell's bottom corner and
+            ; means something else entirely, so it is asked first.
+            if (editing == false) {
+                if (grid.hitFillHandle(model sel px py)) {
+                    return (GridCursor.crosshair())
+                }
+                if (model.hasValidation(sel.active.row sel.active.col)) {
+                    def dvC:DataValidation (model.validationAt(sel.active.row sel.active.col))
+                    if (dvC.isList()) {
+                        if (grid.hitListArrow(model sel px py)) {
+                            return (GridCursor.pointing())
+                        }
+                    }
+                }
+            }
+            ; A link is a link.
+            if (model.hasHyperlink(hit.row hit.col)) {
+                return (GridCursor.pointing())
+            }
+            ; The edge of a selection picks the whole block up.
+            if (editing == false) {
+                if (grid.hitSelectionEdge(model sel px py)) {
+                    return (GridCursor.grab())
+                }
+            }
+            ; A cell being edited is text; every other cell is a cell.
+            if editing {
+                if ((hit.row == sel.active.row) && (hit.col == sel.active.col)) {
+                    return (GridCursor.text())
+                }
+            }
+            return (GridCursor.cell())
+        }
+        return (GridCursor.arrow())
+    }
+
+    ; A shove on top of whatever the sheet was already doing.
+    ;
+    ; Notches that arrive together add up, so a fast flick of the wheel or two
+    ; fingers builds real speed while a slow one nudges — which is the whole
+    ; difference between a sheet that steps and a sheet that moves. Capped, so
+    ; no amount of spinning can throw the view across a hundred thousand rows
+    ; in one frame.
+    fn addFling:double (current:double push:double) {
+        def v:double (current + push)
+        ; A shove the other way stops the sheet rather than fighting it.
+        if (current > 0.0) {
+            if (push < 0.0) {
+                v = push
+            }
+        }
+        if (current < 0.0) {
+            if (push > 0.0) {
+                v = push
+            }
+        }
+        ; A speed, so the cap is per frame: about ten rows, which is as fast
+        ; as a sheet can move and still be read on the way past.
+        def cap:double 220.0
+        if (v > cap) {
+            v = cap
+        }
+        if (v < (0.0 - cap)) {
+            v = (0.0 - cap)
+        }
+        return v
+    }
+
+    ; Move by whatever speed is left, then lose some of it.
+    ;
+    ; 0.88 a frame is about a fifth of a second to half speed at 60Hz: long
+    ; enough to feel like the sheet has weight, short enough that it stops
+    ; where it was thrown rather than drifting on. Below a pixel a frame it is
+    ; not moving any more, and pretending otherwise leaves the grid redrawing
+    ; forever.
+    fn stepFling:void () {
+        if ((flingX == 0.0) && (flingY == 0.0)) {
+            return
+        }
+        ; `fling` is a SPEED, in pixels per frame, and it is not spent by
+        ; moving — it decays. Subtracting the distance travelled instead is
+        ; the mistake that turns a flick into a single step, because the whole
+        ; of it is gone by the end of the frame that received it.
+        subX = (subX + flingX)
+        subY = (subY + flingY)
+        def dx:int (to_int subX)
+        def dy:int (to_int subY)
+        if ((dx != 0) || (dy != 0)) {
+            grid.scrollByPixels(model dx dy)
+        }
+        ; Whatever did not amount to a whole pixel is carried, so a slow glide
+        ; does not quietly round down to standing still.
+        subX = (subX - (to_double dx))
+        subY = (subY - (to_double dy))
+        flingX = (flingX * 0.88)
+        flingY = (flingY * 0.88)
+        if (flingX < 0.6) {
+            if (flingX > -0.6) {
+                flingX = 0.0
+            }
+        }
+        if (flingY < 0.6) {
+            if (flingY > -0.6) {
+                flingY = 0.0
+            }
+        }
+    }
+
+    ; Whether the view is still coasting — a host that only redraws on demand
+    ; needs to know to keep asking.
+    fn isCoasting:boolean () {
+        if (flingX != 0.0) {
+            return true
+        }
+        return (flingY != 0.0)
+    }
+
+    ; Any deliberate move stops the coast dead, the way a finger on a phone
+    ; stops a flick.
+    fn stopFling:void () {
+        flingX = 0.0
+        flingY = 0.0
+        subX = 0.0
+        subY = 0.0
+    }
+
+    fn colDropTarget:int (px:int) {
+        def c:int grid.firstVisibleCol
+        while (c <= grid.lastVisibleCol) {
+            def mc:int (grid.mapCol(c))
+            def x0:int (grid.viewColScreenX(model c))
+            def w:int (model.colWidth(mc))
+            if (px < (x0 + (idiv w 2))) {
+                return mc
+            }
+            if (px < (x0 + w)) {
+                return (mc + 1)
+            }
+            c = (c + 1)
+        }
+        return (model.colCount - 1)
+    }
+
     fn handleDrag:void (input:UIInput) {
+        ; A header press becomes a carry once the pointer has travelled far
+        ; enough that it cannot have been a click.
+        if colDragArmed {
+            def travelled:int (input.pointerX - colDragStartX)
+            if (travelled < 0) {
+                travelled = (0 - travelled)
+            }
+            if (travelled > 5) {
+                colDragArmed = false
+                movingColumn = true
+            }
+        }
+        if movingColumn {
+            colDragTo = (this.colDropTarget(input.pointerX))
+            view.colDropAt = colDragTo
+            return
+        }
         if formulaRangeDrag {
             def hitR:CellPos (grid.hitTest(model input.pointerX input.pointerY))
             if ((hitR.row >= 0) && (hitR.col >= 0)) {
@@ -5802,6 +6049,27 @@ class GridApp {
         }
 
         if input.pointerReleased {
+            if movingColumn {
+                movingColumn = false
+                colDragArmed = false
+                view.colDropAt = -1
+                def dropAt:int colDragTo
+                def lifted:int colDragFrom
+                colDragFrom = -1
+                colDragTo = -1
+                ; An insertion point turns into a destination index: dropping
+                ; after itself, or immediately before itself, is where it
+                ; already is.
+                if (dropAt > lifted) {
+                    dropAt = (dropAt - 1)
+                }
+                if (dropAt != lifted) {
+                    this.moveColumn(lifted dropAt)
+                    this.selectDataColumn(dropAt false)
+                }
+                return
+            }
+            colDragArmed = false
             if formulaRangeDrag {
                 def commitRange:boolean formulaRangeStartedEdit
                 formulaRangeDrag = false
@@ -5852,16 +6120,22 @@ class GridApp {
         ; does and what this had no answer for: a column off the right edge
         ; could not be reached with the mouse at all.
         if (input.scrollDelta != 0) {
+            def notches:double (to_double (0 - input.scrollDelta))
             if input.shiftDown {
-                grid.scrollByCols(model (0 - input.scrollDelta))
+                ; Sideways, so a notch is a COLUMN's worth — a row's height
+                ; would be a step so short it did not always reach the next
+                ; column at all.
+                flingX = (this.addFling(flingX (notches * (to_double model.defaultColW))))
             } {
-                grid.scrollByRows(model (0 - input.scrollDelta))
+                flingY = (this.addFling(flingY (notches * (to_double model.defaultRowH))))
             }
         }
         ; …and a trackpad sends sideways notches of its own.
         if (input.scrollDeltaX != 0) {
-            grid.scrollByCols(model (0 - input.scrollDeltaX))
+            def pushX:double ((to_double (0 - input.scrollDeltaX)) * (to_double model.defaultColW))
+            flingX = (this.addFling(flingX pushX))
         }
+        this.stepFling()
 
         if input.ctrlDown {
             def t:string input.textInput

@@ -108,6 +108,8 @@ class GridView {
     ; Where the text of the cell being edited was actually drawn, so the caret
     ; can stand on the same line rather than at a guessed offset from the
     ; cell's top corner.
+    ; The insertion point a carried column would drop at, or -1.
+    def colDropAt:int -1
     def editTextX:int 0
     def editTextY:int 0
     def editTextPx:double 13.0
@@ -1541,6 +1543,19 @@ class GridView {
         ; SoftCanvas and the GL host still ignore clip commands.
         this.pushRect(dl (to_double grid.x) (to_double headerTop) (to_double grid.rowHeaderW) (to_double grid.colHeaderH) theme.cornerBg)
         this.paintColHeaders(dl model grid bodyLeft headerTop vw)
+
+        ; Where a carried column would land. Excel and every reorderable list
+        ; draw the same thing: a line at the insertion point, not a ghost of
+        ; the column, because the question is "between which two".
+        if (colDropAt >= 0) {
+            def dropX:int (grid.colScreenX(model colDropAt))
+            if (colDropAt >= model.colCount) {
+                dropX = ((grid.colScreenX(model (model.colCount - 1))) + (model.colWidth((model.colCount - 1))))
+            }
+            if (dropX > grid.x) {
+                this.pushRect(dl (to_double (dropX - 1)) (to_double (grid.headerTop())) 3.0 (to_double ((grid.h - grid.toolbarH) - grid.formulaBarH)) theme.activeBorder)
+            }
+        }
 
         ; Live guide while dragging a header edge, so the drop position is visible.
         if (grid.resizingCol >= 0) {

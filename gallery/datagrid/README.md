@@ -996,6 +996,29 @@ rendering half, because the text was already correct in memory by then.
 Both C++ halves need only a C++17 compiler and say so out loud when there is
 none.
 
+## Things that make it feel like a program
+
+**The pointer says what it is over.** A pointer that never changes shape makes
+an interface feel like a picture of one. `GridApp.cursorAt(x, y)` answers with a
+`GridCursor` KIND — cell, column resize, text, grab, fill, pointing — asking the
+same questions the press handler asks, in the same order, so what the pointer
+promises and what a click does cannot drift apart. The app names no cursor: an
+SDL window turns the kind into `SDL_CreateSystemCursor`, a browser tab into a
+CSS name, and neither vocabulary leaks into the grid.
+
+**A wheel notch is a shove, not a step.** Scrolling used to move a fixed number
+of rows per notch, which is why going a long way down was slow. It sets a
+SPEED now, notches that arrive together add up, and the speed decays about 12%
+a frame — roughly a fifth of a second to half speed, long enough that the sheet
+has weight and short enough that it stops where it was thrown. A hand on the
+sheet stops it dead, the way a finger stops a flick. The browser page keeps
+drawing while it coasts; the window already draws every frame.
+
+**A column header is a handle.** Press and it selects the column; drag and it
+picks the column up, with a line showing where it will land. Which one a press
+means is decided by whether the pointer travels, so there is no third gesture
+to learn, and the drop is one undoable step.
+
 ## Recalculation: dependencies first, not sweeps
 
 `FormulaEngine.recalcDirty` used to sweep: walk every formula, evaluate the ones
