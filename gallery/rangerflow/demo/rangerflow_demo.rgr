@@ -98,6 +98,9 @@ class RangerFlowDemo {
         def circle:UMLClass (d.umlClass("Circle"))
         circle.attribute("-" "radius" "double")
         circle.operation("+" "area" "" "double")
+        def poly:UMLClass (d.umlClass("Polygon"))
+        poly.attribute("-" "points" "[Point]")
+        poly.operation("+" "area" "" "double")
         def canvas:UMLClass (d.umlClass("Canvas"))
         canvas.attribute("-" "shapes" "[Shape]")
         canvas.operation("+" "add" "s: Shape" "void")
@@ -108,6 +111,7 @@ class RangerFlowDemo {
         point.attribute("+" "y" "double")
         d.relate("Rectangle" "Shape" "inheritance")
         d.relate("Circle" "Shape" "inheritance")
+        d.relate("Polygon" "Shape" "inheritance")
         def owns:UMLRelation (d.relate("Canvas" "Shape" "composition"))
         owns.toMultiplicity = "0..*"
         d.relate("Shape" "Point" "aggregation")
@@ -269,6 +273,7 @@ class RangerFlowDemo {
         def exact0:int (EdgeOverlap.pairs(g 2.0))
         def near0:int (EdgeOverlap.pairs(g 8.0))
         def cross0:int (EdgeOverlap.nodeCrossings(g))
+        def xx0:int (EdgeOverlap.edgeCrossings(g))
         def moved:int (EdgeLanes.assign(g))
         ; The chains, cashed in: a long edge is drawn through the lane its
         ; dummies held open. This runs after the fan so the corners start where
@@ -284,9 +289,11 @@ class RangerFlowDemo {
         def exact1:int (EdgeOverlap.pairs(g 2.0))
         def near1:int (EdgeOverlap.pairs(g 8.0))
         def cross1:int (EdgeOverlap.nodeCrossings(g))
+        def xx1:int (EdgeOverlap.edgeCrossings(g))
         print ("  routing " + (to_string moved) + " endpoints and tracks moved, " + (to_string routed) + " long edges chained, " + (to_string repaired) + " repaired by the grid router")
         print ("          overlapping segment pairs: on top of each other " + (to_string exact0) + " → " + (to_string exact1) + ", within 8 px " + (to_string near0) + " → " + (to_string near1))
         print ("          edges drawn through an unrelated node: " + (to_string cross0) + " → " + (to_string cross1))
+        print ("          edges crossing each other: " + (to_string xx0) + " → " + (to_string xx1))
     }
 
     ; ------------------------------------------------------------- drag ----
@@ -344,6 +351,7 @@ class RangerFlowDemo {
         def noPath:int 0
         def stuck:int 0
         def gaveUp:int 0
+        def tangled:int 0
         def t0:double (wall_clock_ms)
         def ni:int 0
         while (ni < (g.nodeCount())) {
@@ -367,6 +375,7 @@ class RangerFlowDemo {
                         stuck = (stuck + rt.stillCrossing)
                         gaveUp = (gaveUp + rt.refused)
                         def left:int (EdgeOverlap.nodeCrossings(g))
+                        tangled = (tangled + (EdgeOverlap.edgeCrossings(g)))
                         drops = (drops + 1)
                         if (left > 0) {
                             dirty = (dirty + 1)
@@ -396,6 +405,11 @@ class RangerFlowDemo {
         print ("  " + label)
         print ("    " + (to_string drops) + " drops, " + (to_string repairedTotal) + " edges re-routed, " + (to_string (to_int (t1 - t0))) + " ms")
         print ("    drops still drawing a line through a box: " + (to_string dirty) + " (" + (to_string pct) + "%), worst " + (to_string worst) + " lines")
+        def perDrop:double 0.0
+        if (drops > 0) {
+            perDrop = ((to_double tangled) / (to_double drops))
+        }
+        print ("    edges crossing each other, averaged over the drops: " + (to_string perDrop))
         print ("    why: no route found " + (to_string noPath) + ", route found but no better " + (to_string stuck) + ", grid too big " + (to_string gaveUp))
     }
 

@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 204 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 209 assertions: model, forces, router, editor, SQL, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
@@ -246,6 +246,50 @@ They separate immediately after leaving it. The one left at 2 px is a nine-pixel
 sliver where two port stubs on unrelated tables pass within a pixel and a
 quarter of each other — both are pinned to their own field's row, so no track
 can move them.
+
+### The order of the tracks in a corridor
+
+Giving every edge its own track says nothing about **which** track. Ordering
+them by the midpoint of their span is the obvious guess, and on the shape that
+matters most it is exactly backwards. Three classes inheriting from one: each
+edge goes down, across, and down again, and if the one that reaches furthest
+turns *first*, its long run passes through a neighbour that is still on its way
+down.
+
+```text
+ordered by span                 ordered to cross least
+┌───┐  ┌───┐  ┌───┐             ┌───┐  ┌───┐  ┌───┐
+│ A │  │ B │  │ C │             │ A │  │ B │  │ C │
+└─┬─┘  └─┬─┘  └─┬─┘             └─┬─┘  └─┬─┘  └─┬─┘
+  └──────┼──┐   │                 │      │   ┌──┘
+         └──┼───┼──┐              │      └───┼──┐
+            │   │  │              └──────────┼──┼──┐
+          ↓ ↓   ↓  ↓                       ↓ ↓  ↓  ↓
+        A crosses B and C              nothing crosses
+```
+
+So after the span sort comes a **transpose pass**: walk the neighbouring pairs
+and swap whenever swapping costs fewer crossings, which is the same heuristic a
+layered layout already runs over the nodes in a row, applied to the tracks in a
+corridor. The cost of putting `u` nearer than `v` is two questions — does `v`'s
+incoming stub land inside `u`'s span, and does `u`'s outgoing stub land inside
+`v`'s — because nothing else can cross.
+
+`EdgeOverlap.edgeCrossings` counts lines drawn *through* each other, the way
+`pairs` counts lines drawn *on* each other, ignoring the meetings near an edge's
+own ends where several edges are supposed to converge on one table:
+
+| | before the pass | after |
+| --- | ---: | ---: |
+| UML class diagram, laid out | 2 | **0** |
+| e-commerce schema, laid out | 11 | 9 |
+| UML, averaged over 748 drag positions | 1.88 | **0.24** |
+| schema, averaged over 1261 drag positions | 8.02 | 6.63 |
+
+The nine that remain on the schema are eight the layout itself produces before
+any routing — a layered layout minimises crossings, it does not abolish them —
+and one the dummy chain adds in exchange for the node it stops being drawn
+through, which is the better trade.
 
 ### …and round what stands in the way
 

@@ -72,6 +72,7 @@ class RangerFlowTest {
         RangerFlowTest.testEdgeLanes(c)
         RangerFlowTest.testLongEdgeRouting(c)
         RangerFlowTest.testObstacleRepair(c)
+        RangerFlowTest.testLaneOrdering(c)
         RangerFlowTest.testDragSweep(c)
         RangerFlowTest.testSegmentDrag(c)
         RangerFlowTest.testEditor(c)
@@ -814,6 +815,48 @@ class RangerFlowTest {
         ; ends, so offering a handle in the middle would be a lie.
         e2.edgeType = "bezier"
         c.eqInt("and a curve offers no segments at all" (ed2.segmentAt(mx my)) -1)
+    }
+
+    ; Three edges converging on one table from a row above. Each one goes
+    ; down, across, and down again, and the order the three tracks are laid out
+    ; in decides whether they cross: the edge that reaches furthest has to turn
+    ; LAST, or its long run passes through a neighbour that is still coming
+    ; down. Ordering by span — the obvious guess — gets this exactly backwards.
+    sfn testLaneOrdering:void (c:Checker) {
+        c.section("the order of the tracks in a corridor")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "A" 0.0 0.0))
+        def b:FlowNode (g.node("b" "B" 300.0 0.0))
+        def d:FlowNode (g.node("d" "D" 600.0 0.0))
+        def t:FlowNode (g.node("t" "T" 800.0 400.0))
+        a.width = 200.0
+        a.height = 90.0
+        b.width = 200.0
+        b.height = 90.0
+        d.width = 200.0
+        d.height = 90.0
+        t.width = 260.0
+        t.height = 90.0
+        def e0:FlowEdge (g.connect("a" "t"))
+        def e1:FlowEdge (g.connect("b" "t"))
+        def e2:FlowEdge (g.connect("d" "t"))
+        e0.edgeType = "smoothstep"
+        e1.edgeType = "smoothstep"
+        e2.edgeType = "smoothstep"
+        a.sourcePosition = 2
+        b.sourcePosition = 2
+        d.sourcePosition = 2
+        t.targetPosition = 0
+        g.reindex()
+        EdgeLanes.assign(g)
+        c.eqInt("three edges converging on one table do not cross each other" (EdgeOverlap.edgeCrossings(g)) 0)
+        c.eqInt("nor are any two of them drawn as one line" (EdgeOverlap.pairs(g 2.0)) 0)
+
+        ; The one that reaches furthest turns last — that is the whole rule,
+        ; and it is the opposite of the order the spans are in.
+        c.ok("every track got a lane" (e0.hasLaneY && (e1.hasLaneY && e2.hasLaneY)))
+        c.ok(("A reaches furthest, so it turns below B (A " + (to_string e0.laneY) + " vs B " + (to_string e1.laneY) + ")") (e0.laneY > e1.laneY))
+        c.ok("and below D as well" (e0.laneY > e2.laneY))
     }
 
     ; "When you drag a box the lines don't always go round the other boxes."
