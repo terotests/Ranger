@@ -1,0 +1,155 @@
+; ==============================================================================
+; OoxmlText.rgr — the text rules every OOXML reader in this gallery needs.
+; ==============================================================================
+;
+; There are three OOXML readers here — `XmlLite` for .xlsx, `WordXml` for
+; .docx, `PptxXml` for .pptx — and each grew its own entity decoder. Three
+; copies of a twenty-line function is not obviously a problem until you fix one
+; of them, and then it is: the spreadsheet learned to read `&#228;` and to
+; carry accents through the C++ build correctly, and the other two did not,
+; because nothing connected them.
+;
+; So the decoder lives here once and the three call it.
+;
+; TWO THINGS IT HAS TO GET RIGHT, and both were wrong somewhere.
+;
+; NUMERIC ENTITIES. `&#228;` and `&#xE4;` are how a writer escapes a letter it
+; would rather not put in the file as itself, and Word and PowerPoint both
+; emit them. A reader that knows only the five named entities shows the user
+; the digits. Here `strfromcode` is doing exactly the job it exists for — a
+; code POINT into text — so it is right on every target.
+;
+; RUNS, NOT CHARACTERS. `out = (out + (strfromcode (charAt s i)))` reads as
+; "copy this character" and is the identity on the JavaScript target, where a
+; string is UTF-16 code units. On the C++ target a string is BYTES: `charAt`
+; hands back 195 for the first byte of "ä" and `strfromcode` dutifully encodes
+; 195 as two more bytes, so every accented letter comes out encoded twice and
+; a slide reading "Hämeenlinna" draws as "HÃ¤meenlinna". The stretches between
+; entities are therefore COPIED with `substring`, which moves whatever is
+; there without asking what it means — and, as a side effect, in one call per
+; run rather than one per character, which is the difference between linear
+; and quadratic where a string is mutable.
+;
+; The entity POLICY is unchanged and deliberately narrow: the five named
+; entities XML defines, numeric character references, and nothing else. No
+; DOCTYPE, no external entities, no parameter entities — an unknown entity is
+; left exactly as the file wrote it, which is the only honest thing to do with
+; markup nobody here understands, and is what keeps the readers XXE-safe.
+; ==============================================================================
+
+class OoxmlText {
+    ; `&amp;` → `&`, `&#228;` → `ä`, and anything unrecognised left alone.
+    sfn decodeEntities:string (s:string) {
+        ; Nothing to do is the common case — most text has no entity in it —
+        ; and it costs one scan to find out instead of one copy per character.
+        if ((indexOf s "&") < 0) {
+            return s
+        }
+        def out:string ""
+        def n:int (strlen s)
+        ; Start of the run that needs no change, and where the scan is.
+        def keep:int 0
+        def i:int 0
+        while (i < n) {
+            if ((charAt s i) == 38) {
+                def j:int (i + 1)
+                while ((j < n) && ((charAt s j) != 59)) {
+                    j = (j + 1)
+                }
+                if (j < n) {
+                    def ent:string (substring s (i + 1) j)
+                    def rep:string (OoxmlText.entityText(ent))
+                    if ((strlen rep) > 0) {
+                        if (i > keep) {
+                            str_append out (substring s keep i)
+                        }
+                        str_append out rep
+                        i = (j + 1)
+                        keep = i
+                        continue
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (keep == 0) {
+            return s
+        }
+        if (n > keep) {
+            str_append out (substring s keep n)
+        }
+        return out
+    }
+
+    ; What one entity stands for, given the text BETWEEN the `&` and the `;`,
+    ; or "" when this reader does not know it.
+    sfn entityText:string (ent:string) {
+        if (ent == "lt") {
+            return "<"
+        }
+        if (ent == "gt") {
+            return ">"
+        }
+        if (ent == "amp") {
+            return "&"
+        }
+        if (ent == "quot") {
+            return "\""
+        }
+        if (ent == "apos") {
+            return "'"
+        }
+        if ((strlen ent) > 1) {
+            if ((charAt ent 0) == 35) {
+                def cp:int (OoxmlText.entityNumber(ent))
+                if (cp > 0) {
+                    return (strfromcode cp)
+                }
+            }
+        }
+        return ""
+    }
+
+    ; The number in `#233` or `#xE9`, or 0 if it is not one.
+    sfn entityNumber:int (ent:string) {
+        def i:int 1
+        def base:int 10
+        if ((strlen ent) > 2) {
+            def c1:int (charAt ent 1)
+            if ((c1 == 120) || (c1 == 88)) {
+                base = 16
+                i = 2
+            }
+        }
+        def value:int 0
+        def digits:int 0
+        while (i < (strlen ent)) {
+            def c:int (charAt ent i)
+            def d:int -1
+            if ((c >= 48) && (c <= 57)) {
+                d = (c - 48)
+            }
+            if (base == 16) {
+                if ((c >= 97) && (c <= 102)) {
+                    d = ((c - 97) + 10)
+                }
+                if ((c >= 65) && (c <= 70)) {
+                    d = ((c - 65) + 10)
+                }
+            }
+            if (d < 0) {
+                return 0
+            }
+            value = ((value * base) + d)
+            digits = (digits + 1)
+            i = (i + 1)
+        }
+        if (digits == 0) {
+            return 0
+        }
+        if (value > 1114111) {
+            return 0
+        }
+        return value
+    }
+}

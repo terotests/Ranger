@@ -1,0 +1,108 @@
+; ==============================================================================
+; StringOpsTest — the string operators mean the same thing on every target.
+; ==============================================================================
+;
+; These are the operators whose C++ polyfills took their arguments BY VALUE, so
+; every call copied the whole string before looking at any of it. Searching a
+; 4.6 MB document with `indexOfFrom` copied 4.6 MB per search; `strsplit` went
+; further and reassigned `data = data.substr(...)` on every separator, so
+; splitting an n-character string into k pieces copied about n*k characters.
+; Both are `const std::string&` now, and `strsplit` walks with an index.
+;
+; A copy is not a wrong answer, which is the point of this file: nothing about
+; the RESULTS changed, so nothing that existed would have caught a mistake in
+; changing how they are passed. This runs the same assertions on both targets
+; and requires them to agree.
+;
+;   npm run lang:string:test
+; ==============================================================================
+
+class PolyCheck {
+    def passed:int 0
+    def failed:int 0
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class StringOpsTest {
+    sfn main:void () {
+        def c:PolyCheck (new PolyCheck)
+        print "== StringOpsTest =="
+        def s:string "alpha,beta,,gamma"
+
+        c.eqInt("indexOf, found" (indexOf s "beta") 6)
+        c.eqInt("indexOf, missing" (indexOf s "zeta") -1)
+        c.eqInt("indexOf, empty needle" (indexOf s "") 0)
+        ; Position 5 IS the first comma, so a search starting there finds it.
+        c.eqInt("indexOfFrom, at the hit" (indexOfFrom s "," 5) 5)
+        c.eqInt("indexOfFrom, one past the hit" (indexOfFrom s "," 6) 10)
+        c.eqInt("indexOfFrom at zero equals indexOf" (indexOfFrom s "," 0) (indexOf s ","))
+        c.eqInt("indexOfFrom, missing" (indexOfFrom s "zeta" 0) -1)
+        c.eqInt("indexOfFrom, start past the end" (indexOfFrom s "a" 999) -1)
+        c.eqInt("indexOfFrom, start at the end" (indexOfFrom s "a" (strlen s)) -1)
+        c.eqInt("lastIndexOf" (lastIndexOf s ",") 11)
+        c.eqInt("lastIndexOf, missing" (lastIndexOf s "zeta") -1)
+
+        def parts:[string] (strsplit s ",")
+        c.eqInt("strsplit count" (array_length parts) 4)
+        c.eqStr("strsplit [0]" (itemAt parts 0) "alpha")
+        c.eqStr("strsplit [1]" (itemAt parts 1) "beta")
+        c.eqStr("strsplit [2] is empty" (itemAt parts 2) "")
+        c.eqStr("strsplit [3]" (itemAt parts 3) "gamma")
+
+        def one:[string] (strsplit "nothing-to-split" ",")
+        c.eqInt("no separator gives one piece" (array_length one) 1)
+        c.eqStr("and it is the whole string" (itemAt one 0) "nothing-to-split")
+
+        def edges:[string] (strsplit ",a," ",")
+        c.eqInt("leading and trailing separators" (array_length edges) 3)
+        c.eqStr("empty first" (itemAt edges 0) "")
+        c.eqStr("middle" (itemAt edges 1) "a")
+        c.eqStr("empty last" (itemAt edges 2) "")
+
+        c.eqInt("splitting an empty string gives one empty piece" (array_length (strsplit "" ",")) 1)
+        def chars:[string] (strsplit "abc" "")
+        c.eqInt("an empty separator splits into characters" (array_length chars) 3)
+        c.eqStr("first character" (itemAt chars 0) "a")
+
+        def multi:[string] (strsplit "a<>b<>c" "<>")
+        c.eqInt("a multi-character separator" (array_length multi) 3)
+        c.eqStr("its middle piece" (itemAt multi 1) "b")
+
+        c.eqStr("to_lowercase" (to_lowercase "MiXeD") "mixed")
+        c.eqStr("to_uppercase" (to_uppercase "MiXeD") "MIXED")
+        c.eqStr("to_lowercase leaves its argument alone" (to_lowercase (to_uppercase "abc")) "abc")
+
+        ; The file polyfills, which also stopped taking their paths by value.
+        def dir:string "tmp/lang-string"
+        write_file dir "roundtrip.txt" "hei maailma"
+        c.ok("the file exists" (file_exists dir "roundtrip.txt"))
+        def back@(optional):string (read_file dir "roundtrip.txt")
+        c.ok("the file read back" (!null? back))
+        if (!null? back) {
+            c.eqStr("and it says what was written" (unwrap back) "hei maailma")
+        }
+        c.ok("a file that was never written does not" ((file_exists dir "absent.txt") == false))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
