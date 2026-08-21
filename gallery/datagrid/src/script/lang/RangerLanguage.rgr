@@ -20,6 +20,7 @@
 Import "EditorLanguage.rgr"
 Import "EditorDiagnostic.rgr"
 Import "RangerTokens.rgr"
+Import "Completion.rgr"
 
 class RangerLanguage {
     Extends(EditorLanguage)
@@ -43,6 +44,58 @@ class RangerLanguage {
 
     fn handlesFile:boolean (name:string) {
         return (EditorLanguage.hasSuffix(name ".rgr"))
+    }
+
+    ; Ranger's own: the operators first, because they are what a line is made
+    ; of and they are the ones nobody remembers the spelling of.
+    fn complete:[Completion] (lines:[string] line:int col:int) {
+        def out:[Completion]
+        if (line < 0) {
+            return out
+        }
+        if (line >= (array_length lines)) {
+            return out
+        }
+        def text:string (itemAt lines line)
+        def prefix:string (EditorLanguage.prefixAt(text col))
+        if ((strlen prefix) == 0) {
+            return out
+        }
+        def ops:[string] (RangerTokenizer.builtins())
+        def i:int 0
+        def n:int (array_length ops)
+        while (i < n) {
+            def name:string (itemAt ops i)
+            if (EditorLanguage.matchesPrefix(name prefix)) {
+                push out (Completion.create(name "operator" (CompletionKind.builtin()) 0))
+            }
+            i = (i + 1)
+        }
+        def kw:[string] (RangerTokenizer.keywords())
+        def k:int 0
+        def kn:int (array_length kw)
+        while (k < kn) {
+            def word:string (itemAt kw k)
+            if (EditorLanguage.matchesPrefix(word prefix)) {
+                push out (Completion.create(word "keyword" (CompletionKind.keyword()) 1))
+            }
+            k = (k + 1)
+        }
+        def words:[string] (EditorLanguage.wordsIn(lines prefix 400))
+        def w:int 0
+        def wn:int (array_length words)
+        while (w < wn) {
+            def word2:string (itemAt words w)
+            if (EditorLanguage.matchesPrefix(word2 prefix)) {
+                if ((EditorLanguage.isInList(word2 ops)) == false) {
+                    if ((EditorLanguage.isInList(word2 kw)) == false) {
+                        push out (Completion.create(word2 "in this file" (CompletionKind.word()) 2))
+                    }
+                }
+            }
+            w = (w + 1)
+        }
+        return out
     }
 
     fn diagnose:[EditorDiagnostic] (source:string) {
