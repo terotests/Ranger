@@ -279,6 +279,50 @@ takes. Three defects came out of six demo charts, none of them in the API.
 None of the three is about the API. All three were invisible from the specs the
 suite already had, which is the argument for the front door existing.
 
+## What two other catalogues say is missing
+
+An API is only as wide as the charts underneath it, so the surface was measured
+against two other libraries' catalogues rather than against an opinion:
+**Syncfusion's** chart types (Chart, AccumulationChart, StockChart) and
+**Observable Plot's** marks. Thirty-six specifications, one per named type, live
+in [`tests/chart_types`](tests/chart_types/) and go through both implementations:
+
+```bash
+npm run vela:types      # Ranger and official Vega-Lite, scene against scene
+```
+
+**32 of 36 draw exactly what the reference draws.** Getting there fixed five
+defects, each of which was invisible from the suite that existed:
+
+| what was wrong | what the reference does |
+| --- | --- |
+| A **box plot ignored a stated `width`** — 20 pixels a band, 60 for three groups, axes drawn to match | a box plot is built as its own Vega specification rather than through the ordinary sizing path, and that path was the only one reading `width`. The band spans the plot instead, and no step signal is written at all |
+| **`thickness` on a tick was read only from the configuration** | `{"type": "tick", "thickness": 4}` is a mark saying how thick it is. A bullet chart's measure bar and a hi-lo-open-close chart's open and close both came out a hairline |
+| A **stacked line was not stacked** | a line stacks when the chart *says* so (a bar and an area stack by default and a line never), and a stacked line imputes the categories a series skips, so the ones above it stand on something |
+| A **rule on a discrete axis sat half a pixel off** | a rule is a **band** scale with no padding, placed in the middle of its band — not a point scale. Only a band takes back the half pixel its axis group is offset by, so the hi-lo chart's geometry was right and its axis was not |
+| An **error bar was titled after the columns it was computed from** — `"lower_y, upper_y"` — and called itself a rule | the axis is named after the column the interval is *about*, the band is expanded as a layer of one (`layer_0_marks`), and a composite says what it is: `ariaRoleDescription: "errorbar"` |
+
+What still differs, and it is worth naming precisely rather than rounding up:
+
+* **`pareto`** — two y scales resolved independently. One of the second layer's
+  two domain entries lands in the *first* layer's scale, so the left axis is
+  scaled to a column it does not draw and gets a fifth tick. The two axes are
+  also emitted twice each. Dual-axis charts draw, but not yet exactly.
+* **`polar_column`** — a **discrete theta scale** answers one angle for every
+  category, so a polar column chart collapses to a single wedge. This is the
+  blocker for the whole radar/polar family rather than a defect of its own.
+* **`errorbar` / `errorband`** — the geometry, the styles, the names and the
+  aria role now match; the `description` string a screen reader is handed still
+  lists the two ends where the reference lists the mean and both ends.
+
+And what neither Vela nor the Vega-Lite grammar has at all, which is a feature
+list rather than a bug list: **funnel** and **pyramid**; a real **polar
+coordinate system** (radar, polar line/area/column, rose); **3D** charts;
+**treemap**, **sankey**, **smith chart** and the **gauge** family; and from
+Plot's side **hexbin**, **contour**, **raster**, **voronoi/delaunay**, **tree**,
+**waffle** and the **dodge** (beeswarm) transform. Everything interactive —
+crosshair, tooltip, zoom, selection — is the interaction gap below.
+
 ## What is not there yet
 
 * **Composition beyond a layer.** `column` and `row` are channels and work; a

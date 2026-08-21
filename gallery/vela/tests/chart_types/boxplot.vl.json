@@ -1,0 +1,1 @@
+{"width": 180, "height": 120, "data": {"values": [{"x": 1, "y": 12, "s": 30, "g": "x"}, {"x": 2, "y": 30, "s": 80, "g": "x"}, {"x": 3, "y": 22, "s": 50, "g": "y"}, {"x": 4, "y": 44, "s": 120, "g": "y"}, {"x": 5, "y": 38, "s": 70, "g": "x"}]}, "mark": "boxplot", "encoding": {"x": {"field": "g", "type": "nominal"}, "y": {"field": "y", "type": "quantitative"}}}

@@ -534,6 +534,14 @@ class VlCompile {
         if ((markName == "errorbar") || (markName == "errorband")) {
             def spelled:VlJson (this.errorSpec(src))
             if (spelled.isObject()) {
+                ; …as ONE layer rather than as a plain chart. The reference
+                ; expands a composite mark into a layered specification, and a
+                ; scene is compared by the names its marks carry: the same band
+                ; drawn as a plain chart is called `marks` where the reference
+                ; calls it `layer_0_marks`.
+                if (markName == "errorband") {
+                    return (this.compile((VlCompile.asOneLayer(spelled))))
+                }
                 return (this.compile(spelled))
             }
             return (VlJson.objectValue())
@@ -1003,32 +1011,41 @@ class VlCompile {
     ; Which direction the summary runs in. An error bar measures ONE column
     ; and is repeated along the other axis, so the measured axis is the one
     ; that names a number and does not already summarise it.
+    ; …and where BOTH axes name a number — a band along a series of readings —
+    ; the interval runs up and down rather than left and right, which is the
+    ; way round the reference reads it. Asked of x first, a band over a line of
+    ; measurements summarised the wrong column: the x axis was drawn from the
+    ; interval's own ends and came out with three ticks where five belong.
     fn errorAxis:string () {
-        def x:VlChannel (this.channel("x"))
-        if (x.defined) {
-            if ((strlen x.field) > 0) {
-                if ((strlen x.aggregate) == 0) {
-                    if (x.isContinuous()) {
-                        if ((strlen x.timeUnit) == 0) {
-                            return "x"
-                        }
-                    }
-                }
-            }
+        if (this.measurableAxis("y")) {
+            return "y"
         }
-        def y:VlChannel (this.channel("y"))
-        if (y.defined) {
-            if ((strlen y.field) > 0) {
-                if ((strlen y.aggregate) == 0) {
-                    if (y.isContinuous()) {
-                        if ((strlen y.timeUnit) == 0) {
-                            return "y"
-                        }
-                    }
-                }
-            }
+        if (this.measurableAxis("x")) {
+            return "x"
         }
         return ""
+    }
+
+    ; A channel that names a number, does not already summarise it, and is not
+    ; a date part — the one an error bar can measure.
+    fn measurableAxis:boolean (name:string) {
+        def ch:VlChannel (this.channel(name))
+        if (! ch.defined) {
+            return false
+        }
+        if ((strlen ch.field) == 0) {
+            return false
+        }
+        if ((strlen ch.aggregate) > 0) {
+            return false
+        }
+        if (! (ch.isContinuous())) {
+            return false
+        }
+        if ((strlen ch.timeUnit) > 0) {
+            return false
+        }
+        return true
     }
 
     ; The specification an error bar or band stands for. The two are the same
@@ -1121,6 +1138,13 @@ class VlCompile {
             farDef.setMember("field" (VlJson.stringValue(far)))
         }
         nearDef.setMember("type" (VlJson.stringValue("quantitative")))
+        ; The axis is named after the COLUMN, not after the two derived ends it
+        ; is drawn from. Left to name themselves, `lower_y` and `upper_y` were
+        ; merged into an axis titled "lower_y, upper_y" where the reference
+        ; writes "y" — the interval is a statement about y, and that is what
+        ; the reader is being shown.
+        nearDef.setMember("title" (VlJson.stringValue(column)))
+        farDef.setMember("title" (VlJson.stringValue(column)))
         ; What the chart said about the measured axis belongs to the end that
         ; carries the axis — its title, its scale and its guide.
         def said:VlJson measured.def0
@@ -1175,11 +1199,11 @@ class VlCompile {
             }
             if runs {
                 shape.setMember("type" (VlJson.stringValue("area")))
-                push style.arr (VlJson.stringValue("area"))
             } {
                 shape.setMember("type" (VlJson.stringValue("rect")))
-                push style.arr (VlJson.stringValue("rect"))
             }
+            ; The mark's own name is added to the style list by whatever draws
+            ; it; naming it here as well wrote `["area", "area", …]`.
             push style.arr (VlJson.stringValue("errorband-band"))
             if (! (markDef.has("opacity"))) {
                 shape.setMember("opacity" (VlJson.numberValue(0.3)))
@@ -1190,7 +1214,29 @@ class VlCompile {
             push style.arr (VlJson.stringValue("errorbar-rule"))
         }
         shape.setMember("style" style)
+        ; What a reader is told this is. The shape it expands to is a rule or
+        ; an area; what it MEANS is an error bar, and the reference says so.
+        shape.setMember("ariaRoleDescription" (VlJson.stringValue(markName)))
         out.setMember("mark" shape)
+        return out
+    }
+
+    ; A specification wrapped in a layer of one, keeping everything above the
+    ; mark — the data, the size, the transforms — on the outside where a layer
+    ; expects to find it.
+    sfn asOneLayer:VlJson (spec:VlJson) {
+        def out (VlJson.objectValue())
+        def inner (VlJson.objectValue())
+        for spec.keys k:string ki {
+            if ((k == "mark") || (k == "encoding")) {
+                inner.setMember(k (spec.get(k)))
+            } {
+                out.setMember(k (spec.get(k)))
+            }
+        }
+        def layers (VlJson.arrayValue())
+        push layers.arr inner
+        out.setMember("layer" layers)
         return out
     }
 
@@ -1238,6 +1284,16 @@ class VlCompile {
         out.setMember("$schema" (VlJson.stringValue("https://vega.github.io/schema/vega/v6.json")))
         out.setMember("background" (VlJson.stringValue("white")))
         out.setMember("padding" (VlJson.numberValue(5.0)))
+        ; A stated size is not a suggestion here either. A box plot is built as
+        ; its own Vega specification rather than through the ordinary sizing
+        ; path, and that path was the only one reading `width`: a box plot
+        ; asked to be 180 wide came out one twenty-pixel band per group —
+        ; sixty pixels for three of them — with the axes drawn to match.
+        def widthGiven:VlJson (src.get("width"))
+        def widthStated:boolean (widthGiven.isNumber())
+        if widthStated {
+            out.setMember("width" widthGiven)
+        }
         def heightGiven:VlJson (src.get("height"))
         if (heightGiven.isNumber()) {
             out.setMember("height" heightGiven)
@@ -1332,16 +1388,21 @@ class VlCompile {
         out.setMember("data" data)
 
         ; --- the signals: the band decides how wide the chart is ---
-        def signals (VlJson.arrayValue())
-        def step (VlJson.objectValue())
-        step.setMember("name" (VlJson.stringValue("x_step")))
-        step.setMember("value" (VlJson.numberValue(20.0)))
-        push signals.arr step
-        def width (VlJson.objectValue())
-        width.setMember("name" (VlJson.stringValue("width")))
-        width.setMember("update" (VlJson.stringValue("bandspace(domain('x').length, 0, 0) * x_step")))
-        push signals.arr width
-        out.setMember("signals" signals)
+        ; …unless the chart said. Then the width is a number on the page and
+        ; the band is whatever fits inside it, which is what the reference
+        ; writes: no signals at all.
+        if (! widthStated) {
+            def signals (VlJson.arrayValue())
+            def step (VlJson.objectValue())
+            step.setMember("name" (VlJson.stringValue("x_step")))
+            step.setMember("value" (VlJson.numberValue(20.0)))
+            push signals.arr step
+            def width (VlJson.objectValue())
+            width.setMember("name" (VlJson.stringValue("width")))
+            width.setMember("update" (VlJson.stringValue("bandspace(domain('x').length, 0, 0) * x_step")))
+            push signals.arr width
+            out.setMember("signals" signals)
+        }
 
         ; --- the marks, in the order they are drawn ---
         def marks (VlJson.arrayValue())
@@ -1381,11 +1442,20 @@ class VlCompile {
         xDomain.setMember("fields" xFields)
         xDomain.setMember("sort" (VlJson.boolValue(true)))
         xs.setMember("domain" xDomain)
-        def xRange (VlJson.objectValue())
-        def xStep (VlJson.objectValue())
-        xStep.setMember("signal" (VlJson.stringValue("x_step")))
-        xRange.setMember("step" xStep)
-        xs.setMember("range" xRange)
+        if widthStated {
+            def span (VlJson.arrayValue())
+            push span.arr (VlJson.numberValue(0.0))
+            def edge (VlJson.objectValue())
+            edge.setMember("signal" (VlJson.stringValue("width")))
+            push span.arr edge
+            xs.setMember("range" span)
+        } {
+            def xRange (VlJson.objectValue())
+            def xStep (VlJson.objectValue())
+            xStep.setMember("signal" (VlJson.stringValue("x_step")))
+            xRange.setMember("step" xStep)
+            xs.setMember("range" xRange)
+        }
         xs.setMember("paddingInner" (VlJson.numberValue(0.0)))
         xs.setMember("paddingOuter" (VlJson.numberValue(0.0)))
         push scales.arr xs
@@ -4765,6 +4835,15 @@ class VlCompile {
             ; rather than in the segment it names.
             return ((VlCompile.asksToStack((this.channel("x")))) || (VlCompile.asksToStack((this.channel("y")))))
         }
+        ; A line stacks only when the chart SAYS so. Piling lines up is a
+        ; statement about parts and wholes that a line does not make on its
+        ; own — the reference stacks a bar and an area by default and a line
+        ; never, unless its own channel asks. Read as unstackable either way,
+        ; `"stack": "zero"` on a line drew every series from the baseline and
+        ; the chart said nothing about it.
+        if (markName == "line") {
+            return ((VlCompile.asksToStack((this.channel("x")))) || (VlCompile.asksToStack((this.channel("y")))))
+        }
         return (((markName == "bar") || (markName == "area")) || (markName == "arc"))
     }
 
@@ -5160,6 +5239,16 @@ class VlCompile {
                 return "band"
             }
             if (((markName == "bar") || (markName == "rect")) || (markName == "tick")) {
+                return "band"
+            }
+            ; A RULE is a band too, and an unpadded one — it is drawn from one
+            ; value to another ACROSS its band rather than standing on a point,
+            ; and the reference places it in the middle of a band that touches
+            ; its neighbours. Typed as a point, a hi-lo chart's own geometry
+            ; came out right and its axis did not: a band takes back the half
+            ; pixel its axis group is offset by and a point scale does not, so
+            ; every tick and label sat half a pixel off.
+            if ((markName == "rule") || (markName == "image")) {
                 return "band"
             }
             return "point"
@@ -6493,8 +6582,13 @@ class VlCompile {
     ; is not a shape. A series missing a row at some x would leave one, so the
     ; missing rows are filled in at zero before the stack — which is also what
     ; keeps the stack's own baseline continuous underneath the series above it.
+    ;
+    ; A STACKED line needs the same filling in and for the second reason rather
+    ; than the first: it has no shape to hole, but it stands on the series
+    ; below it, and a series that skips an x would have the ones above it step
+    ; down to a baseline that is not there.
     fn pushImpute:void (transforms:VlJson) {
-        if (markName != "area") {
+        if ((markName != "area") && (markName != "line")) {
             return
         }
         if ((strlen stackField) == 0) {
@@ -11271,8 +11365,16 @@ class VlCompile {
     }
 
     fn encodeAria:void (update:VlJson) {
-        if (((markName != "line") && (markName != "area")) && (markName != "arc")) {
+        ; A mark may say what it is: a composite expands into a shape that is
+        ; not what the chart asked for, and an error bar drawn as a rule is
+        ; still an error bar to whoever is listening to the page.
+        def stated:VlJson (markDef.get("ariaRoleDescription"))
+        if (stated.isString()) {
+            update.setMember("ariaRoleDescription" (VlCompile.literal(stated)))
+        } {
+          if (((markName != "line") && (markName != "area")) && (markName != "arc")) {
             update.setMember("ariaRoleDescription" (VlCompile.literal((VlJson.stringValue(markName)))))
+          }
         }
         def text:string (this.describeExpr())
         if ((strlen text) > 0) {
@@ -11985,8 +12087,14 @@ class VlCompile {
         ; value and given a thickness rather than placed by its corner.
         if (markName == "tick") {
             update.setMember((axis + "c") (this.scaled(axis (ch.outField()))))
-            ; How thick, which the chart may say once for every tick it draws.
-            update.setMember(dimension (VlCompile.literal((VlJson.numberValue((this.configNumber("tick" "thickness" 1.0)))))))
+            ; How thick, which the chart may say once for every tick it draws
+            ; — or on the mark itself. Read only from the configuration, a
+            ; `{"type": "tick", "thickness": 4}` came out a hairline: the
+            ; measure bar of a bullet chart and the open and close of a
+            ; hi-lo-open-close were both drawn a pixel wide.
+            def thickness:double (this.configNumber("tick" "thickness" 1.0))
+            thickness = (markDef.doubleOr("thickness" thickness))
+            update.setMember(dimension (VlCompile.literal((VlJson.numberValue(thickness)))))
             ; With nothing on the other axis there is no band to cross, so the
             ; tick crosses the plot itself — three quarters of it, centred.
             def other:string "y"

@@ -508,6 +508,24 @@ class VlChartMark {
     fn tooltip:VlChartMark (value:boolean) {
         return (this.propFlag("tooltip" value))
     }
+    ; How thick a tick is drawn, across its band. A hi-lo-open-close chart's
+    ; open and close are ticks, and a two-pixel one is what makes them read as
+    ; marks rather than as hairlines.
+    fn thickness:VlChartMark (value:double) {
+        return (this.propNumber("thickness" value))
+    }
+    fn strokeWidth:VlChartMark (value:double) {
+        return (this.propNumber("strokeWidth" value))
+    }
+    ; "horizontal" | "vertical" — which way a tick lies, or which way a bar
+    ; that has only one position channel runs.
+    fn orient:VlChartMark (value:string) {
+        return (this.propString("orient" value))
+    }
+    ; What an interval is computed from: "stderr" | "stdev" | "ci" | "iqr".
+    fn extent:VlChartMark (value:string) {
+        return (this.propString("extent" value))
+    }
     ; Back to the chart, when the next thing to say is about the view.
     fn chart:VlChart () {
         if (!null? owner) {
@@ -588,6 +606,26 @@ class VlChart {
     }
     fn boxplot:VlChartMark () {
         return (this.mark("boxplot"))
+    }
+    ; The two composite marks: an interval computed from the rows rather than
+    ; read off them. `extent` decides what the interval IS — "stderr" (the
+    ; default), "stdev", "ci" or "iqr".
+    fn errorbar:VlChartMark () {
+        return (this.mark("errorbar"))
+    }
+    fn errorband:VlChartMark () {
+        return (this.mark("errorband"))
+    }
+    ; A line whose width says something: a trail thickens with its `size`.
+    fn trail:VlChartMark () {
+        return (this.mark("trail"))
+    }
+    fn image:VlChartMark () {
+        return (this.mark("image"))
+    }
+    ; A map: the shapes come from the data and the projection places them.
+    fn geoshape:VlChartMark () {
+        return (this.mark("geoshape"))
     }
     ; The mark added last, for a caller that built one and let go of it. A
     ; chart with no marks answers a mark that belongs to nothing rather than

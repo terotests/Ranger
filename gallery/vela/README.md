@@ -1008,14 +1008,15 @@ intermediate value is ever larger than a digit.
   cheap, so this is a deliberate stop rather than an oversight —
   see [Changing one number](#changing-one-number).
 * **The rest of the Vega-Lite compiler.** All forty-two sources in the suite
-  compile in Ranger — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). What is
-  still refused, out loud rather than drawn as something else: an `errorbar`,
-  an `errorband`, the top-level `facet` operator, and every spec-level
-  `transform` except `filter` and `calculate` — `loess`, `regression`,
-  `window`, `fold`, `pivot`, `density` and the rest. Those were not refused
-  before they were listed: a `transform` array was read by nobody, so a filter
-  that removed half the rows simply did not happen and the chart looked
-  entirely reasonable.
+  compile in Ranger — see [Vega-Lite, in Ranger](#vega-lite-in-ranger). The
+  spec-level transforms that are compiled are `filter`, `calculate`,
+  `aggregate`, `bin`, `joinaggregate`, `window`, `fold`, `flatten`, `pivot`,
+  `lookup`, `quantile`, `regression`, `loess`, `density` and `stack`; what is
+  still refused, out loud rather than drawn as something else, is `impute`,
+  `sample` and the top-level `facet` operator. Nothing was refused before it
+  was listed: a `transform` array was read by nobody, so a filter that removed
+  half the rows simply did not happen and the chart looked entirely
+  reasonable.
 * **The time units that are not fields.** `year`, `quarter`, `month`, `date`,
   `day`, `hours`, `minutes` and `milliseconds` are computed; `week`, `isoweek`
   and `dayofyear` are refused by name. Each has a real rule and none of the
