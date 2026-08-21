@@ -1,0 +1,874 @@
+; ============================================================================
+; FlowView.rgr — the graph, as a scene.
+; ============================================================================
+;
+; Everything above this file is model; everything below is a backend. This is
+; the one place that decides what a node looks like, and it decides it once for
+; the screen and for print alike, because it emits a FlowScene rather than
+; drawing anything.
+;
+; It also does the two things a canvas-based editor has to do for itself, which
+; a DOM-based one gets from the browser:
+;
+;   CULLING     React Flow renders only the nodes inside the viewport; with no
+;               DOM to do it, the view drops them while building, and reports
+;               how many so a benchmark can see the difference.
+;   TEXT FIT    there is no `overflow: hidden` on a GPU quad, so a column name
+;               too long for its cell is measured and cut here.
+;
+; Coordinates: the view applies the viewport transform as it builds, so the
+; scene is in device pixels and a GPU backend needs no transform of its own.
+; `buildForExport` uses an identity viewport over the graph's bounds instead,
+; which is how the PDF comes out in flow units at any page size.
+; ============================================================================
+
+Import "GraphModel.rgr"
+Import "EdgeRouter.rgr"
+Import "FlowScene.rgr"
+Import "FlowTheme.rgr"
+Import "../../evg/EVGTextMeasurer.rgr"
+
+class FlowView {
+    def graph:FlowGraph (new FlowGraph)
+    def viewport:FlowViewport (new FlowViewport)
+    def theme:FlowTheme (new FlowTheme)
+    def measurer:EVGTextMeasurer (new EVGTextMeasurer)
+
+    def width:double 1200.0
+    def height:double 800.0
+
+    def showBackground:boolean true
+    def showMinimap:boolean true
+    def showControls:boolean true
+    def showPorts:boolean true
+    def culling:boolean true
+    ; "crowfoot" | "uml" | "plain" — how a relationship's cardinality is drawn.
+    def notation:string "crowfoot"
+
+    ; interaction state the view only reads
+    def hoverNode:int -1
+    def hoverPort:string ""
+    def connectFrom:string ""
+    def connectToX:double 0.0
+    def connectToY:double 0.0
+    def connecting:boolean false
+    def boxSelect:FlowRect (new FlowRect)
+
+    ; what the last build did, for the benchmark harness
+    def drawnNodes:int 0
+    def culledNodes:int 0
+    def drawnEdges:int 0
+
+    Constructor () {
+    }
+
+    sfn of:FlowView (g:FlowGraph) {
+        def v (new FlowView)
+        v.graph = g
+        return v
+    }
+
+    ; --------------------------------------------------------- transforms ----
+    fn sx:double (fx:double) {
+        return (viewport.toScreenX(fx))
+    }
+
+    fn sy:double (fy:double) {
+        return (viewport.toScreenY(fy))
+    }
+
+    fn sl:double (len:double) {
+        return (len * viewport.zoom)
+    }
+
+    ; --------------------------------------------------------------- text ----
+    ; Per-character widths from the EVG measurer. The default one guesses from
+    ; the font size; give the view a font-accurate measurer and the same code
+    ; fits text to the face the PDF will be set in.
+    ; A GPU quad has no `overflow: hidden`, and the glyphs are rasterized by
+    ; the platform from the real face while this measurement is an estimate. A
+    ; measurement that comes out short is the one that shows: the text runs
+    ; past the box and over the next column. So the estimate is deliberately
+    ; generous, and the node is clipped as well — belt and braces, because the
+    ; failure is silent and lands in the printed PDF too.
+    sfn slack:double () {
+        return 1.08
+    }
+
+    fn textWidth:double (t:string size:double) {
+        return (this.textWidthBold(t size false))
+    }
+
+    fn textWidthBold:double (t:string size:double bold:boolean) {
+        def w:double 0.0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            w = (w + (measurer.measureChar(c theme.fontFamily size)))
+            i = (i + 1)
+        }
+        w = (w * (FlowView.slack()))
+        if bold {
+            w = (w * 1.06)
+        }
+        return w
+    }
+
+    ; Cut to fit, with an ellipsis, the way a table cell does.
+    fn fitText:string (t:string size:double maxWidth:double) {
+        def full:double (this.textWidth(t size))
+        if (full <= maxWidth) {
+            return t
+        }
+        def ell:double (this.textWidth("…" size))
+        def budget:double (maxWidth - ell)
+        if (budget <= 0.0) {
+            return ""
+        }
+        def acc:double 0.0
+        def out:string ""
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            def cw:double (measurer.measureChar(c theme.fontFamily size))
+            if ((acc + cw) > budget) {
+                return (out + "…")
+            }
+            acc = (acc + cw)
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------- build --
+    fn build:FlowScene () {
+        def sc (new FlowScene)
+        sc.theme = theme
+        sc.worldW = width
+        sc.worldH = height
+        drawnNodes = 0
+        culledNodes = 0
+        drawnEdges = 0
+        sc.rect(0.0 0.0 width height theme.background)
+        if showBackground {
+            this.paintBackground(sc)
+        }
+        this.paintEdges(sc)
+        this.paintNodes(sc)
+        if showPorts {
+            this.paintPorts(sc)
+        }
+        if connecting {
+            this.paintConnection(sc)
+        }
+        if boxSelect.valid {
+            this.paintBoxSelect(sc)
+        }
+        if showMinimap {
+            this.paintMinimap(sc)
+        }
+        if showControls {
+            this.paintControls(sc)
+        }
+        return sc
+    }
+
+    ; A page rather than a screen: identity zoom over the graph's own bounds,
+    ; which is what the exporters want.
+    fn buildForExport:FlowScene (padding:double) {
+        def savedX:double viewport.x
+        def savedY:double viewport.y
+        def savedZoom:double viewport.zoom
+        def savedW:double width
+        def savedH:double height
+        def savedMini:boolean showMinimap
+        def savedCtl:boolean showControls
+        def savedPorts:boolean showPorts
+        def savedCull:boolean culling
+        def r:FlowRect (graph.bounds())
+        if (r.valid == false) {
+            r.x = 0.0
+            r.y = 0.0
+            r.w = 200.0
+            r.h = 200.0
+        }
+        r.grow(padding)
+        viewport.zoom = 1.0
+        viewport.x = (0.0 - r.x)
+        viewport.y = (0.0 - r.y)
+        width = r.w
+        height = r.h
+        showMinimap = false
+        showControls = false
+        showPorts = false
+        culling = false
+        def sc:FlowScene (this.build())
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = r.w
+        sc.worldH = r.h
+        viewport.x = savedX
+        viewport.y = savedY
+        viewport.zoom = savedZoom
+        width = savedW
+        height = savedH
+        showMinimap = savedMini
+        showControls = savedCtl
+        showPorts = savedPorts
+        culling = savedCull
+        return sc
+    }
+
+    ; `%` is integer-only in Ranger, and a grid offset is not. Floor-mod, so a
+    ; negative pan lands on the same lattice a positive one does.
+    sfn wrapTo:double (v:double gap:double) {
+        if (gap <= 0.0) {
+            return 0.0
+        }
+        def q:int (floor (v / gap))
+        def r:double (v - ((to_double q) * gap))
+        return (r - gap)
+    }
+
+    ; A fixed page: the diagram scaled to fit `pageW` x `pageH` with a margin,
+    ; centred. This is the shape a PDF wants — one page at a known size, rather
+    ; than a page as large as the graph happens to be.
+    fn buildForPage:FlowScene (pageW:double pageH:double margin:double) {
+        def savedX:double viewport.x
+        def savedY:double viewport.y
+        def savedZoom:double viewport.zoom
+        def savedW:double width
+        def savedH:double height
+        def savedMini:boolean showMinimap
+        def savedCtl:boolean showControls
+        def savedPorts:boolean showPorts
+        def savedCull:boolean culling
+        width = pageW
+        height = pageH
+        showMinimap = false
+        showControls = false
+        showPorts = false
+        culling = false
+        def r:FlowRect (graph.bounds())
+        if (r.valid == false) {
+            r.x = 0.0
+            r.y = 0.0
+            r.w = pageW
+            r.h = pageH
+            r.valid = true
+        }
+        ; `padding` is React Flow's convention now, so a margin in points has
+        ; to be converted rather than passed straight through.
+        def padFrac:double (FlowViewport.paddingForMargin(pageW margin))
+        viewport.minZoom = 0.01
+        viewport.maxZoom = 8.0
+        viewport.fitRect(r pageW pageH padFrac)
+        def sc:FlowScene (this.build())
+        sc.worldX = 0.0
+        sc.worldY = 0.0
+        sc.worldW = pageW
+        sc.worldH = pageH
+        viewport.x = savedX
+        viewport.y = savedY
+        viewport.zoom = savedZoom
+        width = savedW
+        height = savedH
+        showMinimap = savedMini
+        showControls = savedCtl
+        showPorts = savedPorts
+        culling = savedCull
+        return sc
+    }
+
+    ; ---------------------------------------------------------- background ---
+    fn paintBackground:void (sc:FlowScene) {
+        if (theme.backgroundVariant == 0) {
+            return
+        }
+        def gap:double (this.sl(theme.backgroundGap))
+        if (gap < 6.0) {
+            return
+        }
+        ; Start at the first grid line left of and above the viewport origin,
+        ; so the pattern is anchored to flow space and slides under a pan
+        ; rather than crawling with it.
+        def startX:double (FlowView.wrapTo(viewport.x gap))
+        def startY:double (FlowView.wrapTo(viewport.y gap))
+        if (theme.backgroundVariant == 1) {
+            def size:double theme.backgroundDotSize
+            def y:double startY
+            while (y < height) {
+                def x:double startX
+                while (x < width) {
+                    sc.rect(x y size size theme.dotColor)
+                    x = (x + gap)
+                }
+                y = (y + gap)
+            }
+            return
+        }
+        if (theme.backgroundVariant == 2) {
+            def yl:double startY
+            while (yl < height) {
+                sc.rect(0.0 yl width 1.0 theme.gridColor)
+                yl = (yl + gap)
+            }
+            def xl:double startX
+            while (xl < width) {
+                sc.rect(xl 0.0 1.0 height theme.gridColor)
+                xl = (xl + gap)
+            }
+            return
+        }
+        ; cross
+        def arm:double 3.0
+        def yc:double startY
+        while (yc < height) {
+            def xc:double startX
+            while (xc < width) {
+                sc.rect((xc - arm) yc (arm * 2.0) 1.0 theme.gridColor)
+                sc.rect(xc (yc - arm) 1.0 (arm * 2.0) theme.gridColor)
+                xc = (xc + gap)
+            }
+            yc = (yc + gap)
+        }
+    }
+
+    ; --------------------------------------------------------------- edges ---
+    fn paintEdges:void (sc:FlowScene) {
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            if (e.hidden == false) {
+                this.paintEdge(sc e)
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn paintEdge:void (sc:FlowScene e:FlowEdge) {
+        if (e.sourceIndex < 0) { return }
+        if (e.targetIndex < 0) { return }
+        def path:EdgePath (EdgeRouter.route(graph e))
+        ; Subdivision from the drawn size: a curve zoomed in is still a curve.
+        def steps:int 12
+        if (viewport.zoom > 1.5) { steps = 20 }
+        if (viewport.zoom < 0.5) { steps = 6 }
+        path.flatten(steps)
+        def pts:[double]
+        def n:int (path.pointCount())
+        if (n < 2) { return }
+        def i:int 0
+        while (i < n) {
+            push pts (this.sx((path.px(i))))
+            push pts (this.sy((path.py(i))))
+            i = (i + 1)
+        }
+        def col:string theme.edgeColor
+        if ((strlen e.strokeColor) > 0) { col = e.strokeColor }
+        if e.selected { col = theme.edgeSelected }
+        def w:double theme.edgeWidth
+        if (e.strokeWidth > 0.0) { w = e.strokeWidth }
+        if e.selected { w = (w + 0.8) }
+        def item:SceneItem (sc.path(pts (this.screenPathD(pts)) col (this.sl(w))))
+        item.tag = ("edge:" + e.id)
+        if (e.dash > 0.0) {
+            item.dash = (this.sl(e.dash))
+        }
+        drawnEdges = (drawnEdges + 1)
+        ; Ends. The angle comes from the flattened polyline rather than the
+        ; handle's side, so a marker on a curve points where the curve goes.
+        def endAngle:double (path.angleAtEnd())
+        def startAngle:double (path.angleAtStart())
+        def markerEnd:string (this.markerName(e false))
+        def markerStart:string (this.markerName(e true))
+        def size:double (this.sl(theme.markerSize))
+        if (size < 4.0) { size = 4.0 }
+        if ((strlen markerEnd) > 0) {
+            def ex:double (this.sx((path.px((n - 1)))))
+            def ey:double (this.sy((path.py((n - 1)))))
+            this.paintDecoration(sc markerEnd ex ey endAngle size col e.id)
+        }
+        if ((strlen markerStart) > 0) {
+            def sxp:double (this.sx((path.px(0))))
+            def syp:double (this.sy((path.py(0))))
+            this.paintDecoration(sc markerStart sxp syp startAngle size col e.id)
+        }
+        if ((strlen e.label) > 0) {
+            this.paintEdgeLabel(sc e path)
+        }
+    }
+
+    ; The notation layer: the model says "many", the theme's notation says how.
+    fn markerName:string (e:FlowEdge atSource:boolean) {
+        def card:string e.targetCardinality
+        def opt:boolean e.optionalTarget
+        def fallback:string e.markerEnd
+        if atSource {
+            card = e.sourceCardinality
+            opt = e.optionalSource
+            fallback = e.markerStart
+        }
+        if ((strlen card) > 0) {
+            return (EdgeDecoration.markerFor(notation card opt))
+        }
+        return fallback
+    }
+
+    fn paintDecoration:void (sc:FlowScene kind:string x:double y:double angle:double size:double col:string tag:string) {
+        def d:EdgeDecoration (EdgeDecoration.build(kind x y angle size))
+        def i:int 0
+        while (i < (d.shapeCount())) {
+            def sh:DecoShape (d.shapeAt(i))
+            def it (new SceneItem)
+            if sh.filled {
+                def poly:SceneItem (sc.polygon(sh.pts col))
+                poly.tag = ("edge:" + tag)
+            } {
+                def pts2:[double] sh.pts
+                if sh.closed {
+                    pts2 = (FlowScene.closeRing(sh.pts))
+                }
+                def line:SceneItem (sc.path(pts2 (this.screenPathD(pts2)) col (this.sl(theme.edgeWidth))))
+                line.tag = ("edge:" + tag)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn paintEdgeLabel:void (sc:FlowScene e:FlowEdge path:EdgePath) {
+        def size:double (this.sl(theme.labelFontSize))
+        if (size < 6.0) {
+            return
+        }
+        def mx:double (this.sx((path.midX())))
+        def my:double (this.sy((path.midY())))
+        def tw:double (this.textWidth(e.label size))
+        def pad:double 4.0
+        def bx:double (mx - ((tw * 0.5) + pad))
+        def by:double (my - ((size * 0.75) + pad))
+        def bw:double (tw + (pad * 2.0))
+        def bh:double ((size * 1.4) + pad)
+        def box:SceneItem (sc.rect(bx by bw bh theme.edgeLabelFill))
+        box.radius = 3.0
+        box.tag = ("edge:" + e.id)
+        def t:SceneItem (sc.text(e.label (bx + pad) (by + (pad * 0.5)) tw size theme.edgeLabelText))
+        t.fontFamily = theme.fontFamily
+        t.tag = ("edge:" + e.id)
+    }
+
+    ; The `d` for the SVG/PDF side of the same polyline the GPU gets.
+    fn screenPathD:string (pts:[double]) {
+        return (FlowScene.polygonPath(pts false))
+    }
+
+    ; --------------------------------------------------------------- nodes ---
+    fn paintNodes:void (sc:FlowScene) {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if (n.hidden == false) {
+                def x:double (this.sx(n.x))
+                def y:double (this.sy(n.y))
+                def w:double (this.sl(n.width))
+                def h:double (this.sl(n.height))
+                def visible:boolean true
+                if culling {
+                    visible = (this.onScreen(x y w h))
+                }
+                if visible {
+                    this.paintNode(sc n i x y w h)
+                    drawnNodes = (drawnNodes + 1)
+                } {
+                    culledNodes = (culledNodes + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn onScreen:boolean (x:double y:double w:double h:double) {
+        if ((x + w) < 0.0) { return false }
+        if ((y + h) < 0.0) { return false }
+        if (x > width) { return false }
+        if (y > height) { return false }
+        return true
+    }
+
+    fn paintNode:void (sc:FlowScene n:FlowNode idx:int x:double y:double w:double h:double) {
+        def tag:string ("node:" + n.id)
+        def fill:string (theme.nodeFillFor(n.bgColor n.selected))
+        def border:string (theme.nodeBorderFor(n.borderColor n.selected))
+        if (idx == hoverNode) {
+            if (n.selected == false) {
+                border = theme.hoverBorder
+            }
+        }
+        def radius:double (this.sl(theme.nodeRadius))
+        if (n.borderRadius >= 0.0) {
+            radius = (this.sl(n.borderRadius))
+        }
+        def bw:double (this.sl(theme.nodeBorderWidth))
+        if (n.selected) {
+            bw = (bw * 2.0)
+        }
+        def body:SceneItem (sc.rect(x y w h fill))
+        body.radius = radius
+        body.stroke = border
+        body.strokeWidth = bw
+        body.tag = tag
+        if ((n.sectionCount()) == 0) {
+            this.paintPlainLabel(sc n x y w h tag)
+            return
+        }
+        this.paintCompartments(sc n x y w h tag)
+    }
+
+    fn paintPlainLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
+        def size:double (this.sl(theme.headerFontSize))
+        if (size < 5.0) {
+            return
+        }
+        def label:string (this.fitText(n.label size (w - 12.0)))
+        def tw:double (this.textWidth(label size))
+        def tx:double (x + ((w - tw) * 0.5))
+        def ty:double (y + ((h - (size * 1.2)) * 0.5))
+        def t:SceneItem (sc.text(label tx ty tw size theme.nodeText))
+        t.fontFamily = theme.fontFamily
+        t.tag = tag
+    }
+
+    ; The compartment node: header, then sections of rows. Geometry comes from
+    ; FlowNode.rowCenterY, the same function the ports were placed with, so a
+    ; port is opposite the row it belongs to and not merely near it.
+    fn paintCompartments:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
+        ; Nothing inside a table may leave it, whatever the measurement said.
+        sc.pushClip(x y w h)
+        this.paintCompartmentBody(sc n x y w h tag)
+        sc.popClip()
+    }
+
+    fn paintCompartmentBody:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
+        def z:double viewport.zoom
+        def headerH:double (this.sl(n.headerHeight))
+        def rowH:double (this.sl(n.rowHeight))
+        def headSize:double (this.sl(theme.headerFontSize))
+        def rowSize:double (this.sl(theme.rowFontSize))
+        def pad:double (this.sl(8.0))
+        ; header
+        def head:SceneItem (sc.rect(x y w headerH theme.headerFill))
+        head.radius = (this.sl(theme.nodeRadius))
+        head.tag = tag
+        ; square off the bottom of the header so it meets the first section
+        def half:double (headerH * 0.5)
+        def headBottom:SceneItem (sc.rect(x (y + half) w half theme.headerFill))
+        headBottom.tag = tag
+        def accent:SceneItem (sc.rect(x y (this.sl(3.0)) headerH theme.headerAccent))
+        accent.tag = tag
+        if (headSize >= 5.0) {
+            def title:string (this.fitText(n.label headSize (w - (pad * 2.0))))
+            def t:SceneItem (sc.text(title (x + pad) (y + ((headerH - (headSize * 1.2)) * 0.5)) (w - (pad * 2.0)) headSize theme.headerText))
+            t.fontFamily = theme.fontFamily
+            t.bold = true
+            t.tag = tag
+        }
+        def cursor:double (y + headerH)
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            if (si > 0) {
+                def rule:SceneItem (sc.rect(x cursor w (this.sl(n.sectionGap)) theme.sectionRule))
+                rule.tag = tag
+                cursor = (cursor + (this.sl(n.sectionGap)))
+            }
+            if ((strlen sec.title) > 0) {
+                if (rowSize >= 5.0) {
+                    def st:SceneItem (sc.text(sec.title (x + pad) (cursor + ((rowH - (rowSize * 1.2)) * 0.5)) (w - (pad * 2.0)) rowSize theme.nodeMutedText))
+                    st.fontFamily = theme.fontFamily
+                    st.italic = true
+                    st.tag = tag
+                }
+                cursor = (cursor + rowH)
+            }
+            if (sec.collapsed == false) {
+                def ri:int 0
+                while (ri < (array_length sec.rows)) {
+                    def row:FlowRow (itemAt sec.rows ri)
+                    this.paintRow(sc n row x cursor w rowH rowSize pad tag ri)
+                    cursor = (cursor + rowH)
+                    ri = (ri + 1)
+                }
+            }
+            si = (si + 1)
+        }
+    }
+
+    fn paintRow:void (sc:FlowScene n:FlowNode row:FlowRow x:double y:double w:double rowH:double size:double pad:double tag:string idx:int) {
+        if (row.selected) {
+            def sel:SceneItem (sc.rect(x y w rowH theme.selectedFill))
+            sel.tag = tag
+        } {
+            if ((idx % 2) == 1) {
+                def alt:SceneItem (sc.rect(x y w rowH theme.rowAltFill))
+                alt.tag = tag
+            }
+        }
+        if (size < 5.0) {
+            return
+        }
+        def ty:double (y + ((rowH - (size * 1.2)) * 0.5))
+        def badgeW:double (this.sl(14.0))
+        if ((strlen row.badge) > 0) {
+            def bcol:string theme.keyColor
+            if (row.badge == "fk") { bcol = theme.fkColor }
+            if (row.badge == "idx") { bcol = theme.nodeMutedText }
+            def glyph:string (FlowView.badgeGlyph(row.badge))
+            def b:SceneItem (sc.text(glyph (x + pad) ty badgeW size bcol))
+            b.fontFamily = theme.fontFamily
+            b.bold = true
+            b.tag = tag
+        }
+        def right:double ((x + w) - pad)
+        def trailW:double 0.0
+        if ((strlen row.trailing) > 0) {
+            trailW = (this.textWidthBold(row.trailing size true))
+            def tr:SceneItem (sc.text(row.trailing (right - trailW) ty trailW size theme.fkColor))
+            tr.fontFamily = theme.fontFamily
+            tr.align = "right"
+            tr.tag = tag
+        }
+        def detailW:double 0.0
+        if ((strlen row.detail) > 0) {
+            detailW = (this.textWidth(row.detail size))
+            def gapAfter:double 0.0
+            if (trailW > 0.0) {
+                gapAfter = (this.sl(9.0))
+            }
+            def dx:double (((right - trailW) - gapAfter) - detailW)
+            def dt:SceneItem (sc.text(row.detail dx ty detailW size theme.typeColor))
+            dt.fontFamily = theme.fontFamily
+            dt.align = "right"
+            dt.tag = tag
+            detailW = (detailW + gapAfter)
+        }
+        def nameX:double ((x + pad) + badgeW)
+        def avail:double (((right - trailW) - detailW) - nameX)
+        if (avail < 8.0) {
+            return
+        }
+        def nameCol:string theme.nodeText
+        if (row.emphasis == 2) { nameCol = theme.nodeMutedText }
+        def label:string (this.fitText(row.text size avail))
+        def nt:SceneItem (sc.text(label nameX ty avail size nameCol))
+        nt.fontFamily = theme.fontFamily
+        if (row.emphasis == 1) {
+            nt.bold = true
+        }
+        nt.tag = tag
+    }
+
+    sfn badgeGlyph:string (badge:string) {
+        if (badge == "pk")  { return "PK" }
+        if (badge == "fk")  { return "FK" }
+        if (badge == "idx") { return "IX" }
+        return badge
+    }
+
+    ; --------------------------------------------------------------- ports ---
+    ; Ports are drawn for the node under the pointer and for the one a
+    ; connection is being dragged from — the same rule React Flow uses to keep
+    ; a dense diagram from turning into a field of dots.
+    fn paintPorts:void (sc:FlowScene) {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            def show:boolean false
+            if (i == hoverNode) { show = true }
+            if n.selected { show = true }
+            if connecting { show = true }
+            if show {
+                if (n.hidden == false) {
+                    this.paintNodePorts(sc n)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn paintNodePorts:void (sc:FlowScene n:FlowNode) {
+        def r:double (this.sl(theme.portRadius))
+        if (r < 2.0) {
+            r = 2.0
+        }
+        def i:int 0
+        while (i < (array_length n.ports)) {
+            def p:FlowPort (itemAt n.ports i)
+            if (p.hidden == false) {
+                def px:double (this.sx((n.portX(p))))
+                def py:double (this.sy((n.portY(p))))
+                def col:string theme.portBorder
+                def fill:string theme.portFill
+                if (p.id == hoverPort) {
+                    col = theme.portActive
+                    fill = theme.portActive
+                }
+                if (p.id == connectFrom) {
+                    col = theme.portActive
+                    fill = theme.portActive
+                }
+                def dot:SceneItem (sc.rect((px - r) (py - r) (r * 2.0) (r * 2.0) fill))
+                dot.radius = r
+                dot.stroke = col
+                dot.strokeWidth = 1.0
+                dot.tag = ("port:" + p.id)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn paintConnection:void (sc:FlowScene) {
+        if ((graph.hasPort(connectFrom)) == false) {
+            return
+        }
+        def p:FlowPort (graph.portRef(connectFrom))
+        def owner:FlowNode (graph.nodeById(p.nodeId))
+        def x1:double (owner.portX(p))
+        def y1:double (owner.portY(p))
+        def path:EdgePath (EdgeRouter.routeBetween(x1 y1 p.side connectToX connectToY (EdgeRouter.oppositeSide(p.side)) "default"))
+        path.flatten(12)
+        def pts:[double]
+        def n:int (path.pointCount())
+        def i:int 0
+        while (i < n) {
+            push pts (this.sx((path.px(i))))
+            push pts (this.sy((path.py(i))))
+            i = (i + 1)
+        }
+        def line:SceneItem (sc.path(pts (this.screenPathD(pts)) theme.portActive (this.sl(1.6))))
+        line.dash = 6.0
+        line.tag = "chrome"
+    }
+
+    fn paintBoxSelect:void (sc:FlowScene) {
+        def x:double (this.sx(boxSelect.x))
+        def y:double (this.sy(boxSelect.y))
+        def w:double (this.sl(boxSelect.w))
+        def h:double (this.sl(boxSelect.h))
+        def fillItem:SceneItem (sc.rect(x y w h theme.selectionBoxFill))
+        fillItem.opacity = theme.selectionBoxAlpha
+        fillItem.tag = "chrome"
+        def frame:SceneItem (sc.rect(x y w h ""))
+        frame.stroke = theme.selectionBox
+        frame.strokeWidth = 1.0
+        frame.tag = "chrome"
+    }
+
+    ; ------------------------------------------------------------- minimap ---
+    fn paintMinimap:void (sc:FlowScene) {
+        def mw:double 180.0
+        def mh:double 120.0
+        def margin:double 12.0
+        def mx:double ((width - mw) - margin)
+        def my:double ((height - mh) - margin)
+        def panel:SceneItem (sc.rect(mx my mw mh theme.panelFill))
+        panel.radius = 6.0
+        panel.stroke = theme.panelBorder
+        panel.strokeWidth = 1.0
+        panel.tag = "chrome"
+        def b:FlowRect (graph.bounds())
+        if (b.valid == false) {
+            return
+        }
+        ; The minimap must show where the viewport is even when it is outside
+        ; the graph, so the mapped area is the union of the two.
+        def vx:double (viewport.toFlowX(0.0))
+        def vy:double (viewport.toFlowY(0.0))
+        def vw:double (width / viewport.zoom)
+        def vh:double (height / viewport.zoom)
+        def ux:double b.x
+        def uy:double b.y
+        def uxr:double (b.x + b.w)
+        def uyb:double (b.y + b.h)
+        if (vx < ux) { ux = vx }
+        if (vy < uy) { uy = vy }
+        if ((vx + vw) > uxr) { uxr = (vx + vw) }
+        if ((vy + vh) > uyb) { uyb = (vy + vh) }
+        def uw:double (uxr - ux)
+        def uh:double (uyb - uy)
+        if (uw < 1.0) { uw = 1.0 }
+        if (uh < 1.0) { uh = 1.0 }
+        def pad:double 8.0
+        def scaleX:double ((mw - (pad * 2.0)) / uw)
+        def scaleY:double ((mh - (pad * 2.0)) / uh)
+        def s:double scaleX
+        if (scaleY < s) { s = scaleY }
+        def offX:double ((mx + pad) + (((mw - (pad * 2.0)) - (uw * s)) * 0.5))
+        def offY:double ((my + pad) + (((mh - (pad * 2.0)) - (uh * s)) * 0.5))
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if (n.hidden == false) {
+                def nx:double (offX + ((n.x - ux) * s))
+                def ny:double (offY + ((n.y - uy) * s))
+                def nw:double (n.width * s)
+                def nh:double (n.height * s)
+                if (nw < 2.0) { nw = 2.0 }
+                if (nh < 2.0) { nh = 2.0 }
+                def col:string theme.minimapNode
+                if n.selected { col = theme.minimapView }
+                def dot:SceneItem (sc.rect(nx ny nw nh col))
+                dot.tag = "chrome"
+            }
+            i = (i + 1)
+        }
+        def rx:double (offX + ((vx - ux) * s))
+        def ry:double (offY + ((vy - uy) * s))
+        def frame:SceneItem (sc.rect(rx ry (vw * s) (vh * s) ""))
+        frame.stroke = theme.minimapView
+        frame.strokeWidth = 1.5
+        frame.tag = "chrome"
+    }
+
+    ; ------------------------------------------------------------ controls ---
+    fn paintControls:void (sc:FlowScene) {
+        def size:double 28.0
+        def margin:double 12.0
+        def x:double margin
+        def y:double ((height - (size * 4.0)) - margin)
+        def labels:[string] ([] _:string ( "+" "−" "⤢" "◱" ))
+        def i:int 0
+        while (i < 4) {
+            def by:double (y + ((to_double i) * size))
+            def b:SceneItem (sc.rect(x by size size theme.panelFill))
+            b.stroke = theme.panelBorder
+            b.strokeWidth = 1.0
+            b.tag = ("chrome:btn" + (to_string i))
+            def g:string (itemAt labels i)
+            def gw:double (this.textWidth(g 14.0))
+            def t:SceneItem (sc.text(g (x + ((size - gw) * 0.5)) (by + 6.0) gw 14.0 theme.nodeText))
+            t.fontFamily = theme.fontFamily
+            t.tag = ("chrome:btn" + (to_string i))
+            i = (i + 1)
+        }
+    }
+
+    ; Which control button, if any, a screen point is on. -1 for none.
+    fn controlAt:int (px:double py:double) {
+        if (showControls == false) {
+            return -1
+        }
+        def size:double 28.0
+        def margin:double 12.0
+        def x:double margin
+        def y:double ((height - (size * 4.0)) - margin)
+        if (px < x) { return -1 }
+        if (px > (x + size)) { return -1 }
+        if (py < y) { return -1 }
+        if (py > (y + (size * 4.0))) { return -1 }
+        def idx:int (to_int ((py - y) / size))
+        if (idx < 0) { return -1 }
+        if (idx > 3) { return -1 }
+        return idx
+    }
+}

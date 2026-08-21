@@ -1,0 +1,289 @@
+; ============================================================================
+; rangerflow_demo.rgr — the whole stack, from a .sql file to a PDF.
+; ============================================================================
+;
+;   npm run rangerflow:demo                 the e-commerce schema, every output
+;   npm run rangerflow:demo -- --uml        the UML class diagram instead
+;   npm run rangerflow:demo -- --force      the React Flow force-layout parity
+;   npm run rangerflow:demo -- --bench 500  layout + scene timings at a size
+;
+; It writes into gallery/rangerflow/out/ and prints what it did, so a run is
+; both the demo and a smoke test of every backend at once.
+; ============================================================================
+
+Import "../export/FlowExport.rgr"
+Import "../core/FlowEditor.rgr"
+Import "../domains/erd/SqlSchemaReader.rgr"
+Import "../domains/erd/SchemaToGraph.rgr"
+Import "../domains/uml/UMLModel.rgr"
+Import "../layout/LayeredLayout.rgr"
+Import "../layout/ForceLayout.rgr"
+
+class RangerFlowDemo {
+    def outDir:string "gallery/rangerflow/out"
+    def fontsDir:string "gallery/pdf_writer/assets/fonts"
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def d (new RangerFlowDemo)
+        def mode:string "erd"
+        def benchSize:int 0
+        def argCount:int (shell_arg_cnt)
+        def i:int 0
+        while (i < argCount) {
+            def a:string (shell_arg i)
+            if (a == "--uml")   { mode = "uml" }
+            if (a == "--erd")   { mode = "erd" }
+            if (a == "--force") { mode = "force" }
+            if (a == "--bench") {
+                mode = "bench"
+                if ((i + 1) < argCount) {
+                    def raw:string (shell_arg (i + 1))
+                    benchSize = (?? (str2int raw) 0)
+                }
+            }
+            i = (i + 1)
+        }
+        if (mode == "uml")   { d.runUml() }
+        if (mode == "erd")   { d.runErd() }
+        if (mode == "force") { d.runForce() }
+        if (mode == "bench") { d.runBench(benchSize) }
+    }
+
+    ; --------------------------------------------------------------- ERD ----
+    fn runErd:void () {
+        print "== RangerFlow: database schema =="
+        def sqlOpt:string (?? (read_file "." "gallery/rangerflow/fixtures/ecommerce.sql") "")
+        if ((strlen sqlOpt) == 0) {
+            print "could not read gallery/rangerflow/fixtures/ecommerce.sql"
+            return
+        }
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sqlOpt))
+        print ("  tables " + (to_string (schema.tableCount())) + ", foreign keys " + (to_string (array_length schema.foreignKeys)))
+        def s2g (new SchemaToGraph)
+        def g:FlowGraph (s2g.build(schema))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "LR"
+        lay.layerGap = 150.0
+        lay.nodeGap = 40.0
+        lay.run()
+        SchemaToGraph.faceEdges(g)
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges, " + (to_string (lay.layerCount())) + " layers")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "crowfoot"
+        this.writeAll(v g "rangerflow-erd" "RangerFlow — e-commerce schema")
+    }
+
+    ; --------------------------------------------------------------- UML ----
+    fn runUml:void () {
+        print "== RangerFlow: UML class diagram =="
+        def d (new UMLDiagram)
+        def shape:UMLClass (d.umlClass("Shape"))
+        shape.stereotype = "abstract"
+        shape.attribute("#" "origin" "Point")
+        shape.operation("+" "area" "" "double")
+        shape.operation("+" "draw" "ctx: Canvas" "void")
+        def rect:UMLClass (d.umlClass("Rectangle"))
+        rect.attribute("-" "width" "double")
+        rect.attribute("-" "height" "double")
+        rect.operation("+" "area" "" "double")
+        def circle:UMLClass (d.umlClass("Circle"))
+        circle.attribute("-" "radius" "double")
+        circle.operation("+" "area" "" "double")
+        def canvas:UMLClass (d.umlClass("Canvas"))
+        canvas.attribute("-" "shapes" "[Shape]")
+        canvas.operation("+" "add" "s: Shape" "void")
+        canvas.operation("+" "render" "" "void")
+        def point:UMLClass (d.umlClass("Point"))
+        point.stereotype = "record"
+        point.attribute("+" "x" "double")
+        point.attribute("+" "y" "double")
+        d.relate("Rectangle" "Shape" "inheritance")
+        d.relate("Circle" "Shape" "inheritance")
+        def owns:UMLRelation (d.relate("Canvas" "Shape" "composition"))
+        owns.toMultiplicity = "0..*"
+        d.relate("Shape" "Point" "aggregation")
+        def u2g (new UMLToGraph)
+        def g:FlowGraph (u2g.build(d))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 110.0
+        lay.run()
+        print ("  graph  " + (to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "uml"
+        this.writeAll(v g "rangerflow-uml" "RangerFlow — UML class diagram")
+    }
+
+    ; ------------------------------------------------- force-layout parity ---
+    ; The benchmark the library started from: React Flow's force-layout
+    ; example is d3-force with charge -1000, link distance 150 and a weak pull
+    ; to the origin on both axes. Same numbers here, same 300 ticks to settle.
+    fn runForce:void () {
+        print "== RangerFlow: force layout (React Flow example parity) =="
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < 30) {
+            def n:FlowNode (g.node(("n" + (to_string i)) ("node " + (to_string i)) 0.0 0.0))
+            n.width = 110.0
+            n.height = 40.0
+            i = (i + 1)
+        }
+        ; A tree plus a few cross links — the shape the example ships with.
+        def k:int 1
+        while (k < 30) {
+            def parent:int (idiv (k - 1) 3)
+            g.connect(("n" + (to_string parent)) ("n" + (to_string k)))
+            k = (k + 1)
+        }
+        g.connect("n5" "n17")
+        g.connect("n8" "n23")
+        g.connect("n11" "n26")
+        def sim:FlowSimulation (FlowSimulation.reactFlowExample(g -1000.0 150.0))
+        sim.collideEnabled = true
+        def before:double (wall_clock_ms)
+        def ticks:int (sim.run(600))
+        def after:double (wall_clock_ms)
+        print ("  settled in " + (to_string ticks) + " ticks, alpha " + (to_string sim.alpha) + ", " + (to_string (to_int (after - before))) + " ms")
+        def r:FlowRect (g.bounds())
+        print ("  bounds " + (to_string (to_int r.w)) + " x " + (to_string (to_int r.h)))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        this.writeAll(v g "rangerflow-force" "RangerFlow — force layout")
+    }
+
+    ; ------------------------------------------------------------- bench ----
+    fn runBench:void (size:int) {
+        def n:int size
+        if (n <= 0) {
+            n = 500
+        }
+        print ("== RangerFlow: benchmark, " + (to_string n) + " nodes ==")
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < n) {
+            def nd:FlowNode (g.node(("n" + (to_string i)) ("node " + (to_string i)) 0.0 0.0))
+            nd.width = 140.0
+            nd.height = 44.0
+            i = (i + 1)
+        }
+        def k:int 1
+        while (k < n) {
+            def parent:int (idiv k 2)
+            g.connect(("n" + (to_string parent)) ("n" + (to_string k)))
+            if ((k % 7) == 0) {
+                def other:int (idiv k 3)
+                g.connect(("n" + (to_string other)) ("n" + (to_string k)))
+            }
+            k = (k + 1)
+        }
+        print ("  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+
+        def t0:double (wall_clock_ms)
+        def sim:FlowSimulation (FlowSimulation.of(g))
+        sim.chargeStrength = -400.0
+        sim.linkDistance = 120.0
+        sim.xEnabled = true
+        sim.yEnabled = true
+        sim.initialize()
+        def ticks:int (sim.run(300))
+        def t1:double (wall_clock_ms)
+        print ("  force layout  " + (to_string (to_int (t1 - t0))) + " ms (" + (to_string ticks) + " ticks)")
+
+        def t2:double (wall_clock_ms)
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.run()
+        def t3:double (wall_clock_ms)
+        print ("  layered layout " + (to_string (to_int (t3 - t2))) + " ms (" + (to_string (lay.layerCount())) + " layers)")
+
+        def v:FlowView (FlowView.of(g))
+        v.width = 1600.0
+        v.height = 900.0
+        def r:FlowRect (g.bounds())
+        v.viewport.fitRect(r 1600.0 900.0 0.05)
+        def t4:double (wall_clock_ms)
+        def sc:FlowScene (v.build())
+        def t5:double (wall_clock_ms)
+        print ("  scene (fit)    " + (to_string (to_int (t5 - t4))) + " ms, " + (to_string (sc.count())) + " items, " + (to_string v.drawnNodes) + " drawn / " + (to_string v.culledNodes) + " culled")
+
+        ; Zoomed in, which is where culling earns its keep.
+        v.viewport.zoom = 1.0
+        v.viewport.x = 0.0
+        v.viewport.y = 0.0
+        def t6:double (wall_clock_ms)
+        def sc2:FlowScene (v.build())
+        def t7:double (wall_clock_ms)
+        print ("  scene (1:1)    " + (to_string (to_int (t7 - t6))) + " ms, " + (to_string (sc2.count())) + " items, " + (to_string v.drawnNodes) + " drawn / " + (to_string v.culledNodes) + " culled")
+
+        def t8:double (wall_clock_ms)
+        def json:string (sc2.sceneJson(1600.0 900.0))
+        def t9:double (wall_clock_ms)
+        print ("  display list   " + (to_string (to_int (t9 - t8))) + " ms, " + (to_string (strlen json)) + " bytes of JSON")
+
+        ; A drag is a scene rebuild per frame; this is the latency budget.
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1600.0 900.0)
+        def inp (new FlowInput)
+        def first:FlowNode (g.nodeAt(0))
+        inp.x = (ed.view.viewport.toScreenX((first.centerX())))
+        inp.y = (ed.view.viewport.toScreenY((first.centerY())))
+        def t10:double (wall_clock_ms)
+        ed.pointerDown(inp)
+        def f:int 0
+        while (f < 60) {
+            inp.x = (inp.x + 1.0)
+            ed.pointerMove(inp)
+            ed.build()
+            f = (f + 1)
+        }
+        ed.pointerUp(inp)
+        def t11:double (wall_clock_ms)
+        def per:double ((t11 - t10) / 60.0)
+        print ("  drag 60 frames " + (to_string (to_int (t11 - t10))) + " ms (" + (to_string per) + " ms/frame)")
+    }
+
+    ; --------------------------------------------------------------- output --
+    fn writeAll:void (v:FlowView g:FlowGraph stem:string title:string) {
+        ; `create_dir` is a bare mkdir on the JS target and throws on an
+        ; existing directory, so the second run of the demo used to fail where
+        ; the first succeeded.
+        if ((dir_exists outDir) == false) {
+            create_dir outDir
+        }
+        def ex (new FlowExport)
+        ex.loadFonts(fontsDir)
+        ex.mode = "page"
+        ex.pageWidth = 1190.0
+        ex.pageHeight = 842.0
+        ex.margin = 28.0
+
+        def svgPath:string (outDir + "/" + stem + ".svg")
+        ex.writeSvg(v svgPath)
+        print ("  wrote " + svgPath)
+
+        def pdfPath:string (outDir + "/" + stem + ".pdf")
+        ex.writePdf(v pdfPath)
+        print ("  wrote " + pdfPath)
+
+        def htmlPath:string (outDir + "/" + stem + ".html")
+        ex.writeHtml(v htmlPath title)
+        print ("  wrote " + htmlPath)
+
+        def jsonPath:string (outDir + "/" + stem + ".graph.json")
+        write_file "." jsonPath (FlowGraphJson.toJson(g))
+        print ("  wrote " + jsonPath)
+
+        ; The interactive scene, as the WebGL page consumes it.
+        def v2:FlowView v
+        v2.width = 1600.0
+        v2.height = 900.0
+        def r:FlowRect (g.bounds())
+        v2.viewport.fitRect(r 1600.0 900.0 0.08)
+        def sc:FlowScene (v2.build())
+        def scenePath:string (outDir + "/" + stem + ".scene.json")
+        write_file "." scenePath (sc.sceneJson(1600.0 900.0))
+        print ("  wrote " + scenePath + "  (" + (to_string (sc.count())) + " scene items, " + (to_string v2.drawnNodes) + " nodes drawn)")
+    }
+}

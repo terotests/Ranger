@@ -1,0 +1,299 @@
+; ============================================================================
+; DatabaseSchema.rgr — what a database looks like, with no diagram in sight.
+; ============================================================================
+;
+; The core knows about nodes, ports and edges. It does not know about tables,
+; and it must not: the day it does, a UML class diagram becomes a table with
+; the words changed. So the domain model lives here, entirely on its own, and
+; `SchemaToGraph` is the only file that has heard of both.
+;
+;   DuckDB / SQLite / Postgres / RangerDB
+;                ↓  (an inspector, per engine)
+;         DatabaseSchema          ← this file
+;                ↓  SchemaToGraph
+;             FlowGraph
+;
+; That shape is what lets the same diagram come from a live connection, from a
+; `.sql` file, or from a JSON fixture, with the editor unable to tell.
+; ============================================================================
+
+class DBColumn {
+    def name:string ""
+    def dataType:string ""
+    def nullable:boolean true
+    def isPrimaryKey:boolean false
+    def isForeignKey:boolean false
+    def isUnique:boolean false
+    def defaultValue:string ""
+    def comment:string ""
+    ; ordinal position, as the database reports it
+    def position:int 0
+
+    Constructor () {
+    }
+
+    sfn create:DBColumn (name:string dataType:string) {
+        def c (new DBColumn)
+        c.name = name
+        c.dataType = dataType
+        return c
+    }
+}
+
+class DBIndex {
+    def name:string ""
+    def columns:[string]
+    def unique:boolean false
+
+    Constructor () {
+    }
+}
+
+class DBConstraint {
+    ; "check" | "unique" | "exclude"
+    def kind:string "check"
+    def name:string ""
+    def expression:string ""
+
+    Constructor () {
+    }
+}
+
+class DBTable {
+    def name:string ""
+    def schema:string ""
+    def comment:string ""
+    def columns:[DBColumn]
+    def indexes:[DBIndex]
+    def constraints:[DBConstraint]
+    ; "table" | "view" | "materialized"
+    def kind:string "table"
+
+    Constructor () {
+    }
+
+    sfn create:DBTable (name:string) {
+        def t (new DBTable)
+        t.name = name
+        return t
+    }
+
+    fn qualifiedName:string () {
+        if ((strlen schema) > 0) {
+            return (schema + "." + name)
+        }
+        return name
+    }
+
+    fn addColumn:DBColumn (c:DBColumn) {
+        c.position = (array_length columns)
+        push columns c
+        return c
+    }
+
+    fn column:DBColumn (name:string dataType:string) {
+        def c:DBColumn (DBColumn.create(name dataType))
+        return (this.addColumn(c))
+    }
+
+    fn columnIndex:int (name:string) {
+        def i:int 0
+        while (i < (array_length columns)) {
+            def c:DBColumn (itemAt columns i)
+            if (c.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn primaryKeyColumns:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length columns)) {
+            def c:DBColumn (itemAt columns i)
+            if (c.isPrimaryKey) {
+                push out c.name
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; A foreign key is the relationship. How it is DRAWN — crow's foot, UML,
+; an arrow — is a rendering choice made much later, from `cardinality`.
+class DBForeignKey {
+    def name:string ""
+    def fromTable:string ""
+    def fromColumns:[string]
+    def toTable:string ""
+    def toColumns:[string]
+    def onDelete:string ""
+    def onUpdate:string ""
+
+    Constructor () {
+    }
+
+    sfn create:DBForeignKey (fromTable:string fromColumn:string toTable:string toColumn:string) {
+        def fk (new DBForeignKey)
+        fk.fromTable = fromTable
+        fk.toTable = toTable
+        push fk.fromColumns fromColumn
+        push fk.toColumns toColumn
+        return fk
+    }
+
+    fn firstFromColumn:string () {
+        if ((array_length fromColumns) == 0) {
+            return ""
+        }
+        return (itemAt fromColumns 0)
+    }
+
+    fn firstToColumn:string () {
+        if ((array_length toColumns) == 0) {
+            return ""
+        }
+        return (itemAt toColumns 0)
+    }
+}
+
+class DatabaseSchema {
+    def name:string ""
+    def tables:[DBTable]
+    def foreignKeys:[DBForeignKey]
+    def tableIndex:[string:int]
+
+    Constructor () {
+    }
+
+    fn tableCount:int () {
+        return (array_length tables)
+    }
+
+    fn tableAt:DBTable (i:int) {
+        return (itemAt tables i)
+    }
+
+    fn addTable:DBTable (t:DBTable) {
+        set tableIndex t.name (array_length tables)
+        push tables t
+        return t
+    }
+
+    fn table:DBTable (name:string) {
+        def t:DBTable (DBTable.create(name))
+        return (this.addTable(t))
+    }
+
+    fn indexOfTable:int (name:string) {
+        if (has tableIndex name) {
+            return (unwrap (get tableIndex name))
+        }
+        return -1
+    }
+
+    fn tableByName:DBTable (name:string) {
+        def i:int (this.indexOfTable(name))
+        if (i < 0) {
+            return (new DBTable)
+        }
+        return (itemAt tables i)
+    }
+
+    fn addForeignKey:DBForeignKey (fk:DBForeignKey) {
+        push foreignKeys fk
+        return fk
+    }
+
+    fn relate:DBForeignKey (fromTable:string fromColumn:string toTable:string toColumn:string) {
+        def fk:DBForeignKey (DBForeignKey.create(fromTable fromColumn toTable toColumn))
+        return (this.addForeignKey(fk))
+    }
+
+    ; Mark every column a foreign key points from, so the diagram can badge it
+    ; without every renderer walking the key list again.
+    fn resolve:void () {
+        map_clear tableIndex
+        def i:int 0
+        while (i < (array_length tables)) {
+            def t:DBTable (itemAt tables i)
+            set tableIndex t.name i
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length foreignKeys)) {
+            def fk:DBForeignKey (itemAt foreignKeys k)
+            def ti:int (this.indexOfTable(fk.fromTable))
+            if (ti >= 0) {
+                def t2:DBTable (itemAt tables ti)
+                def c:int 0
+                while (c < (array_length fk.fromColumns)) {
+                    def ci:int (t2.columnIndex((itemAt fk.fromColumns c)))
+                    if (ci >= 0) {
+                        def col:DBColumn (itemAt t2.columns ci)
+                        col.isForeignKey = true
+                    }
+                    c = (c + 1)
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; A foreign key is many-to-one unless the columns it starts from are unique
+    ; — then it is one-to-one. That single rule is the whole of the cardinality
+    ; inference, and it is the one `db-schema-viewer` and dbdiagram both use.
+    fn cardinalityOf:string (fk:DBForeignKey) {
+        def ti:int (this.indexOfTable(fk.fromTable))
+        if (ti < 0) {
+            return "*"
+        }
+        def t:DBTable (itemAt tables ti)
+        def allUnique:boolean true
+        def i:int 0
+        while (i < (array_length fk.fromColumns)) {
+            def ci:int (t.columnIndex((itemAt fk.fromColumns i)))
+            if (ci < 0) {
+                allUnique = false
+            } {
+                def col:DBColumn (itemAt t.columns ci)
+                def u:boolean false
+                if col.isUnique { u = true }
+                if col.isPrimaryKey { u = true }
+                if (u == false) {
+                    allUnique = false
+                }
+            }
+            i = (i + 1)
+        }
+        if allUnique {
+            return "1"
+        }
+        return "*"
+    }
+
+    ; Is the relationship optional at the "many" end? A nullable FK column
+    ; means an order may have no customer, which crow's foot draws as a circle.
+    fn optionalOf:boolean (fk:DBForeignKey) {
+        def ti:int (this.indexOfTable(fk.fromTable))
+        if (ti < 0) {
+            return false
+        }
+        def t:DBTable (itemAt tables ti)
+        def i:int 0
+        while (i < (array_length fk.fromColumns)) {
+            def ci:int (t.columnIndex((itemAt fk.fromColumns i)))
+            if (ci >= 0) {
+                def col:DBColumn (itemAt t.columns ci)
+                if col.nullable {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

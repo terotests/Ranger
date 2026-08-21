@@ -1,0 +1,737 @@
+; ============================================================================
+; RangerFlowTest.rgr — the whole library, asserted.
+; ============================================================================
+;
+;   npm run rangerflow:test
+;
+; It drives the editor exactly the way the browser page does — pointerDown,
+; pointerMove, pointerUp — because an interaction core whose tests reach past
+; the input layer is testing something the user never does.
+; ============================================================================
+
+Import "../export/FlowExport.rgr"
+Import "../core/FlowEditor.rgr"
+Import "../layout/ForceLayout.rgr"
+Import "../layout/LayeredLayout.rgr"
+Import "../domains/erd/SqlSchemaReader.rgr"
+Import "../domains/erd/SchemaToGraph.rgr"
+Import "../domains/uml/UMLModel.rgr"
+
+class Checker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (fabs (got - want))
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d <= tol))
+    }
+
+    fn section:void (title:string) {
+        print ("== " + title)
+    }
+
+    fn report:int () {
+        print ("")
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class RangerFlowTest {
+    sfn main:void () {
+        def c (new Checker)
+        RangerFlowTest.testViewport(c)
+        RangerFlowTest.testGraph(c)
+        RangerFlowTest.testCompartments(c)
+        RangerFlowTest.testEdgeRouter(c)
+        RangerFlowTest.testDecoration(c)
+        RangerFlowTest.testForce(c)
+        RangerFlowTest.testLayered(c)
+        RangerFlowTest.testEditor(c)
+        RangerFlowTest.testScene(c)
+        RangerFlowTest.testSql(c)
+        RangerFlowTest.testUml(c)
+        RangerFlowTest.testExport(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    ; ------------------------------------------------------------ viewport --
+    sfn testViewport:void (c:Checker) {
+        c.section("viewport")
+        def vp (new FlowViewport)
+        vp.x = 40.0
+        vp.y = -20.0
+        vp.zoom = 2.0
+        c.near("toScreenX" (vp.toScreenX(10.0)) 60.0 0.001)
+        c.near("toFlowX round trip" (vp.toFlowX((vp.toScreenX(37.5)))) 37.5 0.0001)
+        ; Zooming about a point must leave the flow coordinate under it fixed.
+        def beforeX:double (vp.toFlowX(300.0))
+        def beforeY:double (vp.toFlowY(200.0))
+        vp.zoomAt(300.0 200.0 1.35)
+        c.near("zoom anchor x" (vp.toFlowX(300.0)) beforeX 0.0001)
+        c.near("zoom anchor y" (vp.toFlowY(200.0)) beforeY 0.0001)
+        vp.minZoom = 0.5
+        vp.maxZoom = 1.5
+        vp.zoomAt(0.0 0.0 100.0)
+        c.near("zoom clamped" vp.zoom 1.5 0.0001)
+        def r:FlowRect (FlowRect.create(0.0 0.0 200.0 100.0))
+        def vp2 (new FlowViewport)
+        vp2.fitRect(r 800.0 400.0 0.1)
+        c.near("fitView centres x" (vp2.toScreenX(100.0)) 400.0 0.001)
+        c.near("fitView centres y" (vp2.toScreenY(50.0)) 200.0 0.001)
+        ; React Flow's own answer for these inputs, from `getViewportForBounds`
+        ; — padding 0.1 means the content gets 1.1x its size, not 80% of the
+        ; viewport, so the zoom is 3.64 and not 3.2. The parity harness
+        ; measures the whole matrix; this pins the one case by hand so the
+        ; convention cannot drift when the harness is not run.
+        c.near("fitView matches getViewportForBounds" vp2.zoom 3.64 0.000001)
+        c.near("fitView x matches" vp2.x 36.0 0.000001)
+        c.near("fitView y matches" vp2.y 18.0 0.000001)
+        def touching:FlowRect (FlowRect.create(0.0 0.0 100.0 100.0))
+        def apart:FlowRect (FlowRect.create(100.0 0.0 100.0 100.0))
+        c.near("touching rectangles share no area" (touching.overlapArea(apart)) 0.0 0.000001)
+        def over:FlowRect (FlowRect.create(50.0 50.0 100.0 100.0))
+        c.near("overlap area" (touching.overlapArea(over)) 2500.0 0.000001)
+    }
+
+    ; --------------------------------------------------------------- graph --
+    sfn testGraph:void (c:Checker) {
+        c.section("graph")
+        def g (new FlowGraph)
+        g.node("a" "A" 0.0 0.0)
+        g.node("b" "B" 300.0 0.0)
+        g.node("c" "C" 600.0 0.0)
+        g.connect("a" "b")
+        g.connect("b" "c")
+        c.eqInt("nodes" (g.nodeCount()) 3)
+        c.eqInt("edges" (g.edgeCount()) 2)
+        c.eqInt("index of b" (g.indexOfNode("b")) 1)
+        ; Removing a node takes its edges with it.
+        g.removeNode("b")
+        c.eqInt("nodes after remove" (g.nodeCount()) 2)
+        c.eqInt("edges after remove" (g.edgeCount()) 0)
+        c.eqInt("reindexed c" (g.indexOfNode("c")) 1)
+        def r:FlowRect (g.bounds())
+        c.near("bounds width" r.w 750.0 0.001)
+        def hit:int (g.nodeAtPoint(10.0 10.0))
+        c.eqInt("hit test" hit 0)
+        c.eqInt("miss" (g.nodeAtPoint(-50.0 -50.0)) -1)
+    }
+
+    ; -------------------------------------------------------- compartments --
+    sfn testCompartments:void (c:Checker) {
+        c.section("compartments and ports")
+        def n:FlowNode (FlowNode.create("t" "customers" 0.0 0.0))
+        n.headerHeight = 30.0
+        n.rowHeight = 20.0
+        def sec:FlowSection (n.addSection(""))
+        def r0:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        r0.portId = "customers.id"
+        sec.addRow(r0)
+        def r1:FlowRow (FlowRow.create("" "email" "VARCHAR" ""))
+        r1.portId = "customers.email"
+        sec.addRow(r1)
+        n.layoutCompartments()
+        c.near("height from content" n.height 70.0 0.001)
+        c.near("row 0 centre" (n.rowCenterY(0 0)) 40.0 0.001)
+        c.near("row 1 centre" (n.rowCenterY(0 1)) 60.0 0.001)
+        c.eqInt("ports created" (array_length n.ports) 4)
+        def pi:int (n.portIndex("customers.email:r"))
+        c.ok("right port exists" (pi >= 0))
+        def p:FlowPort (itemAt n.ports pi)
+        c.near("port sits on the row" (n.portY(p)) 60.0 0.001)
+        c.near("right port on right edge" (n.portX(p)) n.width 0.001)
+
+        def g (new FlowGraph)
+        g.addNode(n)
+        def other:FlowNode (FlowNode.create("o" "orders" 400.0 0.0))
+        def sec2:FlowSection (other.addSection(""))
+        def r2:FlowRow (FlowRow.create("fk" "customer_id" "INTEGER" "FK"))
+        r2.portId = "orders.customer_id"
+        sec2.addRow(r2)
+        other.layoutCompartments()
+        g.addNode(other)
+        g.reindex()
+        c.ok("port owner resolves" ((g.portOwner("orders.customer_id:l")) == 1))
+        c.ok("can connect" (g.canConnect("orders.customer_id:l" "customers.id:r")))
+        c.ok("no self connect" ((g.canConnect("customers.id:r" "customers.id:r")) == false))
+        def e:FlowEdge (FlowEdge.create("e1" "o" "t"))
+        e.sourcePort = "orders.customer_id:l"
+        e.targetPort = "customers.id:r"
+        g.addEdge(e)
+        c.ok("duplicate refused" ((g.canConnect("orders.customer_id:l" "customers.id:r")) == false))
+        c.near("endpoint x is the port" (g.endpointX(e true)) 400.0 0.001)
+        c.eqInt("endpoint side" (g.edgeSide(e true)) 3)
+        ; A connection limit is enforced by the core, not by a callback.
+        def lim:FlowPort (g.portRef("customers.id:r"))
+        lim.connectionLimit = 1
+        c.ok("limit reached" ((g.canConnect("orders.customer_id:r" "customers.id:r")) == false))
+    }
+
+    ; ---------------------------------------------------------- edge paths --
+    sfn testEdgeRouter:void (c:Checker) {
+        c.section("edge router")
+        ; React Flow's getBezierPath: the control offset is half the distance
+        ; when the target is ahead of the source.
+        def p:EdgePath (EdgeRouter.bezier(150.0 20.0 1 400.0 220.0 3 0.25))
+        c.eqStr("bezier d" (p.svgPath()) "M 150.00 20.00 C 275.00 20.00 275.00 220.00 400.00 220.00")
+        ; …and grows with the square root when it is behind.
+        def back:double (EdgeRouter.controlOffset(-100.0 0.25))
+        c.near("control offset behind" back 62.5 0.001)
+        c.near("control offset ahead" (EdgeRouter.controlOffset(100.0 0.25)) 50.0 0.001)
+        p.flatten(16)
+        c.eqInt("flattened points" (p.pointCount()) 17)
+        c.ok("length is sane" ((p.totalLength()) > 300.0))
+        c.near("distance to itself" (p.distanceTo((p.midX()) (p.midY()))) 0.0 0.001)
+        c.ok("distance to far point" ((p.distanceTo(0.0 1000.0)) > 500.0))
+
+        def st:EdgePath (EdgeRouter.step(0.0 0.0 1 200.0 100.0 3 20.0))
+        st.flatten(1)
+        c.ok("step is orthogonal" (RangerFlowTest.allAxisAligned(st)))
+
+        ; A corner that does not turn must not be rounded.
+        def ss:EdgePath (EdgeRouter.smoothStep(150.0 20.0 1 400.0 220.0 3 20.0 8.0))
+        def d:string (ss.svgPath())
+        c.eqInt("smoothstep quads" (RangerFlowTest.countOf(d "Q")) 2)
+        def angle:double (ss.angleAtEnd())
+        c.near("arrives horizontally" angle 0.0 0.001)
+    }
+
+    sfn allAxisAligned:boolean (p:EdgePath) {
+        def n:int (p.pointCount())
+        def i:int 1
+        while (i < n) {
+            def dx:double (fabs ((p.px(i)) - (p.px((i - 1)))))
+            def dy:double (fabs ((p.py(i)) - (p.py((i - 1)))))
+            if (dx > 0.01) {
+                if (dy > 0.01) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn countOf:int (s:string sub:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if (ch == sub) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ---------------------------------------------------------- decoration --
+    sfn testDecoration:void (c:Checker) {
+        c.section("edge decoration")
+        c.eqStr("crowfoot many" (EdgeDecoration.markerFor("crowfoot" "*" false)) "many")
+        c.eqStr("crowfoot one" (EdgeDecoration.markerFor("crowfoot" "1" false)) "one-one")
+        c.eqStr("crowfoot optional one" (EdgeDecoration.markerFor("crowfoot" "1" true)) "zero-one")
+        c.eqStr("uml ignores cardinality" (EdgeDecoration.markerFor("uml" "*" false)) "arrow")
+        c.eqStr("plain ignores cardinality" (EdgeDecoration.markerFor("plain" "*" false)) "arrowclosed")
+        def many:EdgeDecoration (EdgeDecoration.build("many" 100.0 100.0 0.0 10.0))
+        c.eqInt("fork plus stem" (many.shapeCount()) 2)
+        def arrow:EdgeDecoration (EdgeDecoration.build("arrowclosed" 100.0 100.0 0.0 10.0))
+        def sh:DecoShape (arrow.shapeAt(0))
+        c.ok("closed arrow is filled" sh.filled)
+        c.eqInt("triangle has 3 points" (array_length sh.pts) 6)
+        c.eqInt("none draws nothing" ((EdgeDecoration.build("none" 0.0 0.0 0.0 8.0)).shapeCount()) 0)
+    }
+
+    ; ---------------------------------------------------------------- force --
+    sfn testForce:void (c:Checker) {
+        c.section("force layout")
+        ; d3's LCG, so jitter is reproducible on every target.
+        def rnd (new FlowRandom)
+        c.near("d3 lcg first value" (rnd.next()) 0.23645552527159452 0.000000001)
+        def second:double (rnd.next())
+        c.ok("lcg stays in range" (second >= 0.0))
+        c.ok("lcg stays in range 2" (second < 1.0))
+
+        def g:FlowGraph (RangerFlowTest.star(12))
+        def sim:FlowSimulation (FlowSimulation.reactFlowExample(g -1000.0 150.0))
+        def ticks:int (sim.run(600))
+        c.eqInt("d3 alpha schedule settles at 300" ticks 300)
+        c.ok("alpha below min" (sim.alpha < sim.alphaMin))
+        def hub:FlowNode (g.nodeById("n0"))
+        def leaf:FlowNode (g.nodeById("n1"))
+        def d:double (RangerFlowTest.dist(hub leaf))
+        ; The spring wants 150; charge and the axis pull settle it near there.
+        c.ok(("hub-leaf near link distance (got " + (to_string d) + ")") (d > 100.0))
+        c.ok("hub-leaf not collapsed" (d < 260.0))
+        def l2:FlowNode (g.nodeById("n2"))
+        c.ok("leaves repel each other" ((RangerFlowTest.dist(leaf l2)) > 40.0))
+
+        ; Same input, same output — twice, which is what makes it testable.
+        def g2:FlowGraph (RangerFlowTest.star(12))
+        def sim2:FlowSimulation (FlowSimulation.reactFlowExample(g2 -1000.0 150.0))
+        sim2.run(600)
+        def a:FlowNode (g2.nodeById("n1"))
+        c.near("deterministic x" a.simX leaf.simX 0.000001)
+        c.near("deterministic y" a.simY leaf.simY 0.000001)
+
+        ; A pinned node does not move — the drag behaviour of the example.
+        def g3:FlowGraph (RangerFlowTest.star(8))
+        def sim3:FlowSimulation (FlowSimulation.reactFlowExample(g3 -1000.0 150.0))
+        def pinned:FlowNode (g3.nodeById("n3"))
+        pinned.pin(500.0 -400.0)
+        sim3.run(300)
+        c.near("pinned x" pinned.simX 500.0 0.000001)
+        c.near("pinned y" pinned.simY -400.0 0.000001)
+
+        ; Collision keeps boxes apart.
+        def g4 (new FlowGraph)
+        def i:int 0
+        while (i < 6) {
+            def nd:FlowNode (g4.node(("c" + (to_string i)) "x" 0.0 0.0))
+            nd.width = 100.0
+            nd.height = 40.0
+            i = (i + 1)
+        }
+        def sim4:FlowSimulation (FlowSimulation.of(g4))
+        sim4.chargeEnabled = false
+        sim4.linkEnabled = false
+        sim4.collideEnabled = true
+        sim4.run(300)
+        def worst:double (RangerFlowTest.closestPair(g4))
+        c.ok(("collide separates (closest " + (to_string worst) + ")") (worst > 40.0))
+    }
+
+    sfn star:FlowGraph (n:int) {
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < n) {
+            def nd:FlowNode (g.node(("n" + (to_string i)) ("N" + (to_string i)) 0.0 0.0))
+            nd.width = 110.0
+            nd.height = 40.0
+            i = (i + 1)
+        }
+        def k:int 1
+        while (k < n) {
+            g.connect("n0" ("n" + (to_string k)))
+            k = (k + 1)
+        }
+        return g
+    }
+
+    sfn dist:double (a:FlowNode b:FlowNode) {
+        def dx:double (a.simX - b.simX)
+        def dy:double (a.simY - b.simY)
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    sfn closestPair:double (g:FlowGraph) {
+        def best:double 1000000.0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def k:int (i + 1)
+            while (k < (g.nodeCount())) {
+                def d:double (RangerFlowTest.dist((g.nodeAt(i)) (g.nodeAt(k))))
+                if (d < best) {
+                    best = d
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; ------------------------------------------------------------- layered --
+    sfn testLayered:void (c:Checker) {
+        c.section("layered layout")
+        def g (new FlowGraph)
+        g.node("users" "users" 0.0 0.0)
+        g.node("orders" "orders" 0.0 0.0)
+        g.node("profiles" "profiles" 0.0 0.0)
+        g.node("items" "order_items" 0.0 0.0)
+        g.node("products" "products" 0.0 0.0)
+        g.connect("users" "orders")
+        g.connect("users" "profiles")
+        g.connect("orders" "items")
+        g.connect("products" "items")
+        def l:LayeredLayout (LayeredLayout.of(g))
+        l.direction = "LR"
+        l.run()
+        c.eqInt("layers" (l.layerCount()) 3)
+        c.eqInt("users at 0" (itemAt l.layerOf (g.indexOfNode("users"))) 0)
+        c.eqInt("orders at 1" (itemAt l.layerOf (g.indexOfNode("orders"))) 1)
+        c.eqInt("items at 2" (itemAt l.layerOf (g.indexOfNode("items"))) 2)
+        def users:FlowNode (g.nodeById("users"))
+        def items:FlowNode (g.nodeById("items"))
+        c.ok("LR runs left to right" (items.x > users.x))
+        c.eqInt("source side faces right" users.sourcePosition 1)
+
+        ; A cycle must not hang the layer assignment.
+        def cyc (new FlowGraph)
+        cyc.node("a" "a" 0.0 0.0)
+        cyc.node("b" "b" 0.0 0.0)
+        cyc.node("c" "c" 0.0 0.0)
+        cyc.connect("a" "b")
+        cyc.connect("b" "c")
+        cyc.connect("c" "a")
+        def l2:LayeredLayout (LayeredLayout.of(cyc))
+        l2.run()
+        c.ok("cycle broken" ((l2.layerCount()) >= 2))
+        c.ok("cycle terminated" ((l2.layerCount()) <= 3))
+    }
+
+    ; -------------------------------------------------------------- editor --
+    sfn testEditor:void (c:Checker) {
+        c.section("editor")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "A" 0.0 0.0))
+        def b:FlowNode (g.node("b" "B" 300.0 0.0))
+        a.width = 150.0
+        a.height = 50.0
+        b.width = 150.0
+        b.height = 50.0
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 600.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+        def inp (new FlowInput)
+
+        ; click a node → select it
+        inp.x = 20.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.ok("click selects" a.selected)
+        c.eqInt("one selected" (g.selectedNodeCount()) 1)
+
+        ; shift-click the other → both
+        inp.x = 320.0
+        inp.y = 20.0
+        inp.shift = true
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.eqInt("shift adds to selection" (g.selectedNodeCount()) 2)
+        inp.shift = false
+
+        ; drag moves every selected node, and one undo puts them all back
+        inp.x = 20.0
+        inp.y = 20.0
+        ed.pointerDown(inp)
+        inp.x = 80.0
+        inp.y = 60.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        c.near("dragged a" a.x 60.0 0.001)
+        c.near("dragged b" b.x 360.0 0.001)
+        ed.keyDown("z" false true)
+        c.near("undo a" a.x 0.0 0.001)
+        c.near("undo b" b.x 300.0 0.001)
+        ed.keyDown("z" true true)
+        c.near("redo a" a.x 60.0 0.001)
+
+        ; snap to grid
+        ed.snapToGrid = true
+        ed.snapSize = 25.0
+        inp.x = 80.0
+        inp.y = 60.0
+        ed.pointerDown(inp)
+        inp.x = 87.0
+        inp.y = 60.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        c.near("snapped x" a.x 75.0 0.001)
+        ed.snapToGrid = false
+
+        ; pane click clears, box select takes both back
+        g.clearSelection()
+        inp.x = 600.0
+        inp.y = 400.0
+        inp.shift = true
+        ed.pointerDown(inp)
+        inp.x = -50.0
+        inp.y = -50.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        inp.shift = false
+        c.eqInt("box select" (g.selectedNodeCount()) 2)
+
+        ; select all, delete, undo
+        ed.keyDown("a" false true)
+        c.eqInt("ctrl+a" (g.selectedNodeCount()) 2)
+        ed.keyDown("Delete" false false)
+        c.eqInt("deleted" (g.nodeCount()) 0)
+        ed.keyDown("z" false true)
+        c.eqInt("undo delete" (g.nodeCount()) 2)
+
+        ; wheel zooms about the cursor
+        def before:double (ed.view.viewport.toFlowX(400.0))
+        inp.x = 400.0
+        inp.y = 300.0
+        ed.wheel(inp -1.0)
+        c.ok("wheel zoomed in" (ed.view.viewport.zoom > 1.0))
+        c.near("wheel anchored" (ed.view.viewport.toFlowX(400.0)) before 0.0001)
+
+        ; pan
+        def px:double ed.view.viewport.x
+        ed.view.viewport.zoom = 1.0
+        inp.x = 700.0
+        inp.y = 500.0
+        ed.pointerDown(inp)
+        inp.x = 750.0
+        inp.y = 520.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        c.ok("panned" ((fabs (ed.view.viewport.x - px)) > 10.0))
+    }
+
+    ; --------------------------------------------------------------- scene --
+    sfn testScene:void (c:Checker) {
+        c.section("scene backends")
+        def g (new FlowGraph)
+        def n:FlowNode (g.node("t" "customers" 0.0 0.0))
+        def sec:FlowSection (n.addSection(""))
+        def r0:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        r0.portId = "t.id"
+        sec.addRow(r0)
+        n.layoutCompartments()
+        def n2:FlowNode (g.node("o" "orders" 400.0 60.0))
+        def sec2:FlowSection (n2.addSection(""))
+        def r1:FlowRow (FlowRow.create("fk" "t_id" "INTEGER" "FK"))
+        r1.portId = "o.t_id"
+        sec2.addRow(r1)
+        n2.layoutCompartments()
+        g.reindex()
+        def e:FlowEdge (FlowEdge.create("e" "o" "t"))
+        e.sourcePort = "o.t_id:l"
+        e.targetPort = "t.id:r"
+        e.sourceCardinality = "*"
+        e.targetCardinality = "1"
+        g.addEdge(e)
+
+        def v:FlowView (FlowView.of(g))
+        v.width = 800.0
+        v.height = 500.0
+        v.showBackground = false
+        v.showMinimap = false
+        v.showControls = false
+        def sc:FlowScene (v.build())
+        c.ok("scene has items" ((sc.count()) > 8))
+        c.eqInt("both nodes drawn" v.drawnNodes 2)
+        c.eqInt("edge drawn" v.drawnEdges 1)
+
+        def dl:EVGDisplayList (sc.toDisplayList())
+        c.ok("display list is not empty" ((dl.count()) > 0))
+        c.ok("display list has text" (RangerFlowTest.hasKind(dl 3)))
+        c.ok("display list has a stroke" (RangerFlowTest.hasKind(dl 7)))
+        def json:string (dl.toJson())
+        c.ok("json opens" ((substring json 0 8) == "{\"cmds\":"))
+
+        def root:EVGElement (sc.toEvgTree())
+        c.eqInt("tree mirrors the scene" (root.getChildCount()) (sc.drawableCount()))
+        c.ok("clips are display-list only" ((sc.count()) > (sc.drawableCount())))
+        def svg:string (sc.toSvg())
+        c.ok("svg opens" ((substring svg 0 4) == "<svg"))
+        c.ok("svg closes" ((RangerFlowTest.endsWithStr(svg "</svg>\n"))))
+        c.ok("svg has the table name" ((indexOf svg "customers") > 0))
+
+        ; Culling: with the viewport moved far away nothing is drawn.
+        v.viewport.x = -100000.0
+        v.build()
+        c.eqInt("all culled" v.drawnNodes 0)
+        c.eqInt("culled counted" v.culledNodes 2)
+    }
+
+    sfn hasKind:boolean (dl:EVGDisplayList kind:int) {
+        def i:int 0
+        while (i < (dl.count())) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == kind) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn endsWithStr:boolean (s:string suffix:string) {
+        def n:int (strlen s)
+        def m:int (strlen suffix)
+        if (m > n) {
+            return false
+        }
+        return ((substring s (n - m) n) == suffix)
+    }
+
+    ; ----------------------------------------------------------------- SQL --
+    sfn testSql:void (c:Checker) {
+        c.section("SQL schema reader")
+        def sqlOpt:string (?? (read_file "." "gallery/rangerflow/fixtures/ecommerce.sql") "")
+        c.ok("fixture readable" ((strlen sqlOpt) > 0))
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sqlOpt))
+        c.eqInt("tables" (schema.tableCount()) 9)
+        c.eqInt("foreign keys" (array_length schema.foreignKeys) 10)
+
+        def customers:DBTable (schema.tableByName("customers"))
+        c.eqInt("customer columns" (array_length customers.columns) 6)
+        def pk:[string] (customers.primaryKeyColumns())
+        c.eqInt("single primary key" (array_length pk) 1)
+        def emailIdx:int (customers.columnIndex("email"))
+        def email:DBColumn (itemAt customers.columns emailIdx)
+        c.ok("UNIQUE(email) recognised" email.isUnique)
+        def countryIdx:int (customers.columnIndex("country_id"))
+        def country:DBColumn (itemAt customers.columns countryIdx)
+        c.ok("inline REFERENCES makes a foreign key" country.isForeignKey)
+        c.ok("nullable foreign key" country.nullable)
+
+        ; composite primary key
+        def pcs:DBTable (schema.tableByName("product_categories"))
+        def pcpk:[string] (pcs.primaryKeyColumns())
+        c.eqInt("composite key" (array_length pcpk) 2)
+
+        ; self reference
+        def selfRefs:int 0
+        def i:int 0
+        while (i < (array_length schema.foreignKeys)) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys i)
+            if (fk.fromTable == fk.toTable) {
+                selfRefs = (selfRefs + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("self references" selfRefs 2)
+
+        ; types survive their parentheses
+        def nameIdx:int (customers.columnIndex("name"))
+        def nameCol:DBColumn (itemAt customers.columns nameIdx)
+        c.eqStr("type with length" nameCol.dataType "VARCHAR(120)")
+
+        ; indexes, including the one declared separately
+        def orders:DBTable (schema.tableByName("orders"))
+        c.eqInt("index picked up" (array_length orders.indexes) 1)
+        def products:DBTable (schema.tableByName("products"))
+        c.eqInt("check constraint" (array_length products.constraints) 1)
+
+        ; cardinality inference: unique FK column → one-to-one
+        def payments:DBTable (schema.tableByName("payments"))
+        def orderIdx:int (payments.columnIndex("order_id"))
+        def orderCol:DBColumn (itemAt payments.columns orderIdx)
+        c.ok("unique foreign key column" orderCol.isUnique)
+        def oneToOne:boolean false
+        def manyToOne:boolean false
+        def k:int 0
+        while (k < (array_length schema.foreignKeys)) {
+            def fk2:DBForeignKey (itemAt schema.foreignKeys k)
+            def card:string (schema.cardinalityOf(fk2))
+            if (fk2.fromTable == "payments") {
+                if (card == "1") { oneToOne = true }
+            }
+            if (fk2.fromTable == "order_items") {
+                if (card == "*") { manyToOne = true }
+            }
+            k = (k + 1)
+        }
+        c.ok("payments→orders is one-to-one" oneToOne)
+        c.ok("order_items→orders is many-to-one" manyToOne)
+
+        ; …and the graph that comes out of it
+        def s2g (new SchemaToGraph)
+        def g:FlowGraph (s2g.build(schema))
+        c.eqInt("one node per table" (g.nodeCount()) 9)
+        c.eqInt("one edge per foreign key" (g.edgeCount()) 10)
+        def cust:FlowNode (g.nodeById("customers"))
+        c.ok("table node has rows" ((cust.totalRowCount()) >= 6))
+        c.ok("row ports exist" ((g.hasPort("customers.id:r"))))
+        def anyEdge:FlowEdge (g.edgeAt(0))
+        c.ok("edge attaches to a port" ((strlen anyEdge.sourcePort) > 0))
+        c.eqStr("referenced end is one" anyEdge.targetCardinality "1")
+    }
+
+    ; ----------------------------------------------------------------- UML --
+    sfn testUml:void (c:Checker) {
+        c.section("UML")
+        def d (new UMLDiagram)
+        def shape:UMLClass (d.umlClass("Shape"))
+        shape.stereotype = "abstract"
+        shape.attribute("#" "origin" "Point")
+        shape.operation("+" "area" "" "double")
+        def rect:UMLClass (d.umlClass("Rectangle"))
+        rect.attribute("-" "width" "double")
+        d.relate("Rectangle" "Shape" "inheritance")
+        def u2g (new UMLToGraph)
+        def g:FlowGraph (u2g.build(d))
+        c.eqInt("classes" (g.nodeCount()) 2)
+        c.eqInt("relations" (g.edgeCount()) 1)
+        def n:FlowNode (g.nodeById("Shape"))
+        c.eqInt("two compartments" (n.sectionCount()) 2)
+        c.eqStr("stereotype in the header" n.label "«abstract» Shape")
+        def e:FlowEdge (g.edgeAt(0))
+        c.eqStr("inheritance is a hollow triangle" e.markerEnd "triangle")
+        def rel:UMLRelation (UMLRelation.create("A" "B" "composition"))
+        c.eqStr("composition is a filled diamond" (rel.targetMarker()) "diamond-filled")
+        c.ok("implementation is dashed" ((UMLRelation.create("A" "B" "implementation")).dashed()))
+    }
+
+    ; -------------------------------------------------------------- export --
+    sfn testExport:void (c:Checker) {
+        c.section("export")
+        def g (new FlowGraph)
+        def n:FlowNode (g.node("t" "customers" 0.0 0.0))
+        def sec:FlowSection (n.addSection(""))
+        def r0:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        sec.addRow(r0)
+        n.layoutCompartments()
+        g.node("o" "orders" 320.0 40.0)
+        g.connect("o" "t")
+        def v:FlowView (FlowView.of(g))
+        def ex (new FlowExport)
+        ex.loadFonts("gallery/pdf_writer/assets/fonts")
+        c.ok("fonts loaded" ex.fontsLoaded)
+        def pdf:buffer (ex.toPdf(v))
+        def len:int (buffer_length pdf)
+        c.ok("pdf has bytes" (len > 1000))
+        def head:string (RangerFlowTest.headOf(pdf 5))
+        c.eqStr("pdf header" head "%PDF-")
+        def svg:string (ex.toSvg(v))
+        c.ok("svg mentions the table" ((indexOf svg "customers") > 0))
+        def json:string (ex.toSceneJson(v))
+        c.ok("scene json has a width" ((indexOf json "\"width\"") >= 0))
+        def gj:string (FlowGraphJson.toJson(g))
+        c.ok("graph json round trip has the node" ((indexOf gj "\"customers\"") > 0))
+        c.ok("graph json has the edge" ((indexOf gj "\"edges\"") > 0))
+    }
+
+    sfn headOf:string (b:buffer n:int) {
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def code:int (buffer_get b i)
+            out = (out + (strfromcode code))
+            i = (i + 1)
+        }
+        return out
+    }
+}

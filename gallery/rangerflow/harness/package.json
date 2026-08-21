@@ -1,0 +1,11 @@
+{
+  "name": "rangerflow-parity-harness",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "React Flow and d3-force, installed so they can be asked the same questions RangerFlow is asked.",
+  "dependencies": {
+    "@xyflow/system": "0.0.80",
+    "d3-force": "3.0.0"
+  }
+}

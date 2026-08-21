@@ -1,0 +1,718 @@
+; ============================================================================
+; SqlSchemaReader.rgr — CREATE TABLE in, DatabaseSchema out.
+; ============================================================================
+;
+; The first importer, because it is the one that needs no database running. A
+; `.sql` dump is how most schemas travel, and a diagram you can produce from a
+; file is a diagram you can produce in CI.
+;
+; It is a reader, not a SQL engine: it understands the DDL subset that carries
+; schema shape — tables, column types and nullability, primary keys, unique
+; constraints, foreign keys (inline and table-level), checks, and indexes —
+; and it skips the rest of a dump rather than failing on it. Dialect quirks it
+; tolerates: backtick, double-quote and bracket quoting, `IF NOT EXISTS`,
+; schema-qualified names, and trailing storage clauses.
+;
+; The repository already has a full SQL parser in `gallery/rangersql`; when the
+; two meet, this reader becomes a thin adapter over that AST. Until then this
+; keeps the ERD side self-contained.
+; ============================================================================
+
+Import "DatabaseSchema.rgr"
+
+class SqlToken {
+    def text:string ""
+    def upper:string ""
+    ; 0 word, 1 punctuation, 2 string literal, 3 number
+    def kind:int 0
+
+    Constructor () {
+    }
+}
+
+class SqlSchemaReader {
+    def tokens:[SqlToken]
+    def pos:int 0
+    def schema:DatabaseSchema (new DatabaseSchema)
+
+    Constructor () {
+    }
+
+    sfn parse:DatabaseSchema (sql:string) {
+        def r (new SqlSchemaReader)
+        r.tokenize(sql)
+        r.readStatements()
+        r.schema.resolve()
+        return r.schema
+    }
+
+    ; ------------------------------------------------------------ tokenizer --
+    fn tokenize:void (sql:string) {
+        clear tokens
+        def n:int (strlen sql)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt sql i)
+            ; whitespace
+            if (c <= 32) {
+                i = (i + 1)
+                continue
+            }
+            ; -- line comment
+            if (c == 45) {
+                if ((i + 1) < n) {
+                    if ((charAt sql (i + 1)) == 45) {
+                        while (i < n) {
+                            if ((charAt sql i) == 10) {
+                                i = (i + 1)
+                                break
+                            }
+                            i = (i + 1)
+                        }
+                        continue
+                    }
+                }
+            }
+            ; /* block comment */
+            if (c == 47) {
+                if ((i + 1) < n) {
+                    if ((charAt sql (i + 1)) == 42) {
+                        i = (i + 2)
+                        while (i < n) {
+                            if ((charAt sql i) == 42) {
+                                if ((i + 1) < n) {
+                                    if ((charAt sql (i + 1)) == 47) {
+                                        i = (i + 2)
+                                        break
+                                    }
+                                }
+                            }
+                            i = (i + 1)
+                        }
+                        continue
+                    }
+                }
+            }
+            ; quoted identifiers: " ` [ ]
+            if (c == 34) {
+                i = (this.readQuoted(sql i n 34 0))
+                continue
+            }
+            if (c == 96) {
+                i = (this.readQuoted(sql i n 96 0))
+                continue
+            }
+            if (c == 91) {
+                i = (this.readQuoted(sql i n 93 0))
+                continue
+            }
+            ; string literal
+            if (c == 39) {
+                i = (this.readQuoted(sql i n 39 2))
+                continue
+            }
+            if (SqlSchemaReader.isWordChar(c)) {
+                def start:int i
+                while (i < n) {
+                    def cc:int (charAt sql i)
+                    if ((SqlSchemaReader.isWordChar(cc)) == false) {
+                        break
+                    }
+                    i = (i + 1)
+                }
+                def word:string (substring sql start i)
+                this.pushToken(word 0)
+                continue
+            }
+            this.pushToken((strfromcode c) 1)
+            i = (i + 1)
+        }
+    }
+
+    fn readQuoted:int (sql:string start:int n:int closeCode:int kind:int) {
+        def i:int (start + 1)
+        def out:string ""
+        while (i < n) {
+            def c:int (charAt sql i)
+            if (c == closeCode) {
+                i = (i + 1)
+                break
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        this.pushToken(out kind)
+        return i
+    }
+
+    sfn isWordChar:boolean (c:int) {
+        if (c == 95) { return true }
+        if (c == 36) { return true }
+        if (c >= 48) {
+            if (c <= 57) { return true }
+        }
+        if (c >= 65) {
+            if (c <= 90) { return true }
+        }
+        if (c >= 97) {
+            if (c <= 122) { return true }
+        }
+        ; non-ascii letters in an identifier
+        if (c > 127) { return true }
+        return false
+    }
+
+    fn pushToken:void (text:string kind:int) {
+        def t (new SqlToken)
+        t.text = text
+        t.upper = (to_uppercase text)
+        t.kind = kind
+        push tokens t
+    }
+
+    ; -------------------------------------------------------------- reading --
+    fn atEnd:boolean () {
+        return (pos >= (array_length tokens))
+    }
+
+    fn peek:string () {
+        if (this.atEnd()) {
+            return ""
+        }
+        def t:SqlToken (itemAt tokens pos)
+        return t.upper
+    }
+
+    fn peekText:string () {
+        if (this.atEnd()) {
+            return ""
+        }
+        def t:SqlToken (itemAt tokens pos)
+        return t.text
+    }
+
+    fn advance:string () {
+        if (this.atEnd()) {
+            return ""
+        }
+        def t:SqlToken (itemAt tokens pos)
+        pos = (pos + 1)
+        return t.text
+    }
+
+    fn accept:boolean (word:string) {
+        if ((this.peek()) == word) {
+            pos = (pos + 1)
+            return true
+        }
+        return false
+    }
+
+    fn readStatements:void () {
+        while ((this.atEnd()) == false) {
+            def w:string (this.peek())
+            if (w == "CREATE") {
+                pos = (pos + 1)
+                this.readCreate()
+                continue
+            }
+            if (w == "ALTER") {
+                pos = (pos + 1)
+                this.readAlter()
+                continue
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    fn readCreate:void () {
+        this.accept("OR")
+        this.accept("REPLACE")
+        this.accept("TEMP")
+        this.accept("TEMPORARY")
+        def unique:boolean (this.accept("UNIQUE"))
+        if (this.accept("INDEX")) {
+            this.readCreateIndex(unique)
+            return
+        }
+        if (this.accept("TABLE")) {
+            this.readCreateTable()
+            return
+        }
+        this.skipStatement()
+    }
+
+    fn skipStatement:void () {
+        while ((this.atEnd()) == false) {
+            def t:string (this.peekText())
+            pos = (pos + 1)
+            if (t == ";") {
+                return
+            }
+        }
+    }
+
+    ; `[IF NOT EXISTS] [schema.]name`
+    fn readQualifiedName:string () {
+        this.accept("IF")
+        this.accept("NOT")
+        this.accept("EXISTS")
+        def first:string (this.advance())
+        if ((this.peekText()) == ".") {
+            pos = (pos + 1)
+            def second:string (this.advance())
+            return second
+        }
+        return first
+    }
+
+    fn readCreateTable:void () {
+        def name:string (this.readQualifiedName())
+        if ((strlen name) == 0) {
+            return
+        }
+        if ((this.peekText()) != "(") {
+            this.skipStatement()
+            return
+        }
+        pos = (pos + 1)
+        def t:DBTable (schema.table(name))
+        def guard:int 0
+        while ((this.atEnd()) == false) {
+            guard = (guard + 1)
+            if (guard > 100000) {
+                return
+            }
+            if ((this.peekText()) == ")") {
+                pos = (pos + 1)
+                break
+            }
+            this.readTableItem(t)
+            if ((this.peekText()) == ",") {
+                pos = (pos + 1)
+            }
+        }
+        this.skipStatement()
+    }
+
+    fn readTableItem:void (t:DBTable) {
+        def w:string (this.peek())
+        if (w == "CONSTRAINT") {
+            pos = (pos + 1)
+            def cname:string (this.advance())
+            this.readTableConstraint(t cname)
+            return
+        }
+        ; One statement per line: `{ this.readTableConstraint(t "") return }`
+        ; compiled, dropped the `return`, and every table-level constraint fell
+        ; through into readColumn — which then ate the closing paren, the
+        ; semicolon and the next CREATE TABLE as if they were columns.
+        def isConstraint:boolean false
+        if (w == "PRIMARY") { isConstraint = true }
+        if (w == "UNIQUE")  { isConstraint = true }
+        if (w == "FOREIGN") { isConstraint = true }
+        if (w == "CHECK")   { isConstraint = true }
+        if (w == "KEY")     { isConstraint = true }
+        if (w == "INDEX")   { isConstraint = true }
+        if isConstraint {
+            this.readTableConstraint(t "")
+            return
+        }
+        this.readColumn(t)
+    }
+
+    fn readColumn:void (t:DBTable) {
+        def name:string (this.advance())
+        if ((strlen name) == 0) {
+            return
+        }
+        def dataType:string (this.readType())
+        def col:DBColumn (t.column(name dataType))
+        def guard:int 0
+        while ((this.atEnd()) == false) {
+            guard = (guard + 1)
+            if (guard > 10000) {
+                return
+            }
+            def p:string (this.peekText())
+            if (p == ",") { return }
+            if (p == ")") { return }
+            def w:string (this.peek())
+            if (w == "NOT") {
+                pos = (pos + 1)
+                if (this.accept("NULL")) {
+                    col.nullable = false
+                }
+                continue
+            }
+            if (w == "NULL") {
+                pos = (pos + 1)
+                continue
+            }
+            if (w == "PRIMARY") {
+                pos = (pos + 1)
+                this.accept("KEY")
+                col.isPrimaryKey = true
+                col.nullable = false
+                continue
+            }
+            if (w == "UNIQUE") {
+                pos = (pos + 1)
+                col.isUnique = true
+                continue
+            }
+            if (w == "DEFAULT") {
+                pos = (pos + 1)
+                col.defaultValue = (this.readDefaultValue())
+                continue
+            }
+            if (w == "REFERENCES") {
+                pos = (pos + 1)
+                this.readInlineReference(t col)
+                continue
+            }
+            if (w == "GENERATED") {
+                pos = (pos + 1)
+                continue
+            }
+            if (w == "CHECK") {
+                pos = (pos + 1)
+                def expr:string (this.readParenText())
+                def con (new DBConstraint)
+                con.kind = "check"
+                con.expression = ("CHECK" + expr)
+                push t.constraints con
+                continue
+            }
+            if (w == "COMMENT") {
+                pos = (pos + 1)
+                col.comment = (this.advance())
+                continue
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    ; `INTEGER`, `VARCHAR(255)`, `DECIMAL(10, 2)`, `TIMESTAMP WITH TIME ZONE`
+    fn readType:string () {
+        def out:string (this.advance())
+        if ((this.peekText()) == "(") {
+            out = (out + (this.readParenText()))
+        }
+        def more:boolean true
+        while (more) {
+            def w:string (this.peek())
+            def take:boolean false
+            if (w == "WITHOUT") { take = true }
+            if (w == "WITH")    { take = true }
+            if (w == "TIME")    { take = true }
+            if (w == "ZONE")    { take = true }
+            if (w == "PRECISION") { take = true }
+            if (w == "VARYING") { take = true }
+            if (w == "UNSIGNED") { take = true }
+            if take {
+                out = (out + " " + (this.advance()))
+            } {
+                more = false
+            }
+        }
+        return out
+    }
+
+    fn readParenText:string () {
+        if ((this.peekText()) != "(") {
+            return ""
+        }
+        def depth:int 0
+        def out:string ""
+        while ((this.atEnd()) == false) {
+            def t:string (this.advance())
+            if (t == "(") {
+                depth = (depth + 1)
+                out = (out + "(")
+                continue
+            }
+            if (t == ")") {
+                depth = (depth - 1)
+                out = (out + ")")
+                if (depth == 0) {
+                    return out
+                }
+                continue
+            }
+            if (t == ",") {
+                out = (out + ", ")
+                continue
+            }
+            def sep:string ""
+            if ((strlen out) > 0) {
+                def lastCh:string (substring out ((strlen out) - 1) (strlen out))
+                if (lastCh != "(") {
+                    if (lastCh != " ") {
+                        sep = " "
+                    }
+                }
+            }
+            out = (out + sep + t)
+        }
+        return out
+    }
+
+    fn readDefaultValue:string () {
+        def v:string (this.advance())
+        if ((this.peekText()) == "(") {
+            v = (v + (this.readParenText()))
+        }
+        return v
+    }
+
+    fn readInlineReference:void (t:DBTable col:DBColumn) {
+        def target:string (this.readQualifiedName())
+        def cols:[string] (this.readNameList())
+        def toCol:string ""
+        if ((array_length cols) > 0) {
+            toCol = (itemAt cols 0)
+        }
+        def fk:DBForeignKey (DBForeignKey.create(t.name col.name target toCol))
+        this.readReferenceActions(fk)
+        schema.addForeignKey(fk)
+        col.isForeignKey = true
+    }
+
+    fn readNameList:[string] () {
+        def out:[string]
+        if ((this.peekText()) != "(") {
+            return out
+        }
+        pos = (pos + 1)
+        while ((this.atEnd()) == false) {
+            def t:string (this.peekText())
+            if (t == ")") {
+                pos = (pos + 1)
+                return out
+            }
+            if (t == ",") {
+                pos = (pos + 1)
+                continue
+            }
+            def name:string (this.advance())
+            ; trailing ASC / DESC in an index column list
+            def nx:string (this.peek())
+            if (nx == "ASC")  { pos = (pos + 1) }
+            if (nx == "DESC") { pos = (pos + 1) }
+            push out name
+        }
+        return out
+    }
+
+    fn readReferenceActions:void (fk:DBForeignKey) {
+        def more:boolean true
+        while (more) {
+            if (this.accept("ON")) {
+                def which:string (this.peek())
+                pos = (pos + 1)
+                def action:string (this.advance())
+                if ((this.peek()) == "ACTION") {
+                    action = (action + " " + (this.advance()))
+                }
+                if ((this.peek()) == "NULL") {
+                    action = (action + " " + (this.advance()))
+                }
+                if ((this.peek()) == "DEFAULT") {
+                    action = (action + " " + (this.advance()))
+                }
+                if (which == "DELETE") {
+                    fk.onDelete = action
+                }
+                if (which == "UPDATE") {
+                    fk.onUpdate = action
+                }
+                continue
+            }
+            more = false
+        }
+    }
+
+    fn readTableConstraint:void (t:DBTable cname:string) {
+        if (this.accept("PRIMARY")) {
+            this.accept("KEY")
+            def cols:[string] (this.readNameList())
+            def i:int 0
+            while (i < (array_length cols)) {
+                def ci:int (t.columnIndex((itemAt cols i)))
+                if (ci >= 0) {
+                    def c:DBColumn (itemAt t.columns ci)
+                    c.isPrimaryKey = true
+                    c.nullable = false
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if (this.accept("UNIQUE")) {
+            this.accept("KEY")
+            this.accept("INDEX")
+            if ((this.peekText()) != "(") {
+                pos = (pos + 1)
+            }
+            def ucols:[string] (this.readNameList())
+            def ix (new DBIndex)
+            ix.name = cname
+            ix.unique = true
+            def k:int 0
+            while (k < (array_length ucols)) {
+                push ix.columns (itemAt ucols k)
+                k = (k + 1)
+            }
+            push t.indexes ix
+            if ((array_length ucols) == 1) {
+                def ci2:int (t.columnIndex((itemAt ucols 0)))
+                if (ci2 >= 0) {
+                    def c2:DBColumn (itemAt t.columns ci2)
+                    c2.isUnique = true
+                }
+            }
+            return
+        }
+        if (this.accept("FOREIGN")) {
+            this.accept("KEY")
+            def fromCols:[string] (this.readNameList())
+            this.accept("REFERENCES")
+            def target:string (this.readQualifiedName())
+            def toCols:[string] (this.readNameList())
+            def fk (new DBForeignKey)
+            fk.name = cname
+            fk.fromTable = t.name
+            fk.toTable = target
+            def a:int 0
+            while (a < (array_length fromCols)) {
+                push fk.fromColumns (itemAt fromCols a)
+                a = (a + 1)
+            }
+            def b:int 0
+            while (b < (array_length toCols)) {
+                push fk.toColumns (itemAt toCols b)
+                b = (b + 1)
+            }
+            this.readReferenceActions(fk)
+            schema.addForeignKey(fk)
+            return
+        }
+        if (this.accept("CHECK")) {
+            def expr:string (this.readParenText())
+            def con (new DBConstraint)
+            con.kind = "check"
+            con.name = cname
+            con.expression = ("CHECK" + expr)
+            push t.constraints con
+            return
+        }
+        if (this.accept("KEY")) {
+            if ((this.peekText()) != "(") {
+                pos = (pos + 1)
+            }
+            def kcols:[string] (this.readNameList())
+            def kx (new DBIndex)
+            kx.name = cname
+            def k2:int 0
+            while (k2 < (array_length kcols)) {
+                push kx.columns (itemAt kcols k2)
+                k2 = (k2 + 1)
+            }
+            push t.indexes kx
+            return
+        }
+        if (this.accept("INDEX")) {
+            if ((this.peekText()) != "(") {
+                pos = (pos + 1)
+            }
+            def icols:[string] (this.readNameList())
+            def ix2 (new DBIndex)
+            ix2.name = cname
+            def k3:int 0
+            while (k3 < (array_length icols)) {
+                push ix2.columns (itemAt icols k3)
+                k3 = (k3 + 1)
+            }
+            push t.indexes ix2
+            return
+        }
+        ; something unrecognised: step over it without eating the comma
+        while ((this.atEnd()) == false) {
+            def p:string (this.peekText())
+            if (p == ",") { return }
+            if (p == ")") { return }
+            if (p == "(") {
+                this.readParenText()
+                continue
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    fn readCreateIndex:void (unique:boolean) {
+        def name:string (this.readQualifiedName())
+        if ((this.accept("ON")) == false) {
+            this.skipStatement()
+            return
+        }
+        def table:string (this.readQualifiedName())
+        def cols:[string] (this.readNameList())
+        def ti:int (schema.indexOfTable(table))
+        if (ti >= 0) {
+            def t:DBTable (schema.tableAt(ti))
+            def ix (new DBIndex)
+            ix.name = name
+            ix.unique = unique
+            def i:int 0
+            while (i < (array_length cols)) {
+                push ix.columns (itemAt cols i)
+                i = (i + 1)
+            }
+            push t.indexes ix
+            if unique {
+                if ((array_length cols) == 1) {
+                    def ci:int (t.columnIndex((itemAt cols 0)))
+                    if (ci >= 0) {
+                        def c:DBColumn (itemAt t.columns ci)
+                        c.isUnique = true
+                    }
+                }
+            }
+        }
+        this.skipStatement()
+    }
+
+    ; `ALTER TABLE x ADD CONSTRAINT … FOREIGN KEY …` — how most dumps carry
+    ; their foreign keys, because the tables have to exist first.
+    fn readAlter:void () {
+        if ((this.accept("TABLE")) == false) {
+            this.skipStatement()
+            return
+        }
+        this.accept("ONLY")
+        def name:string (this.readQualifiedName())
+        def ti:int (schema.indexOfTable(name))
+        if (ti < 0) {
+            this.skipStatement()
+            return
+        }
+        def t:DBTable (schema.tableAt(ti))
+        while ((this.atEnd()) == false) {
+            def p:string (this.peekText())
+            if (p == ";") {
+                pos = (pos + 1)
+                return
+            }
+            if (this.accept("ADD")) {
+                def cname:string ""
+                if (this.accept("CONSTRAINT")) {
+                    cname = (this.advance())
+                }
+                this.readTableConstraint(t cname)
+                continue
+            }
+            pos = (pos + 1)
+        }
+    }
+}
