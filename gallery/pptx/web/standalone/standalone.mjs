@@ -172,7 +172,20 @@ function coords(ev) {
 canvas.addEventListener("pointerdown", async (ev) => {
   canvas.focus();
   const { x, y } = coords(ev);
-  web.pointer(x, y, true);
+  // Through the frame: a press lands on a window, then the toolbar, then the
+  // slide — in that order, decided by the app rather than by this file.
+  web.pointerAt(x, y, true, true, false);
+  await draw();
+});
+
+canvas.addEventListener("pointermove", async (ev) => {
+  const { x, y } = coords(ev);
+  if (web.pointerAt(x, y, false, false, false)) await draw();
+});
+
+canvas.addEventListener("pointerup", async (ev) => {
+  const { x, y } = coords(ev);
+  web.pointerAt(x, y, false, false, true);
   await draw();
 });
 
@@ -234,6 +247,19 @@ async function selftest() {
   web.key("home");
   await draw();
   ok("Home comes back", (web.slideIndex() | 0) === 0);
+
+  // The frame: the deck has the shared toolbar now, and its buttons run
+  // commands. It used to draw its own dark band with a string in it.
+  {
+    const cmds = JSON.parse(web.commands() || "[]");
+    ok("the app has a command surface", cmds.length > 4);
+    ok("a toolbar command runs", web.run("slide.next", ""));
+    ok("and it turned the slide", (web.slideIndex() | 0) === 1);
+    ok("the slide picker opens as a window", web.run("slide.pick", ""));
+    ok("and it is up", JSON.parse(web.scene()).list.cmds.length > 0);
+    web.run("slide.first", "");
+    ok("first comes back", (web.slideIndex() | 0) === 0);
+  }
 
   // Pictures: the deck carries them, so they should be textures by now.
   const parts = JSON.parse(web.imageParts() || "[]");

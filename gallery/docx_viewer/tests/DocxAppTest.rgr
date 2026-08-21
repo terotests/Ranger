@@ -1,0 +1,219 @@
+; ==============================================================================
+; DocxAppTest — the document editor has a frame now, out of the shared parts.
+; ==============================================================================
+;
+; Word had no toolbar. Everything a person uses to make text bold was a
+; keyboard shortcut, or an HTML button one particular host had bolted on beside
+; the canvas — so the browser page and the window host offered different things
+; and the native build offered none of them.
+;
+; What this checks is that the frame is real: that the strip is the SHARED one
+; (same component, same icons, same wrapping), that its buttons run commands
+; rather than being pictures, that the pickers are windows rather than host
+; widgets, and that a click lands on the right thing in the right order —
+; windows over the strip, the strip over the paper.
+;
+;   npm run docx_viewer:app:test
+; ==============================================================================
+
+Import "../src/DocxApp.rgr"
+
+class AppCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class DocxAppTest {
+    sfn build:DocxApp () {
+        def app:DocxApp (new DocxApp)
+        app.init()
+        app.resize(900 700)
+        if ((app.viewer.openFile("gallery/docx_viewer/fixtures" "08-pages.docx")) == false) {
+            print "  could not open the fixture"
+        }
+        app.viewer.renderPage(0)
+        return app
+    }
+
+    sfn indexOfCommand:int (app:DocxApp id:string) {
+        def i:int 0
+        while (i < (app.toolbar.count())) {
+            def t:ToolItem (app.toolbar.at(i))
+            if (t.command == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Press and release on one point, the way a host delivers a click.
+    sfn click:void (app:DocxApp x:int y:int) {
+        app.pointer(x y true true false false)
+        app.pointer(x y false false true false)
+    }
+
+    sfn main:void () {
+        def c:AppCheck (new AppCheck)
+        print "== DocxAppTest =="
+
+        def app:DocxApp (DocxAppTest.build())
+        c.ok("a document is open" ((app.viewer.pageCount()) > 1))
+
+        print "-- the strip is the shared one --"
+        c.ok("it has buttons" ((app.toolbar.count()) > 10))
+        c.ok("Bold is one of them" ((DocxAppTest.indexOfCommand(app "format.bold")) >= 0))
+        c.ok("so is the font" ((DocxAppTest.indexOfCommand(app "format.font")) >= 0))
+        c.ok("and the colour" ((DocxAppTest.indexOfCommand(app "format.color")) >= 0))
+        ; The proof that it is the same component and not a copy: the icon
+        ; numbers are the shared ones.
+        def bi:int (DocxAppTest.indexOfCommand(app "format.bold"))
+        def boldItem:ToolItem (app.toolbar.at(bi))
+        c.eqInt("the bold button draws the shared bold icon" boldItem.icon (ToolIcon.bold()))
+        c.ok("the strip is as tall as it needs at this width" (app.toolbarH == (app.toolbar.heightFor(900))))
+        app.resize(320 700)
+        c.ok("and taller when there is less room" (app.toolbarH > (app.toolbar.heightFor(900))))
+        app.resize(900 700)
+
+        print "-- every button names a command the app answers --"
+        def i:int 0
+        def unknown:int 0
+        while (i < (app.toolbar.count())) {
+            def t:ToolItem (app.toolbar.at(i))
+            if (t.isSeparator == false) {
+                if ((app.commands.has(t.command)) == false) {
+                    unknown = (unknown + 1)
+                    print ("    no command for " + t.command)
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("no button runs a command the table has never heard of" unknown 0)
+
+        print "-- and clicking one does something --"
+        ; Edit mode, from the strip.
+        def ei:int (DocxAppTest.indexOfCommand(app "edit.mode"))
+        def et:ToolItem (app.toolbar.at(ei))
+        c.ok("reading to begin with" ((app.viewer.editMode()) == false))
+        DocxAppTest.click(app (et.x + (idiv et.w 2)) (et.y + (idiv et.h 2)))
+        c.ok("clicking the edit button turns editing on" (app.viewer.editMode()))
+        def beforeRefresh:ToolItem (app.toolbar.at(ei))
+        c.ok("and the button draws itself pressed" (beforeRefresh.pressed == false))
+        app.toolbar.refresh(app.viewer.edit (app.viewer.editMode()))
+        def afterRefresh:ToolItem (app.toolbar.at(ei))
+        c.ok("once the strip has been refreshed" afterRefresh.pressed)
+
+        print "-- bold, italic and underline reach the text --"
+        def b:DocxApp (DocxAppTest.build())
+        b.viewer.setEditMode(true)
+        b.viewer.clickAt(80 90 false)
+        c.ok("the caret is in the text" (b.viewer.edit.isActive()))
+        ; Putting the caret somewhere adopts the run it landed in — that page
+        ; opens on a heading, so what "bold" starts as is whatever the text
+        ; says, and the check is that the button FLIPS it.
+        def wasBold:boolean (b.viewer.edit.caretIsOn("bold"))
+        c.ok("bold runs" (b.runCommand("format.bold" "")))
+        c.ok("and the caret changed its mind" ((b.viewer.edit.caretIsOn("bold")) != wasBold))
+        c.ok("bold runs again" (b.runCommand("format.bold" "")))
+        c.ok("and it is back where it started" ((b.viewer.edit.caretIsOn("bold")) == wasBold))
+        def wasItalic:boolean (b.viewer.edit.caretIsOn("italic"))
+        c.ok("italic runs" (b.runCommand("format.italic" "")))
+        c.ok("and so does that" ((b.viewer.edit.caretIsOn("italic")) != wasItalic))
+        def wasUnder:boolean (b.viewer.edit.caretIsOn("underline"))
+        c.ok("underline runs" (b.runCommand("format.underline" "")))
+        c.ok("and that" ((b.viewer.edit.caretIsOn("underline")) != wasUnder))
+        ; Typed text inherits every switch, which is what they are for.
+        b.viewer.edit.typingBold = true
+        b.viewer.edit.typingItalic = true
+        b.text("Hi")
+        c.ok("what was typed came out bold" (b.viewer.edit.caretIsOn("bold")))
+        c.ok("and italic" (b.viewer.edit.caretIsOn("italic")))
+
+        print "-- size and face --"
+        def f:DocxApp (DocxAppTest.build())
+        f.viewer.setEditMode(true)
+        f.viewer.clickAt(80 90 false)
+        def was:double (f.viewer.edit.caretSize())
+        c.ok("a size to start from" (was > 0.0))
+        c.ok("bigger runs" (f.runCommand("format.size.up" "")))
+        c.ok("and the size went up" ((f.viewer.edit.caretSize()) > was))
+        c.ok("smaller runs" (f.runCommand("format.size.down" "")))
+        c.ok("an explicit size runs" (f.runCommand("format.size" "18")))
+        c.ok("and is what the caret says" ((to_int (f.viewer.edit.caretSize())) == 18))
+        c.ok("a face runs" (f.runCommand("format.font" "Droid Serif")))
+
+        print "-- the pickers are windows --"
+        def w:DocxApp (DocxAppTest.build())
+        c.ok("no argument opens the font window" (w.runCommand("format.font" "")))
+        c.ok("and it is up" w.fontDialog.visible)
+        c.ok("the colour window too" (w.runCommand("format.color" "")))
+        c.ok("and it is up" w.colorDialog.visible)
+        ; Picking a swatch is a click in the window layer, not a host widget.
+        def sw:EVGControl (w.colorDialog.controlById(1443))
+        c.ok("the palette has swatches" (sw.id == 1443))
+        w.colorDialog.handlePointer((w.colorDialog.x + sw.x + 4) (w.colorDialog.y + sw.y + 4) true true false)
+        w.pollDialogs()
+        c.eqStr("picking one remembers it" w.pickedColor (DocxApp.swatch(2)))
+
+        print "-- a click goes to the windows, then the strip, then the paper --"
+        def p:DocxApp (DocxAppTest.build())
+        p.runCommand("format.color" "")
+        ; A press inside the open window must not reach the page under it.
+        def inside:boolean (p.pointer((p.colorDialog.x + 10) (p.colorDialog.y + 10) true true false false))
+        c.ok("a press inside a window is taken by the window" inside)
+        p.colorDialog.close()
+        def ti:int (DocxAppTest.indexOfCommand(p "page.next"))
+        def tt:ToolItem (p.toolbar.at(ti))
+        c.eqInt("still on the first page" p.viewer.currentPage 0)
+        DocxAppTest.click(p (tt.x + (idiv tt.w 2)) (tt.y + (idiv tt.h 2)))
+        c.eqInt("the next-page button turned it" p.viewer.currentPage 1)
+
+        print "-- and the whole frame draws --"
+        def d:DocxApp (DocxAppTest.build())
+        d.runCommand("format.color" "")
+        def dl:EVGDisplayList (d.buildDisplayList())
+        c.ok("there is a picture" ((array_length dl.cmds) > 60))
+        ; The page was moved under the strip rather than drawn over it.
+        c.ok("the page sits below the toolbar" (d.pageY >= d.toolbarH))
+        def above:int 0
+        def ci:int 0
+        while (ci < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds ci)
+            if (cmd.kind == 3) {
+                if (cmd.y < 0.0) {
+                    above = (above + 1)
+                }
+            }
+            ci = (ci + 1)
+        }
+        c.eqInt("and nothing was drawn off the top of the window" above 0)
+        def js:string (d.sceneJson())
+        c.ok("the scene says how big it is" ((strlen js) > 200))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

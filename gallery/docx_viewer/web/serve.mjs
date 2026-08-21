@@ -235,6 +235,11 @@ async function handleRequest(req, res) {
       else if (dir === "pageDown") viewer.keyPageDown(shift);
       else if (dir === "home") viewer.keyHome(shift, ctrl);
       else if (dir === "end") viewer.keyEnd(shift, ctrl);
+    } else if (type === "scroll") {
+      // A wheel notch or a swipe, in scene pixels. The viewer decides when
+      // that adds up to a page — accumulating there rather than here is what
+      // keeps the window host and the serverless page feeling the same.
+      viewer.scrollBy(ev.dy | 0);
     } else if (type === "tab") {
       viewer.keyTab(!!ev.shift);
     } else if (type === "selectAll") {

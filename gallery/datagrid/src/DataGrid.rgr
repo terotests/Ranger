@@ -637,17 +637,105 @@ class DataGrid {
     def tabXs:[int]
     def tabWs:[int]
     def tabSheets:[int]
+    ; Where the "new sheet" button was painted, for the same reason: it sits
+    ; after the last tab and the last tab is as wide as its name.
+    def tabPlusX:int -1
+    def tabPlusW:int 0
 
     fn clearTabLayout:void () {
         clear tabXs
         clear tabWs
         clear tabSheets
+        tabPlusX = -1
+        tabPlusW = 0
     }
 
     fn addTabLayout:void (sheetIndex:int tx:int tw:int) {
         push tabXs tx
         push tabWs tw
         push tabSheets sheetIndex
+    }
+
+    fn setTabPlus:void (px:int pw:int) {
+        tabPlusX = px
+        tabPlusW = pw
+    }
+
+    ; Is the pointer on the new-sheet button?
+    fn hitSheetPlus:boolean (px:int py:int) {
+        if (tabPlusX < 0) {
+            return false
+        }
+        def ty:int (this.sheetTabY())
+        if (py < ty) {
+            return false
+        }
+        if (py >= (y + h)) {
+            return false
+        }
+        if (px < tabPlusX) {
+            return false
+        }
+        return (px < (tabPlusX + tabPlusW))
+    }
+
+    ; Where a tab being carried would be INSERTED, as a slot number in the
+    ; painted order: 0 is before the first tab, `count` is after the last.
+    ; A slot rather than a tab, because "dropped on the right half of tab 2"
+    ; and "dropped on the left half of tab 3" are the same place and a tab
+    ; index cannot say so.
+    fn tabDropSlot:int (px:int) {
+        def n:int (array_length tabXs)
+        if (n == 0) {
+            return 0
+        }
+        def i:int 0
+        while (i < n) {
+            def tx:int (itemAt tabXs i)
+            def tw:int (itemAt tabWs i)
+            if (px < (tx + (idiv tw 2))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The x a drop marker is drawn at for that slot.
+    fn tabSlotX:int (slot:int) {
+        def n:int (array_length tabXs)
+        if (n == 0) {
+            return x
+        }
+        if (slot >= n) {
+            def lastI:int (n - 1)
+            return ((itemAt tabXs lastI) + (itemAt tabWs lastI))
+        }
+        def si:int slot
+        if (si < 0) {
+            si = 0
+        }
+        return (itemAt tabXs si)
+    }
+
+    ; The SHEET a painted slot corresponds to, which is what the workbook
+    ; wants. Hidden sheets are not painted, so the two numberings are not the
+    ; same, and dropping "after the third tab" must not mean "after the third
+    ; sheet" in a workbook with a hidden one in the middle.
+    fn sheetForSlot:int (slot:int sheetCount:int) {
+        def n:int (array_length tabSheets)
+        if (n == 0) {
+            return 0
+        }
+        if (slot >= n) {
+            def lastI:int (n - 1)
+            return ((itemAt tabSheets lastI) + 1)
+        }
+        def si:int slot
+        if (si < 0) {
+            si = 0
+        }
+        return (itemAt tabSheets si)
     }
 
     ; Sheet tab index under pointer, or -1.

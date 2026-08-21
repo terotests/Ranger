@@ -1,165 +1,28 @@
 ; ==============================================================================
-; GridToolbar.rgr — the buttons, and what each of them means.
+; GridToolbar.rgr — which buttons a spreadsheet has, and what "pressed" means.
 ; ==============================================================================
 ;
-; The app could do a great deal and showed almost none of it: everything was a
-; keyboard shortcut or a command string, which is fine for a host driving the
-; grid over a socket and useless for a person looking at it.
+; The strip itself — adding, measuring, wrapping, hit testing, hover, and the
+; three hundred lines that draw the icons — is `gallery/evg/EVGToolbar.rgr` and
+; `EVGToolbarView.rgr` now, because Word wanted the same one and a second copy
+; is how two toolbars start drifting apart.
 ;
-; This is the strip of buttons, described once. Each entry names a COMMAND —
+; What is left here is the only part that is about spreadsheets: WHICH buttons,
+; in which order, and what a toggle is asking. Every entry names a COMMAND —
 ; the same string the keyboard and a remote host use — so a button cannot do
 ; something the command surface cannot, and adding a command to the table is
-; how a button gets its behaviour. The entry also carries how it should look:
-; an icon drawn from primitives (there is no icon font here, and a PNG sprite
-; sheet would be a second thing to keep in step with the theme), and whether it
-; is a toggle, in which case the view asks the selection whether it is on.
-;
-; The layout is measured, not assumed: labels are as wide as their text, groups
-; are separated, and anything that would not fit is simply not drawn — a
-; toolbar that runs off the edge of its own strip is the bug the dialogs had.
+; how a button gets its behaviour.
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
 Import "GridSelection.rgr"
 Import "GridFormat.rgr"
+Import "../../evg/EVGToolbar.rgr"
 
-; How a button draws itself. Icons are numbers rather than names so the paint
-; switch is a jump table; the label is what a text button shows and what a
-; tooltip says for an icon one.
-class ToolIcon {
-    sfn none:int ()        { return 0 }
-    sfn undo:int ()        { return 1 }
-    sfn redo:int ()        { return 2 }
-    sfn bold:int ()        { return 3 }
-    sfn italic:int ()      { return 4 }
-    sfn underline:int ()   { return 5 }
-    sfn strike:int ()      { return 6 }
-    sfn alignLeft:int ()   { return 7 }
-    sfn alignCenter:int () { return 8 }
-    sfn alignRight:int ()  { return 9 }
-    sfn valignTop:int ()   { return 10 }
-    sfn valignMid:int ()   { return 11 }
-    sfn valignBot:int ()   { return 12 }
-    ; `wrap` belongs to the text renderer; this one is `wrapCell`.
-    sfn wrapCell:int ()    { return 13 }
-    sfn merge:int ()       { return 14 }
-    sfn borderAll:int ()   { return 15 }
-    sfn borderOut:int ()   { return 16 }
-    sfn borderNone:int ()  { return 17 }
-    sfn fill:int ()        { return 18 }
-    sfn textColor:int ()   { return 19 }
-    sfn currency:int ()    { return 20 }
-    sfn percent:int ()     { return 21 }
-    sfn comma:int ()       { return 22 }
-    sfn decMore:int ()     { return 23 }
-    sfn decLess:int ()     { return 24 }
-    sfn sizeUp:int ()      { return 25 }
-    sfn sizeDown:int ()    { return 26 }
-    sfn paint:int ()       { return 27 }
-    sfn clearFmt:int ()    { return 28 }
-    sfn freeze:int ()      { return 29 }
-    ; `filter` is taken by the compiler too.
-    sfn funnel:int ()      { return 30 }
-    sfn sortAsc:int ()     { return 31 }
-    sfn sortDesc:int ()    { return 32 }
-    sfn insertRow:int ()   { return 33 }
-    sfn insertCol:int ()   { return 34 }
-    sfn deleteRow:int ()   { return 35 }
-    sfn chart:int ()       { return 36 }
-    sfn link:int ()        { return 37 }
-    sfn comment:int ()     { return 38 }
-    ; `find` is a name the compiler keeps for itself, hence `search`.
-    sfn search:int ()      { return 39 }
-    sfn cond:int ()        { return 40 }
-    sfn validate:int ()    { return 41 }
-    sfn save:int ()        { return 42 }
-    sfn openFile:int ()    { return 43 }
-    sfn newFile:int ()     { return 44 }
-    sfn report:int ()      { return 45 }
-    ; The border gallery, as opposed to the three one-click border words.
-    sfn borderMore:int ()  { return 46 }
-    ; The database group. A shortcut is not a discoverable feature, and in a
-    ; browser it is not even a reliable one: Ctrl+D is the bookmark and Ctrl+Q
-    ; quits. A button on the strip works everywhere the grid is drawn.
-    sfn database:int ()    { return 47 }
-    sfn sqlBox:int ()      { return 48 }
-}
-
-class ToolItem {
-    ; The command this runs, and the argument it runs it with.
-    def command:string ""
-    def arg:string ""
-    def label:string ""
-    def icon:int 0
-    ; A toggle draws itself pressed when its style question answers yes. The
-    ; question is `toggleOp` / `toggleArg`, asked of the cell the caret is on.
-    def toggle:boolean false
-    def toggleOp:string ""
-    def toggleArg:string ""
-    ; Laid-out geometry, filled by `layout`.
-    def x:int 0
-    def y:int 0
-    def w:int 0
-    def h:int 0
-    ; A separator is drawn as a rule and cannot be clicked.
-    def isSeparator:boolean false
-    ; Wider than an icon: font / size dropdowns show a readable label.
-    def textW:int 0
-
-    Constructor () {
-    }
-}
-
-class GridToolbar {
-    def items:[ToolItem]
-    ; One row is 30 tall; the strip is as many rows as the buttons need at the
-    ; width it is given. A spreadsheet has more buttons than a narrow window
-    ; has room for, and dropping the last six of them — which is what a single
-    ; fixed row does — loses exactly the ones a beginner is looking for.
-    def rowH:int 30
-    def rows:int 1
-    def height:int 32
-    def pad:int 5
-    def iconW:int 26
-    ; Which item the pointer is over, or -1. Only chrome, but it is the
-    ; difference between a strip of shapes and something that looks clickable.
-    def hot:int -1
-
+class GridToolbar extends EVGToolbar {
     Constructor () {
     }
 
-    fn add:ToolItem (command:string arg:string label:string icon:int) {
-        def t (new ToolItem)
-        t.command = command
-        t.arg = arg
-        t.label = label
-        t.icon = icon
-        push items t
-        return t
-    }
-
-    fn addToggle:ToolItem (command:string arg:string label:string icon:int op:string opArg:string) {
-        def t:ToolItem (this.add(command arg label icon))
-        t.toggle = true
-        t.toggleOp = op
-        t.toggleArg = opArg
-        return t
-    }
-
-    fn addText:ToolItem (command:string arg:string label:string width:int) {
-        def t:ToolItem (this.add(command arg label (ToolIcon.none())))
-        t.textW = width
-        return t
-    }
-
-    fn addSeparator:void () {
-        def t (new ToolItem)
-        t.isSeparator = true
-        push items t
-    }
-
-    ; The standard set, in the order a spreadsheet puts them. Every entry is a
-    ; command the app already answers to.
     fn build:void () {
         clear items
         this.add("file.new" "" "New workbook" (ToolIcon.newFile()))
@@ -226,96 +89,6 @@ class GridToolbar {
         this.add("db.sql.dialog" "" "SQL query" (ToolIcon.sqlBox()))
     }
 
-    ; Place the items across the strip. Anything past the right edge is given
-    ; zero width and skipped by both the painter and the hit test, so a narrow
-    ; window loses buttons rather than drawing them on top of each other.
-    fn layout:void (x0:int y0:int width:int) {
-        def right:int ((x0 + width) - pad)
-        def cx:int (x0 + pad)
-        def row:int 0
-        def i:int 0
-        while (i < (array_length items)) {
-            def t:ToolItem (itemAt items i)
-            def w:int iconW
-            if t.isSeparator {
-                w = 9
-            }
-            if (t.textW > 0) {
-                w = t.textW
-            }
-            if ((cx + w) > right) {
-                ; Wrap. A separator never starts a row — it would be a rule
-                ; hanging in space.
-                row = (row + 1)
-                cx = (x0 + pad)
-                if t.isSeparator {
-                    t.x = 0
-                    t.y = 0
-                    t.w = 0
-                    t.h = 0
-                    i = (i + 1)
-                    continue
-                }
-            }
-            t.x = cx
-            t.y = ((y0 + (row * rowH)) + 3)
-            t.w = w
-            t.h = (rowH - 6)
-            cx = (cx + w)
-            if (t.isSeparator == false) {
-                cx = (cx + 2)
-            }
-            i = (i + 1)
-        }
-        rows = (row + 1)
-        height = (rows * rowH)
-    }
-
-    ; How tall the strip has to be at this width — asked once, before the grid
-    ; is given its bounds, because everything below it starts underneath.
-    fn heightFor:int (width:int) {
-        this.layout(0 0 width)
-        return height
-    }
-
-    fn count:int () {
-        return (array_length items)
-    }
-
-    fn at:ToolItem (i:int) {
-        if (i < 0) {
-            return (new ToolItem)
-        }
-        if (i >= (array_length items)) {
-            return (new ToolItem)
-        }
-        return (itemAt items i)
-    }
-
-    ; Which button is under the pointer, or -1.
-    fn hit:int (px:int py:int) {
-        def i:int 0
-        while (i < (array_length items)) {
-            def t:ToolItem (itemAt items i)
-            if (t.isSeparator == false) {
-                if (t.w > 0) {
-                    if (px >= t.x) {
-                        if (px < (t.x + t.w)) {
-                            if (py >= t.y) {
-                                if (py < (t.y + t.h)) {
-                                    return i
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            i = (i + 1)
-        }
-        return -1
-    }
-
-    ; Whether a toggle should be drawn pressed for the current selection.
     fn isPressed:boolean (i:int model:SpreadsheetModel sel:GridSelection) {
         def t:ToolItem (this.at(i))
         if (t.toggle == false) {
@@ -324,12 +97,46 @@ class GridToolbar {
         return (GridFormat.activeIsOn(model sel t.toggleOp t.toggleArg))
     }
 
-    ; The tooltip for whatever is hot, or "".
-    fn hotLabel:string () {
-        if (hot < 0) {
-            return ""
+    ; What the strip is about to draw, answered once per frame. The shared
+    ; component holds the answer on the item; it cannot work it out, because
+    ; "is bold on" is a question about a cell and the strip has never heard of
+    ; one.
+    fn refreshToggles:void (model:SpreadsheetModel sel:GridSelection) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if t.toggle {
+                t.pressed = (GridFormat.activeIsOn(model sel t.toggleOp t.toggleArg))
+            } {
+                t.pressed = false
+            }
+            i = (i + 1)
         }
-        def t:ToolItem (this.at(hot))
-        return t.label
+    }
+
+    ; The two buttons that show a value rather than a picture: the face and
+    ; the point size of the cell the caret is on.
+    fn refreshLabels:void (model:SpreadsheetModel sel:GridSelection) {
+        def st:CellStyle (model.getCellStyle(sel.active.row sel.active.col))
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.textW > 0) {
+                if (t.command == "format.size.pick") {
+                    t.label = (to_string (to_int st.fontSizePt))
+                }
+                if (t.command == "format.font") {
+                    def nm:string st.fontName
+                    if ((strlen nm) == 0) {
+                        nm = "Font"
+                    }
+                    if ((strlen nm) > 10) {
+                        nm = (substring nm 0 10)
+                    }
+                    t.label = nm
+                }
+            }
+            i = (i + 1)
+        }
     }
 }

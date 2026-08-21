@@ -1,0 +1,186 @@
+; ==============================================================================
+; PptxFrameTest — the deck viewer stops drawing its own chrome.
+; ==============================================================================
+;
+; There was a third toolbar here, and it was the least of the three: a dark
+; rectangle and one string — the deck name, the slide numbers and a pair of
+; arrow characters — assembled out of raw EVGDrawCmds inside the view. It was
+; in a style nothing else used, nothing else could reuse it, and a fix to the
+; spreadsheet's strip never reached it.
+;
+; It has the shared one now, with the shared window layer and the shared
+; command table behind it. What this checks is that they are the SHARED ones
+; and that they work: the strip is an `EVGToolbar` carrying the shared icon
+; numbers, its buttons name commands the table has heard of, clicking one turns
+; the slide, the picker is an `EVGWindow`, and a press lands on the window
+; before it lands on the slide underneath.
+;
+;   npm run pptx:frame:test
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+
+class FrameCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class PptxFrameTest {
+    sfn build:PptxApp () {
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(960 720)
+        if ((app.loadParts("gallery/pptx/fixtures" "04-multi.pptx")) == false) {
+            print "  could not open the fixture"
+        }
+        return app
+    }
+
+    sfn indexOfCommand:int (app:PptxApp id:string) {
+        def i:int 0
+        while (i < (app.toolbar.count())) {
+            def t:ToolItem (app.toolbar.at(i))
+            if (t.command == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn click:void (app:PptxApp x:int y:int) {
+        app.pointer(x y true true false)
+        app.pointer(x y false false true)
+    }
+
+    sfn main:void () {
+        def c:FrameCheck (new FrameCheck)
+        print "== PptxFrameTest =="
+
+        def app:PptxApp (PptxFrameTest.build())
+        c.ok("a deck is open" ((app.slideCount()) > 1))
+
+        print "-- the strip is the shared one --"
+        c.ok("it has buttons" ((app.toolbar.count()) > 5))
+        def ni:int (PptxFrameTest.indexOfCommand(app "slide.next"))
+        c.ok("next is one of them" (ni >= 0))
+        def nt:ToolItem (app.toolbar.at(ni))
+        c.eqInt("drawn with a shared icon" nt.icon (ToolIcon.redo()))
+        c.ok("the strip is as tall as it needs" (app.toolbarH == (app.toolbar.heightFor(960))))
+        ; And the slide is given the room that is left, not the whole window.
+        c.eqInt("the fit-to-window scale keeps the frame clear" app.view.chromeH (app.toolbarH + app.statusH))
+
+        print "-- every button names a command the app answers --"
+        def i:int 0
+        def unknown:int 0
+        while (i < (app.toolbar.count())) {
+            def t:ToolItem (app.toolbar.at(i))
+            if (t.isSeparator == false) {
+                if ((app.commands.has(t.command)) == false) {
+                    unknown = (unknown + 1)
+                    print ("    no command for " + t.command)
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("no button runs a command the table has never heard of" unknown 0)
+
+        print "-- and clicking one turns the slide --"
+        c.eqInt("on the first slide" app.index 0)
+        def bx:int (nt.x + (idiv nt.w 2))
+        def by:int (nt.y + (idiv nt.h 2))
+        PptxFrameTest.click(app bx by)
+        c.eqInt("clicking Next moved on" app.index 1)
+        def pi:int (PptxFrameTest.indexOfCommand(app "slide.prev"))
+        def pt:ToolItem (app.toolbar.at(pi))
+        PptxFrameTest.click(app (pt.x + (idiv pt.w 2)) (pt.y + (idiv pt.h 2)))
+        c.eqInt("and Previous came back" app.index 0)
+        c.ok("last runs" (app.runCommand("slide.last" "")))
+        c.eqInt("and lands on the last one" app.index ((app.slideCount()) - 1))
+        c.ok("goto runs" (app.runCommand("slide.goto" "1")))
+        c.eqInt("where it was told" app.index 1)
+
+        print "-- the picker is a window --"
+        def w:PptxApp (PptxFrameTest.build())
+        c.ok("no argument opens it" (w.runCommand("slide.pick" "")))
+        c.ok("and it is up" w.slideDialog.visible)
+        ; Choosing a slide in it is a click in the window layer.
+        ; The last slide, whatever this deck has — the picker lists one entry
+        ; per slide, so its id is the slide's own number.
+        def lastIdx:int ((w.slideCount()) - 1)
+        def wantId:int (1601 + lastIdx)
+        def ctrl:EVGControl (w.slideDialog.controlById(wantId))
+        c.eqInt("the picker lists the slides" ctrl.id wantId)
+        w.slideDialog.handlePointer((w.slideDialog.x + ctrl.x + 4) (w.slideDialog.y + ctrl.y + 4) true true false)
+        w.pollDialogs()
+        c.eqInt("picking one goes there" w.index lastIdx)
+
+        print "-- and a press goes to the window before the slide --"
+        def p:PptxApp (PptxFrameTest.build())
+        p.runCommand("slide.pick" "")
+        def before:int p.index
+        ; The right third of the window is "next slide" when the press reaches
+        ; the slide; inside an open picker it must not.
+        def taken:boolean (p.pointer((p.slideDialog.x + 6) (p.slideDialog.y + 6) true true false))
+        c.ok("the window took it" taken)
+        c.eqInt("and the slide did not turn" p.index before)
+
+        print "-- the frame draws, and the old chrome is gone --"
+        def d:PptxApp (PptxFrameTest.build())
+        def dl:EVGDisplayList (d.buildFrame())
+        c.ok("there is a picture" ((array_length dl.cmds) > 20))
+        ; The status line says what the old band said, in the shared palette.
+        def texts:int 0
+        def arrows:int 0
+        def ti:int 0
+        while (ti < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds ti)
+            if (cmd.kind == 3) {
+                texts = (texts + 1)
+                if ((indexOf cmd.text "←") >= 0) {
+                    arrows = (arrows + 1)
+                }
+            }
+            ti = (ti + 1)
+        }
+        c.ok("with text in it" (texts > 1))
+        c.eqInt("and no hand-rolled arrow band" arrows 0)
+        ; The slide was moved under the strip rather than drawn over it.
+        def high:int 0
+        def si:int 0
+        while (si < (array_length dl.cmds)) {
+            def cmd2:EVGDrawCmd (itemAt dl.cmds si)
+            if (cmd2.kind == 2) {
+                if (cmd2.y < (to_double d.toolbarH)) {
+                    high = (high + 1)
+                }
+            }
+            si = (si + 1)
+        }
+        c.eqInt("no slide picture is drawn over the toolbar" high 0)
+        def js:string (d.sceneJson())
+        c.ok("the scene is the frame, not the slide alone" ((strlen js) > 200))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

@@ -14,6 +14,43 @@ Import "PptxToEvg.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGToolbarView.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "../../evg/EVGCommands.rgr"
+
+; Which buttons a slide viewer has. The strip is the shared one — the same
+; component the spreadsheet's and the document's are — and this is the only
+; part that is about slides.
+class PptxToolbar extends EVGToolbar {
+    Constructor () {
+    }
+
+    fn build:void () {
+        clear items
+        this.add("file.open" "" "Open a deck" (ToolIcon.openFile()))
+        this.addSeparator()
+        this.add("slide.first" "" "First slide" (ToolIcon.alignLeft()))
+        this.add("slide.prev" "" "Previous slide" (ToolIcon.undo()))
+        this.add("slide.next" "" "Next slide" (ToolIcon.redo()))
+        this.add("slide.last" "" "Last slide" (ToolIcon.alignRight()))
+        this.addSeparator()
+        this.addText("slide.pick" "" "1 / 1" 88)
+    }
+
+    ; The one button that shows a value rather than a picture. The strip
+    ; cannot work this out — it has never heard of a slide.
+    fn refresh:void (index:int count:int) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            t.pressed = false
+            if (t.command == "slide.pick") {
+                t.label = ((to_string (index + 1)) + " / " + (to_string count))
+            }
+            i = (i + 1)
+        }
+    }
+}
 
 class PptxApp {
     def parser:PptxParser (new PptxParser())
@@ -26,12 +63,48 @@ class PptxApp {
     def H:int 720
     def loaded:boolean false
     def lastPath:string ""
+    ; The frame: the shared strip, the shared window layer, the shared command
+    ; table. A slide viewer used to draw its own dark band with a string in it,
+    ; which was a third toolbar in a third style that nothing else could use.
+    def toolbar:PptxToolbar (new PptxToolbar)
+    def toolbarView:EVGToolbarView (new EVGToolbarView)
+    def windows:EVGWindowManager (new EVGWindowManager)
+    def commands:GridCommandTable (new GridCommandTable)
+    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    def toolbarH:int 30
+    def statusH:int 22
+    def status:string ""
+    def fileRequest:string ""
+    ; The slide picker. Ids: 1601.. the slides, 1691 Close.
+    def slideDialog:EVGWindow (new EVGWindow)
+    def dialogsReady:boolean false
 
     Constructor () {
     }
 
     fn init:void (fontDir:string) {
         view.init(W H fontDir)
+        this.initFrame()
+    }
+
+    ; The strip, the command table, and the room they take out of the window.
+    ; `view.chromeH` is what the slide's fit-to-window scale keeps clear, so it
+    ; has to be the whole frame rather than the old status band alone.
+    fn initFrame:void () {
+        toolbar.build()
+        toolbarH = (toolbar.heightFor(W))
+        view.chromeH = (toolbarH + statusH)
+        this.registerCommands()
+    }
+
+    fn registerCommands:void () {
+        commands.add("file.open" "Open a deck" "File" "Ctrl+O")
+        commands.add("slide.next" "Next slide" "View" "Right")
+        commands.add("slide.prev" "Previous slide" "View" "Left")
+        commands.add("slide.first" "First slide" "View" "Home")
+        commands.add("slide.last" "Last slide" "View" "End")
+        commands.addArg("slide.pick" "Go to slide…" "View" "")
+        commands.addArg("slide.goto" "Go to slide" "View" "")
     }
 
     fn load:boolean (fullPath:string) {
@@ -99,6 +172,7 @@ class PptxApp {
     ; Start without reading a font directory. The faces arrive as bytes.
     fn initBare:void () {
         view.initBare(W H)
+        this.initFrame()
     }
 
     fn addFontBytes:boolean (family:string data:buffer) {
@@ -258,7 +332,132 @@ class PptxApp {
     fn resize:void (nw:int nh:int) {
         W = nw
         H = nh
+        toolbarH = (toolbar.heightFor(W))
+        view.chromeH = (toolbarH + statusH)
         view.resize(W H)
+    }
+
+    ; --- the command surface --------------------------------------------------
+    fn runCommand:boolean (id:string arg:string) {
+        if (id == "file.open") {
+            fileRequest = "open"
+            return true
+        }
+        if (id == "slide.next") {
+            this.nextSlide()
+            return true
+        }
+        if (id == "slide.prev") {
+            this.prevSlide()
+            return true
+        }
+        if (id == "slide.first") {
+            this.gotoSlide(0)
+            return true
+        }
+        if (id == "slide.last") {
+            this.gotoSlide(((this.slideCount()) - 1))
+            return true
+        }
+        if (id == "slide.pick") {
+            if ((strlen arg) == 0) {
+                this.openSlideDialog()
+                return true
+            }
+            return (this.runCommand("slide.goto" arg))
+        }
+        if (id == "slide.goto") {
+            def want@(optional):int (to_int arg)
+            if (!null? want) {
+                this.gotoSlide((unwrap want))
+                return true
+            }
+            return false
+        }
+        return false
+    }
+
+    ; --- the slide picker -----------------------------------------------------
+    ; A window rather than a host widget, so every host offers the same one.
+    fn buildDialogs:void () {
+        if dialogsReady {
+            return
+        }
+        slideDialog.w = 220
+        slideDialog.title = "Go to slide"
+        windows.add(slideDialog)
+        dialogsReady = true
+    }
+
+    fn openSlideDialog:void () {
+        this.buildDialogs()
+        def n:int (this.slideCount())
+        slideDialog.reset()
+        slideDialog.addLabel("Slide")
+        slideDialog.beginColumns(4)
+        def i:int 0
+        while (i < n) {
+            if (i < 40) {
+                slideDialog.addRadio((1601 + i) (to_string (i + 1)) 1 (i == index))
+            }
+            i = (i + 1)
+        }
+        slideDialog.endColumns()
+        def ids:[int]
+        def labels:[string]
+        push ids 1691
+        push labels "Close"
+        slideDialog.addButtonRow(ids labels 1691)
+        slideDialog.finish()
+        slideDialog.openWithin((idiv (W - slideDialog.w) 2) (toolbarH + 24) W H)
+        windows.raise(slideDialog)
+    }
+
+    fn pollDialogs:void () {
+        if slideDialog.visible {
+            def picked:int (slideDialog.selectedInGroup(1))
+            if (picked >= 1601) {
+                def want:int (picked - 1601)
+                if (want != index) {
+                    this.gotoSlide(want)
+                }
+            }
+            if (slideDialog.activated == 1691) {
+                slideDialog.close()
+            }
+        }
+    }
+
+    ; --- input ----------------------------------------------------------------
+    ; Windows, then the strip, then the slide. Same order as everywhere else.
+    fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (windows.handlePointer(px py pressed down released)) {
+            this.pollDialogs()
+            return true
+        }
+        toolbar.hot = (toolbar.hit(px py))
+        if pressed {
+            if (toolbar.hot >= 0) {
+                def t:ToolItem (toolbar.at(toolbar.hot))
+                return (this.runCommand(t.command t.arg))
+            }
+            ; Clicking the left or right third of the SLIDE turns the page —
+            ; the way a deck is read. It used to be the whole window, which
+            ; meant the status band was a navigation button too.
+            if (py >= toolbarH) {
+                if (py < (H - statusH)) {
+                    if (px < (idiv W 3)) {
+                        this.prevSlide()
+                        return true
+                    }
+                    if (px > (idiv (W * 2) 3)) {
+                        this.nextSlide()
+                        return true
+                    }
+                }
+            }
+        }
+        return false
     }
 
     fn update:void (input:UIInput) {
@@ -266,37 +465,96 @@ class PptxApp {
         while (i < (input.keyCount())) {
             def k:int (input.keyAt(i))
             if (k == (UIKey.right())) {
-                this.nextSlide()
+                this.runCommand("slide.next" "")
             }
             if (k == (UIKey.left())) {
-                this.prevSlide()
+                this.runCommand("slide.prev" "")
             }
             if (k == (UIKey.home())) {
-                this.gotoSlide(0)
+                this.runCommand("slide.first" "")
             }
             if (k == (UIKey.end())) {
-                this.gotoSlide(((this.slideCount()) - 1))
+                this.runCommand("slide.last" "")
             }
             i = (i + 1)
         }
-        ; Click left/right thirds to navigate
-        if input.pointerPressed {
-            if (input.pointerX < (idiv W 3)) {
-                this.prevSlide()
-            }
-            if (input.pointerX > ((idiv (W * 2) 3))) {
-                this.nextSlide()
-            }
-        }
+        this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
         this.render()
     }
 
-    fn render:void () {
+    ; The slide, the strip above it, the status line under it, and whatever
+    ; windows are open. One display list, as everything here is.
+    fn buildFrame:EVGDisplayList () {
+        def framed:EVGDisplayList (new EVGDisplayList)
+        framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
         def slide@(optional):PptxSlide (this.currentSlide())
-        if (null? slide) {
-            return
+        if (!null? slide) {
+            def dl:EVGDisplayList (view.buildDisplayList((unwrap slide)))
+            PptxApp.offsetList(dl 0 toolbarH)
+            PptxApp.appendList(framed dl)
         }
-        view.render((unwrap slide) index (this.slideCount()))
+        toolbarView.attach(view.ctx view.fontFamily)
+        toolbarView.theme = theme
+        toolbar.refresh(index (this.slideCount()))
+        toolbarView.paint(framed toolbar 0 0 W toolbarH)
+
+        def sy:int (H - statusH)
+        framed.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)
+        framed.addRect(0.0 (to_double sy) (to_double W) 1.0 theme.line)
+        def label:string ((view.deckName + "   ") + (to_string (index + 1)) + " / " + (to_string (this.slideCount())))
+        if ((strlen view.status) > 0) {
+            label = ((label + "   ") + view.status)
+        }
+        if ((strlen status) > 0) {
+            label = ((label + "   ") + status)
+        }
+        toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
+
+        def wi:int 0
+        while (wi < (array_length windows.windows)) {
+            def wnd:EVGWindow (itemAt windows.windows wi)
+            wnd.paint(framed view.ctx.tr W H)
+            wnd.paintOverlay(framed view.ctx.tr)
+            wi = (wi + 1)
+        }
+        return framed
+    }
+
+    sfn offsetList:void (src:EVGDisplayList dx:int dy:int) {
+        def i:int 0
+        while (i < (array_length src.cmds)) {
+            def c:EVGDrawCmd (itemAt src.cmds i)
+            if (c.kind != 5) {
+                c.x = (c.x + (to_double dx))
+                c.y = (c.y + (to_double dy))
+                def pi:int 0
+                while (pi < (array_length c.pts)) {
+                    def even:boolean ((pi % 2) == 0)
+                    if even {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dx))
+                    } {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dy))
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn appendList:void (into:EVGDisplayList src:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length src.cmds)) {
+            push into.cmds (itemAt src.cmds i)
+            i = (i + 1)
+        }
+    }
+
+    fn render:void () {
+        view.slideIndex = index
+        view.slideCount = (this.slideCount())
+        def dl:EVGDisplayList (this.buildFrame())
+        view.paintSoftCanvas(dl)
     }
 
     ; Paint slide i at 96dpi into SoftCanvas (no viewer chrome). Used by the
@@ -338,11 +596,11 @@ class PptxApp {
     }
 
     fn sceneJson:string () {
-        def slide@(optional):PptxSlide (this.currentSlide())
-        if (null? slide) {
-            return "{\"width\":0,\"height\":0,\"list\":{\"cmds\":[]}}"
-        }
-        return (view.sceneJson((unwrap slide) index (this.slideCount())))
+        view.slideIndex = index
+        view.slideCount = (this.slideCount())
+        def dl:EVGDisplayList (this.buildFrame())
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num((to_double W))) + ",\"height\":" + (EVGDisplayList.num((to_double H))) + ",\"list\":" + body + "}")
     }
 
     ; Build an EVGElement tree for the current slide (PDF/HTML/export path).
