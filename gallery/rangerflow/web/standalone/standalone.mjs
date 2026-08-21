@@ -82,7 +82,11 @@ function at(ev) {
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   const [x, y] = at(ev);
+  const wasEditing = app.editing();
   app.pointerDown(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+  // The core ends the edit when the press lands elsewhere; the hidden input
+  // has to hear about it or it keeps the keyboard.
+  if (wasEditing && !app.editing()) typing.blur();
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
@@ -100,7 +104,62 @@ canvas.addEventListener("wheel", (ev) => {
 }, { passive: false });
 canvas.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
+// ---- typing into a label -------------------------------------------------
+// The canvas cannot receive composed characters, dead keys, or anything a
+// phone's keyboard produces. A real <input> can, so one sits offscreen, takes
+// focus while a label is being edited, and has its value mirrored into the
+// editor on every input event. The editor still owns the model — the input is
+// a keyboard, not a source of truth.
+const typing = document.getElementById("typing");
+
+function startEditing(x, y) {
+  if (!app.beginEditAt(x, y)) return false;
+  typing.value = app.editValue();
+  typing.focus({ preventScroll: true });
+  typing.setSelectionRange(typing.value.length, typing.value.length);
+  syncSelection();
+  return true;
+}
+
+function stopEditing(commit) {
+  if (!app.editing()) return;
+  if (commit) app.commitEdit(); else app.cancelEdit();
+  typing.blur();
+  syncSelection();
+}
+
+canvas.addEventListener("dblclick", (ev) => {
+  ev.preventDefault();
+  const [x, y] = at(ev);
+  startEditing(x, y);
+});
+
+typing.addEventListener("input", () => {
+  if (!app.editing()) return;
+  app.setEditText(typing.value, typing.selectionStart ?? typing.value.length);
+});
+
+// Caret moves that produce no input still have to reach the editor, or the bar
+// on screen stops agreeing with the one the browser is keeping.
+for (const evName of ["keyup", "click", "select"]) {
+  typing.addEventListener(evName, () => {
+    if (!app.editing()) return;
+    app.setEditText(typing.value, typing.selectionStart ?? typing.value.length);
+  });
+}
+
+typing.addEventListener("keydown", (ev) => {
+  if (!app.editing()) return;
+  if (ev.key === "Escape") { ev.preventDefault(); stopEditing(false); }
+  else if (ev.key === "Enter" || ev.key === "Tab") { ev.preventDefault(); stopEditing(true); }
+});
+
+typing.addEventListener("blur", () => stopEditing(true));
+
 window.addEventListener("keydown", (ev) => {
+  // While a label is being typed the hidden input has focus and owns the
+  // keyboard; the shortcuts below would delete the node you are naming.
+  if (ev.target === typing) return;
   if (ev.target !== document.body && ev.target !== canvas) return;
   const handled = app.keyDown(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey);
   if (handled) ev.preventDefault();

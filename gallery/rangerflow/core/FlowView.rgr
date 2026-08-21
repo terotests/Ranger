@@ -26,6 +26,7 @@ Import "GraphModel.rgr"
 Import "EdgeRouter.rgr"
 Import "FlowScene.rgr"
 Import "FlowTheme.rgr"
+Import "FlowText.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
 
 class FlowView {
@@ -53,6 +54,18 @@ class FlowView {
     def connectToY:double 0.0
     def connecting:boolean false
     def boxSelect:FlowRect (new FlowRect)
+
+    ; --- in-place editing -----------------------------------------------------
+    ; Which piece of text is being edited, in the same tag vocabulary the hit
+    ; tester uses — "node:<id>", "row:<id>:<n>", "edge:<id>". The view draws the
+    ; BUFFER rather than the model for that one item, so what a reader sees
+    ; while typing is the same layout, the same wrap and the same autofit the
+    ; committed text will get. An editor that types into a plain box and then
+    ; reflows on commit is an editor that surprises you at the last moment.
+    def editTag:string ""
+    def editText:string ""
+    def editCaret:int 0
+    def editCaretOn:boolean true
 
     ; what the last build did, for the benchmark harness
     def drawnNodes:int 0
@@ -139,6 +152,262 @@ class FlowView {
             i = (i + 1)
         }
         return out
+    }
+
+    ; --------------------------------------------------------- edit state ---
+    ; The text to draw for an item: the buffer while it is being edited, the
+    ; model otherwise.
+    fn textFor:string (tag:string fallback:string) {
+        if ((strlen editTag) == 0) {
+            return fallback
+        }
+        if (tag == editTag) {
+            return editText
+        }
+        return fallback
+    }
+
+    fn isEditing:boolean (tag:string) {
+        if ((strlen editTag) == 0) {
+            return false
+        }
+        return (tag == editTag)
+    }
+
+    ; A pale field behind the text being edited, so it is obvious which of the
+    ; twenty labels on the diagram the keyboard is going to.
+    fn paintEditField:void (sc:FlowScene tag:string cx:double cy:double lay:FlowTextLayout room:double) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        def pad:double (this.sl(5.0))
+        def w:double (lay.width + (pad * 2.0))
+        def minW:double (this.sl(24.0))
+        if (w < minW) { w = minW }
+        if (w > (room + (pad * 2.0))) { w = (room + (pad * 2.0)) }
+        def h:double (lay.height + pad)
+        def box:SceneItem (sc.rect((cx - (w * 0.5)) (cy - (h * 0.5)) w h theme.editFill))
+        box.radius = (this.sl(3.0))
+        box.stroke = theme.editBorder
+        box.strokeWidth = (this.sl(1.0))
+        box.tag = tag
+    }
+
+    ; The caret, at the character it is actually in front of — which needs the
+    ; layout, because on a wrapped label the same index is on the second line.
+    fn paintCaret:void (sc:FlowScene tag:string lay:FlowTextLayout cx:double top:double bold:boolean) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        if (editCaretOn == false) {
+            return
+        }
+        def line:int (lay.lineOfIndex(editCaret))
+        def off:int (lay.offsetInLine(editCaret line))
+        def text:string (lay.lineAt(line))
+        def before:string (substring text 0 off)
+        def lw:double (this.textWidthBold(text lay.size bold))
+        def ahead:double (this.textWidthBold(before lay.size bold))
+        def x:double ((cx - (lw * 0.5)) + ahead)
+        def y:double (top + ((to_double line) * lay.lineHeight))
+        def bar:SceneItem (sc.rect(x (y + (lay.lineHeight * 0.1)) (this.sl(1.4)) (lay.lineHeight * 0.8) theme.editCaret))
+        bar.tag = tag
+    }
+
+    ; The same caret, for a line of text set from a left edge rather than
+    ; centred — a table row, a lane name.
+    fn paintCaretAt:void (sc:FlowScene tag:string text:string size:double x:double y:double bold:boolean) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        if (editCaretOn == false) {
+            return
+        }
+        def off:int editCaret
+        if (off > (strlen text)) {
+            off = (strlen text)
+        }
+        if (off < 0) { off = 0 }
+        def before:string (substring text 0 off)
+        def ahead:double (this.textWidthBold(before size bold))
+        def bar:SceneItem (sc.rect((x + ahead) y (this.sl(1.4)) (size * 1.15) theme.editCaret))
+        bar.tag = tag
+    }
+
+    fn paintEditRow:void (sc:FlowScene tag:string x:double y:double w:double h:double) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        def box:SceneItem (sc.rect(x y w h theme.editFill))
+        box.stroke = theme.editBorder
+        box.strokeWidth = (this.sl(1.0))
+        box.tag = tag
+    }
+
+    ; ------------------------------------------------------------- fitting --
+    ; Wrap, then shrink, then cut — see FlowText for why in that order. The
+    ; caller says how much room there is and how many lines it is willing to
+    ; give up; everything else is measurement.
+    ;
+    ; `maxLines` of 1 means "no wrapping", which is right for a table's column
+    ; names: a name broken over two lines in a list of twenty is a name you
+    ; cannot scan past.
+    fn layoutText:FlowTextLayout (t:string baseSize:double maxWidth:double maxHeight:double maxLines:int) {
+        return (this.layoutTextBold(t baseSize maxWidth maxHeight maxLines false))
+    }
+
+    fn layoutTextBold:FlowTextLayout (t:string baseSize:double maxWidth:double maxHeight:double maxLines:int bold:boolean) {
+        def scale:double 1.0
+        def floor:double (FlowText.minScale())
+        def best:FlowTextLayout (new FlowTextLayout)
+        def settled:boolean false
+        while (settled == false) {
+            def size:double (baseSize * scale)
+            def cand:FlowTextLayout (this.wrapAt(t size maxWidth maxLines bold))
+            def fits:boolean true
+            if (cand.width > (maxWidth + 0.5)) {
+                fits = false
+            }
+            if (maxHeight > 0.0) {
+                if (cand.height > (maxHeight + 0.5)) {
+                    fits = false
+                }
+            }
+            if fits {
+                best = cand
+                settled = true
+            } {
+                if (scale <= (floor + 0.0001)) {
+                    ; Out of room and out of sizes: set it at the smallest size
+                    ; allowed and cut what is left over.
+                    best = (this.wrapAt(t size maxWidth maxLines bold))
+                    this.truncateInto(best maxWidth maxHeight maxLines size bold)
+                    settled = true
+                } {
+                    scale = (scale - (FlowText.scaleStep()))
+                    if (scale < floor) {
+                        scale = floor
+                    }
+                }
+            }
+        }
+        return best
+    }
+
+    ; Greedy wrap at one size: take words while they fit, break when they do
+    ; not. The lines are cut out of the SOURCE by position rather than rebuilt
+    ; from word copies, so what is drawn is exactly what was typed and the
+    ; caret's index means the same thing on both sides.
+    fn wrapAt:FlowTextLayout (t:string size:double maxWidth:double maxLines:int bold:boolean) {
+        def out (new FlowTextLayout)
+        out.size = size
+        out.lineHeight = (size * 1.25)
+        def sp:[int] (FlowText.spans(t))
+        def wordCount:int (idiv (array_length sp) 2)
+        if (wordCount == 0) {
+            push out.lines ""
+            push out.starts 0
+            push out.ends (strlen t)
+            out.width = 0.0
+            out.height = out.lineHeight
+            return out
+        }
+        def lineStart:int (itemAt sp 0)
+        def lineEnd:int (itemAt sp 1)
+        def i:int 1
+        while (i < wordCount) {
+            def wEnd:int (itemAt sp ((i * 2) + 1))
+            def cand:string (substring t lineStart wEnd)
+            def width:double (this.textWidthBold(cand size bold))
+            def roomLeft:boolean ((array_length out.lines) < (maxLines - 1))
+            if (width <= maxWidth) {
+                lineEnd = wEnd
+            } {
+                if roomLeft {
+                    push out.lines (substring t lineStart lineEnd)
+                    push out.starts lineStart
+                    push out.ends lineEnd
+                    lineStart = (itemAt sp (i * 2))
+                    lineEnd = wEnd
+                } {
+                    ; No line left to break onto, so the rest joins this one
+                    ; and comes out over-wide — which is the signal the caller
+                    ; shrinks or cuts on.
+                    lineEnd = wEnd
+                }
+            }
+            i = (i + 1)
+        }
+        push out.lines (substring t lineStart lineEnd)
+        push out.starts lineStart
+        push out.ends lineEnd
+        out.width = 0.0
+        def k:int 0
+        while (k < (array_length out.lines)) {
+            def lw:double (this.textWidthBold((itemAt out.lines k) size bold))
+            if (lw > out.width) {
+                out.width = lw
+            }
+            k = (k + 1)
+        }
+        out.height = ((to_double (array_length out.lines)) * out.lineHeight)
+        return out
+    }
+
+    ; Last resort: drop lines that do not fit the height, and cut the last one
+    ; to the width with an ellipsis.
+    fn truncateInto:void (lay:FlowTextLayout maxWidth:double maxHeight:double maxLines:int size:double bold:boolean) {
+        def allowed:int maxLines
+        if (maxHeight > 0.0) {
+            def byHeight:int (to_int (maxHeight / lay.lineHeight))
+            if (byHeight < allowed) {
+                allowed = byHeight
+            }
+        }
+        if (allowed < 1) {
+            allowed = 1
+        }
+        while ((array_length lay.lines) > allowed) {
+            removeLast lay.lines
+            lay.truncated = true
+        }
+        def last:int ((array_length lay.lines) - 1)
+        if (last >= 0) {
+            def line:string (itemAt lay.lines last)
+            if ((this.textWidthBold(line size bold)) > maxWidth) {
+                def cut:string (this.fitText(line size maxWidth))
+                set_at lay.lines last cut
+                lay.truncated = true
+            }
+        }
+        lay.width = 0.0
+        def k:int 0
+        while (k < (array_length lay.lines)) {
+            def lw:double (this.textWidthBold((itemAt lay.lines k) size bold))
+            if (lw > lay.width) {
+                lay.width = lw
+            }
+            k = (k + 1)
+        }
+        lay.height = ((to_double (array_length lay.lines)) * lay.lineHeight)
+    }
+
+    ; Draw a laid-out block centred in a box. Returns the y the first line was
+    ; put at, which is what the caret needs.
+    fn paintBlock:double (sc:FlowScene lay:FlowTextLayout cx:double cy:double color:string tag:string bold:boolean) {
+        def top:double (cy - (lay.height * 0.5))
+        def i:int 0
+        while (i < (array_length lay.lines)) {
+            def line:string (itemAt lay.lines i)
+            def lw:double (this.textWidthBold(line lay.size bold))
+            def ly:double ((top + ((to_double i) * lay.lineHeight)) + ((lay.lineHeight - (lay.size * 1.2)) * 0.5))
+            def t:SceneItem (sc.text(line (cx - (lw * 0.5)) ly lw lay.size color))
+            t.fontFamily = theme.fontFamily
+            t.bold = bold
+            t.tag = tag
+            i = (i + 1)
+        }
+        return top
     }
 
     ; ---------------------------------------------------------------- build --
@@ -449,20 +718,30 @@ class FlowView {
         if (size < 5.0) {
             return
         }
+        def tag:string ("edge:" + e.id)
+        def raw:string (this.textFor(tag e.label))
+        ; An edge label has no box to fill, so it is given a generous line and
+        ; allowed a second one — "changes requested" reads better stacked than
+        ; strung across three nodes.
+        def lay:FlowTextLayout (this.layoutText(raw size (this.sl(160.0)) 0.0 2))
         def mx:double (this.sx((path.midX())))
         def my:double (this.sy((path.midY())))
-        def tw:double (this.textWidth(e.label size))
         def pad:double 4.0
-        def bx:double (mx - ((tw * 0.5) + pad))
-        def by:double (my - ((size * 0.75) + pad))
-        def bw:double (tw + (pad * 2.0))
-        def bh:double ((size * 1.4) + pad)
-        def box:SceneItem (sc.rect(bx by bw bh theme.edgeLabelFill))
+        def bw:double (lay.width + (pad * 2.0))
+        def bh:double (lay.height + pad)
+        def fill:string theme.edgeLabelFill
+        if (this.isEditing(tag)) {
+            fill = theme.editFill
+        }
+        def box:SceneItem (sc.rect((mx - (bw * 0.5)) (my - (bh * 0.5)) bw bh fill))
         box.radius = 3.0
-        box.tag = ("edge:" + e.id)
-        def t:SceneItem (sc.text(e.label (bx + pad) (by + (pad * 0.5)) tw size theme.edgeLabelText))
-        t.fontFamily = theme.fontFamily
-        t.tag = ("edge:" + e.id)
+        if (this.isEditing(tag)) {
+            box.stroke = theme.editBorder
+            box.strokeWidth = (this.sl(1.0))
+        }
+        box.tag = tag
+        def top:double (this.paintBlock(sc lay mx my theme.edgeLabelText tag false))
+        this.paintCaret(sc tag lay mx top false)
     }
 
     ; The `d` for the SVG/PDF side of the same polyline the GPU gets.
@@ -607,12 +886,19 @@ class FlowView {
         ; No rotated text in the display list, so the name is set across the
         ; top of its own band instead of down the side of it — one line of
         ; type either way, and the same in the PDF as on the screen.
-        def label:string (this.fitText(n.label size (w - (barW * 2.0))))
-        def tw:double (this.textWidthBold(label size true))
-        def t:SceneItem (sc.text(label (x + barW + (this.sl(8.0))) (y + (this.sl(6.0))) tw size theme.nodeMutedText))
+        def raw:string (this.textFor(tag n.label))
+        def room:double (w - (barW * 2.0))
+        def lay:FlowTextLayout (this.layoutTextBold(raw size room 0.0 1 true))
+        def label:string (lay.lineAt(0))
+        def tw:double (this.textWidthBold(label lay.size true))
+        def lx:double (x + barW + (this.sl(8.0)))
+        def ly:double (y + (this.sl(6.0)))
+        this.paintEditRow(sc tag (lx - (this.sl(3.0))) (ly - (this.sl(2.0))) (tw + (this.sl(10.0))) (lay.size * 1.5))
+        def t:SceneItem (sc.text(label lx ly tw lay.size theme.nodeMutedText))
         t.fontFamily = theme.fontFamily
         t.bold = true
         t.tag = tag
+        this.paintCaretAt(sc tag label lay.size lx ly true)
     }
 
     ; A label centred in a shape rather than in its bounding box: the middle of
@@ -623,9 +909,13 @@ class FlowView {
         if (size < 5.0) {
             return
         }
+        ; How much of the box the shape actually leaves to write in. A diamond
+        ; has only its middle; a parallelogram loses both slanted ends.
         def room:double (w - (this.sl(16.0)))
+        def tall:double (h - (this.sl(10.0)))
         if (n.shape == "diamond") {
             room = (w * 0.62)
+            tall = (h * 0.55)
         }
         if (n.shape == "parallelogram") {
             room = (w - ((FlowShapes.slantOf(w h)) * 2.0))
@@ -633,16 +923,35 @@ class FlowView {
         if (n.shape == "trapezoid") {
             room = (w - ((FlowShapes.slantOf(w h)) * 2.0))
         }
+        if (n.shape == "cylinder") {
+            tall = (h - ((FlowShapes.drumRadius(h)) * 3.0))
+        }
+        if (n.shape == "document") {
+            tall = (h - ((FlowShapes.waveDepth(h)) * 2.0))
+        }
         if (room < (this.sl(20.0))) {
             room = (this.sl(20.0))
         }
-        def label:string (this.fitText(n.label size room))
-        def tw:double (this.textWidth(label size))
-        def tx:double (x + ((w - tw) * 0.5))
-        def ty:double (y + ((h - (size * 1.2)) * 0.5))
-        def t:SceneItem (sc.text(label tx ty tw size theme.nodeText))
-        t.fontFamily = theme.fontFamily
-        t.tag = tag
+        if (tall < (size * 1.25)) {
+            tall = (size * 1.25)
+        }
+        def text:string (this.textFor(tag n.label))
+        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesFor(tall size))))
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        this.paintEditField(sc tag cx cy lay room)
+        def top:double (this.paintBlock(sc lay cx cy theme.nodeText tag false))
+        this.paintCaret(sc tag lay cx top false)
+    }
+
+    ; Two lines when there is room for two, one when there is not. Asking for
+    ; more lines than fit would only make the autofit shrink to reach a line it
+    ; cannot use.
+    fn linesFor:int (room:double size:double) {
+        def n:int (to_int (room / (size * 1.25)))
+        if (n < 1) { return 1 }
+        if (n > 3) { return 3 }
+        return n
     }
 
     fn paintPlainLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
@@ -650,13 +959,18 @@ class FlowView {
         if (size < 5.0) {
             return
         }
-        def label:string (this.fitText(n.label size (w - 12.0)))
-        def tw:double (this.textWidth(label size))
-        def tx:double (x + ((w - tw) * 0.5))
-        def ty:double (y + ((h - (size * 1.2)) * 0.5))
-        def t:SceneItem (sc.text(label tx ty tw size theme.nodeText))
-        t.fontFamily = theme.fontFamily
-        t.tag = tag
+        def room:double (w - (this.sl(14.0)))
+        def tall:double (h - (this.sl(8.0)))
+        if (tall < (size * 1.25)) {
+            tall = (size * 1.25)
+        }
+        def text:string (this.textFor(tag n.label))
+        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesFor(tall size))))
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        this.paintEditField(sc tag cx cy lay room)
+        def top:double (this.paintBlock(sc lay cx cy theme.nodeText tag false))
+        this.paintCaret(sc tag lay cx top false)
     }
 
     ; The compartment node: header, then sections of rows. Geometry comes from
@@ -687,13 +1001,25 @@ class FlowView {
         def accent:SceneItem (sc.rect(x y (this.sl(3.0)) headerH theme.headerAccent))
         accent.tag = tag
         if (headSize >= 5.0) {
-            def title:string (this.fitText(n.label headSize (w - (pad * 2.0))))
-            def t:SceneItem (sc.text(title (x + pad) (y + ((headerH - (headSize * 1.2)) * 0.5)) (w - (pad * 2.0)) headSize theme.headerText))
+            def room:double (w - (pad * 2.0))
+            def raw:string (this.textFor(tag n.label))
+            ; One line: a table's name broken over two lines in a list of nine
+            ; tables is a name you cannot scan past. Autofit instead.
+            def lay:FlowTextLayout (this.layoutTextBold(raw headSize room 0.0 1 true))
+            def title:string (lay.lineAt(0))
+            def ty0:double (y + ((headerH - (lay.size * 1.2)) * 0.5))
+            this.paintEditRow(sc tag (x + pad) (y + (headerH * 0.12)) room (headerH * 0.76))
+            def t:SceneItem (sc.text(title (x + pad) ty0 room lay.size theme.headerText))
             t.fontFamily = theme.fontFamily
             t.bold = true
             t.tag = tag
+            this.paintCaretAt(sc tag title lay.size (x + pad) ty0 true)
         }
         def cursor:double (y + headerH)
+        ; Rows are numbered across the whole node rather than within a section,
+        ; because that is what an editing target has to be: "the third row of
+        ; customers", not "the first row of its second section".
+        def rowNo:int 0
         def si:int 0
         while (si < (n.sectionCount())) {
             def sec:FlowSection (n.sectionAt(si))
@@ -715,7 +1041,9 @@ class FlowView {
                 def ri:int 0
                 while (ri < (array_length sec.rows)) {
                     def row:FlowRow (itemAt sec.rows ri)
-                    this.paintRow(sc n row x cursor w rowH rowSize pad tag ri)
+                    def rowTag:string ((("row:" + n.id) + ":") + (to_string rowNo))
+                    this.paintRow(sc n row x cursor w rowH rowSize pad tag ri rowTag)
+                    rowNo = (rowNo + 1)
                     cursor = (cursor + rowH)
                     ri = (ri + 1)
                 }
@@ -724,7 +1052,7 @@ class FlowView {
         }
     }
 
-    fn paintRow:void (sc:FlowScene n:FlowNode row:FlowRow x:double y:double w:double rowH:double size:double pad:double tag:string idx:int) {
+    fn paintRow:void (sc:FlowScene n:FlowNode row:FlowRow x:double y:double w:double rowH:double size:double pad:double tag:string idx:int rowTag:string) {
         if (row.selected) {
             def sel:SceneItem (sc.rect(x y w rowH theme.selectedFill))
             sel.tag = tag
@@ -779,13 +1107,19 @@ class FlowView {
         }
         def nameCol:string theme.nodeText
         if (row.emphasis == 2) { nameCol = theme.nodeMutedText }
-        def label:string (this.fitText(row.text size avail))
-        def nt:SceneItem (sc.text(label nameX ty avail size nameCol))
+        def bold:boolean (row.emphasis == 1)
+        def raw:string (this.textFor(rowTag row.text))
+        def lay:FlowTextLayout (this.layoutTextBold(raw size avail 0.0 1 bold))
+        def label:string (lay.lineAt(0))
+        def ty2:double (y + ((rowH - (lay.size * 1.2)) * 0.5))
+        this.paintEditRow(sc rowTag (nameX - (this.sl(2.0))) y (avail + (this.sl(4.0))) rowH)
+        def nt:SceneItem (sc.text(label nameX ty2 avail lay.size nameCol))
         nt.fontFamily = theme.fontFamily
-        if (row.emphasis == 1) {
+        if bold {
             nt.bold = true
         }
-        nt.tag = tag
+        nt.tag = rowTag
+        this.paintCaretAt(sc rowTag label lay.size nameX ty2 bold)
     }
 
     sfn badgeGlyph:string (badge:string) {

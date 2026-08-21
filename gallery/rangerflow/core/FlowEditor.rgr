@@ -46,8 +46,15 @@ class FlowInput {
 class FlowUndoEntry {
     ; 0 move, 1 add nodes, 2 remove nodes, 3 add edges, 4 remove edges,
     ; 5 reroute (hand-dragged edge corners; the before/after corner lists live
-    ; in oldX / newX, x and y interleaved, and `edges` holds the one edge)
+    ; in oldX / newX, x and y interleaved, and `edges` holds the one edge),
+    ; 6 text (a label typed in place; `target` says which piece of text)
     def kind:int 0
+    ; The edited item, in the view's tag vocabulary — "node:<id>",
+    ; "row:<id>:<n>", "edge:<id>" — so undo puts the text back where it came
+    ; from without a second set of fields per kind of label.
+    def target:string ""
+    def oldText:string ""
+    def newText:string ""
     def nodeIds:[string]
     def oldX:[double]
     def oldY:[double]
@@ -127,6 +134,14 @@ class FlowUndo {
             }
             return
         }
+        if (e.kind == 6) {
+            def want:string e.newText
+            if reverse {
+                want = e.oldText
+            }
+            FlowUndo.writeText(g e.target want)
+            return
+        }
         if (e.kind == 5) {
             if ((array_length e.edges) > 0) {
                 def ed:FlowEdge (itemAt e.edges 0)
@@ -157,6 +172,117 @@ class FlowUndo {
         } {
             FlowUndo.strip(g e)
         }
+    }
+
+    ; Put a string back where the tag says it came from. One function, so undo
+    ; and the editor cannot disagree about what "row:customers:2" means.
+    sfn writeText:void (g:FlowGraph target:string text:string) {
+        def parts:[string] (strsplit target ":")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def kind:string (itemAt parts 0)
+        def id:string (itemAt parts 1)
+        if (kind == "node") {
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                n.label = text
+            }
+            return
+        }
+        if (kind == "edge") {
+            def k:int 0
+            while (k < (g.edgeCount())) {
+                def ed:FlowEdge (g.edgeAt(k))
+                if (ed.id == id) {
+                    ed.label = text
+                    return
+                }
+                k = (k + 1)
+            }
+            return
+        }
+        if (kind == "row") {
+            if ((array_length parts) < 3) {
+                return
+            }
+            if ((g.hasNode(id)) == false) {
+                return
+            }
+            def owner:FlowNode (g.nodeById(id))
+            def idx:int (?? (str2int (itemAt parts 2)) -1)
+            def row:FlowRow (FlowUndo.rowOf(owner idx))
+            if ((strlen row.text) >= 0) {
+                row.text = text
+            }
+            return
+        }
+    }
+
+    ; The nth row of a node, counted across its sections the way the renderer
+    ; numbers them. An out-of-range index gives a throwaway row rather than a
+    ; crash: an undo entry can outlive the row it named.
+    sfn rowOf:FlowRow (n:FlowNode idx:int) {
+        if (idx < 0) {
+            return (new FlowRow)
+        }
+        def seen:int 0
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            if (sec.collapsed == false) {
+                def ri:int 0
+                while (ri < (array_length sec.rows)) {
+                    if (seen == idx) {
+                        return (itemAt sec.rows ri)
+                    }
+                    seen = (seen + 1)
+                    ri = (ri + 1)
+                }
+            }
+            si = (si + 1)
+        }
+        return (new FlowRow)
+    }
+
+    sfn readText:string (g:FlowGraph target:string) {
+        def parts:[string] (strsplit target ":")
+        if ((array_length parts) < 2) {
+            return ""
+        }
+        def kind:string (itemAt parts 0)
+        def id:string (itemAt parts 1)
+        if (kind == "node") {
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                return n.label
+            }
+            return ""
+        }
+        if (kind == "edge") {
+            def k:int 0
+            while (k < (g.edgeCount())) {
+                def ed:FlowEdge (g.edgeAt(k))
+                if (ed.id == id) {
+                    return ed.label
+                }
+                k = (k + 1)
+            }
+            return ""
+        }
+        if (kind == "row") {
+            if ((array_length parts) < 3) {
+                return ""
+            }
+            if ((g.hasNode(id)) == false) {
+                return ""
+            }
+            def owner:FlowNode (g.nodeById(id))
+            def idx:int (?? (str2int (itemAt parts 2)) -1)
+            def row:FlowRow (FlowUndo.rowOf(owner idx))
+            return row.text
+        }
+        return ""
     }
 
     sfn restore:void (g:FlowGraph e:FlowUndoEntry) {
@@ -211,7 +337,7 @@ class FlowEditor {
     def undo:FlowUndo (new FlowUndo)
 
     ; 0 idle, 1 panning, 2 dragging, 3 box select, 4 connecting, 5 resizing,
-    ; 6 dragging one segment of an edge
+    ; 6 dragging one segment of an edge, 7 typing into a label
     def mode:int 0
     def pressX:double 0.0
     def pressY:double 0.0
@@ -227,6 +353,16 @@ class FlowEditor {
     def resizeIndex:int -1
     def resizeW:double 0.0
     def resizeH:double 0.0
+
+    ; --- typing into a label --------------------------------------------------
+    ; The target in the view's tag vocabulary, the buffer, and where the caret
+    ; is in it. The MODEL is not touched until the edit is committed, so
+    ; Escape is free and one undo step covers the whole thing rather than one
+    ; per keystroke.
+    def editTarget:string ""
+    def editText:string ""
+    def editCaret:int 0
+    def editBefore:string ""
 
     ; --- dragging a segment of an edge ---------------------------------------
     def segEdge:int -1
@@ -458,7 +594,24 @@ class FlowEditor {
     }
 
     ; ------------------------------------------------------------- pointer ---
+    ; Double-click puts the caret in the text under the pointer. That is the
+    ; gesture every diagram tool uses for this, and it is the one a reader
+    ; tries before looking for a field in a toolbar.
+    fn doubleClick:boolean (inp:FlowInput) {
+        return (this.beginEditAt(inp.x inp.y))
+    }
+
     fn pointerDown:void (inp:FlowInput) {
+        ; Pressing anywhere but the text being edited finishes the edit. That
+        ; includes pressing on a different label, which then starts its own —
+        ; so a reader can walk a diagram naming things without reaching for a
+        ; key between them.
+        if (this.editing()) {
+            def here:string (this.textAt(inp.x inp.y))
+            if (here != editTarget) {
+                this.commitEdit()
+            }
+        }
         pressX = inp.x
         pressY = inp.y
         lastX = inp.x
@@ -971,6 +1124,228 @@ class FlowEditor {
         onGraphChanged = true
     }
 
+    ; ---------------------------------------------------- editing in place --
+    ; A diagram is mostly text — a table's name, its columns, a step's label,
+    ; the "kyllä" on a branch — and a toolbar field that edits one of them at a
+    ; time is a toolbar you stop using. Double-click puts the caret in the text
+    ; that is under the pointer, whichever of those it is.
+    fn editing:boolean () {
+        return ((strlen editTarget) > 0)
+    }
+
+    ; What piece of text is at this point, as a tag, or "" for none. The order
+    ; is the order a reader would expect: the row you clicked before the table
+    ; it is in, and a node before an edge that passes behind it.
+    fn textAt:string (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni >= 0) {
+            def n:FlowNode (graph.nodeAt(ni))
+            def row:int (this.rowAtPoint(n fy))
+            if (row >= 0) {
+                return ((("row:" + n.id) + ":") + (to_string row))
+            }
+            return ("node:" + n.id)
+        }
+        def ei:int (this.edgeAt(sx sy))
+        if (ei >= 0) {
+            def e:FlowEdge (graph.edgeAt(ei))
+            return ("edge:" + e.id)
+        }
+        return ""
+    }
+
+    ; Which row of a compartment node a flow-space y falls on, numbered across
+    ; the whole node the way the renderer numbers them. -1 for the header, for
+    ; a section title, and for a node with no compartments at all.
+    fn rowAtPoint:int (n:FlowNode fy:double) {
+        if ((n.sectionCount()) == 0) {
+            return -1
+        }
+        def cursor:double (n.y + n.headerHeight)
+        def rowNo:int 0
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            if (si > 0) {
+                cursor = (cursor + n.sectionGap)
+            }
+            if ((strlen sec.title) > 0) {
+                cursor = (cursor + n.rowHeight)
+            }
+            if (sec.collapsed == false) {
+                def ri:int 0
+                while (ri < (array_length sec.rows)) {
+                    if (fy >= cursor) {
+                        if (fy < (cursor + n.rowHeight)) {
+                            return rowNo
+                        }
+                    }
+                    cursor = (cursor + n.rowHeight)
+                    rowNo = (rowNo + 1)
+                    ri = (ri + 1)
+                }
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn beginEditAt:boolean (sx:double sy:double) {
+        def target:string (this.textAt(sx sy))
+        if ((strlen target) == 0) {
+            return false
+        }
+        return (this.beginEdit(target))
+    }
+
+    fn beginEdit:boolean (target:string) {
+        if (this.editing()) {
+            this.commitEdit()
+        }
+        editTarget = target
+        editText = (FlowUndo.readText(graph target))
+        editBefore = editText
+        editCaret = (strlen editText)
+        mode = 7
+        this.pushEditToView()
+        return true
+    }
+
+    ; Everything the view needs to draw the buffer instead of the model.
+    fn pushEditToView:void () {
+        view.editTag = editTarget
+        view.editText = editText
+        view.editCaret = editCaret
+    }
+
+    ; A host with a real text input — a browser — hands the whole value over on
+    ; every keystroke, because that is the only way dead keys, ä, ö and a phone
+    ; keyboard come out right. A host without one uses `typeText` below.
+    fn setEditText:void (text:string caret:int) {
+        if ((this.editing()) == false) {
+            return
+        }
+        editText = text
+        editCaret = caret
+        if (editCaret < 0) { editCaret = 0 }
+        if (editCaret > (strlen editText)) { editCaret = (strlen editText) }
+        this.pushEditToView()
+    }
+
+    fn typeText:void (s:string) {
+        if ((this.editing()) == false) {
+            return
+        }
+        def head:string (substring editText 0 editCaret)
+        def tail:string (substring editText editCaret (strlen editText))
+        editText = ((head + s) + tail)
+        editCaret = (editCaret + (strlen s))
+        this.pushEditToView()
+    }
+
+    fn backspace:void () {
+        if ((this.editing()) == false) {
+            return
+        }
+        if (editCaret <= 0) {
+            return
+        }
+        def head:string (substring editText 0 (editCaret - 1))
+        def tail:string (substring editText editCaret (strlen editText))
+        editText = (head + tail)
+        editCaret = (editCaret - 1)
+        this.pushEditToView()
+    }
+
+    fn deleteForward:void () {
+        if ((this.editing()) == false) {
+            return
+        }
+        if (editCaret >= (strlen editText)) {
+            return
+        }
+        def head:string (substring editText 0 editCaret)
+        def tail:string (substring editText (editCaret + 1) (strlen editText))
+        editText = (head + tail)
+        this.pushEditToView()
+    }
+
+    fn moveCaret:void (delta:int) {
+        if ((this.editing()) == false) {
+            return
+        }
+        editCaret = (editCaret + delta)
+        if (editCaret < 0) { editCaret = 0 }
+        if (editCaret > (strlen editText)) { editCaret = (strlen editText) }
+        this.pushEditToView()
+    }
+
+    fn caretToStart:void () {
+        this.moveCaret((0 - (strlen editText)))
+    }
+
+    fn caretToEnd:void () {
+        this.moveCaret((strlen editText))
+    }
+
+    ; Writes the buffer to the model as ONE undo step. Nothing is recorded when
+    ; the text came out the same, so a double-click that changed nothing does
+    ; not fill the undo stack with entries that do nothing.
+    fn commitEdit:boolean () {
+        if ((this.editing()) == false) {
+            return false
+        }
+        def target:string editTarget
+        def before:string editBefore
+        def after:string editText
+        this.clearEdit()
+        if (after == before) {
+            return false
+        }
+        FlowUndo.writeText(graph target after)
+        def entry (new FlowUndoEntry)
+        entry.kind = 6
+        entry.label = "text"
+        entry.target = target
+        entry.oldText = before
+        entry.newText = after
+        undo.record(entry)
+        ; A longer name needs a bigger box, and the node is the only thing that
+        ; knows how much of itself the shape leaves to write in.
+        def parts:[string] (strsplit target ":")
+        if ((array_length parts) >= 2) {
+            if ((itemAt parts 0) == "node") {
+                def id:string (itemAt parts 1)
+                if (graph.hasNode(id)) {
+                    def n:FlowNode (graph.nodeById(id))
+                    this.fitToLabel(n)
+                    n.syncFromModel()
+                }
+            }
+        }
+        onGraphChanged = true
+        return true
+    }
+
+    fn cancelEdit:void () {
+        this.clearEdit()
+    }
+
+    fn clearEdit:void () {
+        editTarget = ""
+        editText = ""
+        editCaret = 0
+        editBefore = ""
+        view.editTag = ""
+        view.editText = ""
+        view.editCaret = 0
+        if (mode == 7) {
+            mode = 0
+        }
+    }
+
     ; --------------------------------------------------------- authoring ----
     ; What a toolbar needs, and nothing a toolbar does not: the palette adds a
     ; node, the connect button joins two of them, the name field renames the
@@ -1168,6 +1543,56 @@ class FlowEditor {
     ; Key names rather than codes, because a code table is a platform detail
     ; and the tests would end up asserting on one.
     fn keyDown:boolean (key:string shift:boolean ctrl:boolean) {
+        ; While a label is being typed the keyboard belongs to it: Delete means
+        ; a character, not the selected node, and Ctrl+Z would undo the edit
+        ; that has not been recorded yet.
+        if (this.editing()) {
+            if (key == "Escape") {
+                this.cancelEdit()
+                return true
+            }
+            if (key == "Enter") {
+                this.commitEdit()
+                return true
+            }
+            if (key == "Tab") {
+                this.commitEdit()
+                return true
+            }
+            if (key == "Backspace") {
+                this.backspace()
+                return true
+            }
+            if (key == "Delete") {
+                this.deleteForward()
+                return true
+            }
+            if (key == "ArrowLeft") {
+                this.moveCaret(-1)
+                return true
+            }
+            if (key == "ArrowRight") {
+                this.moveCaret(1)
+                return true
+            }
+            if (key == "Home") {
+                this.caretToStart()
+                return true
+            }
+            if (key == "End") {
+                this.caretToEnd()
+                return true
+            }
+            ; One printable character. A host with a real text input sends the
+            ; whole value through `setEditText` instead and never reaches here.
+            if ((strlen key) == 1) {
+                if (ctrl == false) {
+                    this.typeText(key)
+                    return true
+                }
+            }
+            return false
+        }
         if (key == "Delete") {
             return (this.deleteSelection())
         }

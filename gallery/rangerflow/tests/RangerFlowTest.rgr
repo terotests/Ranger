@@ -81,6 +81,8 @@ class RangerFlowTest {
         RangerFlowTest.testFlowchart(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
+        RangerFlowTest.testTextFitting(c)
+        RangerFlowTest.testInPlaceEditing(c)
         RangerFlowTest.testSideHandles(c)
         RangerFlowTest.testConnectOnClick(c)
         RangerFlowTest.testEditor(c)
@@ -1258,7 +1260,189 @@ class RangerFlowTest {
         c.eqInt("one node at a time" (g.nodeCount()) 2)
     }
 
-    ; A node with nothing to grab is a node you cannot connect. Tables carry a
+    ; ---------------------------------------------------- text fitting -------
+    ; Wrap, then shrink, then cut. A label that does not fit has three answers
+    ; and they are tried in that order, because an ellipsis is an admission and
+    ; the other two are not.
+    sfn testTextFitting:void (c:Checker) {
+        c.section("wrapping and autofit")
+        def g (new FlowGraph)
+        def v:FlowView (FlowView.of(g))
+        v.width = 1200.0
+        v.height = 800.0
+
+        ; Fits as it is: one line, full size, nothing lost.
+        def easy:FlowTextLayout (v.layoutText("Alku" 13.0 200.0 60.0 2))
+        c.eqInt("a short label is one line" (easy.lineCount()) 1)
+        c.near("at the size it was asked for" easy.size 13.0 0.001)
+        c.ok("and nothing is cut" (easy.truncated == false))
+        c.eqStr("with the text unchanged" (easy.lineAt(0)) "Alku")
+
+        ; Too wide for one line, room for two: wrapped, still full size.
+        def wide:double (v.textWidth("Tarkista asiakkaan luottotiedot" 13.0))
+        def two:FlowTextLayout (v.layoutText("Tarkista asiakkaan luottotiedot" 13.0 (wide * 0.7) 60.0 2))
+        c.eqInt("a long label wraps rather than shrinking" (two.lineCount()) 2)
+        c.near("and keeps its size" two.size 13.0 0.001)
+        c.ok("with nothing cut" (two.truncated == false))
+        c.eqStr("the words are all still there" (two.joined()) "Tarkista asiakkaan luottotiedot")
+        c.ok("and it breaks at a space" ((two.lineAt(0)) == "Tarkista asiakkaan"))
+
+        ; Room for one line only: shrink instead of cutting.
+        def one:FlowTextLayout (v.layoutText("Tarkista asiakkaan luottotiedot" 13.0 (wide * 0.85) 0.0 1))
+        c.eqInt("with one line to work in it stays on one" (one.lineCount()) 1)
+        c.ok(("and the size comes down (got " + (to_string one.size) + ")") (one.size < 13.0))
+        c.ok("rather than the text being cut" (one.truncated == false))
+        c.ok("but never below the floor" (one.size >= (13.0 * (FlowText.minScale()))))
+
+        ; Not even the floor is enough: now, and only now, an ellipsis.
+        def tight:FlowTextLayout (v.layoutText("Tarkista asiakkaan luottotiedot" 13.0 40.0 0.0 1))
+        c.ok("a hopeless box does cut the text" tight.truncated)
+        c.near("at the smallest size allowed" tight.size (13.0 * (FlowText.minScale())) 0.001)
+        c.ok("and says so with an ellipsis" (RangerFlowTest.endsWithStr((tight.lineAt(0)) "…")))
+
+        ; Two lines of room, and a height that only fits one, is one.
+        def short:FlowTextLayout (v.layoutText("Tarkista asiakkaan luottotiedot" 13.0 (wide * 0.7) 16.0 2))
+        c.eqInt("a box one line tall gets one line" (short.lineCount()) 1)
+
+        ; The caret needs to know which line a character is on, and where in
+        ; it. That is the whole reason the layout carries source positions.
+        def src:string "Tarkista asiakkaan luottotiedot"
+        def line0:int (two.lineOfIndex(3))
+        c.eqInt("an index in the first word is on the first line" line0 0)
+        def line1:int (two.lineOfIndex((strlen src)))
+        c.eqInt("and the end of the text is on the last" line1 ((two.lineCount()) - 1))
+        def off:int (two.offsetInLine((strlen src) line1))
+        c.eqInt("at the end of that line" off (strlen (two.lineAt(line1))))
+
+        ; Double spaces survive, because the caret counts them.
+        def spaced:FlowTextLayout (v.layoutText("kaksi  väliä" 13.0 400.0 0.0 1))
+        c.eqStr("the text is drawn exactly as typed" (spaced.lineAt(0)) "kaksi  väliä")
+    }
+
+    ; -------------------------------------------------------- editing text --
+    ; Double-click, type, commit — and one undo for the whole thing.
+    sfn testInPlaceEditing:void (c:Checker) {
+        c.section("editing a label in place")
+        def g (new FlowGraph)
+        def t:FlowNode (g.node("t" "customers" 0.0 0.0))
+        t.width = 200.0
+        t.headerHeight = 26.0
+        t.rowHeight = 20.0
+        def sec:FlowSection (t.addSection(""))
+        def r0:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        sec.addRow(r0)
+        def r1:FlowRow (FlowRow.create("" "email" "VARCHAR" ""))
+        sec.addRow(r1)
+        t.layoutCompartments()
+        def step:FlowNode (g.node("s" "Vaihe" 400.0 0.0))
+        step.width = 150.0
+        step.height = 60.0
+        step.shape = (FlowShape.rect())
+        def e:FlowEdge (g.connect("t" "s"))
+        e.edgeType = "smoothstep"
+        e.label = "kyllä"
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1200.0 700.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+
+        ; What is under the pointer decides what gets edited: the header of a
+        ; table names the table, a row names a column.
+        def headY:double (ed.view.viewport.toScreenY((t.y + 10.0)))
+        def headX:double (ed.view.viewport.toScreenX((t.x + 40.0)))
+        c.eqStr("the header names the table" (ed.textAt(headX headY)) "node:t")
+        def rowCy:double (t.rowCenterY(0 0))
+        def rowY:double (ed.view.viewport.toScreenY((t.y + rowCy)))
+        c.eqStr("and the first row names a column" (ed.textAt(headX rowY)) "row:t:0")
+        def row1Cy:double (t.rowCenterY(0 1))
+        def row1Y:double (ed.view.viewport.toScreenY((t.y + row1Cy)))
+        c.eqStr("the second row is the second row" (ed.textAt(headX row1Y)) "row:t:1")
+        def stepX:double (ed.view.viewport.toScreenX((step.centerX())))
+        def stepY:double (ed.view.viewport.toScreenY((step.centerY())))
+        c.eqStr("a shape with no rows names itself" (ed.textAt(stepX stepY)) "node:s")
+
+        ; Typing goes to a buffer, not to the model.
+        def inp (new FlowInput)
+        inp.x = headX
+        inp.y = rowY
+        c.ok("double-click starts an edit" (ed.doubleClick(inp)))
+        c.ok("the editor says it is editing" (ed.editing()))
+        c.eqInt("in text mode" ed.mode 7)
+        c.eqStr("with the row's own text in the buffer" ed.editText "id")
+        c.eqInt("and the caret at the end of it" ed.editCaret 2)
+        ed.typeText("_no")
+        c.eqStr("typing appends" ed.editText "id_no")
+        c.eqStr("but the model is untouched until commit" r0.text "id")
+        c.ok("and the view draws the buffer for that row" ((ed.view.textFor("row:t:0" "id")) == "id_no"))
+        c.eqStr("while every other label is still the model's" (ed.view.textFor("row:t:1" "email")) "email")
+
+        c.ok("commit writes it" (ed.commitEdit()))
+        c.eqStr("to the row" r0.text "id_no")
+        c.ok("and the edit is over" ((ed.editing()) == false))
+        c.eqInt("back to idle" ed.mode 0)
+        c.ok("one undo takes the whole thing back" (ed.undo.undo(g)))
+        c.eqStr("every keystroke of it" r0.text "id")
+        c.ok("and redo puts it back" (ed.undo.redo(g)))
+        c.eqStr("as it was typed" r0.text "id_no")
+
+        ; Escape leaves the model alone, however much was typed.
+        def undoDepth:int (array_length ed.undo.past)
+        ed.beginEdit("node:t")
+        c.eqStr("the buffer starts from the table's name" ed.editText "customers"
+        )
+        ed.typeText("XYZ")
+        ed.cancelEdit()
+        c.eqStr("escape writes nothing" t.label "customers"
+        )
+        c.eqInt("and puts nothing on the undo stack" (array_length ed.undo.past) undoDepth)
+
+        ; Backspace, delete and the caret keys, for a host with no text field
+        ; of its own — the SDL window, and this test.
+        ed.beginEdit("node:s")
+        ed.caretToEnd()
+        ed.backspace()
+        c.eqStr("backspace removes the character before the caret" ed.editText "Vaih"
+        )
+        ed.caretToStart()
+        ed.deleteForward()
+        c.eqStr("delete removes the one after it" ed.editText "aih")
+        ed.moveCaret(2)
+        ed.typeText("!")
+        c.eqStr("and the caret puts new text where it is" ed.editText "ai!h")
+        c.eqInt("moving it along as it goes" ed.editCaret 3)
+        ed.cancelEdit()
+
+        ; An edge's label is editable the same way.
+        def ex:double (ed.view.viewport.toScreenX(((t.centerX()) + (step.centerX())) * 0.5))
+        c.ok("an edge label can be edited by name" (ed.beginEdit("edge:" + e.id)))
+        c.eqStr("starting from what the edge says" ed.editText "kyllä")
+        ed.typeText("!")
+        ed.commitEdit()
+        c.eqStr("and the edge takes it" e.label "kyllä!")
+
+        ; Pressing somewhere else finishes the edit rather than losing it.
+        ed.beginEdit("node:s")
+        ed.typeText("Z")
+        inp.x = headX
+        inp.y = rowY
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.eqStr("a press elsewhere commits what was typed" step.label "VaiheZ")
+
+        ; While typing, the keyboard belongs to the text: Delete is a
+        ; character, not the selected node.
+        def before:int (g.nodeCount())
+        step.selected = true
+        ed.beginEdit("node:s")
+        ed.caretToEnd()
+        c.ok("Delete is handled by the edit" (ed.keyDown("Delete" false false)))
+        c.eqInt("and deletes no node" (g.nodeCount()) before)
+        c.ok("Escape ends the edit" (ed.keyDown("Escape" false false)))
+        c.ok("which is over" ((ed.editing()) == false))
+    }
+
+    ; A node with nothing to grab is a node you cannot connect.    ; A node with nothing to grab is a node you cannot connect. Tables carry a
     ; port per row and need no others; a shape has no rows at all, so it gets
     ; the four side handles React Flow gives a node that declares none — and
     ; they have to sit ON the outline, or an arrow ends in the air beside a

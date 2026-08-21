@@ -94,6 +94,12 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Organisation chart | ✓ | `domains/business/`: units coloured, matrix reports dashed |
 | Swimlane process | ✓ | `domains/business/`: lanes as group nodes with real parenting — drag the lane, the steps follow |
 | Sub-flows / parenting | ✓ | `node.parentId`; a dragged parent carries its children (probe `subFlowDrag`) |
+| Label wrapping | ✓ | breaks at a space onto up to three lines, source-position based so the caret stays exact |
+| Autofit (shrink to fit) | ✓ | the size comes down in steps to 68% of the base before anything is cut |
+| Truncation with an ellipsis | ✓ | last resort only, after wrap and autofit have run out |
+| Edit a label in place | ✓ | double-click puts the caret in the text under the pointer: a table's name, a column, a step, a branch label, a lane |
+| One undo per edit | ✓ | the model is untouched until commit, so Escape is free and Ctrl+Z takes the whole name |
+| Dead keys / ä ö / phone keyboards | ✓ | an offscreen `<input>` takes focus and is mirrored into the editor; the core still owns the model |
 | Handles on a shape node | ✓ | the four side handles React Flow gives a node that declares none, placed on the outline (`FlowNode.addSideHandles`); a table keeps its port-per-row instead |
 | Toolbar: add a node | ✓ | eleven shapes, one undo step each (`FlowEditor.addNode`) |
 | Toolbar: click to connect | ✓ | React Flow's `connectOnClick` (probe `connectOnClick`) |

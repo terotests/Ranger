@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 285 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 358 assertions: model, forces, router, editor, SQL, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -72,7 +72,7 @@ the same authoring runs in the SDL window and in a headless test.
 | the eleven shape buttons | add a node of that shape at the middle of the view, selected and ready to be named |
 | **connect** | React Flow's `connectOnClick`: click the source, click the target. Clicking the pane cancels |
 | **delete** / **undo** / **redo** | the same three the keyboard does, for a reader who is holding a mouse |
-| the **name** field | renames the selected node as you type — no dialog over the canvas showing you the thing you are naming |
+| the **name** field | renames the selected node as you type — or double-click the label itself and type where it is |
 
 Every scenario is checked on every `npm run rangerflow:web:test`: the page
 drives itself through select → drag → undo → select-all → **add two nodes,
@@ -199,14 +199,74 @@ A frame is also not an obstacle. `EdgeOverlap.blocks` skips group nodes, so a
 line crossing a lane is not counted as a line drawn through a box: it is what a
 lane is for, and counting it would drown the number that matters in noise.
 
+## The text, which is most of the diagram
+
+A diagram is mostly words — a table's name, its columns, a step's label, the
+`kyllä` on a branch — and until now every one of them was cut off with an
+ellipsis the moment it did not fit. That is the worst of the three possible
+answers, and it was the only one implemented.
+
+`core/FlowText.rgr` and `FlowView.layoutText` do them in the order a typesetter
+would:
+
+1. **Wrap.** Break at a space and take a second line. Free, and what the reader
+   expects: "Merkitse jälkitoimitukseen" is two lines, not a shrunken one.
+2. **Autofit.** Take the size down a step at a time until the block fits.
+   Bounded at 68% of the base size — below that a label does not read as "this
+   one is long", it reads as a bug.
+3. **Cut.** Only when the first two have run out.
+
+```text
+   before                    wrap                     autofit
+ ┌────────────┐        ┌────────────┐          ┌────────────┐
+ │Tarkista as…│        │  Tarkista  │          │  Tarkista  │
+ └────────────┘        │ asiakkaan  │          │ asiakkaan  │
+                       └────────────┘          │luottotiedot│
+                                               └────────────┘
+```
+
+The lines are cut out of the source **by position** rather than rebuilt from
+copies of the words. That looks like a detail and it is the reason the caret
+works: the layout can say which line a given character index landed on and how
+far into it, so `"kaksi  väliä"` keeps both spaces and the caret does not drift
+a character every time it passes one.
+
+## Typing where the text is
+
+A field in a toolbar edits one label at a time and you stop using it. So
+**double-click puts the caret in whatever text is under the pointer** — a
+table's name if you hit the header, a column if you hit a row, a step's label,
+a branch's `kyllä`, a lane's name. `FlowEditor.textAt` resolves the point to a
+tag (`node:<id>`, `row:<id>:<n>`, `edge:<id>`) and everything downstream —
+drawing, undo — speaks the same vocabulary.
+
+The model is not touched until the edit is committed. That buys two things:
+Escape is free, and one Ctrl+Z takes back the whole name rather than one
+keystroke. Pressing on a different label commits the current one and starts
+that one, so a reader can walk a diagram naming things without reaching for a
+key in between.
+
+While you type, the buffer is drawn **through the same wrap and the same
+autofit** the committed text will get, in the same place, at the same size. An
+editor that types into a plain box and reflows on commit is an editor that
+surprises you at the last moment.
+
+The browser needs one more piece. A canvas cannot receive a composed character,
+a dead key, or anything a phone's keyboard produces, so a real `<input>` sits
+offscreen, takes focus while a label is being edited, and has its value mirrored
+into the editor on every input event — the input is a keyboard, not a source of
+truth. A host without one (the SDL window, the test suite) types through
+`typeText` / `backspace` / `moveCaret` and gets the same result.
+
 ## The layers
 
 | Layer | Files | What it is |
 | --- | --- | --- |
 | Model | `core/GraphModel.rgr` | nodes, ports, edges, compartments, viewport, selection, hit tests |
 | | `core/FlowShapes.rgr` | what a node is, as an outline: the twelve shapes, their handles, and point-in-shape |
+| | `core/FlowText.rgr` | wrap, autofit, and the source positions that let a caret land on the right character |
 | Routing | `core/EdgeRouter.rgr` | bezier / step / smoothstep paths, arrow and crow's-foot decoration |
-| Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo, dragging an edge's corners by hand |
+| Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo, dragging an edge's corners by hand, typing into a label in place |
 | Scene | `core/FlowView.rgr`, `core/FlowScene.rgr` | the picture, once, for four backends |
 | Layout | `layout/ForceLayout.rgr`, `layout/LayeredLayout.rgr` | d3-force and a Sugiyama-style layered layout |
 | Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |

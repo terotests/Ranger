@@ -1,0 +1,167 @@
+; ============================================================================
+; FlowText.rgr — how a label is fitted into the room it has.
+; ============================================================================
+;
+; There is no `overflow: hidden` on a GPU quad and no `text-wrap` either, so
+; everything a browser does for free has to be done here — once, above the
+; backends, so the PDF, the SVG and the GPU break the same line in the same
+; place. A label that wrapped on screen and ran off the edge in print would be
+; two renderers disagreeing about what the diagram says.
+;
+; Three answers to "this does not fit", in the order a typesetter would try
+; them:
+;
+;   1. **Wrap.** Break at a space and use a second line. Free, and it is what
+;      the reader expects — a step called "Tarkista asiakkaan luottotiedot" is
+;      two lines, not a shrunken one.
+;   2. **Shrink.** Take the font down, a step at a time, until the block fits.
+;      Bounded: below `minScale` the text is smaller than the diagram's other
+;      labels by enough to look like a mistake, and unreadable besides.
+;   3. **Cut.** Only when the first two have run out. An ellipsis is an
+;      admission that the box is too small, and it is the last resort rather
+;      than the first.
+;
+; `FlowTextLayout` is the answer: the lines, the size they are set at, and
+; whether anything was lost. The measuring itself lives on `FlowView`, which
+; owns the font measurer — this file is the shape of the result and the parts
+; of the algorithm that need no metrics.
+; ============================================================================
+
+class FlowTextLayout {
+    def lines:[string]
+    ; Where each line begins and ends in the SOURCE string. The caret is an
+    ; index into what was typed, so a layout that could not say which of its
+    ; lines a given character landed on would be a layout you cannot edit in.
+    def starts:[int]
+    def ends:[int]
+    ; The size the block is actually set at, which is the base size unless the
+    ; text had to be shrunk to fit.
+    def size:double 12.0
+    def lineHeight:double 14.4
+    ; Widest line and the total height, both at `size`.
+    def width:double 0.0
+    def height:double 0.0
+    ; True when step 3 had to be used, so a caller can say so rather than
+    ; quietly showing three dots.
+    def truncated:boolean false
+
+    Constructor () {
+    }
+
+    fn lineCount:int () {
+        return (array_length lines)
+    }
+
+    fn lineAt:string (i:int) {
+        return (itemAt lines i)
+    }
+
+    ; Which line a source index falls on, and how far into it. Later lines win
+    ; a tie, so a caret sitting exactly on a break shows on the new line —
+    ; which is where the next character will appear.
+    fn lineOfIndex:int (idx:int) {
+        def best:int 0
+        def i:int 0
+        while (i < (array_length starts)) {
+            if (idx >= (itemAt starts i)) {
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    fn offsetInLine:int (idx:int line:int) {
+        if (line >= (array_length starts)) {
+            return 0
+        }
+        def off:int (idx - (itemAt starts line))
+        if (off < 0) { return 0 }
+        def len:int (strlen (itemAt lines line))
+        if (off > len) { return len }
+        return off
+    }
+
+    ; The whole thing back as one string, which is what a caller wants when it
+    ; is about to hand the text to something that does its own wrapping.
+    fn joined:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (itemAt lines i))
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class FlowText {
+    ; How small autofit may go, as a fraction of the base size. A label at half
+    ; the size of its neighbours does not read as "this one is long", it reads
+    ; as a bug.
+    sfn minScale:double () {
+        return 0.68
+    }
+
+    ; The steps autofit walks down. Coarse on purpose: a size chosen from a
+    ; continuous range makes two neighbouring boxes differ by a point for no
+    ; reason a reader can see.
+    sfn scaleStep:double () {
+        return 0.08
+    }
+
+    ; Word boundaries as positions in the SOURCE, flat pairs of start and end.
+    ; Positions rather than copies, because the caret is a position: a wrapper
+    ; that rebuilt its lines out of word copies would put "two  spaces" back as
+    ; one and the caret would drift a character every time.
+    sfn spans:[int] (t:string) {
+        def out:[int]
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            i = (FlowText.skipSpaces(t i))
+            if (i < n) {
+                def start:int i
+                i = (FlowText.skipWord(t i))
+                push out start
+                push out i
+            }
+        }
+        return out
+    }
+
+    sfn skipSpaces:int (t:string from:int) {
+        def n:int (strlen t)
+        def i:int from
+        def going:boolean true
+        while (going) {
+            going = false
+            if (i < n) {
+                if ((charAt t i) == 32) {
+                    i = (i + 1)
+                    going = true
+                }
+            }
+        }
+        return i
+    }
+
+    sfn skipWord:int (t:string from:int) {
+        def n:int (strlen t)
+        def i:int from
+        def going:boolean true
+        while (going) {
+            going = false
+            if (i < n) {
+                if ((charAt t i) != 32) {
+                    i = (i + 1)
+                    going = true
+                }
+            }
+        }
+        return i
+    }
+}

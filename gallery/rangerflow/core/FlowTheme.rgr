@@ -68,6 +68,11 @@ class FlowTheme {
     def minimapNode:string "#9aa3b2"
     def minimapView:string "#2563eb"
 
+    ; in-place editing
+    def editFill:string "#fffbe8"
+    def editBorder:string "#e0a800"
+    def editCaret:string "#1f2430"
+
     ; text
     def fontFamily:string "Noto Sans"
     def monoFamily:string "Noto Sans"
@@ -101,6 +106,9 @@ class FlowTheme {
         t.rowAltFill = "#1f2530"
         t.selectedBorder = "#60a5fa"
         t.selectedFill = "#1d2735"
+        t.editFill = "#3a3016"
+        t.editBorder = "#d9a441"
+        t.editCaret = "#e6e9ef"
         t.selectionBox = "#60a5fa"
         t.hoverBorder = "#93c5fd"
         t.portFill = "#1b202a"
