@@ -258,12 +258,9 @@ class FlowView {
             r.h = pageH
             r.valid = true
         }
-        def usableW:double (pageW - (margin * 2.0))
-        def usableH:double (pageH - (margin * 2.0))
-        def padFrac:double 0.0
-        if (usableW > 0.0) {
-            padFrac = (margin / pageW)
-        }
+        ; `padding` is React Flow's convention now, so a margin in points has
+        ; to be converted rather than passed straight through.
+        def padFrac:double (FlowViewport.paddingForMargin(pageW margin))
         viewport.minZoom = 0.01
         viewport.maxZoom = 8.0
         viewport.fitRect(r pageW pageH padFrac)

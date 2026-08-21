@@ -131,6 +131,31 @@ class FlowRect {
         return true
     }
 
+    ; The area two rectangles share. React Flow's rectangle selection asks the
+    ; same question of every node, so this is the quantity the parity harness
+    ; compares — an intersection *area*, not a boolean, because "they touch
+    ; along an edge" and "they overlap" are different answers and only one of
+    ; them should select a node.
+    fn overlapArea:double (o:FlowRect) {
+        def ax2:double (x + w)
+        def ay2:double (y + h)
+        def bx2:double (o.x + o.w)
+        def by2:double (o.y + o.h)
+        def loX:double x
+        if (o.x > loX) { loX = o.x }
+        def hiX:double ax2
+        if (bx2 < hiX) { hiX = bx2 }
+        def loY:double y
+        if (o.y > loY) { loY = o.y }
+        def hiY:double ay2
+        if (by2 < hiY) { hiY = by2 }
+        def ow:double (hiX - loX)
+        def oh:double (hiY - loY)
+        if (ow <= 0.0) { return 0.0 }
+        if (oh <= 0.0) { return 0.0 }
+        return (ow * oh)
+    }
+
     fn grow:void (m:double) {
         x = (x - m)
         y = (y - m)
@@ -689,8 +714,27 @@ class FlowViewport {
         y = (y + dy)
     }
 
-    ; The React Flow `fitView`: put `r` in the middle of a `vw` x `vh` screen
-    ; with `padding` (a fraction of the viewport) left around it.
+    ; React Flow's `fitView`, algorithm for algorithm — `getViewportForBounds`
+    ; in `@xyflow/system`. The padding convention is the part worth spelling
+    ; out, because the obvious reading is wrong: `padding` is not the fraction
+    ; of the VIEWPORT left as a margin, it is how much bigger than the content
+    ; the frame should be. React Flow resolves it as
+    ;
+    ;     px = floor((width - width / (1 + padding)) * 0.5)
+    ;
+    ; so 0.1 gives the content 1.1x its own size, not 80% of the viewport. The
+    ; parity harness caught the difference: reading it the obvious way framed
+    ; every diagram at a different zoom, by up to 176 px of translation.
+    sfn resolvePadding:double (viewport:double padding:double) {
+        if (padding <= 0.0) {
+            return 0.0
+        }
+        def shrunk:double (viewport / (1.0 + padding))
+        def half:double ((viewport - shrunk) * 0.5)
+        def f:int (floor half)
+        return (to_double f)
+    }
+
     fn fitRect:void (r:FlowRect vw:double vh:double padding:double) {
         if (r.valid == false) {
             return
@@ -699,12 +743,10 @@ class FlowViewport {
         def h:double r.h
         if (w < 1.0) { w = 1.0 }
         if (h < 1.0) { h = 1.0 }
-        def usableW:double (vw * (1.0 - (padding * 2.0)))
-        def usableH:double (vh * (1.0 - (padding * 2.0)))
-        if (usableW < 1.0) { usableW = 1.0 }
-        if (usableH < 1.0) { usableH = 1.0 }
-        def zx:double (usableW / w)
-        def zy:double (usableH / h)
+        def padX:double (FlowViewport.resolvePadding(vw padding))
+        def padY:double (FlowViewport.resolvePadding(vh padding))
+        def zx:double ((vw - (padX * 2.0)) / w)
+        def zy:double ((vh - (padY * 2.0)) / h)
         def z:double zx
         if (zy < zx) {
             z = zy
@@ -716,6 +758,46 @@ class FlowViewport {
         def halfH:double (vh * 0.5)
         x = (halfW - (cx * zoom))
         y = (halfH - (cy * zoom))
+        ; React Flow then nudges the result so an asymmetric padding is
+        ; respected: it measures the padding the centred viewport actually
+        ; produced and shifts by the shortfall. With symmetric padding the
+        ; shortfall is zero — except that the measurement is floored, and a
+        ; value that is mathematically 18 can compute to 17.999999999999996 and
+        ; floor to 17. The arithmetic below is in React Flow's order for that
+        ; reason: reproducing the shift means reproducing the same double.
+        def appliedLeft:double ((r.x * zoom) + x)
+        def appliedTop:double ((r.y * zoom) + y)
+        def appliedRight:double (vw - (((r.x + r.w) * zoom) + x))
+        def appliedBottom:double (vh - (((r.y + r.h) * zoom) + y))
+        def offLeft:double (FlowViewport.shortfall(appliedLeft padX))
+        def offTop:double (FlowViewport.shortfall(appliedTop padY))
+        def offRight:double (FlowViewport.shortfall(appliedRight padX))
+        def offBottom:double (FlowViewport.shortfall(appliedBottom padY))
+        x = ((x - offLeft) + offRight)
+        y = ((y - offTop) + offBottom)
+    }
+
+    ; How far short of the wanted padding an edge came, floored the way React
+    ; Flow floors it, and never positive — an edge with room to spare is not a
+    ; reason to move the diagram.
+    sfn shortfall:double (applied:double wanted:double) {
+        def f:int (floor applied)
+        def got:double (to_double f)
+        def diff:double (got - wanted)
+        if (diff > 0.0) {
+            return 0.0
+        }
+        return diff
+    }
+
+    ; The padding value that leaves exactly `margin` device pixels around the
+    ; content — how a page with a stated margin asks for a React Flow fit.
+    sfn paddingForMargin:double (viewport:double margin:double) {
+        def usable:double (viewport - (margin * 2.0))
+        if (usable <= 0.0) {
+            return 0.0
+        }
+        return (((margin * 2.0)) / usable)
     }
 }
 
@@ -1119,7 +1201,9 @@ class FlowGraph {
             if (n.hidden == false) {
                 if (n.selectable) {
                     def nr:FlowRect (n.rect())
-                    if (r.overlaps(nr)) {
+                    ; React Flow selects on positive overlap AREA, so a box
+                    ; dragged exactly up to a node's edge does not catch it.
+                    if ((r.overlapArea(nr)) > 0.0) {
                         n.selected = true
                         c = (c + 1)
                     }

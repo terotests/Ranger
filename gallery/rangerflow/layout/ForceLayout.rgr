@@ -187,20 +187,35 @@ class FlowQuadtree {
             push all i
             i = (i + 1)
         }
-        ; A square root cell, because the Barnes-Hut test compares one cell
-        ; width against the distance and a rectangle would make that test mean
-        ; different things on the two axes.
-        def spanX:double (maxX - minX)
-        def spanY:double (maxY - minY)
-        def span:double spanX
-        if (spanY > span) {
-            span = spanY
+        ; d3's `quadtree.cover`, exactly. The root cell starts as the unit
+        ; square at `floor(min)` and doubles — always growing right and down,
+        ; because every later point is to the right of and below the corner it
+        ; started from — until it strictly contains the far corner.
+        ;
+        ; This is not pedantry. The Barnes-Hut test compares a CELL WIDTH
+        ; against a distance, so the extent decides which cells get
+        ; approximated and which get descended into. Squaring the bounding box
+        ; instead — the obvious thing, and what this did first — put the
+        ; subdivision lines somewhere else and left the layout 23 px per node
+        ; away from d3's after a single tick.
+        def rx0:double (to_double (floor minX))
+        def ry0:double (to_double (floor minY))
+        def z:double 1.0
+        def guard:int 0
+        while (guard < 200) {
+            def coversX:boolean (maxX < (rx0 + z))
+            def coversY:boolean (maxY < (ry0 + z))
+            if coversX {
+                if coversY {
+                    guard = 1000
+                }
+            }
+            if (guard < 1000) {
+                z = (z * 2.0)
+                guard = (guard + 1)
+            }
         }
-        if (span < 1.0) {
-            span = 1.0
-        }
-        span = (span * 1.0000001)
-        def root:int (this.buildCell(g all strengths radii minX minY (minX + span) (minY + span) 0))
+        def root:int (this.buildCell(g all strengths radii rx0 ry0 (rx0 + z) (ry0 + z) 0))
         return root
     }
 

@@ -371,52 +371,210 @@ class EdgeRouter {
         return p
     }
 
-    ; The orthogonal corner list, in the shape React Flow's `getPoints` builds:
-    ; leave the source along its side's normal, arrive at the target along
-    ; its own, and turn at the midpoint between them.
+    ; The orthogonal corner list. This is a faithful port of React Flow's
+    ; `getPoints`, function for function, because the parity harness compares
+    ; against `getSmoothStepPath` itself and an "in the shape of" version scored
+    ; 187/320: the two agreed whenever the handles faced each other and diverged
+    ; by up to 311 px whenever they did not. The rules that matter are the ones
+    ; that are not obvious —
+    ;
+    ;   * the split is chosen by whether the source leaves ALONG the direction
+    ;     of travel or against it, which is what stops an edge doubling back
+    ;     across its own node;
+    ;   * two handles on the same side that are closer than the offset get a
+    ;     gap offset, or the added corner lands on top of the gapped endpoint;
+    ;   * mixed positions (Right → Bottom) flip which corner is used, from the
+    ;     sign of the perpendicular difference.
+    ;
+    ; `stepPosition` is where along the run the perpendicular leg goes: 0.5 is
+    ; React Flow's default and the only value the router uses today.
     sfn stepPoints:[double] (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
+        def sdx:double (FlowPosition.normalX(s1))
+        def sdy:double (FlowPosition.normalY(s1))
+        def tdx:double (FlowPosition.normalX(s2))
+        def tdy:double (FlowPosition.normalY(s2))
+        def sgx:double (x1 + (sdx * offset))
+        def sgy:double (y1 + (sdy * offset))
+        def tgx:double (x2 + (tdx * offset))
+        def tgy:double (y2 + (tdy * offset))
+        def stepPosition:double 0.5
+
+        ; getDirection: horizontal handles decide on x, vertical ones on y.
+        def horizontal:boolean false
+        if (s1 == 1) { horizontal = true }
+        if (s1 == 3) { horizontal = true }
+        def currDir:double -1.0
+        if horizontal {
+            if (sgx < tgx) { currDir = 1.0 }
+        } {
+            if (sgy < tgy) { currDir = 1.0 }
+        }
+        def sourceDirA:double sdy
+        def targetDirA:double tdy
+        if horizontal {
+            sourceDirA = sdx
+            targetDirA = tdx
+        }
+
+        def px0:double 0.0
+        def py0:double 0.0
+        def px1:double 0.0
+        def py1:double 0.0
+        def pointCount:int 1
+        def sourceGapOffX:double 0.0
+        def sourceGapOffY:double 0.0
+        def targetGapOffX:double 0.0
+        def targetGapOffY:double 0.0
+
+        if ((sourceDirA * targetDirA) == -1.0) {
+            ; --- opposite handles: one perpendicular leg between them --------
+            def centerX:double ((sgx + tgx) * 0.5)
+            def centerY:double ((sgy + tgy) * 0.5)
+            if horizontal {
+                centerX = (sgx + ((tgx - sgx) * stepPosition))
+            } {
+                centerY = (sgy + ((tgy - sgy) * stepPosition))
+            }
+            def useVerticalSplit:boolean false
+            if (sourceDirA == currDir) {
+                if horizontal { useVerticalSplit = true }
+            } {
+                if (horizontal == false) { useVerticalSplit = true }
+            }
+            if useVerticalSplit {
+                px0 = centerX
+                py0 = sgy
+                px1 = centerX
+                py1 = tgy
+            } {
+                px0 = sgx
+                py0 = centerY
+                px1 = tgx
+                py1 = centerY
+            }
+            pointCount = 2
+        } {
+            ; --- same or mixed handles: a single corner ----------------------
+            ; sourceTarget takes x from the source and y from the target;
+            ; targetSource is the other one.
+            def takeSourceTarget:boolean true
+            if horizontal {
+                if (sdx == currDir) { takeSourceTarget = false }
+            } {
+                if (sdy != currDir) { takeSourceTarget = false }
+            }
+            if (s1 == s2) {
+                def diff:double (fabs (y1 - y2))
+                if horizontal {
+                    diff = (fabs (x1 - x2))
+                }
+                if (diff <= offset) {
+                    def gapOffset:double (offset - diff)
+                    def limit:double (offset - 1.0)
+                    if (limit < gapOffset) { gapOffset = limit }
+                    if (sourceDirA == currDir) {
+                        if horizontal {
+                            def sign:double 1.0
+                            if (sgx > x1) { sign = -1.0 }
+                            sourceGapOffX = (sign * gapOffset)
+                        } {
+                            def signY:double 1.0
+                            if (sgy > y1) { signY = -1.0 }
+                            sourceGapOffY = (signY * gapOffset)
+                        }
+                    } {
+                        if horizontal {
+                            def tsign:double 1.0
+                            if (tgx > x2) { tsign = -1.0 }
+                            targetGapOffX = (tsign * gapOffset)
+                        } {
+                            def tsignY:double 1.0
+                            if (tgy > y2) { tsignY = -1.0 }
+                            targetGapOffY = (tsignY * gapOffset)
+                        }
+                    }
+                }
+            }
+            if (s1 != s2) {
+                ; Mixed positions (Right -> Bottom and friends): which corner
+                ; reads better depends on the sign of the perpendicular gap.
+                def targetDirOpp:double tdy
+                if (horizontal == false) { targetDirOpp = tdx }
+                def isSameDir:boolean (sourceDirA == targetDirOpp)
+                def sourceOppo:double sgy
+                def targetOppo:double tgy
+                if (horizontal == false) {
+                    sourceOppo = sgx
+                    targetOppo = tgx
+                }
+                def gt:boolean (sourceOppo > targetOppo)
+                def lt:boolean (sourceOppo < targetOppo)
+                def flip:boolean false
+                if (sourceDirA == 1.0) {
+                    if (isSameDir == false) {
+                        if gt { flip = true }
+                    } {
+                        if lt { flip = true }
+                    }
+                } {
+                    if (isSameDir == false) {
+                        if lt { flip = true }
+                    } {
+                        if gt { flip = true }
+                    }
+                }
+                if flip {
+                    takeSourceTarget = horizontal
+                }
+            }
+            if takeSourceTarget {
+                px0 = sgx
+                py0 = tgy
+            } {
+                px0 = tgx
+                py0 = sgy
+            }
+            pointCount = 1
+        }
+
+        def gsx:double (sgx + sourceGapOffX)
+        def gsy:double (sgy + sourceGapOffY)
+        def gtx:double (tgx + targetGapOffX)
+        def gty:double (tgy + targetGapOffY)
+
         def pts:[double]
-        def ax:double (x1 + ((FlowPosition.normalX(s1)) * offset))
-        def ay:double (y1 + ((FlowPosition.normalY(s1)) * offset))
-        def bx:double (x2 + ((FlowPosition.normalX(s2)) * offset))
-        def by:double (y2 + ((FlowPosition.normalY(s2)) * offset))
         push pts x1
         push pts y1
-        push pts ax
-        push pts ay
-        def horizontalA:boolean false
-        if (s1 == 1) { horizontalA = true }
-        if (s1 == 3) { horizontalA = true }
-        def horizontalB:boolean false
-        if (s2 == 1) { horizontalB = true }
-        if (s2 == 3) { horizontalB = true }
-        if horizontalA {
-            if horizontalB {
-                ; ─┐  ┌─   both sides horizontal: one vertical run between them
-                def mx:double ((ax + bx) * 0.5)
-                push pts mx
-                push pts ay
-                push pts mx
-                push pts by
-            } {
-                ; horizontal out, vertical in: a single corner
-                push pts bx
-                push pts ay
-            }
-        } {
-            if horizontalB {
-                push pts ax
-                push pts by
-            } {
-                def my:double ((ay + by) * 0.5)
-                push pts ax
-                push pts my
-                push pts bx
-                push pts my
-            }
+        ; The gapped endpoints are only added when they differ from the corner
+        ; they lead to; a duplicate point there confuses the bend that follows.
+        def sameStart:boolean false
+        if (gsx == px0) {
+            if (gsy == py0) { sameStart = true }
         }
-        push pts bx
-        push pts by
+        if (sameStart == false) {
+            push pts gsx
+            push pts gsy
+        }
+        push pts px0
+        push pts py0
+        if (pointCount == 2) {
+            push pts px1
+            push pts py1
+        }
+        def lastX:double px0
+        def lastY:double py0
+        if (pointCount == 2) {
+            lastX = px1
+            lastY = py1
+        }
+        def sameEnd:boolean false
+        if (gtx == lastX) {
+            if (gty == lastY) { sameEnd = true }
+        }
+        if (sameEnd == false) {
+            push pts gtx
+            push pts gty
+        }
         push pts x2
         push pts y2
         return (EdgeRouter.dedupe(pts))
@@ -424,6 +582,8 @@ class EdgeRouter {
 
     ; Consecutive identical corners make a zero-length segment, which turns
     ; into a NaN normal in the stroke tessellator and a missing edge on the GPU.
+    ; React Flow can leave them in — its `getBend` degenerates harmlessly — but
+    ; a GPU backend cannot.
     sfn dedupe:[double] (pts:[double]) {
         def out:[double]
         def n:int (idiv (array_length pts) 2)
@@ -453,6 +613,100 @@ class EdgeRouter {
             i = (i + 1)
         }
         return out
+    }
+
+    ; Where React Flow puts the label on a stepped edge: the middle of the
+    ; perpendicular leg when the handles face each other, and the middle of the
+    ; longest segment otherwise.
+    sfn stepLabelX:double (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
+        def pts:[double] (EdgeRouter.stepPoints(x1 y1 s1 x2 y2 s2 offset))
+        return (EdgeRouter.labelOf(pts x1 y1 s1 x2 y2 s2 offset true))
+    }
+
+    sfn stepLabelY:double (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
+        def pts:[double] (EdgeRouter.stepPoints(x1 y1 s1 x2 y2 s2 offset))
+        return (EdgeRouter.labelOf(pts x1 y1 s1 x2 y2 s2 offset false))
+    }
+
+    sfn labelOf:double (pts:[double] x1:double y1:double s1:int x2:double y2:double s2:int offset:double wantX:boolean) {
+        def sdx:double (FlowPosition.normalX(s1))
+        def sdy:double (FlowPosition.normalY(s1))
+        def tdx:double (FlowPosition.normalX(s2))
+        def tdy:double (FlowPosition.normalY(s2))
+        def sgx:double (x1 + (sdx * offset))
+        def sgy:double (y1 + (sdy * offset))
+        def tgx:double (x2 + (tdx * offset))
+        def tgy:double (y2 + (tdy * offset))
+        def horizontal:boolean false
+        if (s1 == 1) { horizontal = true }
+        if (s1 == 3) { horizontal = true }
+        def sourceDirA:double sdy
+        def targetDirA:double tdy
+        if horizontal {
+            sourceDirA = sdx
+            targetDirA = tdx
+        }
+        if ((sourceDirA * targetDirA) == -1.0) {
+            if wantX {
+                if horizontal {
+                    return (sgx + ((tgx - sgx) * 0.5))
+                }
+                return ((sgx + tgx) * 0.5)
+            }
+            if horizontal {
+                return ((sgy + tgy) * 0.5)
+            }
+            return (sgy + ((tgy - sgy) * 0.5))
+        }
+        ; The single corner is the second-to-last interior point; React Flow
+        ; measures both spans from it and labels the longer one.
+        def n:int (idiv (array_length pts) 2)
+        if (n < 3) {
+            if wantX {
+                return ((x1 + x2) * 0.5)
+            }
+            return ((y1 + y2) * 0.5)
+        }
+        def cornerX:double 0.0
+        def cornerY:double 0.0
+        def i:int 1
+        while (i < (n - 1)) {
+            def cx:double (itemAt pts (i * 2))
+            def cyAt:int ((i * 2) + 1)
+            def cy:double (itemAt pts cyAt)
+            def isGapS:boolean false
+            if (cx == sgx) {
+                if (cy == sgy) { isGapS = true }
+            }
+            def isGapT:boolean false
+            if (cx == tgx) {
+                if (cy == tgy) { isGapT = true }
+            }
+            if (isGapS == false) {
+                if (isGapT == false) {
+                    cornerX = cx
+                    cornerY = cy
+                    i = n
+                }
+            }
+            i = (i + 1)
+        }
+        def maxX:double (fabs (sgx - cornerX))
+        def altX:double (fabs (tgx - cornerX))
+        if (altX > maxX) { maxX = altX }
+        def maxY:double (fabs (sgy - cornerY))
+        def altY:double (fabs (tgy - cornerY))
+        if (altY > maxY) { maxY = altY }
+        if (maxX >= maxY) {
+            if wantX {
+                return ((sgx + tgx) * 0.5)
+            }
+            return cornerY
+        }
+        if wantX {
+            return cornerX
+        }
+        return ((sgy + tgy) * 0.5)
     }
 
     sfn step:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double) {
@@ -566,7 +820,10 @@ class EdgeRouter {
             return (EdgeRouter.step(x1 y1 s1 x2 y2 s2 20.0))
         }
         if (kind == "smoothstep") {
-            return (EdgeRouter.smoothStep(x1 y1 s1 x2 y2 s2 20.0 8.0))
+            ; React Flow's defaults: offset 20, borderRadius 5. They are not
+            ; taste — the parity harness compares against getSmoothStepPath,
+            ; and a radius of 8 put every rounded corner 3 px out.
+            return (EdgeRouter.smoothStep(x1 y1 s1 x2 y2 s2 20.0 5.0))
         }
         if (kind == "orthogonal") {
             return (EdgeRouter.smoothStep(x1 y1 s1 x2 y2 s2 24.0 6.0))

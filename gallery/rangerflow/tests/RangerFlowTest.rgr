@@ -102,7 +102,19 @@ class RangerFlowTest {
         vp2.fitRect(r 800.0 400.0 0.1)
         c.near("fitView centres x" (vp2.toScreenX(100.0)) 400.0 0.001)
         c.near("fitView centres y" (vp2.toScreenY(50.0)) 200.0 0.001)
-        c.ok("fitView fits" (vp2.zoom <= 3.2))
+        ; React Flow's own answer for these inputs, from `getViewportForBounds`
+        ; — padding 0.1 means the content gets 1.1x its size, not 80% of the
+        ; viewport, so the zoom is 3.64 and not 3.2. The parity harness
+        ; measures the whole matrix; this pins the one case by hand so the
+        ; convention cannot drift when the harness is not run.
+        c.near("fitView matches getViewportForBounds" vp2.zoom 3.64 0.000001)
+        c.near("fitView x matches" vp2.x 36.0 0.000001)
+        c.near("fitView y matches" vp2.y 18.0 0.000001)
+        def touching:FlowRect (FlowRect.create(0.0 0.0 100.0 100.0))
+        def apart:FlowRect (FlowRect.create(100.0 0.0 100.0 100.0))
+        c.near("touching rectangles share no area" (touching.overlapArea(apart)) 0.0 0.000001)
+        def over:FlowRect (FlowRect.create(50.0 50.0 100.0 100.0))
+        c.near("overlap area" (touching.overlapArea(over)) 2500.0 0.000001)
     }
 
     ; --------------------------------------------------------------- graph --

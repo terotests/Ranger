@@ -35,6 +35,7 @@ npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
 npm run rangerflow:web         # build the serverless WebGL page
 npm run rangerflow:web:serve   # …and serve it on :8080
 npm run rangerflow:web:test    # …or open it in headless Chrome and make it work
+npm run rangerflow:parity      # score it against React Flow — see below
 ```
 
 ## Why a graph core and a schema editor are the same program
@@ -78,6 +79,7 @@ is 250 lines, and most of them are the model rather than the drawing.
 | Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo |
 | Scene | `core/FlowView.rgr`, `core/FlowScene.rgr` | the picture, once, for four backends |
 | Layout | `layout/ForceLayout.rgr`, `layout/LayeredLayout.rgr` | d3-force and a Sugiyama-style layered layout |
+| Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |
 | Export | `export/FlowExport.rgr` | PDF, HTML, SVG, scene JSON, graph JSON |
 
@@ -140,29 +142,73 @@ languages — a layout that moves when nothing changed cannot be regression
 tested. `npm run rangerflow:force` settles in **300 ticks**, which is what d3's
 default `alphaDecay` gives you.
 
-What is *not* d3: the quadtree's extent is the squared bounding box of all the
-points rather than d3's doubling cover. The Barnes–Hut criterion is the same,
-so approximations happen at very nearly the same places, but this is not
-bit-for-bit d3 and does not claim to be.
+The quadtree's `cover` is d3's too — the root cell starts as the unit square at
+`floor(min)` and doubles until it strictly contains the far corner. That looks
+like pedantry until you measure it: squaring the bounding box instead, which is
+the obvious thing, puts the subdivision lines somewhere else and leaves the
+layout **23 px per node** away from d3's after a single tick. With d3's cover it
+is 0.010 px, and 0.06% of shape error after three hundred.
+
+What is still not bit-for-bit d3: the jiggle. d3 gives each force its own
+seeded generator and RangerFlow has one, so exactly-coincident points get a
+different 1e-6 nudge. That is the residue in the table above.
 
 Dragging pins the node through `fx`/`fy` exactly as the example does — the
 simulation may not move what your hand is holding.
 
-## Feature parity
+## Parity is measured, not claimed
 
-The comparison worth making is **behaviour**, not DOM-versus-EVG pixels. See
-[`docs/FEATURES.md`](docs/FEATURES.md) for the full matrix against React Flow
-and against `db-schema-viewer` (MIT), including what is not done yet.
+A scorecard we wrote from imagination would only measure our imagination. So
+`npm run rangerflow:parity` installs `@xyflow/system` — the package React Flow
+is built on — and asks **React Flow's own functions** the questions RangerFlow
+is asked, then compares the numbers:
 
-Short version — implemented: pan, zoom at cursor, node drag, multi-node drag,
-rectangle selection, `Ctrl+A`, `Delete`, port-level connections with validity
-and connection limits, node resizing, snap to grid, minimap, fit to screen,
-undo/redo, viewport culling, background variants, four edge types, crow's foot
-/ UML / plain notation switching, light and dark themes.
+```text
+Edge geometry        ████████████████████████ 320/320  worst 0.002 px   getBezierPath, getStraightPath, getSmoothStepPath
+Viewport algebra     ████████████████████████  32/32   worst 0.000 px   pointToRendererPoint, rendererPointToPoint
+fitView              ████████████████████████  36/36   worst 0.000 px   getViewportForBounds
+Node bounds          ████████████████████████   2/2    worst 0.000 px   getNodesBounds
+Selection overlap    ████████████████████████   5/5    worst 0.438 px   getRectsOverlappingArea
 
-Not done: dummy-node routing for long edges, edge reconnection by dragging an
-end, sub-flows (`parentId` is carried but not enforced), and a live database
-inspector — the schema comes from SQL DDL or JSON today.
+force layout vs d3-force
+  tick   0  max   0.000 px   rms  0.000 px   shape error 0.00%
+  tick 300  max   1.414 px   rms  0.480 px   shape error 0.06%
+
+behaviour  ████████████████████···· 42/50 capabilities, every one proved by a probe
+overall 97.7%
+```
+
+Edge paths are compared by **resampling both curves by arc length**, not by
+string equality — what matters is whether the line goes through the same
+places. The force layout is compared to d3 tick by tick, and by a **shape
+error** over every pairwise distance, because two layouts that differ by a
+rotation are the same layout.
+
+The behavioural half is not a checklist either: the capability list is
+React Flow's documented feature set, and a row may only say `done` if a named
+probe in [`tests/ParityDump.rgr`](tests/ParityDump.rgr) drove the real
+`FlowEditor` through `pointerDown` / `pointerMove` / `pointerUp` and passed. No
+probe means `todo` however finished it feels; a failing probe turns the row
+red, which is worse than `todo` because it means the documentation lies.
+
+The full report is [`docs/PARITY.md`](docs/PARITY.md), regenerated on every
+run. [`docs/FEATURES.md`](docs/FEATURES.md) is the narrative version, and also
+covers the ER-diagram side against `db-schema-viewer` (MIT).
+
+**The meter earns its keep.** Its first run scored 63.8% and found three real
+divergences that no amount of reading would have: the orthogonal router
+disagreed with `getSmoothStepPath` by up to 311 px whenever the two handles did
+not face each other; `fitView` read React Flow's `padding` as a fraction of the
+viewport when it is really "how much bigger than the content the frame should
+be", framing every diagram at the wrong zoom; and the Barnes–Hut quadtree
+squared its bounding box where d3 doubles from the first point, which moved
+every node 23 px after a single tick. All three are fixed, and the numbers
+above are what the meter says now.
+
+Still `todo`, and the meter says so: edge reconnection by dragging an end,
+sub-flows (`parentId` is carried but not enforced), a node toolbar, pinch-zoom
+gestures, helper lines, `panOnScroll`, `connectOnClick`, and a drag-handle
+selector.
 
 ## Performance
 
