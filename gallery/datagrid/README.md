@@ -253,6 +253,22 @@ npm run datagrid:db:module
 node gallery/datagrid/web/serve.mjs --open --db duckdb   --db-dsn ./sales.duckdb --db-table sales
 ```
 
+The box is not a bare prompt. It lists what is in the database —
+
+```text
+tables (* is a key column):
+   sales(id*, region, country, month, revenue, units)
+```
+
+— and offers **examples written against that schema**, one button each (`first
+20`, `group`, `filter`, `top 10`, `count`), so every one of them runs as it
+stands rather than being a template to adapt. The star marks a key column,
+which is the thing that decides whether a sheet built from the query can be
+edited. Both are asked of the session each time the box opens, so they are
+right after a reconnect too.
+
+![The SQL box, with the schema and the examples](artifacts/db_sql_box.png)
+
 `npm run datagrid:db:window:smoke` runs that host with no browser at all: it
 asks for the scene the browser would draw, posts the same click/type/Enter
 events the browser posts, and checks that the edit is in the next scene, that
@@ -312,8 +328,6 @@ not there comes back as `no table called …` rather than being invented.
 **editable** database sheet: sort, filter, write-back and formulas all keep
 working on it.
 
-![The SQL query box over a database sheet](artifacts/db_sql_box.png)
-
 A statement beyond the planner (a join, a subquery, an expression in the
 projection) still runs — it is handed to the engine as text — and the sheet
 says `raw SQL result: read only, edit the query instead`, because a result with
@@ -329,7 +343,7 @@ curl -s localhost:8766/command -d '{"id":"db.sql","arg":"SELECT country, revenue
 `npm run datagrid:db:window:smoke` opens the box the way a person does — the
 command, then text events, then Enter — and checks the query became a sheet.
 
-`npm run datagrid:db:test` runs all of it over all three engines (179/179), and
+`npm run datagrid:db:test` runs all of it over all three engines (206/206), and
 `npm run datagrid:db:demo` is a headless session that seeds a table, edits a
 cell through the UI, reads the new value back out of the database, has one
 edit refused, sorts (which re-runs the query) and leaves this behind:

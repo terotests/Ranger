@@ -655,13 +655,148 @@ class GridApp {
     }
 
     ; --- the SQL box ----------------------------------------------------------
+    ; What is in the database, as one line per table:
+    ;
+    ;     sales(id*, region, country, month, revenue, units)
+    ;
+    ; A star marks a key column, because that is the one that decides whether a
+    ; sheet built from a query can be edited. Asking the session rather than
+    ; remembering it means this is right after a reconnect too.
+    fn schemaLines:[string] () {
+        def out:[string]
+        if (db.bound == false) {
+            return out
+        }
+        def names:[string] (db.session.tableNames())
+        def n:int (array_length names)
+        def i:int 0
+        while (i < n) {
+            if (i >= 6) {
+                push out ("… and " + (to_string (n - 6)) + " more")
+                return out
+            }
+            def table:string (itemAt names i)
+            def cols:[DBColumn] (db.session.tableColumns(table))
+            def line:string (table + "(")
+            def c:int 0
+            def cn:int (array_length cols)
+            while (c < cn) {
+                if (c > 0) {
+                    line = (line + ", ")
+                }
+                def col:DBColumn (itemAt cols c)
+                line = (line + col.name)
+                if col.key {
+                    line = (line + "*")
+                }
+                c = (c + 1)
+            }
+            push out (line + ")")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Queries written against THIS database rather than against a manual: the
+    ; table, the key, a text column and a number column are picked out of the
+    ; schema, so every example runs as it stands.
+    fn exampleQueries:[string] () {
+        def out:[string]
+        if (db.bound == false) {
+            return out
+        }
+        def names:[string] (db.session.tableNames())
+        if ((array_length names) == 0) {
+            return out
+        }
+        def table:string (itemAt names 0)
+        def cols:[DBColumn] (db.session.tableColumns(table))
+        def keyCol:string ""
+        def textCol:string ""
+        def numCol:string ""
+        def i:int 0
+        while (i < (array_length cols)) {
+            def col:DBColumn (itemAt cols i)
+            if col.key {
+                if ((strlen keyCol) == 0) {
+                    keyCol = col.name
+                }
+            }
+            if (col.kind == 4) {
+                if ((strlen textCol) == 0) {
+                    textCol = col.name
+                }
+            }
+            if (DBType.isNumeric(col.kind)) {
+                if ((strlen numCol) == 0) {
+                    if (col.key == false) {
+                        numCol = col.name
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen keyCol) == 0) {
+            if ((array_length cols) > 0) {
+                def first:DBColumn (itemAt cols 0)
+                keyCol = first.name
+            }
+        }
+        push out ("SELECT * FROM " + table + " LIMIT 20")
+        if ((strlen numCol) > 0) {
+            if ((strlen textCol) > 0) {
+                push out ("SELECT " + textCol + ", SUM(" + numCol + ") AS total FROM " + table + " GROUP BY " + textCol + " ORDER BY total DESC")
+                push out ("SELECT * FROM " + table + " WHERE " + textCol + " LIKE 'A%'")
+            }
+            push out ("SELECT * FROM " + table + " ORDER BY " + numCol + " DESC LIMIT 10")
+        }
+        if ((strlen keyCol) > 0) {
+            push out ("SELECT COUNT(*) AS rows FROM " + table)
+        }
+        return out
+    }
+
+    ; Short names for the buttons that fill the box.
+    sfn exampleLabel:string (index:int) {
+        if (index == 0) {
+            return "first 20"
+        }
+        if (index == 1) {
+            return "group"
+        }
+        if (index == 2) {
+            return "filter"
+        }
+        if (index == 3) {
+            return "top 10"
+        }
+        return "count"
+    }
+
+    fn useExample:void (index:int) {
+        def examples:[string] (this.exampleQueries())
+        if (index < 0) {
+            return
+        }
+        if (index >= (array_length examples)) {
+            return
+        }
+        dbSqlText = (itemAt examples index)
+        dbSqlStatus = "example put in the box - press Run"
+        def kx:int sqlDialog.x
+        def ky:int sqlDialog.y
+        this.openSqlDialog()
+        sqlDialog.x = kx
+        sqlDialog.y = ky
+    }
+
     fn openSqlDialog:void () {
         this.buildDialogs()
         if editing {
             this.commitEdit()
         }
         sqlDialog.title = "SQL query"
-        sqlDialog.w = 460
+        sqlDialog.w = 560
         sqlDialog.labelW = 40
         sqlDialog.reset()
         sqlDialog.addInput(701 "SQL" dbSqlText)
@@ -673,6 +808,33 @@ class GridApp {
             } {
                 sqlDialog.addLabel("no database is open")
             }
+        }
+        ; What is in there to query. Without it the box is a prompt with no
+        ; manual: the one thing a person needs before writing a SELECT is the
+        ; names of the tables and their columns.
+        def schema:[string] (this.schemaLines())
+        if ((array_length schema) > 0) {
+            sqlDialog.addSeparator()
+            sqlDialog.addLabel("tables (* is a key column):")
+            def si:int 0
+            while (si < (array_length schema)) {
+                sqlDialog.addLabel(("   " + (itemAt schema si)))
+                si = (si + 1)
+            }
+        }
+        def examples:[string] (this.exampleQueries())
+        if ((array_length examples) > 0) {
+            sqlDialog.addSeparator()
+            sqlDialog.addLabel("examples, written for this database - click one:")
+            def exIds:[int]
+            def exLabels:[string]
+            def ei:int 0
+            while (ei < (array_length examples)) {
+                push exIds (741 + ei)
+                push exLabels (GridApp.exampleLabel(ei))
+                ei = (ei + 1)
+            }
+            sqlDialog.addButtonRow(exIds exLabels -1)
         }
         def ids:[int]
         def labels:[string]
@@ -4841,6 +5003,9 @@ class GridApp {
             }
         }
         if (sqlDialog.activated > 0) {
+            if (sqlDialog.activated >= 741) {
+                this.useExample((sqlDialog.activated - 741))
+            }
             if (sqlDialog.activated == 712) {
                 this.runSqlFromDialog()
             }
