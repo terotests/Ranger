@@ -60,9 +60,18 @@ class BookRenderOptions {
 class BookRenderer {
     def options:BookRenderOptions (new BookRenderOptions())
     def clipSeq:int 0
+    ; Furniture text - a title, a caption, a running head - is not part of a
+    ; story and so was never broken into lines by the flow engine. It still has
+    ; to wrap: a title that runs off the trim is not a title. This is the same
+    ; engine, asked the same question, one string at a time.
+    def engine:BookFlowEngine (new BookFlowEngine())
 
     Constructor () {
         clipSeq = 0
+    }
+
+    fn setFlowEngine:void (e:BookFlowEngine) {
+        engine = e
     }
 
     ; ---------------------------------------------------------------------
@@ -536,7 +545,8 @@ class BookRenderer {
         if ((strlen frame.text) > 0) {
             def resolved:string (BookRenderer.substitute(frame.text doc page))
             def style:BookStyle (doc.styleFor(frame.styleName))
-            def baseline:double (frame.y + style.fontSize)
+            def leading:double (style.leadingFor())
+            def lines:[BookBrokenLine] (engine.breakParagraph(resolved style frame.w))
             def anchor:string "start"
             def tx:double frame.x
             if (style.align == "center") {
@@ -548,19 +558,28 @@ class BookRenderer {
                 anchor = "end"
                 tx = (frame.x + frame.w)
             }
-            def out:string "    <text x=\""
-            out = (out + (BookRenderer.num(tx)) + "\" y=\"" + (BookRenderer.num(baseline)) + "\"")
-            if (anchor != "start") {
-                out = (out + " text-anchor=\"" + anchor + "\"")
+            def out:string ""
+            def li:int 0
+            while (li < (array_length lines)) {
+                def ln:BookBrokenLine (itemAt lines li)
+                if ((strlen ln.text) > 0) {
+                    def baseline:double ((frame.y + style.fontSize) + ((to_double li) * leading))
+                    out = (out + "    <text x=\"")
+                    out = (out + (BookRenderer.num(tx)) + "\" y=\"" + (BookRenderer.num(baseline)) + "\"")
+                    if (anchor != "start") {
+                        out = (out + " text-anchor=\"" + anchor + "\"")
+                    }
+                    out = (out + " font-family=\"" + (BookRenderer.escapeAttr(style.fontFamily)) + "\" font-size=\"" + (BookRenderer.num(style.fontSize)) + "\"")
+                    if style.bold {
+                        out = (out + " font-weight=\"bold\"")
+                    }
+                    if style.italic {
+                        out = (out + " font-style=\"italic\"")
+                    }
+                    out = (out + " fill=\"" + (BookRenderer.escapeAttr(style.color)) + "\">" + (BookRenderer.escapeText(ln.text)) + "</text>\n")
+                }
+                li = (li + 1)
             }
-            out = (out + " font-family=\"" + (BookRenderer.escapeAttr(style.fontFamily)) + "\" font-size=\"" + (BookRenderer.num(style.fontSize)) + "\"")
-            if style.bold {
-                out = (out + " font-weight=\"bold\"")
-            }
-            if style.italic {
-                out = (out + " font-style=\"italic\"")
-            }
-            out = (out + " fill=\"" + (BookRenderer.escapeAttr(style.color)) + "\">" + (BookRenderer.escapeText(resolved)) + "</text>\n")
             return out
         }
 
@@ -723,18 +742,30 @@ class BookRenderer {
         if ((strlen frame.text) > 0) {
             def resolved:string (BookRenderer.substitute(frame.text doc page))
             def style:BookStyle (doc.styleFor(frame.styleName))
-            out = (out + "            <Label position=\"absolute\"")
-            out = (out + " left=\"" + (BookRenderer.num(frame.x)) + "px\" top=\"" + (BookRenderer.num(frame.y)) + "px\"")
-            out = (out + " width=\"" + (BookRenderer.num(frame.w)) + "px\"")
-            out = (out + " fontSize=\"" + (BookRenderer.num(style.fontSize)) + "px\" color=\"" + (BookRenderer.escapeAttr(style.color)) + "\"")
-            if style.bold {
-                out = (out + " fontWeight=\"bold\"")
+            def leading:double (style.leadingFor())
+            def lines:[BookBrokenLine] (engine.breakParagraph(resolved style frame.w))
+            def li:int 0
+            while (li < (array_length lines)) {
+                def ln:BookBrokenLine (itemAt lines li)
+                if ((strlen ln.text) > 0) {
+                    def top:double (frame.y + ((to_double li) * leading))
+                    out = (out + "            <Label position=\"absolute\"")
+                    out = (out + " left=\"" + (BookRenderer.num(frame.x)) + "px\" top=\"" + (BookRenderer.num(top)) + "px\"")
+                    def slack:double (frame.w + 1.0)
+                    out = (out + " width=\"" + (BookRenderer.num(slack)) + "px\"")
+                    out = (out + " lineHeight=\"" + (BookRenderer.num(leading)) + "px\"")
+                    out = (out + " fontSize=\"" + (BookRenderer.num(style.fontSize)) + "px\" color=\"" + (BookRenderer.escapeAttr(style.color)) + "\"")
+                    if style.bold {
+                        out = (out + " fontWeight=\"bold\"")
+                    }
+                    if (style.align != "left") {
+                        out = (out + " textAlign=\"" + style.align + "\"")
+                    }
+                    out = (out + " fontFamily=\"" + (BookRenderer.escapeAttr(style.fontFamily)) + "\">")
+                    out = (out + "{\"" + (BookRenderer.escapeJs(ln.text)) + "\"}</Label>\n")
+                }
+                li = (li + 1)
             }
-            if (style.align != "left") {
-                out = (out + " textAlign=\"" + style.align + "\"")
-            }
-            out = (out + " fontFamily=\"" + (BookRenderer.escapeAttr(style.fontFamily)) + "\">")
-            out = (out + "{\"" + (BookRenderer.escapeJs(resolved)) + "\"}</Label>\n")
             return out
         }
 

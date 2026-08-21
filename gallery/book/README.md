@@ -6,11 +6,25 @@ structures a book actually needs, plus the one thing a vector editor cannot
 give you for free — **text that flows**.
 
 ```bash
-npm run book:demo     # build a book, lay it out, check it, write SVG + TSX
-npm run book:pdf      # …and turn it into a PDF with the existing EVG tooling
-npm run book:test     # 76 assertions, JavaScript
-npm run book:test:go  # the same 76 on Go (and book:test:python on Python)
+npm run book:web            # the editor, in a browser, with no server behind it
+npm run book:web:serve      # …and serve it at http://localhost:8003
+npm run book:demo           # lay the book out, check it, write SVG + TSX
+npm run book:pdf            # …and turn it into a PDF with the existing EVG tooling
+npm run book:test           # 76 assertions on the engine, JavaScript
+npm run book:test:go        # the same 76 on Go (and book:test:python on Python)
+npm run book:editor:test    # 64 more on the editor and the host seam
+npm run book:web:test       # drive the page in a real browser, on WebGL
 ```
+
+![The editor, on a picture spread](artifacts/01_editor.png)
+
+The editor runs **in the page**. `book_web.rgr` compiles the whole engine —
+model, flow, preflight — to JavaScript, and the page hands it font bytes and
+photographs and draws the display list it gets back through WebGL 2. A pointer
+move is a function call, not a round trip; there is no host process. (There is
+also `npm run book:window`, which runs the same `BookApp` in Node and posts
+events at it over HTTP — useful for driving the editor from a script, and the
+wrong shape for a product.)
 
 ## Why this and not a vector editor
 
@@ -44,7 +58,7 @@ it that no page shows"*.
 
 ## Architecture
 
-Five files, each with one job, and none of them rendering anything itself:
+Nine files, each with one job, and none of them rendering anything itself:
 
 ```
 BookModel.rgr        the document: pages, spreads, masters, frames, stories,
@@ -59,6 +73,18 @@ BookPreflight.rgr    the questions a printer asks: resolution, bleed, safety,
                      overset, signatures, missing assets.
 BookApi.rgr          all of the above with the wiring done, and one rule: any
                      edit invalidates the flow, so no export ships stale pages.
+
+BookToEvg.rgr        placed lines → EVGDisplayList, the form every EVG host
+                     draws: WebGL, OpenGL/SDL, or the software canvas.
+BookEdit.rgr         the editor: selection, drag, resize, snap, insert, pages,
+                     linking, undo. Page points; it has never heard of a pixel.
+BookView.rgr         the canvas — the CPU path, and the measurer that makes the
+                     flow engine measure with the faces the screen paints with.
+BookApp.rgr          the host seam: the only place a window pixel becomes a
+                     page point. Toolbar, pages panel, commands, chrome.
+BookSample.rgr       one book, in code, that the demo prints and the editor
+                     opens — so the thing being demonstrated is a thing that
+                     has actually been through a press.
 ```
 
 Output goes out through machinery that already existed:
@@ -73,6 +99,49 @@ BookDocument → flow → placed lines → TSX → evg_pdf_tool  → PDF
 `gallery/pdf_writer` is doing the printing. This directory contributes no PDF
 code at all — which is the point: the book engine is a document model and a
 flow engine, and Ranger already had a renderer.
+
+## The editor
+
+![The title page](artifacts/00_title.png)
+
+The frame around the canvas — the strip, the window layer, the command table —
+is the **shared** one the spreadsheet, the document and the deck all use
+(`gallery/evg`). A fourth toolbar in a fourth style would have been the wrong
+kind of new code. Two more pieces moved into that shared directory while this
+was built, because the book editor was the second caller:
+`EVGImageDecode` (PNG/JPEG bytes → pixels, which the deck viewer had been
+holding with a note on it saying it was not deck-specific) and
+`EVGSelectChrome` (where the eight handles are, and which edges each one owns —
+the slide editor and this one now number their handles from the same file, and
+`applyResize` in both reads its answers out of it).
+
+Four rules are taken from the slide editor because they were right there and
+are right here — an id is not an index, history is snapshots, a drag is one
+edit, editing is a mode — and one is this program's own:
+
+> **Every geometry edit re-flows.** Resizing a text frame does not move text
+> inside it; it moves text onto other pages. An editor that does not re-flow
+> after a drag is showing a book that does not exist.
+
+The gesture that has no equivalent in a slide editor is **Link flow**
+(Ctrl+L): select two text frames, and the story runs from one into the other.
+It moves no text. It changes where the text is allowed to go, and the flow
+engine decides the rest.
+
+| | |
+| --- | --- |
+| Ctrl+E | edit / read |
+| Ctrl+L | link the selected text frames into one story |
+| Ctrl+A / Ctrl+D / Del | select all, duplicate, delete |
+| Ctrl+Z / Ctrl+Y | undo, redo |
+| ← → | turn the spread (nudge the selection while editing) |
+| drag | move; handles resize; empty page starts a marquee |
+
+Frames snap to the margins, to the page's own edges and centre, and to the
+other frames — measured from where the drag **began**, not from the last
+pointer frame. That is not a refinement: snapping per-delta means a frame
+sitting on a guide is pulled back onto it by every small step and can never be
+dragged off.
 
 ## The flow engine
 

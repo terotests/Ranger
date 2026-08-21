@@ -1,0 +1,176 @@
+; ==============================================================================
+; EVGSelectChrome - where the handles are, for any editor that has a selection
+; ==============================================================================
+;
+; Eight handles round a box, numbered clockwise from the top-left:
+;
+;     0 ── 1 ── 2
+;     │         │
+;     7         3
+;     │         │
+;     6 ── 5 ── 4
+;
+; That numbering is not arbitrary once it exists: a resize is implemented by
+; asking which edges a handle owns, and two editors that number their handles
+; differently cannot share a single line of that code. The slide editor picked
+; this order first; the book editor uses the same one, and both ask here rather
+; than each carrying its own copy of "handle 3 is the right edge".
+;
+; Pure geometry, in whatever unit the caller works in - slide points, page
+; points or window pixels. Nothing here knows what a slide or a page is.
+; ==============================================================================
+
+class EVGSelectChrome {
+    ; The centre of handle `idx` on a box spanning x0..x1, y0..y1.
+    sfn handleCx:double (x0:double x1:double idx:int) {
+        def mid:double ((x0 + x1) * 0.5)
+        if (idx == 1) {
+            return mid
+        }
+        if (idx == 5) {
+            return mid
+        }
+        if (idx == 2) {
+            return x1
+        }
+        if (idx == 3) {
+            return x1
+        }
+        if (idx == 4) {
+            return x1
+        }
+        return x0
+    }
+
+    sfn handleCy:double (y0:double y1:double idx:int) {
+        def mid:double ((y0 + y1) * 0.5)
+        if (idx == 3) {
+            return mid
+        }
+        if (idx == 7) {
+            return mid
+        }
+        if (idx == 4) {
+            return y1
+        }
+        if (idx == 5) {
+            return y1
+        }
+        if (idx == 6) {
+            return y1
+        }
+        return y0
+    }
+
+    ; Which edges handle `idx` moves. A resize is these four answers and
+    ; nothing else, which is why they are here rather than written out again
+    ; in every editor's applyResize.
+    sfn movesWest:boolean (idx:int) {
+        if (idx == 0) {
+            return true
+        }
+        if (idx == 6) {
+            return true
+        }
+        return (idx == 7)
+    }
+
+    sfn movesEast:boolean (idx:int) {
+        if (idx == 2) {
+            return true
+        }
+        if (idx == 4) {
+            return true
+        }
+        return (idx == 3)
+    }
+
+    sfn movesNorth:boolean (idx:int) {
+        if (idx == 0) {
+            return true
+        }
+        if (idx == 2) {
+            return true
+        }
+        return (idx == 1)
+    }
+
+    sfn movesSouth:boolean (idx:int) {
+        if (idx == 4) {
+            return true
+        }
+        if (idx == 6) {
+            return true
+        }
+        return (idx == 5)
+    }
+
+    ; The handle under a point, or -1. `grab` is the half-width of a handle's
+    ; hit area - deliberately larger than the drawn square, because a handle
+    ; you cannot reliably hit is worse than one you cannot see.
+    sfn handleAt:int (x0:double y0:double x1:double y1:double px:double py:double grab:double) {
+        def i:int 0
+        while (i < 8) {
+            def hx:double (EVGSelectChrome.handleCx(x0 x1 i))
+            def hy:double (EVGSelectChrome.handleCy(y0 y1 i))
+            def dx:double (px - hx)
+            def dy:double (py - hy)
+            if (dx < 0.0) {
+                dx = (0.0 - dx)
+            }
+            if (dy < 0.0) {
+                dy = (0.0 - dy)
+            }
+            if ((dx <= grab) && (dy <= grab)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A drag from (ax, ay) to (bx, by) as a positive rectangle: x, y, w, h.
+    ; A marquee dragged up and to the left is the same rectangle as one
+    ; dragged down and to the right, and only one of them has positive sides.
+    sfn marquee:[double] (ax:double ay:double bx:double by:double) {
+        def out:[double]
+        def x0:double ax
+        def x1:double bx
+        if (bx < ax) {
+            x0 = bx
+            x1 = ax
+        }
+        def y0:double ay
+        def y1:double by
+        if (by < ay) {
+            y0 = by
+            y1 = ay
+        }
+        push out x0
+        push out y0
+        push out (x1 - x0)
+        push out (y1 - y0)
+        return out
+    }
+
+    ; Do two boxes overlap at all? A marquee selects what it touches.
+    sfn overlaps:boolean (ax:double ay:double aw:double ah:double bx:double by:double bw:double bh:double) {
+        def ax1:double (ax + aw)
+        def ay1:double (ay + ah)
+        def bx1:double (bx + bw)
+        def by1:double (by + bh)
+        if (ax1 < bx) {
+            return false
+        }
+        if (bx1 < ax) {
+            return false
+        }
+        if (ay1 < by) {
+            return false
+        }
+        if (by1 < ay) {
+            return false
+        }
+        return true
+    }
+}

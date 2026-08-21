@@ -1,0 +1,306 @@
+; ==============================================================================
+; BookSample.rgr - one book, built in code, for everything that needs a book
+; ==============================================================================
+;
+; The demo writes it to SVG and PDF, the editor opens it, and the tests measure
+; it. Three copies of a story with photographs in it would have drifted apart by
+; the second change, and the editor would be demonstrated on something nobody
+; had ever printed.
+;
+; It is also the only honest way to show what the engine can do, so it is
+; TYPESET rather than merely filled in. The palette and the faces are the EVG
+; showcase's "editorial" theme - warm paper, Cinzel for display, Josefin Sans
+; for the small voice, a gold rule - because a sample book set entirely in the
+; UI font is a wireframe of a book and proves nothing about a page-layout
+; engine.
+;
+;   paper      #fbf7f0      ink        #3b2f2a
+;   gold       #b08d57      body       #5c4f47
+;   muted      #c8bda9      quiet      #8a7360
+;
+; `assetBase` is the only thing the callers disagree about: an image path is
+; resolved relative to whatever is going to read it - the directory the SVG is
+; written into, or the root a server runs from.
+; ==============================================================================
+
+Import "BookAutoLayout.rgr"
+
+class BookPalette {
+    sfn paper:string () {
+        return "#fbf7f0"
+    }
+
+    sfn ink:string () {
+        return "#3b2f2a"
+    }
+
+    sfn gold:string () {
+        return "#b08d57"
+    }
+
+    sfn body:string () {
+        return "#5c4f47"
+    }
+
+    sfn quiet:string () {
+        return "#8a7360"
+    }
+
+    sfn muted:string () {
+        return "#c8bda9"
+    }
+}
+
+class BookSample {
+    ; A leaf, drawn once and used at several sizes. The story is about counting
+    ; leaves, and a vector ornament is also the only thing on these pages that
+    ; is neither text nor a photograph - which is the third kind of frame.
+    sfn leafPath:string () {
+        return "M50 2 C 82 28, 94 62, 50 98 C 6 62, 18 28, 50 2 Z"
+    }
+
+    sfn leafVein:string () {
+        return "M50 12 L50 90 M50 34 L30 44 M50 34 L70 44 M50 54 L32 64 M50 54 L68 64"
+    }
+
+    sfn document:BookDocument (assetBase:string) {
+        def d (BookDocument.create("The Bear Who Counted Leaves" "square-210"))
+        d.author = "A Ranger book"
+        BookSample.addStyles(d)
+
+        def m (BookMasterPage.create("story"))
+        m.setMargins(58.0 62.0 66.0 48.0)
+        m.showPageNumber = true
+        m.pageNumberOffset = 34.0
+        ; A hairline above the folio, on every page, from the master - which is
+        ; what a master page is for.
+        def rule (BookFrame.shapeFrame("rule" 48.0 528.0 200.0 0.6 (BookPalette.muted())))
+        rule.layer = "overlay"
+        m.addFrame(rule)
+        d.addMaster(m)
+
+        BookSample.addStory(d)
+
+        def a1 (BookAsset.create("photo-1" (assetBase + "Example_scaled.jpg") 600.0 600.0))
+        a1.caption = "The lowest branch, on the first morning."
+        d.addAsset(a1)
+        def a2 (BookAsset.create("photo-2" (assetBase + "GPS_test.jpg") 640.0 480.0))
+        a2.caption = "The wood, the colour of an old coin."
+        d.addAsset(a2)
+        def a3 (BookAsset.create("photo-3" (assetBase + "Canon_40D_scaled.jpg") 500.0 340.0))
+        a3.caption = "Where the water goes slow and clear."
+        d.addAsset(a3)
+        return d
+    }
+
+    ; The same book, laid out and padded to a signature - what a host wants
+    ; when it needs pages rather than a document to lay out itself.
+    sfn laidOut:BookDocument (assetBase:string engine:BookFlowEngine) {
+        def d:BookDocument (BookSample.document(assetBase))
+        def auto (new BookAutoLayout())
+        auto.setEngine(engine)
+        auto.background = (BookPalette.paper())
+        def title:BookPage (auto.addTitlePage(d))
+        BookSample.dressTitlePage(d title)
+        def ids:[string] (BookSample.assetIds(d))
+        auto.build(d "main" ids "story")
+        auto.padToSignature(d 4)
+        BookSample.dressPages(d)
+        return d
+    }
+
+    ; The title page: an eyebrow, the title, a gold rule under it, the author,
+    ; and a leaf. `addTitlePage` puts the two text frames on; this is the part
+    ; that makes it a title page rather than two centred strings.
+    sfn dressTitlePage:void (d:BookDocument page:BookPage) {
+        page.background = (BookPalette.paper())
+        def w:double page.width
+        def h:double page.height
+
+        def leaf (new BookFrame())
+        leaf.id = (d.nextId("leaf"))
+        leaf.kind = "path"
+        leaf.pathData = (BookSample.leafPath())
+        leaf.fill = "#efe6d6"
+        leaf.layer = "background"
+        def lw:double (w * 0.46)
+        leaf.w = lw
+        leaf.h = (lw * 1.0)
+        leaf.x = ((w - lw) * 0.5)
+        leaf.y = (h * 0.06)
+        page.addFrame(leaf)
+
+        def eyebrow (new BookFrame())
+        eyebrow.id = (d.nextId("eyebrow"))
+        eyebrow.kind = "text"
+        eyebrow.text = "A picture book, set by the Ranger book engine"
+        eyebrow.styleName = "eyebrow"
+        eyebrow.x = (w * 0.12)
+        eyebrow.w = (w * 0.76)
+        eyebrow.h = 18.0
+        def eyeTop:double (h * 0.36)
+        eyebrow.y = (eyeTop - 34.0)
+        page.addFrame(eyebrow)
+
+        def rule (new BookFrame())
+        rule.id = (d.nextId("rule"))
+        rule.kind = "shape"
+        rule.fill = (BookPalette.gold())
+        rule.w = 88.0
+        rule.h = 3.0
+        rule.x = ((w - 88.0) * 0.5)
+        ; Under the title, measured from where the title starts rather than as
+        ; a share of the page - a two-line title would otherwise run into it.
+        def titleTop:double (h * 0.36)
+        rule.y = (titleTop + 104.0)
+        page.addFrame(rule)
+
+        def vein (new BookFrame())
+        vein.id = (d.nextId("vein"))
+        vein.kind = "path"
+        vein.pathData = (BookSample.leafVein())
+        vein.stroke = (BookPalette.gold())
+        vein.strokeWidth = 0.8
+        vein.w = 34.0
+        vein.h = 34.0
+        vein.x = ((w - 34.0) * 0.5)
+        vein.y = (h * 0.66)
+        page.addFrame(vein)
+    }
+
+    ; What the generator cannot know: the paper on the pages it did not make,
+    ; and a leaf in the corner of every full-bleed picture page, so the
+    ; photographs belong to the same book as the type.
+    sfn dressPages:void (d:BookDocument) {
+        def paper:string (BookPalette.paper())
+        def i:int 0
+        while (i < (d.pageCount())) {
+            def p:BookPage (d.pageAt(i))
+            if ((strlen p.background) == 0) {
+                p.background = paper
+            }
+            if (BookSample.isFullBleed(p)) {
+                def leaf (new BookFrame())
+                leaf.id = (d.nextId("leaf"))
+                leaf.kind = "path"
+                leaf.pathData = (BookSample.leafPath())
+                leaf.fill = "#ffffff"
+                leaf.opacity = 0.75
+                leaf.layer = "overlay"
+                leaf.w = 40.0
+                leaf.h = 40.0
+                def recto:boolean (p.isRecto())
+                if recto {
+                    leaf.x = (p.width - 82.0)
+                } {
+                    leaf.x = 42.0
+                }
+                leaf.y = (p.height - 86.0)
+                p.addFrame(leaf)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A page whose picture runs off the trim on every side.
+    sfn isFullBleed:boolean (p:BookPage) {
+        def i:int 0
+        while (i < (array_length p.frames)) {
+            def f:BookFrame (itemAt p.frames i)
+            if (f.kind == "image") {
+                def right:double (f.x + f.w)
+                def bottom:double (f.y + f.h)
+                def wide:boolean ((f.x < 0.0) && (right > p.width))
+                def tall:boolean ((f.y < 0.0) && (bottom > p.height))
+                if (wide && tall) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn assetIds:[string] (d:BookDocument) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length d.assets)) {
+            def a:BookAsset (itemAt d.assets i)
+            push out a.id
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn addStyles:void (d:BookDocument) {
+        def title (BookStyle.create("title" "Cinzel" 33.0))
+        title.align = "center"
+        title.color = (BookPalette.ink())
+        title.leading = 40.0
+        title.spaceAfter = 12.0
+        d.addStyle(title)
+
+        def subtitle (BookStyle.create("subtitle" "Josefin Sans" 13.0))
+        subtitle.align = "center"
+        subtitle.color = (BookPalette.quiet())
+        d.addStyle(subtitle)
+
+        def eyebrow (BookStyle.create("eyebrow" "Josefin Sans" 10.0))
+        eyebrow.align = "center"
+        eyebrow.color = "#a1856a"
+        d.addStyle(eyebrow)
+
+        def chapter (BookStyle.create("chapter" "Cinzel" 19.0))
+        chapter.color = (BookPalette.ink())
+        chapter.leading = 26.0
+        chapter.spaceBefore = 20.0
+        chapter.spaceAfter = 14.0
+        chapter.keepWithNext = true
+        chapter.startsNewPage = true
+        d.addStyle(chapter)
+
+        def body (BookStyle.create("body" "Open Sans" 11.5))
+        body.leading = 19.0
+        body.spaceAfter = 7.0
+        body.align = "justify"
+        body.color = (BookPalette.body())
+        d.addStyle(body)
+
+        ; The first paragraph of a chapter is not indented; the ones after it
+        ; are. That is the convention, and it is what an indent is FOR - it
+        ; marks a new paragraph, and the chapter opening needs no marking.
+        def bodyIndent (BookStyle.create("body-indent" "Open Sans" 11.5))
+        bodyIndent.leading = 19.0
+        bodyIndent.align = "justify"
+        bodyIndent.color = (BookPalette.body())
+        bodyIndent.firstLineIndent = 16.0
+        d.addStyle(bodyIndent)
+
+        def caption (BookStyle.create("caption" "Josefin Sans" 9.0))
+        caption.color = (BookPalette.quiet())
+        caption.italic = true
+        caption.orphans = 1
+        caption.widows = 1
+        d.addStyle(caption)
+
+        def folio (BookStyle.create("folio" "Josefin Sans" 9.0))
+        folio.color = (BookPalette.quiet())
+        d.addStyle(folio)
+    }
+
+    sfn addStory:void (d:BookDocument) {
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("The Bear Who Counted Leaves" "chapter")
+        s.addParagraph("Once upon a time there was a small bear who lived under a very large tree at the edge of a quiet wood. He was not a clever bear, and he was not a fast bear, but he was a bear who noticed things, which is a rarer talent than either." "body")
+        s.addParagraph("Every morning, before the mist had left the hollows, he would sit down on the same flat stone and count the leaves on the lowest branch. There were four hundred and six of them on the first morning, and four hundred and six on the second, and this pleased him enormously." "body-indent")
+        s.addParagraph("On the third morning there were four hundred and five. The bear sat very still for a long time. Somewhere above him, a single leaf had decided that it had done enough." "body-indent")
+        s.addParagraph("He looked for it all afternoon. He looked under the ferns and behind the stone and in the shallow part of the stream where the water goes slow and clear, and he did not find it, because a leaf that has come down is very hard to tell from all the other leaves that came down before it." "body-indent")
+        s.addParagraph("Autumn" "chapter")
+        s.addParagraph("By the time the wood turned the colour of an old coin, the bear had stopped counting leaves and started counting mornings instead. There were fewer of those than there had been leaves, but they were easier to keep track of, and none of them ever went missing while he was not looking." "body")
+        s.addParagraph("The tree let go of everything it had, one piece at a time, without hurry and without regret. The bear watched it do this and understood, in the slow way that bears understand things, that the tree was not losing anything at all. It was putting things down." "body-indent")
+        s.addParagraph("When the first snow came he went to sleep under the roots with his nose tucked into his paws, and he dreamed of four hundred and six leaves, all of them exactly where he had left them." "body-indent")
+        s.addParagraph("Spring" "chapter")
+        s.addParagraph("He woke to a sound he could not place: a small, green, insistent sound, like a hundred tiny things unfolding at once. It was, of course, exactly that." "body")
+        s.addParagraph("The bear climbed out into the light, sat down on his flat stone, looked up at the lowest branch, and began, without the slightest hesitation, to count again." "body-indent")
+    }
+}

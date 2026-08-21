@@ -37,9 +37,11 @@ class BookApi {
     def flowValid:boolean false
 
     Constructor () {
-        ; One flow engine, shared with the auto-layout, so that installing a
-        ; real font measurer once affects every measurement in the book.
+        ; One flow engine, shared with the auto-layout and with the renderer's
+        ; furniture wrapping, so that installing a real font measurer once
+        ; affects every measurement in the book.
         auto.setEngine(flowEngine)
+        renderer.setFlowEngine(flowEngine)
         flowValid = false
     }
 
@@ -55,6 +57,7 @@ class BookApi {
     ; is how a preview and a proof end up disagreeing.
     fn useTextEngine:void (e:EVGTextEngine) {
         flowEngine.setTextEngine(e)
+        renderer.engine.setTextEngine(e)
         flowValid = false
     }
 

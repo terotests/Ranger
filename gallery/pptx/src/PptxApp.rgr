@@ -19,6 +19,7 @@ Import "../../evg/EVGDisplayList.rgr"
 Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "../../evg/EVGCommands.rgr"
+Import "../../evg/EVGSelectChrome.rgr"
 
 ; Which buttons a slide viewer has. The strip is the shared one — the same
 ; component the spreadsheet's and the document's are — and this is the only
@@ -1109,44 +1110,15 @@ class PptxApp {
     }
 
     ; Handles, clockwise from the top-left, on the selection's box.
+    ; The handle geometry moved to `EVGSelectChrome` when the book editor
+    ; needed the same eight handles in the same order. These two stay as the
+    ; names the rest of this file calls.
     sfn handleCx:double (x0:double x1:double idx:int) {
-        def mid:double ((x0 + x1) * 0.5)
-        if (idx == 1) {
-            return mid
-        }
-        if (idx == 5) {
-            return mid
-        }
-        if (idx == 2) {
-            return x1
-        }
-        if (idx == 3) {
-            return x1
-        }
-        if (idx == 4) {
-            return x1
-        }
-        return x0
+        return (EVGSelectChrome.handleCx(x0 x1 idx))
     }
 
     sfn handleCy:double (y0:double y1:double idx:int) {
-        def mid:double ((y0 + y1) * 0.5)
-        if (idx == 3) {
-            return mid
-        }
-        if (idx == 7) {
-            return mid
-        }
-        if (idx == 4) {
-            return y1
-        }
-        if (idx == 5) {
-            return y1
-        }
-        if (idx == 6) {
-            return y1
-        }
-        return y0
+        return (EVGSelectChrome.handleCy(y0 y1 idx))
     }
 
     ; The rotation handle stands off the top of the box, where every editor

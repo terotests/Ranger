@@ -772,6 +772,43 @@ class EVGDisplayList {
 
     ; A backend-shaped summary: how many quads, how many text runs, how deep
     ; the clip stack goes. Useful for sizing a vertex buffer up front.
+    ; Move every command by (dx, dy). A host builds a page's list in the page's
+    ; own coordinates and then places it in the window; doing that by walking
+    ; the list is what lets the page renderer stay ignorant of where on the
+    ; desk it landed. POP_CLIP carries no geometry, so it is left alone.
+    fn offsetBy:void (dx:double dy:double) {
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (c.kind != 5) {
+                c.x = (c.x + dx)
+                c.y = (c.y + dy)
+                def pi:int 0
+                while (pi < (array_length c.pts)) {
+                    def even:boolean ((pi % 2) == 0)
+                    if even {
+                        set_at c.pts pi ((itemAt c.pts pi) + dx)
+                    } {
+                        set_at c.pts pi ((itemAt c.pts pi) + dy)
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Append another list's commands to this one, in order. The commands are
+    ; shared rather than copied - the source list is finished with by the time
+    ; a caller does this, and copying a page of text would not be free.
+    fn appendFrom:void (src:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length src.cmds)) {
+            push cmds (itemAt src.cmds i)
+            i = (i + 1)
+        }
+    }
+
     fn summary:string () {
         def rects:int 0
         def borders:int 0

@@ -218,6 +218,14 @@ class BookParagraph {
         p.styleName = styleName
         return p
     }
+
+    fn copyOf:BookParagraph () {
+        def p (new BookParagraph())
+        p.text = text
+        p.styleName = styleName
+        p.firstPage = firstPage
+        return p
+    }
 }
 
 class BookStory {
@@ -248,6 +256,20 @@ class BookStory {
 
     fn paragraphAt:BookParagraph (i:int) {
         return (itemAt paragraphs i)
+    }
+
+    fn copyOf:BookStory () {
+        def s (new BookStory())
+        s.id = id
+        s.title = title
+        def i:int 0
+        while (i < (array_length paragraphs)) {
+            def p:BookParagraph (itemAt paragraphs i)
+            def c:BookParagraph (p.copyOf())
+            push s.paragraphs c
+            i = (i + 1)
+        }
+        return s
     }
 
     ; Rough length, for auto-layout deciding how many pages a story wants.
@@ -288,6 +310,16 @@ class BookAsset {
         a.path = path
         a.naturalWidth = w
         a.naturalHeight = h
+        return a
+    }
+
+    fn copyOf:BookAsset () {
+        def a (new BookAsset())
+        a.id = id
+        a.path = path
+        a.naturalWidth = naturalWidth
+        a.naturalHeight = naturalHeight
+        a.caption = caption
         return a
     }
 
@@ -581,6 +613,35 @@ class BookMasterPage {
     fn addGuide:void (g:BookGuide) {
         push guides g
     }
+
+    fn copyOf:BookMasterPage () {
+        def m (new BookMasterPage())
+        m.name = name
+        m.marginTop = marginTop
+        m.marginBottom = marginBottom
+        m.marginInner = marginInner
+        m.marginOuter = marginOuter
+        m.columns = columns
+        m.gutter = gutter
+        m.showPageNumber = showPageNumber
+        m.pageNumberStyle = pageNumberStyle
+        m.pageNumberOffset = pageNumberOffset
+        def i:int 0
+        while (i < (array_length frames)) {
+            def f:BookFrame (itemAt frames i)
+            def c:BookFrame (f.copyOf())
+            push m.frames c
+            i = (i + 1)
+        }
+        def g:int 0
+        while (g < (array_length guides)) {
+            def gd:BookGuide (itemAt guides g)
+            def gc:BookGuide (BookGuide.create(gd.horizontal gd.position))
+            push m.guides gc
+            g = (g + 1)
+        }
+        return m
+    }
 }
 
 ; ------------------------------------------------------------------------------
@@ -616,6 +677,24 @@ class BookPage {
 
     fn frameAt:BookFrame (i:int) {
         return (itemAt frames i)
+    }
+
+    fn copyOf:BookPage () {
+        def p (new BookPage())
+        p.index = index
+        p.width = width
+        p.height = height
+        p.masterName = masterName
+        p.background = background
+        p.numbered = numbered
+        def i:int 0
+        while (i < (array_length frames)) {
+            def f:BookFrame (itemAt frames i)
+            def c:BookFrame (f.copyOf())
+            push p.frames c
+            i = (i + 1)
+        }
+        return p
     }
 
     ; A right-hand page in a bound book carries an odd folio: page index 0 is
@@ -1010,6 +1089,128 @@ class BookDocument {
             pi = (pi + 1)
         }
         return out
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Copies, for undo
+    ; ---------------------------------------------------------------------
+
+    ; A deep copy of everything an edit can touch. History is snapshots rather
+    ; than an operation log for the same reason the slide editor's is: one
+    ; gesture can move a frame, re-flow three stories and repaginate a chapter,
+    ; and copying a book is cheap next to getting the inverse of that right.
+    fn copyOf:BookDocument () {
+        def d (new BookDocument())
+        d.title = title
+        d.author = author
+        d.format = format
+        d.pageWidth = pageWidth
+        d.pageHeight = pageHeight
+        d.bleed = bleed
+        d.idSeq = idSeq
+        def i:int 0
+        while (i < (array_length pages)) {
+            def p:BookPage (itemAt pages i)
+            def pc:BookPage (p.copyOf())
+            push d.pages pc
+            i = (i + 1)
+        }
+        def si:int 0
+        while (si < (array_length stories)) {
+            def st:BookStory (itemAt stories si)
+            def sc:BookStory (st.copyOf())
+            push d.stories sc
+            si = (si + 1)
+        }
+        def yi:int 0
+        while (yi < (array_length styles)) {
+            def sty:BookStyle (itemAt styles yi)
+            def styc:BookStyle (sty.copyOf())
+            push d.styles styc
+            yi = (yi + 1)
+        }
+        def ai:int 0
+        while (ai < (array_length assets)) {
+            def a:BookAsset (itemAt assets ai)
+            def ac:BookAsset (a.copyOf())
+            push d.assets ac
+            ai = (ai + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length masters)) {
+            def m:BookMasterPage (itemAt masters mi)
+            def mc:BookMasterPage (m.copyOf())
+            push d.masters mc
+            mi = (mi + 1)
+        }
+        return d
+    }
+
+    ; Take on another document's contents without becoming another object.
+    ; Undo hands back new frames and new paragraphs by design - a held
+    ; `BookFrame` is stale afterwards, and a caller looks frames up by id
+    ; again - but the DOCUMENT a host is holding stays the one it is holding.
+    fn restoreFrom:void (other:BookDocument) {
+        title = other.title
+        author = other.author
+        format = other.format
+        pageWidth = other.pageWidth
+        pageHeight = other.pageHeight
+        bleed = other.bleed
+        idSeq = other.idSeq
+        clear pages
+        clear stories
+        clear styles
+        clear assets
+        clear masters
+        def i:int 0
+        while (i < (array_length other.pages)) {
+            def p:BookPage (itemAt other.pages i)
+            def pc:BookPage (p.copyOf())
+            push pages pc
+            i = (i + 1)
+        }
+        def si:int 0
+        while (si < (array_length other.stories)) {
+            def st:BookStory (itemAt other.stories si)
+            def sc:BookStory (st.copyOf())
+            push stories sc
+            si = (si + 1)
+        }
+        def yi:int 0
+        while (yi < (array_length other.styles)) {
+            def sty:BookStyle (itemAt other.styles yi)
+            def styc:BookStyle (sty.copyOf())
+            push styles styc
+            yi = (yi + 1)
+        }
+        def ai:int 0
+        while (ai < (array_length other.assets)) {
+            def a:BookAsset (itemAt other.assets ai)
+            def ac:BookAsset (a.copyOf())
+            push assets ac
+            ai = (ai + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length other.masters)) {
+            def m:BookMasterPage (itemAt other.masters mi)
+            def mc:BookMasterPage (m.copyOf())
+            push masters mc
+            mi = (mi + 1)
+        }
+        this.renumberPages()
+    }
+
+    ; Page order is page identity here: `index` is what the folio, the master
+    ; mirroring and the spread arithmetic all read, so anything that reorders
+    ; pages has to put it right afterwards.
+    fn renumberPages:void () {
+        def i:int 0
+        while (i < (array_length pages)) {
+            def p:BookPage (itemAt pages i)
+            p.index = i
+            i = (i + 1)
+        }
     }
 
     fn isContinuation:boolean (frameId:string) {

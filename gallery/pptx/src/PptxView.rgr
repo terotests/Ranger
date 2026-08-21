@@ -4,7 +4,7 @@
 
 Import "PptxModel.rgr"
 Import "PptxToEvg.rgr"
-Import "PptxImageDecode.rgr"
+Import "../../evg/EVGImageDecode.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
@@ -84,7 +84,7 @@ class PptxView {
         if (!null? existing) {
             return
         }
-        def decoded@(optional):ImageBuffer (PptxImageDecode.decode(bytes))
+        def decoded@(optional):ImageBuffer (EVGImageDecode.decode(bytes))
         if (!null? decoded) {
             set imageCache part (unwrap decoded)
         }

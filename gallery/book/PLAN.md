@@ -45,6 +45,33 @@ Ranger owns outright.
 | One-object API and a JSON projection for a host UI | `BookApi.rgr` | done |
 | 76 assertions on JavaScript, Go and Python | `tests/BookTest.rgr` | done |
 
+## Stage 1b — the editor (done)
+
+| Piece | Where | State |
+| --- | --- | --- |
+| Placed lines → `EVGDisplayList` (WebGL, OpenGL, software canvas) | `BookToEvg.rgr` | done |
+| Selection, hit test, marquee; master frames are drawn, not selectable | `BookEdit.rgr` | done |
+| Move, resize from 8 handles, measured from where the drag began | `BookEdit.rgr` | done |
+| Snapping to margins, page edges and centres, and other frames | `BookEdit.rgr` | done |
+| Insert text / picture / shape frames; delete, duplicate, z-order, align | `BookEdit.rgr` | done |
+| **Link and unlink the story flow** — the gesture a slide editor has no use for | `BookEdit.rgr` | done |
+| Pages: add, duplicate, delete, reorder; deleting one joins the chain | `BookEdit.rgr` | done |
+| Undo / redo over whole-document snapshots; a drag is one edit | `BookEdit.rgr` | done |
+| Every geometry edit re-flows | `BookEdit.rgr` | done |
+| Host seam: window pixel → point on the left or right page of a spread | `BookApp.rgr` | done |
+| Shared toolbar, pages panel, status line, command table, preflight window | `BookApp.rgr` | done |
+| Selection chrome in the same display list as the pages | `BookApp.rgr` | done |
+| The canvas measures with the faces it paints with | `BookView.rgr`, `EVGContextMeasurer.rgr` | done |
+| Serverless browser build — the whole engine in the page, WebGL 2 | `web/standalone/` | done |
+| Node-hosted variant, for driving the editor from a script | `web/serve.mjs` | done |
+| 64 editor assertions, 17 in a real browser | `tests/`, `web/standalone/smoke.mjs` | done |
+
+Extracted into `gallery/evg` on the way, because the book editor was the second
+caller: `EVGImageDecode` (PNG/JPEG bytes → pixels), `EVGSelectChrome` (handle
+geometry and which edges each handle owns), `EVGContextMeasurer` (EVG text
+measurement backed by a host's own renderer), and
+`EVGDisplayList.offsetBy` / `.appendFrom`.
+
 ## Stage 2 — typography that survives a proof
 
 The current line breaker is greedy, and justification is done by the renderer
@@ -73,22 +100,25 @@ for a printed book. In order of visible improvement:
 3. **Vector decoration on the page**, already possible through `kind = "path"`,
    but with EVG's path editing rather than hand-written path data.
 
-## Stage 4 — the editor
+## Stage 4 — the editor, continued
 
-The model is deliberately host-agnostic; the editor is a separate program that
-draws `api.toJson()` and calls back into the API. What it needs:
+The canvas, the panel and the editing core are in (stage 1b). What is left is
+the half that needs a caret and a properties panel:
 
-1. A **spread canvas** on EVG, with frame selection, drag, resize — the same
-   machinery `rangerflow` and `datagrid` already use.
-2. A **pages panel** showing spreads, with drag-to-reorder (which is a document
-   operation the model does not have yet: moving a page must re-mirror its
-   master frames).
-3. A **story view** — editing the text, not the page. Editing a story should
-   re-flow and show which pages changed.
-4. **Overset made visible.** The red frame edge is already in the renderer
-   (`options.showFrames`); the editor needs to surface it as a place to go.
-5. **Master page editing**, and re-applying a master to pages that have
-   overrides.
+1. **A caret in a text frame.** Typing into a story, not into a box: the
+   position is a paragraph and a column of the STORY, and the caret's rectangle
+   has to be found from the flow's placed lines. `PptxTextEdit` solves the same
+   problem against OOXML runs and is the shape to copy, not the code.
+2. **A properties panel** — style, fill, fit, focus, columns — in the shared
+   window layer, so the commands that exist (`image.fit`, `edit.fill`,
+   `frame.columns`) get a surface.
+3. **Drag-to-reorder in the pages panel.** `movePage` is there; the panel only
+   selects.
+4. **The story view** — editing the text away from the page, with the flow
+   showing which pages changed.
+5. **Master page editing**, and re-applying a master to pages with overrides.
+6. **Saving.** The document is data; a `.book` file is a serializer and a
+   parser, and `toJson` is already most of the first one.
 
 ## Stage 5 — output that a printer accepts
 

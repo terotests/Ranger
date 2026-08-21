@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger Book Editor</title>
+    <style>
+      /* The WebGL text atlas rasterizes with the BROWSER's fonts, so the page
+         has to have the same faces the engine measured with — otherwise the
+         layout is Cinzel and the picture is whatever sans-serif was to hand. */
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+      @font-face { font-family: "Cinzel"; src: url("./fonts/Cinzel-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Cinzel"; src: url("./fonts/Cinzel-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+      @font-face { font-family: "Josefin Sans"; src: url("./fonts/JosefinSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Josefin Sans"; src: url("./fonts/JosefinSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+      :root {
+        color-scheme: light;
+        --bg: #f2f0eb;
+        --panel: #ffffff;
+        --text: #33302b;
+        --muted: #7b756c;
+        --line: #ddd8cf;
+        --warn: #b1520e;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.4 "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body { display: grid; grid-template-rows: auto 1fr; min-height: 100%; }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.9rem;
+        align-items: center;
+        padding: 0.75rem 1.2rem;
+        background: color-mix(in srgb, var(--panel) 88%, transparent);
+        border-bottom: 1px solid var(--line);
+      }
+      header strong { font-size: 1.05rem; letter-spacing: 0.02em; }
+      #meta, #state, #build { color: var(--muted); font-size: 12px; }
+      #state.warn { color: var(--warn); }
+      .spacer { flex: 1; }
+      button {
+        background: #ffffff;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 0.3rem 0.6rem;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      button:hover { border-color: #b08d57; }
+      main { display: grid; place-items: center; padding: 1rem; }
+      canvas {
+        width: min(97vw, 1180px);
+        height: auto;
+        aspect-ratio: 1180 / 800;
+        background: #e2ded6;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        box-shadow: 0 10px 30px rgba(60, 50, 35, 0.12);
+        touch-action: none;
+        outline: none;
+      }
+      kbd {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0 0.3rem;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Ranger Book Editor</strong>
+      <span id="meta">loading…</span>
+      <span id="state"></span>
+      <span class="spacer"></span>
+      <button data-cmd="edit.toggle">Edit</button>
+      <button data-cmd="frame.text">+ Text</button>
+      <button data-cmd="frame.image">+ Picture</button>
+      <button data-cmd="frame.link">Link flow</button>
+      <button data-cmd="view.frames">Frames</button>
+      <button data-cmd="view.margins">Margins</button>
+      <button data-cmd="book.preflight">Preflight</button>
+      <button id="save">Save spread (SVG)</button>
+      <span id="hint" style="color: var(--muted); font-size: 12px">
+        <kbd>Ctrl</kbd>+<kbd>E</kbd> edit · <kbd>Ctrl</kbd>+<kbd>L</kbd> link · <kbd>←</kbd><kbd>→</kbd> spread
+      </span>
+      <span id="build">build __BUILD__</span>
+    </header>
+    <main>
+      <canvas id="view" width="1180" height="800" tabindex="0"></canvas>
+      <!-- Read back by smoke.mjs through --dump-dom; invisible otherwise. -->
+      <div id="probe" hidden>
+        backend <strong id="backend">?</strong>
+        cmds <strong id="cmds">0</strong>
+        <pre id="selftest"></pre>
+      </div>
+    </main>
+    <script src="./book_web.js?v=__BUILD__"></script>
+    <script type="module" src="./standalone.mjs?v=__BUILD__"></script>
+  </body>
+</html>
