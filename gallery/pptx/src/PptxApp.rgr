@@ -80,6 +80,8 @@ class PptxToolbar extends EVGToolbar {
         this.add("slide.add" "" "New slide" (ToolIcon.newFile()))
         this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.insertRow()))
         this.add("slide.delete" "" "Delete slide" (ToolIcon.deleteRow()))
+        this.addSeparator()
+        this.add("show.start" "" "Show the deck" (ToolIcon.play()))
     }
 
     ; The one button that shows a value rather than a picture. The strip
@@ -188,6 +190,9 @@ class PptxApp {
     def inkDrawing:boolean false
     def laserX:double (0.0 - 1.0)
     def laserY:double 0.0
+    ; A blanked screen: B during a show, which is what a presenter presses when
+    ; the slide is not the thing to look at any more.
+    def showBlank:boolean false
 
     Constructor () {
     }
@@ -318,6 +323,7 @@ class PptxApp {
         }
         def from:int index
         this.gotoSlide((index + 1))
+        presentStep = 0
         this.beginTransition(from)
         return true
     }
@@ -347,8 +353,11 @@ class PptxApp {
         return true
     }
 
+    ; Start the transition onto the slide now in front. It does NOT touch the
+    ; build step: going forward reaches a slide unbuilt and going back reaches
+    ; one fully built, and each caller says which — resetting it here undid
+    ; the second.
     fn beginTransition:void (from:int) {
-        presentStep = 0
         slideClock = 0.0
         showFrom = -1
         showLength = 0.0
@@ -454,6 +463,21 @@ class PptxApp {
         commands.addArg("section.add" "Start a section here" "Slides" "")
         commands.addArg("section.rename" "Rename this section" "Slides" "")
         commands.add("section.remove" "Remove this section" "Slides" "")
+        commands.add("show.start" "Show the deck" "Show" "F5")
+        commands.add("show.stop" "End the show" "Show" "")
+        commands.add("show.next" "Next build step or slide" "Show" "")
+        commands.add("show.prev" "Back a step" "Show" "")
+        commands.add("show.presenter" "Presenter view" "Show" "")
+        commands.add("show.blank" "Blank the screen" "Show" "")
+        commands.add("show.pen" "Draw on the slide" "Show" "")
+        commands.add("show.laser" "Laser pointer" "Show" "")
+        commands.add("show.ink.clear" "Rub the ink off" "Show" "")
+        commands.addArg("slide.transition" "How this slide arrives" "Show" "")
+        commands.addArg("slide.advance" "Advance on a timer" "Show" "")
+        commands.addArg("shape.animate" "Animate what is selected" "Show" "")
+        commands.add("shape.animate.clear" "Clear the build" "Show" "")
+        commands.add("build.earlier" "Move this step earlier" "Show" "")
+        commands.add("build.later" "Move this step later" "Show" "")
         commands.add("view.grid" "Snap to the grid" "View" "")
         commands.add("view.snap" "Snap to the shapes" "View" "")
         commands.add("edit.front" "Bring to front" "Arrange" "")
@@ -844,6 +868,11 @@ class PptxApp {
     ; --- input ----------------------------------------------------------------
     ; Windows, then the strip, then the slide. Same order as everywhere else.
     fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        ; While the deck is being shown there is nothing else on screen to
+        ; press, and the click means what it means to an audience: go on.
+        if presenting {
+            return (this.showPointer(px py pressed down released))
+        }
         if (windows.handlePointer(px py pressed down released)) {
             this.pollDialogs()
             return true
@@ -878,9 +907,195 @@ class PptxApp {
         return false
     }
 
+    ; The pointer while presenting: a click goes on, unless a pen is out — and
+    ; then it draws, because that is what a pen is for.
+    ; Which step of the build the selected shape is, so the build can be
+    ; reordered by picking the shape rather than by counting steps.
+    fn selectedBuildStep:int () {
+        def slide@(optional):PptxSlide (editor.currentSlide())
+        if (null? slide) {
+            return (0 - 1)
+        }
+        def s0:PptxSlide (unwrap slide)
+        def sel:[int] editor.selection
+        def i:int 0
+        while (i < (array_length s0.build)) {
+            def step:PptxBuildStep (itemAt s0.build i)
+            def k:int 0
+            while (k < (array_length sel)) {
+                if ((itemAt sel k) == step.editId) {
+                    return i
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn showPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        def sx:double (this.screenToSlideX(px))
+        def sy:double (this.screenToSlideY(py))
+        if (penMode == "laser") {
+            laserX = sx
+            laserY = sy
+            return true
+        }
+        if (penMode == "pen") {
+            if pressed {
+                def pts:[double]
+                push pts sx
+                push pts sy
+                push inkSlides index
+                push inkPoints pts
+                push inkColors penHex
+                inkDrawing = true
+                return true
+            }
+            if down {
+                if inkDrawing {
+                    if ((array_length inkPoints) > 0) {
+                        def last:[double] (itemAt inkPoints ((array_length inkPoints) - 1))
+                        ; Only record a point that moved: a held pointer would
+                        ; otherwise grow the stroke by a frame's worth of the
+                        ; same coordinate every frame.
+                        def n:int (array_length last)
+                        def far:boolean true
+                        if (n >= 2) {
+                            def dx:double (sx - (itemAt last (n - 2)))
+                            def dy:double (sy - (itemAt last (n - 1)))
+                            if (((dx * dx) + (dy * dy)) < 1.0) {
+                                far = false
+                            }
+                        }
+                        if far {
+                            push last sx
+                            push last sy
+                        }
+                    }
+                    return true
+                }
+            }
+            if released {
+                inkDrawing = false
+                return true
+            }
+            return true
+        }
+        if released {
+            this.presentNext()
+            return true
+        }
+        return true
+    }
+
+    ; The keyboard while presenting. Everything is one key away, because a
+    ; presenter is not looking at the screen they are pressing.
+    fn showKey:boolean (k:int shift:boolean) {
+        if (k == (UIKey.escape())) {
+            if ((strlen penMode) > 0) {
+                penMode = ""
+                return true
+            }
+            this.stopPresenting()
+            return true
+        }
+        if (k == (UIKey.right())) {
+            this.presentNext()
+            return true
+        }
+        if (k == (UIKey.down())) {
+            this.presentNext()
+            return true
+        }
+        if (k == (UIKey.pageDown())) {
+            this.presentNext()
+            return true
+        }
+        if (k == (UIKey.enter())) {
+            this.presentNext()
+            return true
+        }
+        if (k == (UIKey.left())) {
+            this.presentPrev()
+            return true
+        }
+        if (k == (UIKey.up())) {
+            this.presentPrev()
+            return true
+        }
+        if (k == (UIKey.pageUp())) {
+            this.presentPrev()
+            return true
+        }
+        if (k == (UIKey.backspace())) {
+            this.presentPrev()
+            return true
+        }
+        if (k == (UIKey.home())) {
+            def from:int index
+            this.gotoSlide(0)
+            presentStep = 0
+            this.beginTransition(from)
+            return true
+        }
+        if (k == (UIKey.end())) {
+            def from2:int index
+            this.gotoSlide(((this.slideCount()) - 1))
+            presentStep = 0
+            this.beginTransition(from2)
+            return true
+        }
+        return false
+    }
+
+    ; The letters a presenter reaches for: space goes on, B blanks the screen,
+    ; P and L put a pen or a laser out, E rubs the ink off, N shows the notes.
+    fn showChar:boolean (ch:string) {
+        if (ch == " ") {
+            this.presentNext()
+            return true
+        }
+        if ((ch == "p") || (ch == "P")) {
+            return (this.setPen("pen"))
+        }
+        if ((ch == "l") || (ch == "L")) {
+            return (this.setPen("laser"))
+        }
+        if ((ch == "e") || (ch == "E")) {
+            return (this.clearInk())
+        }
+        if ((ch == "n") || (ch == "N")) {
+            presenterView = (presenterView == false)
+            return true
+        }
+        if ((ch == "b") || (ch == "B")) {
+            showBlank = (showBlank == false)
+            return true
+        }
+        return false
+    }
+
     fn update:void (input:UIInput) {
         modShift = input.shiftDown
         modCtrl = input.ctrlDown
+        ; The show takes the whole keyboard and the whole pointer: nothing else
+        ; is on screen to reach.
+        if presenting {
+            def ki:int 0
+            while (ki < (input.keyCount())) {
+                this.showKey((input.keyAt(ki)) input.shiftDown)
+                ki = (ki + 1)
+            }
+            def ti:int 0
+            while (ti < (strlen input.textInput)) {
+                this.showChar((substring input.textInput ti (ti + 1)))
+                ti = (ti + 1)
+            }
+            this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
+            this.render()
+            return
+        }
         if input.ctrlDown {
             this.editChords(input.textInput)
         }
@@ -903,6 +1118,10 @@ class PptxApp {
                 if editMode {
                     taken = (this.textKey(k input.shiftDown))
                 }
+            }
+            if (k == (UIKey.f5())) {
+                this.runCommand("show.start" "")
+                taken = true
             }
             if (taken == false) {
                 if (k == (UIKey.f2())) {
@@ -1031,6 +1250,14 @@ class PptxApp {
     fn buildShowFrame:EVGDisplayList () {
         def framed:EVGDisplayList (new EVGDisplayList)
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(0 0 0)))
+        if showBlank {
+            ; A blanked screen is black and says so, so nobody thinks the
+            ; machine has died.
+            toolbarView.attach(view.ctx view.fontFamily)
+            toolbarView.theme = theme
+            toolbarView.pushText(framed "B to come back" 16.0 ((to_double H) - 26.0) 12.0 (EVGColor.rgb(70 74 86)))
+            return framed
+        }
         def slide@(optional):PptxSlide (this.currentSlide())
         if (null? slide) {
             return framed
@@ -1086,7 +1313,7 @@ class PptxApp {
             }
             sl.shapes = show
         }
-        def sub:EVGDisplayList (view.buildDisplayList(sl))
+        def sub:EVGDisplayList (view.buildDisplayListAt(sl (this.showScale())))
         sl.shapes = kept
         PptxApp.offsetList(sub (to_int ox) (to_int oy))
         PptxApp.appendList(dl sub)
@@ -1107,7 +1334,7 @@ class PptxApp {
             if (t < 0.5) {
                 if (!null? from) {
                     def prev:PptxSlide (unwrap from)
-                    def sub:EVGDisplayList (view.buildDisplayList(prev))
+                    def sub:EVGDisplayList (view.buildDisplayListAt(prev (this.showScale())))
                     PptxApp.offsetList(sub (to_int ox) (to_int oy))
                     PptxApp.appendList(dl sub)
                 }
@@ -1147,7 +1374,7 @@ class PptxApp {
         dl.addClip(ox oy wpx hpx)
         if (!null? from) {
             def prev2:PptxSlide (unwrap from)
-            def old2:EVGDisplayList (view.buildDisplayList(prev2))
+            def old2:EVGDisplayList (view.buildDisplayListAt(prev2 (this.showScale())))
             def px:double ox
             def py:double oy
             if (kind == "push") {
@@ -1157,7 +1384,7 @@ class PptxApp {
             PptxApp.offsetList(old2 (to_int px) (to_int py))
             PptxApp.appendList(dl old2)
         }
-        def sub2:EVGDisplayList (view.buildDisplayList(sl))
+        def sub2:EVGDisplayList (view.buildDisplayListAt(sl (this.showScale())))
         PptxApp.offsetList(sub2 (to_int (ox + (vx * back))) (to_int (oy + (vy * back))))
         PptxApp.appendList(dl sub2)
         dl.addClipEnd()
@@ -1188,8 +1415,8 @@ class PptxApp {
             if (laserX >= 0.0) {
                 def lx:double (ox + (laserX * sc))
                 def ly:double (oy + (laserY * sc))
-                dl.addRect((lx - 9.0) (ly - 9.0) 18.0 18.0 (EVGColor.create(0.9 0.1 0.2 0.25)))
-                dl.addRect((lx - 4.0) (ly - 4.0) 8.0 8.0 (EVGColor.create(1.0 0.25 0.3 0.95)))
+                dl.addRect((lx - 9.0) (ly - 9.0) 18.0 18.0 (EVGColor.rgba(230 40 60 0.25)))
+                dl.addRect((lx - 4.0) (ly - 4.0) 8.0 8.0 (EVGColor.rgba(255 60 80 0.95)))
             }
         }
     }
@@ -1615,6 +1842,11 @@ class PptxApp {
         }
         def f:double (view.fitScale(s))
         return ((96.0 / 72.0) * f)
+    }
+
+    ; What the converter wants: the fit factor, not the point-to-pixel scale.
+    fn showScale:double () {
+        return ((this.ptScale()) / (96.0 / 72.0))
     }
 
     fn showScaleFor:double (s:PptxSlide) {
@@ -2301,6 +2533,85 @@ class PptxApp {
                 return false
             }
             return (editor.removeSection(at2))
+        }
+        ; --- the show ---------------------------------------------------------
+        if (id == "show.start") {
+            return (this.startPresenting())
+        }
+        if (id == "show.stop") {
+            return (this.stopPresenting())
+        }
+        if (id == "show.next") {
+            return (this.presentNext())
+        }
+        if (id == "show.prev") {
+            return (this.presentPrev())
+        }
+        if (id == "show.presenter") {
+            presenterView = (presenterView == false)
+            return true
+        }
+        if (id == "show.blank") {
+            showBlank = (showBlank == false)
+            return true
+        }
+        if (id == "show.pen") {
+            return (this.setPen("pen"))
+        }
+        if (id == "show.laser") {
+            return (this.setPen("laser"))
+        }
+        if (id == "show.ink.clear") {
+            return (this.clearInk())
+        }
+        if (id == "slide.transition") {
+            ; "kind" or "kind:dir" or "kind:dir:seconds" — one string, because
+            ; a command table carries one argument.
+            def kind:string arg
+            def dir:string ""
+            def secs:double 0.0
+            def cut:int (indexOf arg ":")
+            if (cut >= 0) {
+                kind = (substring arg 0 cut)
+                def rest:string (substring arg (cut + 1) (strlen arg))
+                def cut2:int (indexOf rest ":")
+                if (cut2 >= 0) {
+                    dir = (substring rest 0 cut2)
+                    def sv@(optional):double (str2double (substring rest (cut2 + 1) (strlen rest)))
+                    secs = (?? sv 0.0)
+                } {
+                    dir = rest
+                }
+            }
+            return (editor.setTransition(kind dir secs))
+        }
+        if (id == "slide.advance") {
+            def av@(optional):double (str2double arg)
+            return (editor.setAdvanceAfter((?? av 0.0)))
+        }
+        if (id == "shape.animate") {
+            def eff:string arg
+            if ((strlen eff) == 0) {
+                eff = "fade"
+            }
+            return (editor.animateSelection(eff 0.0))
+        }
+        if (id == "shape.animate.clear") {
+            return (editor.clearAnimation())
+        }
+        if (id == "build.earlier") {
+            def at:int (this.selectedBuildStep())
+            if (at <= 0) {
+                return false
+            }
+            return (editor.moveBuildStep(at (at - 1)))
+        }
+        if (id == "build.later") {
+            def at2:int (this.selectedBuildStep())
+            if (at2 < 0) {
+                return false
+            }
+            return (editor.moveBuildStep(at2 (at2 + 1)))
         }
         if (id == "view.panel") {
             panelVisible = (panelVisible == false)

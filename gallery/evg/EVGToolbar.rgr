@@ -113,6 +113,9 @@ class ToolIcon {
     ; quits. A button on the strip works everywhere the grid is drawn.
     sfn database:int ()    { return 47 }
     sfn sqlBox:int ()      { return 48 }
+    ; A show, as a triangle pointing right — the one icon a presentation tool
+    ; cannot do without.
+    sfn play:int ()        { return 49 }
 }
 
 class ToolItem {

@@ -400,12 +400,62 @@ the deck still opens), an edited-master round trip, and a footer/slide-number
 round trip that checks the number came back as a *field* and not as a number.
 `artifacts/11_sections_and_footer.png` and `12_master_edit.png`.
 
-## Phase E6 — presenting
+## Phase E6 — presenting (done)
 
-Transitions · entrance / emphasis / exit animations with a timeline · presenter
-view with notes and a next-slide preview · pen and laser annotations during a
-show. The viewer already paints the final state of a slide; animation is a
-time-varying scene, which is the interesting part.
+Everything before this phase paints the FINAL state of a slide. A show is a
+picture that changes over time, and the thing that made this phase work is
+admitting that the app has no clock: a host calls `tick(seconds)` and
+everything that moves moves from there. A headless host that never calls it
+sees a still — which is the right answer for a test and for a PNG — and a
+browser that calls it every animation frame sees the show.
+
+- **Transitions.** `p:transition` is parsed (the effect is the element name
+  inside it, the speed is a word, the length is milliseconds in the extension
+  list), written back, and animated. A `fade` goes through black, because a
+  display list has no way to draw one scene at half strength; a `push` takes
+  the outgoing page with it and a `wipe` or `cover` slides the new one over,
+  both by drawing the two scenes at an offset inside one clip — much less
+  arithmetic than compositing, and the same picture for a viewer.
+- **Builds.** `p:timing` is a deep tree — a sequence of click groups, each a
+  tree of parallel and sequential nodes — and what is wanted from it is flat:
+  which shape, which paragraph, what effect, and whether it waits for a click.
+  The walk looks for the INNERMOST `p:par` that names a shape, which is one
+  effect, and reads the answer off it. A step names its shape by the number the
+  FILE uses and everything above names shapes by `editId`, so the two are
+  linked once on attach and re-linked at save — the writer renumbers every
+  shape, and a build written with stale numbers animates the wrong things.
+- **The show itself.** No strip, no panel, no notes strip, no status line: the
+  slide is fitted to the window (or to what the presenter's own screen leaves
+  beside the notes), and a click goes on — the next build step if there is one,
+  the next slide otherwise. Going back lands on the slide before, fully built,
+  which is what a presenter means by "back". Space, Enter, the arrows, Page
+  Up/Down, Home and End all work, because a presenter is not looking at the
+  screen they are pressing.
+- **The presenter's own screen.** N: the slide, the one after it, the notes for
+  the slide that is up, and a clock — all drawn into the same display list as
+  everything else.
+- **Ink and a laser.** P draws on the slide and E rubs it off; L is a dot that
+  follows the pointer and leaves nothing behind. Ink is kept in SLIDE POINTS,
+  not window pixels, so it stays where it was drawn when the window is resized
+  or the presenter's screen is a different shape from the audience's.
+- **B blanks the screen**, which is what a presenter presses when the slide is
+  not the thing to look at any more.
+
+Commands: `show.start` (F5), `show.stop`, `show.next`, `show.prev`,
+`show.presenter`, `show.blank`, `show.pen`, `show.laser`, `show.ink.clear`,
+`slide.transition`, `slide.advance`, `shape.animate`, `shape.animate.clear`,
+`build.earlier`, `build.later`.
+
+Checked in three places, because the three hosts differ in exactly the way that
+matters: 55 in the host suite (a click builds rather than turning the page, the
+transition draws both pages and finishes on time, going back lands fully built,
+the pen leaves a stroke and the laser does not, Escape gives up the pen before
+it gives up the show), a round trip through the writer (`28-transitions.pptx`:
+a transition and a build come back, and the build still names a shape on the
+slide after every shape has been renumbered), and **10 in the browser**, which
+is the only host here with a real clock. `artifacts/13_present_transition.png`
+is a push caught a third of the way through; `14_presenter_view.png` is the
+presenter's screen with a line drawn on the slide by hand.
 
 ## Phase E7 — scale
 

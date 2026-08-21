@@ -66,12 +66,25 @@ if (!app.load(resolveFile(FILE))) {
 app.render();
 
 const liveInput = new UIInput();
+// Every special key the app knows, not the five a viewer needed: this window
+// is the editor, and an editor that cannot be typed into is a viewer with
+// draggable boxes — which is exactly what it was.
 const KEY = {
   left: () => UIKey.left(),
   right: () => UIKey.right(),
+  up: () => UIKey.up(),
+  down: () => UIKey.down(),
   home: () => UIKey.home(),
   end: () => UIKey.end(),
   escape: () => UIKey.escape(),
+  enter: () => UIKey.enter(),
+  backspace: () => UIKey.backspace(),
+  del: () => UIKey.del(),
+  tab: () => UIKey.tab(),
+  pageUp: () => UIKey.pageUp(),
+  pageDown: () => UIKey.pageDown(),
+  f2: () => UIKey.f2(),
+  f5: () => UIKey.f5(),
 };
 
 let lastX = 40;
@@ -84,10 +97,21 @@ function applyEvent(ev) {
     lastY = ev.y | 0;
     liveInput.setPointerPos(lastX, lastY);
     liveInput.setPointerDown(!!ev.down);
+    liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
   } else if (ev.type === "key") {
     liveInput.setPointerPos(lastX, lastY);
+    liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
     const fn = KEY[ev.key];
     if (fn) liveInput.pushKey(fn());
+  } else if (ev.type === "text") {
+    // What was typed, with the modifiers that were held: a Ctrl chord is a
+    // character too, and the app is what decides which ones mean anything.
+    liveInput.setPointerPos(lastX, lastY);
+    liveInput.setModifiers(!!ev.shift, !!ev.ctrl);
+    if (typeof ev.text === "string" && ev.text.length > 0) liveInput.pushText(ev.text);
+  } else if (ev.type === "wheel") {
+    liveInput.setPointerPos(lastX, lastY);
+    liveInput.addScroll(ev.delta | 0);
   } else {
     return;
   }
@@ -264,13 +288,38 @@ server.listen(PORT, "127.0.0.1", async () => {
         const bytes = Buffer.from(app.readMediaPart(c.src));
         if (!bytes.length) throw new Error("missing media part " + c.src);
       }
+      // The window is the editor, so the smoke has to prove the editor is
+      // reachable THROUGH IT and not just that the app can draw. This window
+      // once forwarded five keys and nothing else: boxes could be dragged and
+      // their words could not be changed, and no test noticed.
+      const shapes = app.editor.editableShapes();
+      if (!shapes.length) throw new Error("nothing to edit on the first slide");
+      const target = shapes[0];
+      const scale = app.ptScale();
+      const cx = Math.round((target.x + target.width / 2) * scale + app.slideOriginX());
+      const cy = Math.round((target.y + target.height / 2) * scale + app.slideOriginY());
+      applyEvent({ type: "pointer", x: cx, y: cy, down: true });
+      applyEvent({ type: "pointer", x: cx, y: cy, down: false });
+      if (app.editor.selectionCount() !== 1) throw new Error("a press did not select a shape");
+      const before = target.text.plainText();
+      applyEvent({ type: "key", key: "f2" });
+      if (!app.editor.isEditingText()) throw new Error("F2 did not put a caret in the shape");
+      applyEvent({ type: "text", text: "Z" });
+      const after = app.editor.findShape(target.editId);
+      if (!after) throw new Error("the shape went away");
+      if (after.text.plainText() === before) throw new Error("typing changed nothing");
+      applyEvent({ type: "key", key: "escape" });
+      applyEvent({ type: "text", text: "z", ctrl: true });
+      const undone = app.editor.findShape(target.editId);
+      if (undone && undone.text.plainText() !== before) throw new Error("Ctrl+Z did not undo the typing");
       console.log(
         "smoke ok cmds=" +
           cmds.length +
           " images=" +
           imgs.length +
           " slides=" +
-          app.slideCount()
+          app.slideCount() +
+          " editing=reachable"
       );
       server.close();
       process.exit(0);

@@ -178,6 +178,33 @@ class PptxFrameTest {
         def js:string (d.sceneJson())
         c.ok("the scene is the frame, not the slide alone" ((strlen js) > 200))
 
+        ; --- emoji ------------------------------------------------------------
+        ;
+        ; A text face has no emoji glyphs, so a codepoint it cannot draw comes
+        ; out as `.notdef` — a filled circle, which is what a deck with a 😆 in
+        ; it was showing. The fix was two things: an emoji face loaded for
+        ; fallback, and the rasterizer actually being GIVEN the manager that
+        ; knows which face has which codepoint.
+        print "-- emoji come from a face that has them --"
+        def emoji:string (EVGCodepoint.toStr(128518))
+        def tr:UITextRenderer d.view.ctx.tr
+        def emW:double (tr.measureWidth(emoji 32.0))
+        c.ok("an emoji measures as a real glyph" (emW > 20.0))
+        ; `.notdef` in Open Sans is a rectangle of the same width as a digit —
+        ; the emoji face's own advance is wider than that, so the two cannot be
+        ; confused.
+        def digitW:double (tr.measureWidth("0" 32.0))
+        c.ok("and not as the primary face's notdef" (emW > (digitW * 1.5)))
+        ; A codepoint NOTHING has must still not reach the glyph tables of an
+        ; unloaded face: it draws notdef from the primary, and does not throw.
+        def weird:string (EVGCodepoint.toStr(984567))
+        def wW:double (tr.measureWidth(weird 32.0))
+        c.ok("a codepoint no face has still measures" (wW >= 0.0))
+        def probe:EVGDisplayList (new EVGDisplayList)
+        probe.addText(("a" + emoji + "b" + weird) 10.0 40.0 32.0 (EVGColor.rgb(0 0 0)) "Open Sans" false false 400.0 40.0)
+        d.view.paintSoftCanvas(probe)
+        c.ok("and drawing it does not fall over" true)
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
