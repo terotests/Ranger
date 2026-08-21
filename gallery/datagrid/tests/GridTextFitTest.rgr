@@ -144,6 +144,21 @@ class GridTextFitTest {
         def worst2:double (GridTextFitTest.textRightEdgeIn(app dl2 panelX panelRight panelY panelBottom))
         c.ok("nor with the caret at the other end" (worst2 <= panelRight))
 
+        ; A label is text somebody else wrote - a status line, a table's column
+        ; list - and it must not run out of the window either.
+        app.dbSqlStatus = "sqlite: 120 rows (planned SQL) - and a status line long enough to run past the right edge of the panel it is drawn in, twice over"
+        app.openSqlDialog()
+        def dl4:EVGDisplayList (GridTextFitTest.buildList(app))
+        def sx:double (to_double app.sqlDialog.x)
+        def sright:double (to_double (app.sqlDialog.x + app.sqlDialog.w))
+        def sy:double (to_double app.sqlDialog.y)
+        def sbottom:double (to_double (app.sqlDialog.y + app.sqlDialog.h))
+        def worst4:double (GridTextFitTest.textRightEdgeIn(app dl4 sx sright sy sbottom))
+        c.ok("the SQL box draws text" (worst4 > sx))
+        c.ok("no label escapes the panel" (worst4 <= sright))
+        app.sqlDialog.close()
+        app.dbSqlStatus = ""
+
         print "== the formula bar =="
         app.sqlDialog.close()
         def formula:string "=CONCATENATE(\"a very long formula that goes on and on\", \"and keeps going past the end of the field\", A1, B2, C3)"

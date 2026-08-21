@@ -1150,7 +1150,11 @@ class EVGWindow {
             def cx:int (x + c.x)
             def cy:int (y + c.y)
             if (c.kind == (EVGControlKind.label())) {
-                this.text(dl c.text cx (cy + 4) fontSize theme.text tr false)
+                ; Trimmed to the panel, for the same reason the input is: a
+                ; label is text somebody else wrote (a status line, a table's
+                ; column list) and it must not run out of the window.
+                def room:int ((w - c.x) - 12)
+                this.text(dl (EVGTextFit.fitLabel(tr c.text fontSize room)) cx (cy + 4) fontSize theme.text tr false)
             }
             if (c.kind == (EVGControlKind.content())) {
                 ; The owner's rectangle: only the recess is ours — and a bare

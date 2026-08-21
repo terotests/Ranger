@@ -74,6 +74,26 @@ class GridDbTest {
         session.mutate(m)
     }
 
+    sfn mentions:boolean (hay:string needle:string) {
+        def hl:int (strlen hay)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (hl < nl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            if ((substring hay i (i + nl)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     ; Which toolbar entry runs a command, or -1.
     sfn toolIndexFor:int (app:GridApp command:string) {
         def n:int (app.view.toolbar.count())
@@ -254,6 +274,47 @@ class GridDbTest {
         check.eqStr("with the table that was asked for" app.dbRequestTable "other_table")
         check.eqStr("and it is taken only once" (app.takeDbRequest()) "")
         app.connDialog.close()
+
+        ; --- the SQL box knows the database ------------------------------------
+        ; A prompt with no manual is not much help: the box lists the tables it
+        ; can be asked about, and offers queries written against them.
+        app.runCommand("db.sql.dialog" "")
+        check.ok("the SQL box opens from the command" app.sqlDialog.visible)
+        def schema:[string] (app.schemaLines())
+        check.ok("it knows about at least one table" ((array_length schema) > 0))
+        def firstLine:string ""
+        if ((array_length schema) > 0) {
+            firstLine = (itemAt schema 0)
+        }
+        check.ok("the table is named" (GridDbTest.mentions(firstLine (GridDbTest.tableName()))))
+        check.ok("its columns are listed" (GridDbTest.mentions(firstLine "country")))
+        check.ok("and the key column is marked" (GridDbTest.mentions(firstLine "id*")))
+
+        def examples:[string] (app.exampleQueries())
+        check.ok("there are examples" ((array_length examples) > 0))
+        def bad:int 0
+        def ei:int 0
+        while (ei < (array_length examples)) {
+            def q:string (itemAt examples ei)
+            if ((GridDbTest.mentions(q (GridDbTest.tableName()))) == false) {
+                bad = (bad + 1)
+            }
+            def parsed:SqlParseResult (Sql.parse(q))
+            if ((parsed.okResult()) == false) {
+                bad = (bad + 1)
+                print ("       unparsable example: " + q)
+            }
+            ei = (ei + 1)
+        }
+        check.eqInt("every example is about this database and parses" bad 0)
+
+        ; Clicking one puts it in the box, and it runs from there.
+        app.useExample(0)
+        def field:EVGControl (app.sqlDialog.controlById(701))
+        check.eqStr("the example is in the box" field.value (itemAt examples 0))
+        app.runSqlFromDialog()
+        check.ok("and running it produced rows" (app.db.loadedRows > 0))
+        app.sqlDialog.close()
 
         ; --- a sheet from typed SQL -------------------------------------------
         ; The query box: RangerSQL parses what was typed and SqlFront plans it

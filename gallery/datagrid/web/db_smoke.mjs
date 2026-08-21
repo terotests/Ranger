@@ -144,6 +144,9 @@ try {
   await sleep(400);
   const queried = (await scene()) || typedInBox;
   must("the query became a sheet", queried.includes("planned SQL"));
+  must("the box lists the tables it can be asked about", queried.includes("tables (* is a key column)"));
+  must("with the table and its columns", queried.includes("sales(id*"));
+  must("and offers examples written for this database", queried.includes("examples, written for this database"));
   must("with the columns the query asked for", queried.includes("revenue"));
   must("and the box reports the engine", queried.includes("rows"));
 
