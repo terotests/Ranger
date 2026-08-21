@@ -3,6 +3,7 @@
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
+Import "SheetTable.rgr"
 Import "script/GridScript.rgr"
 
 class WorkbookModel {
@@ -28,12 +29,251 @@ class WorkbookModel {
         push sheets sheet
     }
 
+    ; --- adding, renaming, reordering -----------------------------------------
+    ; The three things a tab strip has to be able to do. All of them are here
+    ; rather than in the app because they are facts about the WORKBOOK, and
+    ; because two of them have consequences a caller must not have to remember:
+    ; a rename moves every formula that names the sheet, and a move renumbers
+    ; every index anyone was holding.
+
+    fn insertSheet:void (at:int sheet:SpreadsheetModel) {
+        def n:int (array_length sheets)
+        def i:int at
+        if (i < 0) {
+            i = 0
+        }
+        if (i > n) {
+            i = n
+        }
+        def kept:[SpreadsheetModel]
+        def k:int 0
+        while (k < n) {
+            if (k == i) {
+                push kept sheet
+            }
+            push kept (itemAt sheets k)
+            k = (k + 1)
+        }
+        if (i >= n) {
+            push kept sheet
+        }
+        clear sheets
+        def m:int 0
+        while (m < (array_length kept)) {
+            push sheets (itemAt kept m)
+            m = (m + 1)
+        }
+        ; A sheet inserted at or before the active one pushes it along, so the
+        ; sheet you were looking at is still the sheet you are looking at.
+        if (i <= activeIndex) {
+            activeIndex = (activeIndex + 1)
+        }
+    }
+
+    ; Move the sheet at `from` so that it ends up at `to`. Excel's drag: the
+    ; tab you are holding lands where you dropped it and everything else
+    ; closes up behind it.
+    fn moveSheet:void (from:int to:int) {
+        def n:int (array_length sheets)
+        if ((from < 0) || (from >= n)) {
+            return
+        }
+        def dest:int to
+        if (dest < 0) {
+            dest = 0
+        }
+        if (dest >= n) {
+            dest = (n - 1)
+        }
+        if (dest == from) {
+            return
+        }
+        def moved:SpreadsheetModel (itemAt sheets from)
+        def rest:[SpreadsheetModel]
+        def i:int 0
+        while (i < n) {
+            if (i != from) {
+                push rest (itemAt sheets i)
+            }
+            i = (i + 1)
+        }
+        clear sheets
+        def k:int 0
+        def placed:boolean false
+        while (k < (array_length rest)) {
+            if ((k == dest) && (placed == false)) {
+                push sheets moved
+                placed = true
+            }
+            push sheets (itemAt rest k)
+            k = (k + 1)
+        }
+        if (placed == false) {
+            push sheets moved
+        }
+        ; Whatever was active is still active — the same sheet, under whatever
+        ; number it now wears.
+        activeIndex = (WorkbookModel.remapIndex(activeIndex from dest))
+    }
+
+    ; Where the sheet that was at `idx` ends up when the one at `from` is moved
+    ; to `to`. Everything between the two shifts by one, in the direction
+    ; opposite to the move.
+    ;
+    ; Anything holding a sheet NUMBER has to be put through this after a move —
+    ; the active sheet here, and a chart, which remembers which sheet it
+    ; belongs to by index. A number that is not remapped does not become
+    ; invalid; it quietly starts naming a different sheet, which is worse.
+    sfn remapIndex:int (idx:int from:int to:int) {
+        if (idx == from) {
+            return to
+        }
+        if (from < to) {
+            if ((idx > from) && (idx <= to)) {
+                return (idx - 1)
+            }
+        }
+        if (from > to) {
+            if ((idx >= to) && (idx < from)) {
+                return (idx + 1)
+            }
+        }
+        return idx
+    }
+
+    fn indexOfName:int (name:string) {
+        def want:string (SheetTable.fold(name))
+        def i:int 0
+        while (i < (array_length sheets)) {
+            def sh:SpreadsheetModel (itemAt sheets i)
+            if ((SheetTable.fold(sh.name)) == want) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A name no sheet is using, starting from `base` and counting up. Excel
+    ; compares names without case, and so does this: a workbook cannot hold
+    ; both "Data" and "data", because a formula saying `data!A1` would have no
+    ; way to mean one of them.
+    fn uniqueName:string (base:string) {
+        if ((this.indexOfName(base)) < 0) {
+            return base
+        }
+        def n:int 2
+        while (n < 10000) {
+            def candidate:string (base + (to_string n))
+            if ((this.indexOfName(candidate)) < 0) {
+                return candidate
+            }
+            n = (n + 1)
+        }
+        return base
+    }
+
+    ; The name Excel would offer for a new sheet: the first "SheetN" free.
+    fn nextSheetName:string () {
+        def n:int ((array_length sheets) + 1)
+        while (n < 10000) {
+            def candidate:string ("Sheet" + (to_string n))
+            if ((this.indexOfName(candidate)) < 0) {
+                return candidate
+            }
+            n = (n + 1)
+        }
+        return "Sheet"
+    }
+
+    ; Whether a name may be given to the sheet at `at`. Excel's rules, and the
+    ; reasons are all "a formula has to be able to name it": not empty, no
+    ; longer than 31, none of the characters a reference uses as syntax, and
+    ; not a name another sheet already has.
+    fn nameIsValid:boolean (at:int name:string) {
+        def n:int (strlen name)
+        if (n == 0) {
+            return false
+        }
+        if (n > 31) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt name i)
+            ; : \ / ? * [ ]
+            if ((ch == 58) || (ch == 92) || (ch == 47) || (ch == 63) || (ch == 42) || (ch == 91) || (ch == 93)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        ; A leading or trailing apostrophe is refused too: a quoted reference
+        ; is written `'My Sheet'!A1`, and a name that starts with one cannot
+        ; be written at all.
+        if ((charAt name 0) == 39) {
+            return false
+        }
+        if ((charAt name (n - 1)) == 39) {
+            return false
+        }
+        def taken:int (this.indexOfName(name))
+        if (taken < 0) {
+            return true
+        }
+        return (taken == at)
+    }
+
     fn sheetCount:int () {
         return (array_length sheets)
     }
 
     fn sheetAt:SpreadsheetModel (i:int) {
         return (itemAt sheets i)
+    }
+
+    ; --- tables ---------------------------------------------------------------
+    ; A table belongs to a sheet, but its NAME is workbook-wide: `Table1[Amount]`
+    ; means the same thing written on any sheet. So the lookup is here, and it
+    ; answers with both the table and the sheet it sits on — a caller resolving
+    ; a reference needs the second as much as the first.
+    fn tableIndexByName:int (name:string) {
+        def want:string (SheetTable.fold(name))
+        def si:int 0
+        while (si < (array_length sheets)) {
+            def sh:SpreadsheetModel (itemAt sheets si)
+            def ti:int 0
+            while (ti < (sh.tableCount())) {
+                def t:SheetTable (sh.tableAt(ti))
+                if ((SheetTable.fold(t.name)) == want) {
+                    return si
+                }
+                ti = (ti + 1)
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn tableByName:SheetTable (name:string) {
+        def want:string (SheetTable.fold(name))
+        def si:int 0
+        while (si < (array_length sheets)) {
+            def sh:SpreadsheetModel (itemAt sheets si)
+            def ti:int 0
+            while (ti < (sh.tableCount())) {
+                def t:SheetTable (sh.tableAt(ti))
+                if ((SheetTable.fold(t.name)) == want) {
+                    return t
+                }
+                ti = (ti + 1)
+            }
+            si = (si + 1)
+        }
+        return (new SheetTable)
+    }
+
+    fn hasTable:boolean (name:string) {
+        return ((this.tableIndexByName(name)) >= 0)
     }
 
     fn setActive:void (i:int) {

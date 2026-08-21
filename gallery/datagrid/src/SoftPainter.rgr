@@ -25,6 +25,20 @@ Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
+; A rectangle and whether anything of it survived the clip. A class rather
+; than four out-parameters because an object is a reference on every target
+; Ranger compiles to and an array parameter is not.
+class ClipBox {
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    def ok:boolean true
+
+    Constructor () {
+    }
+}
+
 class SoftPainter {
     ; The surface. `own` is used when this painter made it, which is the
     ; off-screen case; GridView attaches its own and keeps it.
@@ -143,15 +157,33 @@ class SoftPainter {
         return ((itemAt clipStack (n - 3)) + (itemAt clipStack (n - 1)))
     }
 
-    ; Intersect a rect with the current clip; returns false if empty.
-    fn intersectClip:boolean (x:[int] y:[int] w:[int] h:[int]) {
+    ; Intersect a rect with the current clip.
+    ;
+    ; This used to take four one-element arrays and write the answer back into
+    ; them, which works on the JavaScript target — where an array is a
+    ; reference — and does nothing at all on the C++ one, where `[int]` is a
+    ; `std::vector<int>` parameter taken BY VALUE. The caller's rect was never
+    ; narrowed, so the native build ignored every clip on every rectangle and
+    ; every border it ever drew. Nothing had noticed because nothing was drawn
+    ; outside a clip until an active-cell ring was; the render-parity harness
+    ; caught it the moment one was.
+    ;
+    ; An object is a reference on both targets, so the answer comes back as
+    ; one.
+    fn intersectClip:ClipBox (x:int y:int w:int h:int) {
+        def out:ClipBox (new ClipBox)
+        out.x = x
+        out.y = y
+        out.w = w
+        out.h = h
+        out.ok = true
         if ((this.hasClip()) == false) {
-            return true
+            return out
         }
-        def x0:int (itemAt x 0)
-        def y0:int (itemAt y 0)
-        def x1:int (x0 + (itemAt w 0))
-        def y1:int (y0 + (itemAt h 0))
+        def x0:int x
+        def y0:int y
+        def x1:int (x + w)
+        def y1:int (y + h)
         def cx0:int (this.clipX0())
         def cy0:int (this.clipY0())
         def cx1:int (this.clipX1())
@@ -169,13 +201,29 @@ class SoftPainter {
             y1 = cy1
         }
         if ((x1 <= x0) || (y1 <= y0)) {
-            return false
+            out.ok = false
+            return out
         }
-        set_at x 0 x0
-        set_at y 0 y0
-        set_at w 0 (x1 - x0)
-        set_at h 0 (y1 - y0)
-        return true
+        out.x = x0
+        out.y = y0
+        out.w = (x1 - x0)
+        out.h = (y1 - y0)
+        return out
+    }
+
+    ; One filled rectangle, cut to the clip.
+    fn fillClipped:void (x:int y:int w:int h:int col:EVGColor) {
+        if (w <= 0) {
+            return
+        }
+        if (h <= 0) {
+            return
+        }
+        def b:ClipBox (this.intersectClip(x y w h))
+        if (b.ok == false) {
+            return
+        }
+        ctx.fillRect(b.x b.y b.w b.h col)
     }
 
     fn textInClip:boolean (x:int y:int size:double) {
@@ -253,39 +301,49 @@ class SoftPainter {
                 this.popClipRect()
             }
             if (c.kind == 0) {
-                def rx:[int]
-                def ry:[int]
-                def rw:[int]
-                def rh:[int]
-                push rx (to_int c.x)
-                push ry (to_int c.y)
-                push rw (to_int c.w)
-                push rh (to_int c.h)
-                if (this.intersectClip(rx ry rw rh)) {
+                def rb:ClipBox (this.intersectClip((to_int c.x) (to_int c.y) (to_int c.w) (to_int c.h)))
+                if rb.ok {
                     def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                    ctx.fillRect((itemAt rx 0) (itemAt ry 0) (itemAt rw 0) (itemAt rh 0) col)
+                    ctx.fillRect(rb.x rb.y rb.w rb.h col)
                 }
             }
             if (c.kind == 1) {
-                def bx:[int]
-                def by:[int]
-                def bw:[int]
-                def bh:[int]
-                push bx (to_int c.x)
-                push by (to_int c.y)
-                push bw (to_int c.w)
-                push bh (to_int c.h)
-                if (this.intersectClip(bx by bw bh)) {
-                    def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
-                    ctx.strokeRect((itemAt bx 0) (itemAt by 0) (itemAt bw 0) (itemAt bh 0) (to_int c.thickness) col2)
+                ; A BORDER is an OUTLINE, so narrowing its rectangle to the
+                ; clip would move the four lines rather than cut them: a ring
+                ; poking one pixel out of the body would be redrawn a pixel
+                ; smaller, in the wrong place, with all four sides still
+                ; showing. Each side is filled separately instead, and each is
+                ; clipped as the rectangle it actually is.
+                def th:int (to_int c.thickness)
+                if (th < 1) {
+                    th = 1
                 }
+                def bx0:int (to_int c.x)
+                def by0:int (to_int c.y)
+                def bw0:int (to_int c.w)
+                def bh0:int (to_int c.h)
+                def col2:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+                this.fillClipped(bx0 by0 bw0 th col2)
+                this.fillClipped(bx0 ((by0 + bh0) - th) bw0 th col2)
+                this.fillClipped(bx0 by0 th bh0 col2)
+                this.fillClipped(((bx0 + bw0) - th) by0 th bh0 col2)
             }
             if (c.kind == 3) {
                 if (this.textInClip((to_int c.x) (to_int c.y) c.fontSize)) {
                     def col3:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
                     this.applyFaceStyled(c.fontFamily (c.fontWeight == "bold") (c.textAlign == "italic"))
                     if (c.rotate == 0.0) {
-                        ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                        ; CUT to the clip, not merely tested against it.
+                        ; `textInClip` answers "does this string begin inside
+                        ; the rectangle", and a label beginning one pixel
+                        ; inside its cell used to be drawn in full — across an
+                        ; occupied neighbour, over the row numbers, off the
+                        ; left edge of the window.
+                        if (this.hasClip()) {
+                            ctx.textClipped(c.text (to_int c.x) (to_int c.y) c.fontSize col3 (this.clipX0()) (this.clipY0()) (this.clipX1()) (this.clipY1()))
+                        } {
+                            ctx.text(c.text (to_int c.x) (to_int c.y) c.fontSize col3)
+                        }
                     } {
                         ctx.textRotated(c.text (to_int c.x) (to_int c.y) c.fontSize col3 c.rotate)
                     }

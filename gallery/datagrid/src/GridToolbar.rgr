@@ -76,6 +76,8 @@ class ToolIcon {
     sfn openFile:int ()    { return 43 }
     sfn newFile:int ()     { return 44 }
     sfn report:int ()      { return 45 }
+    ; The border gallery, as opposed to the three one-click border words.
+    sfn borderMore:int ()  { return 46 }
 }
 
 class ToolItem {
@@ -186,6 +188,7 @@ class GridToolbar {
         this.add("format.merge" "" "Merge cells" (ToolIcon.merge()))
         this.addSeparator()
 
+        this.add("format.border" "" "Borders…" (ToolIcon.borderMore()))
         this.add("format.border" "all" "All borders" (ToolIcon.borderAll()))
         this.add("format.border" "outline" "Outline" (ToolIcon.borderOut()))
         this.add("format.border" "none" "No border" (ToolIcon.borderNone()))

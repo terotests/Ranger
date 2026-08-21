@@ -44,6 +44,13 @@ Import "../../../pdf_writer/src/core/Utf8.rgr"
 
 class XlsxWriter {
     def lastError:string ""
+    ; Tables are numbered across the WORKBOOK — `xl/tables/table1.xml`,
+    ; `table2.xml` — while they are written one sheet at a time, so the part
+    ; name, the relationship target and the content-type override all have to
+    ; agree about a number the sheet itself does not know. Set once per sheet,
+    ; before its parts are written, rather than threaded through four
+    ; signatures that have no other use for it.
+    def tableBase:int 0
     ; Font / fill / border tables, as the XML fragments they will be written
     ; as. Deduplicating on the fragment is the same thing as deduplicating on
     ; the properties, and it needs no comparison function.
@@ -669,6 +676,19 @@ class XlsxWriter {
         if ((strlen links) > 0) {
             str_append out links
         }
+        ; Tables, last: a `<tableParts>` element points at the table PARTS by
+        ; relationship, and the relationships are numbered after the sheet's
+        ; hyperlinks, which is why the count of those is asked for here.
+        if ((m.tableCount()) > 0) {
+            str_append out ("<tableParts count=\"" + (to_string (m.tableCount())) + "\">")
+            def relBase:int (XlsxWriter.hyperlinkRelCount(m))
+            def ti:int 0
+            while (ti < (m.tableCount())) {
+                str_append out ("<tablePart r:id=\"rId" + (to_string ((relBase + ti) + 1)) + "\"/>")
+                ti = (ti + 1)
+            }
+            str_append out "</tableParts>"
+        }
         str_append out "</worksheet>"
         return out
     }
@@ -726,10 +746,80 @@ class XlsxWriter {
             }
             i = (i + 1)
         }
+        ; Tables continue the SAME numbering the hyperlinks started: a sheet's
+        ; relationships are one list, and `<tablePart r:id="rId3"/>` has to
+        ; name the third of them and not the third table.
+        def ti:int 0
+        while (ti < (m.tableCount())) {
+            rid = (rid + 1)
+            def num:int ((tableBase + ti) + 1)
+            str_append body ("<Relationship Id=\"rId" + (to_string rid) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/table\" Target=\"../tables/table" + (to_string num) + ".xml\"/>")
+            ti = (ti + 1)
+        }
         if ((strlen body) == 0) {
             return ""
         }
         return ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" + body + "</Relationships>")
+    }
+
+    ; How many relationships a sheet uses before its tables — which is how
+    ; many external hyperlinks it has, since those are written first.
+    sfn hyperlinkRelCount:int (m:SpreadsheetModel) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length m.linkKeys)) {
+            def key:string (itemAt m.linkKeys i)
+            def target:string ""
+            if (has m.links key) {
+                target = (unwrap (get m.links key))
+            }
+            if ((strlen target) > 0) {
+                if ((charAt target 0) != 35) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; One table part. The style is left out on purpose: a table carries a
+    ; theme name here that we do not draw, and writing a style we do not honour
+    ; would promise Excel a look this program never showed anyone.
+    sfn tableXml:string (t:SheetTable num:int) {
+        def ref:string ((XlsxWriter.cellRef(t.r0 t.c0)) + ":" + (XlsxWriter.cellRef(t.r1 t.c1)))
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        str_append out ("<table xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" id=\"" + (to_string num) + "\"")
+        str_append out (" name=\"" + (XlsxWriter.esc(t.name)) + "\" displayName=\"" + (XlsxWriter.esc(t.name)) + "\"")
+        str_append out (" ref=\"" + ref + "\" headerRowCount=\"" + (to_string t.headerRowCount) + "\"")
+        if (t.totalsRowCount > 0) {
+            str_append out (" totalsRowCount=\"" + (to_string t.totalsRowCount) + "\"")
+        }
+        str_append out ">"
+        ; The autoFilter a table carries covers its header and data, never its
+        ; totals row.
+        if (t.headerRowCount > 0) {
+            def lastData:int (t.dataR1())
+            if (lastData < t.r0) {
+                lastData = t.r0
+            }
+            str_append out ("<autoFilter ref=\"" + (XlsxWriter.cellRef(t.r0 t.c0)) + ":" + (XlsxWriter.cellRef(lastData t.c1)) + "\"/>")
+        }
+        def cols:int (t.columnCount())
+        str_append out ("<tableColumns count=\"" + (to_string cols) + "\">")
+        def i:int 0
+        while (i < cols) {
+            def nm:string (t.columnAt(i))
+            if ((strlen nm) == 0) {
+                ; A column has to be called something or Excel refuses the
+                ; file; "Column1" is what Excel itself names an unnamed one.
+                nm = ("Column" + (to_string (i + 1)))
+            }
+            str_append out ("<tableColumn id=\"" + (to_string (i + 1)) + "\" name=\"" + (XlsxWriter.esc(nm)) + "\"/>")
+            i = (i + 1)
+        }
+        str_append out "</tableColumns></table>"
+        return out
     }
 
     ; --- package --------------------------------------------------------------
@@ -745,6 +835,20 @@ class XlsxWriter {
             i = (i + 1)
         }
         str_append out "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
+        ; A table part needs its own override — the `xml` default above names
+        ; it plain XML, and a reader that believes that finds no table.
+        def tn:int 0
+        def ti:int 0
+        while (ti < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(ti))
+            tn = (tn + (sh.tableCount()))
+            ti = (ti + 1)
+        }
+        def t:int 0
+        while (t < tn) {
+            str_append out ("<Override PartName=\"/xl/tables/table" + (to_string (t + 1)) + ".xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml\"/>")
+            t = (t + 1)
+        }
         ; A part whose extension has no content type makes the package invalid,
         ; so the script extensions are declared — and only when a script is
         ; actually there, so an ordinary workbook comes out byte-identical to
@@ -828,13 +932,26 @@ class XlsxWriter {
         def first:SpreadsheetModel (book.sheetAt(0))
         XlsxWriter.addPart(z "xl/styles.xml" (this.stylesXml(first.styles)))
         def i:int 0
+        def tableSeen:int 0
         while (i < (book.sheetCount())) {
             def sh:SpreadsheetModel (book.sheetAt(i))
+            ; Which global table numbers this sheet's tables get. Set before
+            ; anything that writes one, because the sheet, its relationships
+            ; and the part itself all have to name the same file.
+            tableBase = tableSeen
             XlsxWriter.addPart(z ("xl/worksheets/sheet" + (to_string (i + 1)) + ".xml") (this.sheetXml(sh)))
             def rels:string (this.sheetRelsXml(sh))
             if ((strlen rels) > 0) {
                 XlsxWriter.addPart(z ("xl/worksheets/_rels/sheet" + (to_string (i + 1)) + ".xml.rels") rels)
             }
+            def ti:int 0
+            while (ti < (sh.tableCount())) {
+                def t:SheetTable (sh.tableAt(ti))
+                def num:int ((tableSeen + ti) + 1)
+                XlsxWriter.addPart(z ("xl/tables/table" + (to_string num) + ".xml") (XlsxWriter.tableXml(t num)))
+                ti = (ti + 1)
+            }
+            tableSeen = (tableSeen + (sh.tableCount()))
             i = (i + 1)
         }
         this.packScripts(book z)

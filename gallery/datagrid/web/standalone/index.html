@@ -172,12 +172,17 @@
         <span>backend: <strong id="backend">—</strong></span>
         <span>cmds: <strong id="cmds">—</strong></span>
         <span>redraws/s: <strong id="fps">—</strong></span>
+        <!-- Which build this is. A page that looks unfixed is usually a page
+             the browser kept from last time; this is how you tell without
+             guessing. The stamp is a hash of the three files, written by
+             build.sh, and it is also the ?v= on every one of them. -->
+        <span>build: <strong id="build">__BUILD__</strong></span>
         <label>open a .xlsx <input id="file" type="file" accept=".xlsx" /></label>
       </div>
     </div>
     <!-- The compiled engine. A missing file here is silent — the tag 404s and
          the module below runs anyway — so it says so out loud. -->
-    <script src="./datagrid_web.js" onerror="window.__engineMissing = 'datagrid_web.js'"></script>
+    <script src="./datagrid_web.js?v=__BUILD__" onerror="window.__engineMissing = 'datagrid_web.js'"></script>
     <!-- And if the MODULE never runs at all — its first line imports
          ./gl/evg-webgl.js, which is not in the source directory either — the
          page just sits there with nothing in the console but a 404. This
@@ -201,6 +206,6 @@
         }, 1200);
       });
     </script>
-    <script type="module" src="./standalone.mjs"></script>
+    <script type="module" src="./standalone.mjs?v=__BUILD__"></script>
   </body>
 </html>

@@ -1,0 +1,288 @@
+; ==============================================================================
+; BorderRenderTest — a border you apply is a border you can see.
+; ==============================================================================
+;
+; "Select a cell, click All borders, nothing happens." The command was fine:
+; the model came away with all four edges set. Two things in the PAINTER threw
+; them away again, and both of them are invisible from the display list, so
+; this test measures pixels.
+;
+;   * The body gridline pass draws the vertical rule at `x + w - 1` and the
+;     horizontal one at `y + h - 1` — exactly where a cell's right and bottom
+;     borders go — and it ran AFTER the cells. Every bordered cell in every
+;     workbook showed its top and left edge and had the other two painted over
+;     in pale grey. Measured: top and left 0 (black), bottom and right 210
+;     (the gridline), against 245 for an unbordered cell.
+;
+;   * The active cell's ring is two pixels wide and was drawn ON the cell's own
+;     boundary, so it covered all four of its edges. Applying a border to the
+;     one cell you have selected — which is how anyone tries it first — showed
+;     literally nothing until you clicked somewhere else.
+;
+; The measurement is "the darkest pixel along this line", with a control cell
+; that has no border in the same picture. Black ink reads near 0, the gridline
+; near 210, empty paper near 245, and the three do not overlap. For the
+; selected cell the BLUE channel separates them again: the ring is (40 100 210)
+; so its blue is high, while a black border's is not.
+;
+;   npm run datagrid:border:test
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class BorderCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class BorderRenderTest {
+    ; Darkest of the three channels' minimum along a horizontal or vertical
+    ; run. One number per edge, which is all the question needs.
+    sfn darkestIn:int (px:buffer w:int x0:int y0:int x1:int y1:int) {
+        def best:int 255
+        def y:int y0
+        while (y < y1) {
+            def x:int x0
+            while (x < x1) {
+                def at:int (((y * w) + x) * 4)
+                if ((at + 2) < (buffer_length px)) {
+                    def r:int (buffer_get px at)
+                    def g:int (buffer_get px (at + 1))
+                    def b:int (buffer_get px (at + 2))
+                    def lum:int (idiv ((r + g) + b) 3)
+                    if (lum < best) {
+                        best = lum
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return best
+    }
+
+    ; The least blue in a run. A black border is 0 here; the active-cell ring,
+    ; which is (40 100 210), never is.
+    sfn leastBlueIn:int (px:buffer w:int x0:int y0:int x1:int y1:int) {
+        def best:int 255
+        def y:int y0
+        while (y < y1) {
+            def x:int x0
+            while (x < x1) {
+                def at:int (((y * w) + x) * 4)
+                if ((at + 2) < (buffer_length px)) {
+                    def b:int (buffer_get px (at + 2))
+                    if (b < best) {
+                        best = b
+                    }
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return best
+    }
+
+    ; A sheet with one bordered cell and one plain one beside it.
+    sfn build:GridApp (borderRow:int borderCol:int) {
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.resize(12 6)
+        def st:CellStyle (new CellStyle)
+        GridFormat.borderFor(st "all" true true true true)
+        def sid:int (app.model.styleIdFor(st))
+        app.model.setCellStyleId(borderRow borderCol sid)
+        app.sheetView.markDirty()
+        app.sheetView.rebuild()
+        app.engine.rebuildAll()
+        return app
+    }
+
+    sfn main:void () {
+        def c:BorderCheck (new BorderCheck)
+        print "== BorderRenderTest =="
+
+        print "-- all four edges survive the gridline pass --"
+        ; The bordered cell is nowhere near the selection, so nothing but the
+        ; painter's own ordering decides what shows.
+        def app:GridApp (BorderRenderTest.build(4 2))
+        app.sel.setAnchor(0 0)
+        app.sel.setActive(0 0)
+        app.render()
+        def px:buffer (app.raw())
+        def W:int app.W
+        def r:GridRect (app.grid.cellRect(app.model 4 2))
+        def top:int (BorderRenderTest.darkestIn(px W (r.x + 2) r.y (r.x + r.w - 2) (r.y + 1)))
+        def bottom:int (BorderRenderTest.darkestIn(px W (r.x + 2) ((r.y + r.h) - 1) (r.x + r.w - 2) (r.y + r.h)))
+        def left:int (BorderRenderTest.darkestIn(px W r.x (r.y + 2) (r.x + 1) ((r.y + r.h) - 2)))
+        def right:int (BorderRenderTest.darkestIn(px W ((r.x + r.w) - 1) (r.y + 2) (r.x + r.w) ((r.y + r.h) - 2)))
+        ; The control: a cell with no border at all, one row further down.
+        def q:GridRect (app.grid.cellRect(app.model 7 2))
+        def plainTop:int (BorderRenderTest.darkestIn(px W (q.x + 2) q.y (q.x + q.w - 2) (q.y + 1)))
+        print ("  top=" + (to_string top) + " bottom=" + (to_string bottom) + " left=" + (to_string left) + " right=" + (to_string right) + " plain=" + (to_string plainTop))
+        c.ok("the top edge is inked" (top < 60))
+        c.ok("the left edge is inked" (left < 60))
+        ; These two were 210 — the pale gridline, painted over the border.
+        c.ok("the bottom edge is inked, not left as a gridline" (bottom < 60))
+        c.ok("the right edge is inked, not left as a gridline" (right < 60))
+        c.ok("a cell with no border is paler than all of them" (plainTop > 150))
+
+        print "-- and on the cell you have selected --"
+        ; The whole point of the report: one cell, selected, All borders.
+        def sa:GridApp (BorderRenderTest.build(4 2))
+        sa.sel.setAnchor(4 2)
+        sa.sel.setActive(4 2)
+        sa.render()
+        def spx:buffer (sa.raw())
+        def sr:GridRect (sa.grid.cellRect(sa.model 4 2))
+        def sTop:int (BorderRenderTest.leastBlueIn(spx W (sr.x + 3) sr.y (sr.x + sr.w - 3) (sr.y + 1)))
+        def sBottom:int (BorderRenderTest.leastBlueIn(spx W (sr.x + 3) ((sr.y + sr.h) - 1) (sr.x + sr.w - 3) (sr.y + sr.h)))
+        def sLeft:int (BorderRenderTest.leastBlueIn(spx W sr.x (sr.y + 3) (sr.x + 1) ((sr.y + sr.h) - 3)))
+        def sRight:int (BorderRenderTest.leastBlueIn(spx W ((sr.x + sr.w) - 1) (sr.y + 3) (sr.x + sr.w) ((sr.y + sr.h) - 3)))
+        print ("  blue: top=" + (to_string sTop) + " bottom=" + (to_string sBottom) + " left=" + (to_string sLeft) + " right=" + (to_string sRight))
+        c.ok("the top edge is black ink, not the blue ring" (sTop < 80))
+        c.ok("the bottom edge is black ink" (sBottom < 80))
+        c.ok("the left edge is black ink" (sLeft < 80))
+        c.ok("the right edge is black ink" (sRight < 80))
+
+        print "== the spec grammar =="
+        c.eqStr("the flags field" (GridFormat.specField("spec:TBLR:medium:#C00000" 1)) "TBLR")
+        c.eqStr("the line field" (GridFormat.specStyle("spec:TBLR:medium:#C00000")) "medium")
+        c.eqStr("the colour field" (GridFormat.specColor("spec:TBLR:medium:#C00000")) "#C00000")
+        c.eqStr("a short spec falls back to thin" (GridFormat.specStyle("spec:TB")) "thin")
+        c.eqStr("and to black" (GridFormat.specColor("spec:TB")) "#000000")
+        c.ok("a spec is recognised as one" (GridFormat.isSpec("spec:TB::")))
+        c.ok("and a plain word is not" ((GridFormat.isSpec("outline")) == false))
+
+        ; Applied to a block: T/B/L/R are the block's own sides, H and V are
+        ; the seams inside it.
+        def bk:GridApp (new GridApp)
+        bk.init("gallery/pdf_writer/assets/fonts")
+        bk.model.clearSheet()
+        bk.model.resize(8 6)
+        bk.sel.setAnchor(1 1)
+        bk.sel.setActive(3 3)
+        c.ok("a spec runs through the ordinary border command" (bk.runCommand("format.border" "spec:TBLRH:medium:#C00000")))
+        def tl:CellStyle (bk.model.getCellStyle(1 1))
+        c.ok("the top-left cell has the block's top" (tl.borderTop.has()))
+        c.ok("and the block's left" (tl.borderLeft.has()))
+        c.ok("but not the block's right, which is three columns away" ((tl.borderRight.has()) == false))
+        c.eqStr("drawn in the line the spec named" tl.borderTop.style "medium")
+        c.eqStr("in the colour it named" tl.borderTop.rgb "#C00000")
+        def mid:CellStyle (bk.model.getCellStyle(2 2))
+        c.ok("a cell in the middle has an inside horizontal above it" (mid.borderTop.has()))
+        c.ok("and one below it" (mid.borderBottom.has()))
+        c.ok("but no inside vertical, which the spec did not ask for" ((mid.borderLeft.has()) == false))
+
+        ; And that a spec REPLACES rather than adds, which is what lets the
+        ; picker take an edge away.
+        c.ok("a second spec runs" (bk.runCommand("format.border" "spec:B:thin:#000000")))
+        def only:CellStyle (bk.model.getCellStyle(3 3))
+        c.ok("the bottom is what is left" (only.borderBottom.has()))
+        c.ok("and the right edge it used to have is gone" ((only.borderRight.has()) == false))
+        c.ok("an empty spec clears everything" (bk.runCommand("format.border" "spec:::")))
+        def gone:CellStyle (bk.model.getCellStyle(3 3))
+        c.ok("including the flag" ((gone.hasBorder) == false))
+
+        print "== the gallery window =="
+        def ga:GridApp (new GridApp)
+        ga.init("gallery/pdf_writer/assets/fonts")
+        ga.model.clearSheet()
+        ga.model.resize(8 6)
+        ga.sel.setAnchor(2 2)
+        ga.sel.setActive(2 2)
+        c.ok("format.border with no argument opens it" (ga.runCommand("format.border" "")))
+        c.ok("and the window is up" ga.borderDialog.visible)
+        ga.borderDialog.setChecked(1001 false)
+        ga.borderDialog.setChecked(1002 true)
+        ga.borderDialog.setChecked(1003 false)
+        ga.borderDialog.setChecked(1004 false)
+        ga.borderDialog.selectRadio(1012)
+        ga.borderDialog.selectRadio(1034)
+        ga.syncBorderDialog()
+        c.eqStr("the spec is what the controls say" (ga.borderSpecFromDialog()) "spec:B:medium:#C00000")
+        ga.applyBorderDialog()
+        c.ok("applying closes it" ((ga.borderDialog.visible) == false))
+        def picked:CellStyle (ga.model.getCellStyle(2 2))
+        c.ok("and the cell has the bottom it asked for" (picked.borderBottom.has()))
+        c.eqStr("in the line it asked for" picked.borderBottom.style "medium")
+        c.eqStr("in the colour it asked for" picked.borderBottom.rgb "#C00000")
+        c.ok("and nothing on the other three sides" ((((picked.borderTop.has()) == false) && ((picked.borderLeft.has()) == false)) && ((picked.borderRight.has()) == false)))
+
+        ; Re-opening shows what is there, so unticking is how you remove.
+        c.ok("it opens again" (ga.runCommand("format.border" "")))
+        c.ok("with Bottom already ticked" (ga.borderDialog.isChecked(1002)))
+        c.ok("and Top not" ((ga.borderDialog.isChecked(1001)) == false))
+        c.eqStr("and the line it is drawn in preselected" ga.borderLine "medium")
+        c.eqStr("and its colour" ga.borderInk "#C00000")
+        ga.borderDialog.setChecked(1002 false)
+        ga.syncBorderDialog()
+        ga.applyBorderDialog()
+        def emptied:CellStyle (ga.model.getCellStyle(2 2))
+        c.ok("unticking it takes the line away" ((emptied.hasBorder) == false))
+
+        ; The toolbar button that opens it.
+        def tb:GridApp (new GridApp)
+        tb.init("gallery/pdf_writer/assets/fonts")
+        tb.model.clearSheet()
+        tb.model.resize(8 6)
+        tb.sel.setAnchor(1 1)
+        tb.sel.setActive(1 1)
+        tb.sheetView.markDirty()
+        tb.sheetView.rebuild()
+        tb.render()
+        def idx:int -1
+        def bi:int 0
+        while (bi < (tb.view.toolbar.count())) {
+            def bt:ToolItem (tb.view.toolbar.at(bi))
+            if (bt.command == "format.border") {
+                if ((strlen bt.arg) == 0) {
+                    idx = bi
+                }
+            }
+            bi = (bi + 1)
+        }
+        c.ok("the toolbar has a Borders… button" (idx >= 0))
+        def item:ToolItem (tb.view.toolbar.at(idx))
+        def bx:int (item.x + (idiv item.w 2))
+        def by:int (item.y + (idiv item.h 2))
+        def bin (new UIInput)
+        bin.newFrame()
+        bin.setPointerPos(bx by)
+        bin.setPointerDown(true)
+        tb.update(bin)
+        bin.newFrame()
+        bin.setPointerPos(bx by)
+        bin.setPointerDown(false)
+        tb.update(bin)
+        c.ok("clicking it opens the gallery" tb.borderDialog.visible)
+        c.ok("and it draws with the gallery up" ((strlen (tb.sceneJson())) > 100))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

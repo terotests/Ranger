@@ -161,6 +161,72 @@ class UITextRenderer {
         }
     }
 
+    ; The same line, but only the part of it inside a rectangle.
+    ;
+    ; A clip that only decides whether to draw a string AT ALL is not a clip:
+    ; a label starting one pixel inside its cell is drawn in full, across the
+    ; neighbour, over the row numbers and off the edge of the window. Excel
+    ; spills a label into EMPTY neighbours and stops it at the first occupied
+    ; one, and stopping it is this.
+    ;
+    ; The line is rasterized into an image either way, so clipping it is
+    ; choosing which sub-rectangle of that image to blit — the pixels outside
+    ; are never touched, which is also why this costs nothing.
+    fn drawLineClipped:void (canvas:SoftCanvas text:string x:int y:int size:double r:int g:int b:int a:int cx0:int cy0:int cx1:int cy1:int) {
+        if ((strlen text) == 0) {
+            return
+        }
+        if (hasFont == false) {
+            ; The no-font fallback draws blocks from a built-in bitmap and has
+            ; no image to cut; it is a development path and is left whole.
+            def scale:int (this.bmScaleFor(size))
+            this.bitmapDrawLine(canvas x y scale text r g b)
+            return
+        }
+        def line:UICachedLine (this.getCachedLine(text size r g b a))
+        if (line.w <= 0) {
+            return
+        }
+        def iw:int line.img.width
+        def ih:int line.img.height
+        if (iw <= 0) {
+            return
+        }
+        if (ih <= 0) {
+            return
+        }
+        ; The visible part, in the image's own coordinates.
+        def sx:int 0
+        def sy:int 0
+        def dx:int x
+        def dy:int y
+        def sw:int iw
+        def sh:int ih
+        if (dx < cx0) {
+            sx = (cx0 - dx)
+            sw = (sw - sx)
+            dx = cx0
+        }
+        if (dy < cy0) {
+            sy = (cy0 - dy)
+            sh = (sh - sy)
+            dy = cy0
+        }
+        if ((dx + sw) > cx1) {
+            sw = (cx1 - dx)
+        }
+        if ((dy + sh) > cy1) {
+            sh = (cy1 - dy)
+        }
+        if (sw <= 0) {
+            return
+        }
+        if (sh <= 0) {
+            return
+        }
+        canvas.blitImageRect(line.img sx sy sw sh dx dy)
+    }
+
     ; Draw text, word-wrapped to maxWidth (<= 0 = single line, no wrapping).
     ; Returns the total height consumed (so callers can stack content).
     fn drawText:int (canvas:SoftCanvas text:string x:int y:int size:double maxWidth:double r:int g:int b:int a:int) {

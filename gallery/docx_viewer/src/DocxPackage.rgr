@@ -88,11 +88,13 @@ class DocxPackage {
         def i:int 0
         def n:int (strlen xml)
         while (i < n) {
-            def rs:int (indexOf (substring xml i n) "<Relationship")
+            ; `indexOfFrom` returns an ABSOLUTE index; the tail-substring
+            ; form it replaced returned one relative to `i`, and copied the
+            ; rest of the part to get it.
+            def rs:int (indexOfFrom xml "<Relationship" i)
             if (rs < 0) {
                 return
             }
-            rs = (i + rs)
             def gt:int rs
             while (gt < n) {
                 if ((charAt xml gt) == 62) {

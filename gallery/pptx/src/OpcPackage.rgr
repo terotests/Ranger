@@ -14,6 +14,7 @@
 
 Import "../../zip/ZipReader.rgr"
 Import "../../zip/ZipEntry.rgr"
+Import "../../pdf_writer/src/core/Utf8.rgr"
 
 class OpcRelationship {
     def id:string ""
@@ -113,12 +114,20 @@ class OpcPackage {
         return (reader.extract(entry))
     }
 
+    ; An OOXML part is UTF-8 on disk, and `buffer_to_string` is not a decode:
+    ; it hands back one unit per BYTE. Where a string is bytes that is already
+    ; the answer and `Utf8.decode` returns it untouched; where a string is
+    ; UTF-16 code units — the browser build — the two bytes of "ä" arrive as
+    ; two characters and the slide draws "HÃ¤meenlinna". The .docx reader has
+    ; always decoded here; this one never did, so a deck written with real
+    ; letters was mojibake in the browser while the same deck written with
+    ; `&#228;` was correct.
     fn readXml:string (name:string) {
         def data:buffer (this.readBinary(name))
         if ((buffer_length data) == 0) {
             return ""
         }
-        return (buffer_to_string data)
+        return (Utf8.decode((buffer_to_string data)))
     }
 
     ; Resolve a relative OPC target against a part path.
@@ -167,7 +176,11 @@ class OpcPackage {
                 }
                 cur = ""
             } {
-                cur = (cur + (strfromcode (charAt target j)))
+                ; Copied, not rebuilt. `strfromcode (charAt …)` is the
+                ; identity only where a string is code units; where it is
+                ; bytes it encodes each byte a second time, and a part named
+                ; with anything outside ASCII stops resolving.
+                str_append cur (substring target j (j + 1))
             }
             j = (j + 1)
         }
@@ -191,7 +204,7 @@ class OpcPackage {
                 }
                 bcur = ""
             } {
-                bcur = (bcur + (strfromcode (charAt base bi)))
+                str_append bcur (substring base bi (bi + 1))
             }
             bi = (bi + 1)
         }
@@ -295,9 +308,13 @@ class OpcPackage {
     }
 
     fn relationshipsFor:[OpcRelationship] (part:string) {
-        def cached@(optional):[OpcRelationship] (get relCache part)
-        if (!null? cached) {
-            return (unwrap cached)
+        ; `has` rather than an optional ARRAY: the C++ writer lowers an
+        ; optional array to a plain vector and then compares it with NULL,
+        ; which does not compile — and an uncompilable reader is a reader
+        ; whose C++ half can never be tested, which is how the mojibake
+        ; below lived as long as it did.
+        if (has relCache part) {
+            return (unwrap (get relCache part))
         }
         def rpath:string (OpcPackage.relsPathFor(part))
         def xml:string (this.readXml(rpath))

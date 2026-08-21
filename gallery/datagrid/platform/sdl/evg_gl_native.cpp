@@ -76,9 +76,25 @@ struct QuadRun {
   int count = 0;
   GLuint tex = 0; // 0 = atlas / shape
   int isImage = 0;
+  // The clip in force when this run was gathered, in PAGE coordinates.
+  // `clipOn == 0` means none.
+  int clipOn = 0;
+  float clipX = 0.f, clipY = 0.f, clipW = 0.f, clipH = 0.f;
 };
 std::vector<QuadRun> g_quadRuns;
 int g_runStart = 0;
+
+// A clip is a scissor, and a scissor is pipeline state rather than
+// per-instance data — so a change of clip has to END the run being gathered,
+// because everything in a run is drawn by one call and one call has one
+// scissor. The caller intersects as clips nest; this only records what is in
+// force.
+//
+// Without it, a label wider than its cell was drawn in full — across whatever
+// its neighbour had in it and over the row numbers — because the clip that
+// said where to stop never reached the screen.
+int g_clipOn = 0;
+float g_clipX = 0.f, g_clipY = 0.f, g_clipW = 0.f, g_clipH = 0.f;
 
 GLuint compile(GLenum type, const char* src) {
   GLuint s = glCreateShader(type);
@@ -250,6 +266,11 @@ void flushQuadRun() {
     r.count = count;
     r.tex = 0;
     r.isImage = 0;
+    r.clipOn = g_clipOn;
+    r.clipX = g_clipX;
+    r.clipY = g_clipY;
+    r.clipW = g_clipW;
+    r.clipH = g_clipH;
     g_quadRuns.push_back(r);
   }
   g_runStart = n;
@@ -371,6 +392,7 @@ extern "C" void evggl_begin(int pageW, int pageH, int drawW, int drawH) {
   g_quadRuns.clear();
   g_triRuns.clear();
   g_runStart = 0;
+  g_clipOn = 0;
   for (GLuint t : g_tempImageTex) glDeleteTextures(1, &t);
   g_tempImageTex.clear();
   g_imageRuns.clear();
@@ -415,8 +437,25 @@ extern "C" void evggl_image(float x, float y, float w, float h,
   run.count = 1;
   run.tex = tex;
   run.isImage = 1;
+  run.clipOn = g_clipOn;
+  run.clipX = g_clipX; run.clipY = g_clipY;
+  run.clipW = g_clipW; run.clipH = g_clipH;
   g_quadRuns.push_back(run);
   g_runStart = (int)(g_rects.size() / 4);
+}
+
+// The clip in force from here on, in page coordinates. The caller has already
+// intersected it with any enclosing clip; passing w or h of zero means an
+// empty region and nothing after it draws until the clip is cleared.
+extern "C" void evggl_clip(float x, float y, float w, float h) {
+  flushQuadRun();
+  g_clipOn = 1;
+  g_clipX = x; g_clipY = y; g_clipW = w; g_clipH = h;
+}
+
+extern "C" void evggl_clip_off(void) {
+  flushQuadRun();
+  g_clipOn = 0;
 }
 
 extern "C" void evggl_tris(const float* xy, int nFloats,
@@ -433,6 +472,9 @@ extern "C" void evggl_tris(const float* xy, int nFloats,
   marker.count = 0;
   marker.tex = 0;
   marker.isImage = 2;
+  marker.clipOn = g_clipOn;
+  marker.clipX = g_clipX; marker.clipY = g_clipY;
+  marker.clipW = g_clipW; marker.clipH = g_clipH;
   g_quadRuns.push_back(marker);
 }
 
@@ -482,8 +524,29 @@ extern "C" void evggl_flush(void) {
     bind(g_rotVbo, 5, 1);
   };
 
+  // A page-coordinate clip becomes a scissor box in DRAWABLE pixels, measured
+  // from the BOTTOM — which is where GL puts the origin and the page does not.
+  const float sxScale = (float)g_drawW / (float)g_pageW;
+  const float syScale = (float)g_drawH / (float)g_pageH;
+  bool scissorOn = false;
+  auto applyClip = [&](const QuadRun& run) {
+    if (!run.clipOn) {
+      if (scissorOn) { glDisable(GL_SCISSOR_TEST); scissorOn = false; }
+      return;
+    }
+    if (!scissorOn) { glEnable(GL_SCISSOR_TEST); scissorOn = true; }
+    int sx = (int)lroundf(run.clipX * sxScale);
+    int sy = (int)lroundf(((float)g_pageH - (run.clipY + run.clipH)) * syScale);
+    int sw = (int)lroundf(run.clipW * sxScale);
+    int sh = (int)lroundf(run.clipH * syScale);
+    if (sw < 0) sw = 0;
+    if (sh < 0) sh = 0;
+    glScissor(sx, sy, sw, sh);
+  };
+
   int triCursor = 0;
   for (const QuadRun& run : g_quadRuns) {
+    applyClip(run);
     if (run.isImage == 2) {
       // Tri marker: start = -1 - index
       int idx = -1 - run.start;
@@ -517,6 +580,7 @@ extern "C" void evggl_flush(void) {
     glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, run.count);
   }
 
+  if (scissorOn) glDisable(GL_SCISSOR_TEST);
   // Any trailing tris that were not interleaved (none expected).
   glBindVertexArray(0);
 }

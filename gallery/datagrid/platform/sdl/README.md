@@ -153,3 +153,12 @@ SDL_VIDEODRIVER=dummy ./tmp/datagrid-sdl/datagrid_sdl \
 | `build.sh` | Ranger `-l=cpp` → link SDL2 + OpenGL |
 
 The spreadsheet core stays under `gallery/datagrid/src/`.
+
+**A held key repeats.** `SDL_KEYDOWN` carries a `repeat` flag on the events the
+OS generates while a key is held, and this host used to drop them — so holding
+an arrow moved the selection exactly once, while ordinary typing in the same
+build repeated normally, because `SDL_TEXTINPUT` is sent for repeats too. Both
+browser hosts had always passed them through. The delay before the first repeat
+and the rate after it are the OS's, which is the point of forwarding rather
+than timing them here: they are a preference the user set once, in one place,
+for every program on the machine.

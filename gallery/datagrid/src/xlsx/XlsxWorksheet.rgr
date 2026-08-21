@@ -365,18 +365,44 @@ class XlsxWorksheet {
                 this.applyDimension(model (t.attr("ref")))
             }
             if ((t.name == "pane") && (t.isEnd == false)) {
-                ; FortuneSheet / Excel freeze: xSplit=cols, ySplit=rows
-                def xs:string (t.attr("xSplit"))
-                def ys:string (t.attr("ySplit"))
-                def fc:int 0
-                def fr:int 0
-                if ((strlen xs) > 0) {
-                    fc = (XlsxWorksheet.parseInt0(xs))
+                ; `xSplit` / `ySplit` mean two different things and the `state`
+                ; attribute is what says which.
+                ;
+                ;   state="frozen" / "frozenSplit"  counts of columns and rows
+                ;   state="split", or absent        TWIPS — a position on the
+                ;                                   page, twentieths of a point
+                ;
+                ; Read without looking at `state`, a sheet split a third of the
+                ; way down reports two thousand frozen rows. Nothing on screen
+                ; says so, because a freeze that large is clamped when it is
+                ; drawn — but everything that asks the model how many rows are
+                ; pinned gets two thousand, and sorting was one of them: every
+                ; row it could see was a heading, so a sort marked the column
+                ; and moved nothing.
+                ;
+                ; A split pane is not implemented here, so it is read as no
+                ; freeze at all rather than as a freeze in the wrong unit.
+                def st:string (t.attr("state"))
+                def frozen:boolean false
+                if (st == "frozen") {
+                    frozen = true
                 }
-                if ((strlen ys) > 0) {
-                    fr = (XlsxWorksheet.parseInt0(ys))
+                if (st == "frozenSplit") {
+                    frozen = true
                 }
-                model.setFreeze(fr fc)
+                if frozen {
+                    def xs:string (t.attr("xSplit"))
+                    def ys:string (t.attr("ySplit"))
+                    def fc:int 0
+                    def fr:int 0
+                    if ((strlen xs) > 0) {
+                        fc = (XlsxWorksheet.parseInt0(xs))
+                    }
+                    if ((strlen ys) > 0) {
+                        fr = (XlsxWorksheet.parseInt0(ys))
+                    }
+                    model.setFreeze(fr fc)
+                }
             }
             if ((t.name == "col") && (t.isEnd == false)) {
                 def minC:int ((XlsxWorksheet.parseInt0((t.attr("min")))) - 1)
