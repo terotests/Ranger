@@ -745,15 +745,22 @@ class RangerDbBackend {
     }
 
     fn createTable:boolean (table:string columns:[DBColumn]) {
+        errorText = ""
         engine.createTable(table columns)
         return true
     }
 
+    ; Every operation that succeeds clears the error, because `lastError` means
+    ; "what went wrong with the last thing", not "the last thing that ever went
+    ; wrong". A stale message from a refused SQL statement was enough to make
+    ; the next perfectly good query look like a failure to its caller.
     fn execSpec:DataChunk (spec:QuerySpec) {
+        errorText = ""
         return (engine.execSpec(spec))
     }
 
     fn countRows:int (spec:QuerySpec) {
+        errorText = ""
         return (engine.countRows(spec))
     }
 

@@ -200,14 +200,35 @@ class DbDemo {
         DbDemo.printSheet(app "after ORDER BY revenue DESC (the engine did it):")
         print ("status: " + app.db.status)
 
+        ; The sheet as it stands, before the query box is opened over it.
         app.render()
-        def rb:RasterBuffer (new RasterBuffer)
-        rb.width = app.W
-        rb.height = app.H
-        rb.pixels = (app.raw())
-        def png:PNGEncoder (new PNGEncoder)
-        png.encode(rb "gallery/datagrid/artifacts" "db_sheet.png")
+        def sheetShot:RasterBuffer (new RasterBuffer)
+        sheetShot.width = app.W
+        sheetShot.height = app.H
+        sheetShot.pixels = (app.raw())
+        def sheetPng:PNGEncoder (new PNGEncoder)
+        sheetPng.encode(sheetShot "gallery/datagrid/artifacts" "db_sheet.png")
+
+        ; --- the SQL box ------------------------------------------------------
+        ; The same query, typed rather than built: RangerSQL parses it and
+        ; SqlFront plans it into the QuerySpec the sheet already speaks.
+        def typed:string "SELECT id, country, revenue FROM sales WHERE revenue > 900000 ORDER BY revenue DESC"
+        app.dbSqlText = typed
+        app.openSqlDialog()
+        app.runSqlFromDialog()
         print ""
-        print "wrote gallery/datagrid/artifacts/db_sheet.png"
+        print ("typed SQL: " + typed)
+        print ("status: " + app.db.status)
+        DbDemo.printSheet(app "the typed query, as a sheet:")
+        app.render()
+        def sqlShot:RasterBuffer (new RasterBuffer)
+        sqlShot.width = app.W
+        sqlShot.height = app.H
+        sqlShot.pixels = (app.raw())
+        def sqlPng:PNGEncoder (new PNGEncoder)
+        sqlPng.encode(sqlShot "gallery/datagrid/artifacts" "db_sql_box.png")
+
+        print ""
+        print "wrote gallery/datagrid/artifacts/db_sheet.png and db_sql_box.png"
     }
 }

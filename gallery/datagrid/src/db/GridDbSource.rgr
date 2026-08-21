@@ -30,6 +30,7 @@
 Import "../SpreadsheetModel.rgr"
 Import "../CellStyle.rgr"
 Import "../../../rangerdb/src/DBBackend.rgr"
+Import "../../../rangerdb/src/SqlFront.rgr"
 
 class GridDbSource {
     def session:DBSession (new DBSession)
@@ -60,6 +61,13 @@ class GridDbSource {
     def pending:[DBMutation]
     def status:string ""
     def dirtyCells:int 0
+    ; The SQL this sheet came from, when it came from SQL rather than from a
+    ; QuerySpec built in code. Kept for the dialog and the status bar.
+    def sqlText:string ""
+    ; Set when the statement was beyond RangerSQL's planner and the sheet is
+    ; the raw result of handing the text to the engine. Such a sheet cannot
+    ; sort or filter by re-running a spec, and has no rows to write back to.
+    def rawSql:string ""
 
     Constructor () {
     }
@@ -85,6 +93,53 @@ class GridDbSource {
         writeTable = querySpec.table
         clear pending
         dirtyCells = 0
+        ; A spec-driven sheet is not the previous sheet's SQL. Leaving these
+        ; set made the next sheet re-run the last raw query it had been given.
+        sqlText = ""
+        rawSql = ""
+    }
+
+    ; A sheet from typed SQL.
+    ;
+    ; RangerSQL parses it and SqlFront plans it into the same QuerySpec the
+    ; rest of this class already knows how to load, sort, filter and write
+    ; back through - so a typed SELECT is an ordinary database sheet, not a
+    ; second kind of sheet.
+    ;
+    ; A statement the planner cannot express (a join, a subquery, an
+    ; expression in the projection) still runs: it is handed to the engine as
+    ; text and the result is shown read only, which is honest about what can
+    ; be done with it.
+    fn bindSqlQuery:boolean (dbSession:DBSession sql:string sheet:int) {
+        session = dbSession
+        sheetIndex = sheet
+        bound = true
+        sqlText = sql
+        rawSql = ""
+        clear pending
+        dirtyCells = 0
+        def plan:SqlPlan (SqlFront.plan(sql))
+        if (plan.isQuery()) {
+            spec = plan.spec
+            writeTable = plan.spec.table
+            this.adoptKeysFromTable()
+            return true
+        }
+        def caps:DBCapabilities (session.capabilities())
+        if (caps.sqlText == false) {
+            status = ("this engine takes no SQL, and RangerSQL could not plan it: " + plan.error)
+            bound = false
+            return false
+        }
+        rawSql = sql
+        spec = (new QuerySpec)
+        writeTable = ""
+        clear keyNames
+        return true
+    }
+
+    fn isRawSql:boolean () {
+        return ((strlen rawSql) > 0)
     }
 
     ; Which columns identify a row. Told explicitly, because a result set does
@@ -123,17 +178,24 @@ class GridDbSource {
             return false
         }
         def chunk:DataChunk (new DataChunk)
-        if (windowSize > 0) {
-            chunk = (session.fetchRange(spec windowStart windowSize))
+        if (this.isRawSql()) {
+            chunk = (session.execSql(rawSql))
         } {
-            chunk = (session.query(spec))
+            if (windowSize > 0) {
+                chunk = (session.fetchRange(spec windowStart windowSize))
+            } {
+                chunk = (session.query(spec))
+            }
         }
         def err:string (session.lastError())
         if ((strlen err) > 0) {
             status = err
             return false
         }
-        totalRows = (session.countRows(spec))
+        totalRows = chunk.rowCount
+        if ((this.isRawSql()) == false) {
+            totalRows = (session.countRows(spec))
+        }
         clear columns
         clear loaded
         clear keyValues
@@ -162,6 +224,10 @@ class GridDbSource {
         if (spec.hasAggregates()) {
             readOnly = true
             readOnlyReason = "an aggregate result has no rows to write back to"
+        }
+        if (this.isRawSql()) {
+            readOnly = true
+            readOnlyReason = "raw SQL result: read only, edit the query instead"
         }
         model.quietWrites = true
         model.clearSheet()
@@ -218,6 +284,13 @@ class GridDbSource {
 
     fn describeLoad:string () {
         def out:string ((session.engineName()) + ": " + (to_string loadedRows) + " rows")
+        if ((strlen sqlText) > 0) {
+            def how:string "planned"
+            if (this.isRawSql()) {
+                how = "raw"
+            }
+            out = (out + " (" + how + " SQL)")
+        }
         if (totalRows > loadedRows) {
             out = (out + " of " + (to_string totalRows))
         }
@@ -483,6 +556,10 @@ class GridDbSource {
         if (bound == false) {
             return false
         }
+        if (this.isRawSql()) {
+            status = "this sheet is a raw SQL result - put ORDER BY in the query"
+            return false
+        }
         if (col < 0) {
             return false
         }
@@ -498,6 +575,10 @@ class GridDbSource {
 
     fn filterByColumn:boolean (model:SpreadsheetModel col:int text:string) {
         if (bound == false) {
+            return false
+        }
+        if (this.isRawSql()) {
+            status = "this sheet is a raw SQL result - put WHERE in the query"
             return false
         }
         if (col < 0) {

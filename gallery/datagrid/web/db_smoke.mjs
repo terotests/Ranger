@@ -54,6 +54,17 @@ async function post(event) {
   });
 }
 
+// The same command table the keyboard dispatches through - what a host, a
+// toolbar button and Ctrl+Q all end up calling.
+async function command(id, arg) {
+  const res = await fetch(BASE + "/command", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id, arg: arg || "" }),
+  });
+  return res.status;
+}
+
 let failed = 0;
 function must(name, cond) {
   if (cond) {
@@ -100,6 +111,34 @@ try {
   const mentions = refused.split("not-a-number").length - 1;
   must("a bad value never reaches the cell", mentions === 1);
   must("and the app says why", refused.includes("is not a valid"));
+
+  // --- the SQL box, driven the way a person drives it -----------------------
+  // Ctrl+Q opens it; the dialog is modal, so typing goes into its field; Enter
+  // is the default button. Nothing here reaches past the UI.
+  await command("db.sql.dialog", "");
+  await sleep(200);
+  const withBox = (await scene()) || refused;
+  must("the SQL box is on screen", withBox.includes("SQL query"));
+
+  const query = "SELECT id, country, revenue FROM sales WHERE revenue > 40000 ORDER BY revenue DESC";
+  await post({ type: "text", text: query });
+  await sleep(200);
+  const typedInBox = (await scene()) || withBox;
+  must("what was typed is in the box", typedInBox.includes("WHERE revenue > 40000"));
+
+  await post({ type: "key", key: "enter" });
+  await sleep(400);
+  const queried = (await scene()) || typedInBox;
+  must("the query became a sheet", queried.includes("planned SQL"));
+  must("with the columns the query asked for", queried.includes("revenue"));
+  must("and the box reports the engine", queried.includes("rows"));
+
+  // The same thing through the command surface, with the query as its argument.
+  const status = await command("db.sql", "SELECT country FROM sales ORDER BY country LIMIT 5");
+  must("db.sql is a command a host can run", status === 200);
+  await sleep(300);
+  const oneColumn = (await scene()) || queried;
+  must("the new query replaced the sheet", oneColumn.includes("country"));
 
   console.log(failed === 0 ? "ALL PASS" : "FAILURES");
 } catch (e) {

@@ -220,12 +220,46 @@ class HostSqlBackend {
         def out:[DBColumn]
         def sql:string ("SELECT * FROM " + (SqlText.quoteName(table)) + " LIMIT 0")
         def chunk:DataChunk (this.execSql(sql))
+        def keys:[string] (this.keyColumns(table))
         def n:int (chunk.columnCount())
         def i:int 0
         while (i < n) {
             def c:DBColumn (chunk.columnAt(i))
-            push out (c.copy())
+            def copy:DBColumn (c.copy())
+            def k:int 0
+            while (k < (array_length keys)) {
+                if ((itemAt keys k) == copy.name) {
+                    copy.key = true
+                }
+                k = (k + 1)
+            }
+            push out copy
             i = (i + 1)
+        }
+        return out
+    }
+
+    ; Which columns identify a row. A result set does not carry that - `SELECT
+    ; * LIMIT 0` gives names and types and nothing about keys - so it is asked
+    ; for separately, in the one place per engine that knows how to ask.
+    ; Without it a sheet built from a typed query has no address to write an
+    ; edit back to and is read only for no good reason.
+    fn keyColumns:[string] (table:string) {
+        def out:[string]
+        def q:string (strfromcode 39)
+        def literal:string (q + table + q)
+        def sql:string ("SELECT unnest(constraint_column_names) AS name FROM duckdb_constraints() WHERE table_name = " + literal + " AND constraint_type = " + q + "PRIMARY KEY" + q)
+        if (driver == "sqlite") {
+            sql = ("SELECT name FROM pragma_table_info(" + literal + ") WHERE pk > 0")
+        }
+        def chunk:DataChunk (this.execSql(sql))
+        ; An engine that does not answer this is not an error: it means the
+        ; sheet stays read only, which is what it did before.
+        errorText = ""
+        def r:int 0
+        while (r < chunk.rowCount) {
+            push out (chunk.stringAt(r 0))
+            r = (r + 1)
         }
         return out
     }

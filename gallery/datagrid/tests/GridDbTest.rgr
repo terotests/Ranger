@@ -186,6 +186,45 @@ class GridDbTest {
         check.eqInt("one category per row" (data.catCount()) app.db.loadedRows)
         check.eqStr("series named by the query column" (itemAt data.series 0) "revenue")
 
+        ; --- a sheet from typed SQL -------------------------------------------
+        ; The query box: RangerSQL parses what was typed and SqlFront plans it
+        ; into the same QuerySpec a sheet built in code uses, so a typed SELECT
+        ; is an ordinary editable database sheet.
+        def typed:string ("SELECT id, country, revenue FROM " + (GridDbTest.tableName()) + " WHERE revenue > 900000 ORDER BY revenue DESC")
+        app.dbSqlText = typed
+        app.openSqlDialog()
+        check.ok("the SQL box opens" app.sqlDialog.visible)
+        app.runSqlFromDialog()
+        check.ok("the typed query became a sheet" (app.db.loadedRows > 0))
+        check.ok("planned into a QuerySpec, not run as raw text" ((app.db.isRawSql()) == false))
+        check.eqStr("header comes from the query" (app.model.getCell(0 1)) "country")
+        check.eqInt("only the selected columns" (array_length app.db.columns) 3)
+        check.eqInt("only the rows the WHERE kept" app.db.loadedRows 2)
+        check.eqStr("ordered by the query" (app.model.getCell(1 1)) "Finland")
+        check.ok("and it is writable, because the key came with it" (app.db.readOnly == false))
+
+        ; An edit on a SQL sheet goes back to the table the query named.
+        GridDbTest.typeInto(app 1 1 "Suomi")
+        check.eqStr("an edit on a SQL sheet reaches the database" (GridDbTest.storedText(session 1 "country")) "Suomi")
+
+        ; The command surface does the same thing, which is how a host drives it.
+        app.runCommand("db.sql" ("SELECT id, country FROM " + (GridDbTest.tableName()) + " ORDER BY id"))
+        check.eqInt("db.sql runs a query" (array_length app.db.columns) 2)
+        check.ok("and it is still a database sheet" (app.dbSheetActive()))
+
+        ; Beyond the planner: an expression in the projection. A host engine
+        ; runs the text; RangerDB says what was in the way instead.
+        def beyond:string ("SELECT id * 2 AS twice FROM " + (GridDbTest.tableName()))
+        def beyondOk:boolean (app.bindDatabaseSql(session beyond "SQL beyond"))
+        if (check.engine == "rangerdb") {
+            check.ok("rangerdb refuses what it cannot plan" (beyondOk == false))
+            check.ok("and names what was in the way" ((strlen app.db.status) > 0))
+        } {
+            check.ok("a host engine runs it as raw SQL" beyondOk)
+            check.ok("and the sheet says it is read only" app.db.readOnly)
+            check.eqStr("the computed column is there" (app.model.getCell(0 0)) "twice")
+        }
+
         ; --- an aggregate is read only ----------------------------------------
         def agg:QuerySpec (QuerySpec.forTable((GridDbTest.tableName())))
         agg.groupOn("country")

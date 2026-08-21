@@ -134,6 +134,17 @@ the projection, `OR` in a `WHERE`, an `UPDATE` with no `WHERE` — each comes ba
 as an error naming what was in the way. A planner that silently drops a clause
 returns the wrong rows and looks like it worked.
 
+And because the plan is a `QuerySpec`, a query typed into the spreadsheet's
+**Ctrl+Q box** produces an ordinary editable sheet — sort, filter and
+write-back keep working on it, rather than a read-only dump of a result set:
+
+![The SQL query box over a database sheet](../datagrid/artifacts/db_sql_box.png)
+
+```bash
+npm run datagrid:db:window          # …then Ctrl+Q
+npm run datagrid:db:window:smoke    # the same box, driven headlessly
+```
+
 ## Milestones
 
 | | | status |

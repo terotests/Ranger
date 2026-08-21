@@ -30,6 +30,7 @@ npm run datagrid:workbook:test
 npm run datagrid:db:test        # a sheet over RangerDB / SQLite / DuckDB
 npm run datagrid:db:demo        # …and a headless session that edits one
 npm run datagrid:db:window      # the editor in a browser window, on a database
+                                #   …Ctrl+Q there opens the SQL box
 npm run datagrid:db:window:smoke  # …the same, checked without a browser
 npm run datagrid:formula:test
 npm run datagrid:formula:array:test
@@ -254,7 +255,32 @@ events the browser posts, and checks that the edit is in the next scene, that
 the app says the database took it, and that a bad value never reaches the
 cell. It passes on all three engines.
 
-`npm run datagrid:db:test` runs all of it over all three engines (93/93), and
+### The SQL box
+
+**Ctrl+Q** opens a query box inside the editor. What you type is parsed by
+[RangerSQL](../rangersql/README.md) and planned by `SqlFront` into the same
+`QuerySpec` a sheet built in code uses — so a typed `SELECT` is an ordinary
+**editable** database sheet: sort, filter, write-back and formulas all keep
+working on it.
+
+![The SQL query box over a database sheet](artifacts/db_sql_box.png)
+
+A statement beyond the planner (a join, a subquery, an expression in the
+projection) still runs — it is handed to the engine as text — and the sheet
+says `raw SQL result: read only, edit the query instead`, because a result with
+no row identity has nothing to write an edit back to. On RangerDB, whose SQL
+*is* the planner, such a statement is refused with the reason instead.
+
+The same thing is a command, which is how a host or a test drives it:
+
+```bash
+curl -s localhost:8766/command -d '{"id":"db.sql","arg":"SELECT country, revenue FROM sales ORDER BY revenue DESC LIMIT 10"}'
+```
+
+`npm run datagrid:db:window:smoke` opens the box the way a person does — the
+command, then text events, then Enter — and checks the query became a sheet.
+
+`npm run datagrid:db:test` runs all of it over all three engines (134/134), and
 `npm run datagrid:db:demo` is a headless session that seeds a table, edits a
 cell through the UI, reads the new value back out of the database, has one
 edit refused, sorts (which re-runs the query) and leaves this behind:
