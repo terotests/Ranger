@@ -4,8 +4,10 @@ How a WebGL or SDL2+OpenGL program built out of EVG could be made usable by
 NVDA, JAWS, VoiceOver and Orca — and why the answer is a second list beside the
 display list rather than anything in the renderer.
 
-Status: design note. Nothing here is implemented; the file names under
-"Where it would go" are proposals, not paths that exist.
+Status: **phases 1–3 are built and tested**; the design below is what they were
+built from. What exists now, and how to try it with a screen reader, is in
+[§12](#12-what-is-built). The native adapter (§7) and the declarative side (§4)
+are still design.
 
 ---
 
@@ -350,15 +352,16 @@ well — the tree is text.
 
 ## 11. Order of work
 
-| Phase | Work | Why here |
+| Phase | Work | State |
 | --- | --- | --- |
-| 0 | Keyboard completeness and a visible focus ring in `EVGWindow` / `GridApp` | Everything else is a facade without it, and it helps sighted keyboard users the same day |
-| 1 | `EVGA11yTree.rgr` + emission from `EVGWindow` controls + golden dump + lints | The roles already exist in `EVGControlKind`; this is the cheapest real tree in the repo |
-| 2 | `gallery/evg/gl/evg-a11y.js` DOM mirror, wired into the standalone host; canvas `aria-hidden`; focus routing; status live region | First point at which a screen reader can actually use a dialog |
-| 3 | Grid semantics: `role=grid`, row/col indices, virtualization counts, selection announcements, the cell editor as a real `<input>` | The DataGrid is the app worth making accessible |
-| 4 | Declarative side: `role` / `aria-*` on `EVGElement` + `JSXToEVG`, defaults per tag, showcase pages, `EVGHTMLRenderer` parity | Makes authored pages accessible, and gives a browser-checkable oracle |
-| 5 | AccessKit adapter behind the SDL2 host | Bounded platform work, and it lands on top of a tree that is already proven in the browser |
-| 6 | Tagged PDF from the same tree | Same information, third consumer |
+| 1 | `EVGA11yTree.rgr` + emission from `EVGWindow` controls + text dump + lints | **done** — `npm run evg:a11y:test` |
+| 2 | `gallery/evg/gl/evg-a11y.js` DOM mirror, wired into the standalone host; canvas `aria-hidden`; focus routing; status live region | **done** — `npm run datagrid:web:test` |
+| 3 | Grid semantics: `role=grid`, row/col indices, virtualization counts, headers, sheet tabs, toolbar | **done** — `npm run datagrid:a11y:test` |
+| 4 | The cell editor as a real `<input>`, for IME, dictation and braille entry | not done — see §12 |
+| 5 | Keyboard completeness and a visible focus ring, audited rather than assumed | not done, and it is what phase 6 should wait for |
+| 6 | Declarative side: `role` / `aria-*` on `EVGElement` + `JSXToEVG`, defaults per tag, showcase pages, `EVGHTMLRenderer` parity | not done |
+| 7 | AccessKit adapter behind the SDL2 host | not done — the tree it needs now exists and is proven in a browser |
+| 8 | Tagged PDF from the same tree | not done |
 
 The honest summary: the renderer needs no changes at all, the browser host needs
 a new file and a change to who owns focus, and the native host needs a bounded
@@ -366,3 +369,82 @@ platform shim. The real work — and the part that is easy to underestimate — 
 that every widget must say what it *is*, which is a change spread thinly across
 `EVGWindow`, `GridView` and every page, and a discipline (name it, or the lint
 fails) rather than a feature.
+
+---
+
+## 12. What is built
+
+Three files carry it, and the split is the one §3 argues for: meaning is emitted
+in Ranger beside the geometry, and each host translates it into whatever its
+platform speaks.
+
+| File | What it is |
+| --- | --- |
+| [`EVGA11yTree.rgr`](EVGA11yTree.rgr) | The model: roles, names, states, bounds, virtualization indices, focus, a text dump and the lints. Pure Ranger — no host, no device — so it compiles to ES6, C++, Rust and Go like the display list does. |
+| [`EVGWindow.rgr`](EVGWindow.rgr) · [`EVGToolbar.rgr`](EVGToolbar.rgr) | `a11y()` on both. `EVGControlKind` was already a role enumeration and `focusedId` already a focus model; publishing them was most of the work. |
+| [`GridView.rgr`](../datagrid/src/GridView.rgr) | `a11yTree()` — the sheet as a `grid` with column and row headers, the visible cells, the formula bar, the sheet tabs, the toolbar, the dialogs and a status live region. `GridApp.a11yJson()` / `a11yDump()` are the entry points. |
+| [`gl/evg-a11y.js`](gl/evg-a11y.js) | The browser half: real DOM over the canvas, positioned at the rectangles that were painted, reusing elements by node id. |
+
+What a reader gets today, in the standalone DataGrid page:
+
+- The canvas is `aria-hidden`; the mirror is what the browser sees.
+- The sheet is a `role="grid"` claiming every row it has (`aria-rowcount`) while
+  emitting only the ones on screen, each with `aria-rowindex` / `aria-colindex`,
+  so "row 7 of 1,000" is true rather than invented.
+- Column letters and row numbers are `columnheader` / `rowheader`, which is what
+  makes a cell announce as "B, 7, 1204" instead of "1204".
+- The caret cell is the one tab stop in the whole application — a roving
+  tabindex — and moving the selection moves the reader with it.
+- The toolbar is named buttons with `aria-pressed` on the toggles; the sheet
+  tabs are a `tablist`; a dialog is a `dialog` with `aria-modal`, and while one
+  is open the sheet behind it is hidden from the reader.
+- Activating anything through the reader presses the app *where the thing is*,
+  so there is no map from node ids to commands to keep in step.
+- `?a11y=0` turns the mirror off, which is how to tell a mirror bug from an app
+  bug.
+
+### Trying it with a screen reader
+
+```bash
+npm run datagrid:web:serve      # builds, then serves it on :8000
+```
+
+On macOS, VoiceOver is already installed — **⌘F5** turns it on and off. Safari
+pairs with it best; Chrome works.
+
+- **VO+→ / VO+←** (Control+Option+arrow) walks the tree: toolbar buttons by
+  name, the formula bar, the grid, the sheet tabs.
+- **VO+Shift+↓** interacts with the grid; plain **arrow keys** then move the
+  spreadsheet's own caret and each cell is announced with its column and row.
+- If arrows do nothing, VoiceOver's Quick Nav is on — press **← and → together**
+  to turn it off.
+- **VO+Space** presses whatever is focused.
+
+Orca on Linux and NVDA on Windows read the same DOM; nothing in the mirror is
+macOS-specific.
+
+### Tested
+
+| Check | Where |
+| --- | --- |
+| The model, the lints, dialog emission, reading order, id stability | `npm run evg:a11y:test` (36 checks) |
+| The sheet's tree: virtualization, headers, caret focus, editing, modal focus, live region | `npm run datagrid:a11y:test` (46 checks) |
+| The real DOM in a real browser: mirror present, canvas hidden, honest counts, one tab stop, activation moves the caret, a modal hides the sheet | `npm run datagrid:web:test` (34 checks, headless Chrome) |
+
+### What is honestly not done
+
+- **The cell editor is not a real `<input>` yet.** It is a focusable
+  `role="textbox"` carrying the edit buffer, and keys reach the app exactly as
+  they did before — so typing works and the field announces itself, but IME,
+  dictation and braille *entry* need a real input, with the app still owning the
+  buffer. That is phase 4 and it is the largest remaining browser-side gap.
+- **No screen reader has run against it here.** This container has no GPU and no
+  assistive technology; everything above was verified through the DOM the
+  browser built. Whether it is *usable* is decided by someone using it.
+- **Keyboard completeness is assumed, not audited.** The mirror faithfully
+  exposes whatever the app can do; anything the app can only be told with a
+  mouse is still unreachable, and no test currently asserts otherwise.
+- **The hosted page** (`web/client.mjs`, the Node-server variant) has no mirror.
+  Only the standalone build does.
+- **Nothing is emitted for charts and images** beyond the panel they sit in, and
+  a chart is a picture with no alternative text.

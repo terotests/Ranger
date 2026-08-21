@@ -8250,6 +8250,30 @@ class GridApp {
         return (view.raw())
     }
 
+    ; --- the accessibility tree -----------------------------------------------
+    ; The same frame, said in the other language: what everything IS, for a
+    ; screen reader that cannot look at the pixels. A host asks for this beside
+    ; `sceneJson` and turns it into its platform's accessibility tree.
+    ;
+    ; It reads the geometry the last scene build settled, so ask for the scene
+    ; first — the two describe one frame, not two.
+    fn a11yTree:EVGA11yTree () {
+        return (view.a11yTree(model sel grid editing editBuf book))
+    }
+
+    fn a11yJson:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.toJson())
+    }
+
+    ; The tree as indented text. This is what a golden test diffs: a refactor
+    ; that silently drops a name shows up here, and neither a browser nor a
+    ; screen reader has to be involved to catch it.
+    fn a11yDump:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.dump())
+    }
+
     fn sceneJson:string () {
         this.publishTextSelection()
         def tip2:string (view.toolbar.hotLabel())

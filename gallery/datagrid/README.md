@@ -114,6 +114,37 @@ the tab and never uploaded anywhere.
 > writes the result into the DOM where headless Chrome's `--dump-dom` can be
 > read back.
 
+### A screen reader can use it
+
+A `<canvas>` is one empty graphic to VoiceOver, NVDA or Orca whatever was drawn
+into it — they do not look at pixels, they ask the platform for a tree of roles
+and names. So the app publishes one beside the picture:
+
+```text
+GridApp ─┬─ sceneJson()  ─► EVGDisplayList ─► evg-webgl.js ─► pixels
+         └─ a11yJson()   ─► EVGA11yTree    ─► evg-a11y.js  ─► DOM ─► the reader
+```
+
+The sheet arrives as a `role="grid"` that claims every row it has and emits only
+the ones on screen, with column letters and row numbers as real headers, so a
+cell announces as "B, 7, 1204". The caret cell is the application's single tab
+stop and moving the selection moves the reader with it; the toolbar is named
+buttons; a dialog is modal and hides the sheet behind it while it is up.
+
+```bash
+npm run datagrid:web:serve      # then open http://localhost:8000
+```
+
+On macOS press **⌘F5** for VoiceOver: **VO+→** walks the toolbar, the formula
+bar and the grid; **VO+Shift+↓** interacts with the grid and then the plain
+arrow keys move the spreadsheet's own caret. (Arrows doing nothing means Quick
+Nav is on — **← and → together** turns it off.) `?a11y=0` disables the mirror.
+
+Tested by `npm run evg:a11y:test`, `npm run datagrid:a11y:test` and the browser
+run in `npm run datagrid:web:test`, which asks the DOM what a reader would be
+handed. Design and the honest gaps — the cell editor is not a real `<input>`
+yet — are in [`gallery/evg/PLAN_ACCESSIBILITY.md`](../evg/PLAN_ACCESSIBILITY.md).
+
 **Is it really WebGL?** "backend: webgl2" is a label the page writes about
 itself, so the self test checks the facts under it: that the context really is a
 `WebGL2RenderingContext`, that it has the stencil buffer a filled path needs,
