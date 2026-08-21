@@ -22,6 +22,11 @@
     "node": ">=18.0.0"
   },
   "scripts": {
+    "book:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/book/tests/BookTest.rgr -d=./gallery/book/bin -o=BookTest.js -nodecli && node ./gallery/book/bin/BookTest.js",
+    "book:test:go": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=go ./gallery/book/tests/BookTest.rgr -d=./gallery/book/bin -o=BookTest.go -nodecli && cd gallery/book/bin && go run BookTest.go",
+    "book:test:python": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=python ./gallery/book/tests/BookTest.rgr -d=./gallery/book/bin -o=BookTest.py -nodecli && python3 ./gallery/book/bin/BookTest.py",
+    "book:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/book/src/book_demo.rgr -d=./gallery/book/bin -o=book_demo.js -nodecli && node ./gallery/book/bin/book_demo.js",
+    "book:pdf": "npm run book:demo && npm run evgpdf:compile && node ./gallery/pdf_writer/bin/evg_pdf_tool.js ./gallery/book/output/book.tsx ./gallery/book/output/book.pdf -w 595.28 -h 595.28",
     "docs:extract": "node docs/tools/extract-operators.mjs",
     "docs:examples": "node docs/tools/build-examples.mjs",
     "docs:render": "node docs/tools/render-pages.mjs",
