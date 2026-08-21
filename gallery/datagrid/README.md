@@ -269,6 +269,25 @@ right after a reconnect too.
 
 ![The SQL box, with the schema and the examples](artifacts/db_sql_box.png)
 
+**Where the result goes is a choice**, because iterating on a query is the
+normal way to write one and a sheet per run fills a workbook with tabs nobody
+asked for. **Update** re-runs into the sheet you are on; **New sheet** adds
+one, named after the table the query is about rather than `SQL`, `SQL2`,
+`SQL3`. Update is the default while the sheet in front of you is one a query
+made, so pressing Enter refines the answer instead of collecting another copy
+of it — on an ordinary sheet, or the table sheet the workbook opened with, the
+default is New sheet and nothing is overwritten by a stray Enter.
+
+**Each sheet remembers the query that made it** (`SpreadsheetModel.dbSql`), so
+selecting a tab puts that query back in the box: a workbook of query sheets
+says what each one is, rather than leaving you to reconstruct it. One sheet is
+live at a time — pressing Update on a sheet you selected re-runs its query
+there and makes that sheet the live one again.
+
+The same two paths are commands, which is how a host drives them:
+`db.sql` runs a query into the sheet a query made, `db.sql.new` always adds
+one.
+
 `npm run datagrid:db:window:smoke` runs that host with no browser at all: it
 asks for the scene the browser would draw, posts the same click/type/Enter
 events the browser posts, and checks that the edit is in the next scene, that

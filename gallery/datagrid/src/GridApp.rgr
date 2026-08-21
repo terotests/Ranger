@@ -453,29 +453,74 @@ class GridApp {
         return ok
     }
 
-    ; The same, from typed SQL. RangerSQL parses it and SqlFront plans it into
-    ; a QuerySpec where it can, so a typed SELECT gives an ordinary editable
-    ; database sheet; anything beyond the planner runs as raw SQL and the
-    ; sheet says it is read only.
+    ; The same, from typed SQL, into a sheet of its own. RangerSQL parses it
+    ; and SqlFront plans it into a QuerySpec where it can, so a typed SELECT
+    ; gives an ordinary editable database sheet; anything beyond the planner
+    ; runs as raw SQL and the sheet says it is read only.
+    ;
+    ; The query is bound BEFORE the sheet is made: a statement this engine
+    ; refuses used to leave an empty tab behind as evidence of the attempt.
     fn bindDatabaseSql:boolean (dbSession:DBSession sql:string sheetName:string) {
         if editing {
             this.commitEdit()
         }
-        def sheet:SpreadsheetModel (new SpreadsheetModel)
-        sheet.name = sheetName
-        if ((strlen sheet.name) == 0) {
-            sheet.name = "SQL"
-        }
-        book.addSheet(sheet)
-        def idx:int ((book.sheetCount()) - 1)
-        book.setActive(idx)
+        def idx:int (book.sheetCount())
         def bound:boolean (db.bindSqlQuery(dbSession sql idx))
         if (bound == false) {
             dbSqlStatus = db.status
             view.status = db.status
             return false
         }
+        def sheet:SpreadsheetModel (new SpreadsheetModel)
+        def base:string sheetName
+        def autoName:boolean ((strlen base) == 0)
+        if autoName {
+            base = db.writeTable
+            if ((strlen base) == 0) {
+                base = "SQL"
+            }
+        }
+        sheet.name = (book.uniqueName(base))
+        book.addSheet(sheet)
+        book.setActive(idx)
+        return (this.fillSheetFromSql(sheet sql))
+    }
+
+    ; The same query into the sheet in front of the user. This is the
+    ; difference between working on a question and collecting the answers to
+    ; every version of it: iterating on a SELECT used to leave a sheet behind
+    ; on every run, and none of them said which query had made it.
+    fn updateDatabaseSql:boolean (dbSession:DBSession sql:string) {
+        if editing {
+            this.commitEdit()
+        }
+        def idx:int book.activeIndex
+        if (idx < 0) {
+            dbSqlStatus = "there is no sheet to put the result in"
+            view.status = dbSqlStatus
+            return false
+        }
+        if (idx >= (book.sheetCount())) {
+            dbSqlStatus = "there is no sheet to put the result in"
+            view.status = dbSqlStatus
+            return false
+        }
+        def bound:boolean (db.bindSqlQuery(dbSession sql idx))
+        if (bound == false) {
+            dbSqlStatus = db.status
+            view.status = db.status
+            return false
+        }
+        def sheet:SpreadsheetModel (book.sheetAt(idx))
+        return (this.fillSheetFromSql(sheet sql))
+    }
+
+    ; What both of them do once the sheet is decided. The sheet is told which
+    ; query it holds, so selecting it later brings that query back into the
+    ; box.
+    fn fillSheetFromSql:boolean (sheet:SpreadsheetModel sql:string) {
         def ok:boolean (db.loadInto(sheet))
+        sheet.dbSql = sql
         engine.attach(book)
         engine.rebuildAll()
         this.syncActiveModel()
@@ -487,7 +532,20 @@ class GridApp {
 
     ; Run a query against the session this app already has - which is the one
     ; the bound sheet came from. Without one there is nothing to ask.
+    ;
+    ; It replaces the sheet in front of the user when a query made that sheet,
+    ; and makes a new one otherwise: re-running is the common case, and a
+    ; sheet per run is how a workbook fills up with tabs nobody asked for.
+    ; `runSqlAsNewSheet` is the other button.
     fn runSqlQuery:boolean (sql:string) {
+        return (this.runSqlInto(sql (this.sqlSheetActive())))
+    }
+
+    fn runSqlAsNewSheet:boolean (sql:string) {
+        return (this.runSqlInto(sql false))
+    }
+
+    fn runSqlInto:boolean (sql:string inPlace:boolean) {
         if (db.bound == false) {
             dbSqlStatus = "no database is open - start the app with a database sheet"
             view.status = dbSqlStatus
@@ -500,7 +558,32 @@ class GridApp {
             view.status = dbSqlStatus
             return false
         }
-        return (this.bindDatabaseSql(session trimmed "SQL"))
+        if inPlace {
+            return (this.updateDatabaseSql(session trimmed))
+        }
+        return (this.bindDatabaseSql(session trimmed ""))
+    }
+
+    ; Was the sheet in front of the user made by a query? This is not the same
+    ; question as `dbSheetActive`: a table sheet bound from a QuerySpec is a
+    ; database sheet too, and Update must not quietly overwrite it with
+    ; something typed into the box - so it is the query-made sheets that are
+    ; offered for replacement, and the rest have to be asked for by name.
+    fn sqlSheetActive:boolean () {
+        if ((book.sheetCount()) == 0) {
+            return false
+        }
+        def sheet:SpreadsheetModel (book.activeSheet())
+        return ((strlen sheet.dbSql) > 0)
+    }
+
+    ; The name of the sheet an Update would replace.
+    fn activeSheetName:string () {
+        if ((book.sheetCount()) == 0) {
+            return ""
+        }
+        def sheet:SpreadsheetModel (book.activeSheet())
+        return sheet.name
     }
 
     ; What the host connected, so the connection window can say it. The app
@@ -793,7 +876,7 @@ class GridApp {
             return
         }
         dbSqlText = (itemAt examples index)
-        dbSqlStatus = "example put in the box - press Run"
+        dbSqlStatus = "example put in the box - Update replaces this sheet, New sheet adds one"
         def kx:int sqlDialog.x
         def ky:int sqlDialog.y
         this.openSqlDialog()
@@ -847,13 +930,30 @@ class GridApp {
             }
             sqlDialog.addButtonRow(exIds exLabels -1)
         }
+        ; Where the result goes. A workbook fills up with tabs when every run
+        ; makes a sheet, so the two are separate buttons and the one that
+        ; replaces what is already on screen is the default while the sheet in
+        ; front of the user is a query's own.
+        def onSql:boolean (this.sqlSheetActive())
+        sqlDialog.addSeparator()
+        if onSql {
+            sqlDialog.addLabel(("Update replaces the sheet you are on: " + (this.activeSheetName())))
+        } {
+            sqlDialog.addLabel("New sheet adds a tab; Update replaces the sheet you are on")
+        }
         def ids:[int]
         def labels:[string]
         push ids 711
         push labels "Close"
         push ids 712
-        push labels "Run"
-        sqlDialog.addButtonRow(ids labels 712)
+        push labels "Update"
+        push ids 713
+        push labels "New sheet"
+        def defaultId:int 713
+        if onSql {
+            defaultId = 712
+        }
+        sqlDialog.addButtonRow(ids labels defaultId)
         sqlDialog.finish()
         def px:int (grid.x + (idiv (W - sqlDialog.w) 2))
         def py:int (grid.y + 60)
@@ -864,8 +964,16 @@ class GridApp {
     }
 
     fn runSqlFromDialog:void () {
+        this.runSqlFromDialogInto((this.sqlSheetActive()))
+    }
+
+    fn newSheetFromDialog:void () {
+        this.runSqlFromDialogInto(false)
+    }
+
+    fn runSqlFromDialogInto:void (inPlace:boolean) {
         dbSqlText = (sqlDialog.inputValue(701))
-        this.runSqlQuery(dbSqlText)
+        this.runSqlInto(dbSqlText inPlace)
         ; Reopen so the box shows what happened, with the query still in it.
         def kx:int sqlDialog.x
         def ky:int sqlDialog.y
@@ -981,7 +1089,8 @@ class GridApp {
         commands.add("db.page.prev" "Previous page of rows" "Data" "")
         commands.add("db.connection" "Database connection…" "Data" "Ctrl+D")
         commands.add("db.sql.dialog" "SQL query…" "Data" "Ctrl+Q")
-        commands.addArg("db.sql" "Run a SQL query as a sheet" "Data" "")
+        commands.addArg("db.sql" "Run a SQL query into this sheet" "Data" "")
+        commands.addArg("db.sql.new" "Run a SQL query as a new sheet" "Data" "")
         commands.add("select.all" "Select all" "Select" "Ctrl+A")
         commands.add("select.column" "Select column" "Select" "Ctrl+Space")
         commands.add("select.row" "Select row" "Select" "Shift+Space")
@@ -1406,6 +1515,10 @@ class GridApp {
         }
         if (id == "db.sql") {
             this.runSqlQuery(arg)
+            return true
+        }
+        if (id == "db.sql.new") {
+            this.runSqlAsNewSheet(arg)
             return true
         }
         if ((this.dbSheetActive()) == false) {
@@ -1893,6 +2006,15 @@ class GridApp {
         }
         book.setActive(i)
         this.syncActiveModel()
+        ; The SQL box follows the sheet. Each sheet remembers the query that
+        ; made it, so coming back to one puts that query in the box rather
+        ; than whatever was typed last against a sheet it has nothing to do
+        ; with - and Update then re-runs the query you are looking at.
+        def now:SpreadsheetModel (book.activeSheet())
+        if ((strlen now.dbSql) > 0) {
+            dbSqlText = now.dbSql
+            dbSqlStatus = ""
+        }
         view.chartLayer.showSheet(book.activeIndex)
     }
 
@@ -5301,6 +5423,9 @@ class GridApp {
             }
             if (sqlDialog.activated == 712) {
                 this.runSqlFromDialog()
+            }
+            if (sqlDialog.activated == 713) {
+                this.newSheetFromDialog()
             }
             if (sqlDialog.activated == 711) {
                 dbSqlText = (sqlDialog.inputValue(701))

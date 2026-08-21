@@ -342,6 +342,49 @@ class GridDbTest {
         check.eqInt("db.sql runs a query" (array_length app.db.columns) 2)
         check.ok("and it is still a database sheet" (app.dbSheetActive()))
 
+        ; --- one question, one sheet ------------------------------------------
+        ; Iterating on a query used to leave a tab behind on every run. The box
+        ; has two buttons now: Update replaces the sheet the query made, and
+        ; New sheet is the one that adds a tab.
+        def sheetsBefore:int (app.book.sheetCount())
+        def onSheet:string (app.book.activeName())
+        app.dbSqlText = ("SELECT id, country FROM " + (GridDbTest.tableName()) + " ORDER BY id LIMIT 5")
+        app.openSqlDialog()
+        check.ok("the box knows this sheet came from a query" (app.sqlSheetActive()))
+        app.runSqlFromDialog()
+        check.eqInt("Update re-runs into the sheet it is on" (app.book.sheetCount()) sheetsBefore)
+        check.eqStr("and stays on that sheet" (app.book.activeName()) onSheet)
+        check.ok("with the new result in it" (app.db.loadedRows > 0))
+        check.eqInt("and the columns the new query asked for" (array_length app.db.columns) 2)
+
+        ; New sheet is the other button, and the tab is named after the table
+        ; the query is about rather than "SQL", "SQL2", "SQL3".
+        app.dbSqlText = ("SELECT id, revenue, units FROM " + (GridDbTest.tableName()) + " LIMIT 3")
+        app.openSqlDialog()
+        app.newSheetFromDialog()
+        check.eqInt("New sheet adds one" (app.book.sheetCount()) (sheetsBefore + 1))
+        check.ok("named after the table it queries" (GridDbTest.mentions((app.book.activeName()) (GridDbTest.tableName()))))
+        check.eqInt("and holds its own result" (array_length app.db.columns) 3)
+        def madeSheet:string (app.book.activeName())
+        def madeIndex:int app.book.activeIndex
+
+        ; A sheet remembers the query that made it, so selecting one brings
+        ; that query back into the box instead of whatever was typed last.
+        def firstSql:string ((app.book.sheetAt((madeIndex - 1))).dbSql)
+        check.ok("the earlier sheet kept its own query" ((strlen firstSql) > 0))
+        app.setActiveSheet((madeIndex - 1))
+        check.eqStr("selecting it puts that query in the box" app.dbSqlText firstSql)
+        app.setActiveSheet(madeIndex)
+        check.ok("and the other sheet brings back the other query" (GridDbTest.mentions(app.dbSqlText "units")))
+        app.sqlDialog.close()
+
+        ; The command surface has both too.
+        app.runCommand("db.sql.new" ("SELECT id FROM " + (GridDbTest.tableName()) + " LIMIT 2"))
+        check.eqInt("db.sql.new adds a sheet" (app.book.sheetCount()) (sheetsBefore + 2))
+        app.runCommand("db.sql" ("SELECT id FROM " + (GridDbTest.tableName()) + " LIMIT 4"))
+        check.eqInt("db.sql re-runs into the sheet a query made" (app.book.sheetCount()) (sheetsBefore + 2))
+        check.eqInt("with the columns the new query asked for" (array_length app.db.columns) 1)
+
         ; Beyond the planner: an expression in the projection. A host engine
         ; runs the text; RangerDB says what was in the way instead.
         def beyond:string ("SELECT id * 2 AS twice FROM " + (GridDbTest.tableName()))

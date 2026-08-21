@@ -184,6 +184,12 @@ class SpreadsheetUndoOp {
 
 class SpreadsheetModel {
     def name:string ""
+    ; The query this sheet was built from, if it was built from one. A sheet
+    ; remembers its own SQL because the box that runs queries is one box and
+    ; the workbook holds many sheets: without this, coming back to a sheet
+    ; and asking "what is this one?" has no answer, and every re-run had to
+    ; make yet another sheet rather than refresh the one being looked at.
+    def dbSql:string ""
     def rowCount:int 1000
     def colCount:int 26
     ; Excel's own defaults, in CSS pixels: a row is 15 points and a column is
