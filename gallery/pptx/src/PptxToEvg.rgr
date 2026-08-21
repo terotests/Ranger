@@ -25,6 +25,10 @@ class PptxToEvg {
     ; and the painter, the caret and the click all measure through the one
     ; object — the whole point of the layout below.
     def measure:PptxTextMeasure (new PptxTextMeasure())
+    ; Which slide is being drawn, for the `slidenum` fields on it. A deck
+    ; carries the number each field had when it was saved; the number it has
+    ; now is the one to draw.
+    def slideNumber:int 0
 
     Constructor () {
     }
@@ -426,6 +430,11 @@ class PptxToEvg {
                 }
                 if (b > a) {
                     def piece:string (substring run.text (a - s0) (b - s0))
+                    if (run.field == "slidenum") {
+                        if (slideNumber > 0) {
+                            piece = (to_string slideNumber)
+                        }
+                    }
                     def fontSize:double (run.fontSizePt * s)
                     def pieceW:double (measure.widthOf(piece fontSize run.bold run.italic))
                     def drawX:double penX

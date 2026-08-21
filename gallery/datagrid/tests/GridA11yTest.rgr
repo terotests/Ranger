@@ -1,0 +1,268 @@
+; ==============================================================================
+; GridA11yTest — the accessibility tree, checked without a screen reader.
+; ==============================================================================
+;
+; A screen reader cannot read a WebGL canvas, so the app publishes what the
+; frame MEANS beside what it looks like: `GridApp.a11yTree()`. The whole point
+; of that tree being data rather than DOM is that it can be tested here — every
+; failure below is invisible to someone looking at the screen and total for
+; someone using a reader:
+;
+;   * a focusable thing with no accessible name
+;   * a caret that moved on screen and not in the tree
+;   * an id that changes between frames, which makes a reader lose its place
+;   * ten thousand rows claimed when forty were emitted
+;   * a modal dialog that leaves focus on the sheet behind it
+;
+; The tree is also dumped as text, so a refactor that silently drops a name
+; shows up as a diff rather than as a bug report from the one person who
+; noticed.
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class A11yChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class GridA11yTest {
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return true
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn nodeNamed:EVGA11yNode (t:EVGA11yTree id:string) {
+        return (t.find(id))
+    }
+
+    ; How many nodes carry this role — the cheap way to ask "did the grid emit
+    ; anything at all", and to ask it again after scrolling.
+    sfn countRole:int (t:EVGA11yTree role:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (t.count())) {
+            def nd:EVGA11yNode (t.at(i))
+            if (nd.role == role) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn findByName:EVGA11yNode (t:EVGA11yTree role:int name:string) {
+        def i:int 0
+        while (i < (t.count())) {
+            def nd:EVGA11yNode (t.at(i))
+            if (nd.role == role) {
+                if (nd.name == name) {
+                    return nd
+                }
+            }
+            i = (i + 1)
+        }
+        return (new EVGA11yNode)
+    }
+
+    sfn reportLint:void (c:A11yChecker label:string t:EVGA11yTree) {
+        def problems:[string] (t.lint())
+        def n:int (array_length problems)
+        c.ok((label + " lints clean") (n == 0))
+        def i:int 0
+        while (i < n) {
+            print ("    ! " + (itemAt problems i))
+            i = (i + 1)
+        }
+    }
+
+    sfn main:void () {
+        def c:A11yChecker (new A11yChecker)
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        ; The tree reads the geometry the last paint settled, which is the
+        ; contract a host follows too: scene first, then the tree.
+        def firstScene:string (app.sceneJson())
+        c.ok("a scene was built" ((strlen firstScene) > 100))
+
+        print "== the tree exists and holds together =="
+        def t:EVGA11yTree (app.a11yTree())
+        c.ok("nodes emitted" ((t.count()) > 20))
+        c.eqStr("root" t.rootId "app")
+        GridA11yTest.reportLint(c "sheet" t)
+
+        print "== the grid tells the truth about its size =="
+        def g:EVGA11yNode (t.find("app/grid"))
+        c.ok("grid node" (g.role == (EVGA11yRole.grid())))
+        def wantRows:int (app.model.rowCount + 1)
+        c.eqInt("rowCount counts the header row" g.rowCount wantRows)
+        def wantCols:int (app.model.colCount + 1)
+        c.eqInt("colCount counts the row-number column" g.colCount wantCols)
+
+        print "== virtualization: the screen, not the sheet =="
+        def cells:int (GridA11yTest.countRole(t (EVGA11yRole.cell())))
+        c.ok("some cells emitted" (cells > 10))
+        ; The honest half of virtualization: claim ten thousand, emit forty.
+        ; A tree that emitted them all would pass every other test here and
+        ; hang the reader.
+        def budget:int (app.model.rowCount * 2)
+        c.ok(("emitted " + (to_string cells) + " cells, not " + (to_string app.model.rowCount) + " rows") (cells < budget))
+
+        print "== the caret cell is the thing with the keyboard =="
+        app.sel.setActive(6 1)
+        app.sel.collapseToActive()
+        def s2:string (app.sceneJson())
+        def t2:EVGA11yTree (app.a11yTree())
+        c.eqStr("focus is B7" t2.focusId "app/grid/row:7/B7")
+        def b7:EVGA11yNode (t2.find("app/grid/row:7/B7"))
+        c.ok("B7 is focusable" b7.focusable)
+        c.ok("B7 is focused" b7.focused)
+        c.ok("B7 has a name" ((strlen b7.name) > 0))
+        ; Both indices count from 1 and both count the headers, which is what
+        ; lets a reader say "row 7 of 1000" without the other 993 existing.
+        c.eqInt("B7 row index" b7.rowIndex 8)
+        c.eqInt("B7 column index" b7.colIndex 3)
+        c.ok("B7 has a rectangle" (b7.w > 0))
+
+        print "== ids are identity, not paint order =="
+        ; Scroll, come back, and the same cell must still be the same node.
+        ; This is the one that decides whether a reader keeps its place: an id
+        ; derived from emission order changes every frame and looks perfect on
+        ; screen.
+        app.grid.scrollByRows(app.model 5)
+        def s3:string (app.sceneJson())
+        def t3:EVGA11yTree (app.a11yTree())
+        def b7again:EVGA11yNode (t3.find("app/grid/row:7/B7"))
+        c.ok("B7 survived a scroll under the same id" ((strlen b7again.id) > 0))
+        c.ok("…and moved on screen" (b7again.y != b7.y))
+        app.grid.scrollByRows(app.model (0 - 5))
+        def s4:string (app.sceneJson())
+
+        print "== column and row headers are there to be announced =="
+        def colB:EVGA11yNode (t2.find("app/grid/head/B"))
+        c.eqStr("column header B" colB.name "B")
+        c.ok("column header role" (colB.role == (EVGA11yRole.columnHeader())))
+        def row7:EVGA11yNode (t2.find("app/grid/row:7/head"))
+        c.eqStr("row header 7" row7.name "7")
+        c.ok("row header role" (row7.role == (EVGA11yRole.rowHeader())))
+
+        print "== the toolbar is a list of named buttons =="
+        def undo:EVGA11yNode (GridA11yTest.findByName(t2 (EVGA11yRole.button()) "Undo"))
+        c.ok("Undo is a button" ((strlen undo.id) > 0))
+        c.ok("Undo can be activated" undo.actActivate)
+        c.ok("Undo has a rectangle" (undo.w > 0))
+
+        print "== the formula bar is two fields, not two rectangles =="
+        def nameBox:EVGA11yNode (t2.find("app/namebox"))
+        c.eqStr("name box shows the address" nameBox.value "B7")
+        c.eqStr("name box is labelled" nameBox.name "Name box")
+        def fbar:EVGA11yNode (t2.find("app/formula"))
+        c.ok("formula field is a text field" (fbar.role == (EVGA11yRole.textField())))
+
+        print "== editing hands over a real text field =="
+        app.editing = true
+        app.editBuf = "=SUM(A1:A5)"
+        app.editCaret = 4
+        app.view.editCaret = 4
+        def s5:string (app.sceneJson())
+        def t4:EVGA11yTree (app.a11yTree())
+        def ed:EVGA11yNode (t4.find("app/grid/row:7/B7/edit"))
+        c.ok("an editor node appears" ((strlen ed.id) > 0))
+        c.eqStr("it carries the buffer" ed.value "=SUM(A1:A5)")
+        c.ok("it can be typed into" ed.actSetValue)
+        c.ok("something inside the cell has focus" ((t4.focusId == "app/grid/row:7/B7/edit") || (t4.focusId == "app/formula")))
+        GridA11yTest.reportLint(c "editing" t4)
+        app.editing = false
+        app.editBuf = ""
+        app.editCaret = 0
+
+        print "== a modal dialog takes the focus with it =="
+        def wnd:EVGWindow (new EVGWindow)
+        wnd.title = "Find and replace"
+        app.view.windows.add(wnd)
+        wnd.visible = true
+        wnd.modal = true
+        wnd.reset()
+        wnd.addInput(1 "Find" "total")
+        def ids:[int] ([] _:int ( 2 3 ))
+        def labels:[string] ([] _:string ( "Replace all" "Close" ))
+        wnd.addButtonRow(ids labels 2)
+        wnd.finish()
+        wnd.focusedId = 1
+        def s6:string (app.sceneJson())
+        def t5:EVGA11yTree (app.a11yTree())
+        def dlgId:string (wnd.a11yId())
+        def dlg:EVGA11yNode (t5.find(dlgId))
+        c.ok("the dialog is in the tree" ((strlen dlg.id) > 0))
+        c.ok("…as a dialog" (dlg.role == (EVGA11yRole.dialog())))
+        c.ok("…and says it is modal" dlg.modal)
+        c.eqStr("focus followed it in" t5.focusId (dlgId + "/ctl:1"))
+        def replaceAll:EVGA11yNode (GridA11yTest.findByName(t5 (EVGA11yRole.button()) "Replace all"))
+        c.ok("its buttons are named" ((strlen replaceAll.id) > 0))
+        GridA11yTest.reportLint(c "with a dialog" t5)
+
+        print "== a dialog with no field still takes focus =="
+        wnd.focusedId = -1
+        def s7:string (app.sceneJson())
+        def t6:EVGA11yTree (app.a11yTree())
+        c.eqStr("focus is the dialog itself" t6.focusId dlgId)
+        wnd.visible = false
+
+        print "== the status line is a live region =="
+        app.view.status = "Recalculated 1,200 cells"
+        def s8:string (app.sceneJson())
+        def t7:EVGA11yTree (app.a11yTree())
+        def st:EVGA11yNode (t7.find("app/status"))
+        c.eqStr("status text" st.value "Recalculated 1,200 cells")
+        c.eqInt("politely" st.live (EVGA11yLive.polite()))
+
+        print "== the JSON that crosses the seam =="
+        def js:string (app.a11yJson())
+        c.ok("has a root" (GridA11yTest.hasSub(js "\"root\":\"app\"")))
+        c.ok("has a focus" (GridA11yTest.hasSub(js "\"focus\":")))
+        c.ok("names roles in ARIA's words" (GridA11yTest.hasSub(js "\"role\":\"gridcell\"")))
+        c.ok("carries a generation" (GridA11yTest.hasSub(js "\"gen\":")))
+
+        print ""
+        print "---A11Y_TREE---"
+        print (app.a11yDump())
+        print "---END---"
+
+        print ""
+        print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILED"
+        } {
+            print "OK"
+        }
+    }
+}

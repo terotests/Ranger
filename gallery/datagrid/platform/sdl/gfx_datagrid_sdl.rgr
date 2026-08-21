@@ -42,6 +42,8 @@ void evggl_rect(float x, float y, float w, float h, float r, float g, float b, f
 void evggl_border(float x, float y, float w, float h, float thickness, float r, float g, float b, float a, float radius);
 void evggl_text(float x, float y, float w, float h, float u0, float v0, float u1, float v1, float r, float g, float b, float a, float rotDeg);
 void evggl_image(float x, float y, float w, float h, const uint8_t* rgba, int tw, int th, float radius);
+void evggl_clip(float x, float y, float w, float h);
+void evggl_clip_off(void);
 void evggl_tris_doubles(const double* xy, int nFloats, float r, float g, float b, float a);
 void evggl_flush(void);
 }
@@ -50,6 +52,26 @@ void evggl_flush(void);
 extern \"C\" {
 void dgfx_install_menus(void);
 int dgfx_pop_menu_action(void);
+}
+
+// Accessibility bridge (dgfx_a11y.mm on macOS, dgfx_a11y_stub.cpp elsewhere).
+// An OpenGL window has no accessible children; the app publishes the tree it
+// already builds for the browser and this hands it to NSAccessibility.
+extern \"C\" {
+void dgfx_a11y_attach(void* sdl_window);
+int dgfx_a11y_active(void);
+void dgfx_a11y_publish(const char* json);
+const char* dgfx_a11y_take_press(void);
+void dgfx_a11y_reset(void);
+}
+
+// The bridge speaks C; Ranger strings arrive as std::string.
+static void dgfx_a11y_publish_str(const std::string& json) {
+    dgfx_a11y_publish(json.c_str());
+}
+static std::string dgfx_a11y_take_press_str() {
+    const char* p = dgfx_a11y_take_press();
+    return std::string(p == nullptr ? \"\" : p);
 }
 
 static SDL_Window* g_dgfx_win = nullptr;
@@ -739,6 +761,53 @@ static void dgfx_close() {
         templates {
             cpp ( "dgfx_pop_menu_action()" )
             es6 ( "0" )
+        }
+    }
+
+    ; --- accessibility (dgfx_a11y.mm / dgfx_a11y_stub.cpp) ---------------------
+    ; Is anything actually reading? Building a tree every frame is not free, and
+    ; on a platform with no bridge — or with VoiceOver off — this answers no and
+    ; the host builds nothing.
+    ; Which window the tree is about. Guessing — asking the application for its
+    ; main window — is right only while the app is frontmost, and a wrong guess
+    ; puts every rectangle somewhere else on screen.
+    dgfx_a11y_attach _:void () {
+        templates {
+            cpp ( "dgfx_a11y_attach((void*)g_dgfx_win)" (imp "<SDL2/SDL.h>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    dgfx_a11y_active _:boolean () {
+        templates {
+            cpp ( "(dgfx_a11y_active() != 0)" )
+            es6 ( "false" )
+        }
+    }
+
+    ; One frame's tree, as `GridApp.a11yJson()` produced it. Publishing the same
+    ; JSON twice costs nothing.
+    dgfx_a11y_publish _:void (json:string) {
+        templates {
+            cpp ( "dgfx_a11y_publish_str(" (e 1) ")" (imp "<string>") )
+            es6 ( "undefined" )
+        }
+    }
+
+    ; "x,y" — where a reader pressed, in window points — or "" when the queue is
+    ; empty. A point rather than a command, so the app's own hit testing stays
+    ; the only hit testing.
+    dgfx_a11y_take_press _:string () {
+        templates {
+            cpp ( "dgfx_a11y_take_press_str()" (imp "<string>") )
+            es6 ( "\"\"" )
+        }
+    }
+
+    dgfx_a11y_reset _:void () {
+        templates {
+            cpp ( "dgfx_a11y_reset()" )
+            es6 ( "undefined" )
         }
     }
 

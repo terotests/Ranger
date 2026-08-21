@@ -183,14 +183,21 @@ class PptxTest {
                 def para:PptxParagraph (itemAt sh.text.paragraphs 0)
                 if ((array_length para.runs) > 0) {
                     def run:PptxTextRun (itemAt para.runs 0)
-                    if ((run.color.isSet) && (run.color.isScheme == false) && ((strlen run.color.srgb) == 6)) {
-                        resolved = true
+                    ; Resolved to a real colour, and still saying where it
+                    ; came from — the painter reads `srgb` and a re-theme
+                    ; reads `scheme`.
+                    if ((run.color.isSet) && ((strlen run.color.srgb) == 6)) {
+                        if (run.color.isScheme) {
+                            if ((strlen run.color.scheme) > 0) {
+                                resolved = true
+                            }
+                        }
                     }
                 }
             }
             i = (i + 1)
         }
-        this.check("scheme → srgb" resolved)
+        this.check("scheme → srgb, and the scheme is remembered" resolved)
         parser.close()
     }
 

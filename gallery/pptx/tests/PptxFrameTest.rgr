@@ -81,8 +81,11 @@ class PptxFrameTest {
         def nt:ToolItem (app.toolbar.at(ni))
         c.eqInt("drawn with a shared icon" nt.icon (ToolIcon.redo()))
         c.ok("the strip is as tall as it needs" (app.toolbarH == (app.toolbar.heightFor(960))))
-        ; And the slide is given the room that is left, not the whole window.
-        c.eqInt("the fit-to-window scale keeps the frame clear" app.view.chromeH (app.toolbarH + app.statusH))
+        ; And the slide is given the room that is left, not the whole window —
+        ; the strip and the status line above and below it, the notes strip
+        ; under it, the slide panel beside it.
+        c.eqInt("the fit-to-window scale keeps the frame clear" app.view.chromeH ((app.toolbarH + app.statusH) + (app.notesHeight())))
+        c.eqInt("and the panel's width with it" app.view.chromeW (app.panelWidth()))
 
         print "-- every button names a command the app answers --"
         def i:int 0

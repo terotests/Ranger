@@ -231,7 +231,7 @@ class OrthoRouter {
             if (i == e.targetIndex) { skip = true }
             if (skip == false) {
                 def nd:FlowNode (g.nodeAt(i))
-                if (nd.hidden == false) {
+                if (EdgeOverlap.blocks(nd)) {
                     if (EdgeOverlap.pathEntersRect(p nd)) {
                         return true
                     }
@@ -401,7 +401,7 @@ class OrthoRouter {
         def i:int 0
         while (i < (g.nodeCount())) {
             def n:FlowNode (g.nodeAt(i))
-            if (n.hidden == false) {
+            if (EdgeOverlap.blocks(n)) {
                 ; The edge's own nodes block too — a route may not cut through
                 ; the table it starts at — but they are not inflated, because
                 ; the stub already stands `stub` away from them and an inflated

@@ -5686,6 +5686,614 @@ EVGDisplayList.jsonString = function(v) {
   };
   return out + "\"";
 };
+class EVGA11yRole  {
+  constructor() {
+  }
+}
+EVGA11yRole.none = function() {
+  return 0;
+};
+EVGA11yRole.group = function() {
+  return 1;
+};
+EVGA11yRole.text = function() {
+  return 2;
+};
+EVGA11yRole.heading = function() {
+  return 3;
+};
+EVGA11yRole.button = function() {
+  return 4;
+};
+EVGA11yRole.checkbox = function() {
+  return 5;
+};
+EVGA11yRole.radio = function() {
+  return 6;
+};
+EVGA11yRole.textField = function() {
+  return 7;
+};
+EVGA11yRole.image = function() {
+  return 8;
+};
+EVGA11yRole.link = function() {
+  return 9;
+};
+EVGA11yRole.grid = function() {
+  return 10;
+};
+EVGA11yRole.row = function() {
+  return 11;
+};
+EVGA11yRole.columnHeader = function() {
+  return 12;
+};
+EVGA11yRole.rowHeader = function() {
+  return 13;
+};
+EVGA11yRole.cell = function() {
+  return 14;
+};
+EVGA11yRole.tabList = function() {
+  return 15;
+};
+EVGA11yRole.tab = function() {
+  return 16;
+};
+EVGA11yRole.toolbar = function() {
+  return 17;
+};
+EVGA11yRole.menuItem = function() {
+  return 18;
+};
+EVGA11yRole.dialog = function() {
+  return 19;
+};
+EVGA11yRole.status = function() {
+  return 20;
+};
+EVGA11yRole.separator = function() {
+  return 21;
+};
+EVGA11yRole.list = function() {
+  return 22;
+};
+EVGA11yRole.listItem = function() {
+  return 23;
+};
+EVGA11yRole.ariaName = function(role) {
+  if ( role == 1 ) {
+    return "group";
+  }
+  if ( role == 2 ) {
+    return "text";
+  }
+  if ( role == 3 ) {
+    return "heading";
+  }
+  if ( role == 4 ) {
+    return "button";
+  }
+  if ( role == 5 ) {
+    return "checkbox";
+  }
+  if ( role == 6 ) {
+    return "radio";
+  }
+  if ( role == 7 ) {
+    return "textbox";
+  }
+  if ( role == 8 ) {
+    return "img";
+  }
+  if ( role == 9 ) {
+    return "link";
+  }
+  if ( role == 10 ) {
+    return "grid";
+  }
+  if ( role == 11 ) {
+    return "row";
+  }
+  if ( role == 12 ) {
+    return "columnheader";
+  }
+  if ( role == 13 ) {
+    return "rowheader";
+  }
+  if ( role == 14 ) {
+    return "gridcell";
+  }
+  if ( role == 15 ) {
+    return "tablist";
+  }
+  if ( role == 16 ) {
+    return "tab";
+  }
+  if ( role == 17 ) {
+    return "toolbar";
+  }
+  if ( role == 18 ) {
+    return "menuitem";
+  }
+  if ( role == 19 ) {
+    return "dialog";
+  }
+  if ( role == 20 ) {
+    return "status";
+  }
+  if ( role == 21 ) {
+    return "separator";
+  }
+  if ( role == 22 ) {
+    return "list";
+  }
+  if ( role == 23 ) {
+    return "listitem";
+  }
+  return "none";
+};
+class EVGA11yTri  {
+  constructor() {
+  }
+}
+EVGA11yTri.notApplicable = function() {
+  return 0;
+};
+EVGA11yTri.no = function() {
+  return 1;
+};
+EVGA11yTri.yes = function() {
+  return 2;
+};
+EVGA11yTri.mixed = function() {
+  return 3;
+};
+class EVGA11yLive  {
+  constructor() {
+  }
+}
+EVGA11yLive.off = function() {
+  return 0;
+};
+EVGA11yLive.polite = function() {
+  return 1;
+};
+EVGA11yLive.assertive = function() {
+  return 2;
+};
+class EVGA11yNode  {
+  constructor() {
+    this.id = "";
+    this.parentId = "";
+    this.role = 0;
+    this.name = "";
+    this.description = "";
+    this.value = "";
+    this.x = 0;
+    this.y = 0;
+    this.w = 0;
+    this.h = 0;
+    this.focusable = false;
+    this.focused = false;
+    this.disabled = false;
+    this.selected = false;
+    this.readOnly = false;
+    this.modal = false;
+    this.checked = 0;
+    this.expanded = 0;
+    this.rowIndex = 0;
+    this.colIndex = 0;
+    this.rowCount = 0;
+    this.colCount = 0;
+    this.posInSet = 0;
+    this.setSize = 0;
+    this.caret = 0;
+    this.selStart = 0;
+    this.selEnd = 0;
+    this.actActivate = false;
+    this.actSetValue = false;
+    this.actExpand = false;
+    this.actScrollTo = false;
+    this.live = 0;
+  }
+}
+class EVGA11yTree  {
+  constructor() {
+    this.nodes = [];
+    this.rootId = "";
+    this.focusId = "";
+    this.generation = 0;
+  }
+  count () {
+    return this.nodes.length;
+  };
+  at (i) {
+    if ( i < 0 ) {
+      return new EVGA11yNode();
+    }
+    if ( i >= (this.nodes.length) ) {
+      return new EVGA11yNode();
+    }
+    return this.nodes[i];
+  };
+  node (id, parentId, role) {
+    const n = new EVGA11yNode();
+    n.id = id;
+    n.parentId = parentId;
+    n.role = role;
+    this.nodes.push(n);
+    if ( (this.rootId.length) == 0 ) {
+      if ( (parentId.length) == 0 ) {
+        this.rootId = id;
+      }
+    }
+    return n;
+  };
+  group (id, parentId, name) {
+    const n = this.node(id, parentId, EVGA11yRole.group());
+    n.name = name;
+    return n;
+  };
+  label (id, parentId, text) {
+    const n = this.node(id, parentId, EVGA11yRole.text());
+    n.name = text;
+    return n;
+  };
+  button (id, parentId, name) {
+    const n = this.node(id, parentId, EVGA11yRole.button());
+    n.name = name;
+    n.focusable = true;
+    n.actActivate = true;
+    return n;
+  };
+  field (id, parentId, name, value) {
+    const n = this.node(id, parentId, EVGA11yRole.textField());
+    n.name = name;
+    n.value = value;
+    n.focusable = true;
+    n.actSetValue = true;
+    return n;
+  };
+  statusRegion (id, parentId, text) {
+    const n = this.node(id, parentId, EVGA11yRole.status());
+    n.value = text;
+    n.live = EVGA11yLive.polite();
+    return n;
+  };
+  place (n, nx, ny, nw, nh) {
+    n.x = nx;
+    n.y = ny;
+    n.w = nw;
+    n.h = nh;
+  };
+  find (id) {
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      if ( n.id == id ) {
+        return n;
+      }
+      i = i + 1;
+    };
+    return new EVGA11yNode();
+  };
+  has (id) {
+    const n = (this).find(id);
+    return (n.id.length) > 0;
+  };
+  setFocus (id) {
+    this.focusId = id;
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      n.focused = n.id == id;
+      i = i + 1;
+    };
+  };
+  toJson () {
+    let out = "{\"root\":";
+    out = out + EVGA11yTree.jsonString(this.rootId);
+    out = (out + ",\"focus\":") + EVGA11yTree.jsonString(this.focusId);
+    out = (out + ",\"gen\":") + ((this.generation.toString()));
+    out = out + ",\"nodes\":[";
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      if ( i > 0 ) {
+        out = out + ",";
+      }
+      out = out + this.nodeJson(n);
+      i = i + 1;
+    };
+    return out + "]}";
+  };
+  nodeJson (n) {
+    let out = "{\"id\":";
+    out = out + EVGA11yTree.jsonString(n.id);
+    if ( (n.parentId.length) > 0 ) {
+      out = (out + ",\"p\":") + EVGA11yTree.jsonString(n.parentId);
+    }
+    out = (out + ",\"role\":") + EVGA11yTree.jsonString(EVGA11yRole.ariaName(n.role));
+    if ( (n.name.length) > 0 ) {
+      out = (out + ",\"name\":") + EVGA11yTree.jsonString(n.name);
+    }
+    if ( (n.value.length) > 0 ) {
+      out = (out + ",\"value\":") + EVGA11yTree.jsonString(n.value);
+    }
+    if ( (n.description.length) > 0 ) {
+      out = (out + ",\"desc\":") + EVGA11yTree.jsonString(n.description);
+    }
+    out = (((out + ",\"b\":[") + ((n.x.toString()))) + ",") + ((n.y.toString()));
+    out = ((((out + ",") + ((n.w.toString()))) + ",") + ((n.h.toString()))) + "]";
+    if ( n.focusable ) {
+      out = out + ",\"focusable\":true";
+    }
+    if ( n.focused ) {
+      out = out + ",\"focused\":true";
+    }
+    if ( n.disabled ) {
+      out = out + ",\"disabled\":true";
+    }
+    if ( n.selected ) {
+      out = out + ",\"selected\":true";
+    }
+    if ( n.readOnly ) {
+      out = out + ",\"readonly\":true";
+    }
+    if ( n.modal ) {
+      out = out + ",\"modal\":true";
+    }
+    if ( n.checked != 0 ) {
+      out = (out + ",\"checked\":") + ((n.checked.toString()));
+    }
+    if ( n.expanded != 0 ) {
+      out = (out + ",\"expanded\":") + ((n.expanded.toString()));
+    }
+    if ( n.rowIndex != 0 ) {
+      out = (out + ",\"row\":") + ((n.rowIndex.toString()));
+    }
+    if ( n.colIndex != 0 ) {
+      out = (out + ",\"col\":") + ((n.colIndex.toString()));
+    }
+    if ( n.rowCount != 0 ) {
+      out = (out + ",\"rows\":") + ((n.rowCount.toString()));
+    }
+    if ( n.colCount != 0 ) {
+      out = (out + ",\"cols\":") + ((n.colCount.toString()));
+    }
+    if ( n.posInSet != 0 ) {
+      out = (out + ",\"pos\":") + ((n.posInSet.toString()));
+    }
+    if ( n.setSize != 0 ) {
+      out = (out + ",\"size\":") + ((n.setSize.toString()));
+    }
+    if ( n.caret != 0 ) {
+      out = (out + ",\"caret\":") + ((n.caret.toString()));
+    }
+    if ( n.selStart != n.selEnd ) {
+      out = ((((out + ",\"sel\":[") + ((n.selStart.toString()))) + ",") + ((n.selEnd.toString()))) + "]";
+    }
+    if ( n.actActivate ) {
+      out = out + ",\"activate\":true";
+    }
+    if ( n.actSetValue ) {
+      out = out + ",\"setValue\":true";
+    }
+    if ( n.actExpand ) {
+      out = out + ",\"expandable\":true";
+    }
+    if ( n.actScrollTo ) {
+      out = out + ",\"scrollTo\":true";
+    }
+    if ( n.live != 0 ) {
+      out = (out + ",\"live\":") + ((n.live.toString()));
+    }
+    return out + "}";
+  };
+  dump () {
+    return this.dumpFrom(this.rootId, 0);
+  };
+  dumpFrom (id, depth) {
+    const n = (this).find(id);
+    if ( (n.id.length) == 0 ) {
+      return "";
+    }
+    let out = EVGA11yTree.indent(depth);
+    out = out + EVGA11yRole.ariaName(n.role);
+    out = (out + " #") + n.id;
+    if ( (n.name.length) > 0 ) {
+      out = ((out + " \"") + n.name) + "\"";
+    }
+    if ( (n.value.length) > 0 ) {
+      out = (out + " =") + n.value;
+    }
+    const st = this.stateText(n);
+    if ( (st.length) > 0 ) {
+      out = ((out + " [") + st) + "]";
+    }
+    out = (((out + " (") + ((n.x.toString()))) + ",") + ((n.y.toString()));
+    out = ((((out + " ") + ((n.w.toString()))) + "x") + ((n.h.toString()))) + ")\n";
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const c = this.nodes[i];
+      if ( c.parentId == id ) {
+        const nd = depth + 1;
+        out = out + this.dumpFrom(c.id, nd);
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  stateText (n) {
+    let out = "";
+    if ( n.focused ) {
+      out = EVGA11yTree.addWord(out, "focused");
+    }
+    if ( n.focusable ) {
+      if ( n.focused == false ) {
+        out = EVGA11yTree.addWord(out, "focusable");
+      }
+    }
+    if ( n.disabled ) {
+      out = EVGA11yTree.addWord(out, "disabled");
+    }
+    if ( n.selected ) {
+      out = EVGA11yTree.addWord(out, "selected");
+    }
+    if ( n.readOnly ) {
+      out = EVGA11yTree.addWord(out, "readonly");
+    }
+    if ( n.modal ) {
+      out = EVGA11yTree.addWord(out, "modal");
+    }
+    if ( n.checked == 2 ) {
+      out = EVGA11yTree.addWord(out, "checked");
+    }
+    if ( n.checked == 3 ) {
+      out = EVGA11yTree.addWord(out, "mixed");
+    }
+    if ( n.live == 1 ) {
+      out = EVGA11yTree.addWord(out, "live");
+    }
+    if ( n.live == 2 ) {
+      out = EVGA11yTree.addWord(out, "live!");
+    }
+    if ( n.rowIndex > 0 ) {
+      out = EVGA11yTree.addWord(out, ("r" + ((n.rowIndex.toString()))));
+    }
+    if ( n.colIndex > 0 ) {
+      out = EVGA11yTree.addWord(out, ("c" + ((n.colIndex.toString()))));
+    }
+    if ( n.rowCount > 0 ) {
+      out = EVGA11yTree.addWord(out, (("of " + ((n.rowCount.toString()))) + " rows"));
+    }
+    return out;
+  };
+  lint () {
+    let problems = [];
+    if ( (this.rootId.length) == 0 ) {
+      problems.push("tree has no root");
+    }
+    let i = 0;
+    while (i < (this.nodes.length)) {
+      const n = this.nodes[i];
+      let dup = 0;
+      let j = 0;
+      while (j < (this.nodes.length)) {
+        const m = this.nodes[j];
+        if ( m.id == n.id ) {
+          dup = dup + 1;
+        }
+        j = j + 1;
+      };
+      if ( dup > 1 ) {
+        if ( i == 0 ) {
+          problems.push("duplicate id: " + n.id);
+        } else {
+          let prevSeen = false;
+          let k = 0;
+          while (k < i) {
+            const p = this.nodes[k];
+            if ( p.id == n.id ) {
+              prevSeen = true;
+            }
+            k = k + 1;
+          };
+          if ( prevSeen == false ) {
+            problems.push("duplicate id: " + n.id);
+          }
+        }
+      }
+      if ( (n.id.length) == 0 ) {
+        problems.push("node with an empty id");
+      }
+      if ( (n.parentId.length) > 0 ) {
+        if ( (this).has(n.parentId) == false ) {
+          problems.push(((n.id + ": parent ") + n.parentId) + " is not in the tree");
+        }
+      } else {
+        if ( n.id != this.rootId ) {
+          problems.push(n.id + ": no parent, and it is not the root");
+        }
+      }
+      if ( n.focusable ) {
+        const named = (n.name.length) > 0;
+        if ( named == false ) {
+          problems.push(n.id + ": focusable with no accessible name");
+        }
+        if ( n.w <= 0 ) {
+          problems.push(n.id + ": focusable with no width");
+        }
+        if ( n.h <= 0 ) {
+          problems.push(n.id + ": focusable with no height");
+        }
+      }
+      if ( n.role == 0 ) {
+        if ( (n.name.length) > 0 ) {
+          problems.push(n.id + ": named, but the role is decoration");
+        }
+      }
+      i = i + 1;
+    };
+    if ( (this.focusId.length) > 0 ) {
+      if ( (this).has(this.focusId) == false ) {
+        problems.push(("focus points at " + this.focusId) + ", which is not in the tree");
+      }
+    }
+    return problems;
+  };
+}
+EVGA11yTree.addWord = function(acc, word) {
+  if ( (acc.length) == 0 ) {
+    return word;
+  }
+  return (acc + " ") + word;
+};
+EVGA11yTree.indent = function(depth) {
+  let out = "";
+  let i = 0;
+  while (i < depth) {
+    out = out + "  ";
+    i = i + 1;
+  };
+  return out;
+};
+EVGA11yTree.jsonString = function(v) {
+  let out = "\"";
+  let i = 0;
+  while (i < (v.length)) {
+    const ch = v.charCodeAt(i );
+    if ( ch == 34 ) {
+      out = out + "\\\"";
+    } else {
+      if ( ch == 92 ) {
+        out = out + "\\\\";
+      } else {
+        if ( ch == 10 ) {
+          out = out + "\\n";
+        } else {
+          if ( ch == 13 ) {
+            out = out + "\\r";
+          } else {
+            if ( ch == 9 ) {
+              out = out + "\\t";
+            } else {
+              if ( ch < 32 ) {
+                out = out + " ";
+              } else {
+                out = out + (String.fromCharCode(ch));
+              }
+            }
+          }
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return out + "\"";
+};
 class EVGToolbarTheme  {
   constructor() {
     this.bg = EVGColor.rgb(236, 240, 246);
@@ -5943,6 +6551,43 @@ class EVGToolbar  {
     };
     this.rows = row + 1;
     this.height = this.rows * this.rowH;
+  };
+  a11y (t, parentId, idPrefix, bx, by, bw, bh) {
+    const barId = idPrefix + "/toolbar";
+    const bar = t.node(barId, parentId, EVGA11yRole.toolbar());
+    bar.name = "Toolbar";
+    t.place(bar, bx, by, bw, bh);
+    let i = 0;
+    while (i < (this.items.length)) {
+      const it = this.items[i];
+      let skip = it.isSeparator;
+      if ( it.w <= 0 ) {
+        skip = true;
+      }
+      if ( it.h <= 0 ) {
+        skip = true;
+      }
+      if ( skip == false ) {
+        let label = it.label;
+        if ( (label.length) == 0 ) {
+          label = it.command;
+        }
+        let nid = (barId + "/") + it.command;
+        if ( (it.arg.length) > 0 ) {
+          nid = (nid + ":") + it.arg;
+        }
+        const n = t.button(nid, barId, label);
+        t.place(n, it.x, it.y, it.w, it.h);
+        if ( it.toggle ) {
+          if ( it.pressed ) {
+            n.checked = EVGA11yTri.yes();
+          } else {
+            n.checked = EVGA11yTri.no();
+          }
+        }
+      }
+      i = i + 1;
+    };
   };
   heightFor (width) {
     this.layout(0, 0, width);

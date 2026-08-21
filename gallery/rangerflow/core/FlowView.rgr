@@ -154,8 +154,11 @@ class FlowView {
         if showBackground {
             this.paintBackground(sc)
         }
+        ; Lanes and frames are the paper the diagram is drawn on, so they go
+        ; down before the edges rather than after them.
+        this.paintNodes(sc true)
         this.paintEdges(sc)
-        this.paintNodes(sc)
+        this.paintNodes(sc false)
         if showPorts {
             this.paintPorts(sc)
         }
@@ -439,7 +442,11 @@ class FlowView {
 
     fn paintEdgeLabel:void (sc:FlowScene e:FlowEdge path:EdgePath) {
         def size:double (this.sl(theme.labelFontSize))
-        if (size < 6.0) {
+        ; The same floor the node labels use. They disagreed for no reason
+        ; anyone had written down, and the cost of the disagreement was that a
+        ; flowchart zoomed to fit lost its `kyllä` and `ei` — the one thing on
+        ; a decision that cannot be inferred from the shape.
+        if (size < 5.0) {
             return
         }
         def mx:double (this.sx((path.midX())))
@@ -464,11 +471,13 @@ class FlowView {
     }
 
     ; --------------------------------------------------------------- nodes ---
-    fn paintNodes:void (sc:FlowScene) {
+    fn paintNodes:void (sc:FlowScene groups:boolean) {
         def i:int 0
         while (i < (graph.nodeCount())) {
             def n:FlowNode (graph.nodeAt(i))
+            def wanted:boolean ((n.nodeType == "group") == groups)
             if (n.hidden == false) {
+              if wanted {
                 def x:double (this.sx(n.x))
                 def y:double (this.sy(n.y))
                 def w:double (this.sl(n.width))
@@ -483,6 +492,7 @@ class FlowView {
                 } {
                     culledNodes = (culledNodes + 1)
                 }
+              }
             }
             i = (i + 1)
         }
@@ -513,16 +523,126 @@ class FlowView {
         if (n.selected) {
             bw = (bw * 2.0)
         }
+        if (n.nodeType == "group") {
+            this.paintLane(sc n x y w h tag fill border bw)
+            return
+        }
+        if ((FlowShapes.isPlain(n.shape)) == false) {
+            if ((FlowShapes.isDecorated(n.shape)) == false) {
+                def ring:[double] (FlowShapes.outline(n.shape x y w h))
+                def poly:SceneItem (sc.polygon(ring fill))
+                poly.stroke = border
+                poly.strokeWidth = bw
+                poly.tag = tag
+                if (n.shape == "cylinder") {
+                    ; The lid: the near half of the top ellipse, drawn as a
+                    ; line across the body so the drum reads as a drum.
+                    def lid:[double] (FlowShapes.drumLid(x y w h))
+                    def lidItem:SceneItem (sc.path(lid (this.screenPathD(lid)) border bw))
+                    lidItem.tag = tag
+                }
+                this.paintShapeLabel(sc n x y w h tag)
+                return
+            }
+        }
         def body:SceneItem (sc.rect(x y w h fill))
         body.radius = radius
         body.stroke = border
         body.strokeWidth = bw
         body.tag = tag
+        if (n.shape == "predefined") {
+            ; Two bars: "this step is a whole procedure of its own".
+            def inset:double (this.sl(9.0))
+            def barA:[double]
+            push barA (x + inset)
+            push barA y
+            push barA (x + inset)
+            push barA (y + h)
+            def a:SceneItem (sc.path(barA (this.screenPathD(barA)) border bw))
+            a.tag = tag
+            def barB:[double]
+            push barB ((x + w) - inset)
+            push barB y
+            push barB ((x + w) - inset)
+            push barB (y + h)
+            def bItem:SceneItem (sc.path(barB (this.screenPathD(barB)) border bw))
+            bItem.tag = tag
+        }
+        if (n.shape == "note") {
+            ; The folded corner, which is how a comment says it is a comment.
+            def fold:double (this.sl(14.0))
+            def f:[double]
+            push f ((x + w) - fold)
+            push f y
+            push f ((x + w) - fold)
+            push f (y + fold)
+            push f (x + w)
+            push f (y + fold)
+            def fi:SceneItem (sc.path(f (this.screenPathD(f)) border bw))
+            fi.tag = tag
+        }
         if ((n.sectionCount()) == 0) {
             this.paintPlainLabel(sc n x y w h tag)
             return
         }
         this.paintCompartments(sc n x y w h tag)
+    }
+
+    ; A swimlane: a pale band with its name written down the left-hand edge,
+    ; because a lane label that ate a line of the lane would be a lane you
+    ; could not put anything in.
+    fn paintLane:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string fill:string border:string bw:double) {
+        def body:SceneItem (sc.rect(x y w h fill))
+        body.radius = (this.sl(6.0))
+        body.stroke = border
+        body.strokeWidth = bw
+        body.tag = tag
+        def barW:double (this.sl(28.0))
+        def bar:SceneItem (sc.rect(x y barW h theme.headerFill))
+        bar.tag = tag
+        def size:double (this.sl(theme.headerFontSize))
+        if (size < 5.0) {
+            return
+        }
+        ; No rotated text in the display list, so the name is set across the
+        ; top of its own band instead of down the side of it — one line of
+        ; type either way, and the same in the PDF as on the screen.
+        def label:string (this.fitText(n.label size (w - (barW * 2.0))))
+        def tw:double (this.textWidthBold(label size true))
+        def t:SceneItem (sc.text(label (x + barW + (this.sl(8.0))) (y + (this.sl(6.0))) tw size theme.nodeMutedText))
+        t.fontFamily = theme.fontFamily
+        t.bold = true
+        t.tag = tag
+    }
+
+    ; A label centred in a shape rather than in its bounding box: the middle of
+    ; a diamond is where the room is, and text set to the box would sit over
+    ; the sloping sides.
+    fn paintShapeLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
+        def size:double (this.sl(theme.headerFontSize))
+        if (size < 5.0) {
+            return
+        }
+        def room:double (w - (this.sl(16.0)))
+        if (n.shape == "diamond") {
+            room = (w * 0.62)
+        }
+        if (n.shape == "parallelogram") {
+            room = (w - ((FlowShapes.slantOf(w h)) * 2.0))
+        }
+        if (n.shape == "trapezoid") {
+            room = (w - ((FlowShapes.slantOf(w h)) * 2.0))
+        }
+        if (room < (this.sl(20.0))) {
+            room = (this.sl(20.0))
+        }
+        def label:string (this.fitText(n.label size room))
+        def tw:double (this.textWidth(label size))
+        def tx:double (x + ((w - tw) * 0.5))
+        def ty:double (y + ((h - (size * 1.2)) * 0.5))
+        def t:SceneItem (sc.text(label tx ty tw size theme.nodeText))
+        t.fontFamily = theme.fontFamily
+        t.tag = tag
     }
 
     fn paintPlainLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {

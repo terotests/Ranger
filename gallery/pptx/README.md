@@ -86,7 +86,9 @@ The viewer is a mode away from being an editor. `PptxEdit.rgr` is the editing
 core — host-agnostic, in slide points — and `PptxApp` is the only place a
 window pixel becomes one:
 
-- [x] Edit mode (`edit.toggle`, Ctrl+E). A deck opened to read stays read-only
+- [x] A deck opens **ready to edit**: clicking the slide selects, and turning
+      the page is the panel, the strip, Page Up / Page Down, or the arrows when
+      nothing is selected. `edit.toggle` (Ctrl+E) turns editing off for reading
 - [x] Click to select, shift-click to add, Ctrl+A for the lot; master / layout
       chrome is drawn but never selectable
 - [x] Drag to move, eight handles to resize, rotation-aware hit testing
@@ -99,6 +101,11 @@ window pixel becomes one:
 - [x] Insert box / ellipse / text box / picture, delete, duplicate
 - [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
       on a shape's text
+- [x] **The document, not the slide**: re-theme a deck from a palette (every
+      colour that came from the palette follows, and every colour picked by
+      hand stays), pick a layout for a slide, set its background, and write the
+      speaker's **notes** in a strip under it — which is the same caret,
+      because the notes are a shape that is not on the slide
 - [x] Slides: add, duplicate, delete, reorder — and a **slide panel** down the
       left whose thumbnails are the slides' own scenes at a small scale, with
       click to go, drag to reorder and the wheel to scroll

@@ -34,12 +34,26 @@ class DataGridSdl {
     def fontDir:string "gallery/pdf_writer/assets/fonts"
     def saveOnExit:boolean false
     def wantQuit:boolean false
+    ; --a11y: print the accessibility tree once, after the first frame. The
+    ; same tree the platform bridge publishes and the browser page mirrors, so
+    ; "does the native build produce it too" is a question with an answer that
+    ; needs neither a screen reader nor a window.
+    def dumpA11y:boolean false
+    ; The tree as JSON, rebuilt a few times a second rather than sixty. Building
+    ; it costs about 1.3 ms — measured, `bench/a11y_bench.rgr` — three quarters
+    ; of which is the JSON, and a screen reader has no use for sixty versions of
+    ; a sheet that changed once. The cached string is still handed over every
+    ; frame, because the bridge needs to hear about a window that MOVED, and a
+    ; move does not change the tree by a byte.
+    def a11yJson:string ""
+    def a11yTick:int 0
 
     fn openWindow:void () {
         def ok:int (dgfx_open "Ranger DataGrid (SDL2 / OpenGL)" pw ph)
         if (ok == 1) {
             hasWindow = true
             dgfx_install_menus
+            dgfx_a11y_attach
         } {
             print "dgfx_open failed (no display?) — SoftCanvas fallback for smoke"
         }
@@ -178,6 +192,63 @@ class DataGridSdl {
         }
     }
 
+    ; --- what the window MEANS -------------------------------------------------
+    ; An OpenGL window has no accessible children: VoiceOver asks the platform
+    ; for a tree of roles and names and finds an empty rectangle where a
+    ; spreadsheet is. So the app publishes the tree it already builds for the
+    ; browser (`GridApp.a11yJson()`) and `dgfx_a11y.mm` turns each node into an
+    ; NSAccessibilityElement. One tree, two hosts; only the last step differs.
+    ;
+    ; Nothing is built when nothing is listening — `dgfx_a11y_active` is
+    ; VoiceOver's own state — because a few hundred nodes and their JSON every
+    ; frame is not free.
+    fn serveA11y:void () {
+        def on:boolean (dgfx_a11y_active)
+        if on {
+            a11yTick = (a11yTick + 1)
+            def stale:boolean (a11yTick >= 4)
+            if ((strlen a11yJson) == 0) {
+                stale = true
+            }
+            if stale {
+                a11yTick = 0
+                a11yJson = (app.a11yJson())
+            }
+            dgfx_a11y_publish a11yJson
+        }
+        ; …and what it pressed. A point, not a command: the app's own hit
+        ; testing decides what is there, exactly as it does for the mouse, so
+        ; there is no second table of what each thing does to keep in step.
+        def press:string (dgfx_a11y_take_press)
+        while ((strlen press) > 0) {
+            def parts:[string] (strsplit press ",")
+            if ((array_length parts) == 2) {
+                def px@(optional):int (to_int (itemAt parts 0))
+                def py@(optional):int (to_int (itemAt parts 1))
+                if (!null? px) {
+                    if (!null? py) {
+                        this.pressAt((unwrap px) (unwrap py))
+                    }
+                }
+            }
+            press = (dgfx_a11y_take_press)
+        }
+    }
+
+    ; A press and a release at one point, through the same UIInput the mouse
+    ; uses. Two frames, because a click that never lifts leaves the app dragging.
+    fn pressAt:void (px:int py:int) {
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(true)
+        app.update(input)
+        input.newFrame()
+        input.setPointerPos(px py)
+        input.setPointerDown(false)
+        app.update(input)
+        this.serveFileRequest()
+    }
+
     ; File menu / toolbar requests that need the OS.
     fn serveMenuAction:void () {
         def a:int (dgfx_pop_menu_action)
@@ -262,6 +333,14 @@ class DataGridSdl {
             this.pumpInput()
             this.draw()
             frames = (frames + 1)
+            this.serveA11y()
+            if dumpA11y {
+                if (frames == 1) {
+                    print "---A11Y_TREE---"
+                    print (app.a11yDump())
+                    print "---END---"
+                }
+            }
             def sc:boolean (dgfx_should_close)
             if sc {
                 running = false
@@ -284,6 +363,7 @@ class DataGridSdl {
             }
         }
         if hasWindow {
+            dgfx_a11y_reset
             dgfx_close
         }
     }
@@ -299,6 +379,9 @@ class DataGridSdl {
             if (a == "--save") {
                 host.saveOnExit = true
             } {
+              if (a == "--a11y") {
+                host.dumpA11y = true
+              } {
                 if (a == "--demo") {
                     host.xlsxPath = ""
                 } {
@@ -324,6 +407,7 @@ class DataGridSdl {
                         host.xlsxPath = a
                     }
                 }
+              }
             }
             i = (i + 1)
         }

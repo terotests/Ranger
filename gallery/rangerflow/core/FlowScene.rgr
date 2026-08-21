@@ -282,7 +282,25 @@ class FlowScene {
                     if s.closed {
                         pts2 = (FlowScene.closeRing(s.pts))
                     }
-                    dl.addPolyline(pts2 s.strokeWidth ps)
+                    if (s.dash > 0.0) {
+                        ; The display list has no dash pattern, and SVG does.
+                        ; Left alone, a dotted association would come out
+                        ; dotted in the PDF and solid on the GPU — the exact
+                        ; failure the one-scene rule exists to prevent. So the
+                        ; dashes are cut here, once, and every backend that
+                        ; reads the list gets the same line.
+                        def parts:int (FlowScene.dashCount(pts2 s.dash))
+                        def d:int 0
+                        while (d < parts) {
+                            def piece:[double] (FlowScene.dashAt(pts2 s.dash d))
+                            if ((array_length piece) >= 4) {
+                                dl.addPolyline(piece s.strokeWidth ps)
+                            }
+                            d = (d + 1)
+                        }
+                    } {
+                        dl.addPolyline(pts2 s.strokeWidth ps)
+                    }
                 }
             }
             if (s.kind == 3) {
@@ -293,6 +311,96 @@ class FlowScene {
             }
             i = (i + 1)
         }
+    }
+
+    ; --------------------------------------------------------------- dashes --
+    ; A dash and the gap after it, walked along the polyline by arc length. The
+    ; pattern is `dash` on, `dash` off, which is what a single-number
+    ; stroke-dasharray means in SVG — so the two backends agree by construction
+    ; rather than by luck.
+    sfn dashCount:int (pts:[double] dash:double) {
+        if (dash <= 0.0) {
+            return 0
+        }
+        def total:double (FlowScene.polyLength(pts))
+        def period:double (dash * 2.0)
+        def raw:double (total / period)
+        def n:int ((to_int raw) + 1)
+        if (n < 1) {
+            return 0
+        }
+        ; A guard, not a limit anything real reaches: a dash of a tenth of a
+        ; pixel on a long edge would otherwise emit thousands of polylines.
+        if (n > 400) {
+            return 400
+        }
+        return n
+    }
+
+    sfn dashAt:[double] (pts:[double] dash:double index:int) {
+        def from:double ((to_double index) * (dash * 2.0))
+        def to:double (from + dash)
+        return (FlowScene.sliceByLength(pts from to))
+    }
+
+    sfn polyLength:double (pts:[double]) {
+        def total:double 0.0
+        def n:int (idiv (array_length pts) 2)
+        def i:int 1
+        while (i < n) {
+            total = (total + (FlowScene.segLength(pts (i - 1) i)))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    sfn segLength:double (pts:[double] a:int b:int) {
+        def ayAt:int ((a * 2) + 1)
+        def byAt:int ((b * 2) + 1)
+        def dx:double ((itemAt pts (b * 2)) - (itemAt pts (a * 2)))
+        def dy:double ((itemAt pts byAt) - (itemAt pts ayAt))
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    ; The piece of the polyline between two arc lengths, corners kept.
+    sfn sliceByLength:[double] (pts:[double] from:double to:double) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return out
+        }
+        def walked:double 0.0
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt pts ayAt)
+            def bx:double (itemAt pts (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt pts byAt)
+            def len:double (FlowScene.segLength(pts (i - 1) i))
+            if (len > 0.000001) {
+                def segFrom:double walked
+                def segTo:double (walked + len)
+                def lo:double from
+                if (segFrom > lo) { lo = segFrom }
+                def hi:double to
+                if (segTo < hi) { hi = segTo }
+                if (hi > lo) {
+                    def t0:double ((lo - segFrom) / len)
+                    def t1:double ((hi - segFrom) / len)
+                    if ((array_length out) == 0) {
+                        push out (ax + ((bx - ax) * t0))
+                        push out (ay + ((by - ay) * t0))
+                    }
+                    push out (ax + ((bx - ax) * t1))
+                    push out (ay + ((by - ay) * t1))
+                }
+            }
+            walked = (walked + len)
+            i = (i + 1)
+        }
+        return out
     }
 
     ; A stroked ring has to come back to where it started; the tessellator

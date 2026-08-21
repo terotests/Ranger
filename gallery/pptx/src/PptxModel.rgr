@@ -65,6 +65,10 @@ class PptxShadow {
 
 class PptxTextRun {
     def text:string ""
+    ; `a:fld` — a run whose text is computed rather than typed. "slidenum" is
+    ; the one that matters: the file carries the number it had when it was
+    ; saved, and a viewer has to substitute the one the slide has now.
+    def field:string ""
     def fontFamily:string ""
     def fontSizePt:double 18.0
     def sizeSet:boolean false
@@ -246,6 +250,8 @@ class PptxSlide {
     ; how the parts nobody here models survive being edited around.
     def partPath:string ""
     def dirty:boolean false
+    ; The id `p:sldIdLst` gave it, which is how sections name their slides.
+    def slideId:int 0
     ; Bumped by every edit on this slide, and never reused, so anything that
     ; caches a picture of a slide can tell whether it is looking at the same
     ; slide it drew.
@@ -256,10 +262,22 @@ class PptxSlide {
     def bg:PptxColor (new PptxColor())
     def layoutPart:string ""
     def masterPart:string ""
+    ; The speaker's notes, as a shape rather than a string: everything that
+    ; knows how to lay out, measure, caret and edit a shape's text then works
+    ; on them without knowing what notes are.
+    def notes:PptxShape (new PptxShape())
+    def notesPart:string ""
 
     Constructor () {
         def s:[PptxShape]
         shapes = s
+    }
+
+    fn notesText:string () {
+        if (notes.hasText == false) {
+            return ""
+        }
+        return (notes.text.plainText())
     }
 }
 
@@ -268,6 +286,8 @@ class PptxSheet {
     def partPath:string ""
     def shapes:[PptxShape]
     def bg:PptxColor (new PptxColor())
+    ; Edited since it was read, so a save knows to rewrite its part.
+    def dirty:boolean false
 
     Constructor () {
         def s:[PptxShape]
@@ -296,9 +316,23 @@ class PptxTheme {
     }
 }
 
+; A run of slides under a name, which is how a long deck is navigated.
+class PptxSection {
+    def name:string ""
+    def id:string ""
+    ; Slide ids, as `p:sldIdLst` names them; the deck resolves them to indices.
+    def slideIds:[int]
+
+    Constructor () {
+        def s:[int]
+        slideIds = s
+    }
+}
+
 class PptxPresentation {
     def slideWidth:double 720.0
     def slideHeight:double 540.0
+    def sections:[PptxSection]
     def slideParts:[string]
     def slides:[PptxSlide]
     def theme:PptxTheme (new PptxTheme())
@@ -308,6 +342,8 @@ class PptxPresentation {
     def layouts:[string:PptxSheet]
 
     Constructor () {
+        def sec:[PptxSection]
+        sections = sec
         def sp:[string]
         slideParts = sp
         def sl:[PptxSlide]

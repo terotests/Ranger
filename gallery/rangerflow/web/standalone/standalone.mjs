@@ -132,6 +132,66 @@ document.getElementById("svg").addEventListener("click", () => {
   URL.revokeObjectURL(a.href);
 });
 
+// ---- the editing toolbar -------------------------------------------------
+// Every button here calls one method on the app, which calls one method on the
+// editor: the browser owns no editing logic at all, which is what lets the
+// same authoring run in the SDL host and in a headless test.
+const renameEl = document.getElementById("rename");
+const connectBtn = document.getElementById("connect");
+
+/** A readable default name, so a new box is never called "node 7". */
+const SHAPE_NAMES = {
+  rect: "Vaihe", stadium: "Alku", diamond: "Ehto?", parallelogram: "Syöte",
+  cylinder: "Tietokanta", document: "Tuloste", trapezoid: "Käsin",
+  hexagon: "Valmistelu", predefined: "Aliohjelma", circle: "A", note: "Huomio",
+};
+
+for (const btn of document.querySelectorAll("#tools .shape")) {
+  btn.addEventListener("click", () => {
+    const shape = btn.dataset.shape;
+    app.addNode(SHAPE_NAMES[shape] || "Vaihe", shape);
+    syncSelection();
+  });
+}
+
+connectBtn.addEventListener("click", () => {
+  const on = !app.connectMode();
+  app.setConnectMode(on);
+  connectBtn.classList.toggle("on", on);
+});
+
+document.getElementById("del").addEventListener("click", () => {
+  app.deleteSelection();
+  syncSelection();
+});
+document.getElementById("undo").addEventListener("click", () => {
+  app.undo();
+  syncSelection();
+});
+document.getElementById("redo").addEventListener("click", () => {
+  app.redo();
+  syncSelection();
+});
+
+// Typing in the name field renames as you type: no Enter to remember, and no
+// modal dialog over a canvas that is showing you the thing you are naming.
+renameEl.addEventListener("input", () => {
+  if (renameEl.disabled) return;
+  app.renameSelected(renameEl.value);
+});
+
+/** The name field follows the selection, unless the caret is in it. */
+function syncSelection() {
+  const id = app.selectedId();
+  const has = id.length > 0;
+  renameEl.disabled = !has;
+  if (document.activeElement === renameEl) return;
+  renameEl.value = has ? app.selectedLabel() : "";
+  renameEl.placeholder = has ? "" : "select a node";
+}
+
+canvas.addEventListener("pointerup", () => syncSelection());
+
 // A schema the user picks is read in this tab and never uploaded anywhere.
 document.getElementById("file").addEventListener("change", async (ev) => {
   const file = ev.target.files[0];
@@ -164,6 +224,8 @@ function syncControls() {
   document.getElementById("layout").value = app.layoutName;
   document.getElementById("notation").value = app.editor.view.notation;
   document.getElementById("theme").value = app.editor.view.theme.name;
+  connectBtn.classList.toggle("on", app.connectMode());
+  syncSelection();
 }
 
 async function boot() {

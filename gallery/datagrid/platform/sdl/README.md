@@ -130,6 +130,7 @@ npm run datagrid:sdl:smoke
 | `N` (integer) | Render N frames then exit (CI / smoke) |
 | `--save` | On exit, overwrite the open file via `saveXlsxDefaultSilent` |
 | `--demo` | Skip the default fixture and use the built-in demo sheet |
+| `--a11y` | Print the accessibility tree once, after the first frame |
 
 Ctrl+S inside the window also saves (same as the WebGL host).
 
@@ -142,12 +143,101 @@ SDL_VIDEODRIVER=dummy ./tmp/datagrid-sdl/datagrid_sdl \
 
 (No GL window under `dummy` — SoftCanvas paints the list so load/save still run.)
 
+## VoiceOver
+
+An OpenGL window has no accessible children. VoiceOver does not look at pixels —
+it asks the platform for a tree of roles and names — so it finds one empty
+rectangle where a spreadsheet is.
+
+The app already publishes that tree for the browser page
+(`GridApp.a11yJson()`, from `gallery/evg/EVGA11yTree.rgr`), so this host hands
+the same JSON to `dgfx_a11y.mm`, which builds one `NSAccessibilityElement` per
+node under the window's content view. Same tree, two hosts; only the last step
+differs, which is the point of publishing a tree rather than teaching each
+platform what a spreadsheet is.
+
+```text
+GridApp ─┬─ EVGDisplayList ─► EvgGlPainter ─► OpenGL          the picture
+         └─ a11yJson()     ─► dgfx_a11y.mm ─► NSAccessibility  what it means
+```
+
+- Elements are **reused by node id**, which is what the stable ids in the tree
+  are for: rebuilding the element VoiceOver is sitting on throws its cursor back
+  to the top of the window, and everything still looks right on screen.
+- Bounds are converted from window points (y down) to screen points (y up).
+- A reader pressing something hands back a **point**, and the host presses the
+  app there — the app's own hit testing decides what is there, so there is no
+  second table of what each thing does.
+- Nothing is built when nothing is listening: `dgfx_a11y_active()` is
+  VoiceOver's own state. `DGFX_A11Y=1` forces it on (for Accessibility
+  Inspector), `DGFX_A11Y=0` off.
+- Focus is posted only when the app's focus actually moves. Posting every frame
+  interrupts the reader mid-sentence, which is how this ends up unusable.
+
+Trying it:
+
+```bash
+npm run datagrid:sdl
+# ⌘F5 for VoiceOver, then:
+./tmp/datagrid-sdl/datagrid_sdl gallery/datagrid/fixtures/business-workbook.xlsx
+```
+
+The tree itself can be looked at without a window or a screen reader, which is
+also how to tell an app-side problem from a bridge-side one:
+
+```bash
+npm run datagrid:sdl:a11y     # SDL_VIDEODRIVER=dummy … --a11y
+```
+
+### When it misbehaves
+
+Two things went wrong on the first real VoiceOver run, and both are worth
+knowing about because they look like different bugs than they are.
+
+**VoiceOver's cursor drawn outside the window.** The rectangles are in screen
+coordinates, and they were computed where the window was standing at the time.
+Moving the window changes none of the tree's bytes, so an optimization that
+skips unchanged trees left every element behind at the old position. Geometry is
+now tracked separately from content: a move re-frames the same elements without
+re-parsing anything. The other half of this was the bridge *guessing* which
+window the tree belonged to — right while the app is frontmost, nil when it is
+not, and the fallback can hand back a window the tree was never about.
+`dgfx_a11y_attach` takes the SDL window now, so there is nothing to guess.
+
+**"Application is not responding."** That is what an accessibility client says
+when a request times out, and a vsync-locked frame loop is a suspect: an AX
+client works synchronously, and an app that services its run loop once per frame
+can add a frame of latency to every one of a few hundred round trips. Two costs
+were removed on that suspicion — the tree is rebuilt at 15 Hz rather than 60
+(measured at 1.3 ms a time, `bench/a11y_bench.rgr`), and VoiceOver's own state
+is asked for once a second rather than sixty times, since reading it can leave
+the process. Whether that was the cause is not established.
+
+If it happens again, the thing that settles it is a sample of the hung process —
+Activity Monitor → the process → **Sample Process**, or:
+
+```bash
+sample datagrid_sdl 5 -file /tmp/dg-sample.txt
+```
+
+The main thread's stack in that file names what it was waiting for. Meanwhile
+`DGFX_A11Y=0` turns the bridge off entirely, and `DGFX_A11Y_LOG=1` prints every
+publish, re-frame and attach with the window's frame, which is how to tell a
+stale rectangle from a wrong one.
+
+**Still not verified here.** `dgfx_a11y.mm` was written and reviewed but never
+compiled or run in this container — this container has no macOS, no AppKit and no GPU. The
+Linux stub (`dgfx_a11y_stub.cpp`) and everything above it — the tree, the
+operators, the host loop — do build and run here. Design, state and the wider
+plan: [`gallery/evg/PLAN_ACCESSIBILITY.md`](../../../evg/PLAN_ACCESSIBILITY.md).
+
 ## Layout
 
 | File | Role |
 | --- | --- |
 | `datagrid_sdl.rgr` | Host: argv → `GridApp` → frame loop |
 | `EvgGlPainter.rgr` | Walk display list → `dgfx_evg_*` |
+| `dgfx_a11y.h` / `.mm` / `_stub.cpp` | a11y tree → NSAccessibility (macOS), no-op elsewhere |
 | `evg_gl_native.cpp` | OpenGL batcher (shaders ≈ `evg-webgl.js`) |
 | `gfx_datagrid_sdl.rgr` | SDL2 window + input + operator glue |
 | `build.sh` | Ranger `-l=cpp` → link SDL2 + OpenGL |

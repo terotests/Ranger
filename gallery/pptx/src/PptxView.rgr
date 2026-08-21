@@ -162,6 +162,7 @@ class PptxView {
     ; one the spreadsheet and the document have.
     fn buildDisplayList:EVGDisplayList (slide:PptxSlide) {
         converter.setScale((this.fitScale(slide)))
+        converter.slideNumber = (slideIndex + 1)
         return (converter.slideToDisplayList(slide))
     }
 
@@ -364,6 +365,7 @@ class PptxView {
     ; no chrome, no fit-to-window scale.
     fn renderOracleSlide:void (slide:PptxSlide dpiScale:double) {
         converter.setScale(dpiScale)
+        converter.slideNumber = (slideIndex + 1)
         def pw:int (to_int ((slide.width * (96.0 / 72.0) * dpiScale) + 0.5))
         def ph:int (to_int ((slide.height * (96.0 / 72.0) * dpiScale) + 0.5))
         if (pw < 1) {

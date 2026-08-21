@@ -203,8 +203,11 @@ class PptxWeb {
         if (name == "down")     { return (UIKey.down()) }
         if (name == "home")     { return (UIKey.home()) }
         if (name == "end")      { return (UIKey.end()) }
-        if (name == "pageUp")   { return (UIKey.left()) }
-        if (name == "pageDown") { return (UIKey.right()) }
+        ; These used to be spelled as arrows, which was harmless while an arrow
+        ; only ever meant the deck. It nudges a selected shape now, so the page
+        ; keys have to be themselves.
+        if (name == "pageUp")   { return (UIKey.pageUp()) }
+        if (name == "pageDown") { return (UIKey.pageDown()) }
         if (name == "del")      { return (UIKey.del()) }
         if (name == "escape")   { return (UIKey.escape()) }
         if (name == "backspace") { return (UIKey.backspace()) }
