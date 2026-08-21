@@ -39,12 +39,12 @@ The suite is written once, against `DBSession`, and every engine runs it:
 
 | Engine | Contract | Notes |
 | --- | --- | --- |
-| `rangerdb` | **53/53** + 19 engine internals | pure Ranger, no host |
-| `sqlite` | **53/53** | `node:sqlite`, built in |
-| `duckdb` | **53/53** | `@duckdb/node-api`, optional |
+| `rangerdb` | **65/65** + 19 engine internals + 10 SQL front end | pure Ranger, no host |
+| `sqlite` | **65/65** | `node:sqlite`, built in |
+| `duckdb` | **65/65** | `@duckdb/node-api`, optional |
 | grid over all three | **93/93** | `datagrid:db:test` |
 
-RangerDB's own 72 tests pass on **JavaScript, Python and native C++** from the
+RangerDB's own 94 tests pass on **JavaScript, Python and native C++** from the
 same source, and the library compiles for **12/12** Ranger targets.
 
 ## The decisions worth arguing about
@@ -71,6 +71,25 @@ def rows (session.query(spec))
 Values never enter the text. Every one becomes a `?` and travels beside the
 statement, because the alternative is quoting rules per engine and an injection
 bug per quoting rule.
+
+### SQL is a front end, not the interface
+
+`capabilities.sqlText` is true on RangerDB because
+[RangerSQL](../rangersql/README.md) parses the statement and `SqlFront.rgr`
+plans it into the same `QuerySpec` the structured API builds:
+
+```text
+"SELECT region, SUM(revenue) AS total FROM sales GROUP BY region"
+        -> RangerSQL -> common AST -> SqlPlanner -> QuerySpec -> execution
+```
+
+Which is the argument for a structured-first API made concrete: the engine was
+usable before a parser existed, and the parser, when it arrived, became one
+more way to say the same thing rather than a second engine.
+
+The planner refuses rather than guesses — a join, a subquery, an expression in
+the projection, `OR` in a `WHERE`, an `UPDATE` with no `WHERE` each come back
+as an error naming what was in the way.
 
 ### Results are chunks of columns, not rows
 
@@ -147,7 +166,6 @@ Table "sales"
 | --- | --- | --- |
 | Indexes | every lookup is a scan (1.1 ms over 20k rows) | 3 |
 | Joins | one table per query | 4 |
-| SQL front end | `QuerySpec` is the interface; `capabilities.sqlText` is false | 3 |
 | Transactions | `capabilities.transactions` is false, so `DBSession` does not promise them | 5 |
 | Page cache / WAL | persistence is a whole-table snapshot | 5 |
 | A real binary format | the snapshot is escaped text | 2 |
