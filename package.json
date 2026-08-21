@@ -441,6 +441,7 @@
     "zip:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/zip/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.js -nodecli",
     "zip:run": "node ./gallery/zip/bin/zip_tool.js",
     "zip": "npm run zip:compile && npm run zip:run",
+    "evg:toolbar:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGToolbarTest.rgr -d=./gallery/evg/bin -o=EVGToolbarTest.js -nodecli && node ./gallery/evg/bin/EVGToolbarTest.js",
     "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
     "evg:run": "node ./gallery/evg/bin/evg_test.js",
     "evg": "npm run evg:compile && npm run evg:run",

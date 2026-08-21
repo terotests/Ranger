@@ -1,0 +1,525 @@
+; ==============================================================================
+; EVGToolbarView.rgr — drawing the strip, and the icons on it.
+; ==============================================================================
+;
+; There is no icon font here and a PNG sprite sheet would be a second thing to
+; keep in step with the theme, so every icon is drawn from primitives. That is
+; three hundred lines of them, and three hundred lines is exactly the amount of
+; code nobody writes twice — which is why the spreadsheet had a toolbar and the
+; document had none.
+;
+; So the drawing lives beside the strip rather than inside one application's
+; view. What it needs from its owner is a display list to draw into, a
+; `UIContext` to measure text with, and a palette; what it does NOT need is to
+; know what a cell or a paragraph is. `ToolItem.pressed` and `ToolItem.label`
+; are the whole interface: whoever owns the strip fills those in, and this
+; draws what they say.
+; ==============================================================================
+
+Import "EVGToolbar.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGColor.rgr"
+Import "../game_engine/ui/UIContext.rgr"
+
+; Which of the faces we ship a document's font name should be drawn with.
+;
+; This used to be a static on the spreadsheet's view, which meant a second
+; application either reached into it or grew its own copy — and a copy would
+; start answering differently the first time a face was added. Excel's
+; stand-ins (Calibri, Arial, …) have no TTF here, so each aliases to a
+; distinct loaded family: otherwise picking one of them looks like a no-op.
+class EVGFace {
+    sfn family:string (name:string) {
+        def n:string (to_lowercase (trim name))
+        if ((strlen n) == 0) {
+            return "Open Sans"
+        }
+        if (n == "open sans") {
+            return "Open Sans"
+        }
+        if (n == "noto sans") {
+            return "Noto Sans"
+        }
+        if ((n == "helvetica") || (n == "helvetica neue")) {
+            return "Helvetica"
+        }
+        if ((n == "droid serif") || (n == "georgia") || (n == "times new roman") || (n == "times") || (n == "cambria")) {
+            return "Droid Serif"
+        }
+        if ((n == "josefin sans") || (n == "century gothic") || (n == "futura")) {
+            return "Josefin Sans"
+        }
+        if ((n == "calibri") || (n == "segoe ui")) {
+            return "Noto Sans"
+        }
+        if (n == "arial") {
+            return "Helvetica"
+        }
+        return "Open Sans"
+    }
+
+    ; Select the raster face. It has to go through `fontFamily`, because
+    ; UITextRenderer re-applies the face from it on every measure and draw —
+    ; setting the font directly is undone by the next call.
+    sfn apply:void (ctx:UIContext name:string bold:boolean italic:boolean) {
+        def base:string (EVGFace.family(name))
+        def want:string base
+        if bold {
+            want = (base + "-Bold")
+            if italic {
+                want = (base + "-BoldItalic")
+            }
+        } {
+            if italic {
+                want = (base + "-Italic")
+            }
+        }
+        if (ctx.tr.fontFamily == want) {
+            return
+        }
+        def face:TrueTypeFont (ctx.tr.fm.getFont(want))
+        if (face.unitsPerEm > 0) {
+            ctx.tr.fontFamily = want
+            return
+        }
+        def plain:TrueTypeFont (ctx.tr.fm.getFont(base))
+        if (plain.unitsPerEm > 0) {
+            ctx.tr.fontFamily = base
+        }
+    }
+}
+
+class EVGToolbarView {
+    def ctx:UIContext (new UIContext)
+    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    ; The face the labels are drawn in, so a host that ships one family and a
+    ; host that ships five both get readable buttons.
+    def fontFamily:string "Open Sans"
+
+    Constructor () {
+    }
+
+    fn attach:void (c:UIContext family:string) {
+        ctx = c
+        fontFamily = family
+    }
+
+    ; --- the primitives the icons are made of ---------------------------------
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        dl.addRect(x y w h col)
+    }
+
+    fn pushBorder:void (dl:EVGDisplayList x:double y:double w:double h:double t:double col:EVGColor) {
+        dl.addFrame(x y w h t col)
+    }
+
+    fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor) {
+        def w:double (ctx.tr.measureWidth(text size))
+        def h:double (ctx.tr.lineHeight(size))
+        dl.addText(text x y size col fontFamily false false w h)
+    }
+
+    fn pushStyledText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor fontName:string bold:boolean italic:boolean) {
+        if ((strlen text) == 0) {
+            return
+        }
+        EVGFace.apply(ctx fontName bold italic)
+        def w:double (ctx.tr.measureWidth(text size))
+        def h:double (ctx.tr.lineHeight(size))
+        dl.addText(text x y size col (EVGFace.family(fontName)) bold italic w h)
+    }
+
+    fn applyFace:void (bold:boolean) {
+        EVGFace.apply(ctx "" bold false)
+    }
+
+    fn applyFaceStyled:void (bold:boolean italic:boolean) {
+        EVGFace.apply(ctx "" bold italic)
+    }
+
+    ; --- the strip ------------------------------------------------------------
+    ; Lays the buttons out into the band and draws them. `pressed` on each item
+    ; is whatever the owner put there; the tooltip is the hot item's label.
+    fn paint:void (dl:EVGDisplayList bar:EVGToolbar x0:int y0:int width:int height:int) {
+        this.pushRect(dl (to_double x0) (to_double y0) (to_double width) (to_double height) theme.bg)
+        this.pushBorder(dl (to_double x0) (to_double y0) (to_double width) (to_double height) 1.0 theme.line)
+        bar.layout(x0 y0 width)
+        def i:int 0
+        while (i < (bar.count())) {
+            def t:ToolItem (bar.at(i))
+            if (t.w > 0) {
+                if t.isSeparator {
+                    this.pushRect(dl (to_double (t.x + 4)) (to_double (t.y + 3)) 1.0 (to_double (t.h - 6)) theme.line)
+                } {
+                    if t.pressed {
+                        this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.pressedBg)
+                    }
+                    if (bar.hot == i) {
+                        if (t.pressed == false) {
+                            this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.hotBg)
+                        }
+                    }
+                    if (t.textW > 0) {
+                        this.paintTextButton(dl t)
+                    } {
+                        this.paintToolIcon(dl t)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        ; A real helper tip next to the hot icon — a status bar alone is easy
+        ; to miss, and icon-only buttons need a name under the pointer.
+        if (bar.hot >= 0) {
+            def tip:string (bar.hotLabel())
+            if ((strlen tip) > 0) {
+                def ht:ToolItem (bar.at(bar.hot))
+                this.applyFace(false)
+                def tw:int (to_int ((ctx.tr.measureWidth(tip 12.0)) + 12.0))
+                def th:int 20
+                def tx:int ht.x
+                def ty:int ((ht.y + ht.h) + 4)
+                if ((tx + tw) > (x0 + width)) {
+                    tx = (((x0 + width) - tw) - 4)
+                }
+                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) theme.tipBg)
+                this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.accent)
+                this.pushText(dl tip (to_double (tx + 6)) (to_double (ty + 3)) 12.0 theme.ink)
+            }
+        }
+    }
+
+    ; A wider button that shows a value rather than a picture — a font name, a
+    ; point size. `label` is whatever the owner last put there.
+    fn paintTextButton:void (dl:EVGDisplayList t:ToolItem) {
+        this.pushBorder(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) 1.0 theme.line)
+        this.pushText(dl t.label (to_double (t.x + 4)) (to_double (t.y + 4)) 11.0 theme.ink)
+        ; A small chevron on the right so it reads as a dropdown.
+        def cx:int ((t.x + t.w) - 8)
+        def cy:int (t.y + (idiv t.h 2))
+        this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 7.0 1.0 theme.dim)
+        this.pushRect(dl (to_double (cx - 2)) (to_double (cy + 1)) 5.0 1.0 theme.dim)
+        this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 3.0 1.0 theme.dim)
+    }
+
+    fn paintToolIcon:void (dl:EVGDisplayList t:ToolItem) {
+        def cx:int (t.x + (idiv t.w 2))
+        def cy:int (t.y + (idiv t.h 2))
+        def ink:EVGColor theme.ink
+        def dim:EVGColor theme.dim
+        def k:int t.icon
+
+        ; Letters, where a letter is the clearest icon there is.
+        if (k == (ToolIcon.bold())) {
+            this.pushToolText(dl "B" cx cy 13.0 ink true)
+            return
+        }
+        if (k == (ToolIcon.italic())) {
+            this.pushToolText(dl "I" cx cy 13.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.underline())) {
+            this.pushToolText(dl "U" cx (cy - 1) 12.0 ink false)
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy + 7)) 10.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.strike())) {
+            this.pushToolText(dl "S" cx cy 12.0 ink false)
+            this.pushRect(dl (to_double (cx - 5)) (to_double cy) 10.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.currency())) {
+            this.pushToolText(dl "$" cx cy 13.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.percent())) {
+            this.pushToolText(dl "%" cx cy 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.comma())) {
+            this.pushToolText(dl "," cx (cy - 2) 15.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.decMore())) {
+            this.pushToolText(dl ".0" cx cy 11.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.decLess())) {
+            this.pushToolText(dl ".00" cx cy 9.0 dim false)
+            return
+        }
+        if (k == (ToolIcon.sizeUp())) {
+            this.pushToolText(dl "A+" cx cy 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.sizeDown())) {
+            this.pushToolText(dl "A-" cx cy 10.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.undo())) {
+            this.paintArrowIcon(dl cx cy true ink)
+            return
+        }
+        if (k == (ToolIcon.redo())) {
+            this.paintArrowIcon(dl cx cy false ink)
+            return
+        }
+        if (k == (ToolIcon.openFile())) {
+            ; A folder with its lid open.
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 5)) 6.0 2.0 theme.accent)
+            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 3)) 16.0 10.0 1.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 1)) 12.0 2.0 dim)
+            return
+        }
+        if (k == (ToolIcon.newFile())) {
+            ; A blank page with a folded corner.
+            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 15.0 1.0 theme.accent)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 7)) 5.0 5.0 dim)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 1)) 6.0 1.0 dim)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 4)) 6.0 1.0 dim)
+            return
+        }
+        if (k == (ToolIcon.report())) {
+            ; A page with a chart-ish bar on it: this button prints something.
+            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 15.0 1.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 4)) 6.0 1.0 dim)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 3)) 2.0 3.0 theme.accent)
+            this.pushRect(dl (to_double cx) (to_double (cy + 1)) 2.0 5.0 theme.accent)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy - 1)) 2.0 7.0 theme.accent)
+            return
+        }
+        if (k == (ToolIcon.save())) {
+            ; A tray with something going into it.
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 2.0 8.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 2)) 3.0 2.0 theme.accent)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 2)) 3.0 2.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 3)) 14.0 2.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 3)) 2.0 4.0 theme.accent)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 3)) 2.0 4.0 theme.accent)
+            return
+        }
+        if (k == (ToolIcon.paint())) {
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 6)) 10.0 5.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 1)) 2.0 8.0 dim)
+            return
+        }
+        if (k == (ToolIcon.clearFmt())) {
+            this.pushToolText(dl "A" cx (cy - 2) 12.0 dim false)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 6)) 12.0 2.0 theme.warn)
+            return
+        }
+        if (k == (ToolIcon.search())) {
+            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 10.0 10.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 3)) 4.0 2.0 ink)
+            return
+        }
+        if (k == (ToolIcon.chart())) {
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 3.0 5.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 3)) 3.0 9.0 theme.accent)
+            this.pushRect(dl (to_double (cx + 4)) (to_double (cy - 6)) 3.0 12.0 theme.accent)
+            return
+        }
+        if (k == (ToolIcon.link())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 6.0 2.0 theme.link)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 1)) 6.0 2.0 theme.link)
+            this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 1)) 4.0 2.0 theme.link)
+            return
+        }
+        if (k == (ToolIcon.cond())) {
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 4.0 theme.warn)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 12.0 4.0 (EVGColor.rgb(120 190 120)))
+            return
+        }
+        if (k == (ToolIcon.validate())) {
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy + 1)) 4.0 2.0 (EVGColor.rgb(40 140 70)))
+            this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 3)) 8.0 2.0 (EVGColor.rgb(40 140 70)))
+            return
+        }
+        ; A stack of platters, which is what everything has drawn a database as
+        ; since the disk pack: a lid, two bands under it, and a shaded top so
+        ; it reads as a cylinder rather than as three lines.
+        if (k == (ToolIcon.database())) {
+            def dbInk:EVGColor theme.accent
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 7)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 7)) 10.0 1.0 (EVGColor.rgb(150 185 235)))
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 2)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 3)) 12.0 3.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 4)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy - 4)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 1.0 2.0 dbInk)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 1)) 1.0 2.0 dbInk)
+            return
+        }
+        if (k == (ToolIcon.sqlBox())) {
+            this.pushToolText(dl "SQL" cx cy 9.0 theme.accent false)
+            return
+        }
+        if (k == (ToolIcon.freeze())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 1.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 7)) 1.0 14.0 theme.accent)
+            return
+        }
+        if (k == (ToolIcon.sortAsc())) {
+            this.pushToolText(dl "A1" cx cy 10.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.sortDesc())) {
+            this.pushToolText(dl "1A" cx cy 10.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.funnel())) {
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 6.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 2.0 2.0 ink)
+            return
+        }
+        if (k == (ToolIcon.insertRow())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 2)) 14.0 5.0 theme.line)
+            this.pushToolText(dl "+" cx (cy - 4) 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.insertCol())) {
+            this.pushRect(dl (to_double (cx + 2)) (to_double (cy - 7)) 5.0 14.0 theme.line)
+            this.pushToolText(dl "+" (cx - 4) cy 12.0 ink false)
+            return
+        }
+        if (k == (ToolIcon.deleteRow())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 2)) 14.0 5.0 theme.line)
+            this.pushToolText(dl "-" cx (cy + 4) 12.0 theme.warn false)
+            return
+        }
+        if (k == (ToolIcon.merge())) {
+            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 5)) 16.0 10.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 4)) 2.0 8.0 theme.bg)
+            return
+        }
+        if (k == (ToolIcon.fill())) {
+            this.pushToolText(dl "A" cx (cy - 2) 11.0 ink false)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 6)) 14.0 4.0 (EVGColor.rgb(255 220 130)))
+            return
+        }
+        if (k == (ToolIcon.textColor())) {
+            this.pushToolText(dl "A" cx (cy - 2) 11.0 ink false)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 6)) 14.0 4.0 theme.warn)
+            return
+        }
+        if (k == (ToolIcon.borderAll())) {
+            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 7)) (to_double cy) 14.0 1.0 ink)
+            this.pushRect(dl (to_double cx) (to_double (cy - 7)) 1.0 14.0 ink)
+            return
+        }
+        if (k == (ToolIcon.borderOut())) {
+            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.borderMore())) {
+            ; A smaller all-borders box, with room under it for the chevron
+            ; that says there is a window behind this one. Drawn at the same
+            ; size as the button beside it, the chevron landed ON the box's
+            ; bottom edge and could not be seen at all.
+            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 8)) 12.0 12.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 3)) 12.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 8)) 1.0 12.0 ink)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy + 5)) 7.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 2)) (to_double (cy + 6)) 5.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 7)) 3.0 1.0 ink)
+            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 8)) 1.0 1.0 ink)
+            return
+        }
+        if (k == (ToolIcon.borderNone())) {
+            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 theme.line)
+            return
+        }
+        if (k == (ToolIcon.alignLeft())) {
+            this.paintAlignIcon(dl cx cy 0 ink)
+            return
+        }
+        if (k == (ToolIcon.alignCenter())) {
+            this.paintAlignIcon(dl cx cy 1 ink)
+            return
+        }
+        if (k == (ToolIcon.alignRight())) {
+            this.paintAlignIcon(dl cx cy 2 ink)
+            return
+        }
+        if (k == (ToolIcon.valignTop())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 3)) 8.0 2.0 dim)
+            return
+        }
+        if (k == (ToolIcon.valignMid())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 6)) 8.0 2.0 dim)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 4)) 8.0 2.0 dim)
+            return
+        }
+        if (k == (ToolIcon.valignBot())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 5)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 1)) 8.0 2.0 dim)
+            return
+        }
+        if (k == (ToolIcon.wrapCell())) {
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 5)) 14.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 1)) 9.0 2.0 ink)
+            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 1)) 3.0 2.0 dim)
+            return
+        }
+        ; Anything without a picture falls back to its own first letter, which
+        ; is better than an empty box.
+        if ((strlen t.label) > 0) {
+            this.pushToolText(dl (substring t.label 0 1) cx cy 12.0 ink false)
+        }
+    }
+
+    ; An arrow curving back on itself: a shaft, and a head made of a stack of
+    ; rectangles. Undo points left, redo right.
+    fn paintArrowIcon:void (dl:EVGDisplayList cx:int cy:int back:boolean col:EVGColor) {
+        def dir:int 1
+        if back {
+            dir = -1
+        }
+        ; the shaft, bending down at the far end
+        this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 4)) 12.0 2.0 col)
+        def tipX:int (cx + (dir * 6))
+        this.pushRect(dl (to_double (tipX - 1)) (to_double (cy - 4)) 2.0 7.0 col)
+        ; the head, three steps deep
+        def i:int 0
+        while (i < 4) {
+            def hx:int ((cx - (dir * 6)) + (dir * i))
+            this.pushRect(dl (to_double hx) (to_double ((cy - 4) - i)) 1.0 (to_double ((i * 2) + 2)) col)
+            i = (i + 1)
+        }
+    }
+
+    fn paintAlignIcon:void (dl:EVGDisplayList cx:int cy:int mode:int col:EVGColor) {
+        def i:int 0
+        while (i < 4) {
+            def wide:boolean ((i % 2) == 0)
+            def lw:int 14
+            if (wide == false) {
+                lw = 9
+            }
+            def lx:int (cx - 7)
+            if (wide == false) {
+                if (mode == 1) {
+                    lx = (cx - (idiv lw 2))
+                }
+                if (mode == 2) {
+                    lx = ((cx + 7) - lw)
+                }
+            }
+            this.pushRect(dl (to_double lx) (to_double ((cy - 7) + (i * 4))) (to_double lw) 2.0 col)
+            i = (i + 1)
+        }
+    }
+
+    ; Toolbar text is centred on the button rather than laid out from a corner.
+    fn pushToolText:void (dl:EVGDisplayList s:string cx:int cy:int size:double col:EVGColor bold:boolean) {
+        this.applyFaceStyled(bold false)
+        def w:double (ctx.tr.measureWidth(s size))
+        def x:double ((to_double cx) - (w / 2.0))
+        def y:double ((to_double cy) - (size * 0.62))
+        this.pushStyledText(dl s x y size col "" bold false)
+    }
+}
