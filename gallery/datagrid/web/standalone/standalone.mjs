@@ -349,7 +349,11 @@ const KEY_MAP = {
   F2: "f2",
 };
 // b / i / u joined the list when the formatting commands arrived.
-const CTRL_CHORD = /^[abcefhiklmsuvxyzABCEFHIKLMSUVXYZ ]$/;
+// d and q are the database chords (connection window, SQL box). Adding them
+// here is also what stops Ctrl+D bookmarking the page and Ctrl+Q closing the
+// browser while the sheet has focus. Cmd+Q on macOS cannot be intercepted by
+// any page, which is why both of them are toolbar buttons as well.
+const CTRL_CHORD = /^[abcdefhiklmqsuvxyzABCDEFHIKLMQSUVXYZ ]$/;
 
 canvas.addEventListener("pointerdown", async (ev) => {
   canvas.setPointerCapture(ev.pointerId);

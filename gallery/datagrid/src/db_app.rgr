@@ -193,10 +193,20 @@ class GridDbLauncher {
     ; sheet. Everything after this is the ordinary editor.
     fn start:boolean (app:GridApp driver:string dsn:string table:string seedRows:int) {
         if ((this.openSession(driver dsn)) == false) {
+            app.dbConnStatus = status
             return false
         }
         def fresh:boolean ((this.tableExists(table)) == false)
         if fresh {
+            ; A demo table is only invented when the caller asked for demo rows.
+            ; Pointed at a real database, a wrong table name has to come back as
+            ; "no such table" rather than as a new empty one.
+            if (seedRows <= 0) {
+                status = (engine + ": no table called " + table)
+                app.dbConnStatus = status
+                app.view.status = status
+                return false
+            }
             session.createTable(table (GridDbLauncher.columns()))
         }
         def probe:QuerySpec (QuerySpec.forTable(table))
@@ -214,11 +224,16 @@ class GridDbLauncher {
         rows = app.db.loadedRows
         if (ok == false) {
             status = (engine + ": " + app.db.status)
-            return false
+        } {
+            status = (engine + ": " + table + ", " + (to_string rows) + " rows - edit a cell and it is written back")
         }
-        status = (engine + ": " + table + ", " + (to_string rows) + " rows - edit a cell and it is written back")
+        app.dbConnStatus = status
         app.view.status = status
-        return true
+        ; Told LAST, because this is what redraws the connection window - and a
+        ; window redrawn before the outcome was written shows the question
+        ; ("connecting to …") next to the answer.
+        app.noteConnection(engine dsn table)
+        return ok
     }
 
     ; Engines the host could reach, for the console line the server prints.

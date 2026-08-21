@@ -96,7 +96,11 @@ const KEY_MAP = {
 // f / h for find and replace, l for the conditional-format rule editor,
 // k for a hyperlink, e for a validation rule, and s to save the workbook.
 // b / i / u joined the list when the formatting commands arrived.
-const CTRL_CHORD = /^[abcefhiklmsuvxyzABCEFHIKLMSUVXYZ ]$/;
+// d and q are the database chords (connection window, SQL box). Adding them
+// here is also what stops Ctrl+D bookmarking the page and Ctrl+Q closing the
+// browser while the sheet has focus. Cmd+Q on macOS cannot be intercepted by
+// any page, which is why both of them are toolbar buttons as well.
+const CTRL_CHORD = /^[abcdefhiklmqsuvxyzABCDEFHIKLMQSUVXYZ ]$/;
 
 /** Put whatever was just copied on the OS clipboard.
  *
