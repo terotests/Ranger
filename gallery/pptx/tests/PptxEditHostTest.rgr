@@ -59,6 +59,18 @@ class PptxEditHostTest {
         return (itemAt shapes 0)
     }
 
+    sfn indexOfCommand:int (app:PptxApp id:string) {
+        def i:int 0
+        while (i < (app.toolbar.count())) {
+            def t:ToolItem (app.toolbar.at(i))
+            if (t.command == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     sfn countFlipped:int (dl:EVGDisplayList) {
         def n:int 0
         def i:int 0
@@ -400,7 +412,9 @@ class PptxEditHostTest {
             c.ok("nothing is mirrored yet" (mirroredBefore == 0))
             c.ok("flip it across" (app8.runCommand("edit.flip.h" "")))
             def flippedList:EVGDisplayList (app8.buildFrame())
-            c.ok("the picture command carries the mirror" ((PptxEditHostTest.countFlipped(flippedList)) == 1))
+            ; The slide draws it, and so does its thumbnail in the panel: both
+            ; are the same scene, which is the point of the panel.
+            c.ok("the picture command carries the mirror" ((PptxEditHostTest.countFlipped(flippedList)) > 0))
             ; And the pixels differ, which is the part a flag alone would not
             ; prove: a mirrored blit reads the other column.
             app8.renderOracleSlide(0)
@@ -409,6 +423,47 @@ class PptxEditHostTest {
             app8.renderOracleSlide(0)
             def beforePixels:buffer (app8.raw())
             c.ok("and the picture is drawn differently" ((PptxEditHostTest.sameBytes(beforePixels afterPixels)) == false))
+        }
+
+        print "-- the slide panel --"
+        def app9:PptxApp (PptxEditHostTest.buildDeck("20-business-deck.pptx"))
+        c.ok("the deck has several slides" ((app9.slideCount()) > 2))
+        c.ok("the panel is up by default" app9.panelVisible)
+        c.ok("and it takes width out of the slide" ((app9.slideOriginX()) >= (to_double (app9.panelWidth()))))
+        ; A thumbnail is the slide's own scene, so the panel draws a lot.
+        def withPanel:int ((app9.buildFrame()).count())
+        app9.runCommand("view.panel" "")
+        c.ok("it can be folded away" ((app9.panelVisible) == false))
+        def withoutPanel:int ((app9.buildFrame()).count())
+        c.ok("and folding it away draws less" (withoutPanel < withPanel))
+        c.ok("the slide then starts at the window edge" ((app9.slideOriginX()) < 2.0))
+        app9.runCommand("view.panel" "")
+        c.ok("and it comes back" app9.panelVisible)
+        ; Clicking a thumbnail goes to that slide.
+        def thumbX:int ((app9.panelThumbX()) + (idiv (app9.panelThumbW()) 2))
+        def thumb2Y:int ((app9.panelThumbY(2)) + (idiv (app9.panelThumbH()) 2))
+        app9.pointer(thumbX thumb2Y true true false)
+        app9.pointer(thumbX thumb2Y false false true)
+        c.ok("clicking the third thumbnail goes to the third slide" (app9.index == 2))
+        c.ok("and the editor followed" (app9.editor.slideIndex == 2))
+        ; Dragging one reorders the deck.
+        def firstPart:string ((itemAt app9.presentation.slides 2).partPath)
+        def thumb0Y:int ((app9.panelThumbY(0)) + 2)
+        app9.pointer(thumbX thumb2Y true true false)
+        c.ok("a press on a thumbnail picks the slide up" (app9.panelDrag == 2))
+        app9.pointer(thumbX thumb0Y false true false)
+        app9.pointer(thumbX thumb0Y false false true)
+        c.ok("dropping it at the top moves it there" (((itemAt app9.presentation.slides 0).partPath) == firstPart))
+        c.ok("and the viewer is on it" (app9.index == 0))
+        c.ok("undo puts the order back" (app9.runCommand("edit.undo" "")))
+        c.ok("the deck is in its old order" (((itemAt app9.presentation.slides 2).partPath) == firstPart))
+        ; A press on the toolbar above the panel is still the toolbar's.
+        def firstButton:int (PptxEditHostTest.indexOfCommand(app9 "slide.next"))
+        if (firstButton >= 0) {
+            def t9:ToolItem (app9.toolbar.at(firstButton))
+            def beforeIdx:int app9.index
+            app9.pointer((t9.x + 2) (t9.y + 2) true true false)
+            c.ok("the strip still works over the panel" (app9.index != beforeIdx))
         }
 
         print "-- the viewer is still a viewer --"

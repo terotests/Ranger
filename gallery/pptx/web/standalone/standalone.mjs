@@ -203,6 +203,17 @@ canvas.addEventListener("pointercancel", () => {
   pointerHeld = false;
 });
 
+canvas.addEventListener("wheel", async (ev) => {
+  const { x, y } = coords(ev);
+  // Only the panel scrolls today, and the app is the one that knows where it
+  // is — so the wheel is handed over with the pointer's position rather than
+  // decided here.
+  if (x >= (web.slidePanelWidth() | 0)) return;
+  ev.preventDefault();
+  web.scroll(x, y, ev.deltaY > 0 ? -1 : 1);
+  await draw();
+}, { passive: false });
+
 const KEYS = {
   ArrowLeft: "left",
   ArrowRight: "right",
@@ -405,6 +416,35 @@ async function selftest() {
     ok("Escape gives the caret up", true);
     web.run("edit.undo", "");
     web.run("edit.delete", "");
+    await draw();
+  }
+
+  // The slide panel: the deck down the left, each thumbnail the same scene the
+  // slide itself is drawn from.
+  {
+    web.run("slide.first", "");
+    await draw();
+    const panelW = web.slidePanelWidth() | 0;
+    ok("the panel has a width", panelW > 40);
+    const withPanel = JSON.parse(web.scene()).list.cmds.length;
+    web.run("view.panel", "");
+    await draw();
+    const withoutPanel = JSON.parse(web.scene()).list.cmds.length;
+    ok("folding the panel away draws less", withoutPanel < withPanel);
+    web.run("view.panel", "");
+    await draw();
+    // A click on the second thumbnail: the panel is a column of them under the
+    // toolbar, so the second is one step down from the first.
+    const scene = JSON.parse(web.scene());
+    const step = Math.round((scene.height - 60) / 8);
+    let moved = false;
+    for (let i = 1; i < 8 && !moved; i++) {
+      web.pointerAt(Math.round(panelW / 2), 60 + i * step, true, true, false);
+      web.pointerAt(Math.round(panelW / 2), 60 + i * step, false, false, true);
+      if ((web.slideIndex() | 0) !== 0) moved = true;
+    }
+    ok("clicking a thumbnail changes the slide", moved);
+    web.run("slide.first", "");
     await draw();
   }
 

@@ -181,6 +181,16 @@ class PptxEditorShots {
         }
         PptxEditorShots.shot(app8 "08_grid_rotate_flip.png")
 
+        ; 9 — the panel, with a slide being dragged to a new place in the deck
+        def app9:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app9.gotoSlide(3)
+        def tx9:int ((app9.panelThumbX()) + (idiv (app9.panelThumbW()) 2))
+        def ty9:int ((app9.panelThumbY(3)) + (idiv (app9.panelThumbH()) 2))
+        app9.pointer(tx9 ty9 true true false)
+        app9.pointer(tx9 ((app9.panelThumbY(1)) + 4) false true false)
+        PptxEditorShots.shot(app9 "09_slide_panel.png")
+        app9.pointer(tx9 ((app9.panelThumbY(1)) + 4) false false true)
+
         print "done"
     }
 }

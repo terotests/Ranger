@@ -246,6 +246,10 @@ class PptxSlide {
     ; how the parts nobody here models survive being edited around.
     def partPath:string ""
     def dirty:boolean false
+    ; Bumped by every edit on this slide, and never reused, so anything that
+    ; caches a picture of a slide can tell whether it is looking at the same
+    ; slide it drew.
+    def revision:int 0
     def width:double 720.0      ; pt (default 10")
     def height:double 540.0     ; pt (default 7.5")
     def shapes:[PptxShape]

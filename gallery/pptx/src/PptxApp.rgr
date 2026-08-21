@@ -138,6 +138,12 @@ class PptxApp {
     def dragMoved:boolean false
     def modShift:boolean false
     def modCtrl:boolean false
+    ; The slide panel: the deck down the left-hand side.
+    def panelW:int 150
+    def panelVisible:boolean true
+    def panelScroll:int 0
+    def panelDrag:int -1
+    def panelDropAt:int -1
     ; The slide picker. Ids: 1601.. the slides, 1691 Close.
     def slideDialog:EVGWindow (new EVGWindow)
     def dialogsReady:boolean false
@@ -157,6 +163,7 @@ class PptxApp {
         toolbar.build()
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (toolbarH + statusH)
+        view.chromeW = (this.panelWidth())
         this.registerCommands()
     }
 
@@ -185,6 +192,7 @@ class PptxApp {
         commands.add("format.paste" "Paint the formatting on" "Format" "")
         commands.add("edit.flip.h" "Flip across" "Arrange" "")
         commands.add("edit.flip.v" "Flip down" "Arrange" "")
+        commands.add("view.panel" "Show the slides" "View" "")
         commands.add("view.grid" "Snap to the grid" "View" "")
         commands.add("view.snap" "Snap to the shapes" "View" "")
         commands.add("edit.front" "Bring to front" "Arrange" "")
@@ -442,6 +450,7 @@ class PptxApp {
         index = i
         editor.slideIndex = i
         editor.clearSelection()
+        this.ensureSlideVisible()
     }
 
     fn resize:void (nw:int nh:int) {
@@ -449,6 +458,7 @@ class PptxApp {
         H = nh
         toolbarH = (toolbar.heightFor(W))
         view.chromeH = (toolbarH + statusH)
+        view.chromeW = (this.panelWidth())
         view.resize(W H)
     }
 
@@ -571,6 +581,10 @@ class PptxApp {
             this.pollDialogs()
             return true
         }
+        ; The panel is beside the slide, so it is asked before the slide is.
+        if (this.panelPointer(px py pressed down released)) {
+            return true
+        }
         toolbar.hot = (toolbar.hit(px py))
         if pressed {
             if (toolbar.hot >= 0) {
@@ -667,6 +681,11 @@ class PptxApp {
                 }
             }
         }
+        if (input.scrollDelta != 0) {
+            if (input.pointerX < (this.panelWidth())) {
+                this.scrollPanel(input.scrollDelta)
+            }
+        }
         this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
         this.render()
     }
@@ -676,6 +695,7 @@ class PptxApp {
     fn buildFrame:EVGDisplayList () {
         def framed:EVGDisplayList (new EVGDisplayList)
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
+        this.paintPanel(framed)
         def slide@(optional):PptxSlide (this.currentSlide())
         if (!null? slide) {
             def sl:PptxSlide (unwrap slide)
@@ -1030,9 +1050,10 @@ class PptxApp {
         def s:PptxSlide (unwrap slide)
         def sc:double (this.ptScale())
         def wpx:double (s.width * sc)
-        def dx:double (((to_double W) - wpx) * 0.5)
-        if (dx < 0.0) {
-            return 0.0
+        def left:double (to_double (this.panelWidth()))
+        def dx:double (left + ((((to_double W) - left) - wpx) * 0.5))
+        if (dx < left) {
+            return left
         }
         return dx
     }
@@ -1453,6 +1474,11 @@ class PptxApp {
         if (id == "edit.lock") {
             def locked:boolean (editor.selectionLocked())
             return (editor.setLocked((locked == false)))
+        }
+        if (id == "view.panel") {
+            panelVisible = (panelVisible == false)
+            view.chromeW = (this.panelWidth())
+            return true
         }
         if (id == "view.grid") {
             editor.setGrid((editor.gridEnabled == false))
@@ -2081,4 +2107,241 @@ class PptxApp {
         def r:PptxEditRect (this.caretRect(sh editor.caret))
         dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(20 30 60)))
     }
+
+    ; --- the slide panel ------------------------------------------------------
+    ;
+    ; A strip of the slides down the left, and each of them is the SAME scene
+    ; the viewer paints, at a small scale — no second renderer, no cache to go
+    ; stale, no idea of what a slide looks like that can drift from the real
+    ; one. A thumbnail is the slide's own display list scaled and moved, which
+    ; both backends draw without being told what a thumbnail is.
+    ;
+    ; Only the ones on screen are built. That is also what E7 means by
+    ; virtualizing it: the rule is already here, the deck is just never long
+    ; enough yet to notice.
+
+    fn panelWidth:int () {
+        if (panelVisible == false) {
+            return 0
+        }
+        return panelW
+    }
+
+    fn panelThumbW:int () {
+        return ((this.panelWidth()) - 34)
+    }
+
+    fn panelThumbH:int () {
+        def w:double (to_double (this.panelThumbW()))
+        def sw:double (this.slideW())
+        def sh:double (this.slideH())
+        if (sw <= 0.0) {
+            return 60
+        }
+        return (to_int ((w * sh) / sw))
+    }
+
+    fn panelStep:int () {
+        return ((this.panelThumbH()) + 12)
+    }
+
+    fn panelThumbX:int () {
+        return 26
+    }
+
+    fn panelThumbY:int (i:int) {
+        def top:int (toolbarH + 10)
+        return (((top + (i * (this.panelStep()))) - panelScroll))
+    }
+
+    fn panelSlideAt:int (px:int py:int) {
+        if (panelVisible == false) {
+            return (0 - 1)
+        }
+        if (px >= (this.panelWidth())) {
+            return (0 - 1)
+        }
+        if (py < toolbarH) {
+            return (0 - 1)
+        }
+        if (py >= (H - statusH)) {
+            return (0 - 1)
+        }
+        def n:int (this.slideCount())
+        def i:int 0
+        while (i < n) {
+            def y:int (this.panelThumbY(i))
+            if (py >= y) {
+                if (py < (y + (this.panelThumbH()))) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Where a drag would drop the slide it is carrying: between two thumbnails
+    ; rather than on one, which is the difference between reordering and
+    ; replacing.
+    fn panelDropIndex:int (py:int) {
+        def n:int (this.slideCount())
+        def step:int (this.panelStep())
+        def top:int ((toolbarH + 10) - panelScroll)
+        def rel:int (py - top)
+        if (rel < 0) {
+            return 0
+        }
+        def idx:int (idiv (rel + (idiv step 2)) step)
+        if (idx < 0) {
+            idx = 0
+        }
+        if (idx > n) {
+            idx = n
+        }
+        return idx
+    }
+
+    fn scrollPanel:void (delta:int) {
+        def n:int (this.slideCount())
+        def total:int (n * (this.panelStep()))
+        def visible:int ((H - toolbarH) - statusH)
+        def maxScroll:int (total - visible)
+        if (maxScroll < 0) {
+            maxScroll = 0
+        }
+        panelScroll = (panelScroll - (delta * 40))
+        if (panelScroll < 0) {
+            panelScroll = 0
+        }
+        if (panelScroll > maxScroll) {
+            panelScroll = maxScroll
+        }
+    }
+
+    fn ensureSlideVisible:void () {
+        if (panelVisible == false) {
+            return
+        }
+        def y:int (this.panelThumbY(index))
+        def top:int toolbarH
+        def bottom:int (H - statusH)
+        if (y < top) {
+            panelScroll = (panelScroll - (top - y))
+        }
+        def h:int (this.panelThumbH())
+        if ((y + h) > bottom) {
+            panelScroll = (panelScroll + (((y + h) - bottom) + 10))
+        }
+        if (panelScroll < 0) {
+            panelScroll = 0
+        }
+    }
+
+    fn panelPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (panelVisible == false) {
+            return false
+        }
+        if pressed {
+            if (px >= (this.panelWidth())) {
+                return false
+            }
+            ; The panel is only the band between the toolbar and the status
+            ; line: a press above it belongs to the strip, and swallowing that
+            ; makes the left-hand buttons dead.
+            if (py < toolbarH) {
+                return false
+            }
+            if (py >= (H - statusH)) {
+                return false
+            }
+            def hit:int (this.panelSlideAt(px py))
+            if (hit >= 0) {
+                this.gotoSlide(hit)
+                panelDrag = hit
+                panelDropAt = hit
+                return true
+            }
+            return true
+        }
+        if (panelDrag >= 0) {
+            if down {
+                panelDropAt = (this.panelDropIndex(py))
+                return true
+            }
+        }
+        if released {
+            if (panelDrag >= 0) {
+                def target:int panelDropAt
+                if (target > panelDrag) {
+                    target = (target - 1)
+                }
+                if (target != panelDrag) {
+                    this.syncEditor()
+                    editor.moveSlideTo(target)
+                    this.syncFromEditor()
+                }
+                panelDrag = (0 - 1)
+                panelDropAt = (0 - 1)
+                return true
+            }
+        }
+        return false
+    }
+
+    fn paintPanel:void (dl:EVGDisplayList) {
+        if (panelVisible == false) {
+            return
+        }
+        def w:int (this.panelWidth())
+        def top:double (to_double toolbarH)
+        def height:double (to_double ((H - toolbarH) - statusH))
+        dl.addRect(0.0 top (to_double w) height (EVGColor.rgb(32 36 47)))
+        dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
+        def n:int (this.slideCount())
+        def tw:int (this.panelThumbW())
+        def th:int (this.panelThumbH())
+        def tx:int (this.panelThumbX())
+        def i:int 0
+        while (i < n) {
+            def ty:int (this.panelThumbY(i))
+            ; Only what is on screen is built — a hundred-slide deck must not
+            ; cost a hundred display lists to show a dozen thumbnails.
+            def visible:boolean true
+            if ((ty + th) < toolbarH) {
+                visible = false
+            }
+            if (ty > (H - statusH)) {
+                visible = false
+            }
+            if visible {
+                def slide:PptxSlide (itemAt presentation.slides i)
+                dl.addRect((to_double tx) (to_double ty) (to_double tw) (to_double th) (EVGColor.rgb(255 255 255)))
+                def scale:double ((to_double tw) / (slide.width * (96.0 / 72.0)))
+                view.converter.setScale(scale)
+                def sub:EVGDisplayList (view.converter.slideToDisplayList(slide))
+                PptxApp.offsetList(sub tx ty)
+                dl.addClip((to_double tx) (to_double ty) (to_double tw) (to_double th))
+                PptxApp.appendList(dl sub)
+                dl.addClipEnd()
+                def border:EVGColor theme.line
+                if (i == index) {
+                    border = (EVGColor.rgb(90 140 230))
+                    dl.addFrame((to_double (tx - 2)) (to_double (ty - 2)) (to_double (tw + 4)) (to_double (th + 4)) 2.0 border)
+                } {
+                    dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 border)
+                }
+                toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 theme.dim)
+            }
+            i = (i + 1)
+        }
+        ; Where a dragged slide would land.
+        if (panelDrag >= 0) {
+            if (panelDropAt >= 0) {
+                def dropY:int (((toolbarH + 10) + (panelDropAt * (this.panelStep()))) - panelScroll - 4)
+                dl.addRect((to_double tx) (to_double dropY) (to_double tw) 2.0 (EVGColor.rgb(232 84 120)))
+            }
+        }
+    }
+
 }

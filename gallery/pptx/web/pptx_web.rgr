@@ -154,6 +154,19 @@ class PptxWeb {
         return (app.suggestedName())
     }
 
+    ; The wheel, which the slide panel uses to scroll. The app decides whether
+    ; the pointer is over the panel at all.
+    fn scroll:void (x:int y:int delta:int) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.addScroll(delta)
+        app.update(input)
+    }
+
+    fn slidePanelWidth:int () {
+        return (app.panelWidth())
+    }
+
     fn editing:boolean () {
         return app.editMode
     }

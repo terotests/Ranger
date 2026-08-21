@@ -21,6 +21,9 @@ class PptxView {
     ; leaves it clear. `PptxApp` sets it — it is the one that knows how tall
     ; the shared strip came out at this width.
     def chromeH:int 28
+    ; Room the slide panel takes out of the width, the same way `chromeH` is
+    ; the room the toolbar and the status line take out of the height.
+    def chromeW:int 0
     def fontFamily:string "Open Sans"
     def status:string ""
     def deckName:string ""
@@ -131,7 +134,7 @@ class PptxView {
     }
 
     fn fitScale:double (slide:PptxSlide) {
-        def availW:double (to_double pageW)
+        def availW:double (to_double (pageW - chromeW))
         def availH:double (to_double (pageH - chromeH))
         def slideWpx:double (slide.width * (96.0 / 72.0))
         def slideHpx:double (slide.height * (96.0 / 72.0))

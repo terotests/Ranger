@@ -295,39 +295,37 @@ already set any colour — what is missing is a way to *choose* one), and
 no button identity, so the UI layer cannot tell a right press from a left one
 — that is a change in the shared input contract, not in this gallery.
 
-## Phase E4b — the slide panel
+## Phase E4b — the slide panel (done)
 
 The most visible thing a slide editor has, and it was in this file only as a
-performance note in E7 ("virtualized slide thumbnails") — which is the answer
-to a question nobody had asked yet, because the panel itself was never planned.
-What exists today is `slide.pick`: a dialog of numbered radio buttons. It works
-and it is not what anyone means by a deck.
+performance note in E7. It is a strip of the deck down the left now, and each
+thumbnail is **the slide's own display list** at a small scale — not a cached
+picture of it. That decision removed the whole problem the phase was written
+around: there is no second renderer, no PNG to encode, nothing to invalidate,
+and a thumbnail cannot drift from the slide because it *is* the slide's scene.
+Both backends draw it without being told what a thumbnail is.
 
-The panel is a strip of **rendered slides** down one side: each thumbnail is
-the same scene the viewer paints, at a small scale, so there is no second
-renderer and no second idea of what a slide looks like. `PptxView` already
-renders a slide alone at a given scale (`renderOracleSlide` does exactly this
-for the oracles), so a thumbnail is that at ~120px wide, cached per slide and
-invalidated by the same `PptxSlide.dirty` flag the save path already keeps.
+- The panel takes width out of the frame the way the toolbar takes height:
+  `PptxView.chromeW` beside `chromeH`, so the fit-to-window scale and the
+  slide's origin account for it, and `view.panel` folds it away.
+- Only the thumbnails on screen are built. That is also what E7 means by
+  virtualizing it — the rule is already here, the decks are just never long
+  enough yet to notice.
+- Click to go, drag to reorder with a drop line between thumbnails (the editor
+  grew `moveSlideTo`, since a drag is not a sequence of one-step moves), the
+  wheel scrolls, and the current slide is kept in view when the deck moves
+  under it.
+- `PptxSlide.revision` came out of this and stayed: a number bumped by every
+  edit on a slide and never reused, so anything that does cache a picture of a
+  slide can tell whether it is looking at the same one. Nothing needs it yet;
+  the panel is vector.
 
-What it needs, in order:
-
-1. A layout: the strip takes width out of the frame the way the toolbar takes
-   height, so the fit-to-window scale and `slideOriginX` account for it.
-2. Thumbnails painted into the same display list, with the current slide marked
-   and its number beside it.
-3. Click to go to a slide; the panel is the navigation, and the left/right
-   thirds of the slide stop being it in edit mode.
-4. Drag to reorder — the editor already has `moveSlide`, so this is a drop
-   indicator and an index.
-5. The slide commands where they belong: new / duplicate / delete on the panel
-   rather than only on the toolbar.
-6. Scrolling, once a deck is longer than the window.
-
-Cache invalidation is the whole risk: a thumbnail that does not notice an edit
-is worse than no thumbnail. The flag exists, the render is cheap at that size,
-and the honest first version re-renders the current slide's thumbnail every
-time its scene changes and the others only when their `dirty` flips.
+15 checks in the host suite — the panel takes width from the slide, folding it
+away draws less, clicking the third thumbnail goes to the third slide, dragging
+one to the top reorders the deck and undo puts the order back, and a press on
+the toolbar ABOVE the panel still belongs to the toolbar (the first version
+swallowed it) — and 3 in the browser. `artifacts/09_slide_panel.png` is a slide
+being dragged, with the drop line where it would land.
 
 ## Phase E5 — the document, not the slide
 

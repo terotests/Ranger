@@ -247,6 +247,7 @@ class PptxClone {
         def sl (new PptxSlide())
         sl.partPath = src.partPath
         sl.dirty = src.dirty
+        sl.revision = src.revision
         sl.width = src.width
         sl.height = src.height
         sl.bg = (PptxClone.color(src.bg))
@@ -330,6 +331,9 @@ class PptxEditor {
     def gridPt:double 9.0
     def format:PptxFormat (new PptxFormat())
     def formatSet:boolean false
+    ; Never reused, so a revision names one state of one slide even after an
+    ; undo has thrown a later one away.
+    def nextRevision:int 0
 
     Constructor () {
     }
@@ -724,6 +728,8 @@ class PptxEditor {
             if (!null? cur) {
                 def sl:PptxSlide (unwrap cur)
                 sl.dirty = true
+                nextRevision = (nextRevision + 1)
+                sl.revision = nextRevision
             }
         }
     }
@@ -2054,6 +2060,46 @@ class PptxEditor {
         }
         this.clearSelection()
         this.pushSnapshot("delete slide")
+        return true
+    }
+
+    ; Straight to an index, which is what a drag in the slide panel means.
+    fn moveSlideTo:boolean (target:int) {
+        def n:int (array_length doc.slides)
+        if (target < 0) {
+            return false
+        }
+        if (target >= n) {
+            return false
+        }
+        if (target == slideIndex) {
+            return false
+        }
+        def moved:PptxSlide (itemAt doc.slides slideIndex)
+        def out:[PptxSlide]
+        def i:int 0
+        while (i < n) {
+            if (i != slideIndex) {
+                def at:int (array_length out)
+                if (at == target) {
+                    push out moved
+                }
+                push out (itemAt doc.slides i)
+            }
+            i = (i + 1)
+        }
+        if ((array_length out) < n) {
+            push out moved
+        }
+        doc.slides = out
+        def k:int 0
+        while (k < (array_length doc.slides)) {
+            if (((itemAt doc.slides k)) == moved) {
+                slideIndex = k
+            }
+            k = (k + 1)
+        }
+        this.pushSnapshot("move slide")
         return true
     }
 

@@ -99,7 +99,9 @@ window pixel becomes one:
 - [x] Insert box / ellipse / text box / picture, delete, duplicate
 - [x] Fill, outline, opacity, preset, and bold / italic / size / colour / align
       on a shape's text
-- [x] Slides: add, duplicate, delete, reorder
+- [x] Slides: add, duplicate, delete, reorder — and a **slide panel** down the
+      left whose thumbnails are the slides' own scenes at a small scale, with
+      click to go, drag to reorder and the wheel to scroll
 - [x] One shared **text layout**: the painter, the caret and the click all use
       the same lines, so a caret lands on the glyphs of a wrapped line, mixed
       runs are placed by measurement rather than by an average character width,
