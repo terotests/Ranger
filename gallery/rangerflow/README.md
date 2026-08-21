@@ -110,6 +110,7 @@ is 250 lines, and most of them are the model rather than the drawing.
 | Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo |
 | Scene | `core/FlowView.rgr`, `core/FlowScene.rgr` | the picture, once, for four backends |
 | Layout | `layout/ForceLayout.rgr`, `layout/LayeredLayout.rgr` | d3-force and a Sugiyama-style layered layout |
+| Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |
 | Export | `export/FlowExport.rgr` | PDF, HTML, SVG, scene JSON, graph JSON |
@@ -186,6 +187,62 @@ different 1e-6 nudge. That is the residue in the table above.
 
 Dragging pins the node through `fx`/`fy` exactly as the example does — the
 simulation may not move what your hand is holding.
+
+## Following one line out of nine
+
+An orthogonal router turns each edge at the midpoint between its ends. That is
+right for one edge and wrong for nine: nine edges crossing the same gap all
+pick the same midpoint, and their long perpendicular runs land on top of each
+other. The second half of the problem is worse and less obvious — several
+foreign keys pointing at one primary key **share a port**, so they arrive at
+literally the same point and their approach runs are the same line drawn three
+times.
+
+`layout/EdgeLanes.rgr` is the standard answer to the first, **channel
+routing**, and the matching answer to the second, a **port fan**:
+
+```text
+before                          after
+────┐                           ────┐
+────┤  ← four edges, one line   ───┐│
+────┤                           ──┐││
+────┘                           ─┐│││
+```
+
+1. Each edge's *trunk* is its perpendicular run between the two gapped
+   endpoints. Two trunks **conflict** when they would be drawn within
+   `spacing` of each other and their spans overlap — only then can they be
+   mistaken for one line.
+2. Conflict is transitive in practice (a stack of four is one problem, not
+   three), so the conflict graph's connected components are found with
+   union-find, and each component is a corridor.
+3. Within a corridor the edges are ordered by the middle of their span — the
+   ordering that keeps the tracks from crossing each other — and spread
+   symmetrically about the corridor's centre, clamped to the corridor's own
+   width so a track is never pushed back through the node it came from.
+4. Edges that share an arrival — a named port, or a node side when there is no
+   port — are fanned across it, ordered by where they come from. The fan stays
+   inside the row, because the point of a field-level port is that the edge
+   visibly meets *that column*.
+
+**Measured, because "looks tidier" is not a number.** `EdgeOverlap.pairs`
+counts the pairs of edge segments that are parallel, within a tolerance of each
+other, and overlapping along their shared axis — exactly the situation where
+two edges read as one line. On the nine-table fixture:
+
+| | before | after |
+| --- | ---: | ---: |
+| segments drawn on top of each other (2 px) | 16 | **0** |
+| segments within 8 px | 21 | 14 |
+| the UML diagram, both tolerances | 12 | **0** |
+
+The fourteen that remain at 8 px are the fan itself: three arrivals spread
+across a 19-pixel row are about four pixels apart, which is as much room as the
+row has. They separate immediately after leaving it.
+
+What this does **not** do is route around obstacles — a track is still a
+straight run, and a node standing in the corridor is drawn over. The fix for
+that is dummy nodes in the layered layout, which is the first item below.
 
 ## Parity is measured, not claimed
 
@@ -314,7 +371,9 @@ when the two meet, this reader becomes a thin adapter over that AST.
 ## Where it goes next
 
 1. **Dummy-node edge routing** so an edge spanning four layers is routed around
-   what is in the way rather than through it.
+   what is in the way rather than through it. `EdgeLanes` gives each edge its
+   own track through a corridor; it cannot yet make the corridor go round
+   anything.
 2. **A live schema inspector** behind one interface, so DuckDB, SQLite and
    RangerDB can all answer "what tables do you have" and the editor cannot tell
    which one did.

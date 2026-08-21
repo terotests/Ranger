@@ -639,6 +639,24 @@ class FlowEdge {
     def optionalSource:boolean false
     def optionalTarget:boolean false
 
+    ; --- routing ------------------------------------------------------------
+    ; Where this edge attaches along its port's own side, as an offset from
+    ; the port's centre. Several foreign keys pointing at one primary key land
+    ; on the same port and therefore on the same point, and their approach runs
+    ; are collinear by construction — three lines drawn as one. `EdgeLanes`
+    ; fans them out across the row so each arrival is visible.
+    def portNudgeSource:double 0.0
+    def portNudgeTarget:double 0.0
+
+    ; The track this edge takes through the corridor it crosses, assigned by
+    ; `EdgeLanes`. React Flow calls the same thing `center` on
+    ; `getSmoothStepPath`: an explicit place to turn, instead of the midpoint
+    ; every edge would otherwise pick. Unset means "use the midpoint".
+    def laneX:double 0.0
+    def laneY:double 0.0
+    def hasLaneX:boolean false
+    def hasLaneY:boolean false
+
     ; --- d3 forceLink state -------------------------------------------------
     ; Resolved once per (re)build so a tick does not hash strings.
     def sourceIndex:int -1
@@ -990,45 +1008,69 @@ class FlowGraph {
     ; tests, exports or routes an edge asks here, so a PDF and the editor put
     ; the line in the same place by construction.
     fn endpointX:double (e:FlowEdge atSource:boolean) {
+        def nudge:double e.portNudgeTarget
+        if atSource {
+            nudge = e.portNudgeSource
+        }
+        ; The nudge runs ALONG the side, so it moves X on a top or bottom
+        ; handle and Y on a left or right one. `endpointY` has the mirror of
+        ; this test; between them exactly one axis takes the offset.
+        def side:int (this.edgeSide(e atSource))
+        def alongX:boolean false
+        if (side == 0) { alongX = true }
+        if (side == 2) { alongX = true }
+        if (alongX == false) {
+            nudge = 0.0
+        }
         if atSource {
             if (this.hasPort(e.sourcePort)) {
                 def p:FlowPort (this.portRef(e.sourcePort))
                 def owner:FlowNode (this.nodeById(p.nodeId))
-                return (owner.portX(p))
+                return ((owner.portX(p)) + nudge)
             }
             def n:FlowNode (this.nodeById(e.source))
-            def side:int (this.edgeSide(e true))
-            return (n.handleX(side))
+            return ((n.handleX(side)) + nudge)
         }
         if (this.hasPort(e.targetPort)) {
             def p2:FlowPort (this.portRef(e.targetPort))
             def owner2:FlowNode (this.nodeById(p2.nodeId))
-            return (owner2.portX(p2))
+            return ((owner2.portX(p2)) + nudge)
         }
         def t:FlowNode (this.nodeById(e.target))
-        def tside:int (this.edgeSide(e false))
-        return (t.handleX(tside))
+        return ((t.handleX(side)) + nudge)
     }
 
     fn endpointY:double (e:FlowEdge atSource:boolean) {
+        def nudge:double e.portNudgeTarget
+        if atSource {
+            nudge = e.portNudgeSource
+        }
+        ; The nudge runs ALONG the side the port is on: down a left or right
+        ; edge, across a top or bottom one. Applying it on the wrong axis
+        ; would pull the endpoint off the node.
+        def side:int (this.edgeSide(e atSource))
+        def alongY:boolean false
+        if (side == 1) { alongY = true }
+        if (side == 3) { alongY = true }
+        if (alongY == false) {
+            nudge = 0.0
+        }
         if atSource {
             if (this.hasPort(e.sourcePort)) {
                 def p:FlowPort (this.portRef(e.sourcePort))
                 def owner:FlowNode (this.nodeById(p.nodeId))
-                return (owner.portY(p))
+                return ((owner.portY(p)) + nudge)
             }
             def n:FlowNode (this.nodeById(e.source))
-            def side:int (this.edgeSide(e true))
-            return (n.handleY(side))
+            return ((n.handleY(side)) + nudge)
         }
         if (this.hasPort(e.targetPort)) {
             def p2:FlowPort (this.portRef(e.targetPort))
             def owner2:FlowNode (this.nodeById(p2.nodeId))
-            return (owner2.portY(p2))
+            return ((owner2.portY(p2)) + nudge)
         }
         def t:FlowNode (this.nodeById(e.target))
-        def tside:int (this.edgeSide(e false))
-        return (t.handleY(tside))
+        return ((t.handleY(side)) + nudge)
     }
 
     fn edgeSide:int (e:FlowEdge atSource:boolean) {

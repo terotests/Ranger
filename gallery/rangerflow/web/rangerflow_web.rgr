@@ -21,6 +21,7 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/ForceLayout.rgr"
+Import "../layout/EdgeLanes.rgr"
 
 class RangerFlowWeb {
     def graph:FlowGraph (new FlowGraph)
@@ -82,6 +83,11 @@ class RangerFlowWeb {
         input.shift = shift
         input.ctrl = ctrl
         editor.pointerUp(input)
+        ; Lanes are only valid for the positions they were computed from, so a
+        ; drag or a new connection invalidates them.
+        if (simRunning == false) {
+            EdgeLanes.assign(graph)
+        }
     }
 
     fn wheel:void (x:double y:double delta:double) {
@@ -179,6 +185,7 @@ class RangerFlowWeb {
         lay.layerGap = 110.0
         lay.nodeGap = 40.0
         lay.run()
+        EdgeLanes.assign(graph)
         simRunning = false
         editor.pinWhileDragging = false
         status = ((to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations")
@@ -272,6 +279,7 @@ class RangerFlowWeb {
         lay.layerGap = 90.0
         lay.nodeGap = 26.0
         lay.run()
+        EdgeLanes.assign(graph)
         simRunning = false
         editor.pinWhileDragging = false
         status = "a flowchart — the core with no domain on top of it"
@@ -319,6 +327,7 @@ class RangerFlowWeb {
         lay.nodeGap = 40.0
         lay.run()
         SchemaToGraph.faceEdges(graph)
+        EdgeLanes.assign(graph)
     }
 
     fn setLayout:void (name:string) {

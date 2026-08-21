@@ -13,6 +13,7 @@ Import "../export/FlowExport.rgr"
 Import "../core/FlowEditor.rgr"
 Import "../layout/ForceLayout.rgr"
 Import "../layout/LayeredLayout.rgr"
+Import "../layout/EdgeLanes.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
@@ -67,6 +68,7 @@ class RangerFlowTest {
         RangerFlowTest.testDecoration(c)
         RangerFlowTest.testForce(c)
         RangerFlowTest.testLayered(c)
+        RangerFlowTest.testEdgeLanes(c)
         RangerFlowTest.testEditor(c)
         RangerFlowTest.testScene(c)
         RangerFlowTest.testSql(c)
@@ -402,6 +404,94 @@ class RangerFlowTest {
         l2.run()
         c.ok("cycle broken" ((l2.layerCount()) >= 2))
         c.ok("cycle terminated" ((l2.layerCount()) <= 3))
+    }
+
+    ; ---------------------------------------------------------- edge lanes --
+    sfn testEdgeLanes:void (c:Checker) {
+        c.section("edge lanes")
+        ; Two foreign keys pointing at one primary key share a port, so they
+        ; arrive at the same point and their approach runs are the same line
+        ; drawn twice. The fan-out is what separates them.
+        def g (new FlowGraph)
+        def target:FlowNode (FlowNode.create("t" "customers" 600.0 200.0))
+        target.rowHeight = 20.0
+        def sec:FlowSection (target.addSection(""))
+        def row:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        row.portId = "t.id"
+        sec.addRow(row)
+        target.layoutCompartments()
+        g.addNode(target)
+        def a:FlowNode (FlowNode.create("a" "orders" 0.0 100.0))
+        def b:FlowNode (FlowNode.create("b" "payments" 0.0 400.0))
+        g.addNode(a)
+        g.addNode(b)
+        g.reindex()
+        def e1:FlowEdge (FlowEdge.create("e1" "a" "t"))
+        e1.edgeType = "smoothstep"
+        e1.targetPort = "t.id:l"
+        g.addEdge(e1)
+        def e2:FlowEdge (FlowEdge.create("e2" "b" "t"))
+        e2.edgeType = "smoothstep"
+        e2.targetPort = "t.id:l"
+        g.addEdge(e2)
+        def sameBefore:double (fabs ((g.endpointY(e1 false)) - (g.endpointY(e2 false))))
+        c.near("two edges share one port" sameBefore 0.0 0.000001)
+        EdgeLanes.assign(g)
+        def apartAfter:double (fabs ((g.endpointY(e1 false)) - (g.endpointY(e2 false))))
+        c.ok(("the fan separates them (got " + (to_string apartAfter) + ")") (apartAfter > 2.0))
+        ; …but never further than the row they belong to, because the point of
+        ; a field-level port is that the edge meets THAT column.
+        c.ok("and keeps them inside the row" (apartAfter <= target.rowHeight))
+        ; The one further down arrives lower: the fan does not cross itself.
+        c.ok("the fan is ordered" ((g.endpointY(e2 false)) > (g.endpointY(e1 false))))
+
+        ; Two trunks crossing one corridor get separate tracks.
+        def g2 (new FlowGraph)
+        def l1:FlowNode (g2.node("l1" "l1" 0.0 0.0))
+        def l2:FlowNode (g2.node("l2" "l2" 0.0 200.0))
+        def r1:FlowNode (g2.node("r1" "r1" 500.0 300.0))
+        def r2:FlowNode (g2.node("r2" "r2" 500.0 500.0))
+        def x1:FlowEdge (g2.connect("l1" "r1"))
+        x1.edgeType = "smoothstep"
+        def x2:FlowEdge (g2.connect("l2" "r2"))
+        x2.edgeType = "smoothstep"
+        EdgeLanes.assign(g2)
+        def bothLanes:boolean false
+        if x1.hasLaneX {
+            if x2.hasLaneX { bothLanes = true }
+        }
+        c.ok("both trunks were given a track" bothLanes)
+        def apart:double (fabs (x1.laneX - x2.laneX))
+        c.ok(("the tracks are apart (got " + (to_string apart) + ")") (apart > 1.0))
+
+        ; A bezier has nowhere to put a track, and must not be bent by one.
+        def g3 (new FlowGraph)
+        g3.node("p" "p" 0.0 0.0)
+        g3.node("q" "q" 400.0 300.0)
+        def curve:FlowEdge (g3.connect("p" "q"))
+        curve.edgeType = "default"
+        def before:EdgePath (EdgeRouter.route(g3 curve))
+        def dBefore:string (before.svgPath())
+        EdgeLanes.assign(g3)
+        def after:EdgePath (EdgeRouter.route(g3 curve))
+        c.eqStr("a bezier is left alone" (after.svgPath()) dBefore)
+
+        ; …and the whole point, measured: nothing drawn on top of anything.
+        def sqlOpt:string (?? (read_file "." "gallery/rangerflow/fixtures/ecommerce.sql") "")
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sqlOpt))
+        def s2g (new SchemaToGraph)
+        def gg:FlowGraph (s2g.build(schema))
+        def lay:LayeredLayout (LayeredLayout.of(gg))
+        lay.direction = "LR"
+        lay.layerGap = 150.0
+        lay.nodeGap = 40.0
+        lay.run()
+        SchemaToGraph.faceEdges(gg)
+        def overlapBefore:int (EdgeOverlap.pairs(gg 2.0))
+        c.ok(("the schema starts with overlaps (got " + (to_string overlapBefore) + ")") (overlapBefore > 0))
+        EdgeLanes.assign(gg)
+        def overlapAfter:int (EdgeOverlap.pairs(gg 2.0))
+        c.eqInt("and ends with none" overlapAfter 0)
     }
 
     ; -------------------------------------------------------------- editor --
