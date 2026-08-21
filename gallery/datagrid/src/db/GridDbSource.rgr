@@ -1,0 +1,568 @@
+; ==============================================================================
+; GridDbSource - a sheet whose cells are rows of a database.
+; ==============================================================================
+;
+;     query result                       edited cell
+;          |                                  |
+;     GridDbSource.loadInto            GridDbSource.cellEdited
+;          |                                  |
+;     SpreadsheetModel  <-- the grid -->  DBMutation -> DBSession -> engine
+;
+; The sheet is an ordinary SpreadsheetModel: every formula, format, chart and
+; export in the app keeps working on it, because nothing below this class knows
+; where the values came from. What this class adds is the way back - an edited
+; cell becomes an UPDATE of the row it was loaded from, keyed by the columns
+; that identify it.
+;
+; Three rules, each of which is a bug if it is missing:
+;
+;   1. No key columns, no writing. A result with no identity for its rows (an
+;      aggregate, a join, a SELECT that dropped the key) is read only, and says
+;      so, instead of writing an UPDATE that matches whatever it matches.
+;   2. A refused value never stays on the sheet. Text typed into a numeric
+;      column, or a write the engine rejected, puts the loaded value back - a
+;      cell showing something the database does not hold is a lie the next
+;      formula will believe.
+;   3. Sorting and filtering a database sheet re-runs the QUERY. Sorting the
+;      loaded page would sort one screen of a million rows and call it sorted.
+; ==============================================================================
+
+Import "../SpreadsheetModel.rgr"
+Import "../CellStyle.rgr"
+Import "../../../rangerdb/src/DBBackend.rgr"
+
+class GridDbSource {
+    def session:DBSession (new DBSession)
+    def spec:QuerySpec (new QuerySpec)
+    ; Which sheet of the workbook this owns. -1 when nothing is bound.
+    def sheetIndex:int -1
+    def bound:boolean false
+    ; Where an edit is written back to. Usually the queried table.
+    def writeTable:string ""
+    def keyNames:[string]
+    def columns:[DBColumn]
+    ; Key values of every loaded row, flattened by (row * keyCount + k).
+    def keyValues:[DBValue]
+    ; What the database gave us, flattened by (row * colCount + col). An edit
+    ; is compared against this, and a refused edit is restored from it.
+    def loaded:[DBValue]
+    def loadedRows:int 0
+    def totalRows:int 0
+    ; Rows [windowStart, windowStart + windowSize) of the result. A window of
+    ; zero means "all of it", which is what a small table wants.
+    def windowStart:int 0
+    def windowSize:int 0
+    def readOnly:boolean false
+    def readOnlyReason:string ""
+    ; Write through on every edit, the way editing a cell in a database tool
+    ; does. With this off, edits collect in `pending` until commitPending().
+    def autoCommit:boolean true
+    def pending:[DBMutation]
+    def status:string ""
+    def dirtyCells:int 0
+
+    Constructor () {
+    }
+
+    fn headerRow:int () {
+        return 0
+    }
+
+    fn firstDataRow:int () {
+        return 1
+    }
+
+    fn columnCount:int () {
+        return (array_length columns)
+    }
+
+    ; ------------------------------------------------------------------ bind --
+    fn bindQuery:void (dbSession:DBSession querySpec:QuerySpec sheet:int) {
+        session = dbSession
+        spec = querySpec
+        sheetIndex = sheet
+        bound = true
+        writeTable = querySpec.table
+        clear pending
+        dirtyCells = 0
+    }
+
+    ; Which columns identify a row. Told explicitly, because a result set does
+    ; not carry the table's primary key: SELECT * FROM t hands back names and
+    ; types, not "this one is the key".
+    fn setKeys:void (names:[string]) {
+        clear keyNames
+        def n:int (array_length names)
+        def i:int 0
+        while (i < n) {
+            push keyNames (itemAt names i)
+            i = (i + 1)
+        }
+    }
+
+    ; The keys the engine itself declares, when it declares any. RangerDB does;
+    ; a SQL result does not, which is what setKeys is for.
+    fn adoptKeysFromTable:void () {
+        def cols:[DBColumn] (session.tableColumns(writeTable))
+        clear keyNames
+        def n:int (array_length cols)
+        def i:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt cols i)
+            if c.key {
+                push keyNames c.name
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------ load --
+    fn loadInto:boolean (model:SpreadsheetModel) {
+        if (bound == false) {
+            status = "no database bound"
+            return false
+        }
+        def chunk:DataChunk (new DataChunk)
+        if (windowSize > 0) {
+            chunk = (session.fetchRange(spec windowStart windowSize))
+        } {
+            chunk = (session.query(spec))
+        }
+        def err:string (session.lastError())
+        if ((strlen err) > 0) {
+            status = err
+            return false
+        }
+        totalRows = (session.countRows(spec))
+        clear columns
+        clear loaded
+        clear keyValues
+        clear pending
+        dirtyCells = 0
+        def cn:int (chunk.columnCount())
+        def i:int 0
+        while (i < cn) {
+            def col:DBColumn (chunk.columnAt(i))
+            push columns (col.copy())
+            i = (i + 1)
+        }
+        ; Which of the key columns survived into the result. A key that was
+        ; projected away cannot address a row, so the sheet is read only.
+        def keyIdx:[int] (this.keyIndexes())
+        readOnly = false
+        readOnlyReason = ""
+        if ((array_length keyNames) == 0) {
+            readOnly = true
+            readOnlyReason = "no key columns: read only"
+        }
+        if ((array_length keyIdx) != (array_length keyNames)) {
+            readOnly = true
+            readOnlyReason = "the query does not select every key column: read only"
+        }
+        if (spec.hasAggregates()) {
+            readOnly = true
+            readOnlyReason = "an aggregate result has no rows to write back to"
+        }
+        model.quietWrites = true
+        model.clearSheet()
+        model.colCount = cn
+        if (model.colCount < 1) {
+            model.colCount = 1
+        }
+        def wantRows:int (chunk.rowCount + 2)
+        if (wantRows < 8) {
+            wantRows = 8
+        }
+        model.rowCount = wantRows
+        def header:CellStyle (new CellStyle)
+        header.bold = true
+        def h:int 0
+        while (h < cn) {
+            def hc:DBColumn (itemAt columns h)
+            model.setCellRaw(0 h hc.name)
+            model.setCellStyleResolved(0 h header)
+            h = (h + 1)
+        }
+        def r:int 0
+        def keyCount:int (array_length keyIdx)
+        while (r < chunk.rowCount) {
+            def c:int 0
+            while (c < cn) {
+                def v:DBValue (chunk.valueAt(r c))
+                push loaded v
+                model.setCellRaw((r + 1) c (v.asString()))
+                def numeric:boolean (DBType.isNumeric(v.kind))
+                if numeric {
+                    def st:CellStyle (new CellStyle)
+                    st.align = "right"
+                    model.setCellStyleResolved((r + 1) c st)
+                }
+                c = (c + 1)
+            }
+            def k:int 0
+            while (k < keyCount) {
+                push keyValues (chunk.valueAt(r (itemAt keyIdx k)))
+                k = (k + 1)
+            }
+            r = (r + 1)
+        }
+        loadedRows = chunk.rowCount
+        model.quietWrites = false
+        model.version = (model.version + 1)
+        model.rowGeomDirty = true
+        model.colGeomDirty = true
+        model.ensureGeometry()
+        status = (this.describeLoad())
+        return true
+    }
+
+    fn describeLoad:string () {
+        def out:string ((session.engineName()) + ": " + (to_string loadedRows) + " rows")
+        if (totalRows > loadedRows) {
+            out = (out + " of " + (to_string totalRows))
+        }
+        if readOnly {
+            out = (out + " (" + readOnlyReason + ")")
+        }
+        def fb:string session.lastFallback
+        if ((strlen fb) > 0) {
+            out = (out + " [ranger did: " + fb + "]")
+        }
+        return out
+    }
+
+    fn keyIndexes:[int] () {
+        def out:[int]
+        def n:int (array_length keyNames)
+        def i:int 0
+        while (i < n) {
+            def name:string (itemAt keyNames i)
+            def cn:int (array_length columns)
+            def c:int 0
+            while (c < cn) {
+                def col:DBColumn (itemAt columns c)
+                if (col.name == name) {
+                    push out c
+                }
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn loadedAt:DBValue (row:int col:int) {
+        def idx:int ((row * (array_length columns)) + col)
+        if (idx < 0) {
+            return (new DBValue)
+        }
+        if (idx >= (array_length loaded)) {
+            return (new DBValue)
+        }
+        return (itemAt loaded idx)
+    }
+
+    fn setLoadedAt:void (row:int col:int v:DBValue) {
+        def idx:int ((row * (array_length columns)) + col)
+        if (idx < 0) {
+            return
+        }
+        if (idx >= (array_length loaded)) {
+            return
+        }
+        set_at loaded idx v
+    }
+
+    fn keyMutation:DBMutation (dataRow:int kind:int) {
+        def m:DBMutation (new DBMutation)
+        m.kind = kind
+        m.table = writeTable
+        def keyCount:int (array_length keyNames)
+        def k:int 0
+        while (k < keyCount) {
+            def idx:int ((dataRow * keyCount) + k)
+            if (idx < (array_length keyValues)) {
+                m.withKey((itemAt keyNames k) (itemAt keyValues idx))
+            }
+            k = (k + 1)
+        }
+        return m
+    }
+
+    ; ------------------------------------------------------------------ edit --
+    ; The grid has already written the cell. This decides whether the database
+    ; agrees, and puts the old value back when it does not.
+    fn cellEdited:boolean (model:SpreadsheetModel row:int col:int) {
+        if (bound == false) {
+            return false
+        }
+        def cn:int (array_length columns)
+        if (col < 0) {
+            return false
+        }
+        if (col >= cn) {
+            status = "that column is not part of the query"
+            return false
+        }
+        if (row == 0) {
+            def col0:DBColumn (itemAt columns col)
+            model.setCellRaw(0 col col0.name)
+            status = "column names come from the query"
+            return true
+        }
+        def dataRow:int (row - 1)
+        if (dataRow == loadedRows) {
+            return (this.newRowEdited(model row))
+        }
+        if (dataRow < 0) {
+            return false
+        }
+        if (dataRow >= loadedRows) {
+            return false
+        }
+        if readOnly {
+            def old:DBValue (this.loadedAt(dataRow col))
+            model.setCellRaw(row col (old.asString()))
+            status = readOnlyReason
+            return true
+        }
+        def column:DBColumn (itemAt columns col)
+        def typed:string (model.getCell(row col))
+        def before:DBValue (this.loadedAt(dataRow col))
+        def parsed:DBValue (DBValue.parseAs(column.kind typed))
+        if (parsed.isNull) {
+            if ((strlen (trim typed)) > 0) {
+                model.setCellRaw(row col (before.asString()))
+                status = (typed + " is not a " + (DBType.kindName(column.kind)))
+                return true
+            }
+            if (column.nullable == false) {
+                model.setCellRaw(row col (before.asString()))
+                status = (column.name + " cannot be empty")
+                return true
+            }
+        }
+        if (parsed.equalsValue(before)) {
+            if (parsed.isNull == before.isNull) {
+                return true
+            }
+        }
+        def m:DBMutation (this.keyMutation(dataRow 1))
+        m.withValue(column.name parsed)
+        if (autoCommit == false) {
+            push pending m
+            dirtyCells = (dirtyCells + 1)
+            this.setLoadedAt(dataRow col parsed)
+            status = ((to_string dirtyCells) + " pending edits")
+            return true
+        }
+        def affected:int (session.mutate(m))
+        if (affected <= 0) {
+            model.setCellRaw(row col (before.asString()))
+            def err:string (session.lastError())
+            if ((strlen err) == 0) {
+                err = "the database refused the edit"
+            }
+            status = err
+            return true
+        }
+        this.setLoadedAt(dataRow col parsed)
+        model.setCellRaw(row col (parsed.asString()))
+        status = (column.name + " updated in " + writeTable)
+        return true
+    }
+
+    ; The row after the last one: typing into it inserts, the way a database
+    ; tool's blank last row does. Nothing happens until every key column of
+    ; that row has something in it.
+    fn newRowEdited:boolean (model:SpreadsheetModel row:int) {
+        if readOnly {
+            status = readOnlyReason
+            return true
+        }
+        def cn:int (array_length columns)
+        def m:DBMutation (new DBMutation)
+        m.kind = 0
+        m.table = writeTable
+        def anything:boolean false
+        def c:int 0
+        while (c < cn) {
+            def col:DBColumn (itemAt columns c)
+            def typed:string (model.getCell(row c))
+            if ((strlen (trim typed)) > 0) {
+                anything = true
+                m.withValue(col.name (DBValue.parseAs(col.kind typed)))
+            }
+            c = (c + 1)
+        }
+        if (anything == false) {
+            return true
+        }
+        def kn:int (array_length keyNames)
+        def k:int 0
+        while (k < kn) {
+            def keyName:string (itemAt keyNames k)
+            def has:boolean false
+            def i:int 0
+            def sn:int (array_length m.setColumns)
+            while (i < sn) {
+                if ((itemAt m.setColumns i) == keyName) {
+                    has = true
+                }
+                i = (i + 1)
+            }
+            if (has == false) {
+                status = ("new row: fill in " + keyName + " to insert it")
+                return true
+            }
+            k = (k + 1)
+        }
+        def affected:int (session.mutate(m))
+        if (affected <= 0) {
+            def err:string (session.lastError())
+            if ((strlen err) == 0) {
+                err = "the database refused the new row"
+            }
+            status = err
+            return true
+        }
+        this.loadInto(model)
+        status = ("inserted into " + writeTable)
+        return true
+    }
+
+    fn deleteSheetRow:boolean (model:SpreadsheetModel row:int) {
+        if (bound == false) {
+            return false
+        }
+        if readOnly {
+            status = readOnlyReason
+            return false
+        }
+        def dataRow:int (row - 1)
+        if (dataRow < 0) {
+            return false
+        }
+        if (dataRow >= loadedRows) {
+            return false
+        }
+        def m:DBMutation (this.keyMutation(dataRow 2))
+        def affected:int (session.mutate(m))
+        if (affected <= 0) {
+            status = (session.lastError())
+            return false
+        }
+        this.loadInto(model)
+        status = ("deleted from " + writeTable)
+        return true
+    }
+
+    fn commitPending:int () {
+        def n:int (array_length pending)
+        if (n == 0) {
+            status = "nothing to commit"
+            return 0
+        }
+        def affected:int (session.mutateAll(pending))
+        clear pending
+        dirtyCells = 0
+        status = ((to_string affected) + " rows written to " + writeTable)
+        return affected
+    }
+
+    fn discardPending:void () {
+        clear pending
+        dirtyCells = 0
+        status = "pending edits discarded"
+    }
+
+    ; ------------------------------------------------------------- the query --
+    ; Sorting a database sheet is a new query, not a sort of the page that is
+    ; on screen.
+    fn sortByColumn:boolean (model:SpreadsheetModel col:int ascending:boolean) {
+        if (bound == false) {
+            return false
+        }
+        if (col < 0) {
+            return false
+        }
+        if (col >= (array_length columns)) {
+            return false
+        }
+        def column:DBColumn (itemAt columns col)
+        clear spec.sorts
+        spec.orderBy(column.name ascending)
+        windowStart = 0
+        return (this.loadInto(model))
+    }
+
+    fn filterByColumn:boolean (model:SpreadsheetModel col:int text:string) {
+        if (bound == false) {
+            return false
+        }
+        if (col < 0) {
+            return false
+        }
+        if (col >= (array_length columns)) {
+            return false
+        }
+        def column:DBColumn (itemAt columns col)
+        def rebuilt:DBFilter (new DBFilter)
+        spec.filter = rebuilt
+        if ((strlen (trim text)) > 0) {
+            spec.whereIs(column.name 6 (DBValue.fromString(text)))
+        }
+        windowStart = 0
+        return (this.loadInto(model))
+    }
+
+    fn clearQueryFilter:boolean (model:SpreadsheetModel) {
+        def rebuilt:DBFilter (new DBFilter)
+        spec.filter = rebuilt
+        windowStart = 0
+        return (this.loadInto(model))
+    }
+
+    fn refresh:boolean (model:SpreadsheetModel) {
+        return (this.loadInto(model))
+    }
+
+    ; Page through a result too big to hold: the sheet shows a window and the
+    ; query does the paging, which is the only version of this that works on a
+    ; table of ten million rows.
+    fn setWindow:void (start:int size:int) {
+        windowStart = start
+        windowSize = size
+        if (windowStart < 0) {
+            windowStart = 0
+        }
+    }
+
+    fn nextPage:boolean (model:SpreadsheetModel) {
+        if (windowSize <= 0) {
+            return false
+        }
+        def next:int (windowStart + windowSize)
+        if (next >= totalRows) {
+            status = "last page"
+            return false
+        }
+        windowStart = next
+        return (this.loadInto(model))
+    }
+
+    fn previousPage:boolean (model:SpreadsheetModel) {
+        if (windowSize <= 0) {
+            return false
+        }
+        if (windowStart == 0) {
+            status = "first page"
+            return false
+        }
+        windowStart = (windowStart - windowSize)
+        if (windowStart < 0) {
+            windowStart = 0
+        }
+        return (this.loadInto(model))
+    }
+}
