@@ -23,9 +23,23 @@
 ;   3. order within layers   barycentre sweeps, which is the crossing reduction
 ;   4. assign coordinates    pack each layer, centre it on its neighbours
 ;
-; No dummy-node chains for long edges yet, so an edge that spans four layers
-; runs straight rather than being routed around what is in the way. That is the
-; first thing to add here, and it is called out rather than hidden.
+; Long edges get the real treatment: an edge spanning more than one layer is
+; replaced, for the duration of the layout, by a chain of DUMMY vertices — one
+; in each layer it crosses. That is Sugiyama's trick and it buys two things at
+; once. The dummies take part in the crossing-reduction sweeps, so a long edge
+; is ordered against everything else instead of being ignored; and they occupy
+; room in their layer, so the real nodes move aside and leave the edge a lane
+; to travel down. Afterwards the chain is thrown away and its positions become
+; the edge's waypoints — the corners it is drawn through.
+;
+;   without dummies                 with dummies
+;   ┌───┐                           ┌───┐
+;   │ a ├──────┬────────┐           │ a ├───┐   ┌───┐
+;   └───┘   ┌──┴──┐     │           └───┘   └───┤ · │  ← a dummy holds the lane
+;           │  b  │     │                   ┌───┴───┘     open through b's layer
+;           └─────┘  ┌──┴──┐        ┌─────┐ │       ┌─────┐
+;            ↑ drawn │  c  │        │  b  │ └───────┤  c  │
+;              over  └─────┘        └─────┘         └─────┘
 ; ============================================================================
 
 Import "../core/GraphModel.rgr"
@@ -39,10 +53,45 @@ class LayeredLayout {
     def sweeps:int 6
     def originX:double 0.0
     def originY:double 0.0
+    ; The cross-axis room one routed edge takes in a layer it passes through.
+    ; Wide enough that the nodes move aside; narrow enough that a diagram with
+    ; many long edges does not become mostly whitespace.
+    def edgeGap:double 16.0
+    ; The corner radius the routed edges are drawn with.
+    def bendRadius:double 5.0
+    ; Off, this is a plain layered layout: long edges are neither ordered
+    ; against anything nor given room, and they are drawn straight through
+    ; whatever stands between their ends. It exists so the difference can be
+    ; measured rather than asserted — see `testLongEdgeRouting`.
+    def useDummies:boolean true
 
     ; per node
     def layerOf:[int]
     def orderOf:[int]
+
+    ; --- the vertex graph the ordering and placement actually run on ---------
+    ; Real nodes first, in graph order, then one dummy per layer per long edge.
+    ; `vNode` is the graph node a vertex stands for, or -1 when it stands for a
+    ; stretch of an edge; `vEdge` is that edge.
+    def vLayer:[int]
+    def vOrder:[int]
+    def vNode:[int]
+    def vEdge:[int]
+    def vExtent:[double]
+    def vCross:[double]
+    def vOutHead:[int]
+    def vOutNext:[int]
+    def vOutTo:[int]
+    def vInHead:[int]
+    def vInNext:[int]
+    def vInFrom:[int]
+    ; per original edge: the first dummy of its chain (in layer order), and
+    ; whether the layering had to reverse it to break a cycle
+    def chainHead:[int]
+    def edgeReversed:[boolean]
+    ; where each layer sits and how deep it is, along the main axis
+    def layerMain:[double]
+    def layerDepth:[double]
     ; adjacency, after cycle breaking
     def outHead:[int]
     def outNext:[int]
@@ -64,7 +113,8 @@ class LayeredLayout {
         graph.reindex()
         this.buildAdjacency()
         this.assignLayers()
-        this.orderLayers()
+        this.buildVertices()
+        this.orderVertices()
         this.assignCoordinates()
     }
 
@@ -85,7 +135,13 @@ class LayeredLayout {
             push inHead -1
             i = (i + 1)
         }
+        clear edgeReversed
         def reversed:[boolean] (this.findBackEdges())
+        def rr:int 0
+        while (rr < (array_length reversed)) {
+            push edgeReversed (itemAt reversed rr)
+            rr = (rr + 1)
+        }
         def k:int 0
         while (k < (graph.edgeCount())) {
             def e:FlowEdge (graph.edgeAt(k))
@@ -211,24 +267,129 @@ class LayeredLayout {
         return (m + 1)
     }
 
-    ; Barycentre ordering: sort each layer by the mean position of the nodes it
-    ; is joined to in the layer before (then after, alternating). It is the
-    ; cheapest crossing reduction that actually works, and it is what dagre and
-    ; Graphviz both start from.
-    fn orderLayers:void () {
-        clear orderOf
+    ; ------------------------------------------------------- the vertices --
+    ; Real nodes, then a dummy for every layer a long edge crosses. The chain
+    ; replaces the edge for the rest of the layout: the ordering sweeps see it,
+    ; and the packing gives it room.
+    fn buildVertices:void () {
+        clear vLayer
+        clear vOrder
+        clear vNode
+        clear vEdge
+        clear vExtent
+        clear vCross
+        clear vOutHead
+        clear vOutNext
+        clear vOutTo
+        clear vInHead
+        clear vInNext
+        clear vInFrom
+        clear chainHead
         def n:int (graph.nodeCount())
-        def counters:[int]
+        def i:int 0
+        while (i < n) {
+            def nd:FlowNode (graph.nodeAt(i))
+            def cross:double nd.height
+            if (direction == "TB") {
+                cross = nd.width
+            }
+            this.pushVertex((itemAt layerOf i) i -1 cross)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            push chainHead -1
+            k = (k + 1)
+        }
+        def e:int 0
+        while (e < (graph.edgeCount())) {
+            def ed:FlowEdge (graph.edgeAt(e))
+            def ok:boolean true
+            if (ed.sourceIndex < 0) { ok = false }
+            if (ed.targetIndex < 0) { ok = false }
+            if ok {
+                def from:int ed.sourceIndex
+                def to:int ed.targetIndex
+                if (itemAt edgeReversed e) {
+                    from = ed.targetIndex
+                    to = ed.sourceIndex
+                }
+                if (from != to) {
+                    def lf:int (itemAt layerOf from)
+                    def lt:int (itemAt layerOf to)
+                    def span:int (lt - lf)
+                    if (useDummies == false) {
+                        span = 1
+                    }
+                    if (span <= 1) {
+                        this.linkVertices(from to)
+                    } {
+                        ; one dummy per layer strictly between the two ends
+                        def prev:int from
+                        def first:int -1
+                        def l:int (lf + 1)
+                        while (l < lt) {
+                            def dv:int (this.pushVertex(l -1 e edgeGap))
+                            if (first < 0) {
+                                first = dv
+                            }
+                            this.linkVertices(prev dv)
+                            prev = dv
+                            l = (l + 1)
+                        }
+                        this.linkVertices(prev to)
+                        set_at chainHead e first
+                    }
+                }
+            }
+            e = (e + 1)
+        }
+    }
+
+    fn pushVertex:int (layer:int nodeIdx:int edgeIdx:int extent:double) {
+        push vLayer layer
+        push vOrder 0
+        push vNode nodeIdx
+        push vEdge edgeIdx
+        push vExtent extent
+        push vCross 0.0
+        push vOutHead -1
+        push vInHead -1
+        return ((array_length vLayer) - 1)
+    }
+
+    fn linkVertices:void (from:int to:int) {
+        push vOutTo to
+        push vOutNext (itemAt vOutHead from)
+        set_at vOutHead from ((array_length vOutTo) - 1)
+        push vInFrom from
+        push vInNext (itemAt vInHead to)
+        set_at vInHead to ((array_length vInFrom) - 1)
+    }
+
+    fn vertexCount:int () {
+        return (array_length vLayer)
+    }
+
+    ; Barycentre ordering, now over the vertices rather than the nodes: sort
+    ; each layer by the mean position of what it is joined to in the layer
+    ; before (then after, alternating). It is the cheapest crossing reduction
+    ; that actually works, and it is what dagre and Graphviz both start from.
+    ; Running it over the dummies too is the whole point of having them — a
+    ; long edge is now something the sweep can move out of the way.
+    fn orderVertices:void () {
+        def total:int (this.vertexCount())
         def lc:int (this.layerCount())
+        def counters:[int]
         def i:int 0
         while (i < lc) {
             push counters 0
             i = (i + 1)
         }
         def v:int 0
-        while (v < n) {
-            def l:int (itemAt layerOf v)
-            push orderOf (itemAt counters l)
+        while (v < total) {
+            def l:int (itemAt vLayer v)
+            set_at vOrder v (itemAt counters l)
             set_at counters l ((itemAt counters l) + 1)
             v = (v + 1)
         }
@@ -245,24 +406,49 @@ class LayeredLayout {
             }
             sweep = (sweep + 1)
         }
+        ; The node-level order is what the tests and any caller read, so it is
+        ; derived back out once the vertices have settled.
+        clear orderOf
+        def n:int (graph.nodeCount())
+        def z:int 0
+        while (z < n) {
+            push orderOf 0
+            z = (z + 1)
+        }
+        def seen:[int]
+        def c:int 0
+        while (c < lc) {
+            push seen 0
+            c = (c + 1)
+        }
+        def ranked:[int] (this.vertexRanking())
+        def r:int 0
+        while (r < (array_length ranked)) {
+            def vi:int (itemAt ranked r)
+            def ni:int (itemAt vNode vi)
+            if (ni >= 0) {
+                def li:int (itemAt vLayer vi)
+                set_at orderOf ni (itemAt seen li)
+                set_at seen li ((itemAt seen li) + 1)
+            }
+            r = (r + 1)
+        }
     }
 
     fn sortLayer:void (layer:int useIncoming:boolean) {
         def members:[int]
         def keys:[double]
         def v:int 0
-        while (v < (graph.nodeCount())) {
-            if ((itemAt layerOf v) == layer) {
+        while (v < (this.vertexCount())) {
+            if ((itemAt vLayer v) == layer) {
                 push members v
                 push keys (this.barycentre(v useIncoming))
-                v = (v + 1)
-                continue
             }
             v = (v + 1)
         }
         def n:int (array_length members)
-        ; Insertion sort: a layer is small, and a stable sort keeps nodes with
-        ; no neighbours where the previous sweep left them.
+        ; Insertion sort: a layer is small, and a stable sort keeps vertices
+        ; with no neighbours where the previous sweep left them.
         def i:int 1
         while (i < n) {
             def kv:double (itemAt keys i)
@@ -279,9 +465,9 @@ class LayeredLayout {
                     } {
                         ; The insertion point, NOT a signal to keep looping:
                         ; setting `j = -1` here to break lost it, every element
-                        ; was inserted at 0, and two nodes in one layer came out
-                        ; with the same order — so one of them was never placed
-                        ; and drew on top of another table.
+                        ; was inserted at 0, and two vertices in one layer came
+                        ; out with the same order — so one of them was never
+                        ; placed and drew on top of another.
                         at = (j + 1)
                         settled = true
                         j = -1
@@ -297,7 +483,7 @@ class LayeredLayout {
         }
         def k:int 0
         while (k < n) {
-            set_at orderOf (itemAt members k) k
+            set_at vOrder (itemAt members k) k
             k = (k + 1)
         }
     }
@@ -307,55 +493,57 @@ class LayeredLayout {
         def count:int 0
         def at:int -1
         if useIncoming {
-            at = (itemAt inHead v)
+            at = (itemAt vInHead v)
         } {
-            at = (itemAt outHead v)
+            at = (itemAt vOutHead v)
         }
         while (at >= 0) {
             def other:int 0
             if useIncoming {
-                other = (itemAt inFrom at)
-                at = (itemAt inNext at)
+                other = (itemAt vInFrom at)
+                at = (itemAt vInNext at)
             } {
-                other = (itemAt outTo at)
-                at = (itemAt outNext at)
+                other = (itemAt vOutTo at)
+                at = (itemAt vOutNext at)
             }
-            total = (total + (to_double (itemAt orderOf other)))
+            total = (total + (to_double (itemAt vOrder other)))
             count = (count + 1)
         }
         if (count == 0) {
-            return (to_double (itemAt orderOf v))
+            return (to_double (itemAt vOrder v))
         }
         return (total / (to_double count))
     }
 
     ; Pack each layer along the cross axis, then centre the layers on each
-    ; other so the widest one does not push everything to one side.
+    ; other so the widest one does not push everything to one side. Dummies are
+    ; packed with the real nodes, which is what makes the nodes move aside and
+    ; leave a long edge somewhere to go.
     fn assignCoordinates:void () {
         def lc:int (this.layerCount())
-        def n:int (graph.nodeCount())
+        def total:int (this.vertexCount())
+        clear layerMain
+        clear layerDepth
         def layerExtent:[double]
         def i:int 0
         while (i < lc) {
             push layerExtent 0.0
+            push layerDepth 0.0
+            push layerMain 0.0
             i = (i + 1)
         }
-        ; how deep each layer is on the main axis, and how long on the cross one
-        def layerDepth:[double]
-        def d:int 0
-        while (d < lc) {
-            push layerDepth 0.0
-            d = (d + 1)
-        }
         def v:int 0
-        while (v < n) {
-            def nd:FlowNode (graph.nodeAt(v))
-            def l:int (itemAt layerOf v)
-            def cross:double nd.height
-            def main:double nd.width
-            if (direction == "TB") {
-                cross = nd.width
-                main = nd.height
+        while (v < total) {
+            def l:int (itemAt vLayer v)
+            def cross:double (itemAt vExtent v)
+            def main:double 0.0
+            def ni:int (itemAt vNode v)
+            if (ni >= 0) {
+                def nd:FlowNode (graph.nodeAt(ni))
+                main = nd.width
+                if (direction == "TB") {
+                    main = nd.height
+                }
             }
             def sofar:double (itemAt layerExtent l)
             if (sofar > 0.0) {
@@ -376,7 +564,6 @@ class LayeredLayout {
             }
             w = (w + 1)
         }
-        ; running offset per layer, filled in order
         def cursor:[double]
         def c:int 0
         while (c < lc) {
@@ -384,42 +571,41 @@ class LayeredLayout {
             push cursor ((widest - ex2) * 0.5)
             c = (c + 1)
         }
-        def mainOffset:[double]
         def acc:double 0.0
         def m:int 0
         while (m < lc) {
-            push mainOffset acc
+            set_at layerMain m acc
             acc = ((acc + (itemAt layerDepth m)) + layerGap)
             m = (m + 1)
         }
         ; Place in (layer, order) sequence so the packing follows the ordering.
-        ; Bucketed by layer rather than "search every node for the one whose
-        ; rank is `slot`": that was three nested loops over the node list, and
-        ; a 500-table schema spent more time deciding the order to place in
-        ; than it did on the whole force simulation.
-        def sequence:[int] (this.placementOrder(lc))
+        def sequence:[int] (this.vertexRanking())
         def slot:int 0
-        while (slot < n) {
+        while (slot < (array_length sequence)) {
             def target:int (itemAt sequence slot)
             if (target >= 0) {
-                def nd2:FlowNode (graph.nodeAt(target))
-                def l2:int (itemAt layerOf target)
-                def cross2:double nd2.height
-                if (direction == "TB") {
-                    cross2 = nd2.width
-                }
+                def l2:int (itemAt vLayer target)
+                def cross2:double (itemAt vExtent target)
                 def at:double (itemAt cursor l2)
                 set_at cursor l2 ((at + cross2) + nodeGap)
-                def mainAt:double (itemAt mainOffset l2)
-                if (direction == "TB") {
-                    nd2.x = (originX + at)
-                    nd2.y = (originY + mainAt)
-                } {
-                    nd2.x = (originX + mainAt)
-                    nd2.y = (originY + at)
+                ; A vertex's cross position is the CENTRE of the room it took,
+                ; which is what a dummy needs — an edge passes through the
+                ; middle of its lane, not along the top of it.
+                set_at vCross target (at + (cross2 * 0.5))
+                def ni2:int (itemAt vNode target)
+                if (ni2 >= 0) {
+                    def nd2:FlowNode (graph.nodeAt(ni2))
+                    def mainAt:double (itemAt layerMain l2)
+                    if (direction == "TB") {
+                        nd2.x = (originX + at)
+                        nd2.y = (originY + mainAt)
+                    } {
+                        nd2.x = (originX + mainAt)
+                        nd2.y = (originY + at)
+                    }
+                    nd2.syncFromModel()
+                    nd2.placed = true
                 }
-                nd2.syncFromModel()
-                nd2.placed = true
             }
             slot = (slot + 1)
         }
@@ -428,8 +614,9 @@ class LayeredLayout {
 
     ; A stable global sequence: layer first, order within the layer second.
     ; One counting pass and one placement pass, both linear.
-    fn placementOrder:[int] (lc:int) {
-        def n:int (graph.nodeCount())
+    fn vertexRanking:[int] () {
+        def lc:int (this.layerCount())
+        def n:int (this.vertexCount())
         def counts:[int]
         def i:int 0
         while (i < lc) {
@@ -438,7 +625,7 @@ class LayeredLayout {
         }
         def v:int 0
         while (v < n) {
-            def l:int (itemAt layerOf v)
+            def l:int (itemAt vLayer v)
             set_at counts l ((itemAt counts l) + 1)
             v = (v + 1)
         }
@@ -458,14 +645,14 @@ class LayeredLayout {
         }
         def u:int 0
         while (u < n) {
-            def lu:int (itemAt layerOf u)
-            def slot:int ((itemAt base lu) + (itemAt orderOf u))
+            def lu:int (itemAt vLayer u)
+            def slot:int ((itemAt base lu) + (itemAt vOrder u))
             if (slot < 0) {
                 slot = 0
             }
-            ; A duplicate order would silently drop a node from the layout, and
-            ; a table that is never placed is a table drawn on top of another
-            ; one. Take the next free slot instead of losing it.
+            ; A duplicate order would silently drop a vertex from the layout,
+            ; and a vertex that is never placed is a node drawn on top of
+            ; another one. Take the next free slot instead of losing it.
             while (slot < n) {
                 if ((itemAt out slot) < 0) {
                     break
@@ -476,6 +663,267 @@ class LayeredLayout {
                 set_at out slot u
             }
             u = (u + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------ routing --
+    ; The chains, cashed in. Each dummy contributed a position in the layer it
+    ; stood in; those become the corners the edge is drawn through, so it goes
+    ; AROUND what the ordering moved aside rather than over it.
+    ;
+    ; Call this after the handles have been settled — `SchemaToGraph.faceEdges`
+    ; and friends decide which side of a table an edge leaves from, and the
+    ; corners have to start where the edge actually starts.
+    fn routeLongEdges:int () {
+        def routed:int 0
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            clear e.waypoints
+            def head:int -1
+            if (k < (array_length chainHead)) {
+                head = (itemAt chainHead k)
+            }
+            if (head >= 0) {
+                if (this.emitRoute(k e)) {
+                    routed = (routed + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return routed
+    }
+
+    fn emitRoute:boolean (edgeIdx:int e:FlowEdge) {
+        ; The chain was built in layer order; the edge is drawn in the author's
+        ; order. When the layering reversed it to break a cycle those are
+        ; opposite, and the corners have to come out the way round the arrow
+        ; goes or the marker lands at the wrong end.
+        def chain:[int] (this.chainOf(edgeIdx))
+        def count:int (array_length chain)
+        if (count == 0) {
+            return false
+        }
+        def flip:boolean (itemAt edgeReversed edgeIdx)
+        ; Which side to leave from, before asking where the endpoints are.
+        ; `faceNeighbours` points every source the way the layout runs, which
+        ; is right for an edge going forwards and wrong for one going back: a
+        ; back edge left the node's right-hand side and immediately doubled
+        ; across itself to reach a corridor on its left. A port, where there is
+        ; one, still wins — the domain knows better than the layout which side
+        ; of a table a foreign key belongs on.
+        this.faceAlongRoute(e (itemAt chain 0) (itemAt chain ((array_length chain) - 1)) flip)
+        def x1:double (graph.endpointX(e true))
+        def y1:double (graph.endpointY(e true))
+        def x2:double (graph.endpointX(e false))
+        def y2:double (graph.endpointY(e false))
+        def horizontal:boolean true
+        if (direction == "TB") {
+            horizontal = false
+        }
+        ; the corridor before each dummy's layer, and the one after the last
+        def pts:[double]
+        push pts x1
+        push pts y1
+        def i:int 0
+        while (i < count) {
+            def idx:int i
+            if flip {
+                idx = ((count - 1) - i)
+            }
+            def dv:int (itemAt chain idx)
+            def lane:double (itemAt vCross dv)
+            ; Enter the layer on the side the edge is coming from and leave on
+            ; the other. Pushing them in layer order regardless meant a back
+            ; edge crossed each layer the wrong way round: the corner list
+            ; zig-zagged and its first point sat to the left of the node it was
+            ; supposed to start at, so the route began in mid-air.
+            def enter:double (this.corridorBefore((itemAt vLayer dv)))
+            def leave:double (this.corridorAfter((itemAt vLayer dv)))
+            if flip {
+                enter = (this.corridorAfter((itemAt vLayer dv)))
+                leave = (this.corridorBefore((itemAt vLayer dv)))
+            }
+            if horizontal {
+                push pts enter
+                push pts lane
+                push pts leave
+                push pts lane
+            } {
+                push pts lane
+                push pts enter
+                push pts lane
+                push pts leave
+            }
+            i = (i + 1)
+        }
+        push pts x2
+        push pts y2
+        def corners:[double] (LayeredLayout.orthogonalise(pts horizontal))
+        def n:int (idiv (array_length corners) 2)
+        if (n < 3) {
+            return false
+        }
+        def w:int 0
+        while (w < (array_length corners)) {
+            push e.waypoints (itemAt corners w)
+            w = (w + 1)
+        }
+        ; Lanes and waypoints are two answers to the same question, and the
+        ; waypoints are the better-informed one.
+        e.hasLaneX = false
+        e.hasLaneY = false
+        return true
+    }
+
+    ; Point each end at the corridor it actually meets.
+    fn faceAlongRoute:void (e:FlowEdge firstDummy:int lastDummy:int flip:boolean) {
+        def entry:int firstDummy
+        def exit:int lastDummy
+        if flip {
+            entry = lastDummy
+            exit = firstDummy
+        }
+        def toSource:double (this.corridorBefore((itemAt vLayer entry)))
+        def fromTarget:double (this.corridorAfter((itemAt vLayer exit)))
+        if flip {
+            toSource = (this.corridorAfter((itemAt vLayer entry)))
+            fromTarget = (this.corridorBefore((itemAt vLayer exit)))
+        }
+        def s:FlowNode (graph.nodeById(e.source))
+        def t:FlowNode (graph.nodeById(e.target))
+        if (direction == "TB") {
+            e.sourceHandle = (LayeredLayout.faceTo((s.centerY()) toSource 0 2))
+            e.targetHandle = (LayeredLayout.faceTo((t.centerY()) fromTarget 0 2))
+            return
+        }
+        e.sourceHandle = (LayeredLayout.faceTo((s.centerX()) toSource 3 1))
+        e.targetHandle = (LayeredLayout.faceTo((t.centerX()) fromTarget 3 1))
+    }
+
+    sfn faceTo:int (centre:double toward:double lowSide:int highSide:int) {
+        if (toward < centre) {
+            return lowSide
+        }
+        return highSide
+    }
+
+    fn chainOf:[int] (edgeIdx:int) {
+        def out:[int]
+        def v:int 0
+        while (v < (this.vertexCount())) {
+            if ((itemAt vNode v) < 0) {
+                if ((itemAt vEdge v) == edgeIdx) {
+                    push out v
+                }
+            }
+            v = (v + 1)
+        }
+        ; built in ascending layer order already, because the chain was pushed
+        ; that way and vertices keep their creation order
+        return out
+    }
+
+    ; Arithmetic on a call result needs the call bound first, so `base` is not
+    ; a stylistic choice.
+    fn corridorBefore:double (layer:int) {
+        def base:double (this.originOf())
+        if (layer <= 0) {
+            def firstAt:double (itemAt layerMain 0)
+            return (base + firstAt)
+        }
+        def prevEnd:double ((itemAt layerMain (layer - 1)) + (itemAt layerDepth (layer - 1)))
+        def here:double (itemAt layerMain layer)
+        def mid:double ((prevEnd + here) * 0.5)
+        return (base + mid)
+    }
+
+    fn corridorAfter:double (layer:int) {
+        def base:double (this.originOf())
+        def lc:int (this.layerCount())
+        if (layer >= (lc - 1)) {
+            def end:double ((itemAt layerMain layer) + (itemAt layerDepth layer))
+            return (base + end)
+        }
+        def hereEnd:double ((itemAt layerMain layer) + (itemAt layerDepth layer))
+        def next:double (itemAt layerMain (layer + 1))
+        def mid2:double ((hereEnd + next) * 0.5)
+        return (base + mid2)
+    }
+
+    fn originOf:double () {
+        if (direction == "TB") {
+            return originY
+        }
+        return originX
+    }
+
+    ; The points above are a mix of real endpoints and lane crossings; this
+    ; turns them into a strictly orthogonal corner list by inserting the corner
+    ; each diagonal implies, and drops the ones that do not turn.
+    sfn orthogonalise:[double] (pts:[double] horizontal:boolean) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        if (n == 0) {
+            return out
+        }
+        def cx:double (itemAt pts 0)
+        def cy:double (itemAt pts 1)
+        push out cx
+        push out cy
+        def i:int 1
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt pts yat)
+            def dx:double (fabs (x - cx))
+            def dy:double (fabs (y - cy))
+            if (dx > 0.01) {
+                if (dy > 0.01) {
+                    ; a diagonal: go along the main axis first, which is the
+                    ; direction the layout runs in
+                    if horizontal {
+                        push out x
+                        push out cy
+                    } {
+                        push out cx
+                        push out y
+                    }
+                }
+            }
+            push out x
+            push out y
+            cx = x
+            cy = y
+            i = (i + 1)
+        }
+        return (LayeredLayout.dropCollinear(out))
+    }
+
+    sfn dropCollinear:[double] (pts:[double]) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt pts yat)
+            def keep:boolean true
+            if ((array_length out) >= 2) {
+                def lx:double (itemAt out ((array_length out) - 2))
+                def ly:double (itemAt out ((array_length out) - 1))
+                if ((fabs (x - lx)) < 0.01) {
+                    if ((fabs (y - ly)) < 0.01) {
+                        keep = false
+                    }
+                }
+            }
+            if keep {
+                push out x
+                push out y
+            }
+            i = (i + 1)
         }
         return out
     }

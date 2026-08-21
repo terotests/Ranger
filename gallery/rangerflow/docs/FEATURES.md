@@ -86,6 +86,8 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Chen notation | · | |
 | Cardinality inference | ✓ | many-to-one unless the FK columns are unique; optional when nullable |
 | Auto layout | ✓ | layered (Sugiyama) and force (d3) |
+| Edge routing / lane separation | ✓ | channel routing plus a port fan; overlapping segment pairs 16 → 0 on the fixture |
+| Edge routing around obstacles | ~ | dummy-vertex chains in the layered layout; nodes moved by hand are not avoided |
 | MiniMap / zoom / pan | ✓ | from the core |
 | Keys-only view for big schemas | ✓ | `SchemaToGraph.keysOnly` |
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
