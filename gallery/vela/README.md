@@ -75,6 +75,50 @@ that was not a square as a circle and every curve as straight segments. Nothing
 could tell, because the scene said `shape: "diamond"` and the scene was what was
 being compared.
 
+## Two ways in: a specification, or a call
+
+A program that wants a chart used to have to write one out. `src/VlChart.rgr`
+is the other front door — the same grammar, called:
+
+```ranger
+def data (VlDataset.create())
+data.row().str("region" "North").str("quarter" "2016-01-01").num("sales" 120.0)
+data.row().str("region" "South").str("quarter" "2016-01-01").num("sales"  93.0)
+
+def chart (VlChart.create(data))
+chart.size(320 180)
+chart.x("quarter").y("sales").color("region")   ; said once, for the view
+
+chart.area().markOpacity(0.35)                  ; …and inherited by both marks
+chart.line()
+```
+
+Nothing underneath changes: `chart.toSpec()` answers the Vega-Lite value the
+parser would have produced, and it goes through `VlCompile`, `VlRuntime` and out
+to every backend exactly as pasted text does. The fluent surface is a writer of
+specifications and not a second implementation of anything — which is why the
+type of a channel can be left unsaid (`quarter` holds ISO dates, so it is
+temporal), why a column the data does not have is an error rather than an empty
+axis, and why what the API does not cover can be written out by hand into the
+same specification.
+
+The six charts in `tools/vela_chart.rgr` are built this way, with no
+specification text in that file, and
+[`tools/reference/chart_api.mjs`](tools/reference/chart_api.mjs) gives what they
+built to the **official** Vega-Lite and Vega and compares the ink: 6 of 6 draw
+what the reference draws. Building it found three defects in the engine — a
+quarter label that read `2016 Qq`, a grouped bar chart that drew twenty-pixel
+bars in a plot of stated width, and the key to a see-through area drawn solid.
+
+It has a page of its own on the [EVG showcase](https://terotests.github.io/Ranger/evg/)
+— *Charts, called* — where each chart is printed together with the calls that
+built it, read out of the generating tool's own source so the two cannot drift
+apart. It is the only page there that no specification was written for.
+
+[**CHART_API.md**](CHART_API.md) is the design: what was taken from AntV G2,
+Observable Plot, Vega-Lite and ECharts, the whole surface, how it is checked,
+and what is not there yet.
+
 ## Paste a specification and watch it draw
 
 ```bash
@@ -149,6 +193,8 @@ bash gallery/vela/tests/run_cpp.sh      # the same goldens, from a C++ binary
 node gallery/vela/tools/reference/render.mjs  # the DRAWING, against Vega's renderer
 node gallery/vela/tools/reference/zones.mjs   # a time axis, in eight zones
 npm run vela:compiler                  # Vega-Lite, compiled in Ranger
+npm run vela:chart                     # charts built by CALLING the API
+npm run vela:chart:check               # …held to the official implementations
 ```
 
 ```bash
@@ -1027,13 +1073,16 @@ gallery/vela/
 │   ├── VlViewBox.rgr     how big the picture is, from the bounds of the ink
 │   ├── VlSvg.rgr         the SVG backend — the one that is compared
 │   ├── VlCompile.rgr     Vega-Lite → Vega
-│   └── VlRuntime.rgr     spec → scene
+│   ├── VlRuntime.rgr     spec → scene
+│   └── VlChart.rgr       the chart API: marks and channels, called
 ├── tools/
 │   ├── vela_scene.rgr    CLI: spec → scene JSON
 │   ├── vela_commands.rgr CLI: spec → draw commands
 │   ├── vela_svg.rgr      CLI: spec → SVG
 │   ├── vela_compile.rgr  CLI: a Vega-Lite spec → a Vega one
 │   ├── vela_evg.rgr      CLI: specs → an EVG showcase page
+│   ├── vela_chart.rgr    charts built by CALLING the API, drawn to SVG
+│   ├── vela_chart_page.rgr  the same, as a showcase page that prints the calls
 │   ├── vela_web.rgr      the same, with no file system: for the browser
 │   └── reference/        the harness that compares against official Vega
 ├── web/                  paste a specification, see what it draws
@@ -1044,7 +1093,7 @@ gallery/vela/
 │   └── smoke.mjs         open it in a browser and check it drew
 ├── tests/
 │   ├── *_test.rgr        unit tests (JSON, expressions, scales, dataflow,
-│   │                     regular expressions)
+│   │                     regular expressions, the chart API)
 │   ├── specs/            generated Vega-Lite sources and compiled Vega specs
 │   ├── golden/           committed scene and command output
 │   ├── run.sh            build + test everything

@@ -7658,6 +7658,28 @@ class VlCompile {
         sc.setMember("domain" (this.domainFor(ch)))
         if (ch.isDiscrete()) {
             sc.setMember("type" (VlJson.stringValue("band")))
+            ; Which way round the two bands are sized depends on who decided
+            ; the plot's size. Nobody having said, the sub-band is twenty
+            ; pixels and the band above it is as wide as its sub-bands need —
+            ; the step signal is computed from this scale, which is why the
+            ; twenty is per BAR. But a stated `width` is not a suggestion: the
+            ; band then spans the plot and the sub-scale spans the band, and a
+            ; grouped bar chart 320 pixels wide came out with twenty-pixel
+            ; bars and a third of every group empty.
+            def dimension:string "height"
+            if (axis == "x") {
+                dimension = "width"
+            }
+            if (this.sizeGiven(dimension)) {
+                def span (VlJson.arrayValue())
+                push span.arr (VlJson.numberValue(0.0))
+                def edge (VlJson.objectValue())
+                edge.setMember("signal" (VlJson.stringValue((("bandwidth('" + (this.sname(axis))) + "')"))))
+                push span.arr edge
+                sc.setMember("range" span)
+                push out.arr sc
+                return
+            }
             def range (VlJson.objectValue())
             range.setMember("step" (VlJson.numberValue(20.0)))
             sc.setMember("range" range)
@@ -9683,11 +9705,24 @@ class VlCompile {
                     ; mark is: two half-visible bars are named by two
                     ; half-visible squares.
                     def markOpacity:VlChannel (this.channel("opacity"))
+                    def statedOnChannel:boolean false
                     if markOpacity.defined {
                         if markOpacity.hasValue {
-                            l.setMember("encode" (VlCompile.symbolOpacityEncode((this.resolvedConstant(markOpacity)))))
+                            statedOnChannel = true
                         }
+                    }
+                    if statedOnChannel {
+                        l.setMember("encode" (VlCompile.symbolOpacityEncode((this.resolvedConstant(markOpacity)))))
                     } {
+                      ; …and an opacity may be stated on the MARK rather than
+                      ; as a channel — `{"type": "area", "opacity": 0.35}` is
+                      ; how every layered chart shades the filled half of
+                      ; itself. Read only off the channel, the key to a
+                      ; see-through area was drawn solid.
+                      if (markDef.has("opacity")) {
+                        def shade:double (this.markOpacity(1.0))
+                        l.setMember("encode" (VlCompile.symbolOpacityEncode((VlJson.numberValue(shade)))))
+                      } {
                         ; A dot that nothing said an opacity for is still drawn
                         ; slightly transparent, and its key is drawn the same
                         ; way. Left solid, the key to a scatter plot was a
@@ -9695,6 +9730,7 @@ class VlCompile {
                         if (((markName == "circle") || (markName == "square")) || (markName == "tick")) {
                             l.setMember("encode" (VlCompile.symbolOpacityEncode((VlJson.numberValue((this.dotOpacity()))))))
                         }
+                      }
                     }
                 }
                 VlCompile.applyStatedLegend(l colour)

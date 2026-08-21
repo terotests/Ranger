@@ -133,6 +133,15 @@
 .chartRow  { align-items: flex-start; }
 .chartCell { flex: 1; }
 
+/* ---- the chart api page: the calls, beside the chart they built -------- */
+/* The one page in this gallery whose charts came from a program rather than
+   from a specification, so it prints the program. The lines are read out of
+   the generating tool's own source, which is why they are a stack of Labels
+   rather than one block of text: EVG lays out a paragraph, and a line of code
+   that wrapped would be a line of code that lied. */
+.codeBlock { width: 100%; }
+.codeLine  { }
+
 /* A stroked path must say so, or the outline is filled in as a shape. */
 .chartGrid, .chartTick, .chartDomain, .chartFrame,
 .chartStroke0, .chartStroke1, .chartStroke2, .chartStroke3, .chartStroke4,
@@ -191,6 +200,9 @@
 .theme-editorial .emblemSm { width: 54px;  height: 65px; }
 .theme-editorial .emblemLg { width: 100px; height: 120px; }
 /* charts */
+/* the calls that built the chart */
+.theme-editorial .codeBlock { margin-top: 2px; margin-bottom: 2px; }
+.theme-editorial .codeLine  { font-size: 8px; font-family: Noto Sans; color: #97785a; line-height: 1.5; }
 .theme-editorial .chart      { margin-top: 8px; margin-bottom: 4px; }
 .theme-editorial .chartGrid  { stroke: #d8cfbd; }
 .theme-editorial .chartTick,
@@ -317,6 +329,9 @@
 .theme-studio .emblemSm { width: 56px;  height: 67px; }
 .theme-studio .emblemLg { width: 104px; height: 125px; }
 /* charts */
+/* the calls that built the chart */
+.theme-studio .codeBlock { margin-top: 2px; margin-bottom: 2px; }
+.theme-studio .codeLine  { font-size: 8px; font-family: Noto Sans; color: #7f8fa3; line-height: 1.5; }
 .theme-studio .chart      { margin-top: 8px; margin-bottom: 4px; }
 .theme-studio .chartGrid  { stroke: #3a4048; }
 .theme-studio .chartTick,
@@ -455,6 +470,9 @@
 .theme-autumn .emblemSm { width: 54px;  height: 65px; }
 .theme-autumn .emblemLg { width: 100px; height: 120px; }
 /* charts */
+/* the calls that built the chart */
+.theme-autumn .codeBlock { margin-top: 2px; margin-bottom: 2px; }
+.theme-autumn .codeLine  { font-size: 8px; font-family: Noto Sans; color: #8a7660; line-height: 1.5; }
 .theme-autumn .chart      { margin-top: 8px; margin-bottom: 4px; }
 .theme-autumn .chartGrid  { stroke: #cbbca7; }
 .theme-autumn .chartTick,
