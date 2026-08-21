@@ -502,6 +502,22 @@ function runSelftest() {
   } catch (err) {
     statusEl.textContent = "font load failed: " + err.message;
   }
+  // `?file=` names something for the page to open — serve.mjs points it at
+  // one local file. A failure here leaves the sample document in place and
+  // says so, rather than opening an empty editor.
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get("file");
+  if (wanted) {
+    try {
+      const res = await fetch(wanted);
+      if (!res.ok) throw new Error(res.status + " " + res.statusText);
+      const text = await res.text();
+      web.setDocumentNamed(params.get("name") || wanted, text);
+      statusEl.textContent = "opened " + (params.get("name") || wanted);
+    } catch (err) {
+      statusEl.textContent = "could not open " + wanted + ": " + err.message;
+    }
+  }
   ta?.focus({ preventScroll: true });
   draw();
   mirrorLine();

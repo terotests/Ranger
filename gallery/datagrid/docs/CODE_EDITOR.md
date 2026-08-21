@@ -15,8 +15,10 @@ and on the CPU with no window at all.
 ```
 
 ```bash
-npm run datagrid:editor:web        # build the static page
-npm run datagrid:editor:web:serve  # …and serve it on :8001
+npm run datagrid:editor:open       # build, serve on :8001, open your browser
+npm run datagrid:editor:open -- --file path/to/thing.tsx    # …with that file in it
+npm run datagrid:editor:web        # just build the static page
+npm run datagrid:editor:web:serve  # …and serve it without opening a browser
 npm run datagrid:editor:web:test   # open it in headless Chrome and type into it
 npm run datagrid:editor:sdl        # Ranger → C++ → SDL2 + OpenGL binary
 npm run datagrid:editor:sdl:smoke  # 20 frames through OpenGL, headless
@@ -57,6 +59,25 @@ that keeps its indent.
 | Ctrl+S | (SDL host) write the buffer back to the file it was opened from |
 
 The SDL binary takes a path: `code_editor_sdl gallery/datagrid/src/script/JsTokens.rgr`.
+
+## Opening a file
+
+```bash
+npm run datagrid:editor:open -- --file gallery/pdf_writer/examples/product_catalog.tsx
+```
+
+![A file from disk, in the browser editor](../artifacts/code_editor_file.png)
+
+The page is static — `build.sh` writes a directory any file server can serve.
+`serve.mjs` adds the two things a file server cannot: it opens a browser, and
+it hands **one** local file to the page over `/__file`, read on each request,
+so editing that file on disk and reloading the tab shows the change. `--port`,
+`--no-open` and `--no-build` are there; `--file` is resolved against the
+directory you ran the command from.
+
+The browser editor does not write back — it is a viewer you can type in. The
+**SDL binary is the one with Ctrl+S**, because a native window has a file
+system and a tab does not.
 
 ## Tested with a real keyboard, against a real reference
 

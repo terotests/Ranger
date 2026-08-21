@@ -116,6 +116,15 @@ class CodeEditorWeb {
         page.setText(src)
     }
 
+    ; A file the host fetched: the text, and what to call it in the header.
+    fn setDocumentNamed:void (name:string src:string) {
+        page.setText(src)
+        if ((strlen name) > 0) {
+            page.docName = name
+        }
+        page.status = ("opened " + name)
+    }
+
     fn nextSample:void () {
         page.nextSample()
     }

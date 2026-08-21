@@ -102,8 +102,37 @@ class ScriptEditor {
     Constructor () {
     }
 
+    ; A file from disk may have CRLF endings, and a stray \r is a character
+    ; the buffer would carry to the end of every line: an extra column the
+    ; caret can sit in and a glyph the atlas has no picture for.
+    sfn withoutCarriageReturns:string (src:string) {
+        def n:int (strlen src)
+        def hasCr:boolean false
+        def i:int 0
+        while (i < n) {
+            if ((charAt src i) == 13) {
+                hasCr = true
+                break
+            }
+            i = (i + 1)
+        }
+        if (hasCr == false) {
+            return src
+        }
+        def out:string ""
+        def j:int 0
+        while (j < n) {
+            def ch:int (charAt src j)
+            if (ch != 13) {
+                str_append out (strfromcode ch)
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
     fn init:void (source:string) {
-        buf.setText(source)
+        buf.setText((ScriptEditor.withoutCarriageReturns(source)))
         sel.setCaret(0 0)
         sel.collapseToCaret()
         layout.scrollLine = 0

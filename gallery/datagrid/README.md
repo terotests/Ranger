@@ -636,7 +636,8 @@ WebGL 2 in a browser, on OpenGL in a native SDL2 binary, and on the CPU with no
 window at all, from one source.
 
 ```bash
-npm run datagrid:editor:web:serve  # the page, on :8001, no host process
+npm run datagrid:editor:open       # build, serve, open a browser at :8001
+npm run datagrid:editor:open -- --file thing.tsx   # …with a file from disk in it
 npm run datagrid:editor:sdl        # Ranger → C++ → SDL2 + OpenGL binary
 npm run datagrid:editor:web:test   # headless Chrome types into it: 12 checks
 npm run datagrid:editor:keys:test  # Playwright, real key events: 43 checks
