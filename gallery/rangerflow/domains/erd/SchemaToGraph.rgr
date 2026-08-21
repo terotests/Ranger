@@ -1,0 +1,282 @@
+; ============================================================================
+; SchemaToGraph.rgr — a schema, as a graph the core can draw.
+; ============================================================================
+;
+; The only file that knows both vocabularies. A table becomes a compartment
+; node, a column becomes a row *and a pair of ports*, and a foreign key becomes
+; an edge between two of those ports:
+;
+;   orders.customer_id ●────────● customers.id
+;
+; That port-level attachment is the difference between an ER diagram and a
+; flowchart with table-shaped boxes. It is also why the core carries ports at
+; all: nothing else in a plain node graph needs them.
+; ============================================================================
+
+Import "DatabaseSchema.rgr"
+Import "../../core/GraphModel.rgr"
+Import "../../../evg/EVGTextMeasurer.rgr"
+
+class SchemaToGraph {
+    def measurer:EVGTextMeasurer (new EVGTextMeasurer)
+    def fontFamily:string "Noto Sans"
+    def headerFontSize:double 13.0
+    def rowFontSize:double 11.0
+    def showTypes:boolean true
+    def showIndexes:boolean true
+    def showConstraints:boolean true
+    ; Hide the columns that are neither keys nor referenced — what a 100-table
+    ; overview needs and a 5-table detail view does not.
+    def keysOnly:boolean false
+    def minWidth:double 150.0
+    def maxWidth:double 340.0
+    def padding:double 16.0
+
+    Constructor () {
+    }
+
+    fn textWidth:double (t:string size:double) {
+        def w:double 0.0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            w = (w + (measurer.measureChar(c fontFamily size)))
+            i = (i + 1)
+        }
+        ; Same generosity FlowView measures with: a node sized from a shorter
+        ; estimate than the renderer uses is a node its own text runs out of.
+        return (w * 1.08)
+    }
+
+    ; The port id is the thing the two sides agree on: `table.column:side`,
+    ; built here and nowhere else, so a foreign key can find the row it points
+    ; at without the graph carrying a second index.
+    sfn portBase:string (table:string column:string) {
+        return (table + "." + column)
+    }
+
+    fn build:FlowGraph (schema:DatabaseSchema) {
+        schema.resolve()
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < (schema.tableCount())) {
+            def t:DBTable (schema.tableAt(i))
+            def n:FlowNode (this.tableNode(t))
+            g.addNode(n)
+            i = (i + 1)
+        }
+        g.reindex()
+        def k:int 0
+        while (k < (array_length schema.foreignKeys)) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys k)
+            this.addRelationship(g schema fk k)
+            k = (k + 1)
+        }
+        g.reindex()
+        return g
+    }
+
+    fn tableNode:FlowNode (t:DBTable) {
+        def n:FlowNode (FlowNode.create(t.name t.name 0.0 0.0))
+        n.nodeType = "table"
+        n.headerHeight = 28.0
+        n.rowHeight = 19.0
+        n.resizable = true
+        def cols:FlowSection (n.addSection(""))
+        def widest:double (this.textWidth(t.name headerFontSize))
+        def i:int 0
+        while (i < (array_length t.columns)) {
+            def c:DBColumn (itemAt t.columns i)
+            def keep:boolean true
+            if keysOnly {
+                keep = false
+                if c.isPrimaryKey { keep = true }
+                if c.isForeignKey { keep = true }
+                if c.isUnique { keep = true }
+            }
+            if keep {
+                def row:FlowRow (this.columnRow(t c))
+                cols.addRow(row)
+                def w:double (this.rowWidth(row))
+                if (w > widest) {
+                    widest = w
+                }
+            }
+            i = (i + 1)
+        }
+        if showIndexes {
+            if ((array_length t.indexes) > 0) {
+                def idx:FlowSection (n.addSection("indexes"))
+                def k:int 0
+                while (k < (array_length t.indexes)) {
+                    def ix:DBIndex (itemAt t.indexes k)
+                    def label:string (SchemaToGraph.indexLabel(ix))
+                    def r:FlowRow (FlowRow.create("idx" label "" ""))
+                    r.emphasis = 2
+                    idx.addRow(r)
+                    def w2:double (this.rowWidth(r))
+                    if (w2 > widest) {
+                        widest = w2
+                    }
+                    k = (k + 1)
+                }
+            }
+        }
+        if showConstraints {
+            if ((array_length t.constraints) > 0) {
+                def cs:FlowSection (n.addSection("constraints"))
+                def c2:int 0
+                while (c2 < (array_length t.constraints)) {
+                    def con:DBConstraint (itemAt t.constraints c2)
+                    def text:string con.expression
+                    if ((strlen text) == 0) {
+                        text = con.name
+                    }
+                    def r2:FlowRow (FlowRow.create("" text "" ""))
+                    r2.emphasis = 2
+                    cs.addRow(r2)
+                    def w3:double (this.rowWidth(r2))
+                    if (w3 > widest) {
+                        widest = w3
+                    }
+                    c2 = (c2 + 1)
+                }
+            }
+        }
+        def total:double (widest + padding)
+        if (total < minWidth) { total = minWidth }
+        if (total > maxWidth) { total = maxWidth }
+        n.width = total
+        n.layoutCompartments()
+        return n
+    }
+
+    fn columnRow:FlowRow (t:DBTable c:DBColumn) {
+        def badge:string ""
+        if c.isPrimaryKey { badge = "pk" }
+        if (c.isPrimaryKey == false) {
+            if c.isForeignKey { badge = "fk" }
+        }
+        def detail:string ""
+        if showTypes {
+            detail = c.dataType
+        }
+        def trailing:string ""
+        if c.isForeignKey {
+            trailing = "FK"
+        }
+        def name:string c.name
+        if (c.nullable == false) {
+            name = (name + " *")
+        }
+        def row:FlowRow (FlowRow.create(badge name detail trailing))
+        row.portId = (SchemaToGraph.portBase(t.name c.name))
+        if c.isPrimaryKey {
+            row.emphasis = 1
+        }
+        return row
+    }
+
+    fn rowWidth:double (r:FlowRow) {
+        def w:double 0.0
+        w = (w + 18.0)
+        w = (w + (this.textWidth(r.text rowFontSize)))
+        if ((strlen r.detail) > 0) {
+            w = ((w + 12.0) + (this.textWidth(r.detail rowFontSize)))
+        }
+        if ((strlen r.trailing) > 0) {
+            w = ((w + 8.0) + (this.textWidth(r.trailing rowFontSize)))
+        }
+        return w
+    }
+
+    sfn indexLabel:string (ix:DBIndex) {
+        def head:string "INDEX"
+        if ix.unique {
+            head = "UNIQUE"
+        }
+        def cols:string ""
+        def i:int 0
+        while (i < (array_length ix.columns)) {
+            if (i > 0) {
+                cols = (cols + ", ")
+            }
+            cols = (cols + (itemAt ix.columns i))
+            i = (i + 1)
+        }
+        return (head + "(" + cols + ")")
+    }
+
+    ; The edge. Cardinality is read off the schema (many-to-one unless the
+    ; referencing columns are unique, optional when they are nullable) and
+    ; stored as semantics — the notation is chosen at draw time.
+    fn addRelationship:void (g:FlowGraph schema:DatabaseSchema fk:DBForeignKey seq:int) {
+        def fromCol:string (fk.firstFromColumn())
+        def toCol:string (fk.firstToColumn())
+        if ((strlen fromCol) == 0) { return }
+        if ((strlen toCol) == 0) { return }
+        if ((g.hasNode(fk.fromTable)) == false) { return }
+        if ((g.hasNode(fk.toTable)) == false) { return }
+        def id:string fk.name
+        if ((strlen id) == 0) {
+            id = ("fk" + (to_string seq) + ":" + fk.fromTable + "." + fromCol)
+        }
+        def e:FlowEdge (FlowEdge.create(id fk.fromTable fk.toTable))
+        e.edgeType = "smoothstep"
+        def fromBase:string (SchemaToGraph.portBase(fk.fromTable fromCol))
+        def toBase:string (SchemaToGraph.portBase(fk.toTable toCol))
+        ; Both sides of a row have a port; which one is used depends on where
+        ; the other table ends up, and is chosen again on every relayout.
+        e.sourcePort = (fromBase + ":r")
+        e.targetPort = (toBase + ":l")
+        e.sourceCardinality = (schema.cardinalityOf(fk))
+        e.targetCardinality = "1"
+        e.optionalSource = (schema.optionalOf(fk))
+        e.markerEnd = ""
+        e.markerStart = ""
+        g.addEdge(e)
+    }
+
+    ; Re-pick the left/right port on each end from where the tables actually
+    ; are. Called after any layout; without it every edge leaves the right
+    ; side, and half of them immediately double back across their own table.
+    sfn faceEdges:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            def sBase:string (SchemaToGraph.stripSide(e.sourcePort))
+            def tBase:string (SchemaToGraph.stripSide(e.targetPort))
+            if ((strlen sBase) > 0) {
+                if ((strlen tBase) > 0) {
+                    def s:FlowNode (g.nodeById(e.source))
+                    def t:FlowNode (g.nodeById(e.target))
+                    def sc:double (s.centerX())
+                    def tc:double (t.centerX())
+                    if (tc >= sc) {
+                        e.sourcePort = (sBase + ":r")
+                        e.targetPort = (tBase + ":l")
+                    } {
+                        e.sourcePort = (sBase + ":l")
+                        e.targetPort = (tBase + ":r")
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn stripSide:string (portId:string) {
+        def n:int (strlen portId)
+        if (n < 2) {
+            return portId
+        }
+        def tail:string (substring portId (n - 2) n)
+        if (tail == ":r") {
+            return (substring portId 0 (n - 2))
+        }
+        if (tail == ":l") {
+            return (substring portId 0 (n - 2))
+        }
+        return portId
+    }
+}

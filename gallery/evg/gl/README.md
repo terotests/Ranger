@@ -108,3 +108,28 @@ line.
 The honest gap: none of that is compiled or run here, because this container
 has neither SDL2 nor a GPU. Treat the C++ compile as evidence that the
 portable half holds, not that the app runs.
+
+## Nobody can read it — so there is a second list
+
+A GPU frame is invisible to a screen reader: NVDA asks the platform for a tree
+of roles and names, and this file produces quads. So the app emits a second list
+beside the display list — `EVGA11yTree`, meaning where this one carries geometry
+— and `evg-a11y.js` mirrors it as real DOM over the canvas, positioned at the
+rectangles that were painted.
+
+```
+GridApp ─┬─ sceneJson()  ─► evg-webgl.js  ─► pixels
+         └─ a11yJson()   ─► evg-a11y.js   ─► DOM ─► VoiceOver / NVDA / Orca
+```
+
+The canvas becomes `aria-hidden`. The sheet is a `role="grid"` that claims all
+ten thousand rows and emits the forty on screen; the caret cell is the one tab
+stop in the application; a dialog is modal and hides the sheet behind it. The
+mirror never tells the app where focus is — the app tells the mirror, or the two
+chase each other.
+
+Checked in a real browser by `npm run datagrid:web:test`, which asks the DOM
+what a reader would be handed. Turn it off with `?a11y=0`.
+
+Design, state and how to try it with VoiceOver:
+[../PLAN_ACCESSIBILITY.md](../PLAN_ACCESSIBILITY.md).

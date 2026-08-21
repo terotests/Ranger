@@ -1,0 +1,384 @@
+; ============================================================================
+; FlowShapes.rgr — what a node is, as an outline.
+; ============================================================================
+;
+; A schema table and a UML class are both rectangles, so the model got away
+; with never saying what a node looked like. A flowchart cannot: the shape IS
+; the meaning. A diamond is a decision, a parallelogram is input or output, a
+; cylinder is stored data, and drawing one of them as a rectangle does not make
+; a plainer diagram — it makes a wrong one.
+;
+;   ┌──────────┐   ╭──────────╮      ◇          ╱────────╱     ╭─ ─ ─ ─╮
+;   │ process  │   │ start    │    decision    ╱  data  ╱      │  note │
+;   └──────────┘   ╰──────────╯      ◇        ╱────────╱       ╰─ ─ ─ ─╯
+;
+; Everything here is one function: a rectangle and a shape name in, a ring of
+; points out. That is deliberate. The points are used for
+;
+;   * drawing — `FlowScene.polygon`, which every backend already handles, so a
+;     hexagon reaches the PDF, the SVG and the GPU by the road the rectangles
+;     took and needs no per-backend case;
+;   * hit testing — the editor asks whether the pointer is inside the RING, not
+;     inside the bounding box, so the corner of a diamond is empty canvas the
+;     way it looks like it should be;
+;   * port placement — the anchor for a side is where that side's outline
+;     crosses the node's middle, which for every shape here is a point on the
+;     shape rather than a point in the air beside it.
+;
+; Curves are approximated by segments rather than emitted as arcs. The display
+; list has polygons and polylines and no beziers, and a rounded end drawn as
+; sixteen segments is indistinguishable at any zoom a reader uses — where a
+; second code path that only some backends implemented would be a rounded end
+; in the browser and a hexagon in the PDF.
+; ============================================================================
+
+class FlowShape {
+    ; The names are the model's, so a domain says `shape = FlowShape.decision()`
+    ; and never a bare string that a typo can silently turn into a rectangle.
+    sfn rect:string ()          { return "rect" }
+    sfn stadium:string ()       { return "stadium" }
+    sfn diamond:string ()       { return "diamond" }
+    sfn parallelogram:string () { return "parallelogram" }
+    sfn trapezoid:string ()     { return "trapezoid" }
+    sfn hexagon:string ()       { return "hexagon" }
+    sfn cylinder:string ()      { return "cylinder" }
+    sfn document:string ()      { return "document" }
+    sfn ellipse:string ()       { return "ellipse" }
+    sfn circle:string ()        { return "circle" }
+    sfn note:string ()          { return "note" }
+    ; A rectangle with a bar down each side: "this step is defined elsewhere".
+    sfn predefined:string ()    { return "predefined" }
+}
+
+class FlowShapes {
+    ; True when the shape is anything other than a plain rectangle, which is
+    ; the one case the renderer can hand straight to the rounded-rect
+    ; primitive instead of building a ring.
+    sfn isPlain:boolean (shape:string) {
+        if ((strlen shape) == 0) {
+            return true
+        }
+        if (shape == "rect") {
+            return true
+        }
+        return false
+    }
+
+    ; A shape whose body is a rectangle but which is drawn with something extra
+    ; on top of it — the side bars of a predefined process, the folded corner of
+    ; a note. Those keep the rectangle's fill and clip, so the renderer treats
+    ; them as rectangles and adds the ornament afterwards.
+    sfn isDecorated:boolean (shape:string) {
+        if (shape == "predefined") { return true }
+        if (shape == "note") { return true }
+        return false
+    }
+
+    ; The outline, as x0 y0 x1 y1 … in the order a pen would draw it.
+    sfn outline:[double] (shape:string x:double y:double w:double h:double) {
+        def pts:[double]
+        def r:double (x + w)
+        def b:double (y + h)
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        if (shape == "diamond") {
+            push pts cx
+            push pts y
+            push pts r
+            push pts cy
+            push pts cx
+            push pts b
+            push pts x
+            push pts cy
+            return pts
+        }
+        if (shape == "parallelogram") {
+            ; The slant is a fraction of the height, not of the width, so a
+            ; long "read the customer file" box does not turn into a wedge.
+            def slant:double (FlowShapes.slantOf(w h))
+            push pts (x + slant)
+            push pts y
+            push pts r
+            push pts y
+            push pts (r - slant)
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "trapezoid") {
+            def slant:double (FlowShapes.slantOf(w h))
+            push pts (x + slant)
+            push pts y
+            push pts (r - slant)
+            push pts y
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "hexagon") {
+            def slant:double (FlowShapes.slantOf(w h))
+            push pts (x + slant)
+            push pts y
+            push pts (r - slant)
+            push pts y
+            push pts r
+            push pts cy
+            push pts (r - slant)
+            push pts b
+            push pts (x + slant)
+            push pts b
+            push pts x
+            push pts cy
+            return pts
+        }
+        if (shape == "stadium") {
+            def rad:double (h * 0.5)
+            if (rad > (w * 0.5)) {
+                rad = (w * 0.5)
+            }
+            FlowShapes.arcInto(pts (r - rad) (y + rad) rad (0.0 - 90.0) 90.0 8)
+            FlowShapes.arcInto(pts (x + rad) (y + rad) rad 90.0 270.0 8)
+            return pts
+        }
+        if (shape == "ellipse") {
+            FlowShapes.ellipseInto(pts cx cy (w * 0.5) (h * 0.5) 28)
+            return pts
+        }
+        if (shape == "circle") {
+            def rad2:double (w * 0.5)
+            if ((h * 0.5) < rad2) {
+                rad2 = (h * 0.5)
+            }
+            FlowShapes.ellipseInto(pts cx cy rad2 rad2 24)
+            return pts
+        }
+        if (shape == "cylinder") {
+            ; A drum seen from the side: the top ellipse's near half is drawn
+            ; separately by the renderer, because it is a line across the body
+            ; rather than part of the silhouette.
+            def ry:double (FlowShapes.drumRadius(h))
+            FlowShapes.halfEllipseInto(pts cx (y + ry) (w * 0.5) ry true 14)
+            FlowShapes.halfEllipseInto(pts cx (b - ry) (w * 0.5) ry false 14)
+            return pts
+        }
+        if (shape == "document") {
+            ; The wave along the bottom, which is the whole of what makes a
+            ; document a document.
+            def wave:double (FlowShapes.waveDepth(h))
+            push pts x
+            push pts y
+            push pts r
+            push pts y
+            push pts r
+            push pts (b - wave)
+            def steps:int 12
+            def i:int steps
+            while (i >= 0) {
+                def t:double ((to_double i) / (to_double steps))
+                def px:double (x + (w * t))
+                ; One full period, so the edge leaves flat on the right, dips,
+                ; rises, and comes back flat on the left.
+                def py:double ((b - wave) + (wave * (sin (t * 6.283185307179586))))
+                push pts px
+                push pts py
+                i = (i - 1)
+            }
+            return pts
+        }
+        ; Everything else is the rectangle, including "rect", "note" and
+        ; "predefined" — the last two are a rectangle plus an ornament.
+        push pts x
+        push pts y
+        push pts r
+        push pts y
+        push pts r
+        push pts b
+        push pts x
+        push pts b
+        return pts
+    }
+
+    ; How far a slanted side leans. Bounded so a short wide box keeps its
+    ; slant and a tall narrow one does not fold in on itself.
+    sfn slantOf:double (w:double h:double) {
+        def s:double (h * 0.34)
+        def cap:double (w * 0.3)
+        if (s > cap) {
+            s = cap
+        }
+        if (s < 4.0) {
+            s = 4.0
+        }
+        return s
+    }
+
+    sfn drumRadius:double (h:double) {
+        def ry:double (h * 0.14)
+        if (ry > 16.0) {
+            ry = 16.0
+        }
+        if (ry < 4.0) {
+            ry = 4.0
+        }
+        return ry
+    }
+
+    sfn waveDepth:double (h:double) {
+        def d:double (h * 0.09)
+        if (d > 12.0) {
+            d = 12.0
+        }
+        if (d < 3.0) {
+            d = 3.0
+        }
+        return d
+    }
+
+    ; The line across a cylinder's body: the near half of the top ellipse.
+    sfn drumLid:[double] (x:double y:double w:double h:double) {
+        def pts:[double]
+        def ry:double (FlowShapes.drumRadius(h))
+        FlowShapes.halfEllipseInto(pts (x + (w * 0.5)) (y + ry) (w * 0.5) ry false 14)
+        return pts
+    }
+
+    ; --------------------------------------------------------------- arcs ----
+    ; Angles in degrees, clockwise on a screen where y grows downwards.
+    sfn arcInto:void (pts:[double] cx:double cy:double rad:double from:double to:double steps:int) {
+        def i:int 0
+        while (i <= steps) {
+            def t:double ((to_double i) / (to_double steps))
+            def a:double ((from + ((to - from) * t)) * 0.017453292519943295)
+            push pts (cx + (rad * (cos a)))
+            push pts (cy + (rad * (sin a)))
+            i = (i + 1)
+        }
+    }
+
+    sfn ellipseInto:void (pts:[double] cx:double cy:double rx:double ry:double steps:int) {
+        def i:int 0
+        while (i < steps) {
+            def a:double (((to_double i) / (to_double steps)) * 6.283185307179586)
+            push pts (cx + (rx * (cos a)))
+            push pts (cy + (ry * (sin a)))
+            i = (i + 1)
+        }
+    }
+
+    ; `upper` picks the half above the centre line; the other half is the one
+    ; below it. Both are walked left to right so the two stack into a drum.
+    sfn halfEllipseInto:void (pts:[double] cx:double cy:double rx:double ry:double upper:boolean steps:int) {
+        def sign:double 1.0
+        if upper {
+            sign = -1.0
+        }
+        def i:int 0
+        while (i <= steps) {
+            def t:double ((to_double i) / (to_double steps))
+            def a:double (t * 3.141592653589793)
+            def px:double (cx - (rx * (cos a)))
+            def py:double (cy + (sign * (ry * (sin a))))
+            if upper {
+                px = (cx + (rx * (cos a)))
+            }
+            push pts px
+            push pts py
+            i = (i + 1)
+        }
+    }
+
+    ; ---------------------------------------------------------- hit testing --
+    ; The even-odd ray cast, which is the whole of point-in-polygon and works
+    ; for every ring here because none of them is self-intersecting.
+    sfn holds:boolean (pts:[double] px:double py:double) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 3) {
+            return false
+        }
+        def inside:boolean false
+        def j:int (n - 1)
+        def i:int 0
+        while (i < n) {
+            def xi:double (itemAt pts (i * 2))
+            def yiAt:int ((i * 2) + 1)
+            def yi:double (itemAt pts yiAt)
+            def xj:double (itemAt pts (j * 2))
+            def yjAt:int ((j * 2) + 1)
+            def yj:double (itemAt pts yjAt)
+            def straddles:boolean false
+            if (yi > py) {
+                if (yj <= py) { straddles = true }
+            }
+            if (yj > py) {
+                if (yi <= py) { straddles = true }
+            }
+            if straddles {
+                def dy:double (yj - yi)
+                if ((fabs dy) > 0.000001) {
+                    def cut:double (xi + (((py - yi) / dy) * (xj - xi)))
+                    if (px < cut) {
+                        if inside { inside = false } { inside = true }
+                    }
+                }
+            }
+            j = i
+            i = (i + 1)
+        }
+        return inside
+    }
+
+    sfn holdsShape:boolean (shape:string x:double y:double w:double h:double px:double py:double) {
+        if (FlowShapes.isPlain(shape)) {
+            return (FlowShapes.inBox(x y w h px py))
+        }
+        if (FlowShapes.isDecorated(shape)) {
+            return (FlowShapes.inBox(x y w h px py))
+        }
+        def ring:[double] (FlowShapes.outline(shape x y w h))
+        return (FlowShapes.holds(ring px py))
+    }
+
+    sfn inBox:boolean (x:double y:double w:double h:double px:double py:double) {
+        if (px < x) { return false }
+        if (py < y) { return false }
+        if (px > (x + w)) { return false }
+        if (py > (y + h)) { return false }
+        return true
+    }
+
+    ; --------------------------------------------------------------- ports ---
+    ; Where a handle on `side` sits. For a rectangle it is the middle of that
+    ; edge; for a diamond it is the vertex; for a slanted shape it is where the
+    ; outline crosses the node's own middle. In every case it is a point ON the
+    ; shape, which is what stops an arrow ending in mid-air beside a diamond.
+    sfn anchorX:double (shape:string x:double y:double w:double h:double side:int) {
+        if (side == 0) { return (x + (w * 0.5)) }
+        if (side == 2) { return (x + (w * 0.5)) }
+        def lean:double 0.0
+        if (shape == "parallelogram") {
+            lean = ((FlowShapes.slantOf(w h)) * 0.5)
+        }
+        if (shape == "trapezoid") {
+            lean = ((FlowShapes.slantOf(w h)) * 0.5)
+        }
+        if (side == 1) { return ((x + w) - lean) }
+        return (x + lean)
+    }
+
+    sfn anchorY:double (shape:string x:double y:double w:double h:double side:int) {
+        if (side == 1) { return (y + (h * 0.5)) }
+        if (side == 3) { return (y + (h * 0.5)) }
+        if (side == 0) { return y }
+        ; A document's bottom edge is a wave, and the wave crosses the middle
+        ; of the box at its own baseline — an arrow that stopped at the
+        ; bounding box would end below the paper.
+        if (shape == "document") {
+            def wave:double (FlowShapes.waveDepth(h))
+            return ((y + h) - wave)
+        }
+        return (y + h)
+    }
+}

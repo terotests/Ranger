@@ -1,0 +1,780 @@
+; ==============================================================================
+; BookRender.rgr - one laid-out book, two ways out
+; ==============================================================================
+;
+; The flow engine has already decided where every line sits, so rendering is
+; not layout: it is transcription. That is deliberate. A book that previews
+; one way and prints another is the failure mode of every desktop publishing
+; program, and the only defence is that preview and print read the *same*
+; placed lines rather than each running their own layout.
+;
+; So this file emits two forms of the same placement:
+;
+;   SVG   self-contained, one page or one spread, for the editor canvas, for a
+;         diff in a test, and for anything that can open a picture
+;   TSX   the EVG document form the existing tooling already consumes -
+;         evg_pdf_tool, evg_html_tool and evg_png_tool turn it into PDF, HTML
+;         and PNG, so print output is not new code here, it is a pipe
+;
+; Neither path re-wraps text: every line is placed absolutely at the position
+; the flow engine measured for it. Feed the flow engine the same font measurer
+; the PDF tool uses (see book_pdf.rgr) and the two agree by construction.
+; ==============================================================================
+
+Import "BookFlow.rgr"
+
+class BookImageBox {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+
+    Constructor () {
+        x = 0.0
+        y = 0.0
+        w = 0.0
+        h = 0.0
+    }
+}
+
+class BookRenderOptions {
+    ; Editor chrome. Off for print, on for the canvas.
+    def showFrames:boolean false
+    def showGuides:boolean false
+    def showMargins:boolean false
+    ; Prefix put in front of every asset path, for output written to a
+    ; directory other than the one the images live in.
+    def assetBase:string ""
+    ; Draw the trim box of a spread as two pages with a spine line.
+    def showSpine:boolean true
+
+    Constructor () {
+        showFrames = false
+        showGuides = false
+        showMargins = false
+        assetBase = ""
+        showSpine = true
+    }
+}
+
+class BookRenderer {
+    def options:BookRenderOptions (new BookRenderOptions())
+    def clipSeq:int 0
+
+    Constructor () {
+        clipSeq = 0
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Formatting helpers
+    ; ---------------------------------------------------------------------
+
+    ; Two decimals, trailing zero dropped. Points at this precision are well
+    ; under a printer's resolution, and short numbers keep the SVG readable
+    ; when a test diffs it.
+    sfn num:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if neg {
+            a = (0.0 - v)
+        }
+        def scaled:double (a * 100.0)
+        def bumped:double (scaled + 0.5)
+        def r:int (floor bumped)
+        def whole:int (idiv r 100)
+        def rest:int (whole * 100)
+        def frac:int (r - rest)
+        def out:string (to_string whole)
+        if (frac > 0) {
+            def fs:string ""
+            def m:int (frac % 10)
+            if (m == 0) {
+                def tenth:int (idiv frac 10)
+                fs = (to_string tenth)
+            } {
+                fs = (to_string frac)
+                if (frac < 10) {
+                    fs = ("0" + fs)
+                }
+            }
+            out = (out + "." + fs)
+        }
+        if neg {
+            out = ("-" + out)
+        }
+        return out
+    }
+
+    sfn escapeText:string (body:string) {
+        def out:string ""
+        def total:int (strlen body)
+        def k:int 0
+        while (k < total) {
+            def c:string (substring body k (k + 1))
+            if (c == "&") {
+                out = (out + "&amp;")
+            } {
+                if (c == "<") {
+                    out = (out + "&lt;")
+                } {
+                    if (c == ">") {
+                        out = (out + "&gt;")
+                    } {
+                        out = (out + c)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn escapeAttr:string (body:string) {
+        def out:string ""
+        def total:int (strlen body)
+        def k:int 0
+        while (k < total) {
+            def c:string (substring body k (k + 1))
+            if (c == "&") {
+                out = (out + "&amp;")
+            } {
+                if (c == "\"") {
+                    out = (out + "&quot;")
+                } {
+                    if (c == "<") {
+                        out = (out + "&lt;")
+                    } {
+                        out = (out + c)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; JSX text is taken raw by the EVG parser - no entities - so text goes
+    ; through as a string literal child, `{"..."}`, which the parser unquotes.
+    ; That way a line containing < or { survives.
+    sfn escapeJs:string (body:string) {
+        def out:string ""
+        def total:int (strlen body)
+        def k:int 0
+        while (k < total) {
+            def c:string (substring body k (k + 1))
+            if (c == "\\") {
+                out = (out + "\\\\")
+            } {
+                if (c == "\"") {
+                    out = (out + "\\\"")
+                } {
+                    if (c == "\n") {
+                        out = (out + "\\n")
+                    } {
+                        out = (out + c)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Master-page text: the folio and the running head
+    ; ---------------------------------------------------------------------
+
+    sfn substitute:string (template:string doc:BookDocument page:BookPage) {
+        def out:string ""
+        def total:int (strlen template)
+        def k:int 0
+        while (k < total) {
+            def rest:int (total - k)
+            def matched:boolean false
+            if (rest >= 6) {
+                def probe:string (substring template k (k + 6))
+                if (probe == "{page}") {
+                    def n:int (page.index + 1)
+                    out = (out + (to_string n))
+                    k = (k + 6)
+                    matched = true
+                }
+            }
+            if ((matched == false) && (rest >= 7)) {
+                def probe2:string (substring template k (k + 7))
+                if (probe2 == "{title}") {
+                    out = (out + doc.title)
+                    k = (k + 7)
+                    matched = true
+                }
+            }
+            if ((matched == false) && (rest >= 8)) {
+                def probe3:string (substring template k (k + 8))
+                if (probe3 == "{author}") {
+                    out = (out + doc.author)
+                    k = (k + 8)
+                    matched = true
+                }
+            }
+            if (matched == false) {
+                def c:string (substring template k (k + 1))
+                out = (out + c)
+                k = (k + 1)
+            }
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Image fitting - the crop a picture book lives or dies by
+    ; ---------------------------------------------------------------------
+
+    ; The rectangle the image is drawn into, before clipping to the frame.
+    ; `cover` deliberately overflows the frame and is then clipped; focusX and
+    ; focusY choose which part survives, because the interesting half of a
+    ; photograph is rarely its centre.
+    sfn fitImage:BookImageBox (frame:BookFrame asset:BookAsset) {
+        def box (new BookImageBox())
+        def fw:double frame.w
+        def fh:double frame.h
+        def aw:double asset.naturalWidth
+        def ah:double asset.naturalHeight
+
+        if ((aw <= 0.0) || (ah <= 0.0)) {
+            box.x = frame.x
+            box.y = frame.y
+            box.w = fw
+            box.h = fh
+            return box
+        }
+        if (frame.fit == "fill") {
+            box.x = frame.x
+            box.y = frame.y
+            box.w = fw
+            box.h = fh
+            return box
+        }
+
+        def scale:double 1.0
+        if (frame.fit == "none") {
+            scale = 1.0
+        } {
+            def sx:double (fw / aw)
+            def sy:double (fh / ah)
+            if (frame.fit == "contain") {
+                scale = sx
+                if (sy < sx) {
+                    scale = sy
+                }
+            } {
+                scale = sx
+                if (sy > sx) {
+                    scale = sy
+                }
+            }
+        }
+
+        def dw:double (aw * scale)
+        def dh:double (ah * scale)
+        def slackX:double (fw - dw)
+        def slackY:double (fh - dh)
+        def offX:double (slackX * frame.focusX)
+        def offY:double (slackY * frame.focusY)
+        box.x = (frame.x + offX)
+        box.y = (frame.y + offY)
+        box.w = dw
+        box.h = dh
+        return box
+    }
+
+    ; ---------------------------------------------------------------------
+    ; SVG
+    ; ---------------------------------------------------------------------
+
+    fn pageSvg:string (doc:BookDocument flow:BookFlowResult pageIndex:int) {
+        def page:BookPage (doc.pageAt(pageIndex))
+        def w:string (BookRenderer.num(page.width))
+        def h:string (BookRenderer.num(page.height))
+        def out:string ""
+        out = (out + "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"")
+        out = (out + " width=\"" + w + "\" height=\"" + h + "\" viewBox=\"0 0 " + w + " " + h + "\">\n")
+        def body:string (this.pageBody(doc flow page 0.0 0.0))
+        out = (out + body)
+        out = (out + "</svg>\n")
+        return out
+    }
+
+    ; A spread is how a book is read, so it is a first-class output rather than
+    ; two pages the caller has to butt together. Spread 0 is the opening recto
+    ; alone - the page a reader meets before there is anything facing it.
+    fn spreadSvg:string (doc:BookDocument flow:BookFlowResult spreadIndex:int) {
+        def leftIndex:int -1
+        def rightIndex:int -1
+        if (spreadIndex == 0) {
+            rightIndex = 0
+        } {
+            def base:int ((spreadIndex - 1) * 2)
+            leftIndex = (base + 1)
+            rightIndex = (base + 2)
+        }
+        def count:int (doc.pageCount())
+        if (leftIndex >= count) {
+            leftIndex = -1
+        }
+        if (rightIndex >= count) {
+            rightIndex = -1
+        }
+
+        def pw:double doc.pageWidth
+        def ph:double doc.pageHeight
+        def totalW:double (pw * 2.0)
+        def w:string (BookRenderer.num(totalW))
+        def h:string (BookRenderer.num(ph))
+        def out:string ""
+        out = (out + "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"")
+        out = (out + " width=\"" + w + "\" height=\"" + h + "\" viewBox=\"0 0 " + w + " " + h + "\">\n")
+        out = (out + "  <rect x=\"0\" y=\"0\" width=\"" + w + "\" height=\"" + h + "\" fill=\"#ffffff\"/>\n")
+        if (leftIndex >= 0) {
+            def lp:BookPage (doc.pageAt(leftIndex))
+            def lbody:string (this.pageBody(doc flow lp 0.0 0.0))
+            out = (out + lbody)
+        }
+        if (rightIndex >= 0) {
+            def rp:BookPage (doc.pageAt(rightIndex))
+            ; A recto sits on the right of the sheet even when it is alone -
+            ; the opening page of a book has nothing facing it, and drawing it
+            ; on the left would put the spine on the wrong side of it.
+            def rbody:string (this.pageBody(doc flow rp pw 0.0))
+            out = (out + rbody)
+        }
+        if options.showSpine {
+            def spineX:string (BookRenderer.num(pw))
+            out = (out + "  <line x1=\"" + spineX + "\" y1=\"0\" x2=\"" + spineX + "\" y2=\"" + h + "\" stroke=\"#d8d8d8\" stroke-width=\"1\"/>\n")
+        }
+        out = (out + "</svg>\n")
+        return out
+    }
+
+    ; One page, offset by (dx, dy) so a spread can place two of them.
+    fn pageBody:string (doc:BookDocument flow:BookFlowResult page:BookPage dx:double dy:double) {
+        def out:string ""
+        def x:string (BookRenderer.num(dx))
+        def y:string (BookRenderer.num(dy))
+        out = (out + "  <g transform=\"translate(" + x + "," + y + ")\">\n")
+
+        def bg:string page.background
+        if ((strlen bg) == 0) {
+            bg = "#ffffff"
+        }
+        def pw:string (BookRenderer.num(page.width))
+        def ph:string (BookRenderer.num(page.height))
+        out = (out + "    <rect x=\"0\" y=\"0\" width=\"" + pw + "\" height=\"" + ph + "\" fill=\"" + (BookRenderer.escapeAttr(bg)) + "\"/>\n")
+
+        def layers:[string]
+        push layers "background"
+        push layers "content"
+        push layers "overlay"
+        def li:int 0
+        while (li < (array_length layers)) {
+            def layer:string (itemAt layers li)
+            def fi:int 0
+            while (fi < (array_length page.frames)) {
+                def f:BookFrame (itemAt page.frames fi)
+                if (f.layer == layer) {
+                    def frag:string (this.frameSvg(doc flow page f))
+                    out = (out + frag)
+                }
+                fi = (fi + 1)
+            }
+            li = (li + 1)
+        }
+
+        if options.showMargins {
+            def guides:string (this.marginSvg(doc page))
+            out = (out + guides)
+        }
+        out = (out + "  </g>\n")
+        return out
+    }
+
+    fn marginSvg:string (doc:BookDocument page:BookPage) {
+        if ((doc.hasMaster(page.masterName)) == false) {
+            return ""
+        }
+        def m:BookMasterPage (doc.masterFor(page.masterName))
+        def recto:boolean (page.isRecto())
+        def left:double (m.leftMarginFor(recto))
+        def right:double (m.rightMarginFor(recto))
+        def w:double (page.width - left)
+        def boxW:double (w - right)
+        def h:double (page.height - m.marginTop)
+        def boxH:double (h - m.marginBottom)
+        def out:string "    <rect x=\""
+        out = (out + (BookRenderer.num(left)) + "\" y=\"" + (BookRenderer.num(m.marginTop)))
+        out = (out + "\" width=\"" + (BookRenderer.num(boxW)) + "\" height=\"" + (BookRenderer.num(boxH)))
+        out = (out + "\" fill=\"none\" stroke=\"#66aaff\" stroke-width=\"0.5\" stroke-dasharray=\"4 3\"/>\n")
+        return out
+    }
+
+    fn frameSvg:string (doc:BookDocument flow:BookFlowResult page:BookPage frame:BookFrame) {
+        def out:string ""
+        def opened:boolean false
+        if (frame.rotation != 0.0) {
+            def cx:double (frame.x + (frame.w / 2.0))
+            def cy:double (frame.y + (frame.h / 2.0))
+            out = (out + "    <g transform=\"rotate(" + (BookRenderer.num(frame.rotation)) + " " + (BookRenderer.num(cx)) + " " + (BookRenderer.num(cy)) + ")\">\n")
+            opened = true
+        }
+
+        if (frame.kind == "shape") {
+            def s:string (this.shapeSvg(frame))
+            out = (out + s)
+        }
+        if (frame.kind == "path") {
+            def p:string (this.pathSvg(frame))
+            out = (out + p)
+        }
+        if (frame.kind == "image") {
+            def img:string (this.imageSvg(doc frame))
+            out = (out + img)
+        }
+        if (frame.kind == "text") {
+            def t:string (this.textSvg(doc flow page frame))
+            out = (out + t)
+        }
+
+        if options.showFrames {
+            out = (out + "    <rect x=\"" + (BookRenderer.num(frame.x)) + "\" y=\"" + (BookRenderer.num(frame.y)))
+            out = (out + "\" width=\"" + (BookRenderer.num(frame.w)) + "\" height=\"" + (BookRenderer.num(frame.h)))
+            def stroke:string "#9aa7b8"
+            if frame.overflowed {
+                stroke = "#e03030"
+            }
+            out = (out + "\" fill=\"none\" stroke=\"" + stroke + "\" stroke-width=\"0.5\"/>\n")
+        }
+        if opened {
+            out = (out + "    </g>\n")
+        }
+        return out
+    }
+
+    fn shapeSvg:string (frame:BookFrame) {
+        def fill:string frame.fill
+        if ((strlen fill) == 0) {
+            fill = "none"
+        }
+        def out:string "    <rect x=\""
+        out = (out + (BookRenderer.num(frame.x)) + "\" y=\"" + (BookRenderer.num(frame.y)))
+        out = (out + "\" width=\"" + (BookRenderer.num(frame.w)) + "\" height=\"" + (BookRenderer.num(frame.h)) + "\"")
+        if (frame.cornerRadius > 0.0) {
+            out = (out + " rx=\"" + (BookRenderer.num(frame.cornerRadius)) + "\"")
+        }
+        out = (out + " fill=\"" + (BookRenderer.escapeAttr(fill)) + "\"")
+        if ((strlen frame.stroke) > 0) {
+            out = (out + " stroke=\"" + (BookRenderer.escapeAttr(frame.stroke)) + "\" stroke-width=\"" + (BookRenderer.num(frame.strokeWidth)) + "\"")
+        }
+        if (frame.opacity < 1.0) {
+            out = (out + " opacity=\"" + (BookRenderer.num(frame.opacity)) + "\"")
+        }
+        out = (out + "/>\n")
+        return out
+    }
+
+    fn pathSvg:string (frame:BookFrame) {
+        if ((strlen frame.pathData) == 0) {
+            return ""
+        }
+        def fill:string frame.fill
+        if ((strlen fill) == 0) {
+            fill = "none"
+        }
+        def out:string "    <g transform=\"translate("
+        out = (out + (BookRenderer.num(frame.x)) + "," + (BookRenderer.num(frame.y)) + ")\">")
+        out = (out + "<path d=\"" + (BookRenderer.escapeAttr(frame.pathData)) + "\" fill=\"" + (BookRenderer.escapeAttr(fill)) + "\"")
+        if ((strlen frame.stroke) > 0) {
+            out = (out + " stroke=\"" + (BookRenderer.escapeAttr(frame.stroke)) + "\" stroke-width=\"" + (BookRenderer.num(frame.strokeWidth)) + "\"")
+        }
+        out = (out + "/></g>\n")
+        return out
+    }
+
+    fn imageSvg:string (doc:BookDocument frame:BookFrame) {
+        if ((doc.hasAsset(frame.assetId)) == false) {
+            ; A missing image is drawn, not skipped: an empty rectangle on the
+            ; page is how the author finds out.
+            def out:string "    <rect x=\""
+            out = (out + (BookRenderer.num(frame.x)) + "\" y=\"" + (BookRenderer.num(frame.y)))
+            out = (out + "\" width=\"" + (BookRenderer.num(frame.w)) + "\" height=\"" + (BookRenderer.num(frame.h)))
+            out = (out + "\" fill=\"#f2f2f2\" stroke=\"#cc4444\" stroke-width=\"0.75\" stroke-dasharray=\"5 4\"/>\n")
+            return out
+        }
+        def asset:BookAsset (doc.assetFor(frame.assetId))
+        def box:BookImageBox (BookRenderer.fitImage(frame asset))
+        clipSeq = (clipSeq + 1)
+        def clipId:string ("bkclip" + (to_string clipSeq))
+        def out:string ""
+        out = (out + "    <clipPath id=\"" + clipId + "\"><rect x=\"" + (BookRenderer.num(frame.x)) + "\" y=\"" + (BookRenderer.num(frame.y)))
+        out = (out + "\" width=\"" + (BookRenderer.num(frame.w)) + "\" height=\"" + (BookRenderer.num(frame.h)) + "\"")
+        if (frame.cornerRadius > 0.0) {
+            out = (out + " rx=\"" + (BookRenderer.num(frame.cornerRadius)) + "\"")
+        }
+        out = (out + "/></clipPath>\n")
+        def href:string (options.assetBase + asset.path)
+        out = (out + "    <image clip-path=\"url(#" + clipId + ")\" preserveAspectRatio=\"none\"")
+        out = (out + " x=\"" + (BookRenderer.num(box.x)) + "\" y=\"" + (BookRenderer.num(box.y)))
+        out = (out + "\" width=\"" + (BookRenderer.num(box.w)) + "\" height=\"" + (BookRenderer.num(box.h)) + "\"")
+        if (frame.opacity < 1.0) {
+            out = (out + " opacity=\"" + (BookRenderer.num(frame.opacity)) + "\"")
+        }
+        out = (out + " xlink:href=\"" + (BookRenderer.escapeAttr(href)) + "\" href=\"" + (BookRenderer.escapeAttr(href)) + "\"/>\n")
+        return out
+    }
+
+    fn textSvg:string (doc:BookDocument flow:BookFlowResult page:BookPage frame:BookFrame) {
+        ; A master-page frame carries its own text (a folio, a running head)
+        ; rather than a story, and is resolved against the page it lands on.
+        if ((strlen frame.text) > 0) {
+            def resolved:string (BookRenderer.substitute(frame.text doc page))
+            def style:BookStyle (doc.styleFor(frame.styleName))
+            def baseline:double (frame.y + style.fontSize)
+            def anchor:string "start"
+            def tx:double frame.x
+            if (style.align == "center") {
+                anchor = "middle"
+                def half:double (frame.w / 2.0)
+                tx = (frame.x + half)
+            }
+            if (style.align == "right") {
+                anchor = "end"
+                tx = (frame.x + frame.w)
+            }
+            def out:string "    <text x=\""
+            out = (out + (BookRenderer.num(tx)) + "\" y=\"" + (BookRenderer.num(baseline)) + "\"")
+            if (anchor != "start") {
+                out = (out + " text-anchor=\"" + anchor + "\"")
+            }
+            out = (out + " font-family=\"" + (BookRenderer.escapeAttr(style.fontFamily)) + "\" font-size=\"" + (BookRenderer.num(style.fontSize)) + "\"")
+            if style.bold {
+                out = (out + " font-weight=\"bold\"")
+            }
+            if style.italic {
+                out = (out + " font-style=\"italic\"")
+            }
+            out = (out + " fill=\"" + (BookRenderer.escapeAttr(style.color)) + "\">" + (BookRenderer.escapeText(resolved)) + "</text>\n")
+            return out
+        }
+
+        def out:string ""
+        def lines:[BookLine] (flow.linesInFrame(frame.id))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:BookLine (itemAt lines i)
+            def frag:string (this.lineSvg(ln))
+            out = (out + frag)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn lineSvg:string (ln:BookLine) {
+        if ((strlen ln.text) == 0) {
+            return ""
+        }
+        def anchor:string "start"
+        def tx:double ln.x
+        if (ln.align == "center") {
+            anchor = "middle"
+            def half:double (ln.maxWidth / 2.0)
+            tx = (ln.x + half)
+        }
+        if (ln.align == "right") {
+            anchor = "end"
+            tx = (ln.x + ln.maxWidth)
+        }
+        def out:string "    <text x=\""
+        out = (out + (BookRenderer.num(tx)) + "\" y=\"" + (BookRenderer.num(ln.baseline)) + "\"")
+        if (anchor != "start") {
+            out = (out + " text-anchor=\"" + anchor + "\"")
+        }
+        out = (out + " font-family=\"" + (BookRenderer.escapeAttr(ln.fontFamily)) + "\" font-size=\"" + (BookRenderer.num(ln.fontSize)) + "\"")
+        if ln.bold {
+            out = (out + " font-weight=\"bold\"")
+        }
+        if ln.italic {
+            out = (out + " font-style=\"italic\"")
+        }
+        out = (out + " fill=\"" + (BookRenderer.escapeAttr(ln.color)) + "\"")
+        ; Justification is the renderer stretching the word spaces of a line the
+        ; flow engine already measured - never the last line of a paragraph.
+        if (ln.stretches()) {
+            out = (out + " textLength=\"" + (BookRenderer.num(ln.maxWidth)) + "\" lengthAdjust=\"spacing\"")
+        }
+        out = (out + ">" + (BookRenderer.escapeText(ln.text)) + "</text>\n")
+        return out
+    }
+
+    ; ---------------------------------------------------------------------
+    ; TSX - the door to PDF, HTML and PNG
+    ; ---------------------------------------------------------------------
+
+    fn documentTsx:string (doc:BookDocument flow:BookFlowResult) {
+        def out:string ""
+        out = (out + "// Generated by the Ranger book engine - do not edit by hand.\n")
+        out = (out + "// Every element is absolutely positioned: the flow engine already\n")
+        out = (out + "// decided where each line goes, and re-wrapping here would move it.\n")
+        out = (out + "import { Print, Section, Page, View, Label, Image, Path } from \"./evg_types\";\n\n")
+        out = (out + "function render() {\n")
+        out = (out + "  return (\n")
+        out = (out + "    <Print title=\"" + (BookRenderer.escapeAttr(doc.title)) + "\" author=\"" + (BookRenderer.escapeAttr(doc.author)) + "\">\n")
+        out = (out + "      <Section pageWidth=\"" + (BookRenderer.num(doc.pageWidth)) + "\" pageHeight=\"" + (BookRenderer.num(doc.pageHeight)) + "\" margin=\"0\">\n")
+        def pi:int 0
+        while (pi < (doc.pageCount())) {
+            def page:BookPage (doc.pageAt(pi))
+            def frag:string (this.pageTsx(doc flow page))
+            out = (out + frag)
+            pi = (pi + 1)
+        }
+        out = (out + "      </Section>\n")
+        out = (out + "    </Print>\n")
+        out = (out + "  );\n")
+        out = (out + "}\n")
+        return out
+    }
+
+    fn pageTsx:string (doc:BookDocument flow:BookFlowResult page:BookPage) {
+        def bg:string page.background
+        if ((strlen bg) == 0) {
+            bg = "#ffffff"
+        }
+        def out:string ""
+        out = (out + "        <Page>\n")
+        out = (out + "          <View width=\"100%\" height=\"100%\" backgroundColor=\"" + (BookRenderer.escapeAttr(bg)) + "\">\n")
+
+        def layers:[string]
+        push layers "background"
+        push layers "content"
+        push layers "overlay"
+        def li:int 0
+        while (li < (array_length layers)) {
+            def layer:string (itemAt layers li)
+            def fi:int 0
+            while (fi < (array_length page.frames)) {
+                def f:BookFrame (itemAt page.frames fi)
+                if (f.layer == layer) {
+                    def frag:string (this.frameTsx(doc flow page f))
+                    out = (out + frag)
+                }
+                fi = (fi + 1)
+            }
+            li = (li + 1)
+        }
+        out = (out + "          </View>\n")
+        out = (out + "        </Page>\n")
+        return out
+    }
+
+    fn frameTsx:string (doc:BookDocument flow:BookFlowResult page:BookPage frame:BookFrame) {
+        def out:string ""
+        if (frame.kind == "shape") {
+            def fill:string frame.fill
+            if ((strlen fill) > 0) {
+                out = (out + "            <View position=\"absolute\"")
+                out = (out + " left=\"" + (BookRenderer.num(frame.x)) + "px\" top=\"" + (BookRenderer.num(frame.y)) + "px\"")
+                out = (out + " width=\"" + (BookRenderer.num(frame.w)) + "px\" height=\"" + (BookRenderer.num(frame.h)) + "px\"")
+                out = (out + " backgroundColor=\"" + (BookRenderer.escapeAttr(fill)) + "\"")
+                if (frame.cornerRadius > 0.0) {
+                    out = (out + " borderRadius=\"" + (BookRenderer.num(frame.cornerRadius)) + "px\"")
+                }
+                out = (out + " />\n")
+            }
+            return out
+        }
+        if (frame.kind == "path") {
+            if ((strlen frame.pathData) == 0) {
+                return out
+            }
+            def pfill:string frame.fill
+            if ((strlen pfill) == 0) {
+                pfill = "#000000"
+            }
+            out = (out + "            <View position=\"absolute\"")
+            out = (out + " left=\"" + (BookRenderer.num(frame.x)) + "px\" top=\"" + (BookRenderer.num(frame.y)) + "px\"")
+            out = (out + " width=\"" + (BookRenderer.num(frame.w)) + "px\" height=\"" + (BookRenderer.num(frame.h)) + "px\">\n")
+            out = (out + "              <Path d=\"" + (BookRenderer.escapeAttr(frame.pathData)) + "\" fill=\"" + (BookRenderer.escapeAttr(pfill)) + "\"")
+            out = (out + " width=\"" + (BookRenderer.num(frame.w)) + "px\" height=\"" + (BookRenderer.num(frame.h)) + "px\" />\n")
+            out = (out + "            </View>\n")
+            return out
+        }
+        if (frame.kind == "image") {
+            if ((doc.hasAsset(frame.assetId)) == false) {
+                return out
+            }
+            def asset:BookAsset (doc.assetFor(frame.assetId))
+            def src:string (options.assetBase + asset.path)
+            out = (out + "            <Image position=\"absolute\"")
+            out = (out + " left=\"" + (BookRenderer.num(frame.x)) + "px\" top=\"" + (BookRenderer.num(frame.y)) + "px\"")
+            out = (out + " width=\"" + (BookRenderer.num(frame.w)) + "px\" height=\"" + (BookRenderer.num(frame.h)) + "px\"")
+            out = (out + " objectFit=\"" + (BookRenderer.escapeAttr(frame.fit)) + "\"")
+            out = (out + " src=\"" + (BookRenderer.escapeAttr(src)) + "\" />\n")
+            return out
+        }
+
+        ; text
+        if ((strlen frame.text) > 0) {
+            def resolved:string (BookRenderer.substitute(frame.text doc page))
+            def style:BookStyle (doc.styleFor(frame.styleName))
+            out = (out + "            <Label position=\"absolute\"")
+            out = (out + " left=\"" + (BookRenderer.num(frame.x)) + "px\" top=\"" + (BookRenderer.num(frame.y)) + "px\"")
+            out = (out + " width=\"" + (BookRenderer.num(frame.w)) + "px\"")
+            out = (out + " fontSize=\"" + (BookRenderer.num(style.fontSize)) + "px\" color=\"" + (BookRenderer.escapeAttr(style.color)) + "\"")
+            if style.bold {
+                out = (out + " fontWeight=\"bold\"")
+            }
+            if (style.align != "left") {
+                out = (out + " textAlign=\"" + style.align + "\"")
+            }
+            out = (out + " fontFamily=\"" + (BookRenderer.escapeAttr(style.fontFamily)) + "\">")
+            out = (out + "{\"" + (BookRenderer.escapeJs(resolved)) + "\"}</Label>\n")
+            return out
+        }
+
+        def lines:[BookLine] (flow.linesInFrame(frame.id))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:BookLine (itemAt lines i)
+            if ((strlen ln.text) > 0) {
+                def frag:string (this.lineTsx(ln))
+                out = (out + frag)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn lineTsx:string (ln:BookLine) {
+        ; The Label is given the top of the LINE BOX, not the baseline, because
+        ; EVG lays text out from the top; the flow engine kept both.
+        def out:string "            <Label position=\"absolute\""
+        out = (out + " left=\"" + (BookRenderer.num(ln.x)) + "px\" top=\"" + (BookRenderer.num(ln.top)) + "px\"")
+        ; A hair of slack so a width rounded down cannot re-wrap a line that the
+        ; flow engine measured as fitting.
+        def slack:double (ln.maxWidth + 1.0)
+        out = (out + " width=\"" + (BookRenderer.num(slack)) + "px\"")
+        out = (out + " lineHeight=\"" + (BookRenderer.num(ln.lineHeight)) + "px\"")
+        out = (out + " fontSize=\"" + (BookRenderer.num(ln.fontSize)) + "px\"")
+        out = (out + " fontFamily=\"" + (BookRenderer.escapeAttr(ln.fontFamily)) + "\"")
+        if ln.bold {
+            out = (out + " fontWeight=\"bold\"")
+        }
+        def align:string ln.align
+        if (align == "justify") {
+            align = "left"
+        }
+        if (align != "left") {
+            out = (out + " textAlign=\"" + align + "\"")
+        }
+        out = (out + " color=\"" + (BookRenderer.escapeAttr(ln.color)) + "\">")
+        out = (out + "{\"" + (BookRenderer.escapeJs(ln.text)) + "\"}</Label>\n")
+        return out
+    }
+}

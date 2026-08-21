@@ -1,0 +1,526 @@
+; ==============================================================================
+; BookTest.rgr - the book engine, checked where it can actually be wrong
+; ==============================================================================
+;
+;   npm run book:test
+;
+; The interesting assertions here are not "does it produce output" but the
+; typographic ones, because those are the rules a naive implementation breaks
+; while still producing perfectly plausible pages:
+;
+;   a paragraph does not leave one line at the foot of a column
+;   nor carry one line alone to the top of the next
+;   a heading does not end a column
+;   a story that overflows says so instead of vanishing
+;
+; Line counts are made deterministic by writing paragraphs with explicit
+; newlines, so the tests do not depend on which font faces happen to be
+; installed - the same reason the flow engine honours "\n" as a hard break.
+; ==============================================================================
+
+Import "../src/BookApi.rgr"
+
+class Check {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def label:string (name + " (got " + (to_string got) + " want " + (to_string want) + ")")
+        this.ok(label (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def label:string (name + " (got \"" + got + "\" want \"" + want + "\")")
+        this.ok(label (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tolerance:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def label:string (name + " (got " + (BookRenderer.num(got)) + " want " + (BookRenderer.num(want)) + ")")
+        this.ok(label (d <= tolerance))
+    }
+}
+
+class BookTest {
+
+    ; A document whose text measures predictably: every paragraph is written
+    ; with hard line breaks, and the leading is a round number.
+    sfn fixture:BookDocument (leading:double) {
+        def d (BookDocument.create("Fixture" "a4"))
+        def body (BookStyle.create("body" "Noto Sans" 10.0))
+        body.leading = leading
+        body.orphans = 2
+        body.widows = 2
+        d.addStyle(body)
+        return d
+    }
+
+    sfn addFrame:BookFrame (d:BookDocument page:BookPage id:string y:double h:double) {
+        def f (BookFrame.textFrame(id 50.0 y 400.0 h "main"))
+        page.addFrame(f)
+        return f
+    }
+
+    ; ---------------------------------------------------------------------
+
+    sfn testUnitsAndFormats:void (c:Check) {
+        print "-- units and formats --"
+        c.near("10 mm is 28.35 pt" (BookUnits.mm(10.0)) 28.346 0.01)
+        c.near("1 inch is 72 pt" (BookUnits.inch(1.0)) 72.0 0.001)
+        c.near("points round-trip to mm" (BookUnits.toMm((BookUnits.mm(17.0)))) 17.0 0.0001)
+
+        def a4:BookPageSize (BookFormats.resolve("a4"))
+        c.near("A4 is 595 pt wide" a4.width 595.28 0.01)
+        def sq:BookPageSize (BookFormats.resolve("square-210"))
+        c.ok("a square trim is square" (sq.width == sq.height))
+        def unknown:BookPageSize (BookFormats.resolve("no-such-format"))
+        c.near("an unknown format falls back to A4" unknown.height 841.89 0.01)
+    }
+
+    sfn testMasterMirroring:void (c:Check) {
+        print "-- master pages mirror across the spine --"
+        def d (BookTest.fixture(12.0))
+        def m (BookMasterPage.create("body"))
+        m.setMargins(40.0 50.0 70.0 30.0)
+        m.showPageNumber = true
+        def mark (BookFrame.shapeFrame("mark" 70.0 100.0 40.0 40.0 "#ff0000"))
+        m.addFrame(mark)
+        d.addMaster(m)
+
+        c.near("the inner margin is on the left of a recto" (m.leftMarginFor(true)) 70.0 0.001)
+        c.near("and on the right of a verso" (m.rightMarginFor(false)) 70.0 0.001)
+
+        def recto:BookPage (d.newPage("body"))
+        def verso:BookPage (d.newPage("body"))
+        c.ok("page 0 is a recto" (recto.isRecto()))
+        c.ok("page 1 is a verso" ((verso.isRecto()) == false))
+
+        def rf:BookFrame (recto.frameAt(0))
+        def vf:BookFrame (verso.frameAt(0))
+        c.near("the recto keeps the authored x" rf.x 70.0 0.001)
+        def mirrored:double (d.pageWidth - 70.0)
+        def wanted:double (mirrored - 40.0)
+        c.near("the verso mirrors it across the spine" vf.x wanted 0.001)
+        c.ok("a master frame is marked as coming from the master" rf.fromMaster)
+        c.eqInt("the folio is stamped on too" (recto.frameCount()) 2)
+    }
+
+    sfn testFlowAcrossFrames:void (c:Check) {
+        print "-- a story flows through linked frames --"
+        def d (BookTest.fixture(10.0))
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("l1\nl2\nl3\nl4\nl5\nl6" "body")
+        def p1:BookPage (d.newPage(""))
+        def p2:BookPage (d.newPage(""))
+        BookTest.addFrame(d p1 "a" 50.0 40.0)
+        BookTest.addFrame(d p2 "b" 50.0 40.0)
+        d.linkFrames("a" "b")
+
+        def engine (new BookFlowEngine())
+        def r:BookFlowResult (engine.flowStory(d "a"))
+        c.eqInt("every line is placed" (r.lineCount()) 6)
+        def onA:[BookLine] (r.linesInFrame("a"))
+        def onB:[BookLine] (r.linesInFrame("b"))
+        c.eqInt("the first frame takes four lines" (array_length onA) 4)
+        c.eqInt("the rest continue into the second" (array_length onB) 2)
+        c.ok("nothing is overset" (r.overflow == false))
+        c.eqInt("two frames were used" r.framesUsed 2)
+
+        def firstOnB:BookLine (itemAt onB 0)
+        c.eqStr("the continuation starts where the first frame stopped" firstOnB.text "l5")
+        c.eqInt("and it knows which page it is on" firstOnB.pageIndex 1)
+    }
+
+    sfn testOverset:void (c:Check) {
+        print "-- a story with nowhere to go says so --"
+        def d (BookTest.fixture(10.0))
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8" "body")
+        def p1:BookPage (d.newPage(""))
+        BookTest.addFrame(d p1 "a" 50.0 30.0)
+
+        def engine (new BookFlowEngine())
+        def r:BookFlowResult (engine.flowStory(d "a"))
+        c.eqInt("only what fits is placed" (r.lineCount()) 3)
+        c.ok("and the overflow is reported" r.overflow)
+        c.eqInt("from the paragraph that did not finish" r.overflowParagraph 0)
+        c.eqInt("and the line it stopped at" r.overflowLine 3)
+        def frame:BookFrame (d.frameFor("a"))
+        c.ok("the frame is marked as overflowing" frame.overflowed)
+    }
+
+    sfn testOrphanControl:void (c:Check) {
+        print "-- orphans: no stub at the foot of a column --"
+        def d (BookTest.fixture(10.0))
+        def s:BookStory (d.newStory("main"))
+        ; Two lines fill the column, then a three-line paragraph arrives with
+        ; room for exactly one more line.
+        s.addParagraph("a1\na2" "body")
+        s.addParagraph("b1\nb2\nb3" "body")
+        def p1:BookPage (d.newPage(""))
+        def p2:BookPage (d.newPage(""))
+        BookTest.addFrame(d p1 "a" 50.0 30.0)
+        BookTest.addFrame(d p2 "b" 50.0 100.0)
+        d.linkFrames("a" "b")
+
+        def engine (new BookFlowEngine())
+        def r:BookFlowResult (engine.flowStory(d "a"))
+        def onA:[BookLine] (r.linesInFrame("a"))
+        c.eqInt("the column stops rather than orphan a line" (array_length onA) 2)
+        def onB:[BookLine] (r.linesInFrame("b"))
+        c.eqInt("the whole paragraph moved on" (array_length onB) 3)
+        def firstB:BookLine (itemAt onB 0)
+        c.eqStr("starting at its first line" firstB.text "b1")
+    }
+
+    sfn testWidowControl:void (c:Check) {
+        print "-- widows: no stub at the head of the next column --"
+        def d (BookTest.fixture(10.0))
+        def s:BookStory (d.newStory("main"))
+        ; Room for four lines; a four-line paragraph would carry one line over,
+        ; so it must hold two back instead.
+        s.addParagraph("a1\na2\na3\na4" "body")
+        def p1:BookPage (d.newPage(""))
+        def p2:BookPage (d.newPage(""))
+        BookTest.addFrame(d p1 "a" 50.0 30.0)
+        BookTest.addFrame(d p2 "b" 50.0 100.0)
+        d.linkFrames("a" "b")
+
+        def engine (new BookFlowEngine())
+        def r:BookFlowResult (engine.flowStory(d "a"))
+        def onA:[BookLine] (r.linesInFrame("a"))
+        def onB:[BookLine] (r.linesInFrame("b"))
+        c.eqInt("two lines stay" (array_length onA) 2)
+        c.eqInt("and two carry over, not one" (array_length onB) 2)
+    }
+
+    sfn testKeepWithNext:void (c:Check) {
+        print "-- a heading does not end a column --"
+        def d (BookTest.fixture(10.0))
+        def head (BookStyle.create("head" "Noto Sans" 10.0))
+        head.leading = 10.0
+        head.keepWithNext = true
+        head.orphans = 1
+        head.widows = 1
+        d.addStyle(head)
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("a1\na2" "body")
+        s.addParagraph("Heading" "head")
+        s.addParagraph("b1\nb2" "body")
+        def p1:BookPage (d.newPage(""))
+        def p2:BookPage (d.newPage(""))
+        BookTest.addFrame(d p1 "a" 50.0 30.0)
+        BookTest.addFrame(d p2 "b" 50.0 100.0)
+        d.linkFrames("a" "b")
+
+        def engine (new BookFlowEngine())
+        def r:BookFlowResult (engine.flowStory(d "a"))
+        def onA:[BookLine] (r.linesInFrame("a"))
+        c.eqInt("the heading is not left behind alone" (array_length onA) 2)
+        def onB:[BookLine] (r.linesInFrame("b"))
+        def firstB:BookLine (itemAt onB 0)
+        c.eqStr("it travels with its paragraph" firstB.text "Heading")
+    }
+
+    sfn testColumns:void (c:Check) {
+        print "-- columns fill in order --"
+        def d (BookTest.fixture(10.0))
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("l1\nl2\nl3\nl4\nl5\nl6" "body")
+        def p1:BookPage (d.newPage(""))
+        def f (BookFrame.textFrame("a" 50.0 50.0 400.0 30.0 "main"))
+        f.columns = 2
+        f.gutter = 20.0
+        p1.addFrame(f)
+
+        c.near("two columns share the width minus the gutter" (f.columnWidth()) 190.0 0.001)
+        c.near("the second column starts after the gutter" (f.columnX(1)) 260.0 0.001)
+
+        def engine (new BookFlowEngine())
+        def r:BookFlowResult (engine.flowStory(d "a"))
+        c.eqInt("all six lines fit in two columns of three" (r.lineCount()) 6)
+        def lines:[BookLine] (r.linesInFrame("a"))
+        def fourth:BookLine (itemAt lines 3)
+        c.eqInt("the fourth line is in the second column" fourth.column 1)
+        c.near("and starts at the second column's x" fourth.x 260.0 0.001)
+    }
+
+    sfn testImageFit:void (c:Check) {
+        print "-- image fitting and crop --"
+        def frame (BookFrame.imageFrame("i" 0.0 0.0 200.0 100.0 "a"))
+        def wide (BookAsset.create("a" "a.jpg" 400.0 100.0))
+
+        frame.fit = "cover"
+        def cover:BookImageBox (BookRenderer.fitImage(frame wide))
+        c.near("cover fills the height" cover.h 100.0 0.001)
+        c.near("and overflows the width" cover.w 400.0 0.001)
+        c.near("centred by default" cover.x -100.0 0.001)
+
+        frame.focusX = 0.0
+        def left:BookImageBox (BookRenderer.fitImage(frame wide))
+        c.near("focus 0 keeps the left edge" left.x 0.0 0.001)
+
+        frame.fit = "contain"
+        frame.focusX = 0.5
+        frame.focusY = 0.5
+        def contain:BookImageBox (BookRenderer.fitImage(frame wide))
+        c.near("contain fits the width" contain.w 200.0 0.001)
+        c.near("letterboxed vertically" contain.y 25.0 0.001)
+
+        frame.fit = "fill"
+        def fill:BookImageBox (BookRenderer.fitImage(frame wide))
+        c.near("fill takes the frame exactly" fill.w 200.0 0.001)
+        c.near("distorting if it must" fill.h 100.0 0.001)
+    }
+
+    sfn testAutoLayoutGrows:void (c:Check) {
+        print "-- auto layout grows the book until the story fits --"
+        def api (BookApi.create("Auto" "square-210"))
+        api.defaultStyles()
+        def m:BookMasterPage (api.master("story"))
+        def s:BookStory (api.story("main"))
+        def i:int 0
+        while (i < 12) {
+            s.addParagraph("p1\np2\np3\np4\np5\np6\np7\np8" "body")
+            i = (i + 1)
+        }
+        def result:BookAutoLayoutResult (api.autoLayoutWith("main" ([] _:string ( )) "story"))
+        c.ok("it made more than one page" (result.pagesCreated > 1))
+        c.ok("and stopped when the story fit" (result.overflow == false))
+        def flow:BookFlowResult result.flowResult
+        c.eqInt("every line is on a page" (flow.lineCount()) 96)
+
+        ; The frames are a chain, so an editor can walk from any page to the next.
+        def chain:[string] (api.doc.frameChain((itemAt (api.doc.storyEntryFrames()) 0)))
+        c.eqInt("the text frames form one chain" (array_length chain) result.textFrames)
+    }
+
+    sfn testAutoLayoutPlacesImages:void (c:Check) {
+        print "-- auto layout places the pictures too --"
+        def api (BookApi.create("Pictures" "square-210"))
+        api.defaultStyles()
+        api.master("story")
+        def s:BookStory (api.story("main"))
+        s.addParagraph("one\ntwo" "body")
+        def k:int 0
+        while (k < 5) {
+            def id:string ("p" + (to_string k))
+            api.asset(id (id + ".jpg") 3000.0 2000.0)
+            k = (k + 1)
+        }
+        def result:BookAutoLayoutResult (api.autoLayout("main" "story"))
+        c.eqInt("all five pictures are on a page" result.imagesPlaced 5)
+        c.ok("no image was left over" ((array_length result.messages) == 0))
+    }
+
+    sfn testSignaturePadding:void (c:Check) {
+        print "-- a book is bound in signatures of four --"
+        def api (BookApi.create("Pad" "a5"))
+        api.defaultStyles()
+        api.page("")
+        api.page("")
+        api.page("")
+        def added:int (api.auto.padToSignature(api.doc 4))
+        c.eqInt("one blank page was added" added 1)
+        c.eqInt("bringing the count to four" (api.doc.pageCount()) 4)
+        def again:int (api.auto.padToSignature(api.doc 4))
+        c.eqInt("and padding an exact count adds nothing" again 0)
+    }
+
+    sfn testPreflight:void (c:Check) {
+        print "-- preflight finds what the screen hides --"
+        def api (BookApi.create("Preflight" "square-210"))
+        api.defaultStyles()
+        def page:BookPage (api.page(""))
+
+        ; A photograph far too small for the page it covers, stopping exactly
+        ; at the trim.
+        api.asset("small" "small.jpg" 400.0 400.0)
+        def img (BookFrame.imageFrame("i1" 0.0 0.0 595.28 595.28 "small"))
+        page.addFrame(img)
+        ; And a frame pointing at nothing.
+        def ghost (BookFrame.imageFrame("i2" 100.0 100.0 100.0 100.0 "not-there"))
+        page.addFrame(ghost)
+
+        def report:BookPreflightReport (api.runPreflight())
+        def found:boolean false
+        def bleed:boolean false
+        def missing:boolean false
+        def signature:boolean false
+        def i:int 0
+        while (i < (report.count())) {
+            def it:BookPreflightItem (report.itemAtIndex(i))
+            if (it.code == "low-resolution") {
+                found = true
+            }
+            if (it.code == "no-bleed") {
+                bleed = true
+            }
+            if (it.code == "missing-asset") {
+                missing = true
+            }
+            if (it.code == "signature") {
+                signature = true
+            }
+            i = (i + 1)
+        }
+        c.ok("a 48 dpi photograph is an error" found)
+        c.ok("an element that stops at the trim is an error" bleed)
+        c.ok("a frame pointing at no asset is an error" missing)
+        c.ok("a page count of one is not a signature" signature)
+        c.ok("so the book is not printable" ((report.printable()) == false))
+
+        ; The same image with bleed and enough pixels passes.
+        def api2 (BookApi.create("Clean" "square-210"))
+        api2.defaultStyles()
+        def p2:BookPage (api2.page(""))
+        api2.asset("big" "big.jpg" 3000.0 3000.0)
+        def img2 (BookFrame.imageFrame("j1" -8.5 -8.5 612.28 612.28 "big"))
+        p2.addFrame(img2)
+        api2.page("")
+        api2.page("")
+        api2.page("")
+        def clean:BookPreflightReport (api2.runPreflight())
+        c.eqInt("a bleeding, high-resolution page has no errors" (clean.errorCount()) 0)
+
+        ; Text that reaches the trim is a safety problem. Telling the author to
+        ; extend it past the edge would be advice that makes it worse.
+        def api3 (BookApi.create("Edge" "a5"))
+        api3.defaultStyles()
+        def p3:BookPage (api3.page(""))
+        def s3:BookStory (api3.story("main"))
+        s3.addParagraph("edge" "body")
+        def wide (BookFrame.textFrame("w" 0.0 0.0 419.53 200.0 "main"))
+        p3.addFrame(wide)
+        def edge:BookPreflightReport (api3.runPreflight())
+        def sawSafety:boolean false
+        def sawBleed:boolean false
+        def j:int 0
+        while (j < (edge.count())) {
+            def it3:BookPreflightItem (edge.itemAtIndex(j))
+            if (it3.code == "safety-margin") {
+                sawSafety = true
+            }
+            if (it3.code == "no-bleed") {
+                sawBleed = true
+            }
+            j = (j + 1)
+        }
+        c.ok("a text frame at the trim is a safety warning" sawSafety)
+        c.ok("and never a bleed error" (sawBleed == false))
+    }
+
+    sfn testRendering:void (c:Check) {
+        print "-- what comes out --"
+        def api (BookApi.create("Render & Print" "square-210"))
+        api.doc.author = "A <script> Author"
+        api.defaultStyles()
+        def m:BookMasterPage (api.master("story"))
+        m.showPageNumber = true
+        def s:BookStory (api.story("main"))
+        s.addParagraph("hello\nworld" "body")
+        def page:BookPage (api.page("story"))
+        def f (BookFrame.textFrame("t" 50.0 50.0 400.0 200.0 "main"))
+        page.addFrame(f)
+
+        def svg:string (api.pageSvg(0))
+        c.ok("the page is an svg" ((substring svg 0 4) == "<svg"))
+        c.ok("with the text in it" (BookTest.hasSub(svg "hello")))
+        c.ok("and the folio resolved to a page number" (BookTest.hasSub(svg ">1<")))
+
+        def spread:string (api.spreadSvg(0))
+        c.ok("the first spread is a single recto" (BookTest.hasSub(spread "hello")))
+        c.ok("drawn on the right half of the sheet, with nothing facing it"
+            (BookTest.hasSub(spread "translate(595.28,0)")))
+        c.ok("and the sheet is two pages wide" (BookTest.hasSub(spread "width=\"1190.56\"")))
+
+        def tsx:string (api.tsx())
+        c.ok("the tsx names the document" (BookTest.hasSub(tsx "Render &amp; Print")))
+        c.ok("text goes through as a string literal, not raw jsx" (BookTest.hasSub(tsx "{\"hello\"}")))
+        c.ok("every element is absolutely positioned" (BookTest.hasSub(tsx "position=\"absolute\"")))
+
+        def json:string (api.toJson())
+        c.ok("the json carries the page" (BookTest.hasSub(json "\"index\": 0")))
+        c.ok("and the frame that holds the story" (BookTest.hasSub(json "\"story\": \"main\"")))
+    }
+
+    sfn testStaleFlow:void (c:Check) {
+        print "-- an export never ships a stale layout --"
+        def api (BookApi.create("Stale" "a5"))
+        api.defaultStyles()
+        def s:BookStory (api.story("main"))
+        s.addParagraph("one" "body")
+        def page:BookPage (api.page(""))
+        def f (BookFrame.textFrame("t" 40.0 40.0 300.0 300.0 "main"))
+        page.addFrame(f)
+        def first:string (api.pageSvg(0))
+        c.ok("the first render has the first text" (BookTest.hasSub(first "one")))
+
+        api.addText("main" "two" "body")
+        def second:string (api.pageSvg(0))
+        c.ok("adding text re-flows before rendering" (BookTest.hasSub(second "two")))
+    }
+
+    ; `contains` is a reserved method name in Ranger, so this is not called that.
+    sfn hasSub:boolean (haystack:string needle:string) {
+        def hl:int (strlen haystack)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (nl > hl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            def piece:string (substring haystack i (i + nl))
+            if (piece == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        print "== BookTest =="
+        def c (new Check())
+        BookTest.testUnitsAndFormats(c)
+        BookTest.testMasterMirroring(c)
+        BookTest.testFlowAcrossFrames(c)
+        BookTest.testOverset(c)
+        BookTest.testOrphanControl(c)
+        BookTest.testWidowControl(c)
+        BookTest.testKeepWithNext(c)
+        BookTest.testColumns(c)
+        BookTest.testImageFit(c)
+        BookTest.testAutoLayoutGrows(c)
+        BookTest.testAutoLayoutPlacesImages(c)
+        BookTest.testSignaturePadding(c)
+        BookTest.testPreflight(c)
+        BookTest.testRendering(c)
+        BookTest.testStaleFlow(c)
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

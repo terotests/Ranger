@@ -1,0 +1,125 @@
+; ==============================================================================
+; book_demo.rgr - a picture book, start to finish
+; ==============================================================================
+;
+;   npm run book:demo
+;
+; Builds a real book from a story and three photographs, lays it out
+; automatically, checks it for print, and writes the results to
+; gallery/book/output:
+;
+;   spread-NNN.svg   what a reader sees, two pages at a time
+;   page-NNN.svg     single pages
+;   book.tsx         the EVG document the existing tooling turns into PDF
+;   preflight.txt    what a printer would complain about
+;   book.json        the laid-out book, for a host that draws the editor
+;
+; The demo loads real font faces before laying anything out. That is not a
+; detail: with heuristic widths the line breaks here would not be the line
+; breaks in the PDF, and preflight says so out loud.
+; ==============================================================================
+
+Import "BookApi.rgr"
+Import "../../pdf_writer/src/fonts/EVGFontSetup.rgr"
+
+class BookDemo {
+    sfn main:void () {
+        print "== Ranger book engine demo =="
+
+        ; --- fonts first, so every measurement is the printed one ---
+        def setup (new EVGFontSetup())
+        setup.init("./gallery/book/" "")
+        def manager:FontManager (setup.getManager())
+        def measurer (new TTFTextMeasurer(manager))
+        def engine (new EVGTextEngine())
+        engine.setMeasurer(measurer)
+        print ("Fonts loaded: " + (to_string (setup.loadedCount())))
+
+        def api (BookApi.create("The Bear Who Counted Leaves" "square-210"))
+        api.useTextEngine(engine)
+        api.doc.author = "A Ranger book"
+        api.defaultStyles()
+
+        ; The body face is the one the demo can actually embed.
+        def body:BookStyle (api.doc.styleFor("body"))
+        body.fontFamily = "Noto Sans"
+        body.fontSize = 13.0
+        body.leading = 20.0
+        body.align = "justify"
+        def title:BookStyle (api.doc.styleFor("title"))
+        title.fontFamily = "Cinzel"
+        def chapter:BookStyle (api.doc.styleFor("chapter"))
+        chapter.fontFamily = "Cinzel"
+        chapter.fontSize = 20.0
+
+        ; --- the master page: margins, and a folio on every page ---
+        def m:BookMasterPage (api.master("story"))
+        m.setMargins(52.0 58.0 62.0 46.0)
+        m.showPageNumber = true
+        m.pageNumberOffset = 30.0
+
+        ; --- the story ---
+        def s:BookStory (api.story("main"))
+        s.addParagraph("The Bear Who Counted Leaves" "chapter")
+        s.addParagraph("Once upon a time there was a small bear who lived under a very large tree at the edge of a quiet wood. He was not a clever bear, and he was not a fast bear, but he was a bear who noticed things, which is a rarer talent than either." "body")
+        s.addParagraph("Every morning, before the mist had left the hollows, he would sit down on the same flat stone and count the leaves on the lowest branch. There were four hundred and six of them on the first morning, and four hundred and six on the second, and this pleased him enormously." "body")
+        s.addParagraph("On the third morning there were four hundred and five. The bear sat very still for a long time. Somewhere above him, a single leaf had decided that it had done enough." "body")
+        s.addParagraph("He looked for it all afternoon. He looked under the ferns and behind the stone and in the shallow part of the stream where the water goes slow and clear, and he did not find it, because a leaf that has come down is very hard to tell from all the other leaves that came down before it." "body")
+        s.addParagraph("Autumn" "chapter")
+        s.addParagraph("By the time the wood turned the colour of an old coin, the bear had stopped counting leaves and started counting mornings instead. There were fewer of those than there had been leaves, but they were easier to keep track of, and none of them ever went missing while he was not looking." "body")
+        s.addParagraph("The tree let go of everything it had, one piece at a time, without hurry and without regret. The bear watched it do this and understood, in the slow way that bears understand things, that the tree was not losing anything at all. It was putting things down." "body")
+        s.addParagraph("When the first snow came he went to sleep under the roots with his nose tucked into his paws, and he dreamed of four hundred and six leaves, all of them exactly where he had left them." "body")
+        s.addParagraph("Spring" "chapter")
+        s.addParagraph("He woke to a sound he could not place: a small, green, insistent sound, like a hundred tiny things unfolding at once. It was, of course, exactly that." "body")
+        s.addParagraph("The bear climbed out into the light, sat down on his flat stone, looked up at the lowest branch, and began, without the slightest hesitation, to count again." "body")
+
+        ; --- the photographs ---
+        def base:string "../../pdf_writer/assets/images/"
+        api.asset("photo-1" (base + "Example_scaled.jpg") 600.0 600.0)
+        api.asset("photo-2" (base + "GPS_test.jpg") 640.0 480.0)
+        api.asset("photo-3" (base + "Canon_40D_scaled.jpg") 500.0 340.0)
+
+        ; --- lay it out ---
+        api.titlePage()
+        def result:BookAutoLayoutResult (api.autoLayout("main" "story"))
+        print ("Auto layout: " + (to_string result.pagesCreated) + " page(s), "
+            + (to_string result.imagesPlaced) + " image(s), "
+            + (to_string result.textFrames) + " text frame(s)")
+        def mi:int 0
+        while (mi < (array_length result.messages)) {
+            print ("  note: " + (itemAt result.messages mi))
+            mi = (mi + 1)
+        }
+
+        ; A book is bound in signatures of four pages.
+        def padded:int (api.auto.padToSignature(api.doc 4))
+        if (padded > 0) {
+            api.invalidate()
+            print ("Padded with " + (to_string padded) + " blank page(s) to a multiple of four")
+        }
+
+        print (api.summary())
+
+        ; --- check it ---
+        def report:BookPreflightReport (api.runPreflight())
+        def out:string "./gallery/book/output"
+        ; `create_dir` maps to a plain mkdir on the JavaScript target, which
+        ; throws when the directory is already there - so a second run of the
+        ; demo would fail on success. See ISSUES.md.
+        try {
+            create_dir out
+        } {
+        }
+        write_file out "preflight.txt" (report.asText())
+        print "Preflight:"
+        print (report.asText())
+
+        ; --- write it out ---
+        def spreads:int (api.writeSpreads(out "spread"))
+        def pages:int (api.writePages(out "page"))
+        api.writeTsx(out "book.tsx")
+        write_file out "book.json" (api.toJson())
+        print ("Wrote " + (to_string spreads) + " spread(s) and " + (to_string pages) + " page(s) to " + out)
+        print "Next: npm run book:pdf turns book.tsx into a PDF with the EVG tooling."
+    }
+}

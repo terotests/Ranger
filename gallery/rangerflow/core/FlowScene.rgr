@@ -1,0 +1,622 @@
+; ============================================================================
+; FlowScene.rgr — one description of the picture, four ways to draw it.
+; ============================================================================
+;
+; The EVG display-list note in `gallery/evg/gl/README.md` makes the case
+; better than this file can: when five painters each walk the tree and decide
+; again what a box means, border-radius comes to work in PDF and silently not
+; in PNG. A graph editor is exactly the shape that goes wrong that way — the
+; interactive renderer wants flat quads sixty times a second, the exporter
+; wants a laid-out document, and nobody notices for a month that the printed
+; diagram puts the crow's foot on the other end.
+;
+; So the view builds a FlowScene once, and the scene emits:
+;
+;   toDisplayList()  → EVGDisplayList → WebGL / SoftCanvas / SDL2
+;   toEvgTree()      → EVGElement     → EVGLayout → PDF / HTML / PNG
+;   toSvg()          → an SVG document, for pasting into anything
+;
+; A scene item is deliberately dumb — absolute flow-space coordinates, resolved
+; colours, paths already flattened *and* kept as an SVG `d`. The two path
+; representations are built together from the same construction, so the GPU's
+; polyline and the PDF's curve cannot describe different lines.
+; ============================================================================
+
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "FlowTheme.rgr"
+
+; kind: 0 rect, 1 text, 2 path, 3 push clip, 4 pop clip
+class SceneItem {
+    def kind:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def radius:double 0.0
+
+    def fill:string ""
+    def stroke:string ""
+    def strokeWidth:double 0.0
+    def opacity:double 1.0
+
+    ; text
+    def text:string ""
+    def fontSize:double 12.0
+    def fontFamily:string ""
+    def bold:boolean false
+    def italic:boolean false
+    ; "left" | "center" | "right"
+    def align:string "left"
+
+    ; path
+    def pts:[double]
+    def d:string ""
+    def closed:boolean false
+    def dash:double 0.0
+
+    ; a tag the hit tester and the tests read: "node:<id>", "edge:<id>",
+    ; "port:<id>", "chrome"
+    def tag:string ""
+
+    Constructor () {
+    }
+}
+
+class FlowScene {
+    def items:[SceneItem]
+    def theme:FlowTheme (new FlowTheme)
+    ; The flow-space rectangle the scene covers, for exporters that need a page.
+    def worldX:double 0.0
+    def worldY:double 0.0
+    def worldW:double 0.0
+    def worldH:double 0.0
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn at:SceneItem (i:int) {
+        return (itemAt items i)
+    }
+
+    fn clearItems:void () {
+        clear items
+    }
+
+    ; Items that become something in a document. Clip pushes and pops are
+    ; instructions to a rasterizer, not marks on a page: the display list
+    ; carries them, the EVG tree has no equivalent and drops them.
+    fn drawableCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def s:SceneItem (itemAt items i)
+            if (s.kind < 3) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ------------------------------------------------------------- builders --
+    fn rect:SceneItem (x:double y:double w:double h:double fill:string) {
+        def s (new SceneItem)
+        s.kind = 0
+        s.x = x
+        s.y = y
+        s.w = w
+        s.h = h
+        s.fill = fill
+        push items s
+        return s
+    }
+
+    fn text:SceneItem (t:string x:double y:double w:double size:double color:string) {
+        def s (new SceneItem)
+        s.kind = 1
+        s.x = x
+        s.y = y
+        s.w = w
+        s.h = (size * 1.3)
+        s.text = t
+        s.fontSize = size
+        s.fill = color
+        push items s
+        return s
+    }
+
+    fn path:SceneItem (pts:[double] d:string stroke:string width:double) {
+        def s (new SceneItem)
+        s.kind = 2
+        s.d = d
+        s.stroke = stroke
+        s.strokeWidth = width
+        def i:int 0
+        while (i < (array_length pts)) {
+            push s.pts (itemAt pts i)
+            i = (i + 1)
+        }
+        push items s
+        return s
+    }
+
+    fn polygon:SceneItem (pts:[double] fill:string) {
+        def s (new SceneItem)
+        s.kind = 2
+        s.closed = true
+        s.fill = fill
+        def i:int 0
+        while (i < (array_length pts)) {
+            push s.pts (itemAt pts i)
+            i = (i + 1)
+        }
+        s.d = (FlowScene.polygonPath(s.pts true))
+        push items s
+        return s
+    }
+
+    fn pushClip:void (x:double y:double w:double h:double) {
+        def s (new SceneItem)
+        s.kind = 3
+        s.x = x
+        s.y = y
+        s.w = w
+        s.h = h
+        push items s
+    }
+
+    fn popClip:void () {
+        def s (new SceneItem)
+        s.kind = 4
+        push items s
+    }
+
+    sfn polygonPath:string (pts:[double] close:boolean) {
+        def out:string ""
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt pts yat)
+            if (i == 0) {
+                out = ("M " + (EVGDisplayList.num(x)) + " " + (EVGDisplayList.num(y)))
+            } {
+                out = (out + " L " + (EVGDisplayList.num(x)) + " " + (EVGDisplayList.num(y)))
+            }
+            i = (i + 1)
+        }
+        if close {
+            out = (out + " Z")
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------- EVG display list --
+    ; Backend one: flat commands for the GPU. Every item is already in the
+    ; coordinates it will be drawn at, because the view applied the viewport
+    ; transform while building — a GPU backend has no tree to transform.
+    fn toDisplayList:EVGDisplayList () {
+        def dl (new EVGDisplayList)
+        this.emitInto(dl)
+        return dl
+    }
+
+    fn emitInto:void (dl:EVGDisplayList) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def s:SceneItem (itemAt items i)
+            if (s.kind == 0) {
+                if ((strlen s.fill) > 0) {
+                    def fc:EVGColor (EVGColor.parse(s.fill))
+                    if (s.opacity < 1.0) {
+                        fc = (EVGColor.rgba((fc.red()) (fc.green()) (fc.blue()) ((fc.alpha()) * s.opacity)))
+                    }
+                    def c (new EVGDrawCmd)
+                    c.kind = 0
+                    c.x = s.x
+                    c.y = s.y
+                    c.w = s.w
+                    c.h = s.h
+                    c.radius = s.radius
+                    c.r = (fc.red())
+                    c.g = (fc.green())
+                    c.b = (fc.blue())
+                    c.a = (fc.alpha())
+                    push dl.cmds c
+                }
+                if ((strlen s.stroke) > 0) {
+                    def sc:EVGColor (EVGColor.parse(s.stroke))
+                    def cb (new EVGDrawCmd)
+                    cb.kind = 1
+                    cb.x = s.x
+                    cb.y = s.y
+                    cb.w = s.w
+                    cb.h = s.h
+                    cb.radius = s.radius
+                    cb.thickness = s.strokeWidth
+                    cb.r = (sc.red())
+                    cb.g = (sc.green())
+                    cb.b = (sc.blue())
+                    cb.a = (sc.alpha())
+                    push dl.cmds cb
+                }
+            }
+            if (s.kind == 1) {
+                def tc:EVGColor (EVGColor.parse(s.fill))
+                def ct (new EVGDrawCmd)
+                ct.kind = 3
+                ct.x = s.x
+                ct.y = s.y
+                ct.w = s.w
+                ct.h = s.h
+                ct.text = s.text
+                ct.fontFamily = s.fontFamily
+                ct.fontSize = s.fontSize
+                if s.bold {
+                    ct.fontWeight = "bold"
+                }
+                ct.r = (tc.red())
+                ct.g = (tc.green())
+                ct.b = (tc.blue())
+                ct.a = (tc.alpha())
+                push dl.cmds ct
+            }
+            if (s.kind == 2) {
+                if (s.closed) {
+                    if ((strlen s.fill) > 0) {
+                        def pf:EVGColor (EVGColor.parse(s.fill))
+                        dl.addPolygon(s.pts pf)
+                    }
+                }
+                if ((strlen s.stroke) > 0) {
+                    def ps:EVGColor (EVGColor.parse(s.stroke))
+                    def pts2:[double] s.pts
+                    if s.closed {
+                        pts2 = (FlowScene.closeRing(s.pts))
+                    }
+                    if (s.dash > 0.0) {
+                        ; The display list has no dash pattern, and SVG does.
+                        ; Left alone, a dotted association would come out
+                        ; dotted in the PDF and solid on the GPU — the exact
+                        ; failure the one-scene rule exists to prevent. So the
+                        ; dashes are cut here, once, and every backend that
+                        ; reads the list gets the same line.
+                        def parts:int (FlowScene.dashCount(pts2 s.dash))
+                        def d:int 0
+                        while (d < parts) {
+                            def piece:[double] (FlowScene.dashAt(pts2 s.dash d))
+                            if ((array_length piece) >= 4) {
+                                dl.addPolyline(piece s.strokeWidth ps)
+                            }
+                            d = (d + 1)
+                        }
+                    } {
+                        dl.addPolyline(pts2 s.strokeWidth ps)
+                    }
+                }
+            }
+            if (s.kind == 3) {
+                dl.addClip(s.x s.y s.w s.h)
+            }
+            if (s.kind == 4) {
+                dl.addClipEnd()
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --------------------------------------------------------------- dashes --
+    ; A dash and the gap after it, walked along the polyline by arc length. The
+    ; pattern is `dash` on, `dash` off, which is what a single-number
+    ; stroke-dasharray means in SVG — so the two backends agree by construction
+    ; rather than by luck.
+    sfn dashCount:int (pts:[double] dash:double) {
+        if (dash <= 0.0) {
+            return 0
+        }
+        def total:double (FlowScene.polyLength(pts))
+        def period:double (dash * 2.0)
+        def raw:double (total / period)
+        def n:int ((to_int raw) + 1)
+        if (n < 1) {
+            return 0
+        }
+        ; A guard, not a limit anything real reaches: a dash of a tenth of a
+        ; pixel on a long edge would otherwise emit thousands of polylines.
+        if (n > 400) {
+            return 400
+        }
+        return n
+    }
+
+    sfn dashAt:[double] (pts:[double] dash:double index:int) {
+        def from:double ((to_double index) * (dash * 2.0))
+        def to:double (from + dash)
+        return (FlowScene.sliceByLength(pts from to))
+    }
+
+    sfn polyLength:double (pts:[double]) {
+        def total:double 0.0
+        def n:int (idiv (array_length pts) 2)
+        def i:int 1
+        while (i < n) {
+            total = (total + (FlowScene.segLength(pts (i - 1) i)))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    sfn segLength:double (pts:[double] a:int b:int) {
+        def ayAt:int ((a * 2) + 1)
+        def byAt:int ((b * 2) + 1)
+        def dx:double ((itemAt pts (b * 2)) - (itemAt pts (a * 2)))
+        def dy:double ((itemAt pts byAt) - (itemAt pts ayAt))
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    ; The piece of the polyline between two arc lengths, corners kept.
+    sfn sliceByLength:[double] (pts:[double] from:double to:double) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return out
+        }
+        def walked:double 0.0
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt pts ayAt)
+            def bx:double (itemAt pts (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt pts byAt)
+            def len:double (FlowScene.segLength(pts (i - 1) i))
+            if (len > 0.000001) {
+                def segFrom:double walked
+                def segTo:double (walked + len)
+                def lo:double from
+                if (segFrom > lo) { lo = segFrom }
+                def hi:double to
+                if (segTo < hi) { hi = segTo }
+                if (hi > lo) {
+                    def t0:double ((lo - segFrom) / len)
+                    def t1:double ((hi - segFrom) / len)
+                    if ((array_length out) == 0) {
+                        push out (ax + ((bx - ax) * t0))
+                        push out (ay + ((by - ay) * t0))
+                    }
+                    push out (ax + ((bx - ax) * t1))
+                    push out (ay + ((by - ay) * t1))
+                }
+            }
+            walked = (walked + len)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A stroked ring has to come back to where it started; the tessellator
+    ; joins consecutive points and would otherwise leave the last edge open.
+    sfn closeRing:[double] (pts:[double]) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length pts)) {
+            push out (itemAt pts i)
+            i = (i + 1)
+        }
+        if ((array_length pts) >= 2) {
+            push out (itemAt pts 0)
+            push out (itemAt pts 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------- EVG tree --
+    ; Backend two: a laid-out EVG document. Absolutely positioned, because the
+    ; positions are already known — the scene is the layout. From here the
+    ; existing renderers take over: EVGPDFRenderer for print, EVGHTMLRenderer
+    ; for a page, EVGRasterRenderer for a PNG.
+    fn toEvgTree:EVGElement () {
+        def root:EVGElement (EVGElement.createDiv())
+        root.width = (EVGUnit.px(worldW))
+        root.height = (EVGUnit.px(worldH))
+        root.pageWidth = worldW
+        root.pageHeight = worldH
+        root.position = "relative"
+        root.backgroundColor = (EVGColor.parse(theme.background))
+        def i:int 0
+        while (i < (array_length items)) {
+            def s:SceneItem (itemAt items i)
+            def el:EVGElement (this.itemToElement(s))
+            if (s.kind < 3) {
+                root.addChild(el)
+            }
+            i = (i + 1)
+        }
+        return root
+    }
+
+    fn itemToElement:EVGElement (s:SceneItem) {
+        if (s.kind == 1) {
+            ; `tagName == "text"` is what the PDF and HTML renderers switch on
+            ; to paint a string; a div with textContent lays out and prints
+            ; nothing, which is exactly what the first exported PDF did.
+            def t:EVGElement (EVGElement.createSpan())
+            t.tagName = "text"
+            t.position = "absolute"
+            t.left = (EVGUnit.px((s.x - worldX)))
+            t.top = (EVGUnit.px((s.y - worldY)))
+            t.width = (EVGUnit.px(s.w))
+            t.textContent = s.text
+            t.fontSize = (EVGUnit.px(s.fontSize))
+            t.lineHeight = 1.25
+            t.color = (EVGColor.parse(s.fill))
+            t.textAlign = s.align
+            if ((strlen s.fontFamily) > 0) {
+                t.fontFamily = s.fontFamily
+            }
+            if s.bold {
+                t.fontWeight = "bold"
+            }
+            return t
+        }
+        if (s.kind == 2) {
+            def p:EVGElement (EVGElement.createPath())
+            p.position = "absolute"
+            p.left = (EVGUnit.px((s.x - worldX)))
+            p.top = (EVGUnit.px((s.y - worldY)))
+            p.width = (EVGUnit.px(s.w))
+            p.height = (EVGUnit.px(s.h))
+            p.svgPath = s.d
+            p.viewBox = s.text
+            if ((strlen s.fill) > 0) {
+                p.fillColor = (EVGColor.parse(s.fill))
+            } {
+                p.fillColor = (EVGColor.noColor())
+            }
+            if ((strlen s.stroke) > 0) {
+                p.strokeColor = (EVGColor.parse(s.stroke))
+                p.strokeWidth = s.strokeWidth
+            }
+            return p
+        }
+        def d:EVGElement (EVGElement.createDiv())
+        d.position = "absolute"
+        d.left = (EVGUnit.px((s.x - worldX)))
+        d.top = (EVGUnit.px((s.y - worldY)))
+        d.width = (EVGUnit.px(s.w))
+        d.height = (EVGUnit.px(s.h))
+        if ((strlen s.fill) > 0) {
+            d.backgroundColor = (EVGColor.parse(s.fill))
+        }
+        if ((strlen s.stroke) > 0) {
+            d.borderColor = (EVGColor.parse(s.stroke))
+            d.borderWidth = (EVGUnit.px(s.strokeWidth))
+        }
+        if (s.radius > 0.0) {
+            d.box.borderRadius = (EVGUnit.px(s.radius))
+        }
+        d.opacity = s.opacity
+        return d
+    }
+
+    ; ------------------------------------------------------------------ SVG --
+    ; Backend three. Not an EVG path — a plain SVG document, because "give me
+    ; the diagram" most often means "let me paste it somewhere".
+    fn toSvg:string () {
+        def out:string "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\""
+        out = (out + (EVGDisplayList.num(worldW)) + "\" height=\"" + (EVGDisplayList.num(worldH)) + "\"")
+        out = (out + " viewBox=\"" + (EVGDisplayList.num(worldX)) + " " + (EVGDisplayList.num(worldY)))
+        out = (out + " " + (EVGDisplayList.num(worldW)) + " " + (EVGDisplayList.num(worldH)) + "\">\n")
+        def i:int 0
+        while (i < (array_length items)) {
+            def s:SceneItem (itemAt items i)
+            if (s.kind == 0) {
+                out = (out + "<rect x=\"" + (EVGDisplayList.num(s.x)) + "\" y=\"" + (EVGDisplayList.num(s.y)))
+                out = (out + "\" width=\"" + (EVGDisplayList.num(s.w)) + "\" height=\"" + (EVGDisplayList.num(s.h)) + "\"")
+                if (s.radius > 0.0) {
+                    out = (out + " rx=\"" + (EVGDisplayList.num(s.radius)) + "\"")
+                }
+                if ((strlen s.fill) > 0) {
+                    out = (out + " fill=\"" + s.fill + "\"")
+                } {
+                    out = (out + " fill=\"none\"")
+                }
+                if ((strlen s.stroke) > 0) {
+                    out = (out + " stroke=\"" + s.stroke + "\" stroke-width=\"" + (EVGDisplayList.num(s.strokeWidth)) + "\"")
+                }
+                out = (out + "/>\n")
+            }
+            if (s.kind == 1) {
+                ; SVG puts the origin on the baseline, EVG on the top of the
+                ; line box. Anchor and x are decided together — emitting a
+                ; second `x` after `text-anchor` produced a duplicate attribute
+                ; and browsers kept the first one, so right-aligned columns
+                ; drew left-aligned in the SVG and correctly everywhere else.
+                def baseline:double (s.y + (s.fontSize * 0.98))
+                def tx:double s.x
+                def anchor:string ""
+                if (s.align == "right") {
+                    tx = (s.x + s.w)
+                    anchor = " text-anchor=\"end\""
+                }
+                if (s.align == "center") {
+                    tx = (s.x + (s.w * 0.5))
+                    anchor = " text-anchor=\"middle\""
+                }
+                out = (out + "<text x=\"" + (EVGDisplayList.num(tx)) + "\" y=\"" + (EVGDisplayList.num(baseline)) + "\"" + anchor)
+                out = (out + " font-family=\"" + s.fontFamily + "\" font-size=\"" + (EVGDisplayList.num(s.fontSize)) + "\"")
+                out = (out + " fill=\"" + s.fill + "\"")
+                if s.bold {
+                    out = (out + " font-weight=\"bold\"")
+                }
+                if s.italic {
+                    out = (out + " font-style=\"italic\"")
+                }
+                out = (out + ">" + (FlowScene.xmlEscape(s.text)) + "</text>\n")
+            }
+            if (s.kind == 2) {
+                def d:string s.d
+                if ((strlen d) == 0) {
+                    d = (FlowScene.polygonPath(s.pts s.closed))
+                }
+                out = (out + "<path d=\"" + d + "\"")
+                if ((strlen s.fill) > 0) {
+                    out = (out + " fill=\"" + s.fill + "\"")
+                } {
+                    out = (out + " fill=\"none\"")
+                }
+                if ((strlen s.stroke) > 0) {
+                    out = (out + " stroke=\"" + s.stroke + "\" stroke-width=\"" + (EVGDisplayList.num(s.strokeWidth)) + "\"")
+                    out = (out + " stroke-linejoin=\"round\" stroke-linecap=\"round\"")
+                    if (s.dash > 0.0) {
+                        out = (out + " stroke-dasharray=\"" + (EVGDisplayList.num(s.dash)) + "\"")
+                    }
+                }
+                out = (out + "/>\n")
+            }
+            i = (i + 1)
+        }
+        return (out + "</svg>\n")
+    }
+
+    sfn xmlEscape:string (v:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            if (c == 38) {
+                out = (out + "&amp;")
+            } {
+                if (c == 60) {
+                    out = (out + "&lt;")
+                } {
+                    if (c == 62) {
+                        out = (out + "&gt;")
+                    } {
+                        out = (out + (strfromcode c))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------- JSON --
+    ; What the browser page fetches: the display list, plus the size of the
+    ; surface it is drawn on.
+    fn sceneJson:string (width:double height:double) {
+        def dl:EVGDisplayList (this.toDisplayList())
+        def body:string (dl.toJson())
+        return ("{\"width\":" + (EVGDisplayList.num(width)) + ",\"height\":" + (EVGDisplayList.num(height)) + ",\"list\":" + body + "}")
+    }
+}

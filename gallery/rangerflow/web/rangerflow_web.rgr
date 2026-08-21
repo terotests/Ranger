@@ -1,0 +1,819 @@
+; ============================================================================
+; rangerflow_web.rgr — the editor, with no host process.
+; ============================================================================
+;
+;   browser event → RangerFlowWeb → FlowEditor          (in this tab)
+;   FlowEditor.sceneJson() → EVGDisplayList → evg-webgl.js   (in this tab)
+;
+; Ranger compiles to JavaScript, so the app simply *is* in the page. There is
+; no server in the middle and no scene fetched sixty times a second from a
+; process on the same machine: the editor runs in the tab, hands the WebGL
+; renderer a display list, and the only thing fetched is what a browser cannot
+; make for itself — the font faces and a `.sql` file to open.
+;
+; This class is a facade and nothing else. Every decision it might be tempted
+; to make lives one layer down, where the tests can reach it.
+; ============================================================================
+
+Import "../core/FlowEditor.rgr"
+Import "../domains/erd/SqlSchemaReader.rgr"
+Import "../domains/erd/SchemaToGraph.rgr"
+Import "../domains/uml/UMLModel.rgr"
+Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/business/BusinessCharts.rgr"
+Import "../layout/LayeredLayout.rgr"
+Import "../layout/ForceLayout.rgr"
+Import "../layout/EdgeLanes.rgr"
+Import "../layout/OrthoRouter.rgr"
+
+class RangerFlowWeb {
+    def graph:FlowGraph (new FlowGraph)
+    def editor:FlowEditor (new FlowEditor)
+    def sim:FlowSimulation (new FlowSimulation)
+    def simRunning:boolean false
+    def input:FlowInput (new FlowInput)
+    def status:string ""
+    def layoutName:string "layered"
+    ; Kept here because `loadSql` builds a new editor, and an editor that
+    ; forgot the canvas size culls everything and draws nothing.
+    def viewW:double 1200.0
+    def viewH:double 800.0
+    ; The fetched fixture, kept so the scenario picker can return to it.
+    def fixtureSql:string ""
+    ; Whether the viewer has taken the wheel. Until then a running simulation
+    ; is allowed to reframe itself; after that it must not move under them.
+    def userMoved:boolean false
+
+    Constructor () {
+    }
+
+    fn init:void (w:double h:double) {
+        editor = (FlowEditor.of(graph))
+        this.resize(w h)
+    }
+
+    fn resize:void (w:double h:double) {
+        viewW = w
+        viewH = h
+        editor.setSize(w h)
+    }
+
+    ; --------------------------------------------------------------- input --
+    fn pointerDown:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        userMoved = true
+        editor.pointerDown(input)
+        if simRunning {
+            editor.pinWhileDragging = true
+            sim.alpha = 0.35
+        }
+    }
+
+    fn pointerMove:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerMove(input)
+    }
+
+    fn pointerUp:void (x:double y:double shift:boolean ctrl:boolean) {
+        input.x = x
+        input.y = y
+        input.shift = shift
+        input.ctrl = ctrl
+        editor.pointerUp(input)
+        ; Lanes and routes are only valid for the positions they were computed
+        ; from, so a drag or a new connection invalidates both. The layout's
+        ; routes are not recomputed — once a node has been moved by hand the
+        ; layering it was routed against is no longer what is on screen.
+        if (simRunning == false) {
+            EdgeLanes.reset(graph)
+            EdgeLanes.assign(graph)
+            ; Whatever the drag put in somebody's way, routed round. Only the
+            ; broken edges are touched, so this costs a Dijkstra or two rather
+            ; than a rewrite of the diagram.
+            OrthoRouter.repairAll(graph)
+        }
+    }
+
+    ; What the pointer should look like where it is. The segment handles are
+    ; invisible, so the cursor is the only thing that says they are there.
+    fn cursorAt:string (x:double y:double) {
+        if (editor.mode == 6) {
+            if editor.segVertical {
+                return "ew-resize"
+            }
+            return "ns-resize"
+        }
+        if (editor.mode != 0) {
+            return ""
+        }
+        def hit:int (editor.segmentAt(x y))
+        if (hit < 0) {
+            return ""
+        }
+        if (editor.segmentIsVertical(hit)) {
+            return "ew-resize"
+        }
+        return "ns-resize"
+    }
+
+    fn wheel:void (x:double y:double delta:double) {
+        input.x = x
+        input.y = y
+        userMoved = true
+        editor.wheel(input delta)
+    }
+
+    fn keyDown:boolean (key:string shift:boolean ctrl:boolean) {
+        return (editor.keyDown(key shift ctrl))
+    }
+
+    fn fitView:void () {
+        editor.fitView()
+    }
+
+    ; ------------------------------------------------------------ scenarios --
+    ; The demos the page can show, by name. Each one builds a graph and picks
+    ; the layout and notation that suit it — a schema wants layered and crow's
+    ; foot, a class diagram wants top-to-bottom and UML, a force graph wants
+    ; neither. `?scenario=uml` in the URL picks one, and so does the dropdown.
+    fn loadScenario:boolean (name:string) {
+        if (name == "uml") {
+            return (this.loadUml())
+        }
+        if (name == "force") {
+            return (this.loadForceDemo())
+        }
+        if (name == "flow") {
+            return (this.loadFlowchart())
+        }
+        if (name == "atk") {
+            return (this.loadAtkChart())
+        }
+        if (name == "org") {
+            return (this.loadOrgChart())
+        }
+        if (name == "process") {
+            return (this.loadProcess())
+        }
+        return (this.loadSqlFixture())
+    }
+
+    fn loadSqlFixture:boolean () {
+        if ((strlen fixtureSql) == 0) {
+            status = "the schema fixture has not been fetched yet"
+            return false
+        }
+        return (this.loadSql(fixtureSql))
+    }
+
+    ; The page fetches ecommerce.sql once and hands it over; keeping it lets
+    ; the scenario dropdown come back to it without a second round trip.
+    fn setFixtureSql:void (sql:string) {
+        fixtureSql = sql
+    }
+
+    fn adopt:void (g:FlowGraph) {
+        userMoved = false
+        graph = g
+        editor = (FlowEditor.of(graph))
+        editor.setSize(viewW viewH)
+    }
+
+    fn loadUml:boolean () {
+        def d (new UMLDiagram)
+        def shape:UMLClass (d.umlClass("Shape"))
+        shape.stereotype = "abstract"
+        shape.attribute("#" "origin" "Point")
+        shape.operation("+" "area" "" "double")
+        shape.operation("+" "draw" "ctx: Canvas" "void")
+        def rect:UMLClass (d.umlClass("Rectangle"))
+        rect.attribute("-" "width" "double")
+        rect.attribute("-" "height" "double")
+        rect.operation("+" "area" "" "double")
+        def circle:UMLClass (d.umlClass("Circle"))
+        circle.attribute("-" "radius" "double")
+        circle.operation("+" "area" "" "double")
+        def poly:UMLClass (d.umlClass("Polygon"))
+        poly.attribute("-" "points" "[Point]")
+        poly.operation("+" "area" "" "double")
+        def canvas:UMLClass (d.umlClass("Canvas"))
+        canvas.attribute("-" "shapes" "[Shape]")
+        canvas.operation("+" "add" "s: Shape" "void")
+        canvas.operation("+" "render" "" "void")
+        def point:UMLClass (d.umlClass("Point"))
+        point.stereotype = "record"
+        point.attribute("+" "x" "double")
+        point.attribute("+" "y" "double")
+        d.relate("Rectangle" "Shape" "inheritance")
+        d.relate("Circle" "Shape" "inheritance")
+        d.relate("Polygon" "Shape" "inheritance")
+        def owns:UMLRelation (d.relate("Canvas" "Shape" "composition"))
+        owns.toMultiplicity = "0..*"
+        d.relate("Shape" "Point" "aggregation")
+        def u2g (new UMLToGraph)
+        def g:FlowGraph (u2g.build(d))
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 110.0
+        lay.nodeGap = 40.0
+        lay.run()
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " classes, " + (to_string (g.edgeCount())) + " relations — drag a line from the middle to route it by hand")
+        return true
+    }
+
+    ; React Flow's force-layout example, which is where this library started:
+    ; a tree with a few cross links under d3-force, running live, and a node
+    ; you drag is pinned while you hold it.
+    fn loadForceDemo:boolean () {
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < 30) {
+            def n:FlowNode (g.node(("n" + (to_string i)) ("node " + (to_string i)) 0.0 0.0))
+            n.width = 110.0
+            n.height = 40.0
+            i = (i + 1)
+        }
+        def k:int 1
+        while (k < 30) {
+            def parent:int (idiv (k - 1) 3)
+            def e:FlowEdge (g.connect(("n" + (to_string parent)) ("n" + (to_string k))))
+            e.edgeType = "default"
+            e.markerEnd = ""
+            k = (k + 1)
+        }
+        def x1:FlowEdge (g.connect("n5" "n17"))
+        x1.edgeType = "default"
+        x1.markerEnd = ""
+        def x2:FlowEdge (g.connect("n8" "n23"))
+        x2.edgeType = "default"
+        x2.markerEnd = ""
+        def x3:FlowEdge (g.connect("n11" "n26"))
+        x3.edgeType = "default"
+        x3.markerEnd = ""
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "force"
+        sim = (FlowSimulation.reactFlowExample(graph -1000.0 150.0))
+        sim.collideEnabled = true
+        simRunning = true
+        editor.pinWhileDragging = true
+        status = "d3-force, 30 nodes — drag one and it pins while you hold it"
+        return true
+    }
+
+    ; A plain flowchart, because a graph editor should not need a domain to be
+    ; useful — and because it is the one scenario with no compartments in it.
+    fn loadFlowchart:boolean () {
+        def g (new FlowGraph)
+        def start:FlowNode (g.node("start" "Pull request opened" 0.0 0.0))
+        start.nodeType = "input"
+        start.width = 190.0
+        start.height = 46.0
+        def lint:FlowNode (g.node("lint" "Lint" 0.0 0.0))
+        lint.width = 150.0
+        lint.height = 44.0
+        def test:FlowNode (g.node("test" "Unit tests" 0.0 0.0))
+        test.width = 150.0
+        test.height = 44.0
+        def parity:FlowNode (g.node("parity" "Parity meter" 0.0 0.0))
+        parity.width = 150.0
+        parity.height = 44.0
+        def review:FlowNode (g.node("review" "Review" 0.0 0.0))
+        review.width = 150.0
+        review.height = 44.0
+        def merge:FlowNode (g.node("merge" "Merge" 0.0 0.0))
+        merge.nodeType = "output"
+        merge.width = 150.0
+        merge.height = 44.0
+        def fix:FlowNode (g.node("fix" "Push a fix" 0.0 0.0))
+        fix.width = 150.0
+        fix.height = 44.0
+        g.connect("start" "lint")
+        g.connect("start" "test")
+        g.connect("start" "parity")
+        g.connect("lint" "review")
+        g.connect("test" "review")
+        g.connect("parity" "review")
+        g.connect("review" "merge")
+        def back:FlowEdge (g.connect("review" "fix"))
+        back.label = "changes requested"
+        back.edgeType = "smoothstep"
+        def again:FlowEdge (g.connect("fix" "start"))
+        again.edgeType = "smoothstep"
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "LR"
+        lay.layerGap = 90.0
+        lay.nodeGap = 26.0
+        lay.run()
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = "a flowchart — drag a line from the middle to route it by hand"
+        return true
+    }
+
+    ; ------------------------------------------------- business and ATK ----
+    ; The ATK chart in the shapes it is supposed to be in — a stadium for the
+    ; start, a diamond for the decision, a drum for the register, a page with a
+    ; wavy foot for the printed invoice. The shape is the sentence; the label
+    ; only says which one.
+    fn loadAtkChart:boolean () {
+        def c (new Flowchart)
+        c.start("alku" "Alku")
+        c.step("tilaus" "Lue tilaus" (FlowKind.io()))
+        c.step("asiakas" "Asiakasrekisteri" (FlowKind.database()))
+        c.step("tarkista" "Tarkista luottotiedot" (FlowKind.process()))
+        c.step("luotto" "Luotto kunnossa?" (FlowKind.decision()))
+        c.step("varasto" "Varaa tuotteet" (FlowKind.process()))
+        c.step("saldo" "Riittääkö saldo?" (FlowKind.decision()))
+        c.step("jalki" "Merkitse jälkitoimitukseen" (FlowKind.process()))
+        c.step("laskuta" "Muodosta lasku" (FlowKind.predefined()))
+        c.step("lasku" "Lasku asiakkaalle" (FlowKind.document()))
+        c.step("hylkaa" "Ilmoita hylkäys" (FlowKind.manual()))
+        c.step("loppu" "Loppu" (FlowKind.terminator()))
+        c.link("alku" "tilaus")
+        c.link("tilaus" "tarkista")
+        c.link("asiakas" "tarkista")
+        c.link("tarkista" "luotto")
+        c.branch("luotto" "varasto" "kyllä")
+        c.branch("luotto" "hylkaa" "ei")
+        c.link("varasto" "saldo")
+        c.branch("saldo" "laskuta" "kyllä")
+        c.branch("saldo" "jalki" "ei")
+        c.link("jalki" "laskuta")
+        c.link("laskuta" "lasku")
+        c.link("lasku" "loppu")
+        c.link("hylkaa" "loppu")
+        def g:FlowGraph (c.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 70.0
+        lay.nodeGap = 46.0
+        lay.run()
+        Flowchart.faceEdges(graph)
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " vaihetta, " + (to_string (g.edgeCount())) + " yhteyttä — ATK-kaavio ISO 5807:n muodoilla")
+        return true
+    }
+
+    fn loadOrgChart:boolean () {
+        def o (new OrgChart)
+        o.unitColor("Johto" "#eef2ff")
+        o.unitColor("Tuotanto" "#eefaf1")
+        o.unitColor("Myynti" "#fff5e9")
+        o.unitColor("Talous" "#f7effb")
+        o.person("tj" "Aino Virtanen" "toimitusjohtaja" "Johto" "")
+        o.person("cto" "Markus Laine" "teknologiajohtaja" "Johto" "tj")
+        o.person("cfo" "Riikka Salo" "talousjohtaja" "Talous" "tj")
+        o.person("myynti" "Pekka Nieminen" "myyntijohtaja" "Myynti" "tj")
+        o.person("kehitys" "Sanna Koskinen" "kehityspäällikkö" "Tuotanto" "cto")
+        o.person("yllapito" "Otto Mäkelä" "ylläpitopäällikkö" "Tuotanto" "cto")
+        o.person("kirjanpito" "Liisa Aho" "kirjanpitäjä" "Talous" "cfo")
+        o.person("avain" "Tuomas Heikkinen" "avainasiakaspäällikkö" "Myynti" "myynti")
+        def matrix:OrgPerson (o.person("analyytikko" "Elina Rantala" "data-analyytikko" "Talous" "kehitys"))
+        matrix.dotted = true
+        def g:FlowGraph (o.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 70.0
+        lay.nodeGap = 34.0
+        lay.run()
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " henkilöä — katkoviiva on matriisiraportointi")
+        return true
+    }
+
+    ; The lanes are placed by the domain rather than by a layout, because who
+    ; does the work is not something an algorithm may decide. Dragging a lane
+    ; takes its steps with it — that is what `parentId` buys.
+    fn loadProcess:boolean () {
+        def p (new SwimlaneProcess)
+        p.lane("asiakas" "Asiakas")
+        p.lane("myynti" "Myynti")
+        p.lane("varasto" "Varasto")
+        p.lane("talous" "Talous")
+        p.step("tilaa" "Tekee tilauksen" "asiakas" (FlowShape.stadium()))
+        p.step("vastaanota" "Vastaanota tilaus" "myynti" (FlowShape.rect()))
+        p.step("luotto" "Luotto ok?" "myynti" (FlowShape.diamond()))
+        p.step("kerays" "Kerää tuotteet" "varasto" (FlowShape.rect()))
+        p.step("toimitus" "Lähetä toimitus" "varasto" (FlowShape.rect()))
+        p.step("laskuta" "Laskuta" "talous" (FlowShape.rect()))
+        p.step("suoritus" "Kirjaa suoritus" "talous" (FlowShape.rect()))
+        p.step("saapuu" "Vastaanottaa tavaran" "asiakas" (FlowShape.stadium()))
+        p.link("tilaa" "vastaanota")
+        p.link("vastaanota" "luotto")
+        p.branch("luotto" "kerays" "kyllä")
+        p.link("kerays" "toimitus")
+        p.link("toimitus" "laskuta")
+        p.link("laskuta" "suoritus")
+        p.link("toimitus" "saapuu")
+        def g:FlowGraph (p.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (array_length p.laneIds)) + " uimarataa — raahaa rataa, niin sen vaiheet tulevat mukana")
+        return true
+    }
+
+    ; ---------------------------------------------------------- authoring ---
+    ; What the toolbar calls. Every one of them is one undo step, and every one
+    ; re-routes afterwards, because a new box in the middle of a corridor is
+    ; exactly the case the repair pass exists for.
+    fn addNode:string (label:string shape:string) {
+        def n:FlowNode (editor.addNodeAtCentre(label shape))
+        this.reroute()
+        return n.id
+    }
+
+    fn addNodeAt:string (label:string shape:string sx:double sy:double) {
+        def fx:double (editor.flowX(sx))
+        def fy:double (editor.flowY(sy))
+        def n:FlowNode (editor.addNode(label shape fx fy))
+        this.reroute()
+        return n.id
+    }
+
+    fn setConnectMode:void (on:boolean) {
+        editor.connectOnClick = on
+        editor.clickConnectFrom = ""
+        if on {
+            status = "yhdistä: klikkaa lähde, sitten kohde"
+        } {
+            status = "valinta"
+        }
+    }
+
+    fn connectMode:boolean () {
+        return editor.connectOnClick
+    }
+
+    fn connect:boolean (sourceId:string targetId:string) {
+        def ok:boolean (editor.connectNodes(sourceId targetId))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn deleteSelection:boolean () {
+        def ok:boolean (editor.deleteSelection())
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn undo:boolean () {
+        def ok:boolean (editor.undo.undo(graph))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn redo:boolean () {
+        def ok:boolean (editor.undo.redo(graph))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn selectedLabel:string () {
+        def n:FlowNode (editor.selectedNode())
+        return n.label
+    }
+
+    fn selectedId:string () {
+        return (editor.selectedNodeId())
+    }
+
+    fn renameSelected:boolean (label:string) {
+        return (editor.renameSelected(label))
+    }
+
+    fn setSelectedShape:boolean (shape:string) {
+        def ok:boolean (editor.setSelectedShape(shape))
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    ; The same two passes pointer-up runs, so an edited diagram is routed the
+    ; way a dragged one is and there is only one answer to "why is that line
+    ; there".
+    fn reroute:void () {
+        if simRunning {
+            return
+        }
+        EdgeLanes.reset(graph)
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+    }
+
+    ; ------------------------------------------------------------- content --
+    ; The page fetches the .sql and hands over the text; nothing here opens a
+    ; file, which is what makes the bundle loadable in a browser at all.
+    fn loadSql:boolean (sql:string) {
+        def schema:DatabaseSchema (SqlSchemaReader.parse(sql))
+        if ((schema.tableCount()) == 0) {
+            status = "no CREATE TABLE statements found"
+            return false
+        }
+        def s2g (new SchemaToGraph)
+        userMoved = false
+        graph = (s2g.build(schema))
+        editor = (FlowEditor.of(graph))
+        editor.setSize(viewW viewH)
+        this.applyLayout()
+        status = ((to_string (schema.tableCount())) + " tables, " + (to_string (array_length schema.foreignKeys)) + " relationships — drag a line from the middle to route it by hand")
+        return true
+    }
+
+    fn applyLayout:void () {
+        if (layoutName == "force") {
+            sim = (FlowSimulation.of(graph))
+            sim.chargeStrength = -1400.0
+            sim.linkDistance = 220.0
+            sim.linkStrengthFixed = 0.06
+            sim.xEnabled = true
+            sim.yEnabled = true
+            sim.collideEnabled = true
+            sim.pullPositions()
+            simRunning = true
+            editor.pinWhileDragging = true
+            return
+        }
+        simRunning = false
+        editor.pinWhileDragging = false
+        ; "none" means the positions came from the domain and are part of what
+        ; the diagram says — a swimlane's rows are who does the work, and a
+        ; layout free to move a box between them is free to reassign it.
+        if (layoutName == "none") {
+            this.reroute()
+            return
+        }
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "LR"
+        lay.layerGap = 160.0
+        lay.nodeGap = 40.0
+        lay.run()
+        SchemaToGraph.faceEdges(graph)
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        ; A second lane pass, now that the chained routes exist: the first one
+        ; could not see them, so a track and a chain could end up drawn four
+        ; pixels apart. This one treats the chains as lines to keep clear of.
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+    }
+
+    fn setLayout:void (name:string) {
+        layoutName = name
+        this.applyLayout()
+    }
+
+    fn setNotation:void (name:string) {
+        editor.view.notation = name
+    }
+
+    fn setTheme:void (name:string) {
+        if (name == "dark") {
+            editor.view.theme = (FlowTheme.dark())
+        } {
+            editor.view.theme = (FlowTheme.light())
+        }
+    }
+
+    fn setBackgroundVariant:void (v:int) {
+        editor.view.theme.backgroundVariant = v
+    }
+
+    fn setSnap:void (on:boolean) {
+        editor.snapToGrid = on
+    }
+
+    fn setEdgeType:void (kind:string) {
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            e.edgeType = kind
+            k = (k + 1)
+        }
+    }
+
+    ; ---------------------------------------------------------------- frame --
+    ; One tick of the simulation per frame when it is running, then the scene.
+    fn frame:string () {
+        if simRunning {
+            if ((sim.isSettled()) == false) {
+                sim.tick()
+                SchemaToGraph.faceEdges(graph)
+                ; A force layout starts as a dot at the origin and grows to
+                ; several thousand units across. Fitting once at load and never
+                ; again left the demo at 4x zoom looking at the inside of one
+                ; node, so it follows the graph while it settles — and stops
+                ; the moment the viewer touches anything, because a viewport
+                ; that moves under your hand is worse than a bad first frame.
+                if (userMoved == false) {
+                    editor.fitView()
+                }
+            }
+        }
+        return (editor.sceneJson())
+    }
+
+    fn sceneJson:string () {
+        return (editor.sceneJson())
+    }
+
+    fn svg:string () {
+        def sc:FlowScene (editor.view.buildForExport(24.0))
+        return (sc.toSvg())
+    }
+
+    ; What the page prints in its status bar, and what the smoke test reads
+    ; back out of the DOM to prove the editor actually did something.
+    fn stats:string () {
+        def v:FlowView editor.view
+        def out:string ("nodes=" + (to_string (graph.nodeCount())))
+        out = (out + " edges=" + (to_string (graph.edgeCount())))
+        out = (out + " drawn=" + (to_string v.drawnNodes))
+        out = (out + " culled=" + (to_string v.culledNodes))
+        out = (out + " selected=" + (to_string (graph.selectedNodeCount())))
+        out = (out + " zoom=" + (EVGDisplayList.num(v.viewport.zoom)))
+        out = (out + " sim=" + (to_string simRunning))
+        if simRunning {
+            out = (out + " alpha=" + (EVGDisplayList.num(sim.alpha)))
+        }
+        return out
+    }
+
+    fn statusText:string () {
+        return status
+    }
+
+    ; A scripted session the page can run with `?selftest=1`: select a table,
+    ; drag it, box-select everything, undo. There is no browser-driver library
+    ; here, so the page tests itself and writes the result where headless
+    ; Chrome's --dump-dom can be read back.
+    fn selfTest:string () {
+        if ((graph.nodeCount()) == 0) {
+            return "FAIL no nodes"
+        }
+        def report:string ""
+        ; A running simulation moves the graph between the steps, so the test
+        ; would be measuring the layout rather than the editor. Paused for the
+        ; duration and put back afterwards.
+        def wasRunning:boolean simRunning
+        simRunning = false
+        editor.fitView()
+        def first:FlowNode (graph.nodeAt(0))
+        def sx:double (editor.view.viewport.toScreenX((first.centerX())))
+        def sy:double (editor.view.viewport.toScreenY((first.centerY())))
+        ; Which node is actually under that point — with overlapping nodes the
+        ; topmost one wins, and asserting on node 0 would be asserting on the
+        ; paint order rather than on the click.
+        def fx:double (editor.view.viewport.toFlowX(sx))
+        def fy:double (editor.view.viewport.toFlowY(sy))
+        def hit:int (graph.nodeAtPoint(fx fy))
+        if (hit < 0) {
+            simRunning = wasRunning
+            return "FAIL nothing under the pointer after fitView"
+        }
+        def n:FlowNode (graph.nodeAt(hit))
+        this.pointerDown(sx sy false false)
+        this.pointerUp(sx sy false false)
+        if (n.selected == false) {
+            simRunning = wasRunning
+            return "FAIL click did not select"
+        }
+        report = (report + "select ok; ")
+        def beforeX:double n.x
+        this.pointerDown(sx sy false false)
+        this.pointerMove((sx + 40.0) (sy + 25.0) false false)
+        this.pointerUp((sx + 40.0) (sy + 25.0) false false)
+        if (n.x <= beforeX) {
+            simRunning = wasRunning
+            return "FAIL drag did not move the node"
+        }
+        report = (report + "drag ok; ")
+        this.keyDown("z" false true)
+        def back:double (fabs (n.x - beforeX))
+        if (back > 0.001) {
+            simRunning = wasRunning
+            return "FAIL undo did not restore"
+        }
+        report = (report + "undo ok; ")
+        this.keyDown("a" false true)
+        if ((graph.selectedNodeCount()) != (graph.nodeCount())) {
+            simRunning = wasRunning
+            return "FAIL select all"
+        }
+        report = (report + "select-all ok; ")
+        graph.clearSelection()
+
+        ; The toolbar, driven the way the buttons drive it. A palette that
+        ; adds a node nobody can find, or a connect mode that makes no edge, is
+        ; a toolbar that looks like it works — so the test adds two boxes, joins
+        ; them, renames one, and takes it all back again.
+        def nodes0:int (graph.nodeCount())
+        def edges0:int (graph.edgeCount())
+        def idA:string (this.addNode("Testi A" (FlowShape.diamond())))
+        def idB:string (this.addNode("Testi B" (FlowShape.cylinder())))
+        if ((graph.nodeCount()) != (nodes0 + 2)) {
+            simRunning = wasRunning
+            return "FAIL the palette did not add two nodes"
+        }
+        if ((this.connect(idA idB)) == false) {
+            simRunning = wasRunning
+            return "FAIL connect made no edge"
+        }
+        if ((graph.edgeCount()) != (edges0 + 1)) {
+            simRunning = wasRunning
+            return "FAIL the new edge is not in the graph"
+        }
+        def added:FlowNode (graph.nodeById(idB))
+        ; The palette selects what it just added, which is what makes the name
+        ; field work without a second click.
+        if ((this.selectedId()) != idB) {
+            simRunning = wasRunning
+            return "FAIL the new node is not selected"
+        }
+        this.renameSelected("Nimetty")
+        if (added.label != "Nimetty") {
+            simRunning = wasRunning
+            return "FAIL rename"
+        }
+        ; Three undos: the edge, then each node.
+        this.undo()
+        this.undo()
+        this.undo()
+        if ((graph.nodeCount()) != nodes0) {
+            simRunning = wasRunning
+            return "FAIL undo left the added nodes behind"
+        }
+        if ((graph.edgeCount()) != edges0) {
+            simRunning = wasRunning
+            return "FAIL undo left the added edge behind"
+        }
+        report = (report + "toolbar ok; ")
+        graph.clearSelection()
+        def json:string (editor.sceneJson())
+        if ((strlen json) < 100) {
+            simRunning = wasRunning
+            return "FAIL empty scene"
+        }
+        report = (report + "scene " + (to_string (strlen json)) + " bytes; ")
+        simRunning = wasRunning
+        return ("PASS " + report + (this.stats()))
+    }
+}

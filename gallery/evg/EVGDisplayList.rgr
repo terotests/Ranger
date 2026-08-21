@@ -221,6 +221,86 @@ class EVGDisplayList {
         push cmds c
     }
 
+    ; A stroked polyline and a filled polygon, given in page coordinates.
+    ; The SVG walk below already emits kind 6/7 commands, but only from a
+    ; parsed `<path>`: anything that computes its own geometry — a chart line,
+    ; a graph edge — had no way to say so, and each such caller either
+    ; approximated the curve with thin rects or drew nothing on the GPU. The
+    ; points are already flattened, which is the contract kind 6/7 carry.
+    fn addPolyline:void (pts:[double] thickness:double col:EVGColor) {
+        if ((array_length pts) < 4) {
+            return
+        }
+        def c (new EVGDrawCmd())
+        c.kind = 7
+        c.thickness = thickness
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        def i:int 0
+        while (i < (array_length pts)) {
+            push c.pts (itemAt pts i)
+            i = (i + 1)
+        }
+        push c.ringEnds (array_length c.pts)
+        this.setPolyBounds(c)
+        push cmds c
+    }
+
+    fn addPolygon:void (pts:[double] col:EVGColor) {
+        if ((array_length pts) < 6) {
+            return
+        }
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        def i:int 0
+        while (i < (array_length pts)) {
+            push c.pts (itemAt pts i)
+            i = (i + 1)
+        }
+        push c.ringEnds (array_length c.pts)
+        this.setPolyBounds(c)
+        push cmds c
+    }
+
+    ; A path command still carries a box, because the GL backend scissors and
+    ; batches by it. Derived from the points rather than left at zero, which
+    ; clipped every computed path to a 0x0 rectangle.
+    fn setPolyBounds:void (c:EVGDrawCmd) {
+        def minX:double 0.0
+        def minY:double 0.0
+        def maxX:double 0.0
+        def maxY:double 0.0
+        def n:int (idiv (array_length c.pts) 2)
+        def i:int 0
+        while (i < n) {
+            def x:double (itemAt c.pts (i * 2))
+            def yat:int ((i * 2) + 1)
+            def y:double (itemAt c.pts yat)
+            if (i == 0) {
+                minX = x
+                maxX = x
+                minY = y
+                maxY = y
+            } {
+                if (x < minX) { minX = x }
+                if (x > maxX) { maxX = x }
+                if (y < minY) { minY = y }
+                if (y > maxY) { maxY = y }
+            }
+            i = (i + 1)
+        }
+        c.x = minX
+        c.y = minY
+        c.w = (maxX - minX)
+        c.h = (maxY - minY)
+    }
+
     fn addClipEnd:void () {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 5

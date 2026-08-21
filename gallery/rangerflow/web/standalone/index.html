@@ -1,0 +1,131 @@
+<meta charset="utf-8">
+<title>RangerFlow — schema editor on the GPU</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; font: 13px/1.4 system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; background: #f7f8fa; color: #1f2430; }
+  header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+           padding: 8px 12px; border-bottom: 1px solid #d5dae2; background: #fff; }
+  header strong { font-size: 14px; letter-spacing: .2px; }
+  label { display: inline-flex; gap: 4px; align-items: center; color: #4b5563; }
+  select, button, input[type=file] { font: inherit; }
+  #tools { display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+           padding: 6px 12px; border-bottom: 1px solid #d5dae2; background: #fbfcfe; }
+  #tools .group { display: inline-flex; gap: 4px; align-items: center; }
+  #tools .cap { color: #6b7280; margin-right: 2px; }
+  #tools button { min-width: 30px; padding: 3px 7px; border: 1px solid #ccd3dd;
+                  border-radius: 5px; background: #fff; cursor: pointer; }
+  #tools button:hover { border-color: #7c93b5; }
+  #tools button.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+  #tools .shape { font-size: 15px; line-height: 1.1; }
+  #rename { padding: 3px 6px; border: 1px solid #ccd3dd; border-radius: 5px; }
+  #wrap { flex: 1; position: relative; min-height: 0; }
+  #screen { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  footer { display: flex; gap: 16px; padding: 6px 12px; border-top: 1px solid #d5dae2;
+           background: #fff; color: #6b7280; font-variant-numeric: tabular-nums; }
+  #selftest { white-space: pre-wrap; padding: 6px 12px; color: #111; background: #ffd; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #12151c; color: #e6e9ef; }
+    header, footer { background: #1b202a; border-color: #39414f; }
+    #tools { background: #171c25; border-color: #39414f; }
+    #tools button, #rename { background: #222833; border-color: #39414f; color: #e6e9ef; }
+    #tools button.on { background: #2563eb; border-color: #2563eb; }
+    label, footer { color: #98a2b3; }
+  }
+</style>
+
+<header>
+  <strong>RangerFlow</strong>
+  <label>demo
+    <select id="scenario">
+      <option value="erd">database schema (ERD)</option>
+      <option value="uml">UML class diagram</option>
+      <option value="force">force layout (React Flow example)</option>
+      <option value="flow">flowchart</option>
+      <option value="atk">ATK-kaavio (ISO 5807)</option>
+      <option value="org">organisaatiokaavio</option>
+      <option value="process">uimaratakaavio</option>
+    </select>
+  </label>
+  <label>layout
+    <select id="layout">
+      <option value="layered">layered</option>
+      <option value="force">force (d3)</option>
+      <option value="none">none (fixed)</option>
+    </select>
+  </label>
+  <label>notation
+    <select id="notation">
+      <option value="crowfoot">crow's foot</option>
+      <option value="uml">UML</option>
+      <option value="plain">plain</option>
+    </select>
+  </label>
+  <label>edges
+    <select id="edgetype">
+      <option value="smoothstep">smoothstep</option>
+      <option value="step">step</option>
+      <option value="default">bezier</option>
+      <option value="straight">straight</option>
+    </select>
+  </label>
+  <label>background
+    <select id="bg">
+      <option value="1">dots</option>
+      <option value="2">lines</option>
+      <option value="3">cross</option>
+      <option value="0">none</option>
+    </select>
+  </label>
+  <label>theme
+    <select id="theme">
+      <option value="light">light</option>
+      <option value="dark">dark</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="snap"> snap</label>
+  <button id="fit">fit</button>
+  <button id="svg">download SVG</button>
+  <label>open .sql <input type="file" id="file" accept=".sql,.txt"></label>
+</header>
+
+<div id="tools">
+  <span class="group">
+    <span class="cap">add</span>
+    <button class="shape" data-shape="rect"          title="Process">▭</button>
+    <button class="shape" data-shape="stadium"       title="Start / end">▢</button>
+    <button class="shape" data-shape="diamond"       title="Decision">◇</button>
+    <button class="shape" data-shape="parallelogram" title="Input / output">▱</button>
+    <button class="shape" data-shape="cylinder"      title="Stored data">⛁</button>
+    <button class="shape" data-shape="document"      title="Document">🗎</button>
+    <button class="shape" data-shape="trapezoid"     title="Manual operation">⏢</button>
+    <button class="shape" data-shape="hexagon"       title="Preparation">⬡</button>
+    <button class="shape" data-shape="predefined"    title="Predefined process">▤</button>
+    <button class="shape" data-shape="circle"        title="Connector">◯</button>
+    <button class="shape" data-shape="note"          title="Note">🗅</button>
+  </span>
+  <span class="group">
+    <button id="connect" title="Click a source node, then a target">connect</button>
+    <button id="del" title="Delete the selection">delete</button>
+    <button id="undo" title="Undo">undo</button>
+    <button id="redo" title="Redo">redo</button>
+  </span>
+  <span class="group">
+    <span class="cap">name</span>
+    <input id="rename" type="text" placeholder="select a node" size="24" disabled>
+  </span>
+</div>
+
+<div id="wrap"><canvas id="screen"></canvas></div>
+
+<footer>
+  <span id="status">loading…</span>
+  <span id="backend">—</span>
+  <span id="cmds">—</span>
+  <span id="fps">—</span>
+  <span id="build">build __BUILD__</span>
+</footer>
+<pre id="selftest" hidden></pre>
+
+<script src="./rangerflow_web.js?v=__BUILD__"></script>
+<script type="module" src="./standalone.mjs?v=__BUILD__"></script>

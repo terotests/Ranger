@@ -1,0 +1,200 @@
+# Book — a visual book composition engine
+
+A page-layout engine for picture books and printed books, written in Ranger.
+Not an InDesign clone and not a vector design suite: the smallest set of
+structures a book actually needs, plus the one thing a vector editor cannot
+give you for free — **text that flows**.
+
+```bash
+npm run book:demo     # build a book, lay it out, check it, write SVG + TSX
+npm run book:pdf      # …and turn it into a PDF with the existing EVG tooling
+npm run book:test     # 76 assertions, JavaScript
+npm run book:test:go  # the same 76 on Go (and book:test:python on Python)
+```
+
+## Why this and not a vector editor
+
+A drawing program has shapes, layers and transforms. A book has those too, but
+what makes it a book is a structure a drawing program has no reason to own:
+
+```
+Story                     TextFrame
+  the words, in order       an area on a page that borrows part of a story
+  page-independent          page-dependent, disposable
+```
+
+Text lives in the story. A page only owns a frame that the story happens to be
+passing through. Move the frame, resize it, delete the page — the story is
+untouched, and the words simply land somewhere else. That single separation is
+what a picture-book tool needs and what you cannot bolt onto a path editor
+afterwards.
+
+Everything else follows from it: linked frames, overset text, master pages,
+automatic pagination, and a preflight check that can say *"page 7 has words on
+it that no page shows"*.
+
+## Where the pieces come from
+
+| Reference | Taken | Left behind |
+| --- | --- | --- |
+| **Scribus** | pages, spreads, master pages, text frames, linked flow, the prepress questions | the prepress UI, the GPL source (this is a behaviour reference, not a port) |
+| **Paged.js** | continuous content → paginated output; measure, fill, overflow, next | the CSS engine and the DOM |
+| **Typst** | a layout model both the editor and the exporter read, rather than two | the markup language and the compiler |
+| **Graphite** | vector decoration, layers, transforms — via EVG, which Ranger already has | the procedural node compositor |
+
+## Architecture
+
+Five files, each with one job, and none of them rendering anything itself:
+
+```
+BookModel.rgr        the document: pages, spreads, masters, frames, stories,
+                     styles, assets. Plain data plus lookup — no layout.
+BookFlow.rgr         the flow engine: story → lines → columns → frames → pages.
+                     Orphans, widows, keep-with-next, hard breaks, overset.
+BookAutoLayout.rgr   template + story + photographs → pages, grown until the
+                     story fits. Front matter and signature padding.
+BookRender.rgr       placed lines → SVG (page or spread) and → TSX (the EVG
+                     document form). Transcription, never re-layout.
+BookPreflight.rgr    the questions a printer asks: resolution, bleed, safety,
+                     overset, signatures, missing assets.
+BookApi.rgr          all of the above with the wiring done, and one rule: any
+                     edit invalidates the flow, so no export ships stale pages.
+```
+
+Output goes out through machinery that already existed:
+
+```
+BookDocument → flow → placed lines → TSX → evg_pdf_tool  → PDF
+                                        → evg_html_tool → HTML
+                                        → evg_png_tool  → PNG
+                                  → SVG → the editor canvas, and tests
+```
+
+`gallery/pdf_writer` is doing the printing. This directory contributes no PDF
+code at all — which is the point: the book engine is a document model and a
+flow engine, and Ranger already had a renderer.
+
+## The flow engine
+
+The interesting part is not filling a column. It is being willing to *undo*
+filling a column:
+
+```
+paragraph arrives
+      ↓
+how many lines fit?             geometry
+      ↓
+would that orphan a line?       typography — push the paragraph forward whole
+would it widow one?             typography — hold lines back
+is this a heading at the foot?  typography — it travels with its paragraph
+      ↓
+place, or move on to the next column / frame / page
+```
+
+That is why the unit of work is the paragraph and not the line: a one-pass
+filler cannot retract a decision it has already made, so it cannot enforce a
+single one of those rules. The tests in `tests/BookTest.rgr` check each of them
+against hand-broken paragraphs, so they pass or fail on the logic rather than on
+which fonts happen to be installed.
+
+Measurement goes through `EVGTextEngine` — the module that exists so that layout
+and paint cannot disagree about where a line breaks. Install the same
+`TTFTextMeasurer` the PDF tool uses (`api.useTextEngine(...)`, as the demo does)
+and the preview and the proof break lines identically by construction. Skip it
+and preflight will tell you, as an error, that they will not.
+
+## Auto layout
+
+The differentiator is not that pages can be generated. It is that the generator
+asks the flow engine instead of estimating:
+
+```
+Book template
+      +                    place a page from the next recipe in the rotation
+   Story          →        flow the story
+      +                    still overset? place another page
+  Images                   repeat
+      ↓
+    pages
+      ↓
+ manual edit               ordinary frames, nothing locked, nothing generated-
+                           looking about them afterwards
+```
+
+Recipes rotate (`full-bleed`, `image-top`, `image-bottom`, `text-only`), so a
+generated book has a rhythm rather than a pattern. Full-bleed images are
+generated 3 mm past the trim, because that is what makes them printable — the
+same rule preflight would otherwise flag.
+
+## Preflight
+
+The checks are the ones that are invisible on screen by construction, which is
+exactly why they need computing:
+
+| Check | Why it costs money |
+| --- | --- |
+| overset text | words that exist in the story and on no page |
+| effective resolution | a 600 px photo across a 210 mm page is 72 dpi and looks perfect on a monitor |
+| bleed | an element that stops *at* the trim leaves a white sliver when the guillotine drifts |
+| safety margin | text nearer the trim than the bindery can promise |
+| signatures | a page count that is not a multiple of four |
+| font metrics | text measured with guessed widths will not break where it prints |
+
+The demo deliberately fails three of them: the sample photographs bundled with
+`pdf_writer` are 500–640 px, which is genuinely too small for a 210 mm page.
+That is preflight working, not preflight misconfigured.
+
+## Using it
+
+```ranger
+def api (BookApi.create("The Bear Who Counted Leaves" "square-210"))
+api.useTextEngine(engine)          ; real font faces — do this first
+api.defaultStyles()
+
+def m:BookMasterPage (api.master("story"))
+m.setMargins(52.0 58.0 62.0 46.0)  ; top, bottom, inner, outer
+m.showPageNumber = true
+
+def s:BookStory (api.story("main"))
+s.addParagraph("Chapter One" "chapter")
+s.addParagraph("Once upon a time..." "body")
+
+api.asset("photo-1" "photos/1.jpg" 3000.0 2000.0)
+
+api.titlePage()
+api.autoLayout("main" "story")
+api.auto.padToSignature(api.doc 4)
+
+def report:BookPreflightReport (api.runPreflight())
+print (report.asText())
+
+api.writeSpreads("./out" "spread")
+api.writeTsx("./out" "book.tsx")
+```
+
+`api.toJson()` gives a host — a React canvas, a server route — the laid-out
+book as data: pages, frames, positions, which frame continues into which, and
+whether anything is overset.
+
+## Formats
+
+`square-210`, `square-250`, `square-8.5in`, `a4`, `a4-landscape`, `a5`,
+`letter`, `trade-5x8`, `trade-6x9`. Square trims come first because picture
+books are square far more often than they are A4. `BookUnits.mm/cm/inch/pt`
+convert; the model stores points.
+
+## Targets
+
+The engine is plain Ranger with no host dependencies beyond `gallery/evg`, and
+the full test suite passes on **JavaScript, Go and Python** — 76 assertions
+each. The demo additionally uses `gallery/pdf_writer`'s `FontManager` for real
+font metrics, which is why it lives in `src/book_demo.rgr` rather than in the
+library.
+
+## What is not here yet
+
+Hyphenation, optical margin alignment and a real justification engine (lines
+currently stretch at render time rather than being broken for even colour);
+text frames that are not rectangles; text wrapping around an image; footnotes;
+a table model; CMYK and ICC output; and the editor UI itself. `PLAN.md` has the
+order and the reasoning.

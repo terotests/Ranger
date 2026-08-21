@@ -258,6 +258,18 @@ class DataGridWeb {
         return (app.sceneJson())
     }
 
+    ; --- and what it MEANS ------------------------------------------------------
+    ; A screen reader cannot read the canvas: it asks the browser for a tree of
+    ; roles and names, and a canvas contributes one empty graphic to that tree
+    ; whatever was drawn into it. So the app publishes the tree itself and the
+    ; page mirrors it as real DOM over the picture (`gl/evg-a11y.js`).
+    ;
+    ; Ask for the scene first: both describe one frame, and the tree reads the
+    ; geometry the scene build settled.
+    fn a11y:string () {
+        return (app.a11yJson())
+    }
+
     fn width:int () {
         return app.W
     }

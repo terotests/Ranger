@@ -1,0 +1,207 @@
+; ============================================================================
+; FlowExport.rgr — the diagram, out of the editor.
+; ============================================================================
+;
+; "EVG sisään" is the whole design: the exporters do not know how to draw a
+; table. They turn the scene into an EVG element tree and hand it to the
+; renderers this repository already has —
+;
+;   FlowScene ──► EVGElement ──► EVGPDFRenderer   → PDF   (real fonts embedded)
+;                            ──► EVGHTMLRenderer  → HTML
+;             ──► toSvg()                         → SVG
+;             ──► EVGDisplayList.toJson()         → scene JSON (the GPU's food)
+;
+; So a printed diagram is the same geometry the editor drew, measured with the
+; same text engine, and the PDF gains nothing this file had to invent.
+; ============================================================================
+
+Import "../core/FlowView.rgr"
+Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
+Import "../../pdf_writer/src/core/EVGHTMLRenderer.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+
+class FlowExport {
+    def fontManager:FontManager (new FontManager())
+    def fontsLoaded:boolean false
+    ; A4 landscape in points, which is what a schema usually wants.
+    def pageWidth:double 842.0
+    def pageHeight:double 595.0
+    def margin:double 24.0
+    ; "page" scales the diagram onto a fixed page; "fit" makes the page as
+    ; large as the diagram.
+    def mode:string "page"
+    def padding:double 24.0
+    def background:boolean false
+
+    Constructor () {
+    }
+
+    ; The fonts the PDF embeds. Without them EVGPDFRenderer falls back to
+    ; guessed widths, and a column of types that lines up on screen does not
+    ; line up in print — which is exactly the failure the text engine warns
+    ; about, so it is loaded rather than hoped for.
+    ; `dir` is the assets root that holds one directory per family, the shape
+    ; `gallery/pdf_writer/assets/fonts` already has. Registering the directory
+    ; is not loading: FontManager searches its directories only when a face is
+    ; asked for by relative path, so the four faces are named explicitly.
+    fn loadFonts:boolean (dir:string) {
+        fontManager.addFontsDirectory(dir)
+        this.loadFamily("Noto_Sans" "NotoSans")
+        this.loadFamily("Open_Sans" "OpenSans")
+        fontsLoaded = ((fontManager.getFontCount()) > 0)
+        return fontsLoaded
+    }
+
+    fn loadFamily:void (dirName:string filePrefix:string) {
+        fontManager.loadFont((dirName + "/" + filePrefix + "-Regular.ttf"))
+        fontManager.loadFont((dirName + "/" + filePrefix + "-Bold.ttf"))
+        fontManager.loadFont((dirName + "/" + filePrefix + "-Italic.ttf"))
+        fontManager.loadFont((dirName + "/" + filePrefix + "-BoldItalic.ttf"))
+    }
+
+    fn sceneOf:FlowScene (view:FlowView) {
+        def savedBg:boolean view.showBackground
+        view.showBackground = background
+        def sc (new FlowScene)
+        if (mode == "fit") {
+            sc = (view.buildForExport(padding))
+        } {
+            sc = (view.buildForPage(pageWidth pageHeight margin))
+        }
+        view.showBackground = savedBg
+        return sc
+    }
+
+    ; ------------------------------------------------------------------ PDF --
+    fn toPdf:buffer (view:FlowView) {
+        def sc:FlowScene (this.sceneOf(view))
+        def root:EVGElement (sc.toEvgTree())
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(sc.worldW sc.worldH)
+        if fontsLoaded {
+            renderer.setFontManager(fontManager)
+            def ttf (new TTFTextMeasurer(fontManager))
+            renderer.setMeasurer(ttf)
+        }
+        return (renderer.render(root))
+    }
+
+    fn writePdf:boolean (view:FlowView path:string) {
+        def data:buffer (this.toPdf(view))
+        buffer_write_file "." path data
+        return true
+    }
+
+    ; ----------------------------------------------------------------- HTML --
+    fn toHtml:string (view:FlowView title:string) {
+        def sc:FlowScene (this.sceneOf(view))
+        def root:EVGElement (sc.toEvgTree())
+        def renderer (new EVGHTMLRenderer())
+        renderer.setPageSize(sc.worldW sc.worldH)
+        renderer.setTitle(title)
+        return (renderer.render(root))
+    }
+
+    fn writeHtml:boolean (view:FlowView path:string title:string) {
+        def html:string (this.toHtml(view title))
+        write_file "." path html
+        return true
+    }
+
+    ; ------------------------------------------------------------------ SVG --
+    fn toSvg:string (view:FlowView) {
+        def sc:FlowScene (this.sceneOf(view))
+        return (sc.toSvg())
+    }
+
+    fn writeSvg:boolean (view:FlowView path:string) {
+        def svg:string (this.toSvg(view))
+        write_file "." path svg
+        return true
+    }
+
+    ; ----------------------------------------------------------------- JSON --
+    ; The display list, as the browser page consumes it. Writing it to a file
+    ; is how the WebGL smoke test gets a scene without running the editor.
+    fn toSceneJson:string (view:FlowView) {
+        def sc:FlowScene (this.sceneOf(view))
+        return (sc.sceneJson(sc.worldW sc.worldH))
+    }
+
+    fn writeSceneJson:boolean (view:FlowView path:string) {
+        def json:string (this.toSceneJson(view))
+        write_file "." path json
+        return true
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Graph as data
+; ---------------------------------------------------------------------------
+; Round-trips the model itself rather than the picture, so a diagram can be
+; saved, reopened, diffed in a pull request, and generated by something that is
+; not this program.
+class FlowGraphJson {
+    sfn toJson:string (g:FlowGraph) {
+        def out:string "{\"nodes\":["
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"id\":" + (EVGDisplayList.jsonString(n.id)))
+            out = (out + ",\"label\":" + (EVGDisplayList.jsonString(n.label)))
+            out = (out + ",\"type\":" + (EVGDisplayList.jsonString(n.nodeType)))
+            out = (out + ",\"x\":" + (EVGDisplayList.num(n.x)))
+            out = (out + ",\"y\":" + (EVGDisplayList.num(n.y)))
+            out = (out + ",\"width\":" + (EVGDisplayList.num(n.width)))
+            out = (out + ",\"height\":" + (EVGDisplayList.num(n.height)))
+            out = (out + ",\"sections\":[")
+            def si:int 0
+            while (si < (n.sectionCount())) {
+                def sec:FlowSection (n.sectionAt(si))
+                if (si > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"title\":" + (EVGDisplayList.jsonString(sec.title)) + ",\"rows\":[")
+                def ri:int 0
+                while (ri < (array_length sec.rows)) {
+                    def row:FlowRow (itemAt sec.rows ri)
+                    if (ri > 0) {
+                        out = (out + ",")
+                    }
+                    out = (out + "{\"badge\":" + (EVGDisplayList.jsonString(row.badge)))
+                    out = (out + ",\"text\":" + (EVGDisplayList.jsonString(row.text)))
+                    out = (out + ",\"detail\":" + (EVGDisplayList.jsonString(row.detail)))
+                    out = (out + ",\"trailing\":" + (EVGDisplayList.jsonString(row.trailing)))
+                    out = (out + ",\"port\":" + (EVGDisplayList.jsonString(row.portId)) + "}")
+                    ri = (ri + 1)
+                }
+                out = (out + "]}")
+                si = (si + 1)
+            }
+            out = (out + "]}")
+            i = (i + 1)
+        }
+        out = (out + "],\"edges\":[")
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"id\":" + (EVGDisplayList.jsonString(e.id)))
+            out = (out + ",\"source\":" + (EVGDisplayList.jsonString(e.source)))
+            out = (out + ",\"target\":" + (EVGDisplayList.jsonString(e.target)))
+            out = (out + ",\"sourcePort\":" + (EVGDisplayList.jsonString(e.sourcePort)))
+            out = (out + ",\"targetPort\":" + (EVGDisplayList.jsonString(e.targetPort)))
+            out = (out + ",\"type\":" + (EVGDisplayList.jsonString(e.edgeType)))
+            out = (out + ",\"sourceCardinality\":" + (EVGDisplayList.jsonString(e.sourceCardinality)))
+            out = (out + ",\"targetCardinality\":" + (EVGDisplayList.jsonString(e.targetCardinality)) + "}")
+            k = (k + 1)
+        }
+        return (out + "]}")
+    }
+}

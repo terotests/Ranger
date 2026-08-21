@@ -1,0 +1,395 @@
+; ==============================================================================
+; BookAutoLayout.rgr - a template, a story and a pile of photographs
+; ==============================================================================
+;
+; This is the part a general vector editor cannot have, because it needs all
+; three of the other files at once: a document model that knows what a page is,
+; a flow engine that can say "the story did not fit", and a renderer that does
+; not care how the pages got there.
+;
+;     template + story + images
+;              |
+;         auto layout            <- lay out a page, flow, still overflowing?
+;              |                    then lay out another one
+;            pages
+;              |
+;         manual edit            <- and from here it is an ordinary document
+;
+; The loop is the whole idea. A book is not laid out by guessing how many pages
+; the text needs; it is laid out by placing a page, asking the flow engine
+; whether the story is finished, and repeating. Exactly the Paged.js question -
+; "did it overflow?" - asked one level up, about the book rather than the page.
+;
+; What comes out is an ordinary BookDocument. Nothing is locked, nothing
+; remembers it was generated: the author drags a frame and it stays dragged.
+; ==============================================================================
+
+Import "BookFlow.rgr"
+
+; A page recipe. Each one places at most one image and at most one text frame,
+; because a picture book page is nearly always one of those two things plus the
+; other one - and anything more elaborate is a manual edit, not a template.
+class BookRecipe {
+    def name:string "text-only"
+    ; Share of the page height the image takes, 0..1. 1 means full bleed.
+    def imageShare:double 0.0
+    ; Image at the top of the page rather than the bottom.
+    def imageOnTop:boolean true
+    ; The image ignores the margins and runs off the trim.
+    def bleed:boolean false
+    def wantsImage:boolean false
+    def wantsText:boolean true
+
+    Constructor () {
+        name = "text-only"
+        imageShare = 0.0
+        imageOnTop = true
+        bleed = false
+        wantsImage = false
+        wantsText = true
+    }
+
+    sfn create:BookRecipe (name:string share:double onTop:boolean bleed:boolean wantsImage:boolean wantsText:boolean) {
+        def r (new BookRecipe())
+        r.name = name
+        r.imageShare = share
+        r.imageOnTop = onTop
+        r.bleed = bleed
+        r.wantsImage = wantsImage
+        r.wantsText = wantsText
+        return r
+    }
+
+    ; The rhythm a picture book falls into by default: a full-bleed opener, then
+    ; alternating halves, then a quiet text page. Rotating rather than repeating
+    ; is what keeps a generated book from looking generated.
+    sfn pictureBook:[BookRecipe] () {
+        def out:[BookRecipe]
+        def a:BookRecipe (BookRecipe.create("full-bleed" 1.0 true true true false))
+        def b:BookRecipe (BookRecipe.create("image-top" 0.55 true false true true))
+        def c:BookRecipe (BookRecipe.create("image-bottom" 0.55 false false true true))
+        def d:BookRecipe (BookRecipe.create("text-only" 0.0 true false false true))
+        push out a
+        push out b
+        push out c
+        push out d
+        return out
+    }
+
+    ; For a book whose pictures are occasional rather than structural.
+    sfn illustratedText:[BookRecipe] () {
+        def out:[BookRecipe]
+        def a:BookRecipe (BookRecipe.create("text-only" 0.0 true false false true))
+        def b:BookRecipe (BookRecipe.create("text-only" 0.0 true false false true))
+        def c:BookRecipe (BookRecipe.create("image-top" 0.4 true false true true))
+        push out a
+        push out b
+        push out c
+        return out
+    }
+}
+
+class BookAutoLayoutResult {
+    def pagesCreated:int 0
+    def imagesPlaced:int 0
+    def textFrames:int 0
+    def overflow:boolean false
+    def messages:[string]
+    def flowResult:BookFlowResult (new BookFlowResult())
+
+    Constructor () {
+        pagesCreated = 0
+        imagesPlaced = 0
+        textFrames = 0
+        overflow = false
+    }
+
+    fn note:void (msg:string) {
+        push messages msg
+    }
+}
+
+class BookAutoLayout {
+    def engine:BookFlowEngine (new BookFlowEngine())
+    def recipes:[BookRecipe]
+    ; A generated book that will not stop growing is a bug, not a long book.
+    def maxPages:int 400
+    ; Space between an image edge and the text below or above it.
+    def imageGap:double 18.0
+    ; How far a full-bleed image runs past the trim. 3 mm is what the trade
+    ; assumes; generating it here is what makes an auto-laid-out book pass
+    ; preflight instead of merely looking right on screen.
+    def bleedOverhang:double 8.5
+    ; Keep adding pages after the story ends, until every image is placed.
+    def placeAllImages:boolean true
+
+    Constructor () {
+        def r:[BookRecipe] (BookRecipe.pictureBook())
+        recipes = r
+        maxPages = 400
+        imageGap = 18.0
+        bleedOverhang = 8.5
+        placeAllImages = true
+    }
+
+    fn setEngine:void (e:BookFlowEngine) {
+        engine = e
+    }
+
+    fn setRecipes:void (r:[BookRecipe]) {
+        recipes = r
+    }
+
+    ; ---------------------------------------------------------------------
+    ; The loop
+    ; ---------------------------------------------------------------------
+
+    ; Lay out `storyId` and `assetIds` into `doc`, growing the book until the
+    ; story fits. Pages are appended after whatever is already in the document,
+    ; so a hand-made title page or front matter survives.
+    fn build:BookAutoLayoutResult (doc:BookDocument storyId:string assetIds:[string] masterName:string) {
+        def result (new BookAutoLayoutResult())
+        if ((doc.hasStory(storyId)) == false) {
+            result.note(("no such story: " + storyId))
+            return result
+        }
+        def recipeCount:int (array_length recipes)
+        if (recipeCount == 0) {
+            result.note("no recipes - nothing to lay out")
+            return result
+        }
+
+        def firstFrameId:string ""
+        def previousFrameId:string ""
+        def assetIndex:int 0
+        def assetCount:int (array_length assetIds)
+        def recipeIndex:int 0
+        def pagesMade:int 0
+        def storyDone:boolean false
+        def running:boolean true
+        ; Recipes that can contribute nothing right now are skipped, not
+        ; emitted as blank pages - but a recipe set that can never contribute
+        ; would skip for ever, so a full rotation of skips ends the loop.
+        def skips:int 0
+
+        while (running && (pagesMade < maxPages)) {
+            def imagesLeft:boolean (assetIndex < assetCount)
+
+            ; Stop conditions: the story has been placed, and either the images
+            ; are placed too or we were not asked to place them all.
+            if storyDone {
+                if (imagesLeft == false) {
+                    running = false
+                }
+                if (placeAllImages == false) {
+                    running = false
+                }
+            }
+            if running {
+                def recipe:BookRecipe (itemAt recipes recipeIndex)
+                recipeIndex = (recipeIndex + 1)
+                if (recipeIndex >= recipeCount) {
+                    recipeIndex = 0
+                }
+
+                ; A recipe that wants an image but has none left becomes a text
+                ; page rather than a page with a hole in it. And once the story
+                ; is finished, a text frame would only be an empty box.
+                def useImage:boolean (recipe.wantsImage && imagesLeft)
+                def useText:boolean recipe.wantsText
+                if storyDone {
+                    useText = false
+                }
+                if ((useImage == false) && (useText == false)) {
+                    ; Nothing to put on this page - take the next recipe rather
+                    ; than emitting a blank.
+                    skips = (skips + 1)
+                    if (skips > recipeCount) {
+                        running = false
+                    }
+                } {
+                    skips = 0
+                    pagesMade = (pagesMade + 1)
+                    def page:BookPage (doc.newPage(masterName))
+                    result.pagesCreated = (result.pagesCreated + 1)
+                    def master:BookMasterPage (doc.masterFor(masterName))
+                    def recto:boolean (page.isRecto())
+                    def leftMargin:double (master.leftMarginFor(recto))
+                    def rightMargin:double (master.rightMarginFor(recto))
+                    def innerX:double leftMargin
+                    def usable:double (page.width - leftMargin)
+                    def innerW:double (usable - rightMargin)
+                    def innerY:double master.marginTop
+                    def usableH:double (page.height - master.marginTop)
+                    def innerH:double (usableH - master.marginBottom)
+
+                    def textTop:double innerY
+                    def textHeight:double innerH
+
+                    if useImage {
+                        def assetId:string (itemAt assetIds assetIndex)
+                        assetIndex = (assetIndex + 1)
+                        result.imagesPlaced = (result.imagesPlaced + 1)
+                        def imgId:string (doc.nextId("img"))
+                        def img (new BookFrame())
+                        img.id = imgId
+                        img.kind = "image"
+                        img.assetId = assetId
+                        img.fit = "cover"
+                        img.layer = "background"
+                        if recipe.bleed {
+                            def oh:double bleedOverhang
+                            def doubled:double (oh * 2.0)
+                            img.x = (0.0 - oh)
+                            img.w = (page.width + doubled)
+                            def full:double (page.height * recipe.imageShare)
+                            if (recipe.imageShare >= 1.0) {
+                                img.y = (0.0 - oh)
+                                img.h = (page.height + doubled)
+                            } {
+                                if recipe.imageOnTop {
+                                    img.y = (0.0 - oh)
+                                    img.h = (full + oh)
+                                } {
+                                    def topY:double (page.height - full)
+                                    img.y = topY
+                                    img.h = (full + oh)
+                                }
+                            }
+                        } {
+                            def ih:double (innerH * recipe.imageShare)
+                            img.x = innerX
+                            img.w = innerW
+                            img.h = ih
+                            if recipe.imageOnTop {
+                                img.y = innerY
+                                def below:double (innerY + ih)
+                                textTop = (below + imageGap)
+                                def consumed:double (ih + imageGap)
+                                textHeight = (innerH - consumed)
+                            } {
+                                def bottomY:double (innerY + innerH)
+                                img.y = (bottomY - ih)
+                                def consumed2:double (ih + imageGap)
+                                textHeight = (innerH - consumed2)
+                            }
+                        }
+                        if recipe.bleed {
+                            ; A full-bleed image leaves no room for running text;
+                            ; a caption is a manual edit.
+                            textHeight = 0.0
+                        }
+                        page.addFrame(img)
+                    }
+
+                    if (useText && (textHeight > 0.0)) {
+                        def tfId:string (doc.nextId("txt"))
+                        def tf (new BookFrame())
+                        tf.id = tfId
+                        tf.kind = "text"
+                        tf.storyId = storyId
+                        tf.x = innerX
+                        tf.y = textTop
+                        tf.w = innerW
+                        tf.h = textHeight
+                        tf.columns = master.columns
+                        tf.gutter = master.gutter
+                        page.addFrame(tf)
+                        result.textFrames = (result.textFrames + 1)
+                        if ((strlen firstFrameId) == 0) {
+                            firstFrameId = tfId
+                        } {
+                            doc.linkFrames(previousFrameId tfId)
+                        }
+                        previousFrameId = tfId
+
+                        ; Ask the flow engine, do not estimate. This is the only
+                        ; question that decides whether the book keeps growing.
+                        def flow:BookFlowResult (engine.flowStory(doc firstFrameId))
+                        result.flowResult = flow
+                        if (flow.overflow == false) {
+                            storyDone = true
+                        }
+                    }
+                }
+            }
+        }
+
+        if ((strlen firstFrameId) > 0) {
+            def finalFlow:BookFlowResult (engine.flowStory(doc firstFrameId))
+            result.flowResult = finalFlow
+            result.overflow = finalFlow.overflow
+            if finalFlow.overflow {
+                result.note("the story still overflows at the page limit - raise maxPages or shorten the story")
+            }
+        }
+        def remaining:int (assetCount - assetIndex)
+        if (remaining > 0) {
+            def n:string (to_string remaining)
+            result.note((n + " image(s) were not placed"))
+        }
+        return result
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Front matter
+    ; ---------------------------------------------------------------------
+
+    ; A title page, built from the same furniture mechanism master pages use:
+    ; the frames carry literal text with {title} and {author} in it, so renaming
+    ; the book renames the title page.
+    fn addTitlePage:BookPage (doc:BookDocument) {
+        def page:BookPage (doc.newPage(""))
+        def third:double (page.height * 0.36)
+        def margin:double (page.width * 0.12)
+        def w:double (page.width - (margin * 2.0))
+
+        def t (new BookFrame())
+        t.id = (doc.nextId("title"))
+        t.kind = "text"
+        t.text = "{title}"
+        t.styleName = "title"
+        t.x = margin
+        t.y = third
+        t.w = w
+        t.h = 60.0
+        page.addFrame(t)
+
+        def a (new BookFrame())
+        a.id = (doc.nextId("author"))
+        a.kind = "text"
+        a.text = "{author}"
+        a.styleName = "subtitle"
+        a.x = margin
+        a.y = (third + 70.0)
+        a.w = w
+        a.h = 40.0
+        page.addFrame(a)
+        return page
+    }
+
+    ; A book is printed in signatures, so a page count that is not a multiple of
+    ; four costs a printer a decision. Making it explicit here is cheaper than
+    ; discovering it at the press.
+    fn padToSignature:int (doc:BookDocument multiple:int) {
+        if (multiple < 2) {
+            return 0
+        }
+        def added:int 0
+        def guard:int 0
+        while (guard < 64) {
+            guard = (guard + 1)
+            def count:int (doc.pageCount())
+            def whole:int (idiv count multiple)
+            def exact:int (whole * multiple)
+            if (count == exact) {
+                guard = 64
+            } {
+                def blank:BookPage (doc.newPage(""))
+                blank.numbered = false
+                added = (added + 1)
+            }
+        }
+        return added
+    }
+}

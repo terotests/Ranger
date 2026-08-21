@@ -1,0 +1,1351 @@
+; ============================================================================
+; FlowModel.rgr — the graph a RangerFlow view draws.
+; ============================================================================
+;
+; RangerFlow is a node-graph library in the shape React Flow made familiar:
+; nodes with handles, edges between those handles, and a viewport you pan and
+; zoom. This file is the *data*, and nothing else — no colours, no draw calls,
+; no platform. It compiles to every target Ranger has, because a layout that
+; only runs where the browser is would be a layout you cannot test.
+;
+;   FlowGraph ──► FlowForce (simulation)      positions
+;             ──► FlowView  (scene)           what to paint
+;             ──► FlowScene ──► EVGDisplayList (WebGL / SoftCanvas)
+;                          ──► EVGElement     (PDF / HTML / PNG)
+;
+; Coordinates. A node's `x`/`y` is its top-left corner in **flow space**, the
+; same convention React Flow uses for `node.position`. The viewport maps flow
+; space to screen space; every hit test goes through the same two functions so
+; the picture and the pointer cannot disagree.
+; ============================================================================
+
+Import "FlowShapes.rgr"
+
+; Which side of a node a handle sits on. Ints rather than strings so a hot
+; loop compares numbers, with names kept for serialization.
+class FlowPosition {
+    sfn top:int ()    { return 0 }
+    sfn right:int ()  { return 1 }
+    sfn bottom:int () { return 2 }
+    sfn left:int ()   { return 3 }
+
+    sfn parse:int (s:string) {
+        if (s == "top")    { return 0 }
+        if (s == "right")  { return 1 }
+        if (s == "bottom") { return 2 }
+        if (s == "left")   { return 3 }
+        return 1
+    }
+
+    sfn name:string (p:int) {
+        if (p == 0) { return "top" }
+        if (p == 1) { return "right" }
+        if (p == 2) { return "bottom" }
+        return "left"
+    }
+
+    ; The outward unit normal of a side, used to bend an edge away from the
+    ; node it leaves rather than through it.
+    sfn normalX:double (p:int) {
+        if (p == 1) { return 1.0 }
+        if (p == 3) { return -1.0 }
+        return 0.0
+    }
+
+    sfn normalY:double (p:int) {
+        if (p == 2) { return 1.0 }
+        if (p == 0) { return -1.0 }
+        return 0.0
+    }
+}
+
+; An axis-aligned rectangle in flow space. Returned by bounds queries and used
+; for box selection and `fitView`.
+class FlowRect {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def valid:boolean false
+
+    Constructor () {
+    }
+
+    sfn create:FlowRect (x:double y:double w:double h:double) {
+        def r (new FlowRect)
+        r.x = x
+        r.y = y
+        r.w = w
+        r.h = h
+        r.valid = true
+        return r
+    }
+
+    ; Normalized from two corners, so a box dragged up-left is still a box.
+    sfn fromCorners:FlowRect (x1:double y1:double x2:double y2:double) {
+        def lx:double x1
+        def ly:double y1
+        def hx:double x2
+        def hy:double y2
+        if (x2 < x1) {
+            lx = x2
+            hx = x1
+        }
+        if (y2 < y1) {
+            ly = y2
+            hy = y1
+        }
+        return (FlowRect.create(lx ly (hx - lx) (hy - ly)))
+    }
+
+    fn right:double ()  { return (x + w) }
+    fn bottom:double () { return (y + h) }
+
+    fn centerX:double () {
+        def hw:double (w * 0.5)
+        return (x + hw)
+    }
+
+    fn centerY:double () {
+        def hh:double (h * 0.5)
+        return (y + hh)
+    }
+
+    fn holds:boolean (px:double py:double) {
+        def r:double (x + w)
+        def b:double (y + h)
+        if (px < x) { return false }
+        if (py < y) { return false }
+        if (px > r) { return false }
+        if (py > b) { return false }
+        return true
+    }
+
+    fn overlaps:boolean (o:FlowRect) {
+        def r:double (x + w)
+        def b:double (y + h)
+        def orr:double (o.x + o.w)
+        def ob:double (o.y + o.h)
+        if (orr < x) { return false }
+        if (ob < y) { return false }
+        if (o.x > r) { return false }
+        if (o.y > b) { return false }
+        return true
+    }
+
+    ; The area two rectangles share. React Flow's rectangle selection asks the
+    ; same question of every node, so this is the quantity the parity harness
+    ; compares — an intersection *area*, not a boolean, because "they touch
+    ; along an edge" and "they overlap" are different answers and only one of
+    ; them should select a node.
+    fn overlapArea:double (o:FlowRect) {
+        def ax2:double (x + w)
+        def ay2:double (y + h)
+        def bx2:double (o.x + o.w)
+        def by2:double (o.y + o.h)
+        def loX:double x
+        if (o.x > loX) { loX = o.x }
+        def hiX:double ax2
+        if (bx2 < hiX) { hiX = bx2 }
+        def loY:double y
+        if (o.y > loY) { loY = o.y }
+        def hiY:double ay2
+        if (by2 < hiY) { hiY = by2 }
+        def ow:double (hiX - loX)
+        def oh:double (hiY - loY)
+        if (ow <= 0.0) { return 0.0 }
+        if (oh <= 0.0) { return 0.0 }
+        return (ow * oh)
+    }
+
+    fn grow:void (m:double) {
+        x = (x - m)
+        y = (y - m)
+        w = (w + (m * 2.0))
+        h = (h + (m * 2.0))
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Compartments — the shape a table, a class and a state machine all share
+; ---------------------------------------------------------------------------
+;
+; A flowchart node is a box with a caption. A database table is a box with a
+; caption and a *list of fields*, and so is a UML class, and so is a record
+; type. Rather than let each domain invent that box again, the core carries one
+; primitive: a header, then sections, each of which is a list of rows.
+;
+;   ┌─────────────────────────────┐
+;   │ customers                   │  header
+;   ├─────────────────────────────┤
+;   │ 🔑 id          INTEGER      │  section 0, row 0   (port: right + left)
+;   │    country_id  INTEGER  FK  │  section 0, row 2
+;   ├─────────────────────────────┤
+;   │ UNIQUE(email)               │  section 1
+;   └─────────────────────────────┘
+;
+; A row is three columns plus a badge, because that is what both domains want:
+; ERD writes `key | name | type | FK`, UML writes `visibility | name | : type`.
+; The core neither knows nor cares which.
+class FlowRow {
+    ; Small leading glyph or key marker: "pk", "fk", "idx", "+", "-", "#", "".
+    def badge:string ""
+    def text:string ""
+    ; Right-hand columns; empty strings simply take no space.
+    def detail:string ""
+    def trailing:string ""
+    ; The port a connection to this row attaches to ("" = the node's own).
+    def portId:string ""
+    ; 0 normal, 1 emphasised (a key), 2 muted (a derived or nullable field).
+    def emphasis:int 0
+    def selected:boolean false
+
+    Constructor () {
+    }
+
+    sfn create:FlowRow (badge:string text:string detail:string trailing:string) {
+        def r (new FlowRow)
+        r.badge = badge
+        r.text = text
+        r.detail = detail
+        r.trailing = trailing
+        return r
+    }
+}
+
+class FlowSection {
+    def title:string ""
+    def rows:[FlowRow]
+    def collapsed:boolean false
+
+    Constructor () {
+    }
+
+    fn addRow:FlowRow (r:FlowRow) {
+        push rows r
+        return r
+    }
+
+    fn rowCount:int () {
+        return (array_length rows)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Port
+; ---------------------------------------------------------------------------
+; React Flow calls these handles. The difference that matters for a schema
+; diagram is that a port is not "somewhere on the right edge" but a named point
+; opposite one row — `customers.country_id ●────────● countries.id` is the whole
+; reason an ERD reads better than a box-to-box graph.
+;
+; `offset` is measured in node-local pixels along the side, from the node's
+; top-left corner: down the side for left/right, across it for top/bottom.
+class FlowPort {
+    def id:string ""
+    def nodeId:string ""
+    def label:string ""
+    def side:int 1
+    def offset:double 0.0
+    ; "source" | "target" | "both"
+    def role:string "both"
+    ; How many edges may attach; -1 = unlimited (React Flow's connection limit).
+    def connectionLimit:int -1
+    def hidden:boolean false
+
+    Constructor () {
+    }
+
+    sfn create:FlowPort (id:string nodeId:string side:int offset:double) {
+        def p (new FlowPort)
+        p.id = id
+        p.nodeId = nodeId
+        p.side = side
+        p.offset = offset
+        return p
+    }
+
+    fn acceptsSource:boolean () {
+        if (role == "target") {
+            return false
+        }
+        return true
+    }
+
+    fn acceptsTarget:boolean () {
+        if (role == "source") {
+            return false
+        }
+        return true
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Node
+; ---------------------------------------------------------------------------
+; Fields are named after React Flow's node object where a name exists there,
+; so a graph written against one reads against the other.
+;
+; The simulation state (`vx`, `vy`, `fx`, `fy`) lives on the node exactly as it
+; does in d3-force: the force layout writes velocities here and the view reads
+; positions, with no third structure to keep in step. `hasFx`/`hasFy` stand in
+; for d3's `fx == null` test, because a Ranger double is never null.
+class FlowNode {
+    def id:string ""
+    def label:string ""
+    ; Top-left corner in flow space (React Flow's `position`).
+    def x:double 0.0
+    def y:double 0.0
+    def width:double 150.0
+    def height:double 40.0
+    ; "default" | "input" | "output" | "group"
+    def nodeType:string "default"
+    ; What the node is drawn as — see FlowShapes. Empty or "rect" is the
+    ; rectangle every table and class has always been; a flowchart's meaning
+    ; lives here, because a decision that is not a diamond is not a decision.
+    def shape:string "rect"
+    def sourcePosition:int 1
+    def targetPosition:int 3
+
+    ; Flags, mirroring React Flow's per-node switches.
+    def selected:boolean false
+    def dragging:boolean false
+    def draggable:boolean true
+    def selectable:boolean true
+    def connectable:boolean true
+    def hidden:boolean false
+    def zIndex:int 0
+    ; Sub-flows: a node may sit inside another node's frame.
+    def parentId:string ""
+
+    def resizable:boolean false
+    def minWidth:double 60.0
+    def minHeight:double 28.0
+
+    ; Presentation overrides (empty string = take the theme's value).
+    def bgColor:string ""
+    def borderColor:string ""
+    def textColor:string ""
+    def accentColor:string ""
+    def borderRadius:double -1.0
+
+    ; --- compartments and ports ---------------------------------------------
+    def sections:[FlowSection]
+    def ports:[FlowPort]
+    ; Geometry the compartment layout uses and the renderer reads back.
+    def headerHeight:double 26.0
+    def rowHeight:double 18.0
+    def sectionGap:double 1.0
+
+    ; --- d3-force state -----------------------------------------------------
+    ; The simulation works on the node's CENTRE, because d3-force treats a node
+    ; as a point and RangerFlow draws it as a box: charge and link distances
+    ; measured corner-to-corner would pull wide nodes harder than tall ones.
+    ; `simX`/`simY` are that centre; `syncFromModel` and `syncToModel` are the
+    ; only two places the two representations meet.
+    def simX:double 0.0
+    def simY:double 0.0
+    def vx:double 0.0
+    def vy:double 0.0
+    def fx:double 0.0
+    def fy:double 0.0
+    def hasFx:boolean false
+    def hasFy:boolean false
+    ; Index into FlowGraph.nodes, kept current by the graph itself. The force
+    ; code indexes strength arrays with it, which is what makes a tick O(n log n)
+    ; instead of O(n log n) plus a map lookup per interaction.
+    def index:int 0
+    ; Set once the simulation has given this node a starting position.
+    def placed:boolean false
+
+    Constructor () {
+    }
+
+    sfn create:FlowNode (id:string label:string x:double y:double) {
+        def n (new FlowNode)
+        n.id = id
+        n.label = label
+        n.x = x
+        n.y = y
+        return n
+    }
+
+    ; d3-force treats a node as a point; RangerFlow draws it as a box. The
+    ; simulation therefore works on the CENTRE, and `x`/`y` stay the top-left
+    ; corner the renderer and React Flow both expect.
+    fn centerX:double () {
+        def hw:double (width * 0.5)
+        return (x + hw)
+    }
+
+    fn centerY:double () {
+        def hh:double (height * 0.5)
+        return (y + hh)
+    }
+
+    fn setCenter:void (cx:double cy:double) {
+        def hw:double (width * 0.5)
+        def hh:double (height * 0.5)
+        x = (cx - hw)
+        y = (cy - hh)
+    }
+
+    fn rect:FlowRect () {
+        return (FlowRect.create(x y width height))
+    }
+
+    ; --- compartments -------------------------------------------------------
+    fn addSection:FlowSection (title:string) {
+        def sec (new FlowSection)
+        sec.title = title
+        push sections sec
+        return sec
+    }
+
+    fn sectionCount:int () {
+        return (array_length sections)
+    }
+
+    fn sectionAt:FlowSection (i:int) {
+        return (itemAt sections i)
+    }
+
+    fn totalRowCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length sections)) {
+            def sec:FlowSection (itemAt sections i)
+            if (sec.collapsed == false) {
+                n = (n + (array_length sec.rows))
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Height from content, and a port opposite every row that asked for one.
+    ; Called whenever the compartments change — the renderer never computes
+    ; geometry of its own, so a table drawn in PDF and the same table hit-tested
+    ; in the editor cannot disagree about where row 7 is.
+    fn layoutCompartments:void () {
+        if ((array_length sections) == 0) {
+            return
+        }
+        def h:double headerHeight
+        def i:int 0
+        while (i < (array_length sections)) {
+            def sec:FlowSection (itemAt sections i)
+            if (i > 0) {
+                h = (h + sectionGap)
+            }
+            if ((strlen sec.title) > 0) {
+                h = (h + rowHeight)
+            }
+            if (sec.collapsed == false) {
+                def rc:double (to_double (array_length sec.rows))
+                h = (h + (rc * rowHeight))
+            }
+            i = (i + 1)
+        }
+        height = h
+        if (height < minHeight) {
+            height = minHeight
+        }
+        this.placeRowPorts()
+    }
+
+    ; The vertical centre of a row, in node-local pixels. -1 when the row is
+    ; not currently laid out (a collapsed section, or an index out of range).
+    fn rowCenterY:double (sectionIdx:int rowIdx:int) {
+        def h:double headerHeight
+        def i:int 0
+        while (i < (array_length sections)) {
+            def sec:FlowSection (itemAt sections i)
+            if (i > 0) {
+                h = (h + sectionGap)
+            }
+            if ((strlen sec.title) > 0) {
+                h = (h + rowHeight)
+            }
+            if (i == sectionIdx) {
+                if (sec.collapsed) {
+                    return -1.0
+                }
+                if (rowIdx >= (array_length sec.rows)) {
+                    return -1.0
+                }
+                def ri:double (to_double rowIdx)
+                def half:double (rowHeight * 0.5)
+                return ((h + (ri * rowHeight)) + half)
+            }
+            if (sec.collapsed == false) {
+                def rc:double (to_double (array_length sec.rows))
+                h = (h + (rc * rowHeight))
+            }
+            i = (i + 1)
+        }
+        return -1.0
+    }
+
+    ; Every row that names a port gets one on each side, so an edge can enter
+    ; from whichever side the other table happens to be on.
+    fn placeRowPorts:void () {
+        def i:int 0
+        while (i < (array_length sections)) {
+            def sec:FlowSection (itemAt sections i)
+            def k:int 0
+            while (k < (array_length sec.rows)) {
+                def row:FlowRow (itemAt sec.rows k)
+                if ((strlen row.portId) > 0) {
+                    def cy:double (this.rowCenterY(i k))
+                    if (cy >= 0.0) {
+                        def pl:FlowPort (this.ensurePort((row.portId + ":l") 3))
+                        pl.offset = cy
+                        def pr:FlowPort (this.ensurePort((row.portId + ":r") 1))
+                        pr.offset = cy
+                    }
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- ports --------------------------------------------------------------
+    fn addPort:FlowPort (p:FlowPort) {
+        p.nodeId = id
+        push ports p
+        return p
+    }
+
+    fn ensurePort:FlowPort (portId:string side:int) {
+        def i:int 0
+        while (i < (array_length ports)) {
+            def p:FlowPort (itemAt ports i)
+            if (p.id == portId) {
+                p.side = side
+                return p
+            }
+            i = (i + 1)
+        }
+        def np:FlowPort (FlowPort.create(portId id side 0.0))
+        push ports np
+        return np
+    }
+
+    fn portIndex:int (portId:string) {
+        def i:int 0
+        while (i < (array_length ports)) {
+            def p:FlowPort (itemAt ports i)
+            if (p.id == portId) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A port's absolute position in flow space.
+    fn portX:double (p:FlowPort) {
+        if (p.side == 1) { return (x + width) }
+        if (p.side == 3) { return x }
+        return (x + p.offset)
+    }
+
+    fn portY:double (p:FlowPort) {
+        if (p.side == 0) { return y }
+        if (p.side == 2) { return (y + height) }
+        return (y + p.offset)
+    }
+
+    ; Where an edge leaves or arrives. React Flow puts a handle at the middle
+    ; of the named side; so does this.
+    fn handleX:double (side:int) {
+        return (FlowShapes.anchorX(shape x y width height side))
+    }
+
+    fn handleY:double (side:int) {
+        return (FlowShapes.anchorY(shape x y width height side))
+    }
+
+    ; Inside the SHAPE, not inside the bounding box: the corner beside a
+    ; diamond looks like empty canvas and has to behave like it.
+    fn holdsPoint:boolean (px:double py:double) {
+        return (FlowShapes.holdsShape(shape x y width height px py))
+    }
+
+    fn syncFromModel:void () {
+        def hw:double (width * 0.5)
+        def hh:double (height * 0.5)
+        simX = (x + hw)
+        simY = (y + hh)
+    }
+
+    fn syncToModel:void () {
+        def hw:double (width * 0.5)
+        def hh:double (height * 0.5)
+        x = (simX - hw)
+        y = (simY - hh)
+    }
+
+    ; Pin the node where it is, the way dragging does in the React Flow force
+    ; example: while a node is held, the simulation may not move it. Centre
+    ; coordinates, like everything else the simulation touches.
+    fn pin:void (px:double py:double) {
+        fx = px
+        fy = py
+        hasFx = true
+        hasFy = true
+    }
+
+    fn unpin:void () {
+        hasFx = false
+        hasFy = false
+    }
+
+    ; Pin at the node's current place — what a drag does the moment it starts.
+    fn pinHere:void () {
+        this.syncFromModel()
+        this.pin(simX simY)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Edge
+; ---------------------------------------------------------------------------
+class FlowEdge {
+    def id:string ""
+    def source:string ""
+    def target:string ""
+    ; "default" (bezier) | "straight" | "step" | "smoothstep" | "simplebezier"
+    def edgeType:string "default"
+    def label:string ""
+    def animated:boolean false
+    def selected:boolean false
+    def hidden:boolean false
+    def strokeColor:string ""
+    def strokeWidth:double 0.0
+    ; "" | "arrow" | "arrowclosed"
+    def markerEnd:string "arrowclosed"
+    def markerStart:string ""
+    ; Dash pattern in flow units; 0 = solid.
+    def dash:double 0.0
+    ; Overrides for which side the edge attaches to; -1 = use the node's.
+    def sourceHandle:int -1
+    def targetHandle:int -1
+    ; Port-level endpoints. Empty = attach to the node itself, which is the
+    ; flowchart case; a schema diagram names the column's port on both ends.
+    def sourcePort:string ""
+    def targetPort:string ""
+    ; Relationship semantics, kept separate from how it is drawn so the same
+    ; foreign key can be shown as crow's foot, UML or a plain arrow without the
+    ; model changing (see EdgeDecoration).
+    def sourceCardinality:string ""
+    def targetCardinality:string ""
+    def optionalSource:boolean false
+    def optionalTarget:boolean false
+
+    ; --- routing ------------------------------------------------------------
+    ; Where this edge attaches along its port's own side, as an offset from
+    ; the port's centre. Several foreign keys pointing at one primary key land
+    ; on the same port and therefore on the same point, and their approach runs
+    ; are collinear by construction — three lines drawn as one. `EdgeLanes`
+    ; fans them out across the row so each arrival is visible.
+    def portNudgeSource:double 0.0
+    def portNudgeTarget:double 0.0
+
+    ; Set when the viewer dragged one of this edge's segments. A hand-placed
+    ; route is not a suggestion: no later pass may move it, and nor may the
+    ; obstacle repair, because "that line goes there" is the whole point.
+    def pinnedRoute:boolean false
+
+    ; The corners of a route somebody else worked out — the layered layout,
+    ; when the edge spans more than one layer and has to be taken around what
+    ; stands between its ends. Flat x,y pairs, in order, from the source port
+    ; to the target port. Empty means "route it yourself".
+    def waypoints:[double]
+
+    ; The track this edge takes through the corridor it crosses, assigned by
+    ; `EdgeLanes`. React Flow calls the same thing `center` on
+    ; `getSmoothStepPath`: an explicit place to turn, instead of the midpoint
+    ; every edge would otherwise pick. Unset means "use the midpoint".
+    def laneX:double 0.0
+    def laneY:double 0.0
+    def hasLaneX:boolean false
+    def hasLaneY:boolean false
+
+    ; --- d3 forceLink state -------------------------------------------------
+    ; Resolved once per (re)build so a tick does not hash strings.
+    def sourceIndex:int -1
+    def targetIndex:int -1
+
+    Constructor () {
+    }
+
+    sfn create:FlowEdge (id:string source:string target:string) {
+        def e (new FlowEdge)
+        e.id = id
+        e.source = source
+        e.target = target
+        return e
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Viewport
+; ---------------------------------------------------------------------------
+; The single place flow space and screen space meet. React Flow's transform is
+; `translate(x, y) scale(zoom)`, applied in that order, and so is this one.
+class FlowViewport {
+    def x:double 0.0
+    def y:double 0.0
+    def zoom:double 1.0
+    def minZoom:double 0.1
+    def maxZoom:double 4.0
+
+    Constructor () {
+    }
+
+    fn toScreenX:double (fx:double) {
+        return ((fx * zoom) + x)
+    }
+
+    fn toScreenY:double (fy:double) {
+        return ((fy * zoom) + y)
+    }
+
+    fn toFlowX:double (sx:double) {
+        return ((sx - x) / zoom)
+    }
+
+    fn toFlowY:double (sy:double) {
+        return ((sy - y) / zoom)
+    }
+
+    fn clampZoom:double (z:double) {
+        if (z < minZoom) { return minZoom }
+        if (z > maxZoom) { return maxZoom }
+        return z
+    }
+
+    ; Zoom about a screen point: the flow coordinate under the cursor is the
+    ; one that must not move. Everything else follows from that.
+    fn zoomAt:void (sx:double sy:double factor:double) {
+        def before:double zoom
+        def want:double (zoom * factor)
+        def next:double (this.clampZoom(want))
+        if (next == before) {
+            return
+        }
+        def fxp:double (this.toFlowX(sx))
+        def fyp:double (this.toFlowY(sy))
+        zoom = next
+        x = (sx - (fxp * next))
+        y = (sy - (fyp * next))
+    }
+
+    fn panBy:void (dx:double dy:double) {
+        x = (x + dx)
+        y = (y + dy)
+    }
+
+    ; React Flow's `fitView`, algorithm for algorithm — `getViewportForBounds`
+    ; in `@xyflow/system`. The padding convention is the part worth spelling
+    ; out, because the obvious reading is wrong: `padding` is not the fraction
+    ; of the VIEWPORT left as a margin, it is how much bigger than the content
+    ; the frame should be. React Flow resolves it as
+    ;
+    ;     px = floor((width - width / (1 + padding)) * 0.5)
+    ;
+    ; so 0.1 gives the content 1.1x its own size, not 80% of the viewport. The
+    ; parity harness caught the difference: reading it the obvious way framed
+    ; every diagram at a different zoom, by up to 176 px of translation.
+    sfn resolvePadding:double (viewport:double padding:double) {
+        if (padding <= 0.0) {
+            return 0.0
+        }
+        def shrunk:double (viewport / (1.0 + padding))
+        def half:double ((viewport - shrunk) * 0.5)
+        def f:int (floor half)
+        return (to_double f)
+    }
+
+    fn fitRect:void (r:FlowRect vw:double vh:double padding:double) {
+        if (r.valid == false) {
+            return
+        }
+        def w:double r.w
+        def h:double r.h
+        if (w < 1.0) { w = 1.0 }
+        if (h < 1.0) { h = 1.0 }
+        def padX:double (FlowViewport.resolvePadding(vw padding))
+        def padY:double (FlowViewport.resolvePadding(vh padding))
+        def zx:double ((vw - (padX * 2.0)) / w)
+        def zy:double ((vh - (padY * 2.0)) / h)
+        def z:double zx
+        if (zy < zx) {
+            z = zy
+        }
+        zoom = (this.clampZoom(z))
+        def cx:double (r.centerX())
+        def cy:double (r.centerY())
+        def halfW:double (vw * 0.5)
+        def halfH:double (vh * 0.5)
+        x = (halfW - (cx * zoom))
+        y = (halfH - (cy * zoom))
+        ; React Flow then nudges the result so an asymmetric padding is
+        ; respected: it measures the padding the centred viewport actually
+        ; produced and shifts by the shortfall. With symmetric padding the
+        ; shortfall is zero — except that the measurement is floored, and a
+        ; value that is mathematically 18 can compute to 17.999999999999996 and
+        ; floor to 17. The arithmetic below is in React Flow's order for that
+        ; reason: reproducing the shift means reproducing the same double.
+        def appliedLeft:double ((r.x * zoom) + x)
+        def appliedTop:double ((r.y * zoom) + y)
+        def appliedRight:double (vw - (((r.x + r.w) * zoom) + x))
+        def appliedBottom:double (vh - (((r.y + r.h) * zoom) + y))
+        def offLeft:double (FlowViewport.shortfall(appliedLeft padX))
+        def offTop:double (FlowViewport.shortfall(appliedTop padY))
+        def offRight:double (FlowViewport.shortfall(appliedRight padX))
+        def offBottom:double (FlowViewport.shortfall(appliedBottom padY))
+        x = ((x - offLeft) + offRight)
+        y = ((y - offTop) + offBottom)
+    }
+
+    ; How far short of the wanted padding an edge came, floored the way React
+    ; Flow floors it, and never positive — an edge with room to spare is not a
+    ; reason to move the diagram.
+    sfn shortfall:double (applied:double wanted:double) {
+        def f:int (floor applied)
+        def got:double (to_double f)
+        def diff:double (got - wanted)
+        if (diff > 0.0) {
+            return 0.0
+        }
+        return diff
+    }
+
+    ; The padding value that leaves exactly `margin` device pixels around the
+    ; content — how a page with a stated margin asks for a React Flow fit.
+    sfn paddingForMargin:double (viewport:double margin:double) {
+        def usable:double (viewport - (margin * 2.0))
+        if (usable <= 0.0) {
+            return 0.0
+        }
+        return (((margin * 2.0)) / usable)
+    }
+}
+
+; ---------------------------------------------------------------------------
+; Graph
+; ---------------------------------------------------------------------------
+class FlowGraph {
+    def nodes:[FlowNode]
+    def edges:[FlowEdge]
+    def nodeIndex:[string:int]
+    def edgeIndex:[string:int]
+    ; port id -> index of the node that owns it
+    def portIndex:[string:int]
+    ; Next generated id, so `addNode("" …)` and the connect gesture can both
+    ; make one without colliding.
+    def idSeq:int 1
+
+    Constructor () {
+    }
+
+    fn nodeCount:int ()  { return (array_length nodes) }
+    fn edgeCount:int ()  { return (array_length edges) }
+
+    fn nodeAt:FlowNode (i:int) { return (itemAt nodes i) }
+    fn edgeAt:FlowEdge (i:int) { return (itemAt edges i) }
+
+    fn hasNode:boolean (id:string) {
+        return (has nodeIndex id)
+    }
+
+    fn indexOfNode:int (id:string) {
+        if (has nodeIndex id) {
+            return (unwrap (get nodeIndex id))
+        }
+        return -1
+    }
+
+    ; Callers that already checked `hasNode` want the node itself; the ones
+    ; that did not should ask for the index and branch on -1. Returning a
+    ; freshly made node for a miss would silently draw a phantom.
+    fn nodeById:FlowNode (id:string) {
+        def i:int (this.indexOfNode(id))
+        if (i < 0) {
+            return (new FlowNode)
+        }
+        return (itemAt nodes i)
+    }
+
+    fn addNode:FlowNode (n:FlowNode) {
+        if ((strlen n.id) == 0) {
+            n.id = ("n" + (to_string idSeq))
+            idSeq = (idSeq + 1)
+        }
+        n.index = (array_length nodes)
+        push nodes n
+        set nodeIndex n.id n.index
+        def pi:int 0
+        while (pi < (array_length n.ports)) {
+            def p:FlowPort (itemAt n.ports pi)
+            p.nodeId = n.id
+            set portIndex p.id n.index
+            pi = (pi + 1)
+        }
+        return n
+    }
+
+    fn addEdge:FlowEdge (e:FlowEdge) {
+        if ((strlen e.id) == 0) {
+            e.id = ("e" + (to_string idSeq))
+            idSeq = (idSeq + 1)
+        }
+        push edges e
+        set edgeIndex e.id (array_length edges)
+        this.resolveEdge(e)
+        return e
+    }
+
+    ; Convenience for the demos and tests, which build graphs by hand.
+    fn node:FlowNode (id:string label:string x:double y:double) {
+        def n:FlowNode (FlowNode.create(id label x y))
+        return (this.addNode(n))
+    }
+
+    fn connect:FlowEdge (source:string target:string) {
+        def e:FlowEdge (FlowEdge.create("" source target))
+        return (this.addEdge(e))
+    }
+
+    fn resolveEdge:void (e:FlowEdge) {
+        e.sourceIndex = (this.indexOfNode(e.source))
+        e.targetIndex = (this.indexOfNode(e.target))
+    }
+
+    ; --- ports --------------------------------------------------------------
+    ; Ports live on their node, so the index is only a shortcut from a port id
+    ; to the node that owns it. Rebuilt with everything else in `reindex`.
+    fn portOwner:int (portId:string) {
+        if (has portIndex portId) {
+            return (unwrap (get portIndex portId))
+        }
+        return -1
+    }
+
+    fn portRef:FlowPort (portId:string) {
+        def ni:int (this.portOwner(portId))
+        if (ni < 0) {
+            return (new FlowPort)
+        }
+        def n:FlowNode (itemAt nodes ni)
+        def pi:int (n.portIndex(portId))
+        if (pi < 0) {
+            return (new FlowPort)
+        }
+        return (itemAt n.ports pi)
+    }
+
+    fn hasPort:boolean (portId:string) {
+        if ((strlen portId) == 0) {
+            return false
+        }
+        def ni:int (this.portOwner(portId))
+        if (ni < 0) {
+            return false
+        }
+        def n:FlowNode (itemAt nodes ni)
+        def pi:int (n.portIndex(portId))
+        return (pi >= 0)
+    }
+
+    ; How many edges already end on this port — the connection-limit check.
+    fn portDegree:int (portId:string) {
+        def c:int 0
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            if (e.sourcePort == portId) { c = (c + 1) }
+            if (e.targetPort == portId) { c = (c + 1) }
+            k = (k + 1)
+        }
+        return c
+    }
+
+    ; React Flow's `isValidConnection`, in the core rather than in a callback:
+    ; no self-loops on the same port, no duplicates, roles and limits obeyed.
+    fn canConnect:boolean (fromPort:string toPort:string) {
+        if (fromPort == toPort) {
+            return false
+        }
+        if ((this.hasPort(fromPort)) == false) {
+            return false
+        }
+        if ((this.hasPort(toPort)) == false) {
+            return false
+        }
+        def a:FlowPort (this.portRef(fromPort))
+        def b:FlowPort (this.portRef(toPort))
+        if ((a.acceptsSource()) == false) {
+            return false
+        }
+        if ((b.acceptsTarget()) == false) {
+            return false
+        }
+        if (a.connectionLimit >= 0) {
+            def da:int (this.portDegree(fromPort))
+            if (da >= a.connectionLimit) {
+                return false
+            }
+        }
+        if (b.connectionLimit >= 0) {
+            def db:int (this.portDegree(toPort))
+            if (db >= b.connectionLimit) {
+                return false
+            }
+        }
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            if (e.sourcePort == fromPort) {
+                if (e.targetPort == toPort) {
+                    return false
+                }
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; --- edge endpoints -----------------------------------------------------
+    ; The one place an edge's ends are worked out. Everything that draws, hit
+    ; tests, exports or routes an edge asks here, so a PDF and the editor put
+    ; the line in the same place by construction.
+    fn endpointX:double (e:FlowEdge atSource:boolean) {
+        def nudge:double e.portNudgeTarget
+        if atSource {
+            nudge = e.portNudgeSource
+        }
+        ; The nudge runs ALONG the side, so it moves X on a top or bottom
+        ; handle and Y on a left or right one. `endpointY` has the mirror of
+        ; this test; between them exactly one axis takes the offset.
+        def side:int (this.edgeSide(e atSource))
+        def alongX:boolean false
+        if (side == 0) { alongX = true }
+        if (side == 2) { alongX = true }
+        if (alongX == false) {
+            nudge = 0.0
+        }
+        if atSource {
+            if (this.hasPort(e.sourcePort)) {
+                def p:FlowPort (this.portRef(e.sourcePort))
+                def owner:FlowNode (this.nodeById(p.nodeId))
+                return ((owner.portX(p)) + nudge)
+            }
+            def n:FlowNode (this.nodeById(e.source))
+            return ((n.handleX(side)) + nudge)
+        }
+        if (this.hasPort(e.targetPort)) {
+            def p2:FlowPort (this.portRef(e.targetPort))
+            def owner2:FlowNode (this.nodeById(p2.nodeId))
+            return ((owner2.portX(p2)) + nudge)
+        }
+        def t:FlowNode (this.nodeById(e.target))
+        return ((t.handleX(side)) + nudge)
+    }
+
+    fn endpointY:double (e:FlowEdge atSource:boolean) {
+        def nudge:double e.portNudgeTarget
+        if atSource {
+            nudge = e.portNudgeSource
+        }
+        ; The nudge runs ALONG the side the port is on: down a left or right
+        ; edge, across a top or bottom one. Applying it on the wrong axis
+        ; would pull the endpoint off the node.
+        def side:int (this.edgeSide(e atSource))
+        def alongY:boolean false
+        if (side == 1) { alongY = true }
+        if (side == 3) { alongY = true }
+        if (alongY == false) {
+            nudge = 0.0
+        }
+        if atSource {
+            if (this.hasPort(e.sourcePort)) {
+                def p:FlowPort (this.portRef(e.sourcePort))
+                def owner:FlowNode (this.nodeById(p.nodeId))
+                return ((owner.portY(p)) + nudge)
+            }
+            def n:FlowNode (this.nodeById(e.source))
+            return ((n.handleY(side)) + nudge)
+        }
+        if (this.hasPort(e.targetPort)) {
+            def p2:FlowPort (this.portRef(e.targetPort))
+            def owner2:FlowNode (this.nodeById(p2.nodeId))
+            return ((owner2.portY(p2)) + nudge)
+        }
+        def t:FlowNode (this.nodeById(e.target))
+        return ((t.handleY(side)) + nudge)
+    }
+
+    fn edgeSide:int (e:FlowEdge atSource:boolean) {
+        if atSource {
+            if (this.hasPort(e.sourcePort)) {
+                def p:FlowPort (this.portRef(e.sourcePort))
+                return p.side
+            }
+            if (e.sourceHandle >= 0) {
+                return e.sourceHandle
+            }
+            def n:FlowNode (this.nodeById(e.source))
+            return n.sourcePosition
+        }
+        if (this.hasPort(e.targetPort)) {
+            def p2:FlowPort (this.portRef(e.targetPort))
+            return p2.side
+        }
+        if (e.targetHandle >= 0) {
+            return e.targetHandle
+        }
+        def t:FlowNode (this.nodeById(e.target))
+        return t.targetPosition
+    }
+
+    ; Every index the hot paths read, rebuilt in one pass. Call it after any
+    ; removal; adding keeps the indices correct as it goes.
+    fn reindex:void () {
+        map_clear nodeIndex
+        map_clear edgeIndex
+        map_clear portIndex
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FlowNode (itemAt nodes i)
+            n.index = i
+            set nodeIndex n.id i
+            def pi:int 0
+            while (pi < (array_length n.ports)) {
+                def p:FlowPort (itemAt n.ports pi)
+                p.nodeId = n.id
+                set portIndex p.id i
+                pi = (pi + 1)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            set edgeIndex e.id k
+            this.resolveEdge(e)
+            k = (k + 1)
+        }
+    }
+
+    ; Removing a node removes what pointed at it — a dangling edge is the one
+    ; kind of graph corruption a renderer cannot draw its way out of.
+    fn removeNode:boolean (id:string) {
+        def i:int (this.indexOfNode(id))
+        if (i < 0) {
+            return false
+        }
+        remove_index nodes i
+        def kept:[FlowEdge]
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            def drop:boolean false
+            if (e.source == id) { drop = true }
+            if (e.target == id) { drop = true }
+            if (drop == false) {
+                push kept e
+            }
+            k = (k + 1)
+        }
+        clear edges
+        def j:int 0
+        while (j < (array_length kept)) {
+            push edges (itemAt kept j)
+            j = (j + 1)
+        }
+        this.reindex()
+        return true
+    }
+
+    fn removeEdge:boolean (id:string) {
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            if (e.id == id) {
+                remove_index edges k
+                this.reindex()
+                return true
+            }
+            k = (k + 1)
+        }
+        return false
+    }
+
+    fn removeSelected:int () {
+        def doomed:[string]
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FlowNode (itemAt nodes i)
+            if (n.selected) {
+                push doomed n.id
+            }
+            i = (i + 1)
+        }
+        def deadEdges:[string]
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            if (e.selected) {
+                push deadEdges e.id
+            }
+            k = (k + 1)
+        }
+        def removed:int 0
+        def a:int 0
+        while (a < (array_length deadEdges)) {
+            if (this.removeEdge((itemAt deadEdges a))) {
+                removed = (removed + 1)
+            }
+            a = (a + 1)
+        }
+        def b:int 0
+        while (b < (array_length doomed)) {
+            if (this.removeNode((itemAt doomed b))) {
+                removed = (removed + 1)
+            }
+            b = (b + 1)
+        }
+        return removed
+    }
+
+    ; --- selection ----------------------------------------------------------
+    fn clearSelection:void () {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FlowNode (itemAt nodes i)
+            n.selected = false
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            e.selected = false
+            k = (k + 1)
+        }
+    }
+
+    fn selectedNodeCount:int () {
+        def c:int 0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FlowNode (itemAt nodes i)
+            if (n.selected) {
+                c = (c + 1)
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn selectInRect:int (r:FlowRect) {
+        def c:int 0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FlowNode (itemAt nodes i)
+            if (n.hidden == false) {
+                if (n.selectable) {
+                    def nr:FlowRect (n.rect())
+                    ; React Flow selects on positive overlap AREA, so a box
+                    ; dragged exactly up to a node's edge does not catch it.
+                    if ((r.overlapArea(nr)) > 0.0) {
+                        n.selected = true
+                        c = (c + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; --- queries ------------------------------------------------------------
+    ; Topmost first: the view paints in array order, so the last node drawn is
+    ; the one a click should find.
+    fn nodeAtPoint:int (px:double py:double) {
+        def i:int ((array_length nodes) - 1)
+        while (i >= 0) {
+            def n:FlowNode (itemAt nodes i)
+            if (n.hidden == false) {
+                if (n.holdsPoint(px py)) {
+                    return i
+                }
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    fn bounds:FlowRect () {
+        def out (new FlowRect)
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FlowNode (itemAt nodes i)
+            if (n.hidden == false) {
+                def r:double (n.x + n.width)
+                def b:double (n.y + n.height)
+                if (out.valid == false) {
+                    out.x = n.x
+                    out.y = n.y
+                    out.w = n.width
+                    out.h = n.height
+                    out.valid = true
+                } {
+                    def ox:double out.x
+                    def oy:double out.y
+                    def orr:double (out.x + out.w)
+                    def ob:double (out.y + out.h)
+                    if (n.x < ox) { ox = n.x }
+                    if (n.y < oy) { oy = n.y }
+                    if (r > orr) { orr = r }
+                    if (b > ob) { ob = b }
+                    out.x = ox
+                    out.y = oy
+                    out.w = (orr - ox)
+                    out.h = (ob - oy)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Degree counts, which forceLink needs for its per-link strength and the
+    ; view uses to size a node in the demo graph.
+    fn degrees:[int] () {
+        def out:[int]
+        def i:int 0
+        while (i < (array_length nodes)) {
+            push out 0
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            if (e.sourceIndex >= 0) {
+                def s:int (itemAt out e.sourceIndex)
+                set_at out e.sourceIndex (s + 1)
+            }
+            if (e.targetIndex >= 0) {
+                def t:int (itemAt out e.targetIndex)
+                set_at out e.targetIndex (t + 1)
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}
