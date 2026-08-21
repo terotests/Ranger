@@ -19,27 +19,18 @@ class PptxGeom {
     sfn unitPreset:[double] (preset:string) {
         def pts:[double]
         if (preset == "ellipse") {
-            ; Approximate ellipse with a regular 24-gon
+            ; A real circle rather than the twelve-sided one that used to be
+            ; typed out here — `cos` and `sin` are builtins, and a dodecagon is
+            ; visible as soon as a shape is bigger than a bullet.
+            def n:int 48
             def i:int 0
-            while (i < 24) {
-                def ang:double (((to_double i) * 6.28318530718) / 24.0)
-                ; cos/sin via crude Taylor-ish using Ranger: use known samples
-                ; Prefer explicit table for portability without math lib.
+            while (i < n) {
+                def ang:double (((to_double i) * 6.283185307179586) / (to_double n))
+                def cx:double (cos ang)
+                def cy:double (sin ang)
+                PptxGeom.pushPt(pts (0.5 + (0.5 * cx)) (0.5 + (0.5 * cy)))
                 i = (i + 1)
             }
-            ; 16-point ellipse approximation
-            PptxGeom.pushPt(pts 0.5 0.0)
-            PptxGeom.pushPt(pts 0.75 0.067)
-            PptxGeom.pushPt(pts 0.933 0.25)
-            PptxGeom.pushPt(pts 1.0 0.5)
-            PptxGeom.pushPt(pts 0.933 0.75)
-            PptxGeom.pushPt(pts 0.75 0.933)
-            PptxGeom.pushPt(pts 0.5 1.0)
-            PptxGeom.pushPt(pts 0.25 0.933)
-            PptxGeom.pushPt(pts 0.067 0.75)
-            PptxGeom.pushPt(pts 0.0 0.5)
-            PptxGeom.pushPt(pts 0.067 0.25)
-            PptxGeom.pushPt(pts 0.25 0.067)
             return pts
         }
         if (preset == "triangle") {

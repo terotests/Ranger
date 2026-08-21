@@ -158,8 +158,8 @@ class PptxWeb {
     fn selectionBox:string () {
         def b:PptxEditRect (app.editor.selectionBounds())
         def sc:double (app.ptScale())
-        def x:double (b.x * sc)
-        def y:double ((b.y * sc) + (to_double app.toolbarH))
+        def x:double ((b.x * sc) + (app.slideOriginX()))
+        def y:double ((b.y * sc) + (app.slideOriginY()))
         def w:double (b.w * sc)
         def h:double (b.h * sc)
         return ("{\"x\":" + (EVGDisplayList.num(x)) + ",\"y\":" + (EVGDisplayList.num(y)) + ",\"w\":" + (EVGDisplayList.num(w)) + ",\"h\":" + (EVGDisplayList.num(h)) + ",\"count\":" + (to_string (app.editor.selectionCount())) + "}")

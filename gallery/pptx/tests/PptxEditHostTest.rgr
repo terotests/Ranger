@@ -45,12 +45,12 @@ class PptxEditHostTest {
 
     sfn screenX:int (app:PptxApp xPt:double) {
         def sc:double (app.ptScale())
-        return (to_int (xPt * sc))
+        return (to_int ((xPt * sc) + (app.slideOriginX())))
     }
 
     sfn screenY:int (app:PptxApp yPt:double) {
         def sc:double (app.ptScale())
-        def v:double ((yPt * sc) + (to_double app.toolbarH))
+        def v:double ((yPt * sc) + (app.slideOriginY()))
         return (to_int v)
     }
 

@@ -617,8 +617,15 @@ class PptxApp {
         framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
         def slide@(optional):PptxSlide (this.currentSlide())
         if (!null? slide) {
-            def dl:EVGDisplayList (view.buildDisplayList((unwrap slide)))
-            PptxApp.offsetList(dl 0 toolbarH)
+            def sl:PptxSlide (unwrap slide)
+            def sc:double (this.ptScale())
+            def ox:double (this.slideOriginX())
+            def oy:double (this.slideOriginY())
+            ; The page, and the desk it is on. A slide drawn into the corner of
+            ; a window that is a different shape reads as a rendering fault.
+            framed.addFrame((ox - 1.0) (oy - 1.0) ((sl.width * sc) + 2.0) ((sl.height * sc) + 2.0) 1.0 (EVGColor.rgb(70 78 96)))
+            def dl:EVGDisplayList (view.buildDisplayList(sl))
+            PptxApp.offsetList(dl (to_int ox) (to_int oy))
             PptxApp.appendList(framed dl)
         }
         if editMode {
@@ -951,12 +958,46 @@ class PptxApp {
         return ((96.0 / 72.0) * f)
     }
 
+    ; Where the slide's top-left corner sits in the window. The fit-to-window
+    ; scale leaves a margin on one axis; the page is centred in it.
+    fn slideOriginX:double () {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return 0.0
+        }
+        def s:PptxSlide (unwrap slide)
+        def sc:double (this.ptScale())
+        def wpx:double (s.width * sc)
+        def dx:double (((to_double W) - wpx) * 0.5)
+        if (dx < 0.0) {
+            return 0.0
+        }
+        return dx
+    }
+
+    fn slideOriginY:double () {
+        def top:double (to_double toolbarH)
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return top
+        }
+        def s:PptxSlide (unwrap slide)
+        def sc:double (this.ptScale())
+        def hpx:double (s.height * sc)
+        def avail:double (to_double ((H - toolbarH) - statusH))
+        def dy:double ((avail - hpx) * 0.5)
+        if (dy < 0.0) {
+            return top
+        }
+        return (top + dy)
+    }
+
     fn screenToSlideX:double (px:int) {
         def sc:double (this.ptScale())
         if (sc <= 0.0) {
             return 0.0
         }
-        return ((to_double px) / sc)
+        return (((to_double px) - (this.slideOriginX())) / sc)
     }
 
     fn screenToSlideY:double (py:int) {
@@ -964,8 +1005,7 @@ class PptxApp {
         if (sc <= 0.0) {
             return 0.0
         }
-        def top:double (to_double toolbarH)
-        return (((to_double py) - top) / sc)
+        return (((to_double py) - (this.slideOriginY())) / sc)
     }
 
     fn syncEditor:void () {
@@ -1031,12 +1071,13 @@ class PptxApp {
             return -1
         }
         def sc:double (this.ptScale())
-        def top:double (to_double toolbarH)
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
         def b:PptxEditRect (editor.selectionBounds())
-        def x0:double (b.x * sc)
-        def y0:double ((b.y * sc) + top)
-        def x1:double ((b.right()) * sc)
-        def y1:double (((b.bottom()) * sc) + top)
+        def x0:double ((b.x * sc) + ox)
+        def y0:double ((b.y * sc) + oy)
+        def x1:double (((b.right()) * sc) + ox)
+        def y1:double (((b.bottom()) * sc) + oy)
         def fx:double (to_double px)
         def fy:double (to_double py)
         def i:int 0
@@ -1459,20 +1500,21 @@ class PptxApp {
         }
         def slide:PptxSlide (unwrap slideOpt)
         def sc:double (this.ptScale())
-        def top:double (to_double toolbarH)
+        def ox:double (this.slideOriginX())
+        def oy:double (this.slideOriginY())
         def sw:double (slide.width * sc)
         def sh:double (slide.height * sc)
         def guide:EVGColor (EVGColor.rgb(232 84 120))
         def gi:int 0
         while (gi < (array_length editor.guideX)) {
-            def gx:double ((itemAt editor.guideX gi) * sc)
-            dl.addRect(gx top 1.0 sh guide)
+            def gx:double (((itemAt editor.guideX gi) * sc) + ox)
+            dl.addRect(gx oy 1.0 sh guide)
             gi = (gi + 1)
         }
         def gj:int 0
         while (gj < (array_length editor.guideY)) {
-            def gy:double (((itemAt editor.guideY gj) * sc) + top)
-            dl.addRect(0.0 gy sw 1.0 guide)
+            def gy:double (((itemAt editor.guideY gj) * sc) + oy)
+            dl.addRect(ox gy sw 1.0 guide)
             gj = (gj + 1)
         }
         def sel:[PptxShape] (editor.selectedShapes())
@@ -1483,14 +1525,14 @@ class PptxApp {
         def i:int 0
         while (i < (array_length sel)) {
             def s2:PptxShape (itemAt sel i)
-            dl.addFrame((s2.x * sc) ((s2.y * sc) + top) (s2.width * sc) (s2.height * sc) 1.0 thin)
+            dl.addFrame(((s2.x * sc) + ox) ((s2.y * sc) + oy) (s2.width * sc) (s2.height * sc) 1.0 thin)
             i = (i + 1)
         }
         def b:PptxEditRect (editor.selectionBounds())
-        def x0:double (b.x * sc)
-        def y0:double ((b.y * sc) + top)
-        def x1:double ((b.right()) * sc)
-        def y1:double (((b.bottom()) * sc) + top)
+        def x0:double ((b.x * sc) + ox)
+        def y0:double ((b.y * sc) + oy)
+        def x1:double (((b.right()) * sc) + ox)
+        def y1:double (((b.bottom()) * sc) + oy)
         def box:EVGColor (EVGColor.rgb(40 90 200))
         dl.addFrame(x0 y0 (x1 - x0) (y1 - y0) 1.0 box)
         def white:EVGColor (EVGColor.rgb(255 255 255))
