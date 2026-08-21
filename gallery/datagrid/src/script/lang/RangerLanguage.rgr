@@ -61,6 +61,15 @@ class RangerLanguage {
         if ((strlen prefix) == 0) {
             return out
         }
+        ; `this.` and `Class.` ask about members, and in a language with no
+        ; imports to chase, the file itself is the answer: every `fn`, `sfn`
+        ; and `def` in it.
+        def start:int (EditorLanguage.prefixStart(text col))
+        if (start > 0) {
+            if ((charAt text (start - 1)) == 46) {
+                return (this.membersOfFile(lines prefix))
+            }
+        }
         def ops:[string] (RangerTokenizer.builtins())
         def i:int 0
         def n:int (array_length ops)
@@ -96,6 +105,71 @@ class RangerLanguage {
             w = (w + 1)
         }
         return out
+    }
+
+    ; Declarations, read off the file. A parser would be better and would also
+    ; be a second parser; this is what `fn name:` looks like, which is enough
+    ; to offer the method you wrote eighty lines ago.
+    fn membersOfFile:[Completion] (lines:[string] prefix:string) {
+        def out:[Completion]
+        def li:int 0
+        def n:int (array_length lines)
+        while (li < n) {
+            def raw:string (itemAt lines li)
+            def s:string (trim raw)
+            def kind:string ""
+            def rest:string ""
+            if (this.beginsWith(s "fn ")) {
+                kind = "method"
+                rest = (substring s 3 (strlen s))
+            }
+            if (this.beginsWith(s "sfn ")) {
+                kind = "static"
+                rest = (substring s 4 (strlen s))
+            }
+            if (this.beginsWith(s "def ")) {
+                kind = "field"
+                rest = (substring s 4 (strlen s))
+            }
+            if ((strlen kind) > 0) {
+                def name:string (RangerLanguage.nameOf(rest))
+                if ((strlen name) > 0) {
+                    if (EditorLanguage.matchesPrefix(name prefix)) {
+                        push out (Completion.create(name kind (CompletionKind.member()) 0))
+                    }
+                }
+            }
+            li = (li + 1)
+        }
+        return out
+    }
+
+    ; `total:int (n:int) {` -> `total`. The name ends at the colon that starts
+    ; its type, or at the space before its parameters.
+    sfn nameOf:string (s:string) {
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            def word:boolean false
+            if ((ch >= 65) && (ch <= 90)) {
+                word = true
+            }
+            if ((ch >= 97) && (ch <= 122)) {
+                word = true
+            }
+            if ((ch >= 48) && (ch <= 57)) {
+                word = true
+            }
+            if (ch == 95) {
+                word = true
+            }
+            if (word == false) {
+                return (substring s 0 i)
+            }
+            i = (i + 1)
+        }
+        return s
     }
 
     fn diagnose:[EditorDiagnostic] (source:string) {

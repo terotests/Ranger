@@ -69,6 +69,437 @@ class JsLanguage {
         return (lexer.tokenize(lines))
     }
 
+    ; --- members, and a guess at what they belong to ----------------------------
+    ;
+    ; `body.` should offer what an array can do, and it does — from a guess
+    ; made by reading BACKWARDS for where `body` was declared. There is no type
+    ; checker here and there is not going to be one on a keystroke; what there
+    ; is, is the handful of ways a value gets its type in a report script:
+    ;
+    ;     const body = [];              an array literal
+    ;     const name = 'Sales';         a string literal
+    ;     const rows = sheetRows(…);    a workbook call whose result is known
+    ;     const cell = rows[i];         an element of one of those
+    ;
+    ; Those four cover nearly every line anyone writes here. When none of them
+    ; matches, the guess is `any` and the list is everything — the same answer
+    ; a real type checker gives when it does not know either, and better than
+    ; an empty popup.
+    ;
+    ; The member lists are the methods THIS ENGINE IMPLEMENTS, taken from
+    ; ComponentEngine rather than from the JavaScript standard. Offering
+    ; `.flatMap()` because JavaScript has it would be offering to write a line
+    ; that cannot run.
+    sfn arrayMembers:[string] () {
+        return ([] _:string ( "length" "push" "pop" "shift" "unshift" "slice" "splice" "concat" "join" "indexOf" "lastIndexOf" "includes" "map" "filter" "forEach" "reduce" "find" "findIndex" "some" "every" "sort" "reverse" "flat" "fill" "at" "keys" "values" "entries" ))
+    }
+
+    sfn stringMembers:[string] () {
+        return ([] _:string ( "length" "charAt" "charCodeAt" "at" "concat" "startsWith" "endsWith" "includes" "indexOf" "lastIndexOf" "padStart" "padEnd" "repeat" "replace" "replaceAll" "slice" "split" "substring" "toLowerCase" "toUpperCase" "trim" "trimStart" "trimEnd" "toString" ))
+    }
+
+    sfn numberMembers:[string] () {
+        return ([] _:string ( "toFixed" "toString" ))
+    }
+
+    ; Calls whose result type is known because the workbook API defines it.
+    sfn rowsCalls:[string] () {
+        return ([] _:string ( "sheetRows" "sheetText" "range" "rangeText" "query" ))
+    }
+
+    sfn stringCalls:[string] () {
+        return ([] _:string ( "formatNumber" "param" "text" "currentLine" ))
+    }
+
+    sfn numberCalls:[string] () {
+        return ([] _:string ( "usedRows" "usedCols" "sheetCount" ))
+    }
+
+    ; Is the caret completing a MEMBER — that is, is the character before the
+    ; word being typed a dot? Returns its column, or -1.
+    sfn dotBefore:int (text:string col:int) {
+        def start:int (EditorLanguage.prefixStart(text col))
+        if (start == 0) {
+            return -1
+        }
+        def ch:int (charAt text (start - 1))
+        if (ch != 46) {
+            return -1
+        }
+        return (start - 1)
+    }
+
+    ; What is being dereferenced, as written: `body`, `rows[i]`, `'x'`.
+    ; `indexed` says whether it ended in a subscript, which is what turns "an
+    ; array of rows" into "a row".
+    sfn receiverBefore:string (text:string dotCol:int indexedOut:[boolean]) {
+        clear indexedOut
+        push indexedOut false
+        def i:int (dotCol - 1)
+        if (i < 0) {
+            return ""
+        }
+        def ch:int (charAt text i)
+        ; A subscript: skip back over it to the name it belongs to.
+        if (ch == 93) {
+            set_at indexedOut 0 true
+            def depth:int 0
+            while (i >= 0) {
+                def c2:int (charAt text i)
+                if (c2 == 93) {
+                    depth = (depth + 1)
+                }
+                if (c2 == 91) {
+                    depth = (depth - 1)
+                    if (depth == 0) {
+                        i = (i - 1)
+                        break
+                    }
+                }
+                i = (i - 1)
+            }
+            if (i < 0) {
+                return ""
+            }
+            ch = (charAt text i)
+        }
+        ; A literal receiver types itself.
+        if (ch == 39) {
+            return "'"
+        }
+        if (ch == 34) {
+            return "'"
+        }
+        if (ch == 96) {
+            return "'"
+        }
+        if ((ch >= 48) && (ch <= 57)) {
+            return "0"
+        }
+        def end:int (i + 1)
+        def start:int (EditorLanguage.prefixStart(text end))
+        if (start >= end) {
+            return ""
+        }
+        return (substring text start end)
+    }
+
+    ; The guess. Reads backwards for a declaration of `name` and classifies
+    ; whatever is on the right of the `=`.
+    fn inferKind:string (lines:[string] upto:int name:string indexed:boolean) {
+        if (name == "'") {
+            return "string"
+        }
+        if (name == "0") {
+            return "number"
+        }
+        if ((strlen name) == 0) {
+            return "any"
+        }
+        def li:int upto
+        while (li >= 0) {
+            def text:string (itemAt lines li)
+            def at:int (JsLanguage.declarationOf(text name))
+            if (at >= 0) {
+                def rhs:string (substring text at (strlen text))
+                return (this.kindOfExpression(rhs indexed))
+            }
+            li = (li - 1)
+        }
+        return "any"
+    }
+
+    ; The column just after the `=` of `const name = …` on this line, or -1.
+    ; A declaration and not an assignment, because an assignment can be to
+    ; anything and a declaration is where a value gets its shape.
+    sfn declarationOf:int (text:string name:string) {
+        def n:int (strlen text)
+        def nameLen:int (strlen name)
+        def i:int 0
+        while (i < n) {
+            def rest:int (n - i)
+            if (rest < nameLen) {
+                return -1
+            }
+            def here:string (substring text i (i + nameLen))
+            if (here == name) {
+                def okBefore:boolean false
+                if (i >= 6) {
+                    def head:string (substring text (i - 6) i)
+                    if (head == "const ") {
+                        okBefore = true
+                    }
+                }
+                if (i >= 4) {
+                    def head2:string (substring text (i - 4) i)
+                    if (head2 == "let ") {
+                        okBefore = true
+                    }
+                    if (head2 == "var ") {
+                        okBefore = true
+                    }
+                }
+                if okBefore {
+                    ; …and an `=` after it, with nothing but spaces between.
+                    def j:int (i + nameLen)
+                    while (j < n) {
+                        def ch:int (charAt text j)
+                        if (ch == 32) {
+                            j = (j + 1)
+                            continue
+                        }
+                        if (ch == 61) {
+                            def after:int (j + 1)
+                            if (after < n) {
+                                if ((charAt text after) == 61) {
+                                    return -1
+                                }
+                            }
+                            return after
+                        }
+                        break
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The keys of a one-line object literal, so `const o = { a: 1, b: 2 }`
+    ; can answer `o.` with what it actually has in it.
+    fn objectKeysOf:[string] (lines:[string] upto:int name:string) {
+        def out:[string]
+        def li:int upto
+        while (li >= 0) {
+            def text:string (itemAt lines li)
+            def at:int (JsLanguage.declarationOf(text name))
+            if (at >= 0) {
+                def rhs:string (trim (substring text at (strlen text)))
+                if ((strlen rhs) > 0) {
+                    if ((charAt rhs 0) == 123) {
+                        def i:int 1
+                        def n:int (strlen rhs)
+                        def word:string ""
+                        while (i < n) {
+                            def ch:int (charAt rhs i)
+                            def isWord:boolean false
+                            if ((ch >= 65) && (ch <= 90)) {
+                                isWord = true
+                            }
+                            if ((ch >= 97) && (ch <= 122)) {
+                                isWord = true
+                            }
+                            if ((ch >= 48) && (ch <= 57)) {
+                                isWord = true
+                            }
+                            if (ch == 95) {
+                                isWord = true
+                            }
+                            if isWord {
+                                str_append word (strfromcode ch)
+                            } {
+                                if (ch == 58) {
+                                    if ((strlen word) > 0) {
+                                        push out word
+                                    }
+                                }
+                                word = ""
+                            }
+                            i = (i + 1)
+                        }
+                    }
+                }
+                return out
+            }
+            li = (li - 1)
+        }
+        return out
+    }
+
+    ; The members of a guessed kind, as completions.
+    fn membersFor:[Completion] (kind:string prefix:string keys:[string]) {
+        def out:[Completion]
+        def own:int 0
+        def kn:int (array_length keys)
+        while (own < kn) {
+            def key:string (itemAt keys own)
+            if (EditorLanguage.matchesPrefix(key prefix)) {
+                push out (Completion.create(key "own property" (CompletionKind.member()) 0))
+            }
+            own = (own + 1)
+        }
+        def names:[string]
+        def detail:string kind
+        if (kind == "array") {
+            names = (JsLanguage.arrayMembers())
+        }
+        if (kind == "string") {
+            names = (JsLanguage.stringMembers())
+        }
+        if (kind == "number") {
+            names = (JsLanguage.numberMembers())
+        }
+        if (kind == "any") {
+            ; Nothing is known, so everything is offered — which is what a type
+            ; checker says about `any` too, and better than an empty popup.
+            names = (JsLanguage.arrayMembers())
+            def more:[string] (JsLanguage.stringMembers())
+            def mi:int 0
+            while (mi < (array_length more)) {
+                def m:string (itemAt more mi)
+                if ((EditorLanguage.isInList(m names)) == false) {
+                    push names m
+                }
+                mi = (mi + 1)
+            }
+            detail = "any"
+        }
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            def member:string (itemAt names i)
+            if (EditorLanguage.matchesPrefix(member prefix)) {
+                push out (Completion.create(member detail (CompletionKind.member()) 1))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; What an initialiser evaluates to, as far as anyone can tell by looking.
+    fn kindOfExpression:string (rhs:string indexed:boolean) {
+        def s:string (trim rhs)
+        if ((strlen s) == 0) {
+            return "any"
+        }
+        def ch:int (charAt s 0)
+        if (ch == 91) {
+            if indexed {
+                return "any"
+            }
+            return "array"
+        }
+        if ((ch == 39) || (ch == 34)) {
+            if indexed {
+                return "string"
+            }
+            return "string"
+        }
+        if (ch == 96) {
+            return "string"
+        }
+        if (ch == 123) {
+            return "object"
+        }
+        if ((ch >= 48) && (ch <= 57)) {
+            return "number"
+        }
+        ; A call: the workbook API's results are known.
+        def callName:string (JsLanguage.leadingName(s))
+        if ((strlen callName) > 0) {
+            if (EditorLanguage.isInList(callName (JsLanguage.rowsCalls()))) {
+                ; Rows of cells: the whole thing is an array, and one of its
+                ; elements is a row — also an array.
+                return "array"
+            }
+            if (EditorLanguage.isInList(callName (JsLanguage.stringCalls()))) {
+                return "string"
+            }
+            if (EditorLanguage.isInList(callName (JsLanguage.numberCalls()))) {
+                return "number"
+            }
+            if (callName == "sheetNames") {
+                if indexed {
+                    return "string"
+                }
+                return "array"
+            }
+        }
+        ; `x.map(…)` is an array; `x.join(…)` is a string. One dot deep, which
+        ; is as far as a guess like this should reach.
+        def method:string (JsLanguage.trailingCall(s))
+        if ((strlen method) > 0) {
+            if (EditorLanguage.isInList(method ([] _:string ( "map" "filter" "slice" "concat" "split" "sort" "reverse" "flat" )))) {
+                if (method == "split") {
+                    return "array"
+                }
+                return "array"
+            }
+            if (EditorLanguage.isInList(method ([] _:string ( "join" "toUpperCase" "toLowerCase" "trim" "substring" "replace" "padStart" "padEnd" "toFixed" "toString" )))) {
+                return "string"
+            }
+        }
+        return "any"
+    }
+
+    sfn leadingName:string (s:string) {
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            def word:boolean false
+            if ((ch >= 65) && (ch <= 90)) {
+                word = true
+            }
+            if ((ch >= 97) && (ch <= 122)) {
+                word = true
+            }
+            if ((ch >= 48) && (ch <= 57)) {
+                word = true
+            }
+            if (ch == 95) {
+                word = true
+            }
+            if (word == false) {
+                if (ch == 40) {
+                    return (substring s 0 i)
+                }
+                return ""
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The last `.method(` in an expression.
+    sfn trailingCall:string (s:string) {
+        def n:int (strlen s)
+        def i:int (n - 1)
+        def lastDot:int -1
+        while (i >= 0) {
+            def ch:int (charAt s i)
+            if (ch == 46) {
+                lastDot = i
+                break
+            }
+            i = (i - 1)
+        }
+        if (lastDot < 0) {
+            return ""
+        }
+        def j:int (lastDot + 1)
+        def start:int j
+        while (j < n) {
+            def c2:int (charAt s j)
+            if (c2 == 40) {
+                return (substring s start j)
+            }
+            def word:boolean false
+            if ((c2 >= 65) && (c2 <= 90)) {
+                word = true
+            }
+            if ((c2 >= 97) && (c2 <= 122)) {
+                word = true
+            }
+            if (word == false) {
+                return ""
+            }
+            j = (j + 1)
+        }
+        return ""
+    }
+
     ; The workbook API first, then the language's own words, then whatever is
     ; already written in this document. That order is the whole opinion: a
     ; report script is mostly `sheetRows`, `formatNumber` and names it just
@@ -83,6 +514,19 @@ class JsLanguage {
         }
         def text:string (itemAt lines line)
         def prefix:string (EditorLanguage.prefixAt(text col))
+        ; A dot before the word means members of whatever is on its left, and
+        ; an empty prefix is fine there: `body.` is a question already.
+        def dot:int (JsLanguage.dotBefore(text col))
+        if (dot >= 0) {
+            def indexed:[boolean]
+            def receiver:string (JsLanguage.receiverBefore(text dot indexed))
+            def kind:string (this.inferKind(lines line receiver (itemAt indexed 0)))
+            def keys:[string]
+            if (kind == "object") {
+                keys = (this.objectKeysOf(lines line receiver))
+            }
+            return (this.membersFor(kind prefix keys))
+        }
         if ((strlen prefix) == 0) {
             return out
         }

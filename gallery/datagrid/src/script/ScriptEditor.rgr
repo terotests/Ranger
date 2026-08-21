@@ -1232,9 +1232,16 @@ class ScriptEditor {
         } {
             if (autoComplete) {
                 def line:string (buf.lineAt(sel.caret.line))
-                def prefix:string (EditorLanguage.prefixAt(line sel.caret.col))
-                if ((strlen prefix) >= 2) {
+                def lastCh:int (charAt s ((strlen s) - 1))
+                ; A dot is a question on its own — `body.` is asking what a
+                ; body has — so it opens the list with no prefix at all.
+                if (lastCh == 46) {
                     this.openCompletions()
+                } {
+                    def prefix:string (EditorLanguage.prefixAt(line sel.caret.col))
+                    if ((strlen prefix) >= 2) {
+                        this.openCompletions()
+                    }
                 }
             }
         }

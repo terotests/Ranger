@@ -273,6 +273,71 @@ class ScriptEditorTest {
         c.eqStr("Ranger's operators" rgFirst.label "array_length")
         c.eqStr("named as such" rgFirst.detail "operator")
 
+        print "== a dot asks what the thing can do =="
+        def arrLines:[string] ([] _:string ( "function page(rows) {" "  const body = [];" "  body." "}" ))
+        def arrM:[Completion] (js.complete(arrLines 2 7))
+        c.ok(("an array has members (" + (to_string (array_length arrM)) + ")") ((array_length arrM) > 10))
+        def hasPush:boolean false
+        def hasSplit:boolean false
+        def mi:int 0
+        while (mi < (array_length arrM)) {
+            def m:Completion (itemAt arrM mi)
+            if (m.label == "push") {
+                hasPush = true
+                c.eqStr("and they say what they belong to" m.detail "array")
+            }
+            if (m.label == "split") {
+                hasSplit = true
+            }
+            mi = (mi + 1)
+        }
+        c.ok("push is offered on an array" hasPush)
+        c.ok("and split is not" (hasSplit == false))
+
+        def strLines:[string] ([] _:string ( "const name = 'Sales';" "name.to" ))
+        def strM:[Completion] (js.complete(strLines 1 7))
+        c.ok("a string literal types itself" ((array_length strM) > 0))
+        def sm:Completion (itemAt strM 0)
+        c.eqStr("with string members" sm.detail "string")
+        c.ok("filtered by what was typed" ((sm.label == "toLowerCase") || (sm.label == "toUpperCase") || (sm.label == "toString")))
+
+        ; The workbook API's own result types.
+        def apiLines:[string] ([] _:string ( "const rows = sheetRows('Sales');" "rows." ))
+        def apiM:[Completion] (js.complete(apiLines 1 5))
+        def apiFirstKind:string ""
+        if ((array_length apiM) > 0) {
+            def a0:Completion (itemAt apiM 0)
+            apiFirstKind = a0.detail
+        }
+        c.eqStr("sheetRows() is known to return rows" apiFirstKind "array")
+
+        def cellLines:[string] ([] _:string ( "const n = usedRows('Sales');" "n.to" ))
+        def cellM:[Completion] (js.complete(cellLines 1 4))
+        c.ok("a number has few members" ((array_length cellM) > 0))
+        def nm:Completion (itemAt cellM 0)
+        c.eqStr("and knows it is one" nm.detail "number")
+
+        def objLines:[string] ([] _:string ( "const style = { width: 10, colour: 'red' };" "style." ))
+        def objM:[Completion] (js.complete(objLines 1 6))
+        c.ok("an object literal offers its own keys" ((array_length objM) >= 2))
+        def k0:Completion (itemAt objM 0)
+        c.eqStr("the first one" k0.label "width")
+        c.eqStr("named as its own" k0.detail "own property")
+
+        def anyLines:[string] ([] _:string ( "function f(thing) {" "  thing." "}" ))
+        def anyM:[Completion] (js.complete(anyLines 1 8))
+        c.ok("an unknown receiver still offers something" ((array_length anyM) > 10))
+        def a1:Completion (itemAt anyM 0)
+        c.eqStr("and says it is guessing" a1.detail "any")
+
+        print "== and Ranger answers `this.` from the file =="
+        def rgFile:[string] ([] _:string ( "class Report {" "    def rows:[string]" "    fn total:int () {" "        return (this.co" "    }" "    fn countOf:int (n:int) {" "        return n" "    }" "}" ))
+        def rgM:[Completion] (rg.complete(rgFile 3 23))
+        c.ok("its own methods are offered" ((array_length rgM) > 0))
+        def rm:Completion (itemAt rgM 0)
+        c.eqStr("by name" rm.label "countOf")
+        c.eqStr("and by what they are" rm.detail "method")
+
         print "== and the editor can take one =="
         def ed3:ScriptEditor (new ScriptEditor)
         ed3.setLanguage(js)
@@ -295,6 +360,10 @@ class ScriptEditorTest {
 
         ed3.handleText("(")
         c.ok("a non-word character closes the list" (ed3.completionOpen == false))
+        ; …and a dot opens it again, with no prefix at all.
+        ed3.moveCaret(1 (strlen (ed3.buf.lineAt(1))) false)
+        ed3.handleText(".")
+        c.ok("a dot opens the member list on its own" ed3.completionOpen)
         ed3.moveCaret(1 4 false)
         ed3.requestCompletions()
         c.ok("Ctrl+Space opens it whatever the prefix" ed3.completionOpen)

@@ -481,6 +481,50 @@ async function main() {
     check("Escape closes it", (await page.evaluate(() => window.__editorWeb.completionOpen())) === false);
     check("and Escape did not also arm the tab escape twice", true);
 
+    // A dot asks what the thing on its left can do, and the answer comes from
+    // reading backwards for where it was declared.
+    await page.evaluate(() =>
+      window.__editorWeb.setDocumentNamed(
+        "m.tsx",
+        "function page(rows) {\n  const body = [];\n  \n  const name = 'Sales';\n  \n}\n",
+      ));
+    await page.evaluate(() => document.getElementById("a11y").focus());
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("End");
+    await page.keyboard.type("body.");
+    await page.waitForTimeout(200);
+    cmp = await page.evaluate(() => {
+      const w = window.__editorWeb;
+      const labels = [];
+      for (let i = 0; i < w.completionCount(); i += 1) labels.push(w.completionLabel(i));
+      return { open: w.completionOpen(), n: w.completionCount(), labels, detail: w.completionDetail(0) };
+    });
+    check("a dot opens the member list with no prefix", cmp.open, JSON.stringify(cmp).slice(0, 120));
+    check("an array declared as [] offers array members",
+      cmp.labels.includes("push") && cmp.labels.includes("map"), cmp.labels.slice(0, 6).join(","));
+    check("and says which type it guessed", cmp.detail === "array", cmp.detail);
+    check("string members are not offered on an array", !cmp.labels.includes("toUpperCase"));
+    await page.keyboard.press("Escape");
+
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("End");
+    await page.keyboard.type("name.");
+    await page.waitForTimeout(200);
+    cmp = await page.evaluate(() => {
+      const w = window.__editorWeb;
+      const labels = [];
+      for (let i = 0; i < w.completionCount(); i += 1) labels.push(w.completionLabel(i));
+      return { detail: w.completionDetail(0), labels };
+    });
+    check("a string declared with quotes offers string members",
+      cmp.detail === "string" && cmp.labels.includes("toUpperCase"), cmp.detail + " " + cmp.labels.slice(0, 5));
+    check("and not push", !cmp.labels.includes("push"));
+    await page.keyboard.press("Escape");
+
     // Ctrl+Space, and the other plugin's vocabulary.
     await page.evaluate(() =>
       window.__editorWeb.setDocumentNamed("t.rgr", "class A {\n    fn f:void () {\n        arr\n    }\n}\n"));

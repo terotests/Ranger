@@ -288,6 +288,39 @@ on a canvas does not exist for a screen reader. The textarea becomes a
 in a visually hidden `listbox`, and the live region announces "6 suggestions,
 sheetRows selected".
 
+### A dot asks what the thing can do
+
+![Members of an array, guessed from its declaration](../artifacts/code_editor_members.png)
+
+Typing `.` opens the list with no prefix at all, because `body.` is already a
+question. The answer comes from **reading backwards** for where `body` was
+declared and classifying whatever is on the right of the `=`:
+
+| what was written | what is offered |
+| --- | --- |
+| `const body = [];` | array members — `push`, `map`, `length`, … |
+| `const name = 'Sales';` | string members — `toUpperCase`, `split`, … |
+| `const rows = sheetRows('Sales');` | array: the workbook API's result types are known |
+| `const n = usedRows('Sales');` | `toFixed`, `toString` |
+| `const style = { width: 10 };` | `width` — **its own keys**, from the literal |
+| `rows[i].` | a row: the subscript takes one step down |
+| anything else | everything, marked `any` |
+
+There is no type checker here and there is not going to be one on a keystroke.
+What there is, is the handful of ways a value gets its shape in a report
+script — a literal, a workbook call, an element of one of those — and those
+four cover nearly every line anyone writes. When none of them matches, the
+guess is `any` and the list is everything, which is what a real type checker
+says about `any` too and is better than an empty popup.
+
+**The member lists are the methods this engine implements**, read off
+`ComponentEngine` rather than off the JavaScript standard. Offering `.flatMap()`
+because JavaScript has it would be offering to write a line that cannot run.
+
+Ranger answers `this.` the same way, from the file: every `fn`, `sfn` and `def`
+in it, labelled `method`, `static` and `field`. In a language with no imports to
+chase, the file is the scope.
+
 ## The lexer is not a parser
 
 `JsTokens` knows keywords, identifiers, the workbook API's own names, numbers,
