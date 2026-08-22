@@ -43,6 +43,7 @@ class PptxTest {
         this.testSpacedRuns()
         this.testConnectors()
         this.testAdjustments()
+        this.testInheritedText()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -452,6 +453,121 @@ class PptxTest {
             }
             this.check("it is drawn as a stroke" (polys > 0))
             this.check("and not as a box round it" (borders == 0))
+        }
+        parser.close()
+    }
+
+    ; --- typography a deck inherits -------------------------------------------
+    ;
+    ; Most placeholders in most decks state almost nothing: the size, the
+    ; colour, the indent and the bullet come from nine levels of list style,
+    ; down a chain from the master. This reader used to read the FIRST level
+    ; only, and only from the shape itself, so every sub-bullet in every real
+    ; deck came out in the top level's size and colour.
+
+    fn testInheritedText:void () {
+        print "--- nine levels, inherited ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "31-inherited-text.pptx")) == false) {
+            this.check("open 31-inherited-text" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def body@(optional):PptxShape (PptxTest.byName(slide "Levelled body"))
+        this.check("the body placeholder is there" (!null? body))
+        if (null? body) {
+            parser.close()
+            return
+        }
+        def sh:PptxShape (unwrap body)
+        this.check("it has its paragraphs" ((array_length sh.text.paragraphs) == 6))
+        def p0:PptxParagraph (itemAt sh.text.paragraphs 0)
+        def p1:PptxParagraph (itemAt sh.text.paragraphs 1)
+        def p3:PptxParagraph (itemAt sh.text.paragraphs 3)
+        def r0:PptxTextRun (itemAt p0.runs 0)
+        def r1:PptxTextRun (itemAt p1.runs 0)
+        def r3:PptxTextRun (itemAt p3.runs 0)
+        ; The master's own placeholder says 28pt at level 1 and two points less
+        ; per level; its `p:txStyles` says 14pt, which is the trap.
+        this.check("the first level took the master's size" (r0.fontSizePt == 28.0))
+        this.check("not the size p:txStyles states" (r0.fontSizePt != 14.0))
+        this.check("the second level is smaller" (r1.fontSizePt == 26.0))
+        this.check("the fourth smaller still" (r3.fontSizePt == 22.0))
+        this.check("and each level has its own colour" (r0.color.srgb != r1.color.srgb))
+        this.check("the first level's colour is the master's" (r0.color.srgb == "1F4E79"))
+        ; Indents and bullets, per level.
+        this.check("the first level is indented" (p0.marginLeftPt > 30.0))
+        this.check("the second more" (p1.marginLeftPt > p0.marginLeftPt))
+        this.check("each level has a bullet" p0.hasBullet)
+        this.check("and they differ" (p0.bulletChar != p1.bulletChar))
+        this.check("the bullet has the level's colour" (p0.bulletColor.isSet))
+        this.check("and its own size" (p0.bulletSizePt > 0.0))
+        ; A paragraph that says it has no bullet keeps none, whatever the level
+        ; style says — and a stated zero indent is a decision, not a silence.
+        def last:PptxParagraph (itemAt sh.text.paragraphs 5)
+        this.check("a paragraph can turn its bullet off" (last.hasBullet == false))
+        this.check("and cancel the level's indent" (last.marginLeftPt == 0.0))
+        this.check("while keeping the level's size" (((itemAt last.runs 0).fontSizePt) == 28.0))
+
+        ; The title takes the title style, which is a different chain.
+        def title@(optional):PptxShape (PptxTest.byName(slide "Title Placeholder"))
+        if (!null? title) {
+            def t:PptxShape (unwrap title)
+            if ((array_length t.text.paragraphs) > 0) {
+                def tp:PptxParagraph (itemAt t.text.paragraphs 0)
+                this.check("a title has no bullet" (tp.hasBullet == false))
+            }
+        }
+
+        ; Highlight.
+        def hl@(optional):PptxShape (PptxTest.byName(slide "Highlighted"))
+        this.check("the highlighted shape is there" (!null? hl))
+        if (!null? hl) {
+            def hs:PptxShape (unwrap hl)
+            def hp:PptxParagraph (itemAt hs.text.paragraphs 0)
+            this.check("it has three runs" ((array_length hp.runs) == 3))
+            def m:PptxTextRun (itemAt hp.runs 1)
+            this.check("the middle one is marked" m.highlight.isSet)
+            this.check("in the colour it named" (m.highlight.srgb == "FFFF00"))
+            def plain:PptxTextRun (itemAt hp.runs 0)
+            this.check("and the others are not" (plain.highlight.isSet == false))
+            ; It is drawn: a rectangle behind the text that is not there for
+            ; the unmarked runs.
+            def conv (new PptxToEvg())
+            def one (new PptxSlide())
+            one.width = slide.width
+            one.height = slide.height
+            push one.shapes hs
+            def dl:EVGDisplayList (conv.slideToDisplayList(one))
+            def yellow:int 0
+            def k:int 0
+            while (k < (array_length dl.cmds)) {
+                def c:EVGDrawCmd (itemAt dl.cmds k)
+                if (c.kind == 0) {
+                    if ((c.r > 200) && (c.g > 200)) {
+                        if (c.b < 60) {
+                            yellow = (yellow + 1)
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            this.check("and it reaches the picture" (yellow > 0))
+        }
+
+        ; Autofit: the writer already worked out how much to shrink by.
+        def s2:PptxSlide (itemAt pres.slides 1)
+        def fit@(optional):PptxShape (PptxTest.byName(s2 "Levelled body"))
+        this.check("the shrunken slide is there" (!null? fit))
+        if (!null? fit) {
+            def fs:PptxShape (unwrap fit)
+            def fp:PptxParagraph (itemAt fs.text.paragraphs 0)
+            def fr:PptxTextRun (itemAt fp.runs 0)
+            ; 28pt at 62% is 17.36 — the size the box was actually laid out for.
+            this.check("its text is shrunk to fit" (fr.fontSizePt < 20.0))
+            this.check("by the amount the file states" ((fabs (fr.fontSizePt - 17.36)) < 0.1))
+            this.check("and the lines are drawn closer" (fp.lineSpacingPct < 100.0))
         }
         parser.close()
     }

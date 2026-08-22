@@ -68,6 +68,13 @@ class PptxView {
         ; white, which reads correctly at any size and costs nothing to
         ; rasterize through the same path as every other glyph.
         ctx.tr.addFace("Noto_Emoji/NotoEmoji-Regular.ttf")
+        ; The same problem one block down the codepoint chart: a bullet is a
+        ; geometric shape — ● ○ ■ ▪ — and Open Sans has none of them, so every
+        ; list in every deck drew a row of empty boxes down its left edge. Noto
+        ; Sans carries them (and the dashes and guillemets a deck reaches for
+        ; when it runs out of circles), and joins the fallback pool without
+        ; becoming the face anything is drawn in.
+        ctx.tr.addFace("Noto_Sans/NotoSans-Regular.ttf")
         ctx.tr.fontFamily = fontFamily
         ctx.tr.applyFace()
         this.attachMeasurer()

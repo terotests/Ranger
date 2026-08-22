@@ -139,6 +139,10 @@ class PptxShadow {
 
 class PptxTextRun {
     def text:string ""
+    ; `a:highlight` — the colour drawn BEHIND this run. A deck uses it the way
+    ; a marker pen is used, and a reader that skips it loses the emphasis
+    ; entirely rather than drawing it wrong.
+    def highlight:PptxColor (new PptxColor())
     ; `a:fld` — a run whose text is computed rather than typed. "slidenum" is
     ; the one that matters: the file carries the number it had when it was
     ; saved, and a viewer has to substitute the one the slide has now.
@@ -163,11 +167,181 @@ class PptxParagraph {
     def level:int 0
     def hasBullet:boolean false
     def bulletChar:string "•"
+    ; Where the level's indent puts this paragraph, and what the bullet in
+    ; front of it looks like — both inherited from the list style unless the
+    ; paragraph states them itself.
+    def marginLeftPt:double 0.0
+    def marginSet:boolean false
+    def indentPt:double 0.0
+    def indentSet:boolean false
+    ; The paragraph said what its bullet is — including that it has none. A
+    ; level style must not put one back: `<a:buNone/>` on the paragraph is how
+    ; a deck turns a list style's bullet off for one line.
+    def bulletSet:boolean false
+    def bulletColor:PptxColor (new PptxColor())
+    def bulletSizePct:double 100.0
+    ; A bullet is sized either as a share of the text or in points, and a deck
+    ; picks one; zero here means it did not pick this one.
+    def bulletSizePt:double 0.0
+    def bulletFont:string ""
     def runs:[PptxTextRun]
 
     Constructor () {
         def r:[PptxTextRun]
         runs = r
+    }
+}
+
+; One indentation level of a list style. DrawingML states nine of them, in
+; `a:lvl1pPr` … `a:lvl9pPr`, and a deck's whole typographic scheme lives in
+; them: the size, the colour, the indent and the bullet a paragraph gets when
+; it says nothing itself. Reading only the first level — which is what this did
+; — draws every sub-bullet in the top level's size and colour.
+;
+; Every field is paired with a `…Set` flag rather than defaulting, because the
+; levels are MERGED down a chain (master → layout → shape → paragraph) and a
+; value that was never stated must not overwrite one that was.
+class PptxLevelStyle {
+    def align:string "l"
+    def alignSet:boolean false
+    def marginLeftPt:double 0.0
+    def marginSet:boolean false
+    def indentPt:double 0.0
+    def indentSet:boolean false
+    def fontSizePt:double 18.0
+    def sizeSet:boolean false
+    def bold:boolean false
+    def boldSet:boolean false
+    def italic:boolean false
+    def italicSet:boolean false
+    def fontFamily:string ""
+    def color:PptxColor (new PptxColor())
+    def lineSpacingPct:double 100.0
+    def lineSpacingSet:boolean false
+    def spaceBeforePt:double 0.0
+    def spaceBeforeSet:boolean false
+    def spaceAfterPt:double 0.0
+    def spaceAfterSet:boolean false
+    ; The bullet: "" nothing stated, "none", "char", "autonum".
+    def bulletKind:string ""
+    def bulletChar:string "•"
+    def bulletFont:string ""
+    def bulletColor:PptxColor (new PptxColor())
+    ; A bullet is sized either as a percentage of the text or in points.
+    def bulletSizePct:double 100.0
+    def bulletSizePctSet:boolean false
+    def bulletSizePt:double 0.0
+    def bulletSizePtSet:boolean false
+
+    Constructor () {
+    }
+
+    ; Take everything the other level states, leaving what it does not alone.
+    ; This is the whole of inheritance: the more specific style is applied over
+    ; the less specific one, field by field.
+    fn mergeFrom:void (o:PptxLevelStyle) {
+        if o.alignSet {
+            align = o.align
+            alignSet = true
+        }
+        if o.marginSet {
+            marginLeftPt = o.marginLeftPt
+            marginSet = true
+        }
+        if o.indentSet {
+            indentPt = o.indentPt
+            indentSet = true
+        }
+        if o.sizeSet {
+            fontSizePt = o.fontSizePt
+            sizeSet = true
+        }
+        if o.boldSet {
+            bold = o.bold
+            boldSet = true
+        }
+        if o.italicSet {
+            italic = o.italic
+            italicSet = true
+        }
+        if ((strlen o.fontFamily) > 0) {
+            fontFamily = o.fontFamily
+        }
+        if o.color.isSet {
+            color = o.color
+        }
+        if o.lineSpacingSet {
+            lineSpacingPct = o.lineSpacingPct
+            lineSpacingSet = true
+        }
+        if o.spaceBeforeSet {
+            spaceBeforePt = o.spaceBeforePt
+            spaceBeforeSet = true
+        }
+        if o.spaceAfterSet {
+            spaceAfterPt = o.spaceAfterPt
+            spaceAfterSet = true
+        }
+        if ((strlen o.bulletKind) > 0) {
+            bulletKind = o.bulletKind
+            bulletChar = o.bulletChar
+        }
+        if ((strlen o.bulletFont) > 0) {
+            bulletFont = o.bulletFont
+        }
+        if o.bulletColor.isSet {
+            bulletColor = o.bulletColor
+        }
+        if o.bulletSizePctSet {
+            bulletSizePct = o.bulletSizePct
+            bulletSizePctSet = true
+        }
+        if o.bulletSizePtSet {
+            bulletSizePt = o.bulletSizePt
+            bulletSizePtSet = true
+        }
+    }
+}
+
+; The nine levels together. A shape has one, a layout placeholder has one, and
+; the master has THREE — one for titles, one for bodies and one for everything
+; else — which is where a deck's typography actually lives.
+class PptxListStyle {
+    def isSet:boolean false
+    def levels:[PptxLevelStyle]
+
+    Constructor () {
+        def l:[PptxLevelStyle]
+        levels = l
+        def i:int 0
+        while (i < 9) {
+            push levels (new PptxLevelStyle())
+            i = (i + 1)
+        }
+    }
+
+    fn at:PptxLevelStyle (level:int) {
+        def i:int level
+        if (i < 0) {
+            i = 0
+        }
+        if (i > 8) {
+            i = 8
+        }
+        return (itemAt levels i)
+    }
+
+    fn mergeFrom:void (o:PptxListStyle) {
+        if (o.isSet == false) {
+            return
+        }
+        isSet = true
+        def i:int 0
+        while (i < 9) {
+            def mine:PptxLevelStyle (itemAt levels i)
+            mine.mergeFrom((itemAt o.levels i))
+            i = (i + 1)
+        }
     }
 }
 
@@ -189,6 +363,14 @@ class PptxTextBody {
     def defFontFamily:string ""
     def defColor:PptxColor (new PptxColor())
     def defAlign:string "l"
+    ; The nine levels this body states, before anything is inherited into
+    ; them. The resolver merges the master's and the layout's over it.
+    def listStyle:PptxListStyle (new PptxListStyle())
+    ; `a:normAutofit` — PowerPoint shrank the text to make it fit, and wrote
+    ; down by how much. A reader that ignores it draws the text at full size in
+    ; a box that was sized for the shrunken version, which overflows.
+    def fontScale:double 1.0
+    def lineScale:double 1.0
 
     Constructor () {
         def p:[PptxParagraph]
@@ -435,6 +617,12 @@ class PptxSheet {
     def partPath:string ""
     def shapes:[PptxShape]
     def bg:PptxColor (new PptxColor())
+    ; `p:txStyles` — the master's own typography, in three list styles. A
+    ; placeholder with no formatting of its own gets everything from here, and
+    ; that is most placeholders in most decks.
+    def titleStyle:PptxListStyle (new PptxListStyle())
+    def bodyStyle:PptxListStyle (new PptxListStyle())
+    def otherStyle:PptxListStyle (new PptxListStyle())
     ; Edited since it was read, so a save knows to rewrite its part.
     def dirty:boolean false
 

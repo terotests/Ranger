@@ -104,6 +104,7 @@ class PptxClone {
         r.bold = src.bold
         r.italic = src.italic
         r.color = (PptxClone.color(src.color))
+        r.highlight = (PptxClone.color(src.highlight))
         return r
     }
 
@@ -116,7 +117,16 @@ class PptxClone {
         p.lineSpacingPct = src.lineSpacingPct
         p.level = src.level
         p.hasBullet = src.hasBullet
+        p.bulletSet = src.bulletSet
         p.bulletChar = src.bulletChar
+        p.marginLeftPt = src.marginLeftPt
+        p.marginSet = src.marginSet
+        p.indentPt = src.indentPt
+        p.indentSet = src.indentSet
+        p.bulletColor = (PptxClone.color(src.bulletColor))
+        p.bulletSizePct = src.bulletSizePct
+        p.bulletSizePt = src.bulletSizePt
+        p.bulletFont = src.bulletFont
         def i:int 0
         while (i < (array_length src.runs)) {
             def r:PptxTextRun (itemAt src.runs i)

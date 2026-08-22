@@ -68,16 +68,23 @@ class PptxWriter {
 
     ; --- units ---------------------------------------------------------------
 
+    ; `to_int` FLOORS, so `v - 0.5` on a negative rounds outwards twice and a
+    ; hanging indent of exactly -18pt came back as -228601 EMU instead of
+    ; -228600 — the same defect this repository has met in the JPEG quantizer
+    ; and in the path formatter. Round the magnitude and put the sign back:
+    ; that is round-half-away-from-zero whichever way `to_int` goes.
     sfn emu:string (pt:double) {
         def v:double (pt * 12700.0)
-        def i:int (to_int (v + 0.5))
         if (v < 0.0) {
-            i = (to_int (v - 0.5))
+            return ("-" + (to_string (to_int ((0.0 - v) + 0.5))))
         }
-        return (to_string i)
+        return (to_string (to_int (v + 0.5)))
     }
 
     sfn hundredths:string (pt:double) {
+        if (pt < 0.0) {
+            return ("-" + (to_string (to_int (((0.0 - pt) * 100.0) + 0.5))))
+        }
         def i:int (to_int ((pt * 100.0) + 0.5))
         return (to_string i)
     }
@@ -363,6 +370,9 @@ class PptxWriter {
         if ((strlen run.fontFamily) > 0) {
             inner = (inner + "<a:latin typeface=\"" + (PptxWriter.esc(run.fontFamily)) + "\"/>")
         }
+        if run.highlight.isSet {
+            inner = (inner + "<a:highlight>" + (PptxWriter.colorXml(run.highlight)) + "</a:highlight>")
+        }
         def rPr:string ("<a:rPr" + attrs + "/>")
         if ((strlen inner) > 0) {
             rPr = ("<a:rPr" + attrs + ">" + inner + "</a:rPr>")
@@ -384,11 +394,43 @@ class PptxWriter {
         if para.alignSet {
             attrs = (attrs + " algn=\"" + para.align + "\"")
         }
+        ; What the level style resolved to, written down. A deck saved from
+        ; here has no master to inherit from any more — the flat writer's whole
+        ; contract — so the indent and the bullet have to be stated, or a list
+        ; comes back as a column of unindented lines.
+        if (para.marginLeftPt > 0.0) {
+            attrs = (attrs + " marL=\"" + (PptxWriter.emu(para.marginLeftPt)) + "\"")
+        }
+        if (para.indentPt != 0.0) {
+            attrs = (attrs + " indent=\"" + (PptxWriter.emu(para.indentPt)) + "\"")
+        }
         def inner:string ""
+        if (para.spaceBeforePt > 0.0) {
+            inner = (inner + "<a:spcBef><a:spcPts val=\"" + (to_string (to_int ((para.spaceBeforePt * 100.0) + 0.5))) + "\"/></a:spcBef>")
+        }
+        if (para.spaceAfterPt > 0.0) {
+            inner = (inner + "<a:spcAft><a:spcPts val=\"" + (to_string (to_int ((para.spaceAfterPt * 100.0) + 0.5))) + "\"/></a:spcAft>")
+        }
+        if (para.lineSpacingPct != 100.0) {
+            inner = (inner + "<a:lnSpc><a:spcPct val=\"" + (to_string (to_int ((para.lineSpacingPct * 1000.0) + 0.5))) + "\"/></a:lnSpc>")
+        }
         if para.hasBullet {
-            inner = ("<a:buChar char=\"" + (PptxWriter.esc(para.bulletChar)) + "\"/>")
+            if para.bulletColor.isSet {
+                inner = (inner + "<a:buClr>" + (PptxWriter.colorXml(para.bulletColor)) + "</a:buClr>")
+            }
+            if (para.bulletSizePt > 0.0) {
+                inner = (inner + "<a:buSzPts val=\"" + (to_string (to_int ((para.bulletSizePt * 100.0) + 0.5))) + "\"/>")
+            } {
+                if (para.bulletSizePct != 100.0) {
+                    inner = (inner + "<a:buSzPct val=\"" + (to_string (to_int ((para.bulletSizePct * 1000.0) + 0.5))) + "\"/>")
+                }
+            }
+            if ((strlen para.bulletFont) > 0) {
+                inner = (inner + "<a:buFont typeface=\"" + (PptxWriter.esc(para.bulletFont)) + "\"/>")
+            }
+            inner = (inner + "<a:buChar char=\"" + (PptxWriter.esc(para.bulletChar)) + "\"/>")
         } {
-            inner = "<a:buNone/>"
+            inner = (inner + "<a:buNone/>")
         }
         def pPr:string ("<a:pPr" + attrs + ">" + inner + "</a:pPr>")
         def out:string ("<a:p>" + pPr)

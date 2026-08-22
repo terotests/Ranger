@@ -570,6 +570,113 @@ def adj_shape(sid: int, name: str, x: int, y: int, cx: int, cy: int,
       </p:sp>"""
 
 
+# A master whose typography lives where a deck built by anything but PowerPoint
+# puts it: on the master's own placeholder shapes, with `p:txStyles` left as a
+# generic black nobody meant. Nine levels, each with its own size, colour,
+# indent and bullet.
+def inherited_master() -> str:
+    def lvl(i: int, size: int, colour: str, indent: int, bullet: str) -> str:
+        return (
+            f'<a:lvl{i}pPr marL="{indent}" indent="-228600" algn="l">'
+            f'<a:buClr><a:srgbClr val="{colour}"/></a:buClr>'
+            f'<a:buSzPts val="{size - 200}"/>'
+            f'<a:buChar char="{bullet}"/>'
+            f'<a:defRPr sz="{size}"><a:solidFill><a:srgbClr val="{colour}"/></a:solidFill>'
+            f'<a:latin typeface="Calibri"/></a:defRPr></a:lvl{i}pPr>'
+        )
+    body_levels = "".join(
+        lvl(i, 2800 - (i - 1) * 200, ["1F4E79", "2E75B6", "9DC3E6", "BDD7EE",
+                                      "DEEBF7", "F2F2F2", "D9D9D9", "BFBFBF", "A6A6A6"][i - 1],
+            457200 * i, "●○■▪•–›»⁃"[i - 1])
+        for i in range(1, 10)
+    )
+    title_style = (
+        '<a:lvl1pPr algn="l"><a:buNone/>'
+        '<a:defRPr sz="4000" b="1"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill>'
+        '<a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr>'
+    )
+    ph = (
+        '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title Placeholder"/><p:cNvSpPr txBox="1"/>'
+        '<p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>'
+        '<p:spPr><a:xfrm><a:off x="457200" y="274638"/><a:ext cx="8229600" cy="1143000"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+        f'<p:txBody><a:bodyPr/><a:lstStyle>{title_style}</a:lstStyle><a:p/></p:txBody></p:sp>'
+        '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Body Placeholder"/><p:cNvSpPr txBox="1"/>'
+        '<p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
+        '<p:spPr><a:xfrm><a:off x="457200" y="1600200"/><a:ext cx="8229600" cy="4525963"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+        f'<p:txBody><a:bodyPr/><a:lstStyle>{body_levels}</a:lstStyle><a:p/></p:txBody></p:sp>'
+    )
+    # txStyles says something ELSE, so a reader that stops there is caught.
+    tx_styles = (
+        "<p:txStyles>"
+        '<p:titleStyle><a:lvl1pPr><a:defRPr sz="1400"><a:solidFill><a:srgbClr val="000000"/>'
+        "</a:solidFill></a:defRPr></a:lvl1pPr></p:titleStyle>"
+        '<p:bodyStyle><a:lvl1pPr><a:defRPr sz="1400"><a:solidFill><a:srgbClr val="000000"/>'
+        "</a:solidFill></a:defRPr></a:lvl1pPr></p:bodyStyle>"
+        '<p:otherStyle><a:lvl1pPr><a:defRPr sz="1400"/></a:lvl1pPr></p:otherStyle>'
+        "</p:txStyles>"
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    {ph}
+  </p:spTree></p:cSld>
+  <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2"
+   accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6"
+   hlink="hlink" folHlink="folHlink"/>
+  <p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>
+  {tx_styles}
+</p:sldMaster>
+"""
+
+
+def levelled_body(sid: int, levels: list[tuple[int, str]], x: int = 457200,
+                  y: int = 1600200, cx: int = 8229600, cy: int = 4000000,
+                  autofit: tuple[int, int] | None = None,
+                  last_no_bullet: bool = False) -> str:
+    """A body placeholder that states almost nothing: the levels come from the
+    master, which is the whole point."""
+    fit = ""
+    if autofit:
+        fit = f'<a:normAutofit fontScale="{autofit[0]}" lnSpcReduction="{autofit[1]}"/>'
+    paras = []
+    for i, (lvl, text) in enumerate(levels):
+        last = last_no_bullet and i == len(levels) - 1
+        ppr = f'<a:pPr lvl="{lvl}"' + (' marL="0" indent="0"><a:buNone/></a:pPr>' if last else "/>")
+        paras.append(
+            f"<a:p>{ppr}<a:r><a:rPr lang=\"en-US\"/><a:t>{_xml_escape(text)}</a:t></a:r></a:p>"
+        )
+    return f"""      <p:sp>
+        <p:nvSpPr><p:cNvPr id="{sid}" name="Levelled body"/><p:cNvSpPr txBox="1"/>
+          <p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+        <p:txBody><a:bodyPr>{fit}</a:bodyPr><a:lstStyle/>
+          {"".join(paras)}
+        </p:txBody>
+      </p:sp>"""
+
+
+def highlight_shape(sid: int, x: int, y: int, cx: int, cy: int) -> str:
+    def run(t: str, hl: str | None) -> str:
+        h = f'<a:highlight><a:srgbClr val="{hl}"/></a:highlight>' if hl else ""
+        return (f'<a:r><a:rPr lang="en-US" sz="2000">{h}</a:rPr>'
+                f"<a:t>{_xml_escape(t)}</a:t></a:r>")
+    return f"""      <p:sp>
+        <p:nvSpPr><p:cNvPr id="{sid}" name="Highlighted"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>
+        <p:txBody><a:bodyPr/><a:lstStyle/>
+          <a:p>{run("plain ", None)}{run("marked", "FFFF00")}{run(" plain", None)}</a:p>
+        </p:txBody>
+      </p:sp>"""
+
+
 def styled_table(sid: int, x: int, y: int, cols: list[int], rows: list[list[str]],
                  row_h: int = 400000, frame: tuple[int, int] = (3000000, 3000000),
                  rule_after_first: bool = True) -> str:
@@ -2552,6 +2659,20 @@ def main() -> None:
               ["Tooling", "Gulp, Bower, Babel, JSX, npm, Webpack, Browserify", "SBT"]],
     ))
     write_pptx("30-table-grid.pptx", [(slide_xml(table30), slide_rels())])
+
+    # 31 — typography a deck inherits rather than states
+    inh = sp_tree(
+        levelled_body(2, [(0, "First level"), (1, "Second level"), (2, "Third level"),
+                          (3, "Fourth level"), (0, "Back to the first"),
+                          (0, "This one says it has no bullet")], last_no_bullet=True),
+        highlight_shape(3, 457200, 5000000, 5000000, 600000),
+    )
+    fitted = sp_tree(levelled_body(
+        2, [(0, "Shrunk to fit"), (0, "by the tool that wrote this")],
+        autofit=(62000, 20000)))
+    write_pptx("31-inherited-text.pptx", [(slide_xml(inh), slide_rels()),
+                                          (slide_xml(fitted), slide_rels())],
+               master_xml=inherited_master())
 
     print("fixtures ready")
 

@@ -418,7 +418,25 @@ class PptxToEvg {
                     bx = ((itemAt bp 0) - (bw * 0.5))
                     by = ((itemAt bp 1) - (line.h * 0.5))
                 }
-                this.pushTextCmd(dl line.bullet bx by line.bulletSize (EVGColor.rgb(40 40 50)) "Calibri" shape.rotation "left" 0.0 false 0.0)
+                ; A bullet has its own colour, which is not the text's: a deck
+                ; states it per level, and drawing it in one grey for every
+                ; level throws away half of what a list style says.
+                def bcol:EVGColor (EVGColor.rgb(40 40 50))
+                if para.bulletColor.isSet {
+                    bcol = (this.colorFrom(para.bulletColor))
+                } {
+                    if ((array_length para.runs) > 0) {
+                        def firstRun:PptxTextRun (itemAt para.runs 0)
+                        if firstRun.color.isSet {
+                            bcol = (this.colorFrom(firstRun.color))
+                        }
+                    }
+                }
+                def bfont:string "Calibri"
+                if ((strlen para.bulletFont) > 0) {
+                    bfont = para.bulletFont
+                }
+                this.pushTextCmd(dl line.bullet bx by line.bulletSize bcol bfont shape.rotation "left" 0.0 false 0.0)
             }
             ; Each run's slice of this line, placed by measurement rather than
             ; by an average character width — which is why a paragraph of two
@@ -464,6 +482,11 @@ class PptxToEvg {
                     def col:EVGColor (EVGColor.rgb(0 0 0))
                     if (run.color.isSet) {
                         col = (this.colorFrom(run.color))
+                    }
+                    ; A highlight is drawn behind the run, over the line it
+                    ; sits on — a marker pen, which is what a deck uses it as.
+                    if (run.highlight.isSet) {
+                        this.pushRect(dl drawX drawY pieceW line.h (this.colorFrom(run.highlight)))
                     }
                     def weight:string ""
                     if run.bold {

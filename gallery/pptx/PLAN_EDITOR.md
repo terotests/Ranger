@@ -497,6 +497,64 @@ shared copy that goes stale is a silent bug) and in the host suite (a
 sixty-slide deck builds under twenty thumbnails, an idle frame builds none, an
 edited slide builds exactly one).
 
+## Phase E8 — decks nobody here wrote (done)
+
+Every fixture in this gallery was written by the same hand as the reader, so
+every fixture is understood by construction. Two decks from outside turned up
+six defects in an afternoon, and all six had the same shape: an element the
+reader walked straight past, drawing nothing and saying nothing. This phase is
+about that class of hole rather than about any one of its instances.
+
+**`npm run pptx:audit -- deck.pptx`** walks every part of a package through the
+reader's own parser and reports the elements it does not look at, most-used
+first, in two lists: **known and deliberately not drawn** (3-D, embedded fonts,
+hyperlinks, per-script font fallbacks, animation beyond the build) and
+**UNREAD — nobody decided about these**. The difference between those two lists
+is the difference between a decision and an oversight, and it turns "the slide
+looks wrong" into a work order. `npm run pptx:audit:check` runs it over every
+fixture and fails when one says something nobody has decided about, so a new
+fixture cannot quietly introduce a new hole.
+
+Pointed at the two decks, the list was 24 and 39 kinds of element long. What it
+was mostly saying was one thing: **text is inherited, not stated**.
+
+- **Nine levels of list style, down a chain.** DrawingML states `a:lvl1pPr` …
+  `a:lvl9pPr`, and this reader read the first — and only from the shape itself.
+  So every sub-bullet in every real deck came out in the top level's size,
+  colour and indent. A list style is nine `PptxLevelStyle`s now, every field
+  paired with a "was this stated" flag because they are MERGED: master
+  `p:txStyles` → the master's own placeholder → the layout's placeholder → the
+  shape → the paragraph. The order matters and cost a defect to get right: a
+  deck built by anything but PowerPoint leaves `p:txStyles` as a generic black
+  nobody meant and puts the real typography on the master's placeholder, which
+  is *above* it in the chain.
+- **A paragraph that states its own bullet keeps it**, including `<a:buNone/>`,
+  and a stated `marL="0"` is a decision rather than a silence — which needed
+  "was this stated" flags on the paragraph too.
+- **`a:normAutofit`.** PowerPoint already worked out how far the text had to
+  shrink to fit its box and wrote the answer down. Drawing it at full size in a
+  box sized for the shrunken version is an overflow with a known cause.
+- **Bullets have their own colour, size and face** (`buClr`, `buSzPct`,
+  `buSzPts`, `buFont`), and the layout uses the deck's own `marL`/`indent`
+  instead of a level's worth of invented indent.
+- **`a:highlight`** — the colour drawn behind a run, which a deck uses as a
+  marker pen.
+- And the same fallback gap the emoji had, one block down the codepoint chart:
+  **a bullet is a geometric shape** (● ○ ■ ▪) and the text face has none of
+  them, so every list drew a column of empty boxes. Noto Sans joins the
+  fallback pool.
+
+After it, the two decks report **9 and 22 kinds, all of them deliberate, and
+nothing unread**. `31-inherited-text.pptx` is the fixture that pins it down —
+a master whose typography lives on its placeholders with `p:txStyles` saying
+something else entirely, nine levels each with its own size, colour, indent and
+bullet, a paragraph that turns its bullet off, a shrunken body and a
+highlighted run — and it round-trips through the writer byte for byte, which
+needed the writer to state what the levels resolved to (there is no master left
+to inherit from) and one more instance of a defect this repository keeps
+meeting: `to_int` floors, so `emu(-18pt)` rounded outwards twice and wrote
+-228601 where the file said -228600.
+
 ## Non-goals
 
 Pixel-perfect PowerPoint parity, SmartArt authoring, equations, media playback,
@@ -512,4 +570,6 @@ npm run pptx:editor:host:test   # pointer, keys, overlay, commands
 npm run pptx:web:test           # the browser build, including a real drag
 npm run pptx:window             # the hosted window
 npm run pptx:bench              # what a deck costs to edit, by size
+npm run pptx:audit -- deck.pptx # what this reader does not understand about it
+npm run pptx:audit:check        # …over every fixture, as a test
 ```
