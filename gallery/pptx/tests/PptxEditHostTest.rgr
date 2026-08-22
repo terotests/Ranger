@@ -204,6 +204,30 @@ class PptxEditHostTest {
         c.ok("the press selected something" ((app2.editor.selectionCount()) == 1))
         c.ok("and it is the shape that was under it" (app2.editor.isSelected(sh.editId)))
         app2.pointer(px py false false true)
+        c.ok("a first click does not start typing" ((app2.editor.isEditingText()) == false))
+
+        print "-- clicking the shape again puts a caret in it --"
+        ; The complaint this answers: clicking and double-clicking a text box
+        ; did nothing, because the only ways in were F2, Enter and the command.
+        ; A double click reaches this too — its second release is a click on a
+        ; shape the first one already selected.
+        app2.pointer(px py true true false)
+        app2.pointer(px py false false true)
+        c.ok("the second click starts typing" (app2.editor.isEditingText()))
+        c.ok("in the shape that was clicked" (app2.editor.isSelected(sh.editId)))
+        def before:int (strlen (sh.text.plainText()))
+        app2.editor.typeAtCaret("Z")
+        c.ok("and what is typed lands in it" ((strlen (sh.text.plainText())) == (before + 1)))
+        ; And it lands where the click did, not at the end: a click near the
+        ; left edge of the text gives an earlier column than one near the
+        ; right edge. This is the part that makes clicking worth doing.
+        def leftX:int (PptxEditHostTest.screenX(app2 (sh.x + (sh.width * 0.05))))
+        def rightX:int (PptxEditHostTest.screenX(app2 (sh.x + (sh.width * 0.9))))
+        def topY:int (PptxEditHostTest.screenY(app2 (sh.y + (sh.height * 0.2))))
+        def atLeft:PptxTextPos (app2.caretFromPoint(sh leftX topY))
+        def atRight:PptxTextPos (app2.caretFromPoint(sh rightX topY))
+        c.ok("a click on the left of a line comes before one on the right" (atLeft.col < atRight.col))
+        app2.editor.endTextEdit()
 
         print "-- a drag is one edit, however many frames it took --"
         def depth0:int (app2.editor.historyDepth())

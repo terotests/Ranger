@@ -71,6 +71,35 @@ class PptxProbe {
         def s:PptxSlide (unwrap slide)
         print ("slide " + (to_string want) + " of " + (to_string (app.slideCount())) + " — " + (to_string s.width) + "x" + (to_string s.height) + "pt")
         PptxProbe.dumpShapes(s.shapes "  ")
+        ; Why a line wrapped: the box it had, the size it asked for, the face
+        ; it named, and what that string actually measures in the face we
+        ; ended up using. A wrap is one of those four being wrong, and
+        ; guessing which costs more than printing all of them.
+        def si:int 0
+        while (si < (array_length s.shapes)) {
+            def ps:PptxShape (itemAt s.shapes si)
+            if ps.hasText {
+                def paras:[PptxParagraph] ps.text.paragraphs
+                def pi:int 0
+                while (pi < (array_length paras)) {
+                    def para:PptxParagraph (itemAt paras pi)
+                    def ri:int 0
+                    while (ri < (array_length para.runs)) {
+                        def run:PptxTextRun (itemAt para.runs ri)
+                        if ((strlen run.text) > 0) {
+                            def avail:double ((ps.width - ps.text.insetL) - ps.text.insetR)
+                            def w:double (app.view.ctx.measureWidth(run.text run.fontSizePt))
+                            def flag:string ""
+                            if (w > avail) { flag = "   <-- WRAPS" }
+                            print ("  text \"" + run.text + "\" size=" + (to_string run.fontSizePt) + "pt face=\"" + run.fontFamily + "\" box=" + (to_string avail) + "pt measured=" + (to_string w) + "pt" + flag)
+                        }
+                        ri = (ri + 1)
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            si = (si + 1)
+        }
         def dl:EVGDisplayList (app.view.buildDisplayList(s))
         print ("display list: " + (to_string (array_length dl.cmds)) + " commands")
         def k:int 0

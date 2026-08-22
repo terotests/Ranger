@@ -176,6 +176,12 @@ class PptxWeb {
         return app.editMode
     }
 
+    ; Whether there is a caret in a shape right now. A page that can only ask
+    ; "is the editor on" cannot tell a selected box from one being typed in.
+    fn editingText:boolean () {
+        return (app.editor.isEditingText())
+    }
+
     ; --- the show -------------------------------------------------------------
     ;
     ; A browser has a clock and the app does not, so the page drives the show's

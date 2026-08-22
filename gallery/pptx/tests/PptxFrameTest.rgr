@@ -50,6 +50,29 @@ class PptxFrameTest {
         return app
     }
 
+    ; A one-run label in a box of a stated width, naming Calibri — which is
+    ; what the decks that show this up actually contain.
+    sfn labelShape:PptxShape (text:string sizePt:double widthPt:double) {
+        def sh (new PptxShape())
+        sh.width = widthPt
+        sh.height = 40.0
+        sh.hasText = true
+        def para (new PptxParagraph())
+        def run (new PptxTextRun())
+        run.text = text
+        run.fontSizePt = sizePt
+        run.fontFamily = "Calibri"
+        push para.runs run
+        push sh.text.paragraphs para
+        return sh
+    }
+
+    sfn setFamily:void (sh:PptxShape fam:string) {
+        def para:PptxParagraph (itemAt sh.text.paragraphs 0)
+        def run:PptxTextRun (itemAt para.runs 0)
+        run.fontFamily = fam
+    }
+
     sfn indexOfCommand:int (app:PptxApp id:string) {
         def i:int 0
         while (i < (app.toolbar.count())) {
@@ -185,6 +208,31 @@ class PptxFrameTest {
         ; it was showing. The fix was two things: an emoji face loaded for
         ; fallback, and the rasterizer actually being GIVEN the manager that
         ; knows which face has which codepoint.
+        print "-- a box sized for a font we do not have --"
+        ; A deck names Calibri; we draw Open Sans, which is wider; a label the
+        ; author sized to fit came out on two lines. The layout shrinks a body
+        ; whose face was substituted just enough to fit, and only by a little —
+        ; a paragraph that really wraps has to keep wrapping.
+        def fd:PptxApp (PptxFrameTest.build())
+        def conv:PptxToEvg fd.view.converter
+        c.ok("the face this deck asks for is not one we have"
+             ((conv.measure.hasFamily("Calibri")) == false))
+        c.ok("and the face we draw with is" (conv.measure.hasFamily("Open Sans")))
+        def tight:PptxShape (PptxFrameTest.labelShape("Urheiijat" 18.0 85.05))
+        def snug:double (conv.substituteFit(tight.text (conv.ptToPx((85.05 - 14.4))) ((96.0 / 72.0) * conv.scale)))
+        c.ok("a label that just overflows is brought in" (snug < 1.0))
+        c.ok("and only just" (snug > 0.9))
+        def roomy:PptxShape (PptxFrameTest.labelShape("Haku" 18.0 85.05))
+        def none:double (conv.substituteFit(roomy.text (conv.ptToPx((85.05 - 14.4))) ((96.0 / 72.0) * conv.scale)))
+        c.ok("a label that already fits is left alone" (none == 1.0))
+        def prose:PptxShape (PptxFrameTest.labelShape("a paragraph long enough that it truly has to wrap onto several lines whatever face draws it" 18.0 85.05))
+        def big:double (conv.substituteFit(prose.text (conv.ptToPx((85.05 - 14.4))) ((96.0 / 72.0) * conv.scale)))
+        c.ok("and text that really wraps still wraps" (big == 1.0))
+        def ours:PptxShape (PptxFrameTest.labelShape("Urheiijat" 18.0 85.05))
+        PptxFrameTest.setFamily(ours "Open Sans")
+        def kept:double (conv.substituteFit(ours.text (conv.ptToPx((85.05 - 14.4))) ((96.0 / 72.0) * conv.scale)))
+        c.ok("a deck whose font we DO have is measured as it stands" (kept == 1.0))
+
         print "-- emoji come from a face that has them --"
         def emoji:string (EVGCodepoint.toStr(128518))
         def tr:UITextRenderer d.view.ctx.tr

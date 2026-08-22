@@ -2541,6 +2541,16 @@ class PptxEditor {
         if (sh.kind == 2) {
             return false
         }
+        ; A table and a chart carry their own content. Setting `hasText` on
+        ; one would give it a second, empty text body that the writer would
+        ; then have to explain — and a click can now reach this, where before
+        ; only a deliberate F2 could.
+        if (sh.kind == 4) {
+            return false
+        }
+        if (sh.kind == 5) {
+            return false
+        }
         sh.hasText = true
         if ((array_length sh.text.paragraphs) == 0) {
             def para (new PptxParagraph())

@@ -142,6 +142,14 @@ class PptxApp {
     def dragHandle:int -1
     def dragLastX:double 0.0    ; slide points
     def dragLastY:double 0.0
+    ; A press that lands on the shape ALREADY selected, and lets go without
+    ; moving it, is how a person asks to type in it. Held from the press so
+    ; the release can tell "clicked the thing that was already picked" from
+    ; "picked something new" — the selection itself cannot say, because by the
+    ; time the release arrives the shape is selected either way.
+    def clickedSelected:boolean false
+    def clickX:int 0
+    def clickY:int 0
     def dragMoved:boolean false
     def modShift:boolean false
     def modCtrl:boolean false
@@ -2231,6 +2239,20 @@ class PptxApp {
                 return true
             }
             def hitId:int (editor.hitTest(sx sy))
+            clickedSelected = false
+            clickX = px
+            clickY = py
+            if (hitId > 0) {
+                if (modShift == false) {
+                    if ((editor.selectionCount()) == 1) {
+                        def already@(optional):PptxShape (editor.firstSelected())
+                        if (!null? already) {
+                            def a:PptxShape (unwrap already)
+                            clickedSelected = (a.editId == hitId)
+                        }
+                    }
+                }
+            }
             editor.selectAt(sx sy modShift)
             dragMode = 0
             if (hitId > 0) {
@@ -2275,8 +2297,18 @@ class PptxApp {
                     }
                 }
                 editor.clearGuides()
+                def wasClick:boolean false
+                if (dragMode == 1) {
+                    if (dragMoved == false) {
+                        wasClick = clickedSelected
+                    }
+                }
                 dragMode = 0
                 dragHandle = -1
+                if wasClick {
+                    this.startTextEditAt(clickX clickY)
+                }
+                clickedSelected = false
                 return true
             }
             return false
@@ -3219,6 +3251,25 @@ class PptxApp {
     }
 
     ; --- typing ---------------------------------------------------------------
+
+    ; Click a shape to pick it up, click it again to type in it — with the
+    ; caret where the click landed, not at the start, because a person who
+    ; clicked the middle of a word meant the middle of that word. A double
+    ; click reaches the same place: its second release is a click on a shape
+    ; that the first one already selected.
+    fn startTextEditAt:boolean (px:int py:int) {
+        if ((this.startTextEdit()) == false) {
+            return false
+        }
+        def sel@(optional):PptxShape (editor.firstSelected())
+        if (null? sel) {
+            return true
+        }
+        def sh:PptxShape (unwrap sel)
+        def at:PptxTextPos (this.caretFromPoint(sh px py))
+        editor.setCaretPos(at.para at.col false)
+        return true
+    }
 
     fn startTextEdit:boolean () {
         if ((editor.selectionCount()) != 1) {
