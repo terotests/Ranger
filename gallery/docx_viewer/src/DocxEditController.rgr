@@ -93,6 +93,28 @@ class DocxEditController {
         active = true
     }
 
+    ; Move the moving end of the selection and leave the anchor where it is.
+    ; A drag and a shift-click are the same gesture, and both may cross a
+    ; paragraph break — `orderedEnds` puts the two ends into document order, so
+    ; nothing below here cares which way round they are.
+    fn extendTo:void (paragraphId:int offset:int) {
+        if (active == false) {
+            this.setCaret(paragraphId offset)
+            return
+        }
+        def len:int (adapter.textLength(paragraphId))
+        if (len < 0) {
+            return
+        }
+        if (offset < 0) {
+            offset = 0
+        }
+        if (offset > len) {
+            offset = len
+        }
+        sel.focus = (DocumentPosition.create(paragraphId offset))
+    }
+
     fn caret:DocumentPosition () {
         return (sel.focus.copy())
     }

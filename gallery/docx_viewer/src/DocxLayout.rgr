@@ -466,6 +466,44 @@ class DocxLayout {
         return y
     }
 
+    ; Where a wrapped chunk really starts in the paragraph.
+    ;
+    ; `tr.wrap` breaks at a space and DROPS it, so line two does not begin
+    ; where line one ended: it begins one character later. Advancing the cursor
+    ; by the chunk's own length therefore names a range one short, and the
+    ; error ACCUMULATES — by the fourth wrapped line of a paragraph the offsets
+    ; were two characters behind the text they claim to describe.
+    ;
+    ; Everything that maps between pixels and offsets is built on this. The
+    ; caret drew two characters to the right of where it belonged, a click
+    ; landed on a different character than the one under the pointer, and text
+    ; typed at the caret went in where the offsets said rather than where the
+    ; caret was drawn — so a word appeared a couple of letters to the left of
+    ; the cursor, in the middle of the previous one.
+    ;
+    ; Only WHITESPACE may be stepped over. If the next character is anything
+    ; else the chunk is not a slice of this text at all, and moving the cursor
+    ; further would invent an offset rather than find one.
+    sfn chunkStart:int (text:string cursor:int chunk:string) {
+        if ((strlen chunk) == 0) {
+            return cursor
+        }
+        def n:int (strlen text)
+        def first:int (charAt chunk 0)
+        def at:int cursor
+        while (at < n) {
+            def c:int (charAt text at)
+            if (c == first) {
+                return at
+            }
+            if ((c != 32) && (c != 9) && (c != 10) && (c != 13)) {
+                return at
+            }
+            at = (at + 1)
+        }
+        return at
+    }
+
     fn layoutParagraph:int (p:Paragraph ml:int y:int contentW:int) {
         def before:int (to_int (DocxLayout.ptToPx(p.spaceBeforePt)))
         def after:int (to_int (DocxLayout.ptToPx(p.spaceAfterPt)))
@@ -529,6 +567,7 @@ class DocxLayout {
                 line.kind = 0
                 line.paragraphRef = p
                 line.paraIndex = p.id
+                cursor = (DocxLayout.chunkStart(p.text cursor chunk))
                 line.docStart = cursor
                 line.docEnd = (cursor + (strlen chunk))
                 cursor = line.docEnd
@@ -846,6 +885,7 @@ class DocxLayout {
             line.kind = 0
             line.paragraphRef = p
             line.paraIndex = p.id
+            cursor = (DocxLayout.chunkStart(p.text cursor chunk))
             line.docStart = cursor
             line.docEnd = (cursor + (strlen chunk))
             cursor = line.docEnd

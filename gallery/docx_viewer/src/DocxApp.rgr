@@ -123,6 +123,11 @@ class DocxApp {
     ; position in the text.
     def pageX:int 0
     def pageY:int 0
+    ; A press that landed on the paper, so the moves after it paint a selection
+    ; instead of doing nothing. Without this the app never learned that the
+    ; button was still down, and dragging across text only ever moved the
+    ; caret to wherever the press had been.
+    def pageDrag:boolean false
 
     Constructor () {
     }
@@ -476,8 +481,31 @@ class DocxApp {
             if (py >= (this.pageTop())) {
                 if (py < (H - statusH)) {
                     viewer.clickAt((px - pageX) (py - pageY) extend)
+                    ; The press is the anchor; every move until the button
+                    ; comes up drags the other end of the selection.
+                    pageDrag = true
                     return true
                 }
+            }
+            pageDrag = false
+            return false
+        }
+        if released {
+            if pageDrag {
+                viewer.dragTo((px - pageX) (py - pageY))
+                pageDrag = false
+                return true
+            }
+            return false
+        }
+        ; Moving with the button held. The drag is NOT clamped to the paper:
+        ; dragging off the bottom of the page selects to where the pointer is
+        ; pointing, which is what every editor does and what the nearest-line
+        ; fallback in `hitTest` is already for.
+        if down {
+            if pageDrag {
+                viewer.dragTo((px - pageX) (py - pageY))
+                return true
             }
         }
         return false

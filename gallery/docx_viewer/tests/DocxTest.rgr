@@ -1119,6 +1119,130 @@ class DocxTest {
         c.ok("and so does undoing it" ((((viewer.document()).revision)) > rev1))
         viewer.setEditMode(false)
 
+        ; --- a laid line names exactly the text it paints ----------------------
+        ;
+        ; Every map between a pixel and a document offset is built on this:
+        ; `line.text` is what gets drawn, `[docStart, docEnd)` is what the
+        ; caret, the click and the selection measure. They have to be the same
+        ; characters.
+        ;
+        ; They were not. `tr.wrap` breaks at a space and DROPS it, and the
+        ; layout advanced its cursor by the chunk's own length, so line two of
+        ; a paragraph claimed to start one character before it did — and the
+        ; error accumulated, so by the fourth wrapped line the offsets were two
+        ; characters behind the glyphs. The caret drew two characters right of
+        ; where it belonged, a click landed on a different character than the
+        ; one under the pointer, and typing put the text in where the offsets
+        ; said rather than where the caret was: a word appeared a couple of
+        ; letters to the left, inside the previous one.
+        ;
+        ; 208 of this document's 290 lines were wrong.
+        print "== a laid line names exactly the text it paints =="
+        c.ok("open a document that wraps a lot" (viewer.openFile(fix "20-business-report.docx")))
+        viewer.renderPage(0)
+        def lineChecked:int 0
+        def lineBad:int 0
+        def firstBad:string ""
+        def lp:int 0
+        while (lp < (viewer.view.layout.pageCount())) {
+            def lpage:LaidPage (viewer.view.layout.pageAt(lp))
+            def lni:int 0
+            while (lni < (array_length lpage.lines)) {
+                def lline:LaidLine (itemAt lpage.lines lni)
+                if (lline.kind == 0) {
+                    def lpara:Paragraph lline.paragraphRef
+                    if (lpara.id > 0) {
+                        def shown:string lline.text
+                        if ((strlen lline.listPrefix) > 0) {
+                            if ((indexOf shown lline.listPrefix) == 0) {
+                                shown = (substring shown (strlen lline.listPrefix) (strlen shown))
+                            }
+                        }
+                        def la:int lline.docStart
+                        def lb:int lline.docEnd
+                        if (lb > (strlen lpara.text)) {
+                            lb = (strlen lpara.text)
+                        }
+                        def named:string ""
+                        if (lb > la) {
+                            named = (substring lpara.text la lb)
+                        }
+                        lineChecked = (lineChecked + 1)
+                        if (shown != named) {
+                            lineBad = (lineBad + 1)
+                            if ((strlen firstBad) == 0) {
+                                firstBad = (("painted '" + shown) + ("' but named '" + named) + "'")
+                            }
+                        }
+                    }
+                }
+                lni = (lni + 1)
+            }
+            lp = (lp + 1)
+        }
+        c.ok("there are wrapped lines to check" (lineChecked > 100))
+        if (lineBad > 0) {
+            print ("    " + firstBad)
+        }
+        c.eqInt("every line names the text it paints" lineBad 0)
+
+        ; --- dragging the mouse paints a selection -----------------------------
+        ;
+        ; Two halves, and both were missing. The app only ever looked at a
+        ; PRESS, so a move with the button held did nothing at all; and
+        ; extending gave up when the two ends were in different paragraphs and
+        ; collapsed to a caret, so even a shift-click could not select across a
+        ; paragraph break — though every edit below it handles such a range.
+        print "== dragging selects, across paragraphs too =="
+        c.ok("open the report to select in" (viewer.openFile(fix "20-business-report.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def dragPage:LaidPage (viewer.view.layout.pageAt(0))
+        def firstLine:int -1
+        def laterLine:int -1
+        def dl:int 0
+        while (dl < (array_length dragPage.lines)) {
+            def dline:LaidLine (itemAt dragPage.lines dl)
+            if (dline.kind == 0) {
+                def dpara:Paragraph dline.paragraphRef
+                if ((dpara.id > 0) && ((strlen dline.text) > 8)) {
+                    if (firstLine < 0) {
+                        firstLine = dl
+                    } {
+                        if (laterLine < 0) {
+                            def firstOne:LaidLine (itemAt dragPage.lines firstLine)
+                            def firstPara:Paragraph firstOne.paragraphRef
+                            if (dpara.id != firstPara.id) {
+                                laterLine = dl
+                            }
+                        }
+                    }
+                }
+            }
+            dl = (dl + 1)
+        }
+        c.ok("two lines in different paragraphs to drag between" ((firstLine >= 0) && (laterLine >= 0)))
+        if ((firstLine >= 0) && (laterLine >= 0)) {
+            def from:LaidLine (itemAt dragPage.lines firstLine)
+            def to:LaidLine (itemAt dragPage.lines laterLine)
+            viewer.clickAt((from.x + 4) (from.y + 2) false)
+            def anchorPara:int ((viewer.edit.caret()).paragraphId)
+            c.ok("the press put a caret down" (anchorPara > 0))
+            c.ok("and nothing is selected yet" ((viewer.edit.selection()).isCollapsed()))
+            ; The drag, ending in a different paragraph further down.
+            viewer.dragTo((to.x + 20) (to.y + 2))
+            c.ok("dragging selected something" (((viewer.edit.selection()).isCollapsed()) == false))
+            def startAt:[int]
+            def endAt:[int]
+            viewer.edit.orderedEnds(startAt endAt)
+            c.ok("the selection spans two paragraphs" ((itemAt startAt 0) != (itemAt endAt 0)))
+            c.eqInt("and it starts where the press was" (itemAt startAt 0) anchorPara)
+            ; Dragging back onto the first line collapses it again.
+            viewer.dragTo((from.x + 4) (from.y + 2))
+            c.ok("dragging back to the press point clears it" ((viewer.edit.selection()).isCollapsed()))
+        }
+        viewer.setEditMode(false)
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"
