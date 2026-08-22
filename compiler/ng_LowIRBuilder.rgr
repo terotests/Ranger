@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 Import "ng_LowIR.rgr"
 Import "ng_LowIRRuntime.rgr"

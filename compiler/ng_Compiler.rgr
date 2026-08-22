@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; def opts ([] "name" "version" "description" "author" "license")
 
 flag es6 (

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_ui_io — read + validate the guest's RGU1 UI document and build an EVG
 ; tree from it. Offsets/layout match wasm/wasm_ui_abi.h.

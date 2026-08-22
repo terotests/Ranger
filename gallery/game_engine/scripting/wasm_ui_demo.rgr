@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_ui_demo - headless proof for the RGU1 host reader + EVG builder.
 ;

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; OverflowRenderTest — a label spills into empty space and nowhere else.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; dump_formula_ux - PNG shots of formula-bar caret + range selector for review.
 ; ==============================================================================

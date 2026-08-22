@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 class utils {
     static fn adder2:int (value:int index:int) {

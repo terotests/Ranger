@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGResourceLoader.rgr - Load and cache image metadata for EVG rendering
 ;
 ; This class handles loading JPEG metadata (dimensions, orientation) for images

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; jpeg_decoder_test.rgr - Test for JPEG decoder
 ; Reads a JPEG, scales it, and saves as PPM
 

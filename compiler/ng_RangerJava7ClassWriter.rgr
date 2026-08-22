@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 Import "ng_AndroidPageWriter.rgr"
 

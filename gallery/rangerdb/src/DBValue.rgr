@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; DBValue - one typed cell of database data, normalised across engines.
 ; ==============================================================================

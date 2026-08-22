@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_autopeli_render — static road background + CPU sprite drawing (no SDL/GPU).
 ; ==============================================================================

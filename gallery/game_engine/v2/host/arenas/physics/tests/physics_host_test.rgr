@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; physics_host_test — the cannon-backed live physics arena (D-TYPE).
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGFontSetup.rgr - One place that decides which font files a run measures with
 ;
 ; PLAN_CSS_LAYOUT_AND_FONTS.md §4.1 rule 1: the same face file must be used for

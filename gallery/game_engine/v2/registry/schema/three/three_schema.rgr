@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_schema — authored registry rows for the `ranger:three` module.
 ; ==============================================================================

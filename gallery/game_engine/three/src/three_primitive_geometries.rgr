@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_primitive_geometries — Three.js geometry generators ported 1:1.
 ; ==============================================================================

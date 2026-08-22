@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; as_sprite_runner — render a guest-authored, rotatable 2D sprite scene from an
 ; interpreted .as game, over the ABI bridge. NO physics.

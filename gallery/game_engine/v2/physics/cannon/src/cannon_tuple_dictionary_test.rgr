@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_tuple_dictionary_test — Cannon.js test/TupleDictionary.js ported.
 ; ==============================================================================

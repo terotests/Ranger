@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Scale checks. The expected values are what d3-scale / d3-array answer for the
 ; same inputs — the reference implementation delegates to them, so a difference
 ; here is a difference in every axis and every bar position.

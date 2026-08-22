@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; as_source_runner — run a .as (AssemblyScript-subset) game via Ranger's live
 ; TS interpreter (ComponentEngine), against the same RGW1/RGU1 ABI as WASM.

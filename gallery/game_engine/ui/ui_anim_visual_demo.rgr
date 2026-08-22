@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ui_anim_visual_demo — render the UIAnimator glow effect onto a real UI element.
 ; ==============================================================================

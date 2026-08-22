@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; as_lang_demo — self-check for interpreted-.as LANGUAGE coverage in
 ; ComponentEngine (bit/shift/exponent operators, radix literals, switch/

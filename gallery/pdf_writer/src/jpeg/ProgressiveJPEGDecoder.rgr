@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ProgressiveJPEGDecoder.rgr - Progressive JPEG decoder
 ; Progressive JPEG uses multiple scans to refine image quality
 

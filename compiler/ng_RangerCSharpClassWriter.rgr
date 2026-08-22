@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; ---- App1.csproj file has this kind of meta information, which could be updated...
 ;  <ItemGroup>

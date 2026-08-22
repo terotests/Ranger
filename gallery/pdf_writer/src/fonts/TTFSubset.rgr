@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; TTFSubset.rgr — embed the glyphs a page uses, not the whole face
 ;
 ; An emoji face is 858 KB and a colour one is 25 MB, essentially all of it

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGGradient.rgr - Gradient parsing and storage for EVG layout
 ; Supports: linear-gradient, radial-gradient with multiple color stops
 

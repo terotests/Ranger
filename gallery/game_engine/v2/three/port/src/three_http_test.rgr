@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_http_test — http_get_bytes deterministic contract check.
 ; ==============================================================================

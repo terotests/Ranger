@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_autopeli_setup — physics world for Rust WASM autopeli (road + vehicles).
 ; ==============================================================================

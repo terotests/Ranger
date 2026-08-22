@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; as_lang2_demo — self-check for the second wave of interpreted-.as coverage:
 ; destructuring, default/rest params, spread, array mutators, Object/JSON,

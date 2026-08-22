@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_json — a small recursive-descent JSON parser (pure Ranger, cpp + es6).
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; evg_displaylist_tool — lay a page out and emit its draw commands as JSON.
 ;
 ;   evg-displaylist page.tsx out.json [-css sheet.css] [-theme name] [-w N] [-h N]

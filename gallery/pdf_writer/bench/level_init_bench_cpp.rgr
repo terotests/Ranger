@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; =============================================================================
 ; level_init_bench_cpp - native (C++) micro-benchmark for the TS interpreter.
 ; =============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ZipEntry.rgr - ZIP file entry data structure
 ; Represents a single file or directory entry in a ZIP archive
 

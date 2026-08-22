@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; spawner_runner_demo - host-bridge demo via the TS interpreter (ComponentEngine).
 ; ==============================================================================

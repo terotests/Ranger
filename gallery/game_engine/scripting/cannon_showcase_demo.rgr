@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_showcase_demo — the upgraded engine in action THROUGH THE REAL TSX
 ;   BRIDGE. Loads the cannon_stack TSX game via GameRunner (game_runtime ->

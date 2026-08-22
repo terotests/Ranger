@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; =============================================================================
 ; RgU32 — 32-bit unsigned algebra that means the same thing on every target
 ; =============================================================================

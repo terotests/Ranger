@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_geometry_parity_test — geometry parity, DRIVEN THROUGH THE INTERPRETER.
 ; ==============================================================================

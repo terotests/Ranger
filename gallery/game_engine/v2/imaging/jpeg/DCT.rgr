@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; DCT.rgr - Inverse Discrete Cosine Transform for JPEG decoding
 ; Uses integer arithmetic with fixed-point scaling
 ; Updated to use int_buffer for efficient cross-language compilation

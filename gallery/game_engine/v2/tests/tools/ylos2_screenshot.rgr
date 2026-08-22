@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ylos2_screenshot — render the real ylos2 game through the SAMPLING backend.
 ; ==============================================================================

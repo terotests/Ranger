@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Regression: transitive relative imports resolve from the importer's directory.
 
 Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"

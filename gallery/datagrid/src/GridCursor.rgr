@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; GridCursor — what the pointer is over, and therefore what it should look like
 ; ==============================================================================

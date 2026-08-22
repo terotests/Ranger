@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ZipBuffer.rgr - Little-endian buffer utilities for ZIP format
 ; ZIP uses little-endian byte order (unlike JPEG which uses big-endian)
 

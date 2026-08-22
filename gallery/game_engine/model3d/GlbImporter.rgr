@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; GlbImporter.rgr — GLB 2.0 container + accessor reader -> host ModelAsset.
 ; ==============================================================================

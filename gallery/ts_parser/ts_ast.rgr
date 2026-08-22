@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; TypeScript AST Node Definitions
 ; Based on ESTree specification with TypeScript extensions
 ; Following typescript-eslint AST format: https://typescript-eslint.io/packages/ast-spec/

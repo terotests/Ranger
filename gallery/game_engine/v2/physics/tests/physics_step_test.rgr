@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; physics_step_test — physics world/body/step gate (Phase 9, headless).
 ; ==============================================================================

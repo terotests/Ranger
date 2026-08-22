@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_directional_light_shadow — shadow config for a directional light
 ; (Three.js src/lights/DirectionalLightShadow.js). Sponza slice 4.

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_ray — raycasting (cannon-es src/collision/Ray + RaycastResult).
 ;   Focused port: ray vs sphere and ray vs plane, with CLOSEST / ANY / ALL modes.

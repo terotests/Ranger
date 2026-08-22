@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_quaternion_test — Cannon.js test/Quaternion.js ported to Ranger.
 ; ==============================================================================

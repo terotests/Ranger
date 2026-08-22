@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; physics_world_test — drive the engine through the neutral PhysicsWorld
 ;   interface. The scenario functions take the *base* PhysicsWorld type, so they

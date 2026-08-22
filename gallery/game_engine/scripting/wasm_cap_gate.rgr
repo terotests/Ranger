@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_cap_gate — the forward-compat capability gate (IDEAL.md §6, IDEAL_API §1.1)
 ; ==============================================================================

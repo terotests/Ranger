@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 class RangerGolangClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler

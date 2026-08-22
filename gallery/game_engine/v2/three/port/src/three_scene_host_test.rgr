@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_scene_host_test — the host registry builds a real, renderable scene from
 ; commands (THREE_BRIDGE.md Phase 1).

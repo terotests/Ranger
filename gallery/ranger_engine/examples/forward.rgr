@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; A call that runs ahead of its callee: `Front.total` is lowered before `Back`
 ; exists as anything but a name, so the engine has to know the callee's
 ; signature from the declaration pass rather than from its body.

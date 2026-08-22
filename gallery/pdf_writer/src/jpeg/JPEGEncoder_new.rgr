@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; JPEGEncoder.rgr - JPEG encoder for Ranger
 ; Encodes ImageBuffer to baseline JPEG format
 ; Updated to use int_buffer for efficient cross-language compilation

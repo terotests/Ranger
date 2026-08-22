@@ -1,0 +1,28 @@
+Ranger uses multiple licenses.
+
+Ranger-authored source code outside the gallery/ directory is licensed
+under the MIT License, unless a file or subdirectory explicitly states
+otherwise. See LICENSE-MIT.
+
+Ranger-authored source code under gallery/ is licensed under the GNU
+Affero General Public License version 3 or later (AGPL-3.0-or-later),
+unless a file or subdirectory explicitly states otherwise.
+See LICENSE-AGPL-3.0 and gallery/LICENSE.
+
+Third-party components remain subject to their respective licenses.
+
+Ranger does not impose a license on programs compiled with Ranger. The
+license of generated output follows the source code and other
+components from which that output is derived. Compiled or transpiled
+forms of AGPL-licensed Gallery programs remain covered by the AGPL.
+
+Alternative commercial licenses may be available for components under
+gallery/.
+
+SPDX identifiers:
+
+  MIT                 — files outside gallery/ (unless otherwise stated)
+  AGPL-3.0-or-later   — files under gallery/ (unless otherwise stated)
+
+Further notes, dependency rules, and third-party exceptions:
+see LICENSING.md.

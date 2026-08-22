@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ============================================================================
 ; EdgeRouter.rgr — where an edge goes, and how it is decorated when it lands.
 ; ============================================================================

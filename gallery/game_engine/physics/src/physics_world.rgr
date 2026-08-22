@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; physics_world — engine-neutral physics interface (IDEAL.md §2.5).
 ;

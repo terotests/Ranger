@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_solver_test — SPOOK solver stack (JacobianElement, Equation, GSSolver).
 ;

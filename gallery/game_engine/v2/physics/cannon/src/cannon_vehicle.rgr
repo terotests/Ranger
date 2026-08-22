@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_vehicle — raycast vehicle (cannon-es RaycastVehicle + WheelInfo, focused).
 ;   Each wheel casts a ray along its suspension direction, and a spring+damper

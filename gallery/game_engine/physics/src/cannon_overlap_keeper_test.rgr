@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_overlap_keeper_test — Cannon.js test/OverlapKeeper.js ported.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_orbit_controls — mouse orbit/zoom/pan (Three.js addons OrbitControls).
 ; ==============================================================================

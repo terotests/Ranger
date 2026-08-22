@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; spawner_native_runner - host-bridge parity demo (static-compiled path).
 ; ==============================================================================

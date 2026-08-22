@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_tsx_bridge_test — the interpreted cannon-es scene drives the REAL engine
 ; through the 1:1 native binding (no per-demo reconciliation).

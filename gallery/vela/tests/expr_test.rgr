@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Expression parser + evaluator checks. Every expected value here is what the
 ; reference implementation answers for the same source; tools/reference/ has the
 ; script that reproduces them.

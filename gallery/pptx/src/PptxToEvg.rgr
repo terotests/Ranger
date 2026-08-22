@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; PptxToEvg - ResolvedSlide → EVGElement tree (+ display-list painter helpers)
 ; ==============================================================================

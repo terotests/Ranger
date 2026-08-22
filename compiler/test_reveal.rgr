@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 plugin.slides @noinfix(true) {
     presentation "Testi presis" "reveal_test.html" {

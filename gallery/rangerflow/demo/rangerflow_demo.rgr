@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ============================================================================
 ; rangerflow_demo.rgr — the whole stack, from a .sql file to a PDF.
 ; ============================================================================

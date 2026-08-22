@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ylos2_e2e_test — the ylos2 must-pass, driven by the GENERIC RgGameHost.
 ; ==============================================================================

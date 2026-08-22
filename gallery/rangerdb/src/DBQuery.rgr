@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; QuerySpec - what to ask for, said as data rather than as SQL text.
 ; ==============================================================================

@@ -15,6 +15,16 @@ Prefer the published docs over the old `ai/` guides:
 
 Source files use the **`.rgr`** extension (not `.clj`). Entry point: `sfn main:void ()`.
 
+## Licenses
+
+- Ranger-authored code outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`).
+- Ranger-authored code under `gallery/`: **AGPL-3.0-or-later** unless a file says otherwise (`gallery/LICENSE`, `LICENSE-AGPL-3.0`).
+- Third-party files keep their own licenses. Do not treat a path as a relicensing of vendor code.
+- Generated output follows the source license, not the compiler. Compiled gallery programs stay AGPL. Runtime helpers the compiler writes are MIT.
+- Root [`LICENSE`](LICENSE) is the mixed-license overview, not a single license text.
+- Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`.
+- Details: [`LICENSING.md`](LICENSING.md).
+
 ## Git & pull-request workflow
 
 These rules exist because work has been lost or landed in the wrong place before —

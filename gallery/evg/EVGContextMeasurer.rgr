@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; EVGContextMeasurer - EVG text measurement backed by the host's own renderer
 ; ==============================================================================

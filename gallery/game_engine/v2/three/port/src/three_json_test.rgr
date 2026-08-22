@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_json_test — the recursive-descent JSON parser, on a glTF-shaped fixture.
 ; ==============================================================================

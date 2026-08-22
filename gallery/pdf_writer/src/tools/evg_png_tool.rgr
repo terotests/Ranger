@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; evg_png_tool.rgr - CLI tool for TSX to PNG conversion
 ;
 ; Usage: evg_png_tool input.tsx output.png

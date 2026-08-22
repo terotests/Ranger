@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_physics — host facade: PhysicsCore + vehicle plugin + EvalValue bridge.
 ; Games supply state.physics { controls, impulses }; app maps physicsContacts.

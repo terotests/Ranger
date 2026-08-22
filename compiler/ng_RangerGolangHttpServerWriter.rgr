@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; RangerGolangHttpServerWriter - HTTP Server Code Generator for Go
 ; ============================================================================
 ; This class generates Go HTTP server code from classes annotated with

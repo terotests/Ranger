@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_spherical_harmonics3 — order-2 SH (9 RGB coefficients). Three.js port of
 ; src/math/SphericalHarmonics3.js. Sponza slice 7 (light-probe GI).

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; clock_test — runtime.time fixed-step clock gate (Phase 8 fundamental runtime).
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ============================================================================
 ; rangerflow_sdl — a desktop window for the schema editor, SDL2 + OpenGL.
 ; ============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_sprite_runner_demo — drive the RGSP1 sprite ABI end-to-end in Node.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ranger_autopeli_runner_demo - headless integration test for WasmPhysicsRunner
 ; driving a linear/physics guest compiled from the RANGER language

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; dump_column_chart - column-header selection and resulting chart screenshots.
 ; ==============================================================================

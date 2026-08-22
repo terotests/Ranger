@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; print_finishing_test.rgr - the parts of a PDF that make it a PRINT file
 ; ==============================================================================

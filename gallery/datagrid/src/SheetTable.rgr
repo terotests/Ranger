@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; SheetTable.rgr — an Excel table (a ListObject), and the names it gives things.
 ; ==============================================================================

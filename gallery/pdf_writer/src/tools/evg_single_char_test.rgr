@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; evg_single_char_test.rgr - Test single character rendering for debugging artifacts
 
 Import "../raster/EVGRasterRenderer.rgr"

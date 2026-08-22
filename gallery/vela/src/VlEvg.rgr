@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; VlEvg.rgr — the EVG backend: draw commands become an EVG document.
 ; ==============================================================================

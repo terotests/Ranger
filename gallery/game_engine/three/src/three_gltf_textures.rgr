@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_gltf_textures — native texture decode for a glTF model (host/native only).
 ; ==============================================================================

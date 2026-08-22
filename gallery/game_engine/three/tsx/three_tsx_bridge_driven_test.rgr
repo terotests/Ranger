@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_tsx_bridge_driven_test — the interpreted TSX really drives the objects.
 ; ==============================================================================

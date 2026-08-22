@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; ng_StaticAnalysis.rgr
 ; Static analysis pass for C++ and Rust code generation
 ; Detects mutation patterns to generate proper references and borrows

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; render_probe — draw one workbook to a PNG, for the cross-target comparison
 ; ==============================================================================

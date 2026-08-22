@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; stale_cross_realm_test — host/tests/stale_cross_realm gate (D-HANDLE / D-TYPE).
 ; ==============================================================================

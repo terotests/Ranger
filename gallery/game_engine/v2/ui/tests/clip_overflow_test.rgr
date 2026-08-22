@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; clip_overflow_test — overflow:hidden clips descendants to the (rounded) box.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; HuffmanDecoder.rgr - Huffman table building and decoding for JPEG
 ; Updated to use int_buffer for fixed-size arrays (always 16 elements for code lengths 1-16)
 

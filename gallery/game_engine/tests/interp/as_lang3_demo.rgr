@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; as_lang3_demo — self-check for the third wave of interpreted-.as coverage:
 ; Map/Set collections, Array#splice, lexical closures, and AssemblyScript

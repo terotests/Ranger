@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_tsx3d_gl_host — run the 1:1 Three.js cube (.tsx) on the GPU in the browser.
 ; ==============================================================================

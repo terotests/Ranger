@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; DocxApp.rgr — the Word editor as an application, not a page renderer.
 ; ==============================================================================

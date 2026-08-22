@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_abi_io — linear-memory ABI helpers (offsets match wasm_game_abi.h).
 ; ==============================================================================

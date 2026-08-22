@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; GlAtlasTest — what the native OpenGL host actually hands the GPU for text
 ; ==============================================================================

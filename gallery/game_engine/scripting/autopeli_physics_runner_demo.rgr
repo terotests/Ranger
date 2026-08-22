@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; autopeli_physics_runner_demo - headless physics racer integration test.
 ; ==============================================================================

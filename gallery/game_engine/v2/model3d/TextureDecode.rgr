@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; TextureDecode.rgr — decode a TextureAsset's embedded bytes to RGBA pixels.
 ; ==============================================================================

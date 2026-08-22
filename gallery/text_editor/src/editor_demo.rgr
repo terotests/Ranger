@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; editor_demo - headless scripted session for the EVG text-editor prototype.
 ; ==============================================================================

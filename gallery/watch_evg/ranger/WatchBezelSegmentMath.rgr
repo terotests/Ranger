@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Bezel ring arc layout (angles only). SVG path `d` is supplied by host (TS/Kotlin) until Ranger trig is wired.
 
 class SegmentArc {

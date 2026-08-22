@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; Swift 6 Class Writer
 ; Based on Swift3 writer with updates for Swift 6 compatibility
 ; Main changes:

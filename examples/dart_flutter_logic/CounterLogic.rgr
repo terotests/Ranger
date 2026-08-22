@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; Example: shared application logic for a Flutter UI.
 ; Compile to a Dart package the Flutter app imports — do not generate widgets.
 ;

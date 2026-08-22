@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; code_editor_web — the code editor page, as one class a browser can hold
 ; ==============================================================================

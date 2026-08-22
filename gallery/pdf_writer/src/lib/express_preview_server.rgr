@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; =============================================================================
 ; express_preview_server.rgr - Express.js HTTP Wrapper for EVG Preview
 ; =============================================================================

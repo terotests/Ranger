@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; Portable regex search: pattern and haystack are strings (no /literal/ syntax).
 ; Semantics match ES6 RegExp(pattern, 'i').test(haystack) — substring search, case-insensitive.

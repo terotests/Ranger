@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGDisplayList.rgr — one traversal, a flat list of draw commands
 ;
 ; EVG computes geometry and stops there; something else has to paint it. Today

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; probe_main — evaluate one JS snippet from argv in the interpreter and print
 ; the answer. Scratch harness for conformance debugging of the Rust target.
 ;

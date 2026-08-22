@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; DocxLoadSpeedTest — a long document opens in time proportional to its length
 ; ==============================================================================

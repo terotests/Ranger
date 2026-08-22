@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; CRC32.rgr - CRC-32 checksum implementation for ZIP file integrity
 ; Uses the standard CRC-32 polynomial 0xEDB88320 (reflected form)
 

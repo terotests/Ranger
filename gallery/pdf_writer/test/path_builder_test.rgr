@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; path_builder_test.rgr — building a path is the inverse of parsing one
 ; ==============================================================================

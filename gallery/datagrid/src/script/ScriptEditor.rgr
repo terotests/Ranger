@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ScriptEditor.rgr — a code editor panel, drawn into the grid's display list
 ; ==============================================================================

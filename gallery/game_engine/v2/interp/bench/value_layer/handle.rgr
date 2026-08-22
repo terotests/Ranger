@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Variant C — the compact tagged handle: a tag, one scalar slot, one payload
 ; reference. No per-value collections; the heavy state lives behind the payload.
 class HandlePayload {

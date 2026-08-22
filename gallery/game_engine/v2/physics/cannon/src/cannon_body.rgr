@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_body — rigid body (Cannon.js port subset for pinball / arcade).
 ; ==============================================================================

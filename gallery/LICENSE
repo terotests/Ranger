@@ -1,0 +1,17 @@
+Ranger-authored source code in this directory and its
+subdirectories is licensed under:
+
+GNU Affero General Public License v3.0 or later
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+unless a file or subdirectory explicitly states otherwise.
+
+See ../LICENSE-AGPL-3.0 for the full license text.
+
+Compiled or transpiled forms of this Ranger-authored source remain
+covered by the AGPL. The Ranger compiler being MIT does not change
+that.
+
+Individual third-party files remain under their respective
+licenses as indicated in those files. This notice does not
+re-license third-party code.

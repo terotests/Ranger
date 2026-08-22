@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Inflate.rgr - DEFLATE decompression (RFC 1951)
 ; Used to decompress ZIP files with compression method 8
 

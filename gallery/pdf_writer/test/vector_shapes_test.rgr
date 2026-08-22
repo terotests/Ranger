@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; vector_shapes_test.rgr — basic shapes are paths, and the right ones
 ; ==============================================================================

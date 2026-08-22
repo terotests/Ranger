@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Headless self-test for GameScriptContract (IDEAL_TODO R.8). Run:
 ;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
 ;     gallery/game_engine/scripting/game_script_contract_demo.rgr \

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; grid_demo - headless scripted session for the EVG DataGrid prototype.
 ; ==============================================================================

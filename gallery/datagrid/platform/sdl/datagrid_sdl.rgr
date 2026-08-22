@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; datagrid_sdl — macOS / desktop SDL2 + OpenGL host for the EVG DataGrid.
 ; ==============================================================================

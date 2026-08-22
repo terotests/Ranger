@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; jpeg_encoder_test.rgr - Test for JPEG encoder
 ; Reads JPEGs (baseline and progressive), scales them, and writes new JPEGs
 

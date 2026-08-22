@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_ui_effects_demo — self-check for the WASM-driven UI effect bridge.
 ; ==============================================================================

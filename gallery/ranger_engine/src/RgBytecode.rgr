@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; =============================================================================
 ; RgBytecode — the instruction set and module model of the Ranger engine
 ; =============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; PPMImage.rgr - PPM (Portable Pixmap) image reader/writer
 ; PPM is a simple uncompressed image format - easy to read/write
 ;

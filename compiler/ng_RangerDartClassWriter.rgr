@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; Dart / Flutter package target writer.
 ; Focus: idiomatic Dart for shared application logic (models, validation,
 ; networking, parsers) that a handwritten Flutter UI can import — not full

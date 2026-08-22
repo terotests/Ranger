@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGUnit.rgr - Unit parsing and resolution for EVG layout
 ; Supports: px, %, em, rem, hp (height percent), fill, and the absolute print
 ; units pt / pc / in / mm / cm, which are folded into px at parse time.

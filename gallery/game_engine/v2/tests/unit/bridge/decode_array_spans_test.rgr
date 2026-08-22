@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; decode_array_spans_test — several array args per command stay separable.
 ; ==============================================================================

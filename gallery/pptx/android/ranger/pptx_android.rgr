@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; pptx_android.rgr — the slide viewer, on Android, with no JSON in the middle.
 ; ==============================================================================

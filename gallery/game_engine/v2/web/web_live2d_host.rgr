@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_live2d_host — generic ranger:2d game host, software-rendered in-browser.
 ; ==============================================================================

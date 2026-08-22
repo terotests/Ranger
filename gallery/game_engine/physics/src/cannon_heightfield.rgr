@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_heightfield — terrain height map (cannon-es Heightfield, subset).
 ;   A regular grid of heights (data[i*ny + j]) with spacing elementSize; the

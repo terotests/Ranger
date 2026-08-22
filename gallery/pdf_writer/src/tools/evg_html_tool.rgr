@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; evg_html_tool.rgr - CLI tool for TSX to HTML conversion
 ;
 ; Usage: evg_html_tool.exe input.tsx output.html

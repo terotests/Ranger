@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; xlsx_office_crypto_ops.rgr — unwrap password-protected Office Open XML files.
 ; ==============================================================================

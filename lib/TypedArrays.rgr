@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 systemclass RUint32Array {
   es6 Uint32Array
 }

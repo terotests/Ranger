@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_frustum — (Three.js port of src/math/Frustum.js + the Plane bits it uses).
 ; ==============================================================================

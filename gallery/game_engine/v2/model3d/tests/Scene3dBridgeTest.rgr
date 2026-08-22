@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; Scene3dBridgeTest.rgr — headless proof of the host-owned TSX 3D scene path.
 ; ==============================================================================

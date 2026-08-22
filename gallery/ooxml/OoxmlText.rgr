@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; OoxmlText.rgr — the text rules every OOXML reader in this gallery needs.
 ; ==============================================================================

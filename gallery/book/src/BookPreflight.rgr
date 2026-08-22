@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; BookPreflight.rgr - the questions a printer asks, asked before the printer
 ; ==============================================================================

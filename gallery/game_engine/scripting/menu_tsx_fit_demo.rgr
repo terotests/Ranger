@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; menu_tsx_fit_demo - render the TSX launcher through GameUiRunner at a LARGE and
 ; a SMALL window size, to check the fit-to-window viewport (scale + centre).

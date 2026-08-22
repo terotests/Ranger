@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Space Invaders - Terminal Game
 ; Compile ES6: npm run game:compile
 ; Compile Rust: npm run game:compile:rust

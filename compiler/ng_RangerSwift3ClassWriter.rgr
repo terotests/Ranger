@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 class RangerSwift3ClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; datagrid_web.rgr — the whole editor, in the browser, with no host behind it.
 ; ==============================================================================

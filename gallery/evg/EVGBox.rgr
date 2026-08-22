@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGBox.rgr - Box model for EVG layout (margin, padding, border)
 
 Import "EVGUnit.rgr"

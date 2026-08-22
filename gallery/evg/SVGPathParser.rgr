@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; SVGPathParser.rgr - Parse SVG path data and calculate bounding boxes
 ;
 ; This module parses SVG path commands (M, L, C, Q, A, Z) and provides:

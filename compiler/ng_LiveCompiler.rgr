@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 Import "ng_RangerFlowParser.rgr"
 Import "ng_CodeNodeCompilerExtensions.rgr"

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_model_viewer — browser-facing wrapper for the model3d 3D asset pipeline.
 ; ==============================================================================

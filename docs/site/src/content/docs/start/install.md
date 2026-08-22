@@ -17,6 +17,8 @@ npm install -g ranger-compiler
 
 The command `rgrc` is then available.
 
+The compiler uses the MIT license. See [Licenses](/Ranger/docs/start/licenses/).
+
 ## Command line
 
 The compiler reads one source file and writes one output file:

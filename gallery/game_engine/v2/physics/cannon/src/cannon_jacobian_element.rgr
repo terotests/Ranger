@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_jacobian_element — SPOOK Jacobian element (cannon-es src/math/JacobianElement).
 ;   6 entries: 3 spatial + 3 rotational degrees of freedom.

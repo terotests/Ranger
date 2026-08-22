@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_gamepad_nav_test — the interpreter side of Sponza's controller support.
 ; ==============================================================================

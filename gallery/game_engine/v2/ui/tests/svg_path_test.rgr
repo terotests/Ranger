@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; svg_path_test — a <Path> element fills its SVG path into real pixels.
 ; ==============================================================================

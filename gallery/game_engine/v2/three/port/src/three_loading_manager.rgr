@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_loading_manager — asset load tracking (Three.js port of
 ; src/loaders/LoadingManager.js).

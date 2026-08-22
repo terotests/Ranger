@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; PptxTextEdit - a caret inside a shape's text, and the edits it makes
 ; ==============================================================================

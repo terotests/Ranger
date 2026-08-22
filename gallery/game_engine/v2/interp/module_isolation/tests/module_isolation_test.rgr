@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; module_isolation_test — interp/module_isolation gate (D-MODULES prerequisite).
 ; ==============================================================================

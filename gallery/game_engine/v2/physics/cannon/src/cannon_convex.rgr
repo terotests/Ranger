@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_convex — general convex polyhedron (cannon-es ConvexPolyhedron, subset).
 ;   Stored as vertices + face normals (with one vertex index per face for a face

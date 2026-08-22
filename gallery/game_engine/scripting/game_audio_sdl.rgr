@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_audio_sdl - SDL audio sink for GameAudio synth playback.
 ; ==============================================================================

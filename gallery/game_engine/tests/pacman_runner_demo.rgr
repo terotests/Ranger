@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; pacman_runner_demo - headless GameRunner smoke for games/pacman
 ; ==============================================================================

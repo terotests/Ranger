@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; RgWasmCmdDispatch — generic, schema-driven wasm32 command lowering (BRIDGES 4/5)
 ; ==============================================================================

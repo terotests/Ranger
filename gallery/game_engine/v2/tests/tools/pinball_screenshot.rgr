@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; pinball_screenshot — render a pinball frame to RGB text (-> dump_rgb_to_png.js).
 Import "../../runtime/game_host/RgGameHost.rgr"
 Import "../../runtime/game_host/Rg2DPresenter.rgr"

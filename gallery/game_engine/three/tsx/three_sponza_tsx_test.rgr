@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_sponza_tsx_test — sponza.tsx runs through the GENERIC bridge, no recipe.
 ; ==============================================================================

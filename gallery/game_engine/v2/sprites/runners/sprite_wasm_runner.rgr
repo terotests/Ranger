@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; sprite_wasm_runner — SDL host for the RGSP1 sprite game (sprite_char.wasm).
 ; ==============================================================================

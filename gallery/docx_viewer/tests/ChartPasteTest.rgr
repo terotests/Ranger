@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ChartPasteTest — copy a chart in the spreadsheet, paste it in the word
 ; processor, edit it there.

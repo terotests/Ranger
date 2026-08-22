@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Progressive JPEG Decoder Test
 ; Tests both baseline and progressive JPEG decoding
 

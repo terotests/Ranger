@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_autopeli_runner_demo - headless integration test for WasmPhysicsRunner.
 ; ==============================================================================

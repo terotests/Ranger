@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; sprite_char_poc_demo — drive the sprite test game headless (no gfx/SDL).
 ; ==============================================================================

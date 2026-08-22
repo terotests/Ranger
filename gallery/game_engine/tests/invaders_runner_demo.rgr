@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; invaders_runner_demo - runs scripted Space Invaders (invaders.game.tsx).
 ; ==============================================================================

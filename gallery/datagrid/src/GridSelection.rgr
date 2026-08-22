@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; GridSelection - active cell + rectangular range (anchor → active), plus the
 ; rectangles a Ctrl+click left behind.

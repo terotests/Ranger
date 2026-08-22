@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; WorkbookTest - number formats, formulas, sort/filter, hidden, multi-sheet.
 ; ==============================================================================

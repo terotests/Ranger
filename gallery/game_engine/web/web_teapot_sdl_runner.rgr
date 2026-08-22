@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_teapot_sdl_runner — the Three.js teapot on native SDL2 + OpenGL/GLES2.
 ; ==============================================================================

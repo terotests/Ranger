@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; gfx_datagrid_sdl — SDL2 + OpenGL present + UI input for the DataGrid host.
 ; ==============================================================================

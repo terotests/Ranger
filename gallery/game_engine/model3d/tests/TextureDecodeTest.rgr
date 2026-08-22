@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; TextureDecodeTest.rgr — end-to-end load + embedded PNG decode via ModelLoader.
 ; ==============================================================================

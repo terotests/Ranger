@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; autopeli_scene_provider — autopeli's GameSceneProvider (IDEAL.md §3, §7)
 ; ==============================================================================

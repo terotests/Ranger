@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_narrowphase — contact generation (Cannon.js port subset).
 ;   Produces SPOOK CannonEquation contacts (kind = contact) for the GS solver.

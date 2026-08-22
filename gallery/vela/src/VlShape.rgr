@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; VlShape.rgr — the geometry a mark is, independent of what draws it.
 ; ==============================================================================

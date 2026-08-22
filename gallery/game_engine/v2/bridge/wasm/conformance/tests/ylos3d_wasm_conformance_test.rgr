@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ylos3d_wasm_conformance_test — a Rust->wasm32 guest drives the GENERIC bridge
 ; through the GENERIC, schema-driven wasm32 dispatcher (BRIDGES steps 4/5 + the

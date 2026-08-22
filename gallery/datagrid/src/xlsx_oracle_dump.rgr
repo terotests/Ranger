@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; xlsx_oracle_dump - load fixture → SoftCanvas PNG (+ print inspect JSON).
 ; ==============================================================================

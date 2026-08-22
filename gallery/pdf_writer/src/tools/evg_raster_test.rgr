@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; evg_raster_test.rgr - Test tool for EVG Raster Renderer
 ; Generates a test image with shadows and gradients
 

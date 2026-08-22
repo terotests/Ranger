@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_animation_test — keyframe animation, DRIVEN THROUGH THE INTERPRETER.
 ; ==============================================================================

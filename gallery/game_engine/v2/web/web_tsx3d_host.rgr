@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_tsx3d_host — TSX-script-driven 3D scene, software-rendered in the browser.
 ; ==============================================================================

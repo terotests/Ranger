@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; pptx_probe — what a slide parsed into, and what it drew.
 ;
 ; Between "the deck has a shape" and "the screen has a line" there are a

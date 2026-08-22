@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; zip_tool.rgr - ZIP archive command-line tool
 ; Usage:
 ;   zip_tool list <archive.zip>              - List files in archive

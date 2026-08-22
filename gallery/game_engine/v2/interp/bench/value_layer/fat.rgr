@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Variant A — today's model: one wide class, an int tag, a small-int pool.
 ; The field list mirrors EvHandle.rgr's (33 members) so the allocation cost is
 ; the real one, not a toy.

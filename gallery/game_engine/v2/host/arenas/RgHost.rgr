@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; RgHost — typed arenas over the shared registry (D-TYPE / D-OWN / D-LIFE).
 ; ==============================================================================

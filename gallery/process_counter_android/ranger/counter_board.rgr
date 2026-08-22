@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 
 ; Counter board processes for React gallery (no CLI).
 ; Compile: npm run build:ranger (from gallery/process_counter_board)

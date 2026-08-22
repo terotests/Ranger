@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ============================================================================
 ; ranger_pong — a Pong game written in the RANGER language, compiled to WASM
 ; and run inside the game engine exactly like games/rust_pong (which is Rust).

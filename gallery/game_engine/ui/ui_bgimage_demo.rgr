@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ui_bgimage_demo — EVG background images clipped to a rounded path.
 ; ==============================================================================

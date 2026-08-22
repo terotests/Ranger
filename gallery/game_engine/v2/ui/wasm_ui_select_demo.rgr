@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_ui_select_demo - WASM-authored selectable menu, navigated by gamepad/keys.
 ; ==============================================================================

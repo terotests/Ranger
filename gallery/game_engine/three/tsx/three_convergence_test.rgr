@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_convergence_test — the interpreter and a direct-command guest land on
 ; the SAME host registry state (THREE_BRIDGE.md Phase 5).

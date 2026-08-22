@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; OoxmlTextTest — the three OOXML readers decode text the same way, on both
 ; string models.
