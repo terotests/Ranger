@@ -117,6 +117,7 @@ class OfficeTextTest {
         this.testShapedAndOrdered()
         this.testMarks()
         this.testDirection()
+        this.testMetrics()
         this.testRoundTrip()
         print ""
         print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
@@ -198,6 +199,39 @@ class OfficeTextTest {
         def forced:string (OfficeText.forDisplayDir(mixed 1))
         def auto:string (OfficeText.forDisplayDir(mixed -1))
         c.ok("and the document's direction changes what is drawn" ((forced == auto) == false))
+    }
+
+    fn testMetrics:void () {
+        print "--- measuring is shaped but not reordered ---"
+        ; A width does not depend on the order of the glyphs, so measuring
+        ; skips the reordering — but not the shaping: a joined letter is
+        ; narrower than an isolated one, and measuring the stored codepoints
+        ; makes every Arabic line come out wider than it is drawn.
+        def m:string (OfficeText.forMetrics((OfficeTextTest.str("1605 1585 1581 1576 1575"))))
+        c.eqStr("shaped, in the order it was stored"
+            (OfficeTextTest.dump(m)) "65251 65198 65187 65170 65166")
+        ; Latin is untouched here too — this is on the hot path of every
+        ; measurement in all three editors.
+        def latin:string (OfficeTextTest.str("72 101 108 108 111"))
+        c.eqStr("Latin is returned as itself" (OfficeText.forMetrics(latin)) latin)
+        ; Hebrew is right-to-left but not cursive: nothing to shape, so the
+        ; metrics path leaves it alone even though the display path reverses it.
+        def heb:string (OfficeTextTest.str("1488 1489"))
+        c.eqStr("Hebrew needs no shaping" (OfficeText.forMetrics(heb)) heb)
+        ; And the property the whole arrangement rests on: measuring a display
+        ; string and measuring the source it came from give the same glyphs.
+        ; That is what lets the layout measure one and the painter the other
+        ; without the two disagreeing about where a line ends.
+        def src:string (OfficeTextTest.str("1605 1585 1581 1576 1575"))
+        def disp:string (OfficeText.forDisplay(src))
+        def a:string (OfficeTextTest.dump((OfficeText.forMetrics(src))))
+        def b:string (OfficeTextTest.dump((OfficeText.forMetrics(disp))))
+        c.eqInt("the same glyph count either way"
+            (array_length (EVGCodepoint.toArray((OfficeText.forMetrics(disp)))))
+            (array_length (EVGCodepoint.toArray((OfficeText.forMetrics(src))))))
+        c.ok("shaping a display string changes nothing" (b == (OfficeTextTest.dump(disp))))
+        c.ok("and the source shapes to the same glyphs, in the other order"
+            ((a == b) == false))
     }
 
     fn testRoundTrip:void () {

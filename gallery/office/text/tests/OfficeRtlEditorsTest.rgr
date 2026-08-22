@@ -1,0 +1,191 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeRtlEditorsTest — that the three editors actually call the shared core
+; ==============================================================================
+;
+; OfficeBidi, OfficeArabic and OfficeText are each checked on their own, and
+; each of those tests would pass just as happily if nothing in the gallery
+; ever called them. This is the test that would not.
+;
+; It drives the exact function in each of the three editors where a string
+; becomes marks — `DocxInk.textStyled`, `PptxToEvg.pushTextCmd`,
+; `GridView.pushText` — and looks at what came out the other end. There are
+; only two ways the wiring can be wrong and both are caught here:
+;
+;   NOT CALLED   the text arrives in the display list exactly as it was
+;                stored, so Arabic is drawn backwards and unjoined;
+;   CALLED TWICE the second pass reverses the line back to the order it
+;                started in, which looks like the first bug and is not.
+;                A display list is drawn by a painter that draws whatever
+;                string it is handed, so this is a real risk rather than a
+;                theoretical one — the shaping is a no-op the second time
+;                round, but the REORDERING is not.
+;
+; The text used throughout is مرحبا, which is a good witness: five letters,
+; every one of which changes shape, a break-free join all the way through, and
+; a first letter that has to end up at the RIGHT-hand end of the line.
+;
+;   npm run office:rtl:editors:test
+; ==============================================================================
+
+Import "../../../docx_viewer/src/DocxInk.rgr"
+Import "../../../pptx/src/PptxToEvg.rgr"
+Import "../../../datagrid/src/GridApp.rgr"
+Import "../OfficeText.rgr"
+
+class RtlCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class OfficeRtlEditorsTest {
+    def c:RtlCheck (new RtlCheck)
+
+    sfn main:void () {
+        def t (new OfficeRtlEditorsTest())
+        t.run()
+    }
+
+    ; مرحبا, written as codepoints so the file has no direction of its own and
+    ; an editor showing this source cannot mislead a reader about what is
+    ; being tested.
+    sfn source:string () {
+        def out:string ""
+        out = (out + (EVGCodepoint.toStr(1605)))
+        out = (out + (EVGCodepoint.toStr(1585)))
+        out = (out + (EVGCodepoint.toStr(1581)))
+        out = (out + (EVGCodepoint.toStr(1576)))
+        out = (out + (EVGCodepoint.toStr(1575)))
+        return out
+    }
+
+    ; What a correct renderer must put in the display list: shaped, and in
+    ; visual order — alef final first, meem initial last.
+    sfn wanted:string () {
+        return "65166 65170 65187 65198 65251"
+    }
+
+    ; And what it must NOT: the source order. This is the string the editors
+    ; used to emit, and it is also what a SECOND pass would produce, which is
+    ; why both failures show up as this same value.
+    sfn stored:string () {
+        return "1605 1585 1581 1576 1575"
+    }
+
+    sfn dump:string (s:string) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length cps)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (to_string (itemAt cps i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The text on the last text command in a list.
+    sfn lastText:string (dl:EVGDisplayList) {
+        def i:int ((array_length dl.cmds) - 1)
+        while (i >= 0) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                return cmd.text
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    fn run:void () {
+        print "=== OfficeRtlEditorsTest ==="
+        this.testDocx()
+        this.testPptx()
+        this.testGrid()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testDocx:void () {
+        print "--- Word ---"
+        def ink (new DocxInk)
+        ink.toList = true
+        ink.textStyled((OfficeRtlEditorsTest.source()) 10 20 12.0 (EVGColor.rgb(0 0 0)) false false)
+        def got:string (OfficeRtlEditorsTest.dump((OfficeRtlEditorsTest.lastText(ink.dl))))
+        c.eqStr("a Word run reaches the display list shaped and reordered"
+            got (OfficeRtlEditorsTest.wanted()))
+        c.ok("and not in the order it was stored"
+            ((got == (OfficeRtlEditorsTest.stored())) == false))
+        ; Latin through the same path must be untouched, character for
+        ; character — this is the path every ordinary document takes.
+        def ink2 (new DocxInk)
+        ink2.toList = true
+        ink2.textStyled("Hello" 10 20 12.0 (EVGColor.rgb(0 0 0)) false false)
+        c.eqStr("and English is left exactly alone"
+            (OfficeRtlEditorsTest.lastText(ink2.dl)) "Hello")
+    }
+
+    fn testPptx:void () {
+        print "--- PowerPoint ---"
+        def conv (new PptxToEvg)
+        def dl (new EVGDisplayList)
+        conv.pushTextCmd(dl (OfficeRtlEditorsTest.source()) 10.0 20.0 18.0
+            (EVGColor.rgb(0 0 0)) "Calibri" 0.0 "left" 200.0 false 0.0)
+        def got:string (OfficeRtlEditorsTest.dump((OfficeRtlEditorsTest.lastText(dl))))
+        c.eqStr("a slide's text reaches the display list shaped and reordered"
+            got (OfficeRtlEditorsTest.wanted()))
+        c.ok("and not in the order it was stored"
+            ((got == (OfficeRtlEditorsTest.stored())) == false))
+        def dl2 (new EVGDisplayList)
+        conv.pushTextCmd(dl2 "Hello" 10.0 20.0 18.0
+            (EVGColor.rgb(0 0 0)) "Calibri" 0.0 "left" 200.0 false 0.0)
+        c.eqStr("and English is left exactly alone"
+            (OfficeRtlEditorsTest.lastText(dl2)) "Hello")
+    }
+
+    fn testGrid:void () {
+        print "--- the spreadsheet ---"
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def dl (new EVGDisplayList)
+        app.view.pushText(dl (OfficeRtlEditorsTest.source()) 10.0 20.0 12.0 (EVGColor.rgb(0 0 0)))
+        def got:string (OfficeRtlEditorsTest.dump((OfficeRtlEditorsTest.lastText(dl))))
+        c.eqStr("a cell reaches the display list shaped and reordered"
+            got (OfficeRtlEditorsTest.wanted()))
+        c.ok("and not in the order it was stored"
+            ((got == (OfficeRtlEditorsTest.stored())) == false))
+        ; The styled path is a separate function and was wired separately.
+        def dl2 (new EVGDisplayList)
+        app.view.pushStyledText(dl2 (OfficeRtlEditorsTest.source()) 10.0 20.0 12.0
+            (EVGColor.rgb(0 0 0)) "Calibri" true false)
+        c.eqStr("and so does a cell with a font on it"
+            (OfficeRtlEditorsTest.dump((OfficeRtlEditorsTest.lastText(dl2))))
+            (OfficeRtlEditorsTest.wanted()))
+        def dl3 (new EVGDisplayList)
+        app.view.pushText(dl3 "Total" 10.0 20.0 12.0 (EVGColor.rgb(0 0 0)))
+        c.eqStr("and English is left exactly alone"
+            (OfficeRtlEditorsTest.lastText(dl3)) "Total")
+    }
+}

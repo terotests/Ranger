@@ -192,6 +192,41 @@ class OfficeText {
         return out
     }
 
+    ; The same text shaped but NOT reordered, for measuring.
+    ;
+    ; A line is exactly as wide whichever order its glyphs are drawn in, so
+    ; reordering for a measurement is pure waste — but SHAPING for one is not.
+    ; A joined Arabic letter is narrower than the isolated form of the same
+    ; letter, often by a third, so measuring the stored codepoints makes every
+    ; Arabic line come out wider than it is drawn: line breaks land early,
+    ; centred text sits left of centre, and a right-aligned cell has a gap.
+    ;
+    ; This is safe to apply to text that has already been through
+    ; `forDisplay`. Shaping a presentation form does nothing — it is not a
+    ; letter this knows — so a measurement of a display string and a
+    ; measurement of the source it came from give the same answer. That is
+    ; what lets the layout measure one and the painter the other.
+    sfn forMetrics:string (s:string) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        if ((array_length cps) < 1) {
+            return s
+        }
+        if ((OfficeArabic.hasArabic(cps)) == false) {
+            return s
+        }
+        def glyphs:[int] (OfficeArabic.shape(cps))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length glyphs)) {
+            def g:int (itemAt glyphs i)
+            if (g > 0) {
+                out = (out + (EVGCodepoint.toStr(g)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; The common case: no direction stated, work it out from the text.
     sfn forDisplay:string (s:string) {
         return (OfficeText.forDisplayDir(s -1))

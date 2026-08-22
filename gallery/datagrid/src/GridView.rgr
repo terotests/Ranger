@@ -18,6 +18,7 @@ Import "DataGrid.rgr"
 Import "CellStyle.rgr"
 Import "GridTheme.rgr"
 Import "../../office/text/OfficeFont.rgr"
+Import "../../office/text/OfficeText.rgr"
 Import "ConditionalFormat.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridChartView.rgr"
@@ -210,10 +211,22 @@ class GridView {
         dl.addFrame(x y w h thickness col)
     }
 
+    ; Every string the grid draws goes through here or through
+    ; `pushStyledText`, which makes these the two places the bidirectional
+    ; algorithm and the Arabic shaper belong. A cell holding Arabic was drawn
+    ; in the order it was stored — the line reversed and every letter in the
+    ; isolated shape it takes when it stands alone — and a workbook is the
+    ; worst place for that, because a reader has no sentence around a cell to
+    ; tell them the program got it wrong.
+    ;
+    ; Done here and nowhere below: the software painter and the GL painter
+    ; both draw whatever string reaches them, so a second pass would put a
+    ; right-to-left line back the way it started.
     fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor) {
-        def w:double (ctx.tr.measureWidth(text size))
+        def shown:string (OfficeText.forDisplay(text))
+        def w:double (ctx.tr.measureWidth(shown size))
         def h:double (ctx.tr.lineHeight(size))
-        dl.addText(text x y size col fontFamily false false w h)
+        dl.addText(shown x y size col fontFamily false false w h)
     }
 
     ; Select the raster face. It must go through fontFamily: UITextRenderer
@@ -257,9 +270,10 @@ class GridView {
             return
         }
         this.applyFaceNamed(fontName bold italic)
-        def w:double (ctx.tr.measureWidth(text size))
+        def shown:string (OfficeText.forDisplay(text))
+        def w:double (ctx.tr.measureWidth(shown size))
         def h:double (ctx.tr.lineHeight(size))
-        dl.addText(text x y size col (GridView.faceFamily(fontName)) bold italic w h)
+        dl.addText(shown x y size col (GridView.faceFamily(fontName)) bold italic w h)
     }
 
     fn pushClip:void (dl:EVGDisplayList x:double y:double w:double h:double) {

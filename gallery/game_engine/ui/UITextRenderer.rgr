@@ -25,6 +25,7 @@ Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
+Import "../../office/text/OfficeText.rgr"
 
 ; One cached, pre-rasterized line of text (color baked in).
 class UICachedLine {
@@ -125,13 +126,30 @@ class UITextRenderer {
     }
 
     ; --- measurement & wrapping ----------------------------------------------
+
+    ; What is measured is the SHAPED text, not the stored text.
+    ;
+    ; Arabic is cursive: a joined letter is narrower than the isolated form of
+    ; the same letter, often by a third. Measuring the stored codepoints
+    ; therefore made every Arabic line come out wider than it is drawn — line
+    ; breaks landed early, centred text sat left of centre, a right-aligned
+    ; cell had a gap — and the error grew with the length of the word, so it
+    ; was not something a fudge factor could have hidden.
+    ;
+    ; `forMetrics` shapes without reordering, because a line is exactly as
+    ; wide whichever order its glyphs are drawn in, and it does nothing at all
+    ; to text with no Arabic in it — which is almost every string measured
+    ; here. It is also idempotent on already-shaped text, which is what lets a
+    ; layout measure the source while the painter measures the display string
+    ; without the two disagreeing about where the line ends.
     fn measureWidth:double (text:string size:double) {
+        def shaped:string (OfficeText.forMetrics(text))
         this.applyFace()
         if hasFont {
-            return (measurer.measureTextWidth(text fontFamily size))
+            return (measurer.measureTextWidth(shaped fontFamily size))
         }
         def step:double (to_double (this.bmCharStep(size)))
-        return ((to_double (strlen text)) * step)
+        return ((to_double (strlen shaped)) * step)
     }
 
     ; Where the baseline sits inside the line box. Callers that must place
