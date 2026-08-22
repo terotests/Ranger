@@ -1,0 +1,100 @@
+; pptx_probe — what a slide parsed into, and what it drew.
+;
+; Between "the deck has a shape" and "the screen has a line" there are a
+; parser, a resolver and a painter, and a figure that goes missing went
+; missing in exactly one of them. This prints both ends: the shapes the
+; model holds for one slide, and the display-list commands they produced.
+;
+;   node gallery/pptx/bin/pptx_probe.js <file.pptx> <slide-number>
+
+Import "../src/PptxApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class PptxProbe {
+    sfn describe:string (sh:PptxShape) {
+        def kind:string "shape"
+        if (sh.kind == 1) { kind = "picture" }
+        if (sh.kind == 2) { kind = "group" }
+        if (sh.kind == 3) { kind = "connector" }
+        if (sh.kind == 4) { kind = "table" }
+        if (sh.kind == 5) { kind = "chart" }
+        def s:string ("[" + kind + "] " + sh.name + " preset=" + sh.preset)
+        s = (s + " @(" + (to_string sh.x) + "," + (to_string sh.y) + ") " + (to_string sh.width) + "x" + (to_string sh.height))
+        s = (s + " rot=" + (to_string sh.rotation))
+        if (sh.fill.isSet) { s = (s + " fill=" + sh.fill.srgb) }
+        if (sh.noFill) { s = (s + " noFill") }
+        if (sh.fillGrad.isSet) { s = (s + " grad") }
+        if (sh.line.isSet) { s = (s + " line=" + sh.line.srgb + "/" + (to_string sh.lineWidthPt)) }
+        if sh.hasPath { s = (s + " custGeom") }
+        if sh.hasText { s = (s + " text=\"" + (sh.text.plainText()) + "\"") }
+        return s
+    }
+
+    sfn dumpShapes:void (shapes:[PptxShape] indent:string) {
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            print (indent + (PptxProbe.describe(sh)))
+            if (sh.kind == 2) {
+                PptxProbe.dumpShapes(sh.children (indent + "    "))
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn main:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 1) {
+            print "usage: pptx_probe <file.pptx> [slide]"
+            return
+        }
+        def path:string (shell_arg 0)
+        def want:int 1
+        if (argc >= 2) {
+            def parsed@(optional):int (to_int (shell_arg 1))
+            if (!null? parsed) { want = (unwrap parsed) }
+        }
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def ok:boolean (app.load(path))
+        if (ok == false) {
+            print "FAILED to open"
+            return
+        }
+        app.gotoSlide((want - 1))
+        def slide@(optional):PptxSlide (app.currentSlide())
+        if (null? slide) {
+            print "no such slide"
+            return
+        }
+        def s:PptxSlide (unwrap slide)
+        print ("slide " + (to_string want) + " of " + (to_string (app.slideCount())) + " — " + (to_string s.width) + "x" + (to_string s.height) + "pt")
+        PptxProbe.dumpShapes(s.shapes "  ")
+        def dl:EVGDisplayList (app.view.buildDisplayList(s))
+        print ("display list: " + (to_string (array_length dl.cmds)) + " commands")
+        def k:int 0
+        while (k < 8) {
+            def n:int 0
+            def i:int 0
+            while (i < (array_length dl.cmds)) {
+                def c:EVGDrawCmd (itemAt dl.cmds i)
+                if (c.kind == k) { n = (n + 1) }
+                i = (i + 1)
+            }
+            if (n > 0) {
+                print ("  kind " + (to_string k) + " x" + (to_string n))
+            }
+            k = (k + 1)
+        }
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "." "probe.png")
+        print "wrote probe.png"
+        app.close()
+    }
+}

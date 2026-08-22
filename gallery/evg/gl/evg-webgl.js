@@ -70,11 +70,16 @@ const VERT = `#version 300 es
 in vec2 aCorner;          // unit quad, 0..1
 in vec4 aRect;            // x, y, w, h in page pixels
 in vec4 aColor;           // rgba, 0..1
+in vec4 aColor2;          // far gradient stop, rgba 0..1
 in vec3 aShape;           // radius, thickness (0 = fill), mode
+in float aGrad;           // 0 = flat, 1 = down the box, 2 = across it
 in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover crop
 in float aRot;            // radians, about the rect's own centre
 uniform vec2 uPage;
 out vec4 vColor;
+out vec4 vColor2;
+out float vGrad;
+out vec2 vT;              // 0..1 along the box, for the gradient
 out vec2 vLocal;          // position within the rect, in pixels
 out vec2 vHalf;
 out float vRadius;
@@ -96,6 +101,9 @@ void main() {
   vec2 ndc = vec2((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
   vColor = aColor;
+  vColor2 = aColor2;
+  vGrad = aGrad;
+  vT = aCorner;
   vHalf = aRect.zw * 0.5;
   vLocal = (aCorner - 0.5) * aRect.zw;
   vRadius = aShape.x;
@@ -107,6 +115,9 @@ void main() {
 const FRAG = `#version 300 es
 precision highp float;
 in vec4 vColor;
+in vec4 vColor2;
+in float vGrad;
+in vec2 vT;
 in vec2 vLocal;
 in vec2 vHalf;
 in float vRadius;
@@ -156,6 +167,12 @@ void main() {
   }
   float d;
   float alpha = boxCoverage(d);
+  // A two-stop linear gradient, mixed the way the software canvas mixes it:
+  // straight down the box, or straight across when the fill said so.
+  vec4 base = vColor;
+  if (vGrad > 0.5) {
+    base = mix(vColor, vColor2, clamp(vGrad > 1.5 ? vT.x : vT.y, 0.0, 1.0));
+  }
   if (vThickness > 0.0) {
     // Keep a band just inside the edge.
     float inner = -vThickness;
@@ -163,7 +180,7 @@ void main() {
     alpha = alpha * smoothstep(inner - aa, inner + aa, d);
   }
   if (alpha <= 0.001) discard;
-  outColor = vec4(vColor.rgb, vColor.a * alpha);
+  outColor = vec4(base.rgb, base.a * alpha);
 }`;
 
 // Paths are drawn as plain triangles in page space with one colour per draw:
@@ -517,7 +534,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // Instances in paint order, plus the runs that must be drawn separately.
   // A run is a stretch of instances that share a texture binding; an image
   // ends the run before it and forms one of its own.
-  const rects = [], colors = [], shapes = [], uvs = [], rots = [];
+  const rects = [], colors = [], colors2 = [], grads = [], shapes = [], uvs = [], rots = [];
   const runs = [];
   let missingImages = 0, drawnImages = 0;
   // The clip in force, as a rectangle or null. A clip is a scissor here, and a
@@ -596,6 +613,8 @@ export function renderDisplayList(gl, doc, opts = {}) {
       shapes.push(c.r || 0, 0, MODE.IMAGE);
       rots.push(((c.rot || 0) * Math.PI) / 180);
       colors.push(1, 1, 1, 1);
+      colors2.push(1, 1, 1, 1);
+      grads.push(0);
       pushRun(runStart, 1, t.tex);
       runStart = rects.length / 4;
       drawnImages += 1;
@@ -620,6 +639,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
     rots.push(((c.rot || 0) * Math.PI) / 180);
     const col = c.c || [0, 0, 0, 1];
     colors.push(col[0] / 255, col[1] / 255, col[2] / 255, col[3]);
+    // `gd` is the display list's gradient direction: 1 means across the box,
+    // anything else means down it. A command with no `c2` is flat, and the
+    // second stop is then the first, so the shader's mix is a no-op.
+    const col2 = c.c2 || col;
+    colors2.push(col2[0] / 255, col2[1] / 255, col2[2] / 255, col2[3]);
+    grads.push(c.c2 ? (c.gd === 1 ? 2 : 1) : 0);
   }
   flush();
   const count = rects.length / 4;
@@ -642,6 +667,8 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const instanced = [
     { name: "aRect", data: rects, size: 4 },
     { name: "aColor", data: colors, size: 4 },
+    { name: "aColor2", data: colors2, size: 4 },
+    { name: "aGrad", data: grads, size: 1 },
     { name: "aShape", data: shapes, size: 3 },
     { name: "aUV", data: uvs, size: 4 },
     { name: "aRot", data: rots, size: 1 },

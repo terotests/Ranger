@@ -527,18 +527,13 @@ class PptxToEvg {
         }
     }
 
+    ; `addPolygon` rather than a command built here: it is the one place that
+    ; also closes the ring list and derives the box from the points. Built by
+    ; hand, this shape reached the software canvas — which reads `pts` — and
+    ; nothing else, because a path with no rings serialises to a path with no
+    ; points.
     fn pushPathFill:void (dl:EVGDisplayList pts:[double] col:EVGColor) {
-        if ((array_length pts) < 6) {
-            return
-        }
-        def c (new EVGDrawCmd())
-        c.kind = 6
-        c.pts = pts
-        c.r = (col.red())
-        c.g = (col.green())
-        c.b = (col.blue())
-        c.a = (col.alpha())
-        push dl.cmds c
+        dl.addPolygon(pts col)
     }
 
     fn pushGradRect:void (dl:EVGDisplayList x:double y:double w:double h:double grad:PptxGradient) {
@@ -1091,14 +1086,8 @@ class PptxToEvg {
                     def sflat:[double] (PptxGeom.scaleToBox(unit (x + (this.ptToPx(shape.shadow.offsetXPt))) (y + (this.ptToPx(shape.shadow.offsetYPt))) w h))
                     def spts:[double] (PptxToEvg.rotatePoints(sflat pathCx pathCy shape.rotation))
                     def sc:EVGColor (this.colorFrom(shape.shadow.color))
-                    def sh (new EVGDrawCmd())
-                    sh.kind = 6
-                    sh.pts = spts
-                    sh.r = (sc.red())
-                    sh.g = (sc.green())
-                    sh.b = (sc.blue())
-                    sh.a = shape.shadow.alpha
-                    push dl.cmds sh
+                    def shc:EVGColor (EVGColor.rgba((sc.red()) (sc.green()) (sc.blue()) shape.shadow.alpha))
+                    dl.addPolygon(spts shc)
                 }
                 ; An open path — a bracket, a brace, a line — is a stroke and
                 ; not an area: filling it draws a solid blob where the deck

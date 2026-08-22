@@ -1,0 +1,208 @@
+; ==============================================================================
+; EVGJsonTest — does a command survive being written down?
+; ==============================================================================
+;
+; A display list is drawn two ways: by the software canvas, which reads the
+; command objects, and by every other backend — WebGL, a canvas host, a remote
+; viewer — which reads `toJson`. Every test in this repository takes the first
+; route, so a field the serializer forgot was invisible: the pictures came out
+; right, the tests passed, and the browser drew something else.
+;
+; Three did. Paths were written only when `ringEnds` was set, so a command
+; built by hand — and several are, here and in the galleries — reached the
+; software canvas and nothing else: a bracket, an arrow head, the outline of a
+; rounded box, all simply absent on the GPU. Gradients were never serialized at
+; all, so a two-stop fill arrived as its first stop, flat.
+;
+; So this asks the question the picture tests cannot: given a command with a
+; field set, does that field appear in the JSON? It is deliberately crude —
+; substring checks against the text — because the failure it is guarding
+; against is a field that is not there at all.
+;
+;   npm run evg:json:test
+; ==============================================================================
+
+Import "EVGDisplayList.rgr"
+Import "EVGColor.rgr"
+
+class EVGJsonTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn m@(main):void () {
+        def t (new EVGJsonTest())
+        t.run()
+    }
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + what)
+        }
+    }
+
+    fn has:void (what:string json:string needle:string) {
+        this.ok(what ((indexOf json needle) >= 0))
+    }
+
+    fn run:void () {
+        print "=== EVGDisplayList.toJson ==="
+        this.testPolygonWithRings()
+        this.testPolygonBuiltByHand()
+        this.testGradient()
+        this.testFlatRectHasNoGradient()
+        this.testRectAndBorder()
+        this.testTextAndImage()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+
+    ; The sanctioned way to add a path. Points, one ring, and a box derived
+    ; from the points — the GL backend batches and scissors by that box, and
+    ; a path left at 0x0 is a path clipped away.
+    fn testPolygonWithRings:void () {
+        print "-- a polygon added through addPolygon"
+        def dl (new EVGDisplayList())
+        def pts:[double] ([] _:double ( 10.0 20.0 110.0 20.0 110.0 70.0 10.0 70.0 ))
+        dl.addPolygon(pts (EVGColor.rgb(255 0 0)))
+        def json:string (dl.toJson())
+        this.has("the points are written" json "\"pts\":[10.00,20.00,110.00,20.00,110.00,70.00,10.00,70.00]")
+        this.has("with a ring that closes them" json "\"ends\":[8]")
+        def c:EVGDrawCmd (dl.at(0))
+        this.ok("and a box derived from the points" ((c.w > 99.0) && (c.h > 49.0)))
+    }
+
+    ; The same path built the way a gallery builds one: points on the command
+    ; and nothing else. This is the case that was dropped.
+    fn testPolygonBuiltByHand:void () {
+        print "-- a polygon built by hand, with no ring list"
+        def dl (new EVGDisplayList())
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.pts = ([] _:double ( 0.0 0.0 40.0 0.0 40.0 40.0 ))
+        c.r = 12
+        c.g = 34
+        c.b = 56
+        c.a = 1.0
+        push dl.cmds c
+        def json:string (dl.toJson())
+        this.has("its points reach the JSON" json "\"pts\":[0.00,0.00,40.00,0.00,40.00,40.00]")
+        this.has("as one ring covering all of them" json "\"ends\":[6]")
+        this.has("and it keeps its colour" json "\"c\":[12,34,56,1.00]")
+    }
+
+    fn testGradient:void () {
+        print "-- a two-stop gradient"
+        def dl (new EVGDisplayList())
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = 0.0
+        c.y = 0.0
+        c.w = 100.0
+        c.h = 50.0
+        c.r = 10
+        c.g = 20
+        c.b = 30
+        c.a = 1.0
+        c.hasGrad = true
+        c.gradDir = 1
+        c.r2 = 200
+        c.g2 = 210
+        c.b2 = 220
+        c.a2 = 0.5
+        push dl.cmds c
+        def json:string (dl.toJson())
+        this.has("the near stop is the command's colour" json "\"c\":[10,20,30,1.00]")
+        this.has("the far stop is written too" json "\"c2\":[200,210,220,0.50]")
+        this.has("along with the direction" json "\"gd\":1")
+    }
+
+    ; The other half of the same rule: a flat fill must NOT claim a gradient,
+    ; or every rectangle on the page would be mixed against a colour nobody
+    ; asked for.
+    fn testFlatRectHasNoGradient:void () {
+        print "-- a flat fill"
+        def dl (new EVGDisplayList())
+        dl.addRect(0.0 0.0 10.0 10.0 (EVGColor.rgb(1 2 3)))
+        def json:string (dl.toJson())
+        this.ok("says nothing about a second stop" ((indexOf json "\"c2\"") < 0))
+        this.ok("and nothing about a direction" ((indexOf json "\"gd\"") < 0))
+    }
+
+    fn testRectAndBorder:void () {
+        print "-- a rounded rect and a border"
+        def dl (new EVGDisplayList())
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = 5.0
+        c.y = 6.0
+        c.w = 70.0
+        c.h = 80.0
+        c.radius = 9.0
+        c.rotate = 45.0
+        c.r = 1
+        c.g = 2
+        c.b = 3
+        c.a = 1.0
+        push dl.cmds c
+        def b (new EVGDrawCmd())
+        b.kind = 1
+        b.x = 5.0
+        b.y = 6.0
+        b.w = 70.0
+        b.h = 80.0
+        b.thickness = 2.0
+        b.r = 4
+        b.g = 5
+        b.b = 6
+        b.a = 1.0
+        push dl.cmds b
+        def json:string (dl.toJson())
+        this.has("the corner radius is written" json "\"r\":9.00")
+        this.has("so is the rotation" json "\"rot\":45.00")
+        this.has("and the border's thickness" json "\"t\":2.00")
+    }
+
+    fn testTextAndImage:void () {
+        print "-- text and a picture"
+        def dl (new EVGDisplayList())
+        def t (new EVGDrawCmd())
+        t.kind = 3
+        t.x = 1.0
+        t.y = 2.0
+        t.text = "hei"
+        t.fontFamily = "Open Sans"
+        t.fontSize = 12.0
+        t.fontWeight = "bold"
+        t.textAlign = "italic"
+        t.r = 0
+        t.g = 0
+        t.b = 0
+        t.a = 1.0
+        push dl.cmds t
+        def im (new EVGDrawCmd())
+        im.kind = 2
+        im.src = "media/image1.png"
+        im.flipH = true
+        im.w = 10.0
+        im.h = 10.0
+        im.a = 1.0
+        push dl.cmds im
+        def json:string (dl.toJson())
+        this.has("the run's text" json "\"text\":\"hei\"")
+        this.has("its face" json "\"font\":\"Open Sans\"")
+        this.has("its size" json "\"size\":12.00")
+        this.has("its weight" json "\"weight\":\"bold\"")
+        this.has("its slant" json "\"italic\":true")
+        this.has("the picture's part" json "\"src\":\"media/image1.png\"")
+        this.has("and that it is mirrored" json "\"fx\":true")
+    }
+}

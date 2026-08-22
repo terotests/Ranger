@@ -2137,14 +2137,7 @@ class PptxApp {
         push pts (y1 - ny)
         push pts (x0 - nx)
         push pts (y0 - ny)
-        def c (new EVGDrawCmd())
-        c.kind = 6
-        c.pts = pts
-        c.r = (col.red())
-        c.g = (col.green())
-        c.b = (col.blue())
-        c.a = (col.alpha())
-        push dl.cmds c
+        dl.addPolygon(pts col)
     }
 
     fn pushQuadOutline:void (dl:EVGDisplayList corners:[double] thickness:double col:EVGColor) {
