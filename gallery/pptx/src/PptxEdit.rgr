@@ -241,6 +241,7 @@ class PptxClone {
         s.imageBytes = src.imageBytes
         s.imageOk = src.imageOk
         s.locked = src.locked
+        s.altText = src.altText
         s.isPlaceholder = src.isPlaceholder
         s.phType = src.phType
         s.phIdx = src.phIdx

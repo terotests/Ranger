@@ -16,6 +16,7 @@ Import "PptxEdit.rgr"
 Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
 Import "../../office/assets/OfficeAsset.rgr"
+Import "PptxA11y.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -2476,6 +2477,36 @@ class PptxApp {
         }
         this.setEditMode(true)
         return (id > 0)
+    }
+
+    ; --- accessibility --------------------------------------------------------
+    ;
+    ; What the deck MEANS, beside what it looks like. A screen reader cannot
+    ; read a canvas — before this, a presentation opened here was a blank
+    ; window to anyone using one. The spreadsheet and the document viewer both
+    ; publish this already; `EVGA11yTree` lives in `gallery/evg` because it is
+    ; none of theirs.
+    fn a11yTree:EVGA11yTree () {
+        def selected:int 0
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (!null? hit) {
+            def sh:PptxShape (unwrap hit)
+            selected = sh.editId
+        }
+        return (PptxA11y.build(presentation index selected))
+    }
+
+    fn a11yJson:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.toJson())
+    }
+
+    ; The same tree as indented text, so a refactor that silently drops a name
+    ; shows up as a diff rather than as a bug report from the one person who
+    ; noticed.
+    fn a11yDump:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.dump())
     }
 
     fn slideW:double () {

@@ -1,0 +1,338 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxA11y — what the deck MEANS, beside what it looks like
+; ==============================================================================
+;
+; The last of the three. The spreadsheet has published an `EVGA11yTree` for a
+; while and the document viewer now does too; a deck published nothing, and a
+; screen reader cannot read a canvas, so a presentation opened here was a blank
+; window to anyone using one.
+;
+; What a deck is, to a reader, and what that decides:
+;
+;   A DECK IS A LIST OF SLIDES, and the position in it is the single most
+;   important thing — "slide 7 of 30" is how anyone navigating a presentation
+;   knows where they are. So every slide carries `posInSet` and `setSize`, and
+;   the slide's name is its own title where it has one. A deck of untitled
+;   slides is a deck nobody can navigate, and saying "Slide 12" for one is not
+;   a workaround, it is the truth.
+;
+;   READING ORDER IS THE SHAPE ORDER, which is the z-order the file states and
+;   NOT the order the shapes appear on screen. That is what PowerPoint's own
+;   reading-order pane edits, and matching it means a deck fixed there is fixed
+;   here. Sorting by position would look tidier and would disagree with every
+;   other tool.
+;
+;   THE TITLE PLACEHOLDER IS A HEADING, because `p:ph type="title"` is the deck
+;   equivalent of a heading style, and it is what makes a slide reachable by
+;   the same navigate-by-heading command a document uses.
+;
+;   INHERITED CHROME IS NOT CONTENT. A shape that came from the master or the
+;   layout is on every slide; met in the reading flow it would be read between
+;   every two slides. It is left out, exactly as the document viewer leaves the
+;   page header out of the body.
+;
+;   ALT TEXT IS THE AUTHOR'S OR IT IS ABSENT. `p:cNvPr/@descr` is all anyone can
+;   say about a picture or a chart. Where a deck has none this says so rather
+;   than inventing a description — a picture with no alt text is a documented
+;   failure of the DECK, and covering it up makes it harder to find.
+;
+;   THE SPEAKER'S NOTES ARE PUBLISHED. They are the one part of a deck that is
+;   already prose, and a reader that skips them skips the explanation.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class PptxA11y {
+
+    ; --- naming ---------------------------------------------------------------
+
+    ; The slide's own title, from its title placeholder. Empty when the slide
+    ; has none — which is common, and is why the caller falls back to the
+    ; number rather than to the first text it can find: the first text box on a
+    ; slide is very often a label, not a title, and announcing it as one sends
+    ; a reader looking for a section that is not there.
+    sfn slideTitle:PptxShape (slide:PptxSlide) {
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (PptxA11y.isTitle(sh)) {
+                if (sh.hasText) {
+                    def txt:string (sh.text.plainText())
+                    if ((strlen txt) > 0) {
+                        return sh
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (new PptxShape())
+    }
+
+    sfn isTitle:boolean (sh:PptxShape) {
+        if (sh.isPlaceholder == false) {
+            return false
+        }
+        if (sh.phType == "title") {
+            return true
+        }
+        if (sh.phType == "ctrTitle") {
+            return true
+        }
+        return false
+    }
+
+    ; What a reader says for a shape that has no text of its own.
+    sfn shapeName:string (sh:PptxShape) {
+        if ((strlen sh.altText) > 0) {
+            return sh.altText
+        }
+        if (sh.hasText) {
+            def txt:string (sh.text.plainText())
+            if ((strlen txt) > 0) {
+                return txt
+            }
+        }
+        if ((strlen sh.name) > 0) {
+            return sh.name
+        }
+        return (PptxA11y.roleWord(sh))
+    }
+
+    sfn roleWord:string (sh:PptxShape) {
+        if (sh.kind == (PptxShapeKind.picture())) {
+            return "Picture"
+        }
+        if (sh.kind == (PptxShapeKind.chart())) {
+            return "Chart"
+        }
+        if (sh.kind == (PptxShapeKind.table())) {
+            return "Table"
+        }
+        if (sh.kind == (PptxShapeKind.group())) {
+            return "Group"
+        }
+        if (sh.kind == (PptxShapeKind.connector())) {
+            return "Connector"
+        }
+        return "Shape"
+    }
+
+    ; A shape a reader has nothing to say about: no text, no alt text, no name
+    ; beyond the generic one. An empty decorative rectangle is exactly this,
+    ; and publishing thousands of them would bury the slide's content.
+    sfn isDecorative:boolean (sh:PptxShape) {
+        if ((strlen sh.altText) > 0) {
+            return false
+        }
+        if (sh.kind != (PptxShapeKind.shape())) {
+            return false
+        }
+        if (sh.hasText) {
+            def txt:string (sh.text.plainText())
+            if ((strlen txt) > 0) {
+                return false
+            }
+        }
+        return true
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    ; `currentSlide` is the slide on screen, -1 when none. `selectedEditId` is
+    ; the shape the editor has selected, 0 when nothing is.
+    sfn build:EVGA11yTree (pres:PptxPresentation currentSlide:int selectedEditId:int) {
+        def t:EVGA11yTree (new EVGA11yTree)
+        def total:int (array_length pres.slides)
+        def root:EVGA11yNode (t.group("deck" "" (("Presentation, " + (to_string total)) + " slides")))
+        root.setSize = total
+
+        def si:int 0
+        while (si < total) {
+            def slide:PptxSlide (itemAt pres.slides si)
+            def sid:string ("deck/slide:" + (to_string (si + 1)))
+            def g:EVGA11yNode (t.group(sid "deck" (PptxA11y.slideLabel(slide si))))
+            ; "Slide 7 of 30" comes from these and nothing else. It is the only
+            ; sense of place a deck gives.
+            g.posInSet = (si + 1)
+            g.setSize = total
+            g.selected = (si == currentSlide)
+            def x:int (to_int slide.width)
+            def y:int (to_int slide.height)
+            t.place(g 0 0 x y)
+
+            def i:int 0
+            while (i < (array_length slide.shapes)) {
+                def sh:PptxShape (itemAt slide.shapes i)
+                PptxA11y.addShape(t sh sid i selectedEditId)
+                i = (i + 1)
+            }
+
+            ; The notes, after the slide's own content and inside the slide, so
+            ; a reader meets them where the speaker would.
+            def notes:string (slide.notesText())
+            if ((strlen notes) > 0) {
+                def n:EVGA11yNode (t.node((sid + "/notes") sid (EVGA11yRole.text())))
+                n.name = "Speaker notes"
+                n.value = notes
+            }
+            si = (si + 1)
+        }
+        if (selectedEditId > 0) {
+            PptxA11y.focusSelected(t)
+        }
+        return t
+    }
+
+    sfn slideLabel:string (slide:PptxSlide index:int) {
+        def title:PptxShape (PptxA11y.slideTitle(slide))
+        def num:string ("Slide " + (to_string (index + 1)))
+        if (title.hasText) {
+            def txt:string (title.text.plainText())
+            if ((strlen txt) > 0) {
+                return ((num + ": ") + txt)
+            }
+        }
+        return num
+    }
+
+    ; One shape, and its children if it is a group.
+    ;
+    ; `ordinal` is the shape's position in the tree, which is the z-order the
+    ; file states. It is in the id because a shape has no id of its own that
+    ; survives a reload — `editId` is minted fresh on every attach — so the
+    ; honest stable name is "the nth shape of this slide", which does survive
+    ; one as long as the slide is not edited. Durable identity is the open
+    ; problem noted in office/COLLABORATION.md; this does not pretend to have
+    ; solved it.
+    sfn addShape:void (t:EVGA11yTree sh:PptxShape parentId:string ordinal:int selectedEditId:int) {
+        ; Master and layout chrome is on every slide. Met in the reading flow
+        ; it would be read between every two slides.
+        if sh.inherited {
+            return
+        }
+        if (PptxA11y.isDecorative(sh)) {
+            return
+        }
+        def id:string ((parentId + "/shape:") + (to_string ordinal))
+        def role:int (EVGA11yRole.text())
+        if (sh.kind == (PptxShapeKind.picture())) {
+            role = (EVGA11yRole.image())
+        }
+        if (sh.kind == (PptxShapeKind.chart())) {
+            role = (EVGA11yRole.image())
+        }
+        if (sh.kind == (PptxShapeKind.group())) {
+            role = (EVGA11yRole.group())
+        }
+        if (sh.kind == (PptxShapeKind.table())) {
+            PptxA11y.addTable(t sh id parentId selectedEditId)
+            return
+        }
+        if (PptxA11y.isTitle(sh)) {
+            ; `p:ph type="title"` is the deck's heading style, and it is what
+            ; makes a slide reachable by a navigate-by-heading command.
+            role = (EVGA11yRole.heading())
+        }
+        def n:EVGA11yNode (t.node(id parentId role))
+        n.name = (PptxA11y.shapeName(sh))
+        if (PptxA11y.isTitle(sh)) {
+            n.description = "Slide title"
+        }
+        if (sh.kind == (PptxShapeKind.picture())) {
+            if ((strlen sh.altText) == 0) {
+                n.description = "No alt text"
+            }
+        }
+        if (sh.kind == (PptxShapeKind.chart())) {
+            if ((strlen sh.altText) == 0) {
+                n.description = "No alt text"
+            }
+        }
+        if (sh.editId == selectedEditId) {
+            n.selected = true
+            n.focusable = true
+        }
+        t.place(n (to_int sh.x) (to_int sh.y) (to_int sh.width) (to_int sh.height))
+        if (sh.kind == (PptxShapeKind.group())) {
+            def i:int 0
+            while (i < (array_length sh.children)) {
+                def child:PptxShape (itemAt sh.children i)
+                PptxA11y.addShape(t child id i selectedEditId)
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; A table is a grid. Its first row is announced as data rather than as
+    ; headers: PowerPoint records a header row in the table's style, which this
+    ; reader does not carry, and claiming every table's first row is headers
+    ; would be wrong more often than it is right.
+    sfn addTable:void (t:EVGA11yTree sh:PptxShape id:string parentId:string selectedEditId:int) {
+        def g:EVGA11yNode (t.node(id parentId (EVGA11yRole.grid())))
+        def rows:int sh.tableRows
+        def cols:int sh.tableCols
+        if ((strlen sh.altText) > 0) {
+            g.name = sh.altText
+        } {
+            g.name = ((("Table, " + (to_string rows)) + " rows by ") + ((to_string cols) + " columns"))
+        }
+        g.rowCount = rows
+        g.colCount = cols
+        if (sh.editId == selectedEditId) {
+            g.selected = true
+            g.focusable = true
+        }
+        t.place(g (to_int sh.x) (to_int sh.y) (to_int sh.width) (to_int sh.height))
+        def r:int 0
+        while (r < rows) {
+            def rid:string ((id + "/row:") + (to_string r))
+            def rn:EVGA11yNode (t.node(rid id (EVGA11yRole.row())))
+            rn.name = ("Row " + (to_string (r + 1)))
+            rn.rowIndex = r
+            rn.colCount = cols
+            def c:int 0
+            while (c < cols) {
+                def idx:int ((r * cols) + c)
+                if (idx < (array_length sh.tableCells)) {
+                    def cell:PptxTableCell (itemAt sh.tableCells idx)
+                    def cn:EVGA11yNode (t.node(((rid + "/cell:") + (to_string c)) rid (EVGA11yRole.cell())))
+                    def txt:string cell.text
+                    if ((strlen txt) == 0) {
+                        txt = "Empty"
+                    }
+                    cn.name = txt
+                    cn.rowIndex = r
+                    cn.colIndex = c
+                    if (cell.gridSpan > 1) {
+                        cn.colCount = cell.gridSpan
+                    }
+                    if (cell.rowSpan > 1) {
+                        cn.rowCount = cell.rowSpan
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; Focus follows the selection. `setFocus` is the tree's own, so exactly one
+    ; node ends up focused however many are selected — two focused nodes is a
+    ; reader with none.
+    sfn focusSelected:void (t:EVGA11yTree) {
+        def i:int 0
+        while (i < (t.count())) {
+            def n:EVGA11yNode (t.at(i))
+            if n.selected {
+                if n.focusable {
+                    t.setFocus(n.id)
+                    return
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

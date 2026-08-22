@@ -563,6 +563,12 @@ class PptxShapeKind {
 class PptxShape {
     def kind:int (PptxShapeKind.shape())
     def name:string ""
+    ; The author's alt text, from `p:cNvPr/@descr`. It is the ONLY thing a
+    ; screen reader has to go on for a picture, a chart or a diagram — the
+    ; pixels tell it nothing — and it used to be read past and then written
+    ; back out as nothing, so a deck whose author had written proper alt text
+    ; lost it the first time it was edited here.
+    def altText:string ""
     ; `p:cNvPr/@id`, which is the name the slide's own timing tree uses to say
     ; which shape an animation is about.
     def shapeId:int 0

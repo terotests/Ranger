@@ -1079,6 +1079,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 shape.name = (cn.attr("name"))
+                shape.altText = (cn.attr("descr"))
                 def sid@(optional):int (str2int (cn.attr("id")))
                 shape.shapeId = (?? sid 0)
             }
@@ -1127,6 +1128,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 shape.name = (cn.attr("name"))
+                shape.altText = (cn.attr("descr"))
                 def sid@(optional):int (str2int (cn.attr("id")))
                 shape.shapeId = (?? sid 0)
             }
@@ -1167,6 +1169,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 shape.name = (cn.attr("name"))
+                shape.altText = (cn.attr("descr"))
                 def sid@(optional):int (str2int (cn.attr("id")))
                 shape.shapeId = (?? sid 0)
             }
@@ -1458,6 +1461,7 @@ class PptxParser {
         ; The frame's own name and id: a table or a chart is a shape like any
         ; other to everything above here, and it needs to be findable by name.
         def frameName:string ""
+        def frameAlt:string ""
         def frameId:int 0
         def nv@(optional):PptxXmlNode (gf.firstChild("nvGraphicFramePr"))
         if (!null? nv) {
@@ -1465,6 +1469,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 frameName = (cn.attr("name"))
+                frameAlt = (cn.attr("descr"))
                 def fid@(optional):int (str2int (cn.attr("id")))
                 frameId = (?? fid 0)
             }
@@ -1485,6 +1490,7 @@ class PptxParser {
             if ((strlen frameName) > 0) {
                 table.name = frameName
             }
+            table.altText = frameAlt
             table.shapeId = frameId
             def hit@(optional):PptxShape table
             return hit
@@ -1502,6 +1508,7 @@ class PptxParser {
             if ((strlen frameName) > 0) {
                 shape.name = frameName
             }
+            shape.altText = frameAlt
             shape.shapeId = frameId
             shape.x = x
             shape.y = y
@@ -1543,6 +1550,7 @@ class PptxParser {
                 if (!null? cNv) {
                     def cn:PptxXmlNode (unwrap cNv)
                     shape.name = (cn.attr("name"))
+                    shape.altText = (cn.attr("descr"))
                     def sid@(optional):int (str2int (cn.attr("id")))
                     shape.shapeId = (?? sid 0)
                 }

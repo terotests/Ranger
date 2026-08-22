@@ -677,6 +677,19 @@ class PptxWriter {
         return ((array_length media) - 1)
     }
 
+    ; The `descr` attribute of a `p:cNvPr`, or nothing.
+    ;
+    ; A deck's alt text is the only thing a screen reader can say about a
+    ; picture, and a writer that leaves it out does not merely fail to add
+    ; accessibility — it DELETES the author's, the first time the deck is
+    ; edited here. That is worse than never having read it.
+    sfn descrAttr:string (shape:PptxShape) {
+        if ((strlen shape.altText) == 0) {
+            return ""
+        }
+        return ((" descr=\"" + (PptxWriter.esc(shape.altText))) + "\"")
+    }
+
     sfn extensionOf:string (part:string) {
         def n:int (strlen part)
         def i:int (n - 1)
@@ -737,7 +750,7 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Connector " + (to_string id))
         }
-        def out:string ("<p:cxnSp><p:nvCxnSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>")
+        def out:string ("<p:cxnSp><p:nvCxnSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>")
         out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
         def preset:string shape.preset
         if ((strlen preset) == 0) {
@@ -772,7 +785,7 @@ class PptxWriter {
         if shape.locked {
             locks = "<p:cNvSpPr><a:spLocks noMove=\"1\" noResize=\"1\" noRot=\"1\"/></p:cNvSpPr>"
         }
-        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/>" + locks + "<p:nvPr/></p:nvSpPr><p:spPr>")
+        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/>" + locks + "<p:nvPr/></p:nvSpPr><p:spPr>")
         out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
         out = (out + (PptxWriter.geomXml(shape)))
         out = (out + (PptxWriter.fillXml(shape)))
@@ -816,7 +829,7 @@ class PptxWriter {
         ; charts apart means neither has to know how many of the other there
         ; will turn out to be.
         def rid:string ("rIdImg" + (to_string (idx + 1)))
-        def out:string ("<p:pic><p:nvPicPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>")
+        def out:string ("<p:pic><p:nvPicPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>")
         out = (out + "<p:blipFill><a:blip r:embed=\"" + rid + "\"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>")
         out = (out + "<p:spPr>" + (PptxWriter.xfrmXml(shape "a:xfrm" false)) + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>")
         return (out + "</p:pic>")
@@ -830,7 +843,7 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Group " + (to_string id))
         }
-        def out:string ("<p:grpSp><p:nvGrpSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
+        def out:string ("<p:grpSp><p:nvGrpSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
         out = (out + "<p:grpSpPr>" + (PptxWriter.xfrmXml(shape "a:xfrm" true)) + "</p:grpSpPr>")
         def i:int 0
         while (i < (array_length shape.children)) {
@@ -863,7 +876,7 @@ class PptxWriter {
         }
         def colW:double (shape.width / (to_double cols))
         def rowH:double (shape.height / (to_double rows))
-        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"Table " + (to_string id) + "\"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
+        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"Table " + (to_string id) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
         out = (out + "<p:xfrm><a:off x=\"" + (PptxWriter.emu(shape.x)) + "\" y=\"" + (PptxWriter.emu(shape.y)) + "\"/><a:ext cx=\"" + (PptxWriter.emu(shape.width)) + "\" cy=\"" + (PptxWriter.emu(shape.height)) + "\"/></p:xfrm>")
         out = (out + "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/table\"><a:tbl><a:tblPr/><a:tblGrid>")
         def c:int 0
@@ -1381,7 +1394,7 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Chart " + (to_string id))
         }
-        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
+        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
         out = (out + "<p:xfrm><a:off x=\"" + (PptxWriter.emu(shape.x)) + "\" y=\"" + (PptxWriter.emu(shape.y)) + "\"/><a:ext cx=\"" + (PptxWriter.emu(shape.width)) + "\" cy=\"" + (PptxWriter.emu(shape.height)) + "\"/></p:xfrm>")
         out = (out + "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" r:id=\"" + rid + "\"/></a:graphicData></a:graphic>")
         return (out + "</p:graphicFrame>")

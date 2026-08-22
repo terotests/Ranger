@@ -178,6 +178,7 @@ class PptxResolver {
         out.imagePart = shape.imagePart
         out.imageBytes = shape.imageBytes
         out.imageOk = shape.imageOk
+        out.altText = shape.altText
         out.isPlaceholder = shape.isPlaceholder
         out.phType = shape.phType
         out.phIdx = shape.phIdx

@@ -311,13 +311,13 @@ These cases carry genuinely different state, so the further move is separate
 node types rather than one class with a tag; the value is in the state they
 stop sharing.
 
-### 14. Accessibility — **the document has a tree now**
+### 14. Accessibility — **all three publish a tree now**
 
 `EVGA11yTree` has been in `gallery/evg` for a while, and the spreadsheet has
 published one beside every frame. The document viewer and the deck viewer
 published nothing — and a screen reader cannot read a canvas, so that is not a
 degraded experience, it is **a blank window**. Two of the three apps in this
-gallery were unusable with one.
+gallery were unusable with one. Both publish one now.
 
 `DocxA11y` builds the document's tree from the BLOCKS, not the laid-out lines: a
 paragraph broken across four visual lines is one thing to read, and building
@@ -340,8 +340,26 @@ from position. `EVGA11yNode` warns that an id which changes each frame is the
 most common way a first implementation fails, and the test asserts the tree is
 identical when built twice.
 
-Still to do: the deck's own tree, `tblHeader` so a repeating header row is
-announced as headers, and hyperlinks as links.
+`PptxA11y` is the deck's, and what a deck is decides its shape:
+
+| | |
+| --- | --- |
+| the deck | a **list** of slides. "Slide 7 of 30" is how anyone navigating a presentation knows where they are, and it comes from `posInSet`/`setSize` and nothing else |
+| reading order | the **shape order**, which is the z-order the file states — not the order things appear on screen. That is what PowerPoint's own reading-order pane edits, so a deck fixed there is fixed here; sorting by position would look tidier and disagree with every other tool |
+| slide titles | `p:ph type="title"` is the deck's heading style. A slide with none is announced by its number rather than by its first text box: that box is very often a label, and calling it a title sends a reader looking for a section that is not there |
+| master chrome | left out. It is on every slide, and met in the reading flow it would be read between every two of them — the same reason the document leaves the page header out of the body |
+| alt text | `p:cNvPr/@descr`, **which the reader was dropping and the writer was deleting** |
+| speaker notes | published. They are the one part of a deck that is already prose |
+
+The writer half is the one that matters more. `descr` was not emitted, so
+editing a deck here **deleted the author's alt text** — worse than never having
+read it, and silent. The test proves it: with the writer change reverted, the
+round trip loses the alt text and the assertion fails.
+
+Still to do: `tblHeader` so a repeating table header row is announced as
+headers, hyperlinks as links, and durable shape identity — a deck's shape ids
+are still "the nth shape of this slide", because `editId` is re-minted on every
+attach (see [`office/COLLABORATION.md`](../office/COLLABORATION.md)).
 
 ### 15. Conformance as an architecture component
 

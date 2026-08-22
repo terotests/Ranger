@@ -471,10 +471,24 @@ def rect_shape(
       </p:sp>"""
 
 
-def pic_shape(sid: int, name: str, rid: str, x: int, y: int, cx: int, cy: int) -> str:
+def _xml_attr(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def pic_shape(sid: int, name: str, rid: str, x: int, y: int, cx: int, cy: int,
+              descr: str | None = None) -> str:
+    # `descr` is the author's alt text. It is the only thing a screen reader can
+    # say about a picture, so a fixture has to be able to state both cases: one
+    # that has it, and one that does not.
+    alt = ' descr="%s"' % _xml_attr(descr) if descr else ""
     return f"""      <p:pic>
         <p:nvPicPr>
-          <p:cNvPr id="{sid}" name="{name}"/>
+          <p:cNvPr id="{sid}" name="{name}"{alt}/>
           <p:cNvPicPr/>
           <p:nvPr/>
         </p:nvPicPr>
@@ -2837,6 +2851,30 @@ def main() -> None:
     # 33 — what a run said, versus what it did not say
     unbold = sp_tree(unbold_body(2, 457200, 400000, 7000000, 1600000))
     write_pptx("33-unbold.pptx", [(slide_xml(unbold), slide_rels())])
+
+    # 34 — alt text: what a screen reader has to go on
+    #
+    # Two pictures, one with the author's alt text and one without, plus a
+    # title placeholder so the slide has a name. A viewer that cannot tell the
+    # two pictures apart cannot report the second as the accessibility failure
+    # it is.
+    alt_png = solid_png(60, 120, 200, 120, 90)
+    alt34 = sp_tree(
+        ph_shape(
+            2, "Title 1", "title", None, 457200, 274638, 8229600, 1143000,
+            text="Alt text", bold=True,
+        ),
+        pic_shape(
+            3, "Revenue chart", "rId2", 457200, 1600200, 2743200, 2057400,
+            descr="Quarterly revenue by region, rising from 8.1 to 13.9 million",
+        ),
+        pic_shape(4, "Picture 4", "rId2", 3657600, 1600200, 2743200, 2057400),
+    )
+    write_pptx(
+        "34-alt-text.pptx",
+        [(slide_xml(alt34), slide_rels(images={"rId2": "../media/image1.png"}))],
+        media={"image1.png": alt_png},
+    )
 
     print("fixtures ready")
 
