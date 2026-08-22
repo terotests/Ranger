@@ -1,0 +1,58 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeTextRun.rgr — a stretch of text that is drawn in one face.
+; ==============================================================================
+;
+; Word calls it a `TextSpan`, PowerPoint a `PptxTextRun`, the spreadsheet a
+; `CellRun`, and each carries the rest of its own format's ideas along with it.
+; What every measurement actually needs is the same four things, so this is
+; that and nothing else:
+;
+;   [start, end)   half-open, in the text the run belongs to
+;   family         "" means "the default the caller measures with"
+;   sizePt         <= 0 means the same
+;   bold, italic   which face
+;
+; It is a VIEW, not a model. Nothing owns one of these for long: a format turns
+; its own runs into a list of them for the length of one measurement and throws
+; it away. Merging the three real run types is a separate question with a real
+; answer — see `gallery/ooxml/README.md` — and this deliberately does not
+; pre-empt it.
+; ==============================================================================
+
+class OfficeTextRun {
+    def start:int 0
+    def end:int 0
+    def family:string ""
+    def sizePt:double 0.0
+    def bold:boolean false
+    def italic:boolean false
+
+    Constructor () {
+    }
+
+    sfn of:OfficeTextRun (start:int end:int bold:boolean italic:boolean) {
+        def r (new OfficeTextRun())
+        r.start = start
+        r.end = end
+        r.bold = bold
+        r.italic = italic
+        return r
+    }
+
+    sfn sized:OfficeTextRun (start:int end:int bold:boolean italic:boolean family:string sizePt:double) {
+        def r (new OfficeTextRun())
+        r.start = start
+        r.end = end
+        r.bold = bold
+        r.italic = italic
+        r.family = family
+        r.sizePt = sizePt
+        return r
+    }
+
+    fn covers:boolean (off:int) {
+        return ((off >= start) && (off < end))
+    }
+}

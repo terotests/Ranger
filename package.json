@@ -577,6 +577,7 @@
     "ooxml:package:test": "bash gallery/ooxml/tools/run_package_test.sh",
     "ooxml:opc:test": "bash gallery/ooxml/tools/run_opc_test.sh",
     "office:font:test": "bash gallery/office/text/tools/run_font_test.sh",
+    "office:metrics:test": "bash gallery/office/text/tools/run_metrics_test.sh",
     "docx_viewer:load:test": "bash gallery/docx_viewer/tools/run_load_test.sh",
     "lang:string:test": "bash tests/lang/run_string_test.sh",
     "datagrid:tables:test": "bash gallery/datagrid/tools/run_tables_test.sh",

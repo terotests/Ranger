@@ -30,6 +30,7 @@
 Import "RichDocument.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "../../office/text/OfficeFont.rgr"
+Import "../../office/text/OfficeTextMetrics.rgr"
 
 class DocxTextMetrics {
     ; Select the face for the next draw or measure.
@@ -135,8 +136,41 @@ class DocxTextMetrics {
         return (((idiv key 2) % 2) == 1)
     }
 
+    ; A paragraph's spans as the shared measurer wants them. Word lays a line
+    ; out at ONE size — `tr.wrap` broke it at one size — so no run states a
+    ; size of its own here: measuring the pieces at another would put the line
+    ; ends somewhere the breaks are not.
+    sfn runsOf:[OfficeTextRun] (p:Paragraph) {
+        def out:[OfficeTextRun]
+        def n:int (array_length p.spans)
+        if (n == 0) {
+            push out (OfficeTextRun.of(0 (strlen p.text) false false))
+            return out
+        }
+        def i:int 0
+        while (i < n) {
+            def sp:TextSpan (itemAt p.spans i)
+            push out (OfficeTextRun.of(sp.start sp.end sp.bold sp.italic))
+            i = (i + 1)
+        }
+        ; The tail beyond the last span belongs to the last span's face, which
+        ; is what puts a caret at the end of a paragraph in the style of the
+        ; text in front of it.
+        def last:TextSpan (itemAt p.spans (n - 1))
+        if (last.end < (strlen p.text)) {
+            push out (OfficeTextRun.of(last.end (strlen p.text) last.bold last.italic))
+        }
+        return out
+    }
+
     ; Width of p.text[from,to) as painted: contiguous same-face runs, each
     ; measured with that face active.
+    ;
+    ; The walk is `OfficeTextMetrics`', shared with the slide reader. What is
+    ; NOT shared is the rounding: Word's ink advances x by an integer per run,
+    ; so this has to truncate the same way — summing in full precision and
+    ; rounding once gives a different answer, and the difference is where the
+    ; caret ends up.
     sfn measureRange:int (tr:UITextRenderer p:Paragraph linePx:double from:int to:int) {
         def size:double (DocxTextMetrics.safeSize(linePx))
         def len:int (strlen p.text)
@@ -151,81 +185,21 @@ class DocxTextMetrics {
         if (a >= b) {
             return 0
         }
-        def total:int 0
-        def runStart:int a
-        def runKey:int (DocxTextMetrics.faceKeyAt(p a))
-        def i:int (a + 1)
-        while (i <= b) {
-            def atEnd:boolean (i == b)
-            def key:int runKey
-            if (atEnd == false) {
-                key = (DocxTextMetrics.faceKeyAt(p i))
-            }
-            if (atEnd || (key != runKey)) {
-                DocxTextMetrics.applyStyle(tr (DocxTextMetrics.keyBold(runKey)) (DocxTextMetrics.keyItalic(runKey)))
-                total = (total + (to_int (tr.measureWidth((substring p.text runStart i) size))))
-                runStart = i
-                runKey = key
-            }
-            i = (i + 1)
-        }
-        return total
+        return (to_int (OfficeTextMetrics.measureRange(tr p.text (DocxTextMetrics.runsOf(p))
+            a b (DocxTextMetrics.family()) size true)))
     }
 
     ; Inverse of measureRange: the offset in [from,to] whose painted position is
     ; nearest targetX (measured from the start of `from`). Splits on glyph
     ; midpoints so a click lands on the closer side of a character.
+    ;
+    ; The same walk, and the same rounding, as `measureRange` — because these
+    ; two have to be each other's inverse. Two copies of one walk is exactly
+    ; how they stop being.
     sfn offsetAtX:int (tr:UITextRenderer p:Paragraph linePx:double from:int to:int targetX:int) {
-        def len:int (strlen p.text)
-        def a:int from
-        def b:int to
-        if (a < 0) {
-            a = 0
-        }
-        if (b > len) {
-            b = len
-        }
-        if (a >= b) {
-            return a
-        }
-        if (targetX <= 0) {
-            return a
-        }
         def size:double (DocxTextMetrics.safeSize(linePx))
-        def acc:int 0
-        def runStart:int a
-        def runKey:int (DocxTextMetrics.faceKeyAt(p a))
-        def i:int (a + 1)
-        while (i <= b) {
-            def atEnd:boolean (i == b)
-            def key:int runKey
-            if (atEnd == false) {
-                key = (DocxTextMetrics.faceKeyAt(p i))
-            }
-            if (atEnd || (key != runKey)) {
-                DocxTextMetrics.applyStyle(tr (DocxTextMetrics.keyBold(runKey)) (DocxTextMetrics.keyItalic(runKey)))
-                def runW:int (to_int (tr.measureWidth((substring p.text runStart i) size)))
-                if (targetX < (acc + runW)) {
-                    ; Inside this run — walk it with the run's own face.
-                    def k:int runStart
-                    while (k < i) {
-                        def w0:int (to_int (tr.measureWidth((substring p.text runStart k) size)))
-                        def w1:int (to_int (tr.measureWidth((substring p.text runStart (k + 1)) size)))
-                        def mid:int (idiv ((acc + w0) + (acc + w1)) 2)
-                        if (targetX < mid) {
-                            return k
-                        }
-                        k = (k + 1)
-                    }
-                    return i
-                }
-                acc = (acc + runW)
-                runStart = i
-                runKey = key
-            }
-            i = (i + 1)
-        }
-        return b
+        return (OfficeTextMetrics.offsetAtX(tr p.text (DocxTextMetrics.runsOf(p))
+            from to (to_double targetX) (DocxTextMetrics.family()) size true))
     }
 
     ; List markers / chrome are painted with the line's own face, not a span.

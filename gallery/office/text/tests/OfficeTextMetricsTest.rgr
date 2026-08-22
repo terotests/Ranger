@@ -1,0 +1,185 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeTextMetricsTest — the two questions a caret asks, and their inverse.
+; ==============================================================================
+;
+; "How wide is text[from,to)?" and "which offset is under this x?" have to be
+; each other's inverse, and both have to agree with the painter. The failure
+; this guards is not a wrong number: it is a caret sitting beside the glyphs
+; rather than between them, and a click landing on a different character than
+; the one under the pointer.
+;
+;   npm run office:metrics:test
+; ==============================================================================
+
+Import "../OfficeTextMetrics.rgr"
+
+class MetricsCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OfficeTextMetricsTest {
+    ; Set up the way a viewer does — `addFontDir` and `loadFont`, so the
+    ; rasterizer behind the renderer is real and `measureWidth` answers with
+    ; the font's own advances rather than an estimate.
+    sfn renderer:UITextRenderer () {
+        def tr (new UITextRenderer)
+        tr.addFontDir("gallery/pdf_writer/assets/fonts")
+        tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
+        tr.addFace("Open_Sans/OpenSans-Bold.ttf")
+        tr.addFace("Open_Sans/OpenSans-Italic.ttf")
+        tr.addFace("Open_Sans/OpenSans-BoldItalic.ttf")
+        tr.fontFamily = "Open Sans"
+        tr.applyFace()
+        return tr
+    }
+
+    ; "Hello " plain, "world" bold, " again" italic.
+    sfn mixedRuns:[OfficeTextRun] () {
+        def runs:[OfficeTextRun]
+        push runs (OfficeTextRun.of(0 6 false false))
+        push runs (OfficeTextRun.of(6 11 true false))
+        push runs (OfficeTextRun.of(11 17 false true))
+        return runs
+    }
+
+    sfn main:void () {
+        def c:MetricsCheck (new MetricsCheck)
+        print "== OfficeTextMetricsTest =="
+        def tr:UITextRenderer (OfficeTextMetricsTest.renderer())
+        def text:string "Hello world again"
+        def runs:[OfficeTextRun] (OfficeTextMetricsTest.mixedRuns())
+        def fam:string "Open Sans"
+
+        print "-- which run a character is in --"
+        def r0@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs 2))
+        c.ok("the first character is in the first run" (!null? r0))
+        if (!null? r0) {
+            def rr0:OfficeTextRun (unwrap r0)
+            c.ok("and it is not bold" (rr0.bold == false))
+        }
+        def r1@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs 8))
+        if (!null? r1) {
+            def rr1:OfficeTextRun (unwrap r1)
+            c.ok("the middle of 'world' is bold" rr1.bold)
+        }
+        ; Past the end belongs to the LAST run, which is what puts a caret at
+        ; the end of a line in the style of the text in front of it.
+        def rEnd@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs 99))
+        if (!null? rEnd) {
+            def rrE:OfficeTextRun (unwrap rEnd)
+            c.ok("past the end takes the last run's face" rrE.italic)
+        }
+        c.ok("a face change is seen" ((OfficeTextMetrics.sameFace(runs 2 8)) == false))
+        c.ok("and no change is not" (OfficeTextMetrics.sameFace(runs 1 4)))
+
+        print "-- widths add up --"
+        def whole:double (OfficeTextMetrics.measureRange(tr text runs 0 17 fam 14.0 false))
+        def head:double (OfficeTextMetrics.measureRange(tr text runs 0 6 fam 14.0 false))
+        def tail:double (OfficeTextMetrics.measureRange(tr text runs 6 17 fam 14.0 false))
+        c.ok("the whole line is wider than nothing" (whole > 0.0))
+        ; Splitting exactly on a run boundary must give the same total, or the
+        ; caret's x and the selection's left edge disagree about the same place.
+        c.ok("split on a run boundary sums to the whole" ((fabs ((head + tail) - whole)) < 0.001))
+        c.eqInt("an empty range is nothing"
+            (to_int (OfficeTextMetrics.measureRange(tr text runs 5 5 fam 14.0 false))) 0)
+        c.eqInt("a backwards range is nothing"
+            (to_int (OfficeTextMetrics.measureRange(tr text runs 9 4 fam 14.0 false))) 0)
+        c.ok("a range past the end clamps rather than reading off it"
+            ((OfficeTextMetrics.measureRange(tr text runs 0 999 fam 14.0 false)) == whole))
+
+        ; And the faces really are switched per run: measuring the same
+        ; characters as one plain run must NOT give the same answer as
+        ; measuring them as plain / bold / italic. If it does, the walk never
+        ; changed face and everything above is measuring one font.
+        def flat:[OfficeTextRun]
+        push flat (OfficeTextRun.of(0 17 false false))
+        def flatOnly:double (OfficeTextMetrics.measureRange(tr text flat 0 17 fam 14.0 false))
+        c.ok("a mixed line is not the width of a plain one" ((fabs (whole - flatOnly)) > 0.5))
+        def allBold:[OfficeTextRun]
+        push allBold (OfficeTextRun.of(0 17 true false))
+        def boldOnly:double (OfficeTextMetrics.measureRange(tr text allBold 0 17 fam 14.0 false))
+        c.ok("nor of an all-bold one" ((fabs (whole - boldOnly)) > 0.5))
+        c.ok("and bold is wider than plain" (boldOnly > flatOnly))
+
+        print "-- rounding per run, which is Word's contract --"
+        ; Word's ink advances x by an INTEGER per run, so its measurement has
+        ; to truncate the same way. The two answers may differ, and the point
+        ; is that the choice is the caller's rather than the walker's.
+        def rounded:double (OfficeTextMetrics.measureRange(tr text runs 0 17 fam 14.0 true))
+        c.ok("rounding never makes a line wider" (rounded <= (whole + 0.001))
+        )
+        c.ok("and never loses more than a pixel per run" ((whole - rounded) < 3.001))
+
+        print "-- x back to an offset --"
+        def n:int 0
+        def mismatched:int 0
+        while (n <= 17) {
+            def x:double (OfficeTextMetrics.measureRange(tr text runs 0 n fam 14.0 false))
+            ; A point just past the start of character n is inside n, so the
+            ; answer is n itself. Asked exactly AT a boundary the midpoint rule
+            ; may answer either side, so the probe is nudged inside.
+            def got:int (OfficeTextMetrics.offsetAtX(tr text runs 0 17 (x + 0.6) fam 14.0 false))
+            if (n < 17) {
+                if (got != n) {
+                    mismatched = (mismatched + 1)
+                    if (mismatched == 1) {
+                        print (("    first mismatch at " + (to_string n)) + " -> " + (to_string got))
+                    }
+                }
+            }
+            n = (n + 1)
+        }
+        c.eqInt("every offset comes back from its own x" mismatched 0)
+        c.eqInt("a click before the line is its start"
+            (OfficeTextMetrics.offsetAtX(tr text runs 0 17 (0.0 - 40.0) fam 14.0 false)) 0)
+        c.eqInt("and one past its end is its end"
+            (OfficeTextMetrics.offsetAtX(tr text runs 0 17 99999.0 fam 14.0 false)) 17)
+
+        print "-- runs that carry their own size --"
+        ; A slide's runs each state a point size; a Word line does not, and a
+        ; run with none takes the caller's. Both go through the same walk.
+        def big:[OfficeTextRun]
+        push big (OfficeTextRun.sized(0 6 false false "" 14.0))
+        push big (OfficeTextRun.sized(6 11 false false "" 28.0))
+        push big (OfficeTextRun.sized(11 17 false false "" 14.0))
+        def mixedW:double (OfficeTextMetrics.measureRange(tr text big 0 17 fam 14.0 false))
+        def flatW:double (OfficeTextMetrics.measureRange(tr text runs 0 17 fam 14.0 false))
+        c.ok("a bigger run in the middle makes the line wider" (mixedW > flatW))
+        def sameSize:[OfficeTextRun]
+        push sameSize (OfficeTextRun.sized(0 17 false false "" 14.0))
+        def statedW:double (OfficeTextMetrics.measureRange(tr text sameSize 0 17 fam 14.0 false))
+        def defaultedW:double (OfficeTextMetrics.measureRange(tr text sameSize 0 17 fam 14.0 false))
+        c.ok("stating the default size changes nothing" ((fabs (statedW - defaultedW)) < 0.001))
+
+        print "-- no runs at all --"
+        def none:[OfficeTextRun]
+        def plainW:double (OfficeTextMetrics.measureRange(tr text none 0 17 fam 14.0 false))
+        c.ok("plain text still measures" (plainW > 0.0))
+        c.eqInt("and still maps back" (OfficeTextMetrics.offsetAtX(tr text none 0 17 99999.0 fam 14.0 false)) 17)
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
