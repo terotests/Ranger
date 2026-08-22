@@ -264,8 +264,19 @@ class GridChart {
     def seriesCol:int -1
     def valueCols:[int]
     def valueAggs:[string]
-    ; "" plots a row per row; "group" collapses repeated categories;
-    ; "count" plots how many rows fall into each.
+    ; How rows that share a category are combined.
+    ;
+    ;   ""       not combined — a bar per row, even when two share a label
+    ;   "auto"   combined, each measure by its own rule in `valueAggs`:
+    ;            quantities added up, rates averaged
+    ;   "sum" "avg" "min" "max" "count"
+    ;            combined, every measure the same way, because the reader
+    ;            said so
+    ;
+    ; "auto" is what the inference chooses and what the picker shows as
+    ; whichever function it worked out to; the named ones are what a reader
+    ; picks when they disagree with it. "count" is also what a table of
+    ; nothing but words gets, where there is no measure to combine at all.
     def agg:string ""
     ; How a DATE category is bucketed before it is grouped: "" is the day
     ; itself, "month", "quarter" and "year" are the coarser cuts. A year of
@@ -375,11 +386,71 @@ class GridChart {
         return (agg == "count")
     }
 
+    ; The function this measure is combined with, once the chart-wide choice
+    ; and the per-measure rules have both had their say.
     fn aggAt:string (i:int) {
-        if (i < (array_length valueAggs)) {
-            return (itemAt valueAggs i)
+        if (agg == "auto") {
+            if (i < (array_length valueAggs)) {
+                return (itemAt valueAggs i)
+            }
+            return "sum"
         }
+        if ((strlen agg) > 0) {
+            return agg
+        }
+        ; Not grouped: there is nothing to combine, and summing one row is
+        ; that row.
         return "sum"
+    }
+
+    ; Does this chart combine rows that share a category?
+    fn grouping:boolean () {
+        if ((strlen agg) == 0) {
+            return false
+        }
+        return true
+    }
+
+    ; What the picker should show as selected. A chart combining each measure
+    ; by its own rule still has ONE answer to show whenever the measures agree,
+    ; which they almost always do; when they do not, nothing is selected rather
+    ; than one of them being shown as if it spoke for the others.
+    fn effectiveAgg:string () {
+        if (agg != "auto") {
+            return agg
+        }
+        if ((array_length valueAggs) == 0) {
+            return "sum"
+        }
+        def first:string (itemAt valueAggs 0)
+        def i:int 1
+        while (i < (array_length valueAggs)) {
+            if ((itemAt valueAggs i) != first) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        return first
+    }
+
+    ; The name a person reads for one of them.
+    sfn aggLabel:string (a:string) {
+        if (a == "sum")   { return "Sum" }
+        if (a == "avg")   { return "Average" }
+        if (a == "min")   { return "Min" }
+        if (a == "max")   { return "Max" }
+        if (a == "count") { return "Count" }
+        return "Don't"
+    }
+
+    ; And the word that belongs in a title. A sum needs no word — "Revenue by
+    ; Region" already means the revenue — but an average or a maximum is a
+    ; different question and the title has to say which one was asked.
+    sfn aggTitleWord:string (a:string) {
+        if (a == "avg")   { return "Average " }
+        if (a == "min")   { return "Lowest " }
+        if (a == "max")   { return "Highest " }
+        return ""
     }
 
     ; Does an edit at (r, c) change this chart?
@@ -625,18 +696,19 @@ class ChartData {
         if (top > ch.r1) {
             return false
         }
-        def counting:boolean (ch.agg == "count")
+        ; Counting is not a way of combining a measure — it is a question
+        ; about the ROWS — so it collapses to one series called Count however
+        ; many measures the chart has. Two identical Count lines, one per
+        ; measure, would say nothing twice.
+        def counting:boolean ((ch.effectiveAgg()) == "count")
         def measures:int (array_length ch.valueCols)
-        if (measures == 0) {
-            if (counting == false) {
-                return false
-            }
+        if counting {
             measures = 1
         }
-        def grouped:boolean (ch.agg == "group")
-        if counting {
-            grouped = true
+        if (measures == 0) {
+            return false
         }
+        def grouped:boolean (ch.grouping())
 
         ; Series names: one per measure, or one per distinct value of the
         ; series column when there is one — never both, because a grid of
@@ -667,9 +739,14 @@ class ChartData {
             }
         }
 
-        ; Sums and counts per bucket, laid out the way `values` will be.
+        ; One bucket per (category, series). Everything the five functions need
+        ; is accumulated in one pass — a sum and a count answer Sum, Average
+        ; and Count; the smallest and largest answer Min and Max — so changing
+        ; the function in the picker never re-reads the sheet.
         def sums:[double]
         def counts:[int]
+        def lows:[double]
+        def highs:[double]
         def flag:[boolean]
         def r:int top
         while (r <= ch.r1) {
@@ -731,15 +808,22 @@ class ChartData {
                         ok = false
                     }
                     if ok {
-                        ChartData.addTo(sums counts (ci * (ChartData.slotStride())) si v)
+                        ChartData.addTo(sums counts lows highs (ci * (ChartData.slotStride())) si v)
                     }
                 } {
                     if counting {
-                        ; One per row that landed in this bucket.
-                        ChartData.addTo(sums counts (ci * (ChartData.slotStride())) 0 1.0)
+                        ; One per row that landed in this bucket, and nothing
+                        ; else: counting rows is not a way of combining a
+                        ; measure, so the measures are not read at all. Adding
+                        ; them here as well double-counted every row.
+                        ChartData.addTo(sums counts lows highs (ci * (ChartData.slotStride())) 0 1.0)
                     }
                     def mi2:int 0
-                    while (mi2 < (array_length ch.valueCols)) {
+                    def upTo:int (array_length ch.valueCols)
+                    if counting {
+                        upTo = 0
+                    }
+                    while (mi2 < upTo) {
                         def raw2:string (model.getCell(r (itemAt ch.valueCols mi2)))
                         def v2:double (ChartData.asNumber(raw2 flag))
                         def ok2:boolean false
@@ -747,7 +831,7 @@ class ChartData {
                             ok2 = (itemAt flag 0)
                         }
                         if ok2 {
-                            ChartData.addTo(sums counts (ci * (ChartData.slotStride())) mi2 v2)
+                            ChartData.addTo(sums counts lows highs (ci * (ChartData.slotStride())) mi2 v2)
                         }
                         mi2 = (mi2 + 1)
                     }
@@ -788,6 +872,19 @@ class ChartData {
                 if (want == "avg") {
                     if (cnt > 0) {
                         out = (total / (to_double cnt))
+                    }
+                }
+                if (want == "count") {
+                    out = (to_double cnt)
+                }
+                if (want == "min") {
+                    if (slot < (array_length lows)) {
+                        out = (itemAt lows slot)
+                    }
+                }
+                if (want == "max") {
+                    if (slot < (array_length highs)) {
+                        out = (itemAt highs slot)
                     }
                 }
                 push values out
@@ -876,7 +973,7 @@ class ChartData {
     }
 
     ; Grow the two parallel bucket arrays as far as `slot` and add to it.
-    sfn addTo:void (sums:[double] counts:[int] catBase:int series:int v:double) {
+    sfn addTo:void (sums:[double] counts:[int] lows:[double] highs:[double] catBase:int series:int v:double) {
         if (series >= (ChartData.slotStride())) {
             return
         }
@@ -884,9 +981,26 @@ class ChartData {
         while ((array_length sums) <= slot) {
             push sums 0.0
             push counts 0
+            push lows 0.0
+            push highs 0.0
         }
+        def seen:int (itemAt counts slot)
         set_at sums slot ((itemAt sums slot) + v)
-        set_at counts slot ((itemAt counts slot) + 1)
+        set_at counts slot (seen + 1)
+        ; The first value is both the smallest and the largest; after that the
+        ; comparison decides. Seeding with zero instead would make every
+        ; minimum of a column of positive numbers zero.
+        if (seen == 0) {
+            set_at lows slot v
+            set_at highs slot v
+        } {
+            if (v < (itemAt lows slot)) {
+                set_at lows slot v
+            }
+            if (v > (itemAt highs slot)) {
+                set_at highs slot v
+            }
+        }
     }
 
     ; Can this selection be drawn as `kind` at all? The picker greys out what
