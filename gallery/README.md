@@ -18,6 +18,7 @@ the long-form writeups live here.
 | [`text_editor`](text_editor/README.md) | EVG/SoftCanvas multiline text-editor prototype (canvas-editor benchmark target), JS validation + bench |
 | [`book`](book/README.md) | Visual book composition engine **and editor**: stories, linked text frames, master pages, auto layout, preflight, PDF through the EVG tooling — and a spread editor that runs in the browser on WebGL with no server |
 | [`pptx`](pptx/README.md) | PPTX Lite reader/viewer: OPC ZIP → PptxModel → theme resolve → EVG display list |
+| [`pptx/android`](pptx/android/README.md) | The same PPTX viewer as an **Android app**: Ranger → Kotlin → `android.graphics`, plus a Java2D twin of the painter so the port can be checked without a device |
 | [`docx_viewer`](docx_viewer/README.md) | DOCX viewer + editing MVP: WordprocessingML → RichDocument → paginated layout → EVG; Word-style keyboard, multi-paragraph selection, and pastes a spreadsheet selection as a table |
 | [`rangerflow`](rangerflow/README.md) | React Flow-shaped interactive graph editor on EVG + WebGL, with a database ERD / UML class editor on top and PDF export |
 | [`datagrid`](datagrid/README.md) | EVG DataGrid / Excel-style spreadsheet viewer **and editor** (virtualized layout engine → display list → WebGL) |

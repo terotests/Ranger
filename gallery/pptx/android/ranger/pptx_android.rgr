@@ -1,0 +1,275 @@
+; ==============================================================================
+; pptx_android.rgr — the slide viewer, on Android, with no JSON in the middle.
+; ==============================================================================
+;
+; The browser host (`gallery/pptx/web/pptx_web.rgr`) hands the page a *string*:
+; `sceneJson()` serialises the display list and the page parses it back. That is
+; the honest shape for a boundary a JavaScript engine has to cross anyway.
+;
+; Android does not have that boundary. Ranger compiles to Kotlin, so the viewer
+; and the host are objects in one JVM: the host can hold the `EVGDisplayList`
+; itself and read `cmds` directly. So `frame()` returns the list rather than a
+; rendering of it — no serialise, no parse, no garbage per frame, and the
+; gradients and shadows `toJson` leaves out (it carries neither) survive to the
+; painter.
+;
+; The other difference is what this facade does NOT do. `PptxWeb.pointerAt`
+; calls `app.render()`, which rasterises the whole frame into SoftCanvas — and
+; the page then ignores those pixels and asks for the scene instead. On a phone
+; that is a full CPU rasterisation per touch event, thrown away. Here input only
+; updates the app; the pixels are the painter's job.
+;
+; Everything else is the same PptxApp the browser, the SDL desktop host and the
+; oracles run. This file is a facade, not a port: no slide, theme or OOXML
+; knowledge lives here.
+; ==============================================================================
+
+Import "../../src/PptxApp.rgr"
+
+class PptxAndroid {
+    def app:PptxApp (new PptxApp)
+    def input:UIInput (new UIInput)
+    def note:string ""
+
+    Constructor () {
+    }
+
+    ; --- lifecycle ------------------------------------------------------------
+    ; Sizes are in DENSITY-INDEPENDENT pixels, not physical ones. The host
+    ; scales the canvas by the display density instead, so a 30dp toolbar is a
+    ; touchable 30dp on every screen and the text is still rasterised at the
+    ; panel's real resolution — the same trick the WebGL host plays with `dpr`.
+    fn start:void (w:int h:int) {
+        app.W = w
+        app.H = h
+        app.initBare()
+    }
+
+    ; A rotation, a split-screen drag, a keyboard opening. The canvas is
+    ; reallocated at the new size; the fonts hang off the context and survive.
+    fn resize:void (w:int h:int) {
+        def keep:string app.view.status
+        app.W = w
+        app.H = h
+        app.view.initBare(w h)
+        app.view.status = keep
+        app.initFrame()
+    }
+
+    fn width:int () {
+        return app.W
+    }
+
+    fn height:int () {
+        return app.H
+    }
+
+    ; --- fonts and the deck ---------------------------------------------------
+    ; Bytes, never paths: an Android asset is not a file the app can open.
+    fn addFont:boolean (family:string data:buffer) {
+        return (app.addFontBytes(family data))
+    }
+
+    fn addFace:boolean (data:buffer) {
+        return (app.addFaceBytes(data))
+    }
+
+    fn openDeck:boolean (data:buffer name:string) {
+        def ok:boolean (app.loadBytes(data name))
+        if (ok == false) {
+            note = "could not open the deck"
+        } {
+            note = ""
+        }
+        return ok
+    }
+
+    fn loaded:boolean () {
+        return app.loaded
+    }
+
+    ; --- the frame ------------------------------------------------------------
+    ; The display list itself. `buildFrame` already answers with the show when
+    ; one is running, so a host never has to know which mode it is in.
+    fn frame:EVGDisplayList () {
+        app.view.slideIndex = app.index
+        app.view.slideCount = (app.slideCount())
+        return (app.buildFrame())
+    }
+
+    ; --- the deck's pictures --------------------------------------------------
+    ; The parser already pulled every image part out of the package, so the
+    ; bytes are on the model and nothing is fetched. The browser gets these as
+    ; JSON because it has to; here it is the array.
+    fn imagePartNames:[string] () {
+        def names:[string]
+        def si:int 0
+        while (si < (app.slideCount())) {
+            def slide:PptxSlide (itemAt app.presentation.slides si)
+            def j:int 0
+            while (j < (array_length slide.shapes)) {
+                PptxApp.collectImageParts((itemAt slide.shapes j) names)
+                j = (j + 1)
+            }
+            si = (si + 1)
+        }
+        return names
+    }
+
+    fn imageBytes:buffer (part:string) {
+        return (app.imageBytes(part))
+    }
+
+    ; --- navigation -----------------------------------------------------------
+    fn slideCount:int () {
+        return (app.slideCount())
+    }
+
+    fn slideIndex:int () {
+        return app.index
+    }
+
+    fn gotoSlide:void (i:int) {
+        app.gotoSlide(i)
+    }
+
+    fn next:void () {
+        app.nextSlide()
+    }
+
+    fn prev:void () {
+        app.prevSlide()
+    }
+
+    ; --- input ----------------------------------------------------------------
+    ; A press, a move and a release, in app coordinates. True when the app took
+    ; the event, which is what tells a gesture detector that a tap landed on the
+    ; chrome rather than on the slide.
+    fn pointerAt:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        return (app.pointer(x y pressed down released))
+    }
+
+    fn scroll:void (x:int y:int delta:int) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.addScroll(delta)
+        app.update(input)
+    }
+
+    fn key:void (name:string shift:boolean ctrl:boolean) {
+        def code:int (PptxAndroid.keyByName(name))
+        if (code == 0) {
+            return
+        }
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushKey(code)
+        app.update(input)
+    }
+
+    fn type:void (text:string shift:boolean ctrl:boolean) {
+        if ((strlen text) == 0) {
+            return
+        }
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.pushText(text)
+        app.update(input)
+    }
+
+    ; --- the command table ----------------------------------------------------
+    ; The same dotted ids the desktop toolbar and the browser use, so an Android
+    ; menu item is a string rather than a new code path.
+    fn command:boolean (id:string arg:string) {
+        return (app.runCommand(id arg))
+    }
+
+    fn commandCount:int () {
+        return (app.commands.count())
+    }
+
+    fn commandId:string (i:int) {
+        def c:GridCommand (app.commands.at(i))
+        return c.id
+    }
+
+    fn commandLabel:string (i:int) {
+        def c:GridCommand (app.commands.at(i))
+        return c.label
+    }
+
+    fn commandGroup:string (i:int) {
+        def c:GridCommand (app.commands.at(i))
+        return c.group
+    }
+
+    ; The app cannot open a file picker — it does not know it is on Android —
+    ; so it says what it wants and the host does the platform's part.
+    fn takeFileRequest:string () {
+        def want:string app.fileRequest
+        app.fileRequest = ""
+        return want
+    }
+
+    ; --- the show -------------------------------------------------------------
+    ; Full-screen, no chrome, and a clock the host drives: `animating` is how a
+    ; host knows whether to ask for another frame, so a still slide costs
+    ; nothing on a battery.
+    fn presenting:boolean () {
+        return app.presenting
+    }
+
+    fn tick:void (seconds:double) {
+        app.tick(seconds)
+    }
+
+    fn animating:boolean () {
+        if (app.presenting == false) {
+            return false
+        }
+        if (app.showLength > 0.0) {
+            return true
+        }
+        def slide@(optional):PptxSlide (app.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        return (s.transition.afterSeconds > 0.0)
+    }
+
+    ; --- what the status bar says --------------------------------------------
+    fn status:string () {
+        return app.view.status
+    }
+
+    fn deckName:string () {
+        return app.view.deckName
+    }
+
+    fn slidePanelWidth:int () {
+        return (app.panelWidth())
+    }
+
+    fn editing:boolean () {
+        return app.editMode
+    }
+
+    sfn keyByName:int (name:string) {
+        if (name == "left")      { return (UIKey.left()) }
+        if (name == "right")     { return (UIKey.right()) }
+        if (name == "up")        { return (UIKey.up()) }
+        if (name == "down")      { return (UIKey.down()) }
+        if (name == "home")      { return (UIKey.home()) }
+        if (name == "end")       { return (UIKey.end()) }
+        if (name == "pageUp")    { return (UIKey.pageUp()) }
+        if (name == "pageDown")  { return (UIKey.pageDown()) }
+        if (name == "del")       { return (UIKey.del()) }
+        if (name == "escape")    { return (UIKey.escape()) }
+        if (name == "backspace") { return (UIKey.backspace()) }
+        if (name == "enter")     { return (UIKey.enter()) }
+        if (name == "f2")        { return (UIKey.f2()) }
+        if (name == "f5")        { return (UIKey.f5()) }
+        return (UIKey.none())
+    }
+}

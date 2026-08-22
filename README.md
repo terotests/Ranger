@@ -213,6 +213,17 @@ platform-specific setup. [gallery/README.md](gallery/README.md) indexes them
 and holds the writeups (build commands, benchmarks, target comparisons); each
 project also has its own README.
 
+One of them is worth pointing at from here, because it is the clearest thing
+this compiler does. `gallery/pptx` reads `.pptx` decks and paints them through
+an EVG display list; [`gallery/pptx/android`](gallery/pptx/android/README.md)
+is the **same source** compiled to Kotlin and drawn with `android.graphics` —
+a real Android app with no PowerPoint code in it, because the ZIP reader, the
+OOXML parser, the theme resolver, the JPEG and PNG decoders, the TrueType
+reader and the layout engine are all Ranger and none of them were forked. The
+port is a facade, one walk over the display list, and two implementations of an
+eight-method surface — the second being Java2D, so a deck renders to PNGs on
+any JVM and the port can be checked without a device.
+
 ## Target-specific notes
 
 Swift 6, Rust, the C++ static analysis optimizer, HTTP servers on the Go
