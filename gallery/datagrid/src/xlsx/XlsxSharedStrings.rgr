@@ -99,17 +99,20 @@ class XlsxSharedStrings {
                         inRun = true
                     }
                 }
+                ; The element being THERE is what states the property; its
+                ; `val` says which way. `<b/>` and `<b val="1"/>` state bold,
+                ; `<b val="0"/>` states not-bold, and no `<b>` states nothing.
                 if ((t.name == "b") && (t.isEnd == false)) {
-                    cur.bold = (XlsxSharedStrings.onOff(t))
+                    cur.setBold((XlsxSharedStrings.onOff(t)))
                 }
                 if ((t.name == "i") && (t.isEnd == false)) {
-                    cur.italic = (XlsxSharedStrings.onOff(t))
+                    cur.setItalic((XlsxSharedStrings.onOff(t)))
                 }
                 if ((t.name == "u") && (t.isEnd == false)) {
-                    cur.underline = (XlsxSharedStrings.onOff(t))
+                    cur.setUnderline((XlsxSharedStrings.onOff(t)))
                 }
                 if ((t.name == "strike") && (t.isEnd == false)) {
-                    cur.strike = (XlsxSharedStrings.onOff(t))
+                    cur.setStrike((XlsxSharedStrings.onOff(t)))
                 }
                 if ((t.name == "sz") && (t.isEnd == false)) {
                     def sv:string (t.attr("val"))

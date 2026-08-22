@@ -1295,6 +1295,71 @@ class DocxTest {
         c.ok("the page carries slanted runs" ((indexOf itScene "\"italic\":true") >= 0))
         c.ok("and upright ones too" ((indexOf itScene "\"text\"") >= 0))
 
+        ; --- what a run said, versus what it did not say -----------------------
+        ;
+        ; `<w:b w:val="0"/>` and no `<w:b>` at all are different documents. The
+        ; first takes a word out of a bold style; the second lets the style
+        ; decide. `applyRPr` read the run as
+        ;
+        ;     if (hasFlag "w:b") { into.bold = true }
+        ;
+        ; which is the same for both — so a word explicitly un-bolded inside a
+        ; bold heading drew bold, and there was no way to say otherwise. The
+        ; underline path had always been written with the distinction in mind,
+        ; which is why only bold and italic were wrong.
+        print "== a run that says it is NOT bold =="
+        def triStyles:string "<w:styles xmlns:w=\"x\"><w:style w:type=\"paragraph\" w:styleId=\"Strong\"><w:name w:val=\"Strong\"/><w:rPr><w:b/><w:i/></w:rPr></w:style></w:styles>"
+        def triRes:WordStyleResolver (new WordStyleResolver)
+        triRes.parseStylesXml(triStyles)
+        def base:ResolvedParagraphStyle (triRes.resolveParagraphStyle("Strong"))
+        c.ok("the style says bold" base.run.bold)
+        c.ok("and italic" base.run.italic)
+
+        ; A run that says nothing keeps the style's answer.
+        def silent:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+        triRes.applyRPr("<w:rPr><w:sz w:val=\"24\"/></w:rPr>" silent)
+        c.ok("a silent run stays bold" silent.bold)
+        c.ok("and stays italic" silent.italic)
+
+        ; A run that says val="0" turns it off — the whole point.
+        def offRun:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+        triRes.applyRPr("<w:rPr><w:b w:val=\"0\"/></w:rPr>" offRun)
+        c.ok("a run that says b=0 is NOT bold" (offRun.bold == false))
+        c.ok("and is still italic, which it said nothing about" offRun.italic)
+
+        def offIt:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+        triRes.applyRPr("<w:rPr><w:i w:val=\"false\"/></w:rPr>" offIt)
+        c.ok("a run that says i=false is NOT italic" (offIt.italic == false))
+        c.ok("and is still bold" offIt.bold)
+
+        ; Every spelling the standard allows for off, and one for on.
+        def offNames:[string]
+        push offNames "0"
+        push offNames "false"
+        push offNames "off"
+        def spellingsOk:boolean true
+        def sp:int 0
+        while (sp < (array_length offNames)) {
+            def spelled:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+            triRes.applyRPr((("<w:rPr><w:b w:val=\"" + (itemAt offNames sp)) + "\"/></w:rPr>") spelled)
+            if spelled.bold {
+                spellingsOk = false
+            }
+            sp = (sp + 1)
+        }
+        c.ok("0, false and off all mean off" spellingsOk)
+        def onRun:ResolvedRunStyle ((triRes.resolveParagraphStyle("Normal")).run)
+        triRes.applyRPr("<w:rPr><w:b w:val=\"1\"/></w:rPr>" onRun)
+        c.ok("and val=1 still means on" onRun.bold)
+
+        ; The tri-state carrier itself, which is what makes the above sayable.
+        def stated:OfficeTextStyle (WordStyleResolver.runStyleOf("<w:rPr><w:b w:val=\"0\"/></w:rPr>"))
+        c.ok("the style says it stated the weight" stated.bold.isSet)
+        c.ok("and that the weight is off" (stated.bold.value == false))
+        c.ok("and says nothing about the slant" ((stated.italic.isSet) == false))
+        def quiet:OfficeTextStyle (WordStyleResolver.runStyleOf("<w:rPr/>"))
+        c.ok("an empty rPr states nothing at all" ((quiet.statesAnything()) == false))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

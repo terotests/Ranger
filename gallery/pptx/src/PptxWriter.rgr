@@ -370,11 +370,30 @@ class PptxWriter {
         } {
             attrs = (attrs + " sz=\"" + (PptxWriter.hundredths(run.fontSizePt)) + "\"")
         }
-        if run.bold {
-            attrs = (attrs + " b=\"1\"")
+        ; A run that says it is NOT bold has to say so. Writing nothing lets
+        ; the placeholder's own weight back in on the next open, which is the
+        ; same conflation on the way out.
+        if run.boldSet {
+            if run.bold {
+                attrs = (attrs + " b=\"1\"")
+            } {
+                attrs = (attrs + " b=\"0\"")
+            }
+        } {
+            if run.bold {
+                attrs = (attrs + " b=\"1\"")
+            }
         }
-        if run.italic {
-            attrs = (attrs + " i=\"1\"")
+        if run.italicSet {
+            if run.italic {
+                attrs = (attrs + " i=\"1\"")
+            } {
+                attrs = (attrs + " i=\"0\"")
+            }
+        } {
+            if run.italic {
+                attrs = (attrs + " i=\"1\"")
+            }
         }
         def inner:string ""
         if run.color.isSet {

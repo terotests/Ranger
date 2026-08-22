@@ -846,6 +846,40 @@ def tree_ext_lst() -> str:
       </p:extLst>"""
 
 
+# --- a run that says it is NOT bold -------------------------------------------
+#
+# `b="0"` and no `b` at all are different documents. The first takes a word out
+# of a bold placeholder; the second lets the placeholder decide. A reader that
+# tests `bold == false` cannot tell them apart, and every reader here did.
+
+def unbold_body(sid: int, x: int, y: int, cx: int, cy: int) -> str:
+    """A body whose list style says bold and italic, holding three runs: one
+    silent (so it inherits both), one that says b="0" (so it must NOT be bold
+    while still inheriting italic), and one that says i="0"."""
+    return f"""      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="{sid}" name="Unbold"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square"/>
+          <a:lstStyle>
+            <a:lvl1pPr><a:defRPr b="1" i="1"/></a:lvl1pPr>
+          </a:lstStyle>
+          <a:p>
+            <a:r><a:rPr lang="en-US" sz="1800"/><a:t>inherits</a:t></a:r>
+            <a:r><a:rPr lang="en-US" sz="1800" b="0"/><a:t>notbold</a:t></a:r>
+            <a:r><a:rPr lang="en-US" sz="1800" i="0"/><a:t>notitalic</a:t></a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>"""
+
+
 def write_pptx(
     name: str,
     slides: list[tuple[str, str | None]],
@@ -2799,6 +2833,10 @@ def main() -> None:
                    "ppt/diagrams/colors1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:colorsDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>\n',
                    "ppt/ink/ink1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<inkml:ink xmlns:inkml="http://www.w3.org/2003/InkML"/>\n',
                })
+
+    # 33 — what a run said, versus what it did not say
+    unbold = sp_tree(unbold_body(2, 457200, 400000, 7000000, 1600000))
+    write_pptx("33-unbold.pptx", [(slide_xml(unbold), slide_rels())])
 
     print("fixtures ready")
 

@@ -12,6 +12,7 @@
 
 Import "RichDocument.rgr"
 Import "WordXml.rgr"
+Import "../../office/text/OfficeStyle.rgr"
 
 class ResolvedRunStyle {
     def bold:boolean false
@@ -382,22 +383,54 @@ class WordStyleResolver {
         }
     }
 
-    fn applyRPr:void (xml:string into:ResolvedRunStyle) {
-        if (WordXml.hasFlag(xml "w:b")) {
-            into.bold = true
+    ; A run's `w:rPr` as a style that knows what it did NOT say.
+    ;
+    ; `<w:b/>` and `<w:b w:val="1"/>` state bold. `<w:b w:val="0"/>` states NOT
+    ; bold. No `<w:b>` at all states nothing, and only then may the paragraph's
+    ; style decide. Those are three answers and this used to have two of them:
+    ;
+    ;     if (hasFlag "w:b") { into.bold = true }
+    ;
+    ; — which turns a run that explicitly un-bolds itself into a run that said
+    ; nothing, so a word taken out of bold inside a bold heading drew bold.
+    ; Underline was already written with the distinction in mind, which is why
+    ; only bold and italic were wrong.
+    sfn runStyleOf:OfficeTextStyle (xml:string) {
+        def st (new OfficeTextStyle())
+        if ((WordXml.findNext(xml "w:b" 0)) >= 0) {
+            st.bold.set((WordXml.hasFlag(xml "w:b")))
         }
-        if (WordXml.hasFlag(xml "w:i")) {
-            into.italic = true
+        if ((WordXml.findNext(xml "w:i" 0)) >= 0) {
+            st.italic.set((WordXml.hasFlag(xml "w:i")))
+        }
+        if ((WordXml.findNext(xml "w:strike" 0)) >= 0) {
+            st.strike.set((WordXml.hasFlag(xml "w:strike")))
         }
         def u:int (WordXml.findNext(xml "w:u" 0))
         if (u >= 0) {
             def uEl:string (WordXml.sliceElement(xml "w:u" u))
             def uv:string (WordXml.attr((WordXml.openTag(uEl)) "w:val"))
-            if ((uv == "none") || (uv == "0") || (uv == "false")) {
-                into.underline = false
-            } {
-                into.underline = true
-            }
+            ; `w:u` says WHICH underline, so "none" is its way of saying off —
+            ; unlike `w:b`, which says whether.
+            st.underline.set(((uv != "none") && (uv != "0") && (uv != "false")))
+        }
+        return st
+    }
+
+    fn applyRPr:void (xml:string into:ResolvedRunStyle) {
+        ; Bold, italic, strike and underline through the shared style, which
+        ; carries "was this stated?" alongside the value. Everything below is
+        ; already stated-or-not by construction — a `w:sz` that is not there
+        ; leaves the size alone — so it stays as it is.
+        def stated:OfficeTextStyle (WordStyleResolver.runStyleOf(xml))
+        if stated.bold.isSet {
+            into.bold = stated.bold.value
+        }
+        if stated.italic.isSet {
+            into.italic = stated.italic.value
+        }
+        if stated.underline.isSet {
+            into.underline = stated.underline.value
         }
         def sz:int (WordXml.findNext(xml "w:sz" 0))
         if (sz >= 0) {

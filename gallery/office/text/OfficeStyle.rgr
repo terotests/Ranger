@@ -1,0 +1,313 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeStyle.rgr — a style property that knows it was not stated.
+; ==============================================================================
+;
+; In OOXML "not specified" and "specified as false" are DIFFERENT ANSWERS, and
+; a `boolean` cannot hold both. That is not pedantry — it is the difference
+; between these two documents:
+;
+;     <w:pStyle w:val="Strong"/>          a style that says bold
+;     <w:r><w:rPr/>…                      a run that says nothing  → bold
+;     <w:r><w:rPr><w:b w:val="0"/></w:rPr> a run that says NOT bold → not bold
+;
+; The .docx reader could not tell them apart. `applyRPr` read the run's
+; properties as `if (hasFlag "w:b") { into.bold = true }` — so the second run
+; was indistinguishable from the first, and a word explicitly un-bolded inside
+; a bold heading drew bold. Its underline had been written with the
+; distinction in mind and was right; bold and italic were not.
+;
+; The .pptx model already carries the idea, spelled out longhand as a
+; companion field per property — `sizeSet`, `alignSet`, `bulletSet`,
+; `marginSet`, `indentSet` — which is what tells a paragraph "this level style
+; may not put its bullet back, because I said I have none".
+;
+; So: three small carriers, one per kind of value. Ranger has no generics, so
+; `StyleValue<boolean>` is spelled `StyleFlag` and there are three of them
+; rather than one — but the shape is the same and so is the rule.
+;
+; THE RULE, and the only reason any of this exists:
+;
+;   applyOver(base)   every property this style STATES replaces base's;
+;                     every property it does not, leaves base's alone.
+;
+; That is inheritance. docDefaults, then the style chain, then direct
+; formatting, each applied over the last. A property that cannot say "I was not
+; stated" cannot take part in it, which is why a plain `boolean` silently turns
+; the whole chain into "whoever set it to true last wins".
+; ==============================================================================
+
+; A boolean that may not have been stated.
+class StyleFlag {
+    def isSet:boolean false
+    def value:boolean false
+
+    Constructor () {
+    }
+
+    sfn of:StyleFlag (v:boolean) {
+        def f (new StyleFlag())
+        f.isSet = true
+        f.value = v
+        return f
+    }
+
+    fn set:void (v:boolean) {
+        isSet = true
+        value = v
+    }
+
+    fn clear:void () {
+        isSet = false
+        value = false
+    }
+
+    fn copyFrom:void (src:StyleFlag) {
+        isSet = src.isSet
+        value = src.value
+    }
+
+    ; What this property is worth when nothing above it said anything either.
+    fn or:boolean (fallback:boolean) {
+        if isSet {
+            return value
+        }
+        return fallback
+    }
+
+    fn same:boolean (other:StyleFlag) {
+        if (isSet != other.isSet) {
+            return false
+        }
+        if (isSet == false) {
+            return true
+        }
+        return (value == other.value)
+    }
+}
+
+; A number that may not have been stated. Zero is a legal size in nobody's
+; document, but it IS a legal indent and a legal baseline offset, which is why
+; this cannot lean on "0 means unset".
+class StyleNum {
+    def isSet:boolean false
+    def value:double 0.0
+
+    Constructor () {
+    }
+
+    sfn of:StyleNum (v:double) {
+        def n (new StyleNum())
+        n.isSet = true
+        n.value = v
+        return n
+    }
+
+    fn set:void (v:double) {
+        isSet = true
+        value = v
+    }
+
+    fn clear:void () {
+        isSet = false
+        value = 0.0
+    }
+
+    fn copyFrom:void (src:StyleNum) {
+        isSet = src.isSet
+        value = src.value
+    }
+
+    fn or:double (fallback:double) {
+        if isSet {
+            return value
+        }
+        return fallback
+    }
+
+    fn same:boolean (other:StyleNum) {
+        if (isSet != other.isSet) {
+            return false
+        }
+        if (isSet == false) {
+            return true
+        }
+        return ((fabs (value - other.value)) < 0.0001)
+    }
+}
+
+; A string that may not have been stated. The empty string is a legal value —
+; a colour of "" means "no colour", which is not the same as "inherit".
+class StyleText {
+    def isSet:boolean false
+    def value:string ""
+
+    Constructor () {
+    }
+
+    sfn of:StyleText (v:string) {
+        def t (new StyleText())
+        t.isSet = true
+        t.value = v
+        return t
+    }
+
+    fn set:void (v:string) {
+        isSet = true
+        value = v
+    }
+
+    fn clear:void () {
+        isSet = false
+        value = ""
+    }
+
+    fn copyFrom:void (src:StyleText) {
+        isSet = src.isSet
+        value = src.value
+    }
+
+    fn or:string (fallback:string) {
+        if isSet {
+            return value
+        }
+        return fallback
+    }
+
+    fn same:boolean (other:StyleText) {
+        if (isSet != other.isSet) {
+            return false
+        }
+        if (isSet == false) {
+            return true
+        }
+        return (value == other.value)
+    }
+}
+
+; What every one of the three formats says about a stretch of text, with each
+; property able to say that it said nothing.
+;
+; This is deliberately the INTERSECTION and not the union: a run in a slide
+; also carries a field type, one in a document a hyperlink, one in a cell a
+; number format, and those stay where they are. What is here is what all three
+; state and what all three inherit.
+class OfficeTextStyle {
+    def family:StyleText (new StyleText())
+    def sizePt:StyleNum (new StyleNum())
+    def bold:StyleFlag (new StyleFlag())
+    def italic:StyleFlag (new StyleFlag())
+    def underline:StyleFlag (new StyleFlag())
+    def strike:StyleFlag (new StyleFlag())
+    ; RRGGBB, no hash. "" stated means "no colour", which is not "inherit".
+    def foreground:StyleText (new StyleText())
+    def background:StyleText (new StyleText())
+    ; Super/subscript, as a percentage of the line: +30 raises, -25 lowers.
+    def baseline:StyleNum (new StyleNum())
+    def language:StyleText (new StyleText())
+
+    Constructor () {
+    }
+
+    fn clear:void () {
+        family.clear()
+        sizePt.clear()
+        bold.clear()
+        italic.clear()
+        underline.clear()
+        strike.clear()
+        foreground.clear()
+        background.clear()
+        baseline.clear()
+        language.clear()
+    }
+
+    fn copyFrom:void (src:OfficeTextStyle) {
+        family.copyFrom(src.family)
+        sizePt.copyFrom(src.sizePt)
+        bold.copyFrom(src.bold)
+        italic.copyFrom(src.italic)
+        underline.copyFrom(src.underline)
+        strike.copyFrom(src.strike)
+        foreground.copyFrom(src.foreground)
+        background.copyFrom(src.background)
+        baseline.copyFrom(src.baseline)
+        language.copyFrom(src.language)
+    }
+
+    fn copy:OfficeTextStyle () {
+        def out (new OfficeTextStyle())
+        out.copyFrom(this)
+        return out
+    }
+
+    ; Did this state anything at all? A run whose `rPr` is empty, or absent.
+    fn statesAnything:boolean () {
+        if family.isSet { return true }
+        if sizePt.isSet { return true }
+        if bold.isSet { return true }
+        if italic.isSet { return true }
+        if underline.isSet { return true }
+        if strike.isSet { return true }
+        if foreground.isSet { return true }
+        if background.isSet { return true }
+        if baseline.isSet { return true }
+        if language.isSet { return true }
+        return false
+    }
+
+    ; --- the rule ------------------------------------------------------------
+    ;
+    ; Every property THIS style states replaces `base`'s; every property it
+    ; does not state leaves `base`'s alone. `base` is changed in place, because
+    ; that is how a chain is walked: docDefaults, then each style, then the
+    ; direct formatting, each applied over what came before.
+    ;
+    ; The distinction lives entirely in `isSet`. A style that states `bold =
+    ; false` turns bold OFF; one that states nothing lets a bold base through.
+    ; Those are the two documents at the top of this file.
+    fn applyOver:void (base:OfficeTextStyle) {
+        if family.isSet { base.family.copyFrom(family) }
+        if sizePt.isSet { base.sizePt.copyFrom(sizePt) }
+        if bold.isSet { base.bold.copyFrom(bold) }
+        if italic.isSet { base.italic.copyFrom(italic) }
+        if underline.isSet { base.underline.copyFrom(underline) }
+        if strike.isSet { base.strike.copyFrom(strike) }
+        if foreground.isSet { base.foreground.copyFrom(foreground) }
+        if background.isSet { base.background.copyFrom(background) }
+        if baseline.isSet { base.baseline.copyFrom(baseline) }
+        if language.isSet { base.language.copyFrom(language) }
+    }
+
+    ; The other direction, for a caller holding the outer style: everything
+    ; `outer` states that THIS one does not, filled in.
+    fn inheritFrom:void (outer:OfficeTextStyle) {
+        if (family.isSet == false) { family.copyFrom(outer.family) }
+        if (sizePt.isSet == false) { sizePt.copyFrom(outer.sizePt) }
+        if (bold.isSet == false) { bold.copyFrom(outer.bold) }
+        if (italic.isSet == false) { italic.copyFrom(outer.italic) }
+        if (underline.isSet == false) { underline.copyFrom(outer.underline) }
+        if (strike.isSet == false) { strike.copyFrom(outer.strike) }
+        if (foreground.isSet == false) { foreground.copyFrom(outer.foreground) }
+        if (background.isSet == false) { background.copyFrom(outer.background) }
+        if (baseline.isSet == false) { baseline.copyFrom(outer.baseline) }
+        if (language.isSet == false) { language.copyFrom(outer.language) }
+    }
+
+    ; Two styles are the same when they state the same things to the same
+    ; values. A property neither states is a property they agree about.
+    fn same:boolean (other:OfficeTextStyle) {
+        if ((family.same(other.family)) == false) { return false }
+        if ((sizePt.same(other.sizePt)) == false) { return false }
+        if ((bold.same(other.bold)) == false) { return false }
+        if ((italic.same(other.italic)) == false) { return false }
+        if ((underline.same(other.underline)) == false) { return false }
+        if ((strike.same(other.strike)) == false) { return false }
+        if ((foreground.same(other.foreground)) == false) { return false }
+        if ((background.same(other.background)) == false) { return false }
+        if ((baseline.same(other.baseline)) == false) { return false }
+        if ((language.same(other.language)) == false) { return false }
+        return true
+    }
+}

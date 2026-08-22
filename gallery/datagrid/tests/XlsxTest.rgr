@@ -343,6 +343,47 @@ class XlsxTest {
             c.ok("in italic" r2.italic)
             c.eqStr("and smaller" (to_string (to_int r2.sizePt)) "8")
 
+            ; --- what a run said, versus what it did not say ---------------
+            ;
+            ; `<b val="0"/>` and no `<b>` at all are different documents. The
+            ; first takes a word out of a bold cell; the second lets the cell
+            ; decide. `CellRun` carried only the value, and `styleOver` tested
+            ; it as `if bold { st.bold = true }` — the same for both — so a run
+            ; that un-bolded itself drew bold, and a save wrote nothing where
+            ; it had said something.
+            c.ok("the plain middle run states nothing about its weight"
+                ((r1.boldSet == false) && (r1.italicSet == false)))
+            c.ok("while the bold one states it" r0.boldSet)
+            c.ok("and the italic one states its slant" r2.italicSet)
+
+            def offP:XmlLite (new XmlLite)
+            offP.reset("<si><r><rPr><b val=\"0\"/><i val=\"0\"/></rPr><t>quiet</t></r><r><t>silent</t></r></si>")
+            offP.nextTag()
+            def offRt:RichText (XlsxSharedStrings.parseRuns(offP "si"))
+            c.eqInt("two runs came back" (offRt.count()) 2)
+            if ((offRt.count()) == 2) {
+                def offRun:CellRun (itemAt offRt.runs 0)
+                def quietRun:CellRun (itemAt offRt.runs 1)
+                c.ok("a run that says b=0 stated its weight" offRun.boldSet)
+                c.ok("and the weight is off" (offRun.bold == false))
+                c.ok("a run with no rPr stated nothing" ((quietRun.boldSet == false) && (quietRun.italicSet == false)))
+                ; The bug itself: over a BOLD cell, one draws bold and the
+                ; other does not.
+                def boldCell:CellStyle (new CellStyle)
+                boldCell.bold = true
+                boldCell.italic = true
+                def overOff:CellStyle (offRun.styleOver(boldCell))
+                def overQuiet:CellStyle (quietRun.styleOver(boldCell))
+                c.ok("the run that said no is NOT bold over a bold cell" (overOff.bold == false))
+                c.ok("nor italic" (overOff.italic == false))
+                c.ok("while the silent one inherits the cell's bold" overQuiet.bold)
+                c.ok("and its italic" overQuiet.italic)
+                ; And a run that says "not bold" is asking for something the
+                ; cell would not give it, so the string is rich text.
+                c.ok("saying no counts as styling" (offRun.isStyled()))
+                c.ok("saying nothing does not" ((quietRun.isStyled()) == false))
+            }
+
             c.ok("an inline string carries runs too" (rtApp.model.hasRichText(4 1)))
             c.eqStr("spelling what it should" (rtApp.model.getCell(4 1)) "inline runs")
             c.ok("a plain cell is not rich" ((rtApp.model.hasRichText(0 0)) == false))

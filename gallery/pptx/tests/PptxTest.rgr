@@ -47,6 +47,7 @@ class PptxTest {
         this.testConnectors()
         this.testAdjustments()
         this.testInheritedText()
+        this.testStatedVersusSilent()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -620,6 +621,94 @@ class PptxTest {
             this.check("and the lines are drawn closer" (fp.lineSpacingPct < 100.0))
         }
         parser.close()
+    }
+
+
+    ; --- what a run SAID, versus what it did not say --------------------------
+    ;
+    ; `b="0"` and no `b` at all are different documents. The first takes a word
+    ; out of a bold placeholder; the second lets the placeholder decide. Every
+    ; reader here tested `bold == false`, which is true of both — so a word
+    ; deliberately un-bolded came back bold, and there was no way to write it
+    ; out again either.
+    ;
+    ; The fixture's paragraph says bold and italic in its `defRPr` and holds
+    ; three runs: one silent, one that says `b="0"`, one that says `i="0"`.
+    fn testStatedVersusSilent:void () {
+        print "--- a run that says it is NOT bold ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "33-unbold.pptx")) == false) {
+            this.check("open the deck" false)
+            return
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation(raw))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def shape@(optional):PptxShape (PptxTest.shapeNamed(slide "Unbold"))
+        this.check("the shape is there" (!null? shape))
+        if (null? shape) {
+            parser.close()
+            return
+        }
+        def sh:PptxShape (unwrap shape)
+        def para:PptxParagraph (itemAt sh.text.paragraphs 0)
+        this.check("three runs" ((array_length para.runs) == 3))
+        if ((array_length para.runs) < 3) {
+            parser.close()
+            return
+        }
+        def silent:PptxTextRun (itemAt para.runs 0)
+        def notBold:PptxTextRun (itemAt para.runs 1)
+        def notItalic:PptxTextRun (itemAt para.runs 2)
+        this.check("the silent run inherits bold" silent.bold)
+        this.check("and inherits italic" silent.italic)
+        ; The whole point.
+        this.check("the run that says b=0 is NOT bold" (notBold.bold == false))
+        this.check("and it SAID so, rather than being silent" notBold.boldSet)
+        this.check("while still inheriting italic" notBold.italic)
+        this.check("the run that says i=0 is NOT italic" (notItalic.italic == false))
+        this.check("and it said so" notItalic.italicSet)
+        this.check("while still inheriting bold" notItalic.bold)
+
+        ; And it survives a save: writing nothing where a run said "not bold"
+        ; lets the placeholder's weight back in on the next open.
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-unbold.pptx")
+        def again (new PptxParser())
+        if (again.openParts("gallery/pptx/bin" "over-unbold.pptx")) {
+            def back:PptxPresentation ((new PptxResolver()).resolvePresentation((again.parsePresentation())))
+            def bslide:PptxSlide (itemAt back.slides 0)
+            def bshape@(optional):PptxShape (PptxTest.shapeNamed(bslide "Unbold"))
+            this.check("the saved deck has the shape" (!null? bshape))
+            if (!null? bshape) {
+                def bsh:PptxShape (unwrap bshape)
+                def bpara:PptxParagraph (itemAt bsh.text.paragraphs 0)
+                if ((array_length bpara.runs) >= 3) {
+                    def bNotBold:PptxTextRun (itemAt bpara.runs 1)
+                    def bNotItalic:PptxTextRun (itemAt bpara.runs 2)
+                    this.check("the un-bolded run is still not bold after a save" (bNotBold.bold == false))
+                    this.check("and the un-italicised one still not italic" (bNotItalic.italic == false))
+                } {
+                    this.check("the saved paragraph kept its runs" false)
+                }
+            }
+            again.close()
+        }
+        parser.close()
+    }
+
+    sfn shapeNamed@(optional):PptxShape (slide:PptxSlide name:string) {
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (sh.name == name) {
+                def hit@(optional):PptxShape sh
+                return hit
+            }
+            i = (i + 1)
+        }
+        def none@(optional):PptxShape
+        return none
     }
 
 }

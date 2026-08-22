@@ -156,6 +156,24 @@ class PptxTextEdit {
 
     ; --- runs ----------------------------------------------------------------
 
+    ; What a run in this body is worth when it says nothing about its weight.
+    ; The body's own `defRPr` is what the editor has to hand; a list level's
+    ; bold has already been folded into the run by `PptxResolver`, so a run
+    ; that got its weight that way states it and is not affected by this.
+    sfn inheritedBold:boolean (body:PptxTextBody) {
+        if body.defBoldSet {
+            return body.defBold
+        }
+        return false
+    }
+
+    sfn inheritedItalic:boolean (body:PptxTextBody) {
+        if body.defItalicSet {
+            return body.defItalic
+        }
+        return false
+    }
+
     sfn ensureRun:PptxTextRun (body:PptxTextBody para:PptxParagraph) {
         if ((array_length para.runs) > 0) {
             return (itemAt para.runs 0)
@@ -164,7 +182,9 @@ class PptxTextEdit {
         run.fontSizePt = body.defFontSizePt
         run.sizeSet = body.hasDefRPr
         run.bold = body.defBold
+        run.boldSet = body.defBoldSet
         run.italic = body.defItalic
+        run.italicSet = body.defItalicSet
         run.fontFamily = body.defFontFamily
         if body.defColor.isSet {
             run.color = body.defColor
@@ -229,7 +249,9 @@ class PptxTextEdit {
         dst.fontFamily = src.fontFamily
         dst.fontSizePt = src.fontSizePt
         dst.sizeSet = src.sizeSet
+        dst.boldSet = src.boldSet
         dst.bold = src.bold
+        dst.italicSet = src.italicSet
         dst.italic = src.italic
         dst.color = (PptxTextEdit.copyColor(src.color))
         ; The marker pen behind the run. Splitting a highlighted run used to
@@ -389,6 +411,16 @@ class PptxTextEdit {
             return false
         }
         if (a.italic != b.italic) {
+            return false
+        }
+        ; Whether a run STATED its weight is part of what it is. Two runs that
+        ; draw the same today but differ in that draw differently the moment
+        ; the placeholder behind them changes — and `mergeRuns` deletes the one
+        ; it merges away, so the distinction would be gone for good.
+        if (a.boldSet != b.boldSet) {
+            return false
+        }
+        if (a.italicSet != b.italicSet) {
             return false
         }
         if (a.fontFamily != b.fontFamily) {
@@ -792,11 +824,21 @@ class PptxTextEdit {
                     while (ri < lastIdx) {
                         if (ri < (array_length para.runs)) {
                             def run:PptxTextRun (itemAt para.runs ri)
+                            ; State the weight only when it differs from what
+                            ; the run would inherit anyway. Un-bolding a word
+                            ; inside a bold placeholder MUST be recorded, or it
+                            ; comes back bold; un-bolding one inside plain text
+                            ; must NOT be, or the paragraph keeps a run that
+                            ; says what its neighbours already say and never
+                            ; merges back. This is what Word does with its own
+                            ; `w:b`, and for the same reason.
                             if (what == "bold") {
                                 run.bold = flag
+                                run.boldSet = (flag != (PptxTextEdit.inheritedBold(body)))
                             }
                             if (what == "italic") {
                                 run.italic = flag
+                                run.italicSet = (flag != (PptxTextEdit.inheritedItalic(body)))
                             }
                             if (what == "size") {
                                 run.fontSizePt = size

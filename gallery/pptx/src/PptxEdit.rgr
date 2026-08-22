@@ -103,7 +103,9 @@ class PptxClone {
         r.fontFamily = src.fontFamily
         r.fontSizePt = src.fontSizePt
         r.sizeSet = src.sizeSet
+        r.boldSet = src.boldSet
         r.bold = src.bold
+        r.italicSet = src.italicSet
         r.italic = src.italic
         r.color = (PptxClone.color(src.color))
         r.highlight = (PptxClone.color(src.highlight))
@@ -2251,7 +2253,9 @@ class PptxEditor {
             proto.fontFamily = e.fontFamily
             proto.fontSizePt = e.fontSizePt
             proto.sizeSet = e.sizeSet
+            proto.boldSet = e.boldSet
             proto.bold = e.bold
+            proto.italicSet = e.italicSet
             proto.italic = e.italic
             proto.color = (PptxClone.color(e.color))
         }
@@ -2285,7 +2289,9 @@ class PptxEditor {
                 run.fontSizePt = proto.fontSizePt
                 run.sizeSet = proto.sizeSet
                 run.bold = proto.bold
+                run.boldSet = proto.boldSet
                 run.italic = proto.italic
+                run.italicSet = proto.italicSet
                 run.color = (PptxClone.color(proto.color))
                 push para.runs run
                 push paras para
@@ -2367,9 +2373,11 @@ class PptxEditor {
                         def run:PptxTextRun (itemAt para.runs ri)
                         if (what == "bold") {
                             run.bold = flag
+                            run.boldSet = true
                         }
                         if (what == "italic") {
                             run.italic = flag
+                            run.italicSet = true
                         }
                         if (what == "size") {
                             run.fontSizePt = size
@@ -3352,7 +3360,9 @@ class PptxEditor {
                         while (ri < (array_length para.runs)) {
                             def run:PptxTextRun (itemAt para.runs ri)
                             run.bold = format.bold
+                            run.boldSet = true
                             run.italic = format.italic
+                            run.italicSet = true
                             run.fontSizePt = format.sizePt
                             run.sizeSet = format.sizeSet
                             run.fontFamily = format.family

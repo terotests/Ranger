@@ -376,14 +376,20 @@ class PptxResolver {
                         run.color = (this.cloneColor(lvl.color))
                     }
                 }
-                if (run.bold == false) {
+                ; The level style decides only when the RUN said nothing.
+                ; `run.bold == false` was the test here, which is also true of
+                ; a run that said `b="0"` — so a word deliberately taken out of
+                ; a bold list level came back bold.
+                if (run.boldSet == false) {
                     if lvl.boldSet {
                         run.bold = lvl.bold
+                        run.boldSet = true
                     }
                 }
-                if (run.italic == false) {
+                if (run.italicSet == false) {
                     if lvl.italicSet {
                         run.italic = lvl.italic
+                        run.italicSet = true
                     }
                 }
                 k = (k + 1)
@@ -425,14 +431,16 @@ class PptxResolver {
                 run.color = (this.cloneColor(body.defColor))
             }
         }
-        if (run.bold == false) {
-            if body.defBold {
-                run.bold = true
+        if (run.boldSet == false) {
+            if body.defBoldSet {
+                run.bold = body.defBold
+                run.boldSet = true
             }
         }
-        if (run.italic == false) {
-            if body.defItalic {
-                run.italic = true
+        if (run.italicSet == false) {
+            if body.defItalicSet {
+                run.italic = body.defItalic
+                run.italicSet = true
             }
         }
     }

@@ -183,11 +183,18 @@ class PptxParser {
             run.fontSizePt = (PptxUnits.hundredthsPtToPt((?? sd 1800.0)))
             run.sizeSet = true
         }
-        if ((rp.attr("b")) == "1") {
-            run.bold = true
+        ; What the run SAID, not just whether it said yes. `b="0"` takes a word
+        ; out of a bold placeholder; no `b` at all lets the placeholder decide.
+        ; The list-level parser below has always read it this way.
+        def bAttr:string (rp.attr("b"))
+        if ((strlen bAttr) > 0) {
+            run.bold = (bAttr == "1")
+            run.boldSet = true
         }
-        if ((rp.attr("i")) == "1") {
-            run.italic = true
+        def iAttr:string (rp.attr("i"))
+        if ((strlen iAttr) > 0) {
+            run.italic = (iAttr == "1")
+            run.italicSet = true
         }
         def latin@(optional):PptxXmlNode (rp.firstChild("latin"))
         if (!null? latin) {
@@ -416,11 +423,15 @@ class PptxParser {
             def sd@(optional):double (str2double sz)
             body.defFontSizePt = (PptxUnits.hundredthsPtToPt((?? sd 1800.0)))
         }
-        if ((rp.attr("b")) == "1") {
-            body.defBold = true
+        def defB:string (rp.attr("b"))
+        if ((strlen defB) > 0) {
+            body.defBold = (defB == "1")
+            body.defBoldSet = true
         }
-        if ((rp.attr("i")) == "1") {
-            body.defItalic = true
+        def defI:string (rp.attr("i"))
+        if ((strlen defI) > 0) {
+            body.defItalic = (defI == "1")
+            body.defItalicSet = true
         }
         def latin@(optional):PptxXmlNode (rp.firstChild("latin"))
         if (!null? latin) {

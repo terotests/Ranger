@@ -181,7 +181,15 @@ class PptxTextRun {
     def fontFamily:string ""
     def fontSizePt:double 18.0
     def sizeSet:boolean false
+    ; Whether the run SAID anything about its weight and slant, alongside what
+    ; it said. `b="0"` and no `b` at all are different documents: the first
+    ; takes a word out of a bold placeholder, the second lets the placeholder
+    ; decide. Testing `bold == false` cannot tell them apart, and the
+    ; inheritance below used to do exactly that — so a run that un-bolded
+    ; itself came back bold. Same idea, and the same spelling, as `sizeSet`.
+    def boldSet:boolean false
     def bold:boolean false
+    def italicSet:boolean false
     def italic:boolean false
     def color:PptxColor (new PptxColor())
 
@@ -401,7 +409,12 @@ class PptxTextBody {
     ; Default run props from a:lstStyle / a:defRPr (placeholder style inheritance)
     def hasDefRPr:boolean false
     def defFontSizePt:double 18.0
+    ; The same distinction one level up: a `defRPr` that says `b="0"` turns
+    ; bold off for the body, and one that says nothing lets the placeholder
+    ; through.
+    def defBoldSet:boolean false
     def defBold:boolean false
+    def defItalicSet:boolean false
     def defItalic:boolean false
     def defFontFamily:string ""
     def defColor:PptxColor (new PptxColor())

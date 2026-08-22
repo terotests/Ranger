@@ -443,17 +443,36 @@ class XlsxWriter {
         while (i < (rt.count())) {
             def run:CellRun (itemAt rt.runs i)
             def props:string ""
-            if run.bold {
-                str_append props "<b/>"
+            ; A run that says it is NOT bold has to say so. Writing nothing
+            ; lets the cell's own weight back in on the next open, which is
+            ; the same conflation on the way out.
+            if run.boldSet {
+                if run.bold {
+                    str_append props "<b/>"
+                } {
+                    str_append props "<b val=\"0\"/>"
+                }
             }
-            if run.italic {
-                str_append props "<i/>"
+            if run.italicSet {
+                if run.italic {
+                    str_append props "<i/>"
+                } {
+                    str_append props "<i val=\"0\"/>"
+                }
             }
-            if run.underline {
-                str_append props "<u/>"
+            if run.underlineSet {
+                if run.underline {
+                    str_append props "<u/>"
+                } {
+                    str_append props "<u val=\"none\"/>"
+                }
             }
-            if run.strike {
-                str_append props "<strike/>"
+            if run.strikeSet {
+                if run.strike {
+                    str_append props "<strike/>"
+                } {
+                    str_append props "<strike val=\"0\"/>"
+                }
             }
             if (run.sizePt > 0.0) {
                 str_append props ("<sz val=\"" + (XlsxWriter.numText(run.sizePt)) + "\"/>")
