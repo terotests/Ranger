@@ -18,6 +18,7 @@ Import "RichText.rgr"
 Import "SheetImage.rgr"
 Import "SheetTable.rgr"
 Import "XlsxNumberFormat.rgr"
+Import "../../office/editor/OfficeHistory.rgr"
 
 ; Conditional formatting rule (parsed from xlsx cfRule).
 class CfRule {
@@ -274,6 +275,7 @@ class SpreadsheetModel {
     def usedMaxCol:int 0
     def txCounter:int 0
     def txDepth:int 0
+    def history:OfficeHistory (new OfficeHistory)
     def curTx:int 0
     def maxUndo:int 200
     def version:int 0
@@ -1983,20 +1985,21 @@ class SpreadsheetModel {
     ; --- transactions -------------------------------------------------------
     ; Ops recorded between beginTx / endTx undo as one Excel-style action.
     ; Nesting is counted so a paste inside a larger op stays one transaction.
+    ; What counts as one action, and how much falls off the bottom at the cap
+    ; — `gallery/office/editor`, shared with the document editor. These rules
+    ; were right here and missing there, which is how a paste of three lines
+    ; in a .docx became five undos that never got back to the start.
     fn beginTx:void () {
-        if (txDepth == 0) {
-            txCounter = (txCounter + 1)
-            curTx = txCounter
-        }
-        txDepth = (txDepth + 1)
+        history.begin()
+        txDepth = history.txDepth
+        curTx = (history.stamp())
     }
 
     fn endTx:void () {
-        if (txDepth > 0) {
-            txDepth = (txDepth - 1)
-        }
-        if (txDepth == 0) {
-            curTx = 0
+        history.end()
+        txDepth = history.txDepth
+        curTx = (history.stamp())
+        if (history.mayTrim()) {
             this.trimUndo()
         }
     }
@@ -2004,25 +2007,17 @@ class SpreadsheetModel {
     ; Drop oldest history over the cap, whole transactions at a time, so a
     ; surviving op can never be half of an action.
     fn trimUndo:void () {
-        while ((array_length undoStack) > maxUndo) {
-            def first:SpreadsheetUndoOp (itemAt undoStack 0)
-            def tx:int first.txId
+        def ids:[int]
+        def i:int 0
+        while (i < (array_length undoStack)) {
+            push ids ((itemAt undoStack i).txId)
+            i = (i + 1)
+        }
+        def drop:int (OfficeHistory.dropCount(ids maxUndo))
+        def k:int 0
+        while (k < drop) {
             remove_index undoStack 0
-            if (tx > 0) {
-                def more:boolean true
-                while more {
-                    if ((array_length undoStack) == 0) {
-                        more = false
-                    } {
-                        def nx:SpreadsheetUndoOp (itemAt undoStack 0)
-                        if (nx.txId == tx) {
-                            remove_index undoStack 0
-                        } {
-                            more = false
-                        }
-                    }
-                }
-            }
+            k = (k + 1)
         }
     }
 

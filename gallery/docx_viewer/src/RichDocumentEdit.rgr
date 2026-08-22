@@ -200,6 +200,13 @@ class RichDocumentEdit {
     }
 
     fn splitParagraph:int (paragraphId:int offset:int) {
+        return (this.splitParagraphAs(paragraphId offset 0))
+    }
+
+    ; `keepId` > 0 means "the new paragraph is THIS paragraph coming back" —
+    ; what a redo needs, so the ops after it in the same action still name
+    ; something that exists.
+    fn splitParagraphAs:int (paragraphId:int offset:int keepId:int) {
         doc.touch()
         def idx:int (this.findParagraphIndex(paragraphId))
         if (idx < 0) {
@@ -216,7 +223,7 @@ class RichDocumentEdit {
         def left:string (substring p.text 0 offset)
         def right:string (substring p.text offset len)
         ; New paragraph after p in blocks + paragraphs list
-        def np:Paragraph (doc.addParagraphOnly())
+        def np:Paragraph (doc.addParagraphWithId(keepId))
         np.styleId = p.styleId
         np.align = p.align
         np.spaceBeforePt = p.spaceBeforePt

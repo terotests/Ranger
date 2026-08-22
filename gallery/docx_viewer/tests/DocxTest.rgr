@@ -1360,6 +1360,116 @@ class DocxTest {
         def quiet:OfficeTextStyle (WordStyleResolver.runStyleOf("<w:rPr/>"))
         c.ok("an empty rPr states nothing at all" ((quiet.statesAnything()) == false))
 
+        ; --- every edit is undoable, and redo is undo's inverse ----------------
+        ;
+        ; This is the guard, not a case list. For each editing action the
+        ; controller offers, it does the thing, undoes it, redoes it and undoes
+        ; it again, and requires the document text to match at every point it
+        ; should. Four bugs lived behind its absence, and they were all the
+        ; same bug — an op kind written as a bare number by the code that
+        ; PRODUCES it and never taught to the code that replays it:
+        ;
+        ;   Enter recorded a kind 1 that neither direction knew. So it could
+        ;   not be undone, AND it stopped every undo below it dead.
+        ;   Backspace joining two paragraphs recorded a 2 — the same.
+        ;   Bold recorded a 3 — the same.
+        ;   Redo knew one kind of the nine and moved the op to the undo stack
+        ;   anyway, so the next undo ran it twice and invented text.
+        ;
+        ; Adding an action without adding it here shows up as a failure on the
+        ; line that says the document came back.
+        print "== every edit is undoable, and redo is its inverse =="
+        def hv:DocxViewer (new DocxViewer)
+        hv.init("gallery/pdf_writer/assets/fonts")
+        c.ok("open a document to edit" (hv.openFile(fix "hello.docx")))
+
+        def actions:[string]
+        push actions "type"
+        push actions "enter"
+        push actions "backspace-join"
+        push actions "bold"
+        push actions "paste-lines"
+        push actions "delete-span"
+        push actions "paste-chart"
+
+        def ai:int 0
+        while (ai < (array_length actions)) {
+            def what:string (itemAt actions ai)
+            ; Every action starts from the same document.
+            hv.openFile(fix "hello.docx")
+            hv.setEditMode(true)
+            hv.renderPage(0)
+            def d0:RichDocument (hv.document())
+            def start:string (d0.plainText())
+            def first:Paragraph (d0.paragraphAt(0))
+            def second:Paragraph (d0.paragraphAt(1))
+
+            if (what == "type") {
+                hv.edit.setCaret(first.id 3)
+                hv.edit.insertText("XYZ")
+            }
+            if (what == "enter") {
+                hv.edit.setCaret(first.id 3)
+                hv.edit.splitAtCaret()
+            }
+            if (what == "backspace-join") {
+                hv.edit.setCaret(second.id 0)
+                hv.edit.backspace()
+            }
+            if (what == "bold") {
+                hv.edit.setCaret(first.id 0)
+                hv.edit.extendTo(first.id 6)
+                hv.edit.toggleBold()
+            }
+            if (what == "paste-lines") {
+                hv.edit.setCaret(first.id (strlen first.text))
+                hv.edit.pasteText("AAA\nBBB\nCCC")
+            }
+            if (what == "delete-span") {
+                hv.edit.setCaret(first.id 3)
+                hv.edit.extendTo(second.id 4)
+                hv.edit.deleteSelection()
+            }
+            if (what == "paste-chart") {
+                hv.edit.setCaret(first.id 4)
+                hv.edit.pasteChart("{\"mark\":\"bar\",\"data\":{\"values\":[{\"a\":1}]}}" 200 120)
+            }
+
+            def afterDo:string ((hv.document()).plainText())
+            ; Bold changes no TEXT, so it is checked by its own state below
+            ; rather than by the string.
+            if (what != "bold") {
+                c.ok((what + ": changed the document") (afterDo != start))
+            }
+
+            ; ONE undo, because one action is one undo however many primitives
+            ; it took.
+            hv.edit.undo()
+            def afterUndo:string ((hv.document()).plainText())
+            c.ok((what + ": one undo puts it back") (afterUndo == start))
+
+            ; Redo, where the action can be redone at all. A paste whose
+            ; content undo threw away cannot be, and the honest answer there is
+            ; to refuse WITHOUT moving the op — which the next undo checks.
+            hv.edit.redo()
+            def afterRedo:string ((hv.document()).plainText())
+            if (afterRedo != afterDo) {
+                c.ok((what + ": redo refused rather than half-doing it")
+                    (afterRedo == start))
+            } {
+                c.ok((what + ": redo does it again") true)
+            }
+
+            ; And the invariant the corruption came from: whatever redo did or
+            ; refused to do, ONE more undo lands on the start state and never
+            ; past it.
+            hv.edit.undo()
+            def afterUndo2:string ((hv.document()).plainText())
+            c.ok((what + ": and undo lands on the start again") (afterUndo2 == start))
+            ai = (ai + 1)
+        }
+        hv.setEditMode(false)
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

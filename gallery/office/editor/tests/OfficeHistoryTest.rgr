@@ -1,0 +1,148 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeHistoryTest — what "one undo" means.
+; ==============================================================================
+;
+; The rules an undo history needs are small and every one of them is a bug when
+; it is missing. These are the ones the document editor did not have:
+;
+;   * one action is one undo, however many primitives it took
+;   * a cap drops WHOLE actions from the bottom, never half of one
+;   * trimming waits until the action being recorded has finished
+;
+;   npm run office:history:test
+; ==============================================================================
+
+Import "../OfficeHistory.rgr"
+
+class HistCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OfficeHistoryTest {
+    sfn ids:[int] (spec:[int]) {
+        return spec
+    }
+
+    sfn main:void () {
+        def c:HistCheck (new HistCheck)
+        print "== OfficeHistoryTest =="
+
+        print "-- one action, however many primitives --"
+        def h (new OfficeHistory)
+        c.eqInt("nothing open to begin with" (h.stamp()) 0)
+        c.ok("and nothing in progress" ((h.inTransaction()) == false))
+        c.ok("so trimming is allowed" (h.mayTrim()))
+        h.begin()
+        def first:int (h.stamp())
+        c.ok("an action has an id of its own" (first > 0))
+        c.ok("and is in progress" (h.inTransaction()))
+        c.ok("so trimming waits — dropping half an action is worse than growing"
+            ((h.mayTrim()) == false))
+        ; Nesting: a paste is an insert and a split and another insert, and
+        ; only the OUTERMOST pair closes the action.
+        h.begin()
+        c.eqInt("a nested begin keeps the same action" (h.stamp()) first)
+        h.end()
+        c.ok("and the inner end does not close it" (h.inTransaction()))
+        c.eqInt("the id is still the same" (h.stamp()) first)
+        h.end()
+        c.ok("the outer end closes it" ((h.inTransaction()) == false))
+        c.eqInt("and nothing is open" (h.stamp()) 0)
+        h.begin()
+        c.ok("the next action is a different one" ((h.stamp()) != first))
+        h.end()
+        ; More ends than begins must not go negative and leave the history
+        ; unable to ever close an action again.
+        h.end()
+        h.end()
+        c.ok("stray ends do not break it" (h.mayTrim()))
+        h.begin()
+        c.ok("and it still opens actions" (h.inTransaction()))
+        h.end()
+
+        print "-- one undo is the whole action --"
+        ; Four ops: two alone, then two that belong to action 7.
+        def stack:[int]
+        push stack 0
+        push stack 0
+        push stack 7
+        push stack 7
+        c.eqInt("the top two undo together" (OfficeHistory.spanAt(stack 3)) 2)
+        c.eqInt("an op on its own is one" (OfficeHistory.spanAt(stack 1)) 1)
+        c.eqInt("and so is the first" (OfficeHistory.spanAt(stack 0)) 1)
+        c.eqInt("past the end is nothing" (OfficeHistory.spanAt(stack 9)) 0)
+        c.eqInt("and before the start is nothing" (OfficeHistory.spanAt(stack -1)) 0)
+        ; A whole stack that is one action.
+        def all:[int]
+        push all 3
+        push all 3
+        push all 3
+        c.eqInt("an action that is the whole stack" (OfficeHistory.spanAt(all 2)) 3)
+        ; Two actions that happen to be adjacent must not run together.
+        def two:[int]
+        push two 4
+        push two 4
+        push two 5
+        push two 5
+        c.eqInt("the second action stops at its own ops" (OfficeHistory.spanAt(two 3)) 2)
+
+        print "-- the cap drops whole actions --"
+        ; Under the cap, nothing goes.
+        def small:[int]
+        push small 0
+        push small 0
+        c.eqInt("under the cap nothing is dropped" (OfficeHistory.dropCount(small 5)) 0)
+        c.eqInt("exactly at the cap, nothing either" (OfficeHistory.dropCount(small 2)) 0)
+        ; Over the cap by one, and the op at the cut is alone: drop just it.
+        def loose:[int]
+        push loose 0
+        push loose 0
+        push loose 0
+        c.eqInt("one over, one goes" (OfficeHistory.dropCount(loose 2)) 1)
+        ; Now the op at the cut is the middle of an action — the rest of that
+        ; action has to go with it, or an undo can only reach a state the
+        ; document was never in.
+        def grouped:[int]
+        push grouped 9
+        push grouped 9
+        push grouped 9
+        push grouped 0
+        c.eqInt("the cut lands inside an action, so the whole action goes"
+            (OfficeHistory.dropCount(grouped 3)) 3)
+        c.ok("which leaves less than the cap, deliberately"
+            (((array_length grouped) - (OfficeHistory.dropCount(grouped 3))) < 3))
+        ; An action at the bottom that is entirely below the cut goes whole.
+        def mixed:[int]
+        push mixed 1
+        push mixed 1
+        push mixed 2
+        push mixed 2
+        push mixed 0
+        c.eqInt("a whole action below the cut" (OfficeHistory.dropCount(mixed 3)) 2)
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

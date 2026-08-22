@@ -384,6 +384,27 @@ class RichDocument {
         return p
     }
 
+    ; The same, but keeping an id a paragraph already had.
+    ;
+    ; This is for REDO. Undo of an Enter merges two paragraphs and the second
+    ; one's id goes with it; redoing the Enter used to mint a fresh id, and
+    ; every later op in the same action still named the old one — so redoing a
+    ; paste of three lines put the first line back and then wrote the rest
+    ; nowhere. Handing the id back makes the redone paragraph the SAME
+    ; paragraph as far as the rest of the action is concerned.
+    fn addParagraphWithId:Paragraph (id:int) {
+        if (id <= 0) {
+            return (this.addParagraphOnly())
+        }
+        def p:Paragraph (new Paragraph)
+        p.id = id
+        if (id >= nextParaId) {
+            nextParaId = (id + 1)
+        }
+        push paragraphs p
+        return p
+    }
+
     fn addTable:DocumentTable () {
         def t:DocumentTable (new DocumentTable)
         t.id = nextTableId
