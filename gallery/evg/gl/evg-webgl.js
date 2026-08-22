@@ -283,8 +283,30 @@ export async function loadImages(doc, opts = {}) {
  * anything — it needs a picture of the run. That also keeps kerning exactly as
  * EVG measured it, since the same string goes to the rasterizer whole.
  */
+/**
+ * What makes two text runs the same GLYPHS. Everything that changes the
+ * rasterized shape is in here and nothing else is — a run that moved, or
+ * changed colour, draws the same picture from the same slot.
+ *
+ * The atlas used to be keyed by the command OBJECT, which made it impossible
+ * to reuse between frames: a display list arrives as fresh JSON every time, so
+ * every object is new and every glyph was rasterized and uploaded again. Sixty
+ * times a second.
+ */
+function runKey(c, dpr) {
+  return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
+}
+
 function buildTextAtlas(cmds, dpr) {
-  const runs = cmds.filter((c) => c.k === KIND.TEXT && c.text);
+  const seen = new Set();
+  const runs = [];
+  for (const c of cmds) {
+    if (c.k !== KIND.TEXT || !c.text) continue;
+    const key = runKey(c, dpr);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    runs.push(c);
+  }
   if (!runs.length) return { canvas: null, slots: new Map() };
   const pad = 2;
   const canvas = document.createElement("canvas");
@@ -326,7 +348,7 @@ function buildTextAtlas(cmds, dpr) {
   for (const m of measured) {
     c2.font = `${m.c.italic ? "italic " : ""}${m.c.weight ? m.c.weight + " " : ""}${m.c.size * dpr}px "${m.c.font}", sans-serif`;
     c2.fillText(m.c.text, m.x + pad, m.y + pad + m.asc);
-    slots.set(m.c, {
+    slots.set(runKey(m.c, dpr), {
       u0: m.x / canvas.width, v0: m.y / canvas.height,
       u1: (m.x + m.w) / canvas.width, v1: (m.y + m.h) / canvas.height,
       w: m.w / dpr, h: m.h / dpr, asc: m.asc / dpr, pad: pad / dpr,
@@ -383,6 +405,59 @@ function makeTexture(gl, source) {
  * context that is thrown away takes its programs with it.
  */
 const PROGRAMS = new WeakMap();
+const ATLASES = new WeakMap();
+const IMAGE_TEXTURES = new WeakMap();
+
+/**
+ * The text atlas for this context, rebuilt only when the glyphs change.
+ *
+ * The key is every distinct run signature in paint order: a frame whose text
+ * is the same text at the same sizes reuses the texture that is already on the
+ * card. What it does NOT include is where the runs are or what colour they
+ * are, because neither changes a glyph.
+ */
+function atlasFor(gl, cmds, dpr) {
+  const keys = [];
+  const seen = new Set();
+  for (const c of cmds) {
+    if (c.k !== KIND.TEXT || !c.text) continue;
+    const k = runKey(c, dpr);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    keys.push(k);
+  }
+  const key = keys.join("\u0001");
+  const have = ATLASES.get(gl);
+  if (have && have.key === key) return have;
+  if (have && have.canvas) gl.deleteTexture(have.canvas);
+  const { canvas, slots } = buildTextAtlas(cmds, dpr);
+  const made = {
+    key,
+    slots,
+    canvas: canvas ? makeTexture(gl, canvas) : makeTexture(gl, new ImageData(1, 1)),
+  };
+  ATLASES.set(gl, made);
+  return made;
+}
+
+/**
+ * One GL texture per image source, for the life of the context. An image at a
+ * given source never changes, so uploading it again is pure cost — and the old
+ * code both re-uploaded and leaked every frame.
+ */
+function textureCacheFor(gl, images) {
+  let cache = IMAGE_TEXTURES.get(gl);
+  if (!cache) {
+    cache = new Map();
+    IMAGE_TEXTURES.set(gl, cache);
+  }
+  for (const [src, img] of images) {
+    if (!img) continue;
+    if (cache.has(src)) continue;
+    cache.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight });
+  }
+  return cache;
+}
 
 function programsFor(gl) {
   const found = PROGRAMS.get(gl);
@@ -427,16 +502,17 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const prog = built.prog;
   gl.useProgram(prog);
 
-  const { canvas: atlasCanvas, slots } = buildTextAtlas(cmds, dpr);
-  const atlas = atlasCanvas
-    ? makeTexture(gl, atlasCanvas)
-    : makeTexture(gl, new ImageData(1, 1));
+  // The atlas, kept until the glyphs in it change. Building it means laying
+  // out every run on a 2-D canvas and uploading the result — and the runs are
+  // the same from one frame to the next almost always, because a frame that
+  // differs by a moved shape has not changed a single letter.
+  const { canvas: atlasCanvas, slots, key: atlasKey } = atlasFor(gl, cmds, dpr);
+  const atlas = atlasCanvas;
 
-  // One texture per distinct source, uploaded once however many quads use it.
-  const textures = new Map();
-  for (const [src, img] of images) {
-    if (img) textures.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight });
-  }
+  // One texture per distinct source, uploaded ONCE — not once per frame. This
+  // used to make a new GL texture for every picture on every frame and never
+  // delete any of them: a decode and an upload per frame, and a leak.
+  const textures = textureCacheFor(gl, images);
 
   // Instances in paint order, plus the runs that must be drawn separately.
   // A run is a stretch of instances that share a texture binding; an image
@@ -526,7 +602,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       continue;
     }
     if (c.k === KIND.TEXT) {
-      const s = slots.get(c);
+      const s = slots.get(runKey(c, dpr));
       if (!s) continue;
       // EVG's y is the top of the LINE BOX, so the baseline goes one
       // face-ascent below it; inside the slot the baseline is pad + ink

@@ -30,6 +30,11 @@ class PptxWeb {
     fn start:void (w:int h:int) {
         app.W = w
         app.H = h
+        ; This host draws the display list itself, with WebGL. The CPU
+        ; framebuffer behind `render` is never read here, and painting it was
+        ; the most expensive thing in a browser profile — nine hundred thousand
+        ; pixels per pointer move, plus a second build of the frame to do it.
+        app.wantRaster = false
         app.initBare()
     }
 

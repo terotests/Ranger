@@ -214,6 +214,10 @@ class PptxApp {
     ; A blanked screen: B during a show, which is what a presenter presses when
     ; the slide is not the thing to look at any more.
     def showBlank:boolean false
+    ; Whether `render` paints the CPU framebuffer. A host that draws the
+    ; display list itself turns this off; everything headless leaves it on,
+    ; because the framebuffer IS its output.
+    def wantRaster:boolean true
 
     Constructor () {
     }
@@ -1583,9 +1587,18 @@ class PptxApp {
         }
     }
 
+    ; Rasterize the frame into the CPU framebuffer. A host that draws the
+    ; display list ITSELF — the browser, through WebGL — never looks at that
+    ; framebuffer, and painting it anyway was the single most expensive thing
+    ; in a browser profile: a pointer move rasterized nine hundred thousand
+    ; pixels that nothing ever read, and built the frame a second time to do
+    ; it. Such a host sets `wantRaster` false and asks for `sceneJson`.
     fn render:void () {
         view.slideIndex = index
         view.slideCount = (this.slideCount())
+        if (wantRaster == false) {
+            return
+        }
         def dl:EVGDisplayList (this.buildFrame())
         view.paintSoftCanvas(dl)
     }
