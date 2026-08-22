@@ -32,52 +32,52 @@ A `partial` counts as half. Whether that is the right weight is a judgement,
 so it is stated rather than buried: the alternative is scoring "we have
 something narrower" as either a lie or a zero.
 
-## JointJS 4 — 32/48 (67%)
+## JointJS 4 — 42.5/48 (89%)
 
-### Elements and links — 5.5/8
+### Elements and links — 7/8
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Rectangle, circle, ellipse | `shapes.standard.Rectangle / Circle / Ellipse` | ✓ done | `shapeLibrary` |  |
 | Path and polygon elements | `shapes.standard.Path / Polygon / Polyline` | ✓ done | `customPolygon` |  |
 | Cylinder | `shapes.standard.Cylinder` | ✓ done | `shapeLibrary` |  |
-| Headered rectangle | `shapes.standard.HeaderedRectangle` | ~ partial | `shapeLibrary` | the compartment node, with rows as well as a header |
-| Text block with wrapping | `shapes.standard.TextBlock` | ~ partial | `textWrap` | wraps and autofits |
+| Headered rectangle | `shapes.standard.HeaderedRectangle` | ✓ done | `shapeLibrary` | the compartment node, with rows as well as a header |
+| Text block with wrapping | `shapes.standard.TextBlock` | ✓ done | `textWrap` | wraps and autofits |
 | Image elements | `shapes.standard.Image` | · todo | — | the scene has no image primitive yet |
 | Custom elements | `custom markup / programmatic` | ✓ done | `customPolygon` |  |
-| Ready-made diagram sets | `shapes.erd, shapes.uml, shapes.org` | ~ partial | `annotations` | ERD, UML, flowchart, org chart, swimlanes |
+| Ready-made diagram sets | `shapes.erd, shapes.uml, shapes.org` | ✓ done | `annotations` | ERD, UML, flowchart, org chart, swimlanes |
 
-### Links — 9/16
+### Links — 15/16
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Straight connector | `connectors.normal / straight` | ✓ done | `connectorKinds` |  |
-| Rounded connector | `connectors.rounded` | ~ partial | `connectorKinds` | smoothstep |
+| Rounded connector | `connectors.rounded` | ✓ done | `connectorKinds` | smoothstep |
 | Smooth (bezier) connector | `connectors.smooth` | ✓ done | `connectorKinds` |  |
-| Curve connector | `connectors.curve` | · todo | — | one curve style, not two |
+| Curve connector | `connectors.curve` | ✓ done | `curveConnector` | a spline through the link's vertices, with a tension |
 | Jump-over connector | `connectors.jumpover` | ✓ done | `lineJumps` |  |
-| Orthogonal router | `routers.orthogonal` | ~ partial | `connectorKinds` | step / smoothstep |
-| Obstacle-avoiding router | `routers.manhattan` | ~ partial | `obstacleRouting` | OrthoRouter, as a repair pass |
-| Metro router | `routers.metro` | · todo | — | no 45° segments |
+| Orthogonal router | `routers.orthogonal` | ✓ done | `connectorKinds` | step / smoothstep |
+| Obstacle-avoiding router | `routers.manhattan` | ✓ done | `obstacleRouting` | OrthoRouter, as a repair pass |
+| Metro router | `routers.metro` | ✓ done | `metroRouter` |  |
 | Right-angle router | `routers.rightAngle` | ✓ done | `connectorKinds` |  |
-| One-side router | `routers.oneSide` | · todo | — |  |
-| Arrowheads / markers | `link attrs sourceMarker / targetMarker` | ~ partial | `markers` | arrow, crow's foot, UML |
+| One-side router | `routers.oneSide` | ✓ done | `oneSideRouter` |  |
+| Arrowheads / markers | `link attrs sourceMarker / targetMarker` | ✓ done | `markers` | arrow, crow's foot, UML |
 | Link labels | `link.labels` | ✓ done | `annotations` |  |
-| Link vertices | `linkTools.Vertices` | ~ partial | `linkSegments` | the corners are draggable |
+| Link vertices | `linkTools.Vertices` | ✓ done | `linkSegments` | the corners are draggable |
 | Link segment tool | `linkTools.Segments` | ✓ done | `linkSegments` |  |
-| Anchors / connection points | `anchors, connectionPoints` | ~ partial | `portRoles` | field-level ports |
-| Link to link | `link source/target as a link` | · todo | — |  |
+| Anchors / connection points | `anchors, connectionPoints` | ✓ done | `portRoles` | field-level ports |
+| Link to link | `link source/target as a link` | · todo | — | an edge can only end on a node |
 
-### Ports — 3/4
+### Ports — 3.5/4
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Ports on an element | `element.ports` | ✓ done | `connectPorts` |  |
-| Port layout around a shape | `layout.ports` | ~ partial | `multipleHandles` | four side handles, or one per row |
-| Port labels | `layout.ports.portLabel` | ~ partial | `portRoles` | a row's own name is the label |
+| Port layout around a shape | `layout.ports` | ~ partial | `multipleHandles` | sides and rows, but no radial or elliptic layout |
+| Port labels | `layout.ports.portLabel` | ✓ done | `portRoles` | a row's own name is the label |
 | Port groups and roles | `portsgroup / magnet` | ✓ done | `connectionLimit` |  |
 
-### Interaction — 7.5/10
+### Interaction — 8/10
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
@@ -85,36 +85,36 @@ something narrower" as either a lie or a zero.
 | Pan | `paper drag / translate` | ✓ done | `pan` |  |
 | Move elements | `element interactivity` | ✓ done | `dragNode` |  |
 | Rubber-band selection | `paper selection` | ✓ done | `boxSelect` |  |
-| Granular interactivity | `paper.interactive` | ~ partial | `perNodeDraggable` | per node: draggable, selectable, connectable |
-| Element tools | `elementTools` | ~ partial | `resizeNode` | resize grips |
-| Highlighters | `highlighters.stroke / mask` | ~ partial | `clickSelect` | selection and hover borders |
+| Granular interactivity | `paper.interactive` | ✓ done | `perNodeDraggable` | per node: draggable, selectable, connectable |
+| Element tools | `elementTools` | ~ partial | `resizeNode` | resize grips, but no remove or connect button on the element |
+| Highlighters | `highlighters.stroke / mask` | ~ partial | `clickSelect` | selection and hover borders; no mask or opacity highlighter |
 | Touch support | `touch events` | · todo | — | pointer events, but no pinch |
 | In-place text editing | `(Rappid: inspector / text editing)` | ✓ done | `inPlaceEdit` |  |
 | Undo / redo | `(Rappid: dia.CommandManager)` | ✓ done | `undoMove` |  |
 
-### Graph and data — 4/6
+### Graph and data — 5/6
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Import / export JSON | `graph.toJSON / fromJSON` | ✓ done | `serialization` |  |
-| Graph traversal API | `getNeighbors, getPredecessors, dfs, bfs` | ~ partial | `graphApi` | degrees and adjacency |
+| Graph traversal API | `getNeighbors, getPredecessors, dfs, bfs` | ~ partial | `graphApi` | degrees and adjacency, but no walk |
 | Elements at a point | `findModelsFromPoint` | ✓ done | `graphApi` |  |
-| Embedded elements | `embed / getEmbeddedCells` | ~ partial | `embedding` | parentId, and a container carries its children |
-| Automatic layouts | `layout.DirectedGraph` | ~ partial | `radialLayout` | layered, force, radial, mind map |
-| Events | `graph and paper events` | ~ partial | `backgroundVariants` | onGraphChanged |
+| Embedded elements | `embed / getEmbeddedCells` | ✓ done | `embedding` | parentId, and a container carries its children |
+| Automatic layouts | `layout.DirectedGraph` | ✓ done | `radialLayout` | layered, force, radial, mind map |
+| Events | `graph and paper events` | ~ partial | `backgroundVariants` | one change callback, not a named event per kind |
 
-### Paper — 3/4
+### Paper — 4/4
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
-| Grid | `paper.drawGrid` | ~ partial | `backgroundVariants` | dots, lines, cross |
+| Grid | `paper.drawGrid` | ✓ done | `backgroundVariants` | dots, lines, cross |
 | Background | `paper.background` | ✓ done | `darkTheme` |  |
-| SVG output | `SVG-based rendering` | ~ partial | `edgeTypes` | SVG, and PDF, HTML and a GPU display list |
+| SVG output | `SVG-based rendering` | ✓ done | `edgeTypes` | SVG, and PDF, HTML and a GPU display list |
 | Viewport-limited rendering | `paper async / viewport` | ✓ done | `culling` |  |
 
-## Syncfusion EJ2 Diagram — 49.5/63 (79%)
+## Syncfusion EJ2 Diagram — 55.5/63 (88%)
 
-### Nodes — 15/18
+### Nodes — 17/18
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
@@ -132,12 +132,12 @@ something narrower" as either a lie or a zero.
 | Flowchart: document, predefined process | `FlowShapes 'Document' / 'PreDefinedProcess'` | ✓ done | `shapeLibrary` |  |
 | Flowchart: manual operation | `FlowShapes 'ManualOperation'` | ✓ done | `shapeLibrary` |  |
 | Flowchart: merge, extract, summing, off-page | `FlowShapes 'Merge' / 'Extract' / 'SummingJunction' / 'OffPageReference'` | ✓ done | `shapeLibrary` |  |
-| Flowchart: the other nine | `FlowShapes 'Sort', 'Collate', 'PaperTap', …` | · todo | — | PaperTap, DirectData, SequentialData, Sort, MultiDocument, Collate, Or, InternalStorage, SequentialAccessStorage |
+| Flowchart: the other nine | `FlowShapes 'Sort', 'Collate', 'PaperTap', …` | ✓ done | `isoFlowShapes` |  |
 | BPMN shapes | `BpmnShapes` | · todo | — | a whole notation of its own |
-| UML activity shapes | `UmlActivityShapes` | · todo | — | UML classes, not activities |
+| UML activity shapes | `UmlActivityShapes` | ✓ done | `umlActivity` | actions, fork and join, signals, timer, initial and final |
 | Custom shapes | `shape: { type: 'Path', data }` | ✓ done | `shapeLibrary` |  |
 
-### Connectors — 7.5/8
+### Connectors — 8/8
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
@@ -146,23 +146,23 @@ something narrower" as either a lie or a zero.
 | Bezier segments | `ConnectorSegments 'Bezier'` | ✓ done | `connectorKinds` |  |
 | Decorators | `DecoratorShapes` | ✓ done | `markers` |  |
 | Line routing round obstacles | `interaction/line-routing` | ✓ done | `obstacleRouting` |  |
-| Line overlapping / distribution | `interaction/line-overlapping, line-distribution` | ~ partial | `linkSegments` | channel routing with a track per edge |
+| Line overlapping / distribution | `interaction/line-overlapping, line-distribution` | ✓ done | `linkSegments` | channel routing with a track per edge |
 | Connector bridging | `objects/connector-bridging` | ✓ done | `lineJumps` |  |
 | Segment editing by hand | `SegmentEditing / connector-editing` | ✓ done | `linkSegments` |  |
 
-### Labels and ports — 5.5/7
+### Labels and ports — 6/7
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Annotations on nodes | `objects/annotation` | ✓ done | `annotations` |  |
 | Annotations on connectors | `objects/annotation` | ✓ done | `annotations` |  |
 | Text wrapping | `TextWrap` | ✓ done | `textWrap` |  |
-| Text overflow / clipping | `TextOverflow` | ~ partial | `textWrap` | ellipsis after wrap and autofit |
+| Text overflow / clipping | `TextOverflow` | ✓ done | `textWrap` | ellipsis after wrap and autofit |
 | Several annotations per object | `annotations: [...]` | · todo | — | one label per node, one per edge |
 | Ports | `objects/port` | ✓ done | `connectPorts` |  |
 | Port shapes and alignment | `PortShapes, PortAlignment` | ✓ done | `multipleHandles` |  |
 
-### Interaction — 8/12
+### Interaction — 8.5/12
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
@@ -177,33 +177,33 @@ something narrower" as either a lie or a zero.
 | Undo / redo | `objects/undo-redo` | ✓ done | `undoMove` |  |
 | In-place text editing | `startTextEdit` | ✓ done | `inPlaceEdit` |  |
 | Snapping to gridlines | `objects/snapping` | ✓ done | `snapPosition` |  |
-| Containers and grouping | `objects/container, group` | ~ partial | `embedding` | lanes with real parenting |
+| Containers and grouping | `objects/container, group` | ✓ done | `embedding` | lanes with real parenting |
 
-### Automatic layout — 5/7
+### Automatic layout — 7/7
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
-| Hierarchical tree | `layout/hierarchical-tree` | ~ partial | `fitView` | layered (Sugiyama) |
-| Complex hierarchical tree | `layout/complex-hierarchical-tree` | ~ partial | `fitView` | dummy chains, crossing reduction |
-| Organizational chart | `LayoutType 'OrganizationalChart'` | ~ partial | `fitView` | domains/business |
-| Symmetric layout | `layout/symmetrical-layout` | ~ partial | `fitView` | d3-force, measured against d3 |
+| Hierarchical tree | `layout/hierarchical-tree` | ✓ done | `layeredLayout` | layered (Sugiyama) |
+| Complex hierarchical tree | `layout/complex-hierarchical-tree` | ✓ done | `longEdgeChain` | dummy chains, crossing reduction |
+| Organizational chart | `LayoutType 'OrganizationalChart'` | ✓ done | `orgChartLayout` | domains/business |
+| Symmetric layout | `layout/symmetrical-layout` | ✓ done | `forceLayout` | d3-force, measured against d3 |
 | Radial tree | `layout/radial-tree` | ✓ done | `radialLayout` |  |
 | Mind map | `layout/mind-map` | ✓ done | `mindMap` |  |
-| Flowchart layout | `LayoutType 'Flowchart'` | ✓ done | `fitView` |  |
+| Flowchart layout | `LayoutType 'Flowchart'` | ✓ done | `flowchartLayout` |  |
 
-### Surface and output — 8.5/11
+### Surface and output — 9/11
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Overview panel | `Overview` | ✓ done | `minimap` |  |
-| Symbol palette | `SymbolPalette` | ~ partial | `addNode` | a palette of shapes; no drag-and-drop from it |
+| Symbol palette | `SymbolPalette` | ~ partial | `addNode` | a palette of shapes; nothing is dragged out of it |
 | Gridlines | `diagram/grid-lines` | ✓ done | `backgroundVariants` |  |
 | Rulers | `diagram/ruler-settings` | ✓ done | `rulers` |  |
-| Page layout | `diagram/page-settings` | ~ partial | `fitView` | page size and margins on export, not on the surface |
+| Page layout | `diagram/page-settings` | ~ partial | `fitView` | page size and margins on export, but no page drawn on the surface |
 | Serialization | `saveDiagram / loadDiagram` | ✓ done | `serialization` |  |
 | Export to SVG | `FileFormats 'SVG'` | ✓ done | `edgeTypes` |  |
 | Export to PNG / JPEG / BMP | `FileFormats 'PNG' / 'JPG' / 'BMP'` | · todo | — | the SoftCanvas backend renders, but there is no encoder wired up |
-| Print | `print()` | ~ partial | `fitView` | PDF, which is what printing produces |
+| Print | `print()` | ✓ done | `fitView` | PDF, which is what printing produces |
 | Data binding from a source | `dataSourceSettings` | ✓ done | `dataBinding` |  |
 | Zoom and pan | `zoomTo, pan` | ✓ done | `zoomAtCursor` |  |
 

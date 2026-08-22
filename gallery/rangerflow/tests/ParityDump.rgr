@@ -29,6 +29,10 @@ Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
+Import "../layout/LayeredLayout.rgr"
+Import "../domains/business/BusinessCharts.rgr"
+Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/uml/UMLActivity.rgr"
 
 class ParityOut {
     def parts:[string]
@@ -438,6 +442,7 @@ class ParityDump {
 
     fn probeAll:void () {
         this.probeRivals()
+        this.probeLayouts()
         this.probeAuthoring()
         this.probeViewportBehaviour()
         this.probeSelection()
@@ -538,6 +543,84 @@ class ParityDump {
         }
         this.probe("obstacleRouting" routed "a connector goes round a node standing in its way")
 
+        ; --- the other three router families --------------------------------
+        ; Each has to be its OWN shape, not a renamed bezier. So each is
+        ; measured by the property that makes it that family: a curve passes
+        ; through the vertices it was given, a metro line has diagonals in it
+        ; and a one-side route keeps both ends on the same face.
+        def rg (new FlowGraph)
+        def ra:FlowNode (rg.node("a" "A" 0.0 0.0))
+        def rb:FlowNode (rg.node("b" "B" 380.0 240.0))
+        ra.width = 140.0
+        ra.height = 50.0
+        rb.width = 140.0
+        rb.height = 50.0
+        rg.reindex()
+
+        ; Curve: a spline told to go through two vertices has to actually pass
+        ; near them. A bezier handed the same points would sail past.
+        def ce:FlowEdge (rg.connect("a" "b"))
+        ce.edgeType = "curve"
+        push ce.waypoints 210.0
+        push ce.waypoints 25.0
+        push ce.waypoints 210.0
+        push ce.waypoints 130.0
+        push ce.waypoints 300.0
+        push ce.waypoints 200.0
+        push ce.waypoints 380.0
+        push ce.waypoints 265.0
+        def cpath:EdgePath (EdgeRouter.route(rg ce))
+        def cflat:[double] (cpath.flatten(24))
+        def through:boolean (ParityDump.passesNear(cflat 210.0 130.0 6.0))
+        if ((ParityDump.passesNear(cflat 300.0 200.0 6.0)) == false) { through = false }
+        ; …and it has to be a CURVE: a polyline through the same points would
+        ; also pass through them, so the path must carry cubic segments.
+        def curved:boolean false
+        def csi:int 0
+        while (csi < (cpath.segCount())) {
+            def cseg:EdgeSeg (itemAt cpath.segs csi)
+            if (cseg.kind == 2) { curved = true }
+            csi = (csi + 1)
+        }
+        if (curved == false) { through = false }
+        this.probe("curveConnector" through "a curve connector is a spline that passes through the vertices it was given")
+
+        ; Metro: corners cut at 45°, which means segments that are neither
+        ; horizontal nor vertical — and none of them anywhere near diagonal in
+        ; the stepped route it is cut from.
+        def me:FlowEdge (FlowEdge.create("m" "a" "b"))
+        me.edgeType = "metro"
+        me.sourceHandle = 2
+        me.targetHandle = 0
+        rg.addEdge(me)
+        rg.reindex()
+        def mpath:EdgePath (EdgeRouter.route(rg me))
+        def mflat:[double] (mpath.flatten(2))
+        def diagonals:int (ParityDump.diagonalRuns(mflat))
+        def se:FlowEdge (FlowEdge.create("s" "a" "b"))
+        se.edgeType = "step"
+        se.sourceHandle = 2
+        se.targetHandle = 0
+        rg.addEdge(se)
+        rg.reindex()
+        def spath:EdgePath (EdgeRouter.route(rg se))
+        def sflat:[double] (spath.flatten(2))
+        def metroOk:boolean (diagonals > 0)
+        if ((ParityDump.diagonalRuns(sflat)) != 0) { metroOk = false }
+        this.probe("metroRouter" metroOk "a metro line is the orthogonal route with its corners cut to 45°")
+
+        ; One side: both ends leave by the same face, and the run between them
+        ; clears both. Two boxes stacked, joined round the right.
+        def side:[double] (EdgeRouter.oneSidePoints(70.0 25.0 70.0 265.0 1 30.0))
+        def oneOk:boolean ((idiv (array_length side) 2) == 4)
+        if oneOk {
+            def outX:double (itemAt side 2)
+            def backX:double (itemAt side 4)
+            if ((fabs (outX - backX)) > 0.001) { oneOk = false }
+            if (outX <= 70.0) { oneOk = false }
+        }
+        this.probe("oneSideRouter" oneOk "a one-side route leaves and arrives by the same face, clear of both ends")
+
         ; --- shapes (both libraries publish a list) -------------------------
         def shapes:[string]
         push shapes "rect"
@@ -562,6 +645,26 @@ class ParityDump {
         push shapes "decagon"
         push shapes "plus"
         push shapes "star"
+        ; The rest of ISO 5807, which the first pass skipped.
+        push shapes "papertape"
+        push shapes "directdata"
+        push shapes "sequentialdata"
+        push shapes "sequentialaccess"
+        push shapes "sort"
+        push shapes "multidocument"
+        push shapes "collate"
+        push shapes "or"
+        push shapes "internalstorage"
+        ; The UML activity vocabulary.
+        push shapes "action"
+        push shapes "structurednode"
+        push shapes "initialnode"
+        push shapes "finalnode"
+        push shapes "forknode"
+        push shapes "sendsignal"
+        push shapes "receivesignal"
+        push shapes "acceptevent"
+        push shapes "timeevent"
         def allShapes:boolean true
         def si:int 0
         while (si < (array_length shapes)) {
@@ -585,6 +688,115 @@ class ParityDump {
             si = (si + 1)
         }
         this.probe("shapeLibrary" allShapes "every named shape has an outline, and its label sits inside it")
+
+        ; The nine ISO 5807 shapes the first pass left out, checked as shapes
+        ; rather than as strings: each has to differ from a plain rectangle,
+        ; hold its own centre, and stay inside the box it was given. A name
+        ; that quietly fell through to the rectangle branch would pass a
+        ; "does it have an outline" test and fail this one.
+        def iso:[string]
+        push iso "papertape"
+        push iso "directdata"
+        push iso "sequentialdata"
+        push iso "sequentialaccess"
+        push iso "sort"
+        push iso "multidocument"
+        push iso "collate"
+        push iso "or"
+        push iso "internalstorage"
+        def isoOk:boolean ((array_length iso) == 9)
+        def rect9:[double] (FlowShapes.outline("rect" 0.0 0.0 120.0 80.0))
+        def ii:int 0
+        while (ii < (array_length iso)) {
+            def nm:string (itemAt iso ii)
+            def ring9:[double] (FlowShapes.outline(nm 0.0 0.0 120.0 80.0))
+            if ((ParityDump.sameRing(ring9 rect9)) && ((FlowShapes.isDecorated(nm)) == false)) {
+                isoOk = false
+            }
+            if ((ParityDump.inRing(ring9 0.0 0.0 120.0 80.0)) == false) {
+                isoOk = false
+            }
+            def lx9:double (FlowShapes.labelCX(nm 0.0 0.0 120.0 80.0))
+            def ly9:double (FlowShapes.labelCY(nm 0.0 0.0 120.0 80.0))
+            if ((FlowShapes.holdsShape(nm 0.0 0.0 120.0 80.0 lx9 ly9)) == false) {
+                isoOk = false
+            }
+            ii = (ii + 1)
+        }
+        ; The ones that are an outline plus a rule drawn on it have to say so,
+        ; or a sort is a decision and an OR junction is a circle.
+        if ((FlowShapes.ornamentCount("sort")) < 1) { isoOk = false }
+        if ((FlowShapes.ornamentCount("or")) < 2) { isoOk = false }
+        if ((FlowShapes.ornamentCount("internalstorage")) < 2) { isoOk = false }
+        if ((FlowShapes.ornamentCount("multidocument")) < 2) { isoOk = false }
+        this.probe("isoFlowShapes" isoOk "the nine remaining ISO 5807 shapes draw as themselves, ornaments and all")
+
+        ; --- UML activity diagram -------------------------------------------
+        def act (new ActivityDiagram)
+        act.node("start" "" (ActivityKind.initial()))
+        act.action("vastaanota" "Vastaanota tilaus")
+        act.node("fork" "" (ActivityKind.fork()))
+        act.action("tarkista" "Tarkista luotto")
+        act.action("varaa" "Varaa tuotteet")
+        act.node("join" "" (ActivityKind.joining()))
+        act.node("kelpaa" "Kelpaako?" (ActivityKind.decision()))
+        act.node("laskuta" "Lähetä lasku" (ActivityKind.send()))
+        act.node("odota" "Odota maksua" (ActivityKind.waiting()))
+        act.node("kuittaus" "Maksukuittaus" (ActivityKind.receive()))
+        act.node("end" "" (ActivityKind.final()))
+        act.flow("start" "vastaanota")
+        act.flow("vastaanota" "fork")
+        act.flow("fork" "tarkista")
+        act.flow("fork" "varaa")
+        act.flow("tarkista" "join")
+        act.flow("varaa" "join")
+        act.flow("join" "kelpaa")
+        act.guarded("kelpaa" "laskuta" "kyllä")
+        act.guarded("kelpaa" "end" "ei")
+        act.flow("laskuta" "odota")
+        act.flow("odota" "kuittaus")
+        act.flow("kuittaus" "end")
+        def ag:FlowGraph (act.build())
+        def alay:LayeredLayout (LayeredLayout.of(ag))
+        alay.direction = "TB"
+        alay.layerGap = 66.0
+        alay.nodeGap = 40.0
+        alay.run()
+        ActivityDiagram.faceEdges(ag)
+        def uml:boolean ((ag.nodeCount()) == 11)
+        ; Every kind has to have kept its own shape through the build.
+        def wantShapes:[string]
+        push wantShapes "start"
+        push wantShapes "initialnode"
+        push wantShapes "fork"
+        push wantShapes "forknode"
+        push wantShapes "laskuta"
+        push wantShapes "sendsignal"
+        push wantShapes "kuittaus"
+        push wantShapes "receivesignal"
+        push wantShapes "odota"
+        push wantShapes "timeevent"
+        push wantShapes "end"
+        push wantShapes "finalnode"
+        push wantShapes "vastaanota"
+        push wantShapes "action"
+        def wi:int 0
+        while (wi < (array_length wantShapes)) {
+            def wid:string (itemAt wantShapes wi)
+            def wsh:string (itemAt wantShapes (wi + 1))
+            def wn:FlowNode (ag.nodeById(wid))
+            if (wn.shape != wsh) { uml = false }
+            wi = (wi + 2)
+        }
+        ; A fork bar carries no name — it is punctuation — and the diagram
+        ; still has to run downwards from its start to its end.
+        def forkNode:FlowNode (ag.nodeById("fork"))
+        if ((strlen forkNode.label) != 0) { uml = false }
+        def startN:FlowNode (ag.nodeById("start"))
+        def endN:FlowNode (ag.nodeById("end"))
+        if ((startN.centerY()) >= (endN.centerY())) { uml = false }
+        if ((ParityDump.anyOverlap(ag)) > 0) { uml = false }
+        this.probe("umlActivity" uml "an activity diagram builds in its own vocabulary: actions, a fork and join, signals and a timer")
 
         ; --- an outline the caller supplies (Polygon) -----------------------
         def gp (new FlowGraph)
@@ -846,6 +1058,229 @@ class ParityDump {
         if ((array_length degs) != (g3.nodeCount())) { api = false }
         if ((itemAt degs 0) != 1) { api = false }
         this.probe("graphApi" api "the graph answers what is at a point and how connected each node is")
+    }
+
+    ; The automatic layouts, each measured by what it is FOR rather than by
+    ; "it ran". A layered layout that put a child above its parent ran fine and
+    ; is still wrong, so the assertions are about the arrangement: parents
+    ; above children, boxes clear of each other, a long edge given a chain of
+    ; corners to follow.
+    ;
+    ; These used to lean on the `fitView` probe, which proves the viewport
+    ; algebra and nothing about the layout under it. Four probes, one per
+    ; layout family, is the honest version.
+    fn probeLayouts:void () {
+        ; --- layered (Sugiyama): a DAG with an edge spanning three layers ---
+        def g (new FlowGraph)
+        def ids:[string]
+        push ids "a"
+        push ids "b"
+        push ids "c"
+        push ids "d"
+        push ids "e"
+        def i:int 0
+        while (i < (array_length ids)) {
+            def nid:string (itemAt ids i)
+            def n:FlowNode (g.node(nid nid 0.0 0.0))
+            n.width = 120.0
+            n.height = 44.0
+            i = (i + 1)
+        }
+        g.connect("a" "b")
+        g.connect("b" "c")
+        g.connect("c" "d")
+        g.connect("a" "d")
+        g.connect("b" "e")
+        g.reindex()
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 80.0
+        lay.nodeGap = 40.0
+        lay.run()
+        def na:FlowNode (g.nodeById("a"))
+        def nb:FlowNode (g.nodeById("b"))
+        def nc:FlowNode (g.nodeById("c"))
+        def nd:FlowNode (g.nodeById("d"))
+        def layered:boolean ((na.centerY()) < (nb.centerY()))
+        if ((nb.centerY()) >= (nc.centerY())) { layered = false }
+        if ((nc.centerY()) >= (nd.centerY())) { layered = false }
+        if ((ParityDump.anyOverlap(g)) > 0) { layered = false }
+        this.probe("layeredLayout" layered "a layered layout puts every parent above its children, and no two boxes share a pixel")
+
+        ; The long edge a→d skips two layers, so it is the one that needs a
+        ; chain of dummy vertices; `routeLongEdges` turns that chain into the
+        ; corners the edge is drawn through.
+        def routed:int (lay.routeLongEdges())
+        def long:FlowEdge (g.edgeAt(3))
+        def chained:boolean ((array_length long.waypoints) >= 2)
+        if (routed < 1) { chained = false }
+        this.probe("longEdgeChain" chained "an edge that skips a layer is carried through a chain of corners rather than drawn over what is between")
+
+        ; --- force / symmetric ----------------------------------------------
+        def fg (new FlowGraph)
+        def k:int 0
+        while (k < 8) {
+            def fid:string ("n" + (to_string k))
+            def fn2:FlowNode (fg.node(fid "n" 0.0 0.0))
+            fn2.width = 60.0
+            fn2.height = 40.0
+            k = (k + 1)
+        }
+        fg.connect("n0" "n1")
+        fg.connect("n0" "n2")
+        fg.connect("n0" "n3")
+        fg.connect("n4" "n5")
+        fg.connect("n4" "n6")
+        fg.connect("n4" "n7")
+        fg.reindex()
+        def sim:FlowSimulation (FlowSimulation.of(fg))
+        sim.chargeStrength = -260.0
+        sim.linkDistance = 90.0
+        sim.initialize()
+        sim.run(400)
+        ; A symmetric layout is one where the edge tells you the distance: two
+        ; nodes joined by a link end up nearer each other than two nodes in
+        ; different clusters.
+        def joined:double (ParityDump.dist((fg.nodeById("n0")) (fg.nodeById("n1"))))
+        def apart:double (ParityDump.dist((fg.nodeById("n1")) (fg.nodeById("n5"))))
+        def forced:boolean (joined < apart)
+        if (joined < 1.0) { forced = false }
+        this.probe("forceLayout" forced "a force layout pulls linked nodes together and pushes unlinked clusters apart")
+
+        ; --- organizational chart -------------------------------------------
+        def o (new OrgChart)
+        o.person("tj" "A" "johtaja" "Johto" "")
+        o.person("cto" "B" "teknologia" "Johto" "tj")
+        o.person("cfo" "C" "talous" "Talous" "tj")
+        o.person("dev" "D" "kehitys" "Tuotanto" "cto")
+        o.person("acc" "E" "kirjanpito" "Talous" "cfo")
+        def og:FlowGraph (o.build())
+        def olay:LayeredLayout (LayeredLayout.of(og))
+        olay.direction = "TB"
+        olay.layerGap = 70.0
+        olay.nodeGap = 34.0
+        olay.run()
+        def boss:FlowNode (og.nodeById("tj"))
+        def rep:FlowNode (og.nodeById("cto"))
+        def deep:FlowNode (og.nodeById("dev"))
+        def org:boolean ((boss.centerY()) < (rep.centerY()))
+        if ((rep.centerY()) >= (deep.centerY())) { org = false }
+        if ((ParityDump.anyOverlap(og)) > 0) { org = false }
+        this.probe("orgChartLayout" org "an org chart puts each person one level under the one they report to")
+
+        ; --- flowchart --------------------------------------------------------
+        def c (new Flowchart)
+        c.start("alku" "Alku")
+        c.step("syota" "Syötä tiedot" (FlowKind.io()))
+        c.step("tarkista" "Kelpaako?" (FlowKind.decision()))
+        c.step("tallenna" "Tallenna" (FlowKind.process()))
+        c.step("loppu" "Loppu" (FlowKind.terminator()))
+        c.link("alku" "syota")
+        c.link("syota" "tarkista")
+        c.branch("tarkista" "tallenna" "kyllä")
+        c.branch("tarkista" "syota" "ei")
+        c.link("tallenna" "loppu")
+        def cg:FlowGraph (c.build())
+        def clay:LayeredLayout (LayeredLayout.of(cg))
+        clay.direction = "TB"
+        clay.layerGap = 70.0
+        clay.nodeGap = 46.0
+        clay.run()
+        Flowchart.faceEdges(cg)
+        def top:FlowNode (cg.nodeById("alku"))
+        def bottom:FlowNode (cg.nodeById("loppu"))
+        def chart:boolean ((top.centerY()) < (bottom.centerY()))
+        if ((ParityDump.anyOverlap(cg)) > 0) { chart = false }
+        ; The shapes have to survive the trip: a flowchart laid out as plain
+        ; rectangles is not a flowchart.
+        def dia:FlowNode (cg.nodeById("tarkista"))
+        if (dia.shape != "diamond") { chart = false }
+        this.probe("flowchartLayout" chart "a flowchart runs from its terminator down to its end, in the shapes the kinds asked for")
+    }
+
+    ; Does a flattened path go within `tol` of a point?
+    sfn passesNear:boolean (flat:[double] px:double py:double tol:double) {
+        def i:int 0
+        while (i < (array_length flat)) {
+            def dx:double ((itemAt flat i) - px)
+            def dy:double ((itemAt flat (i + 1)) - py)
+            if ((sqrt ((dx * dx) + (dy * dy))) <= tol) {
+                return true
+            }
+            i = (i + 2)
+        }
+        return false
+    }
+
+    ; Runs that are neither horizontal nor vertical — which is what a metro
+    ; line has and an orthogonal one does not. A tenth of a pixel of slack, so
+    ; a corner rounded by the flattener does not read as a diagonal.
+    sfn diagonalRuns:int (flat:[double]) {
+        def hits:int 0
+        def i:int 0
+        while (i < ((array_length flat) - 3)) {
+            def dx:double (fabs ((itemAt flat (i + 2)) - (itemAt flat i)))
+            def dy:double (fabs ((itemAt flat (i + 3)) - (itemAt flat (i + 1))))
+            if (dx > 0.1) {
+                if (dy > 0.1) {
+                    hits = (hits + 1)
+                }
+            }
+            i = (i + 2)
+        }
+        return hits
+    }
+
+    ; Two rings with the same points in the same order.
+    sfn sameRing:boolean (a:[double] b:[double]) {
+        if ((array_length a) != (array_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length a)) {
+            if ((fabs ((itemAt a i) - (itemAt b i))) > 0.001) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Every point of a ring inside the box it was asked for, give or take the
+    ; width of a hair. A shape that ballooned out of its own bounds would be
+    ; drawn over its neighbours and hit-tested outside itself.
+    sfn inRing:boolean (pts:[double] x:double y:double w:double h:double) {
+        def i:int 0
+        while (i < (array_length pts)) {
+            def px:double (itemAt pts i)
+            def py:double (itemAt pts (i + 1))
+            if (px < (x - 0.01)) { return false }
+            if (py < (y - 0.01)) { return false }
+            if (px > ((x + w) + 0.01)) { return false }
+            if (py > ((y + h) + 0.01)) { return false }
+            i = (i + 2)
+        }
+        return true
+    }
+
+    ; How many pairs of boxes share any area at all.
+    sfn anyOverlap:int (g:FlowGraph) {
+        def hits:int 0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def a:FlowNode (g.nodeAt(i))
+            def j:int (i + 1)
+            while (j < (g.nodeCount())) {
+                def b:FlowNode (g.nodeAt(j))
+                def sep:boolean false
+                if (((a.x + a.width) <= b.x) || ((b.x + b.width) <= a.x)) { sep = true }
+                if (((a.y + a.height) <= b.y) || ((b.y + b.height) <= a.y)) { sep = true }
+                if (sep == false) { hits = (hits + 1) }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
     }
 
     ; What a toolbar does. React Flow documents `connectOnClick` and

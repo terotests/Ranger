@@ -61,6 +61,39 @@ class FlowShape {
     sfn pentagonDown:string ()  { return "pentagondown" }
     ; A rectangle with a bar down each side: "this step is defined elsewhere".
     sfn predefined:string ()    { return "predefined" }
+
+    ; ------------------------------------------------ the rest of ISO 5807 ---
+    ; The nine the first pass left out. They are rarer than a process box and
+    ; a decision diamond, but "rarer" is not "optional": a chart that draws a
+    ; magnetic tape as a rectangle has thrown away the one thing the reader
+    ; was going to read first.
+    sfn paperTape:string ()      { return "papertape" }
+    sfn directData:string ()     { return "directdata" }
+    sfn sequentialData:string () { return "sequentialdata" }
+    ; ISO draws sequential-access storage and magnetic tape the same way, and
+    ; so does everyone else; the two names are kept apart because a chart that
+    ; says which one it means is easier to read back.
+    sfn sequentialAccess:string () { return "sequentialaccess" }
+    sfn sort:string ()           { return "sort" }
+    sfn multiDocument:string ()  { return "multidocument" }
+    sfn collate:string ()        { return "collate" }
+    sfn orJunction:string ()     { return "or" }
+    sfn internalStorage:string () { return "internalstorage" }
+
+    ; --------------------------------------------------- UML activity set ----
+    ; An activity diagram is a different vocabulary from a class diagram: an
+    ; action is a rounded box, a fork is a bar, a signal is a box with one end
+    ; pushed out or pulled in, and the diagram starts and ends on filled
+    ; circles rather than on words.
+    sfn action:string ()         { return "action" }
+    sfn structuredNode:string () { return "structurednode" }
+    sfn initialNode:string ()    { return "initialnode" }
+    sfn finalNode:string ()      { return "finalnode" }
+    sfn forkNode:string ()       { return "forknode" }
+    sfn sendSignal:string ()     { return "sendsignal" }
+    sfn receiveSignal:string ()  { return "receivesignal" }
+    sfn acceptEvent:string ()    { return "acceptevent" }
+    sfn timeEvent:string ()      { return "timeevent" }
 }
 
 class FlowShapes {
@@ -84,7 +117,148 @@ class FlowShapes {
     sfn isDecorated:boolean (shape:string) {
         if (shape == "predefined") { return true }
         if (shape == "note") { return true }
+        if (shape == "internalstorage") { return true }
+        if (shape == "action") { return true }
+        if (shape == "structurednode") { return true }
+        if (shape == "forknode") { return true }
         return false
+    }
+
+    ; The corner radius a shape wants, or -1 for "whatever the theme says".
+    ; A UML action is a rectangle with corners round enough that nobody has to
+    ; be told it is not a class box.
+    sfn radiusFor:double (shape:string w:double h:double) {
+        if (shape == "action") {
+            def rad:double (h * 0.32)
+            if (rad > 18.0) { rad = 18.0 }
+            return rad
+        }
+        if (shape == "structurednode") { return 10.0 }
+        if (shape == "forknode") { return 1.0 }
+        return -1.0
+    }
+
+    ; ------------------------------------------------------------ ornament ---
+    ; Some shapes are an outline plus one or more lines drawn ON it — the bar
+    ; across a sort diamond, the cross in an OR junction, the corner rules of
+    ; internal storage. They are not part of the silhouette (a hit test must
+    ; not care about them, and neither must the fill), so they are asked for
+    ; separately and drawn as strokes afterwards.
+    sfn ornamentCount:int (shape:string) {
+        if (shape == "sort") { return 1 }
+        if (shape == "or") { return 2 }
+        if (shape == "internalstorage") { return 2 }
+        if (shape == "multidocument") { return 2 }
+        if (shape == "finalnode") { return 1 }
+        if (shape == "directdata") { return 1 }
+        if (shape == "cylinder") { return 1 }
+        return 0
+    }
+
+    ; Whether ornament `i` is a closed ring (drawn as a loop) or an open line.
+    sfn ornamentClosed:boolean (shape:string i:int) {
+        if (shape == "finalnode") { return true }
+        return false
+    }
+
+    sfn ornamentAt:[double] (shape:string x:double y:double w:double h:double i:int) {
+        def pts:[double]
+        def r:double (x + w)
+        def b:double (y + h)
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        if (shape == "cylinder") {
+            return (FlowShapes.drumLid(x y w h))
+        }
+        if (shape == "sort") {
+            ; The bar across the middle: the line that says a diamond here is
+            ; a sort rather than a decision.
+            push pts x
+            push pts cy
+            push pts r
+            push pts cy
+            return pts
+        }
+        if (shape == "or") {
+            def rad:double (w * 0.5)
+            if ((h * 0.5) < rad) { rad = (h * 0.5) }
+            if (i == 0) {
+                push pts (cx - rad)
+                push pts cy
+                push pts (cx + rad)
+                push pts cy
+                return pts
+            }
+            push pts cx
+            push pts (cy - rad)
+            push pts cx
+            push pts (cy + rad)
+            return pts
+        }
+        if (shape == "internalstorage") {
+            def inset:double (FlowShapes.storageInset(w h))
+            if (i == 0) {
+                push pts (x + inset)
+                push pts y
+                push pts (x + inset)
+                push pts b
+                return pts
+            }
+            push pts x
+            push pts (y + inset)
+            push pts r
+            push pts (y + inset)
+            return pts
+        }
+        if (shape == "multidocument") {
+            ; The two sheets behind the front one, each showing a top edge and
+            ; a right edge and nothing else — which is all you ever see of a
+            ; page in a stack.
+            def d:double (FlowShapes.stackOffset(w h))
+            def step:double ((to_double (i + 1)) * d)
+            def fw:double (w - (d * 2.0))
+            push pts (x + step)
+            push pts (b - (d * 2.0))
+            push pts (x + step)
+            push pts (y + ((d * 2.0) - step))
+            push pts ((x + step) + fw)
+            push pts (y + ((d * 2.0) - step))
+            push pts ((x + step) + fw)
+            push pts (b - (d * 2.0))
+            return pts
+        }
+        if (shape == "finalnode") {
+            def rad3:double (w * 0.5)
+            if ((h * 0.5) < rad3) { rad3 = (h * 0.5) }
+            FlowShapes.ellipseInto(pts cx cy (rad3 * 0.58) (rad3 * 0.58) 20)
+            return pts
+        }
+        if (shape == "directdata") {
+            ; The near end of the drum, drawn as a line across the body — the
+            ; same trick the upright cylinder's lid uses, turned on its side.
+            def rx:double (FlowShapes.drumRadius(w))
+            FlowShapes.ellipseArcInto(pts (x + rx) cy rx (h * 0.5) (0.0 - 90.0) 90.0 14)
+            return pts
+        }
+        return pts
+    }
+
+    sfn storageInset:double (w:double h:double) {
+        def s:double (h * 0.22)
+        def cap:double (w * 0.22)
+        if (s > cap) { s = cap }
+        if (s > 16.0) { s = 16.0 }
+        if (s < 5.0) { s = 5.0 }
+        return s
+    }
+
+    sfn stackOffset:double (w:double h:double) {
+        def d:double (h * 0.1)
+        def cap:double (w * 0.08)
+        if (d > cap) { d = cap }
+        if (d > 10.0) { d = 10.0 }
+        if (d < 3.0) { d = 3.0 }
+        return d
     }
 
     ; The outline, with a caller-supplied ring for "polygon". The unit points
@@ -300,6 +474,140 @@ class FlowShapes {
             FlowShapes.halfEllipseInto(pts cx (b - ry) (w * 0.5) ry false 14)
             return pts
         }
+        if (shape == "collate") {
+            ; Two triangles meeting point to point. The ring touches itself in
+            ; the middle and does not cross itself, so the even-odd hit test
+            ; reads both halves as inside and the waist as outside.
+            push pts x
+            push pts y
+            push pts r
+            push pts y
+            push pts cx
+            push pts cy
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            push pts cx
+            push pts cy
+            return pts
+        }
+        if (shape == "timeevent") {
+            ; The same hourglass. UML draws a time event as one, and a chart
+            ; that used a different glyph for it would be a chart with a shape
+            ; nobody could look up.
+            return (FlowShapes.outline("collate" x y w h))
+        }
+        if (shape == "sort") {
+            ; The diamond; the bar across it is an ornament.
+            return (FlowShapes.outline("diamond" x y w h))
+        }
+        if (shape == "or") {
+            return (FlowShapes.outline("circle" x y w h))
+        }
+        if (shape == "initialnode") {
+            return (FlowShapes.outline("circle" x y w h))
+        }
+        if (shape == "finalnode") {
+            return (FlowShapes.outline("circle" x y w h))
+        }
+        if (shape == "sendsignal") {
+            ; A box with one end pushed out to a point: something leaves here.
+            def tip:double (FlowShapes.signalTip(w h))
+            push pts x
+            push pts y
+            push pts (r - tip)
+            push pts y
+            push pts r
+            push pts cy
+            push pts (r - tip)
+            push pts b
+            push pts x
+            push pts b
+            return pts
+        }
+        if (shape == "receivesignal") {
+            ; The same box with the end pulled IN: something arrives here. The
+            ; two are mirror images on purpose — a reader who knows one knows
+            ; the other.
+            def tip2:double (FlowShapes.signalTip(w h))
+            push pts x
+            push pts y
+            push pts r
+            push pts y
+            push pts r
+            push pts b
+            push pts x
+            push pts b
+            push pts (x + tip2)
+            push pts cy
+            return pts
+        }
+        if (shape == "acceptevent") {
+            return (FlowShapes.outline("receivesignal" x y w h))
+        }
+        if (shape == "papertape") {
+            ; Punched tape: a wave along the top and another along the bottom,
+            ; running the same way, so the strip looks like it carries on off
+            ; both ends.
+            def wv:double (FlowShapes.waveDepth(h))
+            def steps2:int 12
+            def i2:int 0
+            while (i2 <= steps2) {
+                def t2:double ((to_double i2) / (to_double steps2))
+                push pts (x + (w * t2))
+                push pts ((y + wv) - (wv * (sin (t2 * 6.283185307179586))))
+                i2 = (i2 + 1)
+            }
+            def j2:int steps2
+            while (j2 >= 0) {
+                def t3:double ((to_double j2) / (to_double steps2))
+                push pts (x + (w * t3))
+                push pts ((b - wv) - (wv * (sin (t3 * 6.283185307179586))))
+                j2 = (j2 - 1)
+            }
+            return pts
+        }
+        if (shape == "directdata") {
+            ; A drum lying down: disc storage, as against the tape reel that
+            ; stands up. Flat along the top and bottom, round at both ends.
+            def rx2:double (FlowShapes.drumRadius(w))
+            def ry2:double (h * 0.5)
+            FlowShapes.ellipseArcInto(pts (r - rx2) cy rx2 ry2 (0.0 - 90.0) 90.0 14)
+            FlowShapes.ellipseArcInto(pts (x + rx2) cy rx2 ry2 90.0 270.0 14)
+            return pts
+        }
+        if (shape == "sequentialdata") {
+            ; The tape reel: a circle with the corner of the box left in, so
+            ; the disc has somewhere to sit.
+            def rad2b:double (w * 0.5)
+            if ((h * 0.5) < rad2b) { rad2b = (h * 0.5) }
+            ; Three quarters of a circle, from the bottom round to the right,
+            ; and then the square corner that the reel sits on. Going the
+            ; other way round would put the corner between two copies of the
+            ; bottom point and leave a spike of no area.
+            def steps3:int 22
+            def k3:int 0
+            while (k3 <= steps3) {
+                def a3:double (1.5707963267948966 + (((to_double k3) / (to_double steps3)) * 4.71238898038469))
+                push pts (cx + (rad2b * (cos a3)))
+                push pts (cy + (rad2b * (sin a3)))
+                k3 = (k3 + 1)
+            }
+            push pts (cx + rad2b)
+            push pts (cy + rad2b)
+            return pts
+        }
+        if (shape == "sequentialaccess") {
+            return (FlowShapes.outline("sequentialdata" x y w h))
+        }
+        if (shape == "multidocument") {
+            ; The front sheet is the silhouette; the ones behind it are drawn
+            ; as ornaments, because a stack of pages is exactly one page you
+            ; can see and two you can see the corners of.
+            def d4:double (FlowShapes.stackOffset(w h))
+            return (FlowShapes.outline("document" x (y + (d4 * 2.0)) (w - (d4 * 2.0)) (h - (d4 * 2.0))))
+        }
         if (shape == "document") {
             ; The wave along the bottom, which is the whole of what makes a
             ; document a document.
@@ -351,6 +659,15 @@ class FlowShapes {
         return s
     }
 
+    ; How far the point of a signal shape sticks out, or bites in.
+    sfn signalTip:double (w:double h:double) {
+        def t:double (w * 0.2)
+        def cap:double (h * 0.5)
+        if (t > cap) { t = cap }
+        if (t < 6.0) { t = 6.0 }
+        return t
+    }
+
     sfn drumRadius:double (h:double) {
         def ry:double (h * 0.14)
         if (ry > 16.0) {
@@ -390,6 +707,20 @@ class FlowShapes {
             def a:double ((from + ((to - from) * t)) * 0.017453292519943295)
             push pts (cx + (rad * (cos a)))
             push pts (cy + (rad * (sin a)))
+            i = (i + 1)
+        }
+    }
+
+    ; The same, with a radius per axis. A drum lying down has a short round
+    ; end and a tall one, and forcing it through the circular `arcInto` would
+    ; make the caps balloon out of the box.
+    sfn ellipseArcInto:void (pts:[double] cx:double cy:double rx:double ry:double from:double to:double steps:int) {
+        def i:int 0
+        while (i <= steps) {
+            def t:double ((to_double i) / (to_double steps))
+            def a:double ((from + ((to - from) * t)) * 0.017453292519943295)
+            push pts (cx + (rx * (cos a)))
+            push pts (cy + (ry * (sin a)))
             i = (i + 1)
         }
     }
@@ -530,6 +861,10 @@ class FlowShapes {
         if (shape == "righttriangle") {
             return (x + (w * 0.36))
         }
+        if (shape == "multidocument") {
+            def d:double (FlowShapes.stackOffset(w h))
+            return (x + ((w - (d * 2.0)) * 0.5))
+        }
         return (x + (w * 0.5))
     }
 
@@ -546,6 +881,15 @@ class FlowShapes {
         if (shape == "pentagondown") {
             return (y + (h * 0.42))
         }
+        if (shape == "multidocument") {
+            def d:double (FlowShapes.stackOffset(w h))
+            return ((y + (d * 2.0)) + ((h - (d * 2.0)) * 0.5))
+        }
+        ; The middle of an hourglass is its waist — the one point of the box
+        ; that is outside the shape. The text goes in the lower bowl, which is
+        ; where a collate symbol is labelled anyway.
+        if (shape == "collate")   { return (y + (h * 0.76)) }
+        if (shape == "timeevent") { return (y + (h * 0.76)) }
         return (y + (h * 0.5))
     }
 
@@ -564,6 +908,18 @@ class FlowShapes {
         if (shape == "decagon")        { return (w * 0.86) }
         if (shape == "circle")         { return (w * 0.72) }
         if (shape == "ellipse")        { return (w * 0.78) }
+        if (shape == "or")             { return (w * 0.4) }
+        if (shape == "sequentialdata") { return (w * 0.7) }
+        if (shape == "sequentialaccess") { return (w * 0.7) }
+        if (shape == "collate")        { return (w * 0.42) }
+        if (shape == "timeevent")      { return (w * 0.42) }
+        if (shape == "sort")           { return (w * 0.5) }
+        if (shape == "sendsignal")     { return (w * 0.68) }
+        if (shape == "receivesignal")  { return (w * 0.68) }
+        if (shape == "acceptevent")    { return (w * 0.68) }
+        if (shape == "papertape")      { return (w - 16.0) }
+        if (shape == "directdata")     { return (w * 0.72) }
+        if (shape == "multidocument")  { return (w * 0.78) }
         return (w - 16.0)
     }
 
@@ -581,6 +937,15 @@ class FlowShapes {
         }
         if (shape == "trapezoid") {
             lean = ((FlowShapes.slantOf(w h)) * 0.5)
+        }
+        ; The point of a send signal IS the right-hand anchor, and the notch
+        ; of a receive signal is where the left-hand one has to sit: an arrow
+        ; that stopped at the bounding box would end inside the bite.
+        if (shape == "receivesignal") {
+            if (side == 3) { return (x + (FlowShapes.signalTip(w h))) }
+        }
+        if (shape == "acceptevent") {
+            if (side == 3) { return (x + (FlowShapes.signalTip(w h))) }
         }
         if (side == 1) { return ((x + w) - lean) }
         return (x + lean)

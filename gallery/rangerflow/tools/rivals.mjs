@@ -15,16 +15,37 @@
  *                second oracle over the same ground would add rows without
  *                adding evidence. So this scorecard is a FEATURE comparison.
  *   Syncfusion   commercial ("SEE LICENSE IN license" on npm). Not installed,
- *                not run, not used as an oracle. Its rows come from its own
+ *                not run, and not used as an oracle. Its rows come from its own
  *                published Key features and the enumerations in its public
  *                source — the same rule as everywhere else: their claim about
  *                themselves is the denominator, never ours.
  *
  * So: no pixels, no geometry deltas, and no number that says "97% as good as".
- * What this file scores is coverage of a published feature list, and a row is
- * only `done` when a named probe in `tests/ParityDump.rgr` drove the real
- * editor and passed. `todo` means we do not have it. `partial` means we have
- * something narrower and the row says what.
+ * What this file scores is coverage of a published feature list.
+ *
+ * A row is
+ *
+ *     [capability, the rival's own name for it, probe id or null, note, status]
+ *
+ * and the **status is written down**, not inferred. It used to be inferred —
+ * a row with a probe and a note scored `partial`, a row with a probe and no
+ * note scored `done` — and that was quietly wrong in both directions. Half
+ * these notes say what our version is called rather than what it lacks
+ * ("smoothstep", "layered (Sugiyama)"), and scoring those as half a feature
+ * understated the thing; meanwhile a row could carry a real limitation in its
+ * note and still read as whole if someone deleted the note. So the judgement
+ * is now a field, one word, sitting next to the evidence for it:
+ *
+ *     done      we have the capability the row names.
+ *     partial   we have something narrower, and the note says what is missing.
+ *     todo      we do not have it.
+ *
+ * The probe still has to back it up: `done` and `partial` both require a named
+ * probe in `tests/ParityDump.rgr` that drove the real editor and passed, and
+ * this file fails loudly if one is missing, fails, or is claimed without being
+ * named. What a written-down status cannot do is stop someone writing `done`
+ * next to a probe that does not really test the row — which is why the probe
+ * id is printed in the table beside it, for a reader to check.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -38,169 +59,174 @@ const DOC = path.join(ROOT, "docs", "RIVALS.md");
 const ranger = JSON.parse(fs.readFileSync(path.join(OUT, "rangerflow.json"), "utf8"));
 const probeById = new Map((ranger.probes || []).map((p) => [p.id, p]));
 
-/**
- * A row is [capability, the rival's own name for it, probe id or null, note].
- * The rival's name is quoted from its documentation or its source so the row
- * can be checked against them rather than against our summary of them.
- */
+const D = "done", P = "partial", T = "todo";
+
 const JOINT = [
   ["Elements and links", [
-    ["Rectangle, circle, ellipse", "shapes.standard.Rectangle / Circle / Ellipse", "shapeLibrary", ""],
-    ["Path and polygon elements", "shapes.standard.Path / Polygon / Polyline", "customPolygon", ""],
-    ["Cylinder", "shapes.standard.Cylinder", "shapeLibrary", ""],
-    ["Headered rectangle", "shapes.standard.HeaderedRectangle", "shapeLibrary", "the compartment node, with rows as well as a header"],
-    ["Text block with wrapping", "shapes.standard.TextBlock", "textWrap", "wraps and autofits"],
-    ["Image elements", "shapes.standard.Image", null, "the scene has no image primitive yet"],
-    ["Custom elements", "custom markup / programmatic", "customPolygon", ""],
-    ["Ready-made diagram sets", "shapes.erd, shapes.uml, shapes.org", "annotations", "ERD, UML, flowchart, org chart, swimlanes"],
+    ["Rectangle, circle, ellipse", "shapes.standard.Rectangle / Circle / Ellipse", "shapeLibrary", "", D],
+    ["Path and polygon elements", "shapes.standard.Path / Polygon / Polyline", "customPolygon", "", D],
+    ["Cylinder", "shapes.standard.Cylinder", "shapeLibrary", "", D],
+    ["Headered rectangle", "shapes.standard.HeaderedRectangle", "shapeLibrary", "the compartment node, with rows as well as a header", D],
+    ["Text block with wrapping", "shapes.standard.TextBlock", "textWrap", "wraps and autofits", D],
+    ["Image elements", "shapes.standard.Image", null, "the scene has no image primitive yet", T],
+    ["Custom elements", "custom markup / programmatic", "customPolygon", "", D],
+    ["Ready-made diagram sets", "shapes.erd, shapes.uml, shapes.org", "annotations", "ERD, UML, flowchart, org chart, swimlanes", D],
   ]],
   ["Links", [
-    ["Straight connector", "connectors.normal / straight", "connectorKinds", ""],
-    ["Rounded connector", "connectors.rounded", "connectorKinds", "smoothstep"],
-    ["Smooth (bezier) connector", "connectors.smooth", "connectorKinds", ""],
-    ["Curve connector", "connectors.curve", null, "one curve style, not two"],
-    ["Jump-over connector", "connectors.jumpover", "lineJumps", ""],
-    ["Orthogonal router", "routers.orthogonal", "connectorKinds", "step / smoothstep"],
-    ["Obstacle-avoiding router", "routers.manhattan", "obstacleRouting", "OrthoRouter, as a repair pass"],
-    ["Metro router", "routers.metro", null, "no 45° segments"],
-    ["Right-angle router", "routers.rightAngle", "connectorKinds", ""],
-    ["One-side router", "routers.oneSide", null, ""],
-    ["Arrowheads / markers", "link attrs sourceMarker / targetMarker", "markers", "arrow, crow's foot, UML"],
-    ["Link labels", "link.labels", "annotations", ""],
-    ["Link vertices", "linkTools.Vertices", "linkSegments", "the corners are draggable"],
-    ["Link segment tool", "linkTools.Segments", "linkSegments", ""],
-    ["Anchors / connection points", "anchors, connectionPoints", "portRoles", "field-level ports"],
-    ["Link to link", "link source/target as a link", null, ""],
+    ["Straight connector", "connectors.normal / straight", "connectorKinds", "", D],
+    ["Rounded connector", "connectors.rounded", "connectorKinds", "smoothstep", D],
+    ["Smooth (bezier) connector", "connectors.smooth", "connectorKinds", "", D],
+    ["Curve connector", "connectors.curve", "curveConnector", "a spline through the link's vertices, with a tension", D],
+    ["Jump-over connector", "connectors.jumpover", "lineJumps", "", D],
+    ["Orthogonal router", "routers.orthogonal", "connectorKinds", "step / smoothstep", D],
+    ["Obstacle-avoiding router", "routers.manhattan", "obstacleRouting", "OrthoRouter, as a repair pass", D],
+    ["Metro router", "routers.metro", "metroRouter", "", D],
+    ["Right-angle router", "routers.rightAngle", "connectorKinds", "", D],
+    ["One-side router", "routers.oneSide", "oneSideRouter", "", D],
+    ["Arrowheads / markers", "link attrs sourceMarker / targetMarker", "markers", "arrow, crow's foot, UML", D],
+    ["Link labels", "link.labels", "annotations", "", D],
+    ["Link vertices", "linkTools.Vertices", "linkSegments", "the corners are draggable", D],
+    ["Link segment tool", "linkTools.Segments", "linkSegments", "", D],
+    ["Anchors / connection points", "anchors, connectionPoints", "portRoles", "field-level ports", D],
+    ["Link to link", "link source/target as a link", null, "an edge can only end on a node", T],
   ]],
   ["Ports", [
-    ["Ports on an element", "element.ports", "connectPorts", ""],
-    ["Port layout around a shape", "layout.ports", "multipleHandles", "four side handles, or one per row"],
-    ["Port labels", "layout.ports.portLabel", "portRoles", "a row's own name is the label"],
-    ["Port groups and roles", "portsgroup / magnet", "connectionLimit", ""],
+    ["Ports on an element", "element.ports", "connectPorts", "", D],
+    ["Port layout around a shape", "layout.ports", "multipleHandles", "sides and rows, but no radial or elliptic layout", P],
+    ["Port labels", "layout.ports.portLabel", "portRoles", "a row's own name is the label", D],
+    ["Port groups and roles", "portsgroup / magnet", "connectionLimit", "", D],
   ]],
   ["Interaction", [
-    ["Zoom in / out", "paper.scale", "zoomAtCursor", ""],
-    ["Pan", "paper drag / translate", "pan", ""],
-    ["Move elements", "element interactivity", "dragNode", ""],
-    ["Rubber-band selection", "paper selection", "boxSelect", ""],
-    ["Granular interactivity", "paper.interactive", "perNodeDraggable", "per node: draggable, selectable, connectable"],
-    ["Element tools", "elementTools", "resizeNode", "resize grips"],
-    ["Highlighters", "highlighters.stroke / mask", "clickSelect", "selection and hover borders"],
-    ["Touch support", "touch events", null, "pointer events, but no pinch"],
-    ["In-place text editing", "(Rappid: inspector / text editing)", "inPlaceEdit", ""],
-    ["Undo / redo", "(Rappid: dia.CommandManager)", "undoMove", ""],
+    ["Zoom in / out", "paper.scale", "zoomAtCursor", "", D],
+    ["Pan", "paper drag / translate", "pan", "", D],
+    ["Move elements", "element interactivity", "dragNode", "", D],
+    ["Rubber-band selection", "paper selection", "boxSelect", "", D],
+    ["Granular interactivity", "paper.interactive", "perNodeDraggable", "per node: draggable, selectable, connectable", D],
+    ["Element tools", "elementTools", "resizeNode", "resize grips, but no remove or connect button on the element", P],
+    ["Highlighters", "highlighters.stroke / mask", "clickSelect", "selection and hover borders; no mask or opacity highlighter", P],
+    ["Touch support", "touch events", null, "pointer events, but no pinch", T],
+    ["In-place text editing", "(Rappid: inspector / text editing)", "inPlaceEdit", "", D],
+    ["Undo / redo", "(Rappid: dia.CommandManager)", "undoMove", "", D],
   ]],
   ["Graph and data", [
-    ["Import / export JSON", "graph.toJSON / fromJSON", "serialization", ""],
-    ["Graph traversal API", "getNeighbors, getPredecessors, dfs, bfs", "graphApi", "degrees and adjacency"],
-    ["Elements at a point", "findModelsFromPoint", "graphApi", ""],
-    ["Embedded elements", "embed / getEmbeddedCells", "embedding", "parentId, and a container carries its children"],
-    ["Automatic layouts", "layout.DirectedGraph", "radialLayout", "layered, force, radial, mind map"],
-    ["Events", "graph and paper events", "backgroundVariants", "onGraphChanged"],
+    ["Import / export JSON", "graph.toJSON / fromJSON", "serialization", "", D],
+    ["Graph traversal API", "getNeighbors, getPredecessors, dfs, bfs", "graphApi", "degrees and adjacency, but no walk", P],
+    ["Elements at a point", "findModelsFromPoint", "graphApi", "", D],
+    ["Embedded elements", "embed / getEmbeddedCells", "embedding", "parentId, and a container carries its children", D],
+    ["Automatic layouts", "layout.DirectedGraph", "radialLayout", "layered, force, radial, mind map", D],
+    ["Events", "graph and paper events", "backgroundVariants", "one change callback, not a named event per kind", P],
   ]],
   ["Paper", [
-    ["Grid", "paper.drawGrid", "backgroundVariants", "dots, lines, cross"],
-    ["Background", "paper.background", "darkTheme", ""],
-    ["SVG output", "SVG-based rendering", "edgeTypes", "SVG, and PDF, HTML and a GPU display list"],
-    ["Viewport-limited rendering", "paper async / viewport", "culling", ""],
+    ["Grid", "paper.drawGrid", "backgroundVariants", "dots, lines, cross", D],
+    ["Background", "paper.background", "darkTheme", "", D],
+    ["SVG output", "SVG-based rendering", "edgeTypes", "SVG, and PDF, HTML and a GPU display list", D],
+    ["Viewport-limited rendering", "paper async / viewport", "culling", "", D],
   ]],
 ];
 
 const SYNCFUSION = [
   ["Nodes", [
-    ["Rectangle, ellipse", "BasicShapes 'Rectangle' / 'Ellipse'", "shapeLibrary", ""],
-    ["Diamond", "BasicShapes 'Diamond'", "shapeLibrary", ""],
-    ["Hexagon", "BasicShapes 'Hexagon'", "shapeLibrary", ""],
-    ["Parallelogram", "BasicShapes 'Parallelogram'", "shapeLibrary", ""],
-    ["Trapezoid", "BasicShapes 'Trapezoid'", "shapeLibrary", ""],
-    ["Cylinder", "BasicShapes 'Cylinder'", "shapeLibrary", ""],
-    ["Triangle / right triangle", "BasicShapes 'Triangle' / 'RightTriangle'", "shapeLibrary", ""],
-    ["Regular polygons", "BasicShapes 'Pentagon' … 'Decagon'", "shapeLibrary", ""],
-    ["Plus and star", "BasicShapes 'Plus' / 'Star'", "shapeLibrary", ""],
-    ["Arbitrary polygon", "BasicShapes 'Polygon'", "customPolygon", ""],
-    ["Flowchart: terminator, process, decision", "FlowShapes 'Terminator' / 'Process' / 'Decision'", "shapeLibrary", ""],
-    ["Flowchart: document, predefined process", "FlowShapes 'Document' / 'PreDefinedProcess'", "shapeLibrary", ""],
-    ["Flowchart: manual operation", "FlowShapes 'ManualOperation'", "shapeLibrary", ""],
-    ["Flowchart: merge, extract, summing, off-page", "FlowShapes 'Merge' / 'Extract' / 'SummingJunction' / 'OffPageReference'", "shapeLibrary", ""],
-    ["Flowchart: the other nine", "FlowShapes 'Sort', 'Collate', 'PaperTap', …", null, "PaperTap, DirectData, SequentialData, Sort, MultiDocument, Collate, Or, InternalStorage, SequentialAccessStorage"],
-    ["BPMN shapes", "BpmnShapes", null, "a whole notation of its own"],
-    ["UML activity shapes", "UmlActivityShapes", null, "UML classes, not activities"],
-    ["Custom shapes", "shape: { type: 'Path', data }", "shapeLibrary", ""],
+    ["Rectangle, ellipse", "BasicShapes 'Rectangle' / 'Ellipse'", "shapeLibrary", "", D],
+    ["Diamond", "BasicShapes 'Diamond'", "shapeLibrary", "", D],
+    ["Hexagon", "BasicShapes 'Hexagon'", "shapeLibrary", "", D],
+    ["Parallelogram", "BasicShapes 'Parallelogram'", "shapeLibrary", "", D],
+    ["Trapezoid", "BasicShapes 'Trapezoid'", "shapeLibrary", "", D],
+    ["Cylinder", "BasicShapes 'Cylinder'", "shapeLibrary", "", D],
+    ["Triangle / right triangle", "BasicShapes 'Triangle' / 'RightTriangle'", "shapeLibrary", "", D],
+    ["Regular polygons", "BasicShapes 'Pentagon' … 'Decagon'", "shapeLibrary", "", D],
+    ["Plus and star", "BasicShapes 'Plus' / 'Star'", "shapeLibrary", "", D],
+    ["Arbitrary polygon", "BasicShapes 'Polygon'", "customPolygon", "", D],
+    ["Flowchart: terminator, process, decision", "FlowShapes 'Terminator' / 'Process' / 'Decision'", "shapeLibrary", "", D],
+    ["Flowchart: document, predefined process", "FlowShapes 'Document' / 'PreDefinedProcess'", "shapeLibrary", "", D],
+    ["Flowchart: manual operation", "FlowShapes 'ManualOperation'", "shapeLibrary", "", D],
+    ["Flowchart: merge, extract, summing, off-page", "FlowShapes 'Merge' / 'Extract' / 'SummingJunction' / 'OffPageReference'", "shapeLibrary", "", D],
+    ["Flowchart: the other nine", "FlowShapes 'Sort', 'Collate', 'PaperTap', …", "isoFlowShapes", "", D],
+    ["BPMN shapes", "BpmnShapes", null, "a whole notation of its own", T],
+    ["UML activity shapes", "UmlActivityShapes", "umlActivity", "actions, fork and join, signals, timer, initial and final", D],
+    ["Custom shapes", "shape: { type: 'Path', data }", "shapeLibrary", "", D],
   ]],
   ["Connectors", [
-    ["Straight segments", "ConnectorSegments 'Straight'", "connectorKinds", ""],
-    ["Orthogonal segments", "ConnectorSegments 'Orthogonal'", "connectorKinds", ""],
-    ["Bezier segments", "ConnectorSegments 'Bezier'", "connectorKinds", ""],
-    ["Decorators", "DecoratorShapes", "markers", ""],
-    ["Line routing round obstacles", "interaction/line-routing", "obstacleRouting", ""],
-    ["Line overlapping / distribution", "interaction/line-overlapping, line-distribution", "linkSegments", "channel routing with a track per edge"],
-    ["Connector bridging", "objects/connector-bridging", "lineJumps", ""],
-    ["Segment editing by hand", "SegmentEditing / connector-editing", "linkSegments", ""],
+    ["Straight segments", "ConnectorSegments 'Straight'", "connectorKinds", "", D],
+    ["Orthogonal segments", "ConnectorSegments 'Orthogonal'", "connectorKinds", "", D],
+    ["Bezier segments", "ConnectorSegments 'Bezier'", "connectorKinds", "", D],
+    ["Decorators", "DecoratorShapes", "markers", "", D],
+    ["Line routing round obstacles", "interaction/line-routing", "obstacleRouting", "", D],
+    ["Line overlapping / distribution", "interaction/line-overlapping, line-distribution", "linkSegments", "channel routing with a track per edge", D],
+    ["Connector bridging", "objects/connector-bridging", "lineJumps", "", D],
+    ["Segment editing by hand", "SegmentEditing / connector-editing", "linkSegments", "", D],
   ]],
   ["Labels and ports", [
-    ["Annotations on nodes", "objects/annotation", "annotations", ""],
-    ["Annotations on connectors", "objects/annotation", "annotations", ""],
-    ["Text wrapping", "TextWrap", "textWrap", ""],
-    ["Text overflow / clipping", "TextOverflow", "textWrap", "ellipsis after wrap and autofit"],
-    ["Several annotations per object", "annotations: [...]", null, "one label per node, one per edge"],
-    ["Ports", "objects/port", "connectPorts", ""],
-    ["Port shapes and alignment", "PortShapes, PortAlignment", "multipleHandles", ""],
+    ["Annotations on nodes", "objects/annotation", "annotations", "", D],
+    ["Annotations on connectors", "objects/annotation", "annotations", "", D],
+    ["Text wrapping", "TextWrap", "textWrap", "", D],
+    ["Text overflow / clipping", "TextOverflow", "textWrap", "ellipsis after wrap and autofit", D],
+    ["Several annotations per object", "annotations: [...]", null, "one label per node, one per edge", T],
+    ["Ports", "objects/port", "connectPorts", "", D],
+    ["Port shapes and alignment", "PortShapes, PortAlignment", "multipleHandles", "", D],
   ]],
   ["Interaction", [
-    ["Drag", "interaction/tool", "dragNode", ""],
-    ["Resize", "SizingOptions", "resizeNode", ""],
-    ["Rotate", "rotateAngle", null, "no rotation in the model"],
-    ["Rubber-band selection", "RubberBandSelectionMode", "boxSelect", ""],
-    ["Drawing tools", "drawingObject", "addNode", "a palette that adds, not a drag-to-draw tool"],
-    ["Keyboard commands", "diagram/keyboard-commands", "selectAll", ""],
-    ["Context menu", "objects/context-menu", null, ""],
-    ["Tooltips", "objects/tooltip", null, ""],
-    ["Undo / redo", "objects/undo-redo", "undoMove", ""],
-    ["In-place text editing", "startTextEdit", "inPlaceEdit", ""],
-    ["Snapping to gridlines", "objects/snapping", "snapPosition", ""],
-    ["Containers and grouping", "objects/container, group", "embedding", "lanes with real parenting"],
+    ["Drag", "interaction/tool", "dragNode", "", D],
+    ["Resize", "SizingOptions", "resizeNode", "", D],
+    ["Rotate", "rotateAngle", null, "no rotation in the model", T],
+    ["Rubber-band selection", "RubberBandSelectionMode", "boxSelect", "", D],
+    ["Drawing tools", "drawingObject", "addNode", "a palette that adds, not a drag-to-draw tool", P],
+    ["Keyboard commands", "diagram/keyboard-commands", "selectAll", "", D],
+    ["Context menu", "objects/context-menu", null, "", T],
+    ["Tooltips", "objects/tooltip", null, "", T],
+    ["Undo / redo", "objects/undo-redo", "undoMove", "", D],
+    ["In-place text editing", "startTextEdit", "inPlaceEdit", "", D],
+    ["Snapping to gridlines", "objects/snapping", "snapPosition", "", D],
+    ["Containers and grouping", "objects/container, group", "embedding", "lanes with real parenting", D],
   ]],
   ["Automatic layout", [
-    ["Hierarchical tree", "layout/hierarchical-tree", "fitView", "layered (Sugiyama)"],
-    ["Complex hierarchical tree", "layout/complex-hierarchical-tree", "fitView", "dummy chains, crossing reduction"],
-    ["Organizational chart", "LayoutType 'OrganizationalChart'", "fitView", "domains/business"],
-    ["Symmetric layout", "layout/symmetrical-layout", "fitView", "d3-force, measured against d3"],
-    ["Radial tree", "layout/radial-tree", "radialLayout", ""],
-    ["Mind map", "layout/mind-map", "mindMap", ""],
-    ["Flowchart layout", "LayoutType 'Flowchart'", "fitView", ""],
+    ["Hierarchical tree", "layout/hierarchical-tree", "layeredLayout", "layered (Sugiyama)", D],
+    ["Complex hierarchical tree", "layout/complex-hierarchical-tree", "longEdgeChain", "dummy chains, crossing reduction", D],
+    ["Organizational chart", "LayoutType 'OrganizationalChart'", "orgChartLayout", "domains/business", D],
+    ["Symmetric layout", "layout/symmetrical-layout", "forceLayout", "d3-force, measured against d3", D],
+    ["Radial tree", "layout/radial-tree", "radialLayout", "", D],
+    ["Mind map", "layout/mind-map", "mindMap", "", D],
+    ["Flowchart layout", "LayoutType 'Flowchart'", "flowchartLayout", "", D],
   ]],
   ["Surface and output", [
-    ["Overview panel", "Overview", "minimap", ""],
-    ["Symbol palette", "SymbolPalette", "addNode", "a palette of shapes; no drag-and-drop from it"],
-    ["Gridlines", "diagram/grid-lines", "backgroundVariants", ""],
-    ["Rulers", "diagram/ruler-settings", "rulers", ""],
-    ["Page layout", "diagram/page-settings", "fitView", "page size and margins on export, not on the surface"],
-    ["Serialization", "saveDiagram / loadDiagram", "serialization", ""],
-    ["Export to SVG", "FileFormats 'SVG'", "edgeTypes", ""],
-    ["Export to PNG / JPEG / BMP", "FileFormats 'PNG' / 'JPG' / 'BMP'", null, "the SoftCanvas backend renders, but there is no encoder wired up"],
-    ["Print", "print()", "fitView", "PDF, which is what printing produces"],
-    ["Data binding from a source", "dataSourceSettings", "dataBinding", ""],
-    ["Zoom and pan", "zoomTo, pan", "zoomAtCursor", ""],
+    ["Overview panel", "Overview", "minimap", "", D],
+    ["Symbol palette", "SymbolPalette", "addNode", "a palette of shapes; nothing is dragged out of it", P],
+    ["Gridlines", "diagram/grid-lines", "backgroundVariants", "", D],
+    ["Rulers", "diagram/ruler-settings", "rulers", "", D],
+    ["Page layout", "diagram/page-settings", "fitView", "page size and margins on export, but no page drawn on the surface", P],
+    ["Serialization", "saveDiagram / loadDiagram", "serialization", "", D],
+    ["Export to SVG", "FileFormats 'SVG'", "edgeTypes", "", D],
+    ["Export to PNG / JPEG / BMP", "FileFormats 'PNG' / 'JPG' / 'BMP'", null, "the SoftCanvas backend renders, but there is no encoder wired up", T],
+    ["Print", "print()", "fitView", "PDF, which is what printing produces", D],
+    ["Data binding from a source", "dataSourceSettings", "dataBinding", "", D],
+    ["Zoom and pan", "zoomTo, pan", "zoomAtCursor", "", D],
   ]],
 ];
 
 function score(list) {
   const out = [];
   for (const [section, rows] of list) {
-    for (const [name, source, probe, note] of rows) {
-      let status = "todo";
+    for (const [name, source, probe, note, claimed] of rows) {
+      let status = claimed;
       let evidence = "";
-      if (probe) {
+      if (claimed !== "todo" && !probe) {
+        status = "FAIL";
+        evidence = `claims '${claimed}' but names no probe`;
+      } else if (probe) {
         const p = probeById.get(probe);
         if (!p) {
           status = "FAIL";
           evidence = `probe '${probe}' is named here but not produced`;
-        } else if (p.ok) {
-          status = note ? "partial" : "done";
-          evidence = p.note;
-        } else {
+        } else if (!p.ok) {
           status = "FAIL";
           evidence = p.note;
+        } else {
+          evidence = p.note;
+          // A `todo` row with a passing probe is a row somebody forgot to
+          // promote. Say so rather than scoring it as a gap for ever.
+          if (claimed === "todo") {
+            status = "FAIL";
+            evidence = `probe '${probe}' passes but the row still says todo`;
+          }
         }
       }
       out.push({ section, name, source, probe, note, status, evidence });

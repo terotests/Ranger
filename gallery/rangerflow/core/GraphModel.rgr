@@ -667,7 +667,12 @@ class FlowEdge {
     def id:string ""
     def source:string ""
     def target:string ""
-    ; "default" (bezier) | "straight" | "step" | "smoothstep" | "simplebezier"
+    ; React Flow's four — "default" (bezier), "straight", "step",
+    ; "smoothstep" — plus "simplebezier", and the three JointJS publishes that
+    ; are their own families rather than variations: "curve" (a spline with a
+    ; tension, which will pass through the link's vertices), "metro"
+    ; (orthogonal with the corners cut at 45°) and "oneside" (out, along and
+    ; back, all on one face). "orthogonal" is the wider-cornered step.
     def edgeType:string "default"
     def label:string ""
     def animated:boolean false

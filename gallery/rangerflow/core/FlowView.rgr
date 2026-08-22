@@ -892,22 +892,21 @@ class FlowView {
                 poly.stroke = border
                 poly.strokeWidth = bw
                 poly.tag = tag
-                if (n.shape == "cylinder") {
-                    ; The lid: the near half of the top ellipse, drawn as a
-                    ; line across the body so the drum reads as a drum.
-                    def lid:[double] (FlowShapes.drumLid(x y w h))
-                    def lidItem:SceneItem (sc.path(lid (this.screenPathD(lid)) border bw))
-                    lidItem.tag = tag
-                }
+                this.paintOrnaments(sc n x y w h tag border bw)
                 this.paintShapeLabel(sc n x y w h tag)
                 return
             }
         }
         def body:SceneItem (sc.rect(x y w h fill))
+        def want:double (FlowShapes.radiusFor(n.shape w h))
+        if (want >= 0.0) {
+            radius = (this.sl(want))
+        }
         body.radius = radius
         body.stroke = border
         body.strokeWidth = bw
         body.tag = tag
+        this.paintOrnaments(sc n x y w h tag border bw)
         if (n.shape == "predefined") {
             ; Two bars: "this step is a whole procedure of its own".
             def inset:double (this.sl(9.0))
@@ -944,6 +943,36 @@ class FlowView {
             return
         }
         this.paintCompartments(sc n x y w h tag)
+    }
+
+    ; The lines drawn ON a shape rather than round it: the lid of a drum, the
+    ; bar across a sort, the cross in an OR junction, the sheets behind the
+    ; front page of a stack. They are strokes, they carry the node's tag so a
+    ; click on one is a click on the node, and every backend already has the
+    ; primitive — which is the whole reason the shape system emits points and
+    ; never asks a renderer to know what a "sort" is.
+    fn paintOrnaments:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string border:string bw:double) {
+        def count:int (FlowShapes.ornamentCount(n.shape))
+        def i:int 0
+        while (i < count) {
+            def pts:[double] (FlowShapes.ornamentAt(n.shape x y w h i))
+            if ((array_length pts) >= 4) {
+                if (FlowShapes.ornamentClosed(n.shape i)) {
+                    ; Filled, because the one shape that uses a closed
+                    ; ornament is UML's final node and the bullseye in the
+                    ; middle of it is solid.
+                    def ring:SceneItem (sc.polygon(pts border))
+                    ring.stroke = border
+                    ring.strokeWidth = bw
+                    ring.tag = tag
+                } {
+                    def d:string (this.screenPathD(pts))
+                    def line:SceneItem (sc.path(pts d border bw))
+                    line.tag = tag
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     ; A swimlane: a pale band with its name written down the left-hand edge,
