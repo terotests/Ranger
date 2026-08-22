@@ -40,6 +40,33 @@ class CfRule {
     }
 }
 
+; ------------------------------------------------------------------------------
+; A worksheet child the writer does not generate, kept verbatim.
+;
+; This is the spreadsheet's half of the idea `PptxOpaque` carries for slides:
+; Ranger does not have to understand something in order to preserve it. What is
+; in here is the source text of one element and the name that says where in the
+; worksheet's element order it goes back.
+;
+; What ends up here is exactly what `XlsxWriter.sheetXml` does NOT emit —
+; `<drawing>` and `<legacyDrawing>` (the references to the pictures and the
+; comments), `<pageSetup>`, `<headerFooter>`, `<conditionalFormatting>`,
+; `<sheetProtection>`, `<oleObjects>` and the rest. Without them a saved
+; workbook keeps the media parts and points at none of them, which is the same
+; as losing them.
+; ------------------------------------------------------------------------------
+class SheetOpaque {
+    ; The element name, which decides where it goes back. SpreadsheetML fixes
+    ; the order of a worksheet's children and Excel refuses a file that gets it
+    ; wrong, so this is not decoration.
+    def name:string ""
+    ; The element and everything inside it, exactly as it was read.
+    def source:string ""
+
+    Constructor () {
+    }
+}
+
 class CellPos {
     def row:int 0
     def col:int 0
@@ -318,6 +345,15 @@ class SpreadsheetModel {
     def notes:[string:string]
     def noteKeys:[string]
     def sheetHidden:boolean false
+    ; Worksheet children nothing here models, kept so a save can put them back.
+    ; See `SheetOpaque`.
+    def opaque:[SheetOpaque]
+    ; Which part of the package this sheet was read from. A save that writes
+    ; over the source has to put the sheet back where it was: the relationship
+    ; part beside it is named after it, and a sheet written to a different name
+    ; would leave its own pictures and comments pointing nowhere. Empty for a
+    ; sheet that was made here rather than read.
+    def partPath:string ""
     def scrollXSaved:int 0
     def scrollYSaved:int 0
     def rowGeomDirty:boolean true
@@ -355,6 +391,7 @@ class SpreadsheetModel {
         clear styles
         clear merges
         clear cfRules
+        clear opaque
         clear rowHeights
         clear colWidths
         clear rowOffsets

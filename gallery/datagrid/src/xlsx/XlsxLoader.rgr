@@ -81,6 +81,9 @@ class XlsxLoader {
 
     fn loadPackage:boolean (pkg:XlsxPackage book:WorkbookModel) {
         book.clear()
+        ; Kept so a later save can preserve the parts nothing here models —
+        ; see `WorkbookModel.sourceBytes` and `XlsxWriter.writeOver`.
+        book.sourceBytes = pkg.plainBytes
         def wb:XlsxWorkbook (new XlsxWorkbook)
         wb.load(pkg)
         if ((wb.sheetCount()) == 0) {
@@ -113,6 +116,8 @@ class XlsxLoader {
             def sheet:SpreadsheetModel (new SpreadsheetModel)
             sheet.name = info.name
             sheet.sheetHidden = info.hidden
+            ; Where it came from, so a save-over can put it back there.
+            sheet.partPath = info.path
             sheet.quietWrites = true
             def xml:string (pkg.entryText(info.path))
             if ((strlen xml) == 0) {

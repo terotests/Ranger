@@ -97,7 +97,7 @@ The order below is by leverage, not by size. Each entry names what exists in
 the repo today, so the work starts from the real code rather than from a
 diagram.
 
-### 1. Source-preserving OOXML — done for `.pptx`, open for `.xlsx`
+### 1. Source-preserving OOXML — done for `.pptx` and `.xlsx`
 
 `SourceRef` is where a parsed object came from: part, start, end. `PptxXmlNode`
 carries the span of every element it reads, and a child of `p:spTree` or of
@@ -121,9 +121,44 @@ What is still open:
   describe — a shape's own `extLst`, an effect nobody reads — is lost. Doing
   this safely needs a per-shape "has this changed?" that cannot silently answer
   wrong, because answering wrong the other way discards the user's edit.
-- **`.xlsx` has no save-over at all.** `XlsxWriter` always writes a fresh
-  package, so preservation there means building the keep-the-package machinery
-  first — which `.pptx` already had when this work started.
+
+### 1b. `.xlsx` save-over — **both saves exist now**
+
+**`.xlsx` has both saves now.** `XlsxWriter.write` builds a fresh package and
+`writeOver` preserves the one the workbook came from; `GridApp.preserveOnSave`
+picks, and defaults to preserving, because the surprising outcome is the one
+where saving quietly deletes half the file. Cleaning stays a deliberate option
+rather than the only behaviour.
+
+What a plain save was dropping, measured on this repository's own fixtures:
+
+| | |
+| --- | --- |
+| `images.xlsx` | the drawing, its relationships and **both media parts** — a spreadsheet with pictures came back with none |
+| `annotations.xlsx` | `xl/comments1.xml` |
+| every workbook that had them | `docProps/core.xml`, `docProps/app.xml`, `xl/theme/theme1.xml` |
+
+Keeping the bytes is the easy half. The hard half is the four places that NAME
+parts, because keeping the media and losing the reference is the same as losing
+the media: the content types, the package relationships, the workbook
+relationships, and the worksheet's own `<drawing>` / `<legacyDrawing>`
+elements. That last one is `SheetOpaque`, the spreadsheet's version of
+`PptxOpaque` — an allowlist of the worksheet children this writer does not
+generate, kept verbatim and put back at the right point in SpreadsheetML's
+fixed child order.
+
+Two things it gets for free. `<conditionalFormatting>` is read into `cfRules`
+and never written, so preserving the source keeps it in the file until the
+writer learns to state it. And the sheet goes back to **its own part path**, so
+the relationship part beside it still matches.
+
+The test asserts zero parts dropped across eight fixtures, that the pictures
+come back **on the sheet** rather than merely in the zip, that an edit made
+before saving is what was saved, and that no relationship in the written file
+names a part the file does not contain. `tools/check_preserve.py` then opens
+the same files with openpyxl — a reader that has never seen this model — since
+a subtly invalid content-types merge produces a file our own loader is happy
+with and Excel refuses.
 
 ### 2. Typography core — started, in `gallery/office/text/`
 

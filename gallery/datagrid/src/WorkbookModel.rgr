@@ -12,6 +12,20 @@ class WorkbookModel {
     def sheets:[SpreadsheetModel]
     def activeIndex:int 0
     def sourcePath:string ""
+    ; The package this workbook was read from, kept as bytes.
+    ;
+    ; A spreadsheet writer that always builds a fresh package writes a CLEAN
+    ; file, which is sometimes exactly what is wanted — and drops everything
+    ; the model does not carry, which mostly is not. Keeping the source is what
+    ; lets `XlsxWriter.writeOver` copy those parts through: the pictures, the
+    ; comments, the theme, the document properties, and anything else a future
+    ; version of Excel put in there that nothing here has ever heard of.
+    ;
+    ; It costs a copy of the file's bytes, which is small beside the parsed
+    ; model of the same file. A host that wants that memory back calls
+    ; `dropSource()`, and save-over then falls back to a clean write and says
+    ; so rather than silently writing a different kind of file.
+    def sourceBytes:buffer (buffer_alloc 0)
     ; Scripts carried by the package (see script/GridScript.rgr). The loader
     ; fills this from the `ranger/` parts and the writer puts it back, so a
     ; script is part of the document rather than something beside it.
@@ -25,6 +39,17 @@ class WorkbookModel {
         clear scripts
         activeIndex = 0
         sourcePath = ""
+        sourceBytes = (buffer_alloc 0)
+    }
+
+    ; Is there a package to preserve? A workbook made in the editor has none,
+    ; and there is nothing to preserve about a file that never existed.
+    fn hasSource:boolean () {
+        return ((buffer_length sourceBytes) > 0)
+    }
+
+    fn dropSource:void () {
+        sourceBytes = (buffer_alloc 0)
     }
 
     fn addSheet:void (sheet:SpreadsheetModel) {

@@ -1,0 +1,295 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; XlsxPreserveTest — saving a spreadsheet should not delete half of it
+; ==============================================================================
+;
+; `XlsxWriter.write` builds a fresh package, which is a CLEAN file and
+; sometimes exactly what a person wants. It is a terrible only option. Measured
+; on this repository's own fixtures, a plain save dropped:
+;
+;   images.xlsx        the drawing, its relationships and BOTH media parts —
+;                      a spreadsheet with pictures came back with none
+;   annotations.xlsx   xl/comments1.xml
+;   every workbook     docProps/core.xml, docProps/app.xml, xl/theme/theme1.xml
+;
+; `writeOver` is the other half. What it has to get right is not "keep the
+; bytes" — that part is easy — but the four places that NAME parts: the content
+; types, the package relationships, the workbook relationships, and the
+; worksheet's own `<drawing>` and `<legacyDrawing>` elements. Keeping the media
+; and losing the reference is the same as losing the media.
+;
+;   npm run datagrid:preserve:test
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+Import "../src/xlsx/XlsxWriter.rgr"
+Import "../../ooxml/OpcPackage.rgr"
+
+class PreserveCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class XlsxPreserveTest {
+    def c:PreserveCheck (new PreserveCheck)
+
+    sfn main:void () {
+        def t (new XlsxPreserveTest())
+        t.run()
+    }
+
+    sfn open:GridApp (path:string) {
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        if ((app.loadXlsx(path)) == false) {
+            print ("  could not open " + path)
+        }
+        return app
+    }
+
+    fn run:void () {
+        print "=== XlsxPreserveTest ==="
+        this.testEveryPartSurvives()
+        this.testCleanSaveIsStillClean()
+        this.testPicturesAndTheirReferences()
+        this.testCommentsSurvive()
+        this.testEditsStillApply()
+        this.testNoDanglingRelationships()
+        this.testNothingToPreserve()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn fixtures:[string] () {
+        def f:[string]
+        push f "images.xlsx"
+        push f "annotations.xlsx"
+        push f "business-workbook.xlsx"
+        push f "tables.xlsx"
+        push f "formulas.xlsx"
+        push f "styles-showcase.xlsx"
+        push f "merged.xlsx"
+        push f "sales.xlsx"
+        return f
+    }
+
+    ; --------------------------------------------------------------------------
+
+    fn testEveryPartSurvives:void () {
+        print "--- nothing is dropped ---"
+        def files:[string] (this.fixtures())
+        def i:int 0
+        while (i < (array_length files)) {
+            def f:string (itemAt files i)
+            def app:GridApp (XlsxPreserveTest.open(("gallery/datagrid/fixtures/" + f)))
+            def w (new XlsxWriter)
+            def ok:boolean (w.writeOver(app.book "gallery/datagrid/bin" ("preserve-" + f)))
+            c.ok((f + ": written over") ok)
+            if ok {
+                def a (new OpcPackage())
+                def b (new OpcPackage())
+                if (a.openParts("gallery/datagrid/fixtures" f)) {
+                    if (b.openParts("gallery/datagrid/bin" ("preserve-" + f))) {
+                        def src:[string] (a.listParts())
+                        def lost:string ""
+                        def j:int 0
+                        while (j < (array_length src)) {
+                            def part:string (itemAt src j)
+                            if ((b.hasPart(part)) == false) {
+                                lost = (lost + (part + " "))
+                            }
+                            j = (j + 1)
+                        }
+                        c.eqStr((f + ": every part is still there") lost "")
+                        b.close()
+                    }
+                    a.close()
+                }
+                def again:GridApp (XlsxPreserveTest.open(("gallery/datagrid/bin/preserve-" + f)))
+                c.ok((f + ": and it still opens") ((again.book.sheetCount()) > 0))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The other half of the choice. A clean write is not a bug — it is what
+    ; "give me a file with nothing in it but my data" means, and it has to stay
+    ; possible and stay clean.
+    fn testCleanSaveIsStillClean:void () {
+        print "--- and a clean save is still clean ---"
+        def app:GridApp (XlsxPreserveTest.open("gallery/datagrid/fixtures/images.xlsx"))
+        def w (new XlsxWriter)
+        c.ok("written fresh" (w.write(app.book "gallery/datagrid/bin" "clean-images.xlsx")))
+        def b (new OpcPackage())
+        if (b.openParts("gallery/datagrid/bin" "clean-images.xlsx")) {
+            c.ok("the drawing is NOT in it" ((b.hasPart("xl/drawings/drawing1.xml")) == false))
+            c.ok("nor the media" ((b.hasPart("xl/media/image1.png")) == false))
+            c.ok("but the workbook is" (b.hasPart("xl/workbook.xml")))
+            b.close()
+        }
+        def again:GridApp (XlsxPreserveTest.open("gallery/datagrid/bin/clean-images.xlsx"))
+        c.ok("and it opens" ((again.book.sheetCount()) > 0))
+    }
+
+    ; Keeping the media and losing the reference is the same as losing the
+    ; media, so this checks the picture arrives back on the sheet rather than
+    ; merely surviving as bytes in the zip.
+    fn testPicturesAndTheirReferences:void () {
+        print "--- the pictures come back on the sheet ---"
+        def app:GridApp (XlsxPreserveTest.open("gallery/datagrid/fixtures/images.xlsx"))
+        def sheet0:SpreadsheetModel (app.book.sheetAt(0))
+        def before:int (array_length sheet0.images)
+        c.ok("the fixture has pictures to lose" (before > 0))
+        def w (new XlsxWriter)
+        c.ok("written over" (w.writeOver(app.book "gallery/datagrid/bin" "preserve-pics.xlsx")))
+        def again:GridApp (XlsxPreserveTest.open("gallery/datagrid/bin/preserve-pics.xlsx"))
+        def sheet:SpreadsheetModel (again.book.sheetAt(0))
+        c.eqInt("the same number came back" (array_length sheet.images) before)
+        def withBytes:int 0
+        def i:int 0
+        while (i < (array_length sheet.images)) {
+            def img:SheetImage (itemAt sheet.images i)
+            if ((buffer_length img.bytes) > 0) {
+                withBytes = (withBytes + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("and every one of them carries its bytes" withBytes before)
+        ; The same file written fresh: the pictures are gone. Stated here so
+        ; the difference between the two saves is a number rather than a claim.
+        def w2 (new XlsxWriter)
+        w2.write(app.book "gallery/datagrid/bin" "clean-pics.xlsx")
+        def clean:GridApp (XlsxPreserveTest.open("gallery/datagrid/bin/clean-pics.xlsx"))
+        def cleanSheet:SpreadsheetModel (clean.book.sheetAt(0))
+        c.eqInt("a clean save has none of them" (array_length cleanSheet.images) 0)
+    }
+
+    fn testCommentsSurvive:void () {
+        print "--- and so do the comments ---"
+        def app:GridApp (XlsxPreserveTest.open("gallery/datagrid/fixtures/annotations.xlsx"))
+        def sheet:SpreadsheetModel (app.book.sheetAt(0))
+        def before:int (array_length sheet.noteKeys)
+        c.ok("the fixture has notes to lose" (before > 0))
+        def w (new XlsxWriter)
+        c.ok("written over" (w.writeOver(app.book "gallery/datagrid/bin" "preserve-notes.xlsx")))
+        def again:GridApp (XlsxPreserveTest.open("gallery/datagrid/bin/preserve-notes.xlsx"))
+        def afterSheet:SpreadsheetModel (again.book.sheetAt(0))
+        c.eqInt("the notes came back" (array_length afterSheet.noteKeys) before)
+    }
+
+    ; Preservation that preserved the OLD cell values would be worse than
+    ; useless: the point of saving is what was changed.
+    fn testEditsStillApply:void () {
+        print "--- the edit is what was saved ---"
+        def app:GridApp (XlsxPreserveTest.open("gallery/datagrid/fixtures/images.xlsx"))
+        def m:SpreadsheetModel (app.book.sheetAt(0))
+        m.setCellRaw(0 0 "CHANGED")
+        m.setCellRaw(5 5 "NEW CELL")
+        def w (new XlsxWriter)
+        c.ok("written over" (w.writeOver(app.book "gallery/datagrid/bin" "preserve-edit.xlsx")))
+        def again:GridApp (XlsxPreserveTest.open("gallery/datagrid/bin/preserve-edit.xlsx"))
+        def m2:SpreadsheetModel (again.book.sheetAt(0))
+        c.eqStr("the changed cell is changed" (m2.getCell(0 0)) "CHANGED")
+        c.eqStr("and the new one is there" (m2.getCell(5 5)) "NEW CELL")
+        c.ok("and the pictures are still there too" ((array_length m2.images) > 0))
+    }
+
+    ; The invariant that no hand-written package assembler holds: every
+    ; relationship in the written file has to name a part the file contains.
+    ; This is what catches a merge that kept a relationship and dropped its
+    ; target, or renumbered an id that something else still points at.
+    fn testNoDanglingRelationships:void () {
+        print "--- every relationship names a part that is there ---"
+        def files:[string] (this.fixtures())
+        def i:int 0
+        while (i < (array_length files)) {
+            def f:string (itemAt files i)
+            def app:GridApp (XlsxPreserveTest.open(("gallery/datagrid/fixtures/" + f)))
+            def w (new XlsxWriter)
+            if (w.writeOver(app.book "gallery/datagrid/bin" ("rels-" + f))) {
+                def b (new OpcPackage())
+                if (b.openParts("gallery/datagrid/bin" ("rels-" + f))) {
+                    def dangling:string ""
+                    def parts:[string] (b.listParts())
+                    def j:int 0
+                    while (j < (array_length parts)) {
+                        def part:string (itemAt parts j)
+                        def rels:[OpcRelationship] (b.relationshipsFor(part))
+                        def r:int 0
+                        while (r < (array_length rels)) {
+                            def rel:OpcRelationship (itemAt rels r)
+                            if (rel.targetMode != "External") {
+                                def target:string (b.resolveRelationship(part rel.id))
+                                if ((strlen target) == 0) {
+                                    dangling = (dangling + ((part + "#") + (rel.id + " ")))
+                                } {
+                                    if ((b.hasPart(target)) == false) {
+                                        dangling = (dangling + (target + " "))
+                                    }
+                                }
+                            }
+                            r = (r + 1)
+                        }
+                        j = (j + 1)
+                    }
+                    c.eqStr((f + ": nothing points at a part that is not there") dangling "")
+                    b.close()
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A workbook that was never read from a file has nothing to write over, and
+    ; saying so is better than quietly writing a different kind of file.
+    fn testNothingToPreserve:void () {
+        print "--- a workbook with no source ---"
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.model.clearSheet()
+        app.model.name = "Made here"
+        app.model.setCellRaw(0 0 "hello")
+        c.ok("it has no source package" ((app.book.hasSource()) == false))
+        def w (new XlsxWriter)
+        c.ok("writing over it is refused" ((w.writeOver(app.book "gallery/datagrid/bin" "nosource.xlsx")) == false))
+        c.ok("and it says why" ((strlen w.lastError) > 0))
+        ; The host does the sensible thing rather than failing: a clean write
+        ; is not a fallback there, it is the only kind of save that exists.
+        c.ok("but saving works" (app.saveXlsx("gallery/datagrid/bin" "nosource.xlsx")))
+        def again:GridApp (XlsxPreserveTest.open("gallery/datagrid/bin/nosource.xlsx"))
+        def madeSheet:SpreadsheetModel (again.book.sheetAt(0))
+        c.eqStr("with the data in it" (madeSheet.getCell(0 0)) "hello")
+
+        ; And a host that gave the memory back gets the same honest answer.
+        def loaded:GridApp (XlsxPreserveTest.open("gallery/datagrid/fixtures/sales.xlsx"))
+        c.ok("a loaded workbook has one" (loaded.book.hasSource()))
+        loaded.book.dropSource()
+        c.ok("until it is dropped" ((loaded.book.hasSource()) == false))
+        def w2 (new XlsxWriter)
+        c.ok("and then writing over is refused too" ((w2.writeOver(loaded.book "gallery/datagrid/bin" "dropped.xlsx")) == false))
+    }
+}

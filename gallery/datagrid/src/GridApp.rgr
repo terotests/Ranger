@@ -1849,6 +1849,24 @@ class GridApp {
     }
 
     ; --- saving ---------------------------------------------------------------
+    ;
+    ; Two saves, and the caller chooses.
+    ;
+    ;   preserveOnSave = true   write over the package the workbook came from,
+    ;                           keeping the pictures, the comments, the theme,
+    ;                           the document properties and everything else the
+    ;                           model has never heard of. What a person means by
+    ;                           "Save".
+    ;   preserveOnSave = false  build a fresh package. A CLEAN file, with
+    ;                           nothing in it this editor did not put there —
+    ;                           which is sometimes exactly what is wanted, and
+    ;                           is the only thing possible for a workbook that
+    ;                           was never read from a file.
+    ;
+    ; It defaults to preserving, because the surprising outcome is the one where
+    ; saving a spreadsheet quietly deletes half of it.
+    def preserveOnSave:boolean true
+
     ; The workbook, written back out as .xlsx. The loader and the writer share
     ; the model, so what comes back is what was there — see XlsxWriteTest, and
     ; tools/check_export.py for the same file read by openpyxl.
@@ -1857,7 +1875,18 @@ class GridApp {
             this.commitEdit()
         }
         def w:XlsxWriter (new XlsxWriter)
-        def ok:boolean (w.write(book dir name))
+        def ok:boolean false
+        if preserveOnSave {
+            if (book.hasSource()) {
+                ok = (w.writeOver(book dir name))
+            } {
+                ; Nothing to preserve — a workbook made here. A clean write is
+                ; not a fallback in that case, it is the only kind there is.
+                ok = (w.write(book dir name))
+            }
+        } {
+            ok = (w.write(book dir name))
+        }
         if ok {
             savedPath = (dir + "/" + name)
             ; Next Save should overwrite this file, not invent a -export copy.
@@ -1876,7 +1905,16 @@ class GridApp {
             this.commitEdit()
         }
         def w:XlsxWriter (new XlsxWriter)
-        def data:buffer (w.writeToBuffer(book))
+        def data:buffer (buffer_alloc 0)
+        if preserveOnSave {
+            if (book.hasSource()) {
+                data = (w.writeOverToBuffer(book))
+            } {
+                data = (w.writeToBuffer(book))
+            }
+        } {
+            data = (w.writeToBuffer(book))
+        }
         if ((strlen w.lastError) > 0) {
             view.status = ("save failed: " + w.lastError)
         }

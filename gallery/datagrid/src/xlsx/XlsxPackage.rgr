@@ -32,6 +32,12 @@ Import "XlsxOfficeCrypto.rgr"
 
 class XlsxPackage {
     def opc:OpcPackage (new OpcPackage())
+    ; The plain ZIP bytes this package was opened from — after decryption, so a
+    ; password-protected workbook hands over the same thing an ordinary one
+    ; does. A save that preserves the parts nobody modelled has to be able to
+    ; read them back after the package is closed, and closing it is what the
+    ; loader does the moment it is finished.
+    def plainBytes:buffer (buffer_alloc 0)
     def openOk:boolean false
     def pathDir:string "."
     def pathName:string ""
@@ -100,6 +106,7 @@ class XlsxPackage {
             openOk = false
             return false
         }
+        plainBytes = data
         openOk = (opc.openBytes(data pathName))
         if (openOk == false) {
             lastError = "could not open the workbook: not a zip"
