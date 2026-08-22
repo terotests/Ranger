@@ -134,8 +134,14 @@ class DocImage {
     }
 
     sfn emuToPx:int (emu:int) {
-        ; 914400 EMU = 1 inch; 96 CSS px/inch
-        return (to_int (((to_double emu) * 96.0) / 914400.0))
+        ; 914400 EMU = 1 inch; 96 CSS px/inch. Rounded rather than truncated,
+        ; and rounded away from zero on both sides — `to_int` floors, so a
+        ; negative offset would otherwise land a pixel out.
+        def v:double (((to_double emu) * 96.0) / 914400.0)
+        if (v < 0.0) {
+            return (0 - (to_int ((0.0 - v) + 0.5)))
+        }
+        return (to_int (v + 0.5))
     }
 
     fn syncPx:void () {
@@ -333,9 +339,22 @@ class RichDocument {
     def nextParaId:int 1
     def nextTableId:int 1
     def nextChartId:int 1
+    ; Bumped by every edit, and never reused, so anything that keeps a picture
+    ; of this document — a laid-out page, a thumbnail, a cached measurement —
+    ; can tell whether it is looking at the same document it built from. The
+    ; pptx side arrived at the same thing for the same reason: laying a
+    ; five-hundred-paragraph document out again to draw one page of it is the
+    ; cost that follows the document rather than the frame.
+    def revision:int 0
 
     Constructor () {
         push sections section
+    }
+
+    ; Say that something in here changed. Every edit path goes through this,
+    ; and anything that keeps a derived picture watches it.
+    fn touch:void () {
+        revision = (revision + 1)
     }
 
     fn ensureSection:DocSection (idx:int) {
