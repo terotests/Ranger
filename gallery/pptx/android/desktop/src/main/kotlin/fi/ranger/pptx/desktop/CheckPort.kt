@@ -287,17 +287,63 @@ private fun touch(root: File) {
         }
     }
 
+    // --- the press has to reach the viewer at all ----------------------------
+    //
+    // The host's job is to deliver it, and the way that goes wrong is silent:
+    // a `GestureDetector` whose `onDown` returns true reports every press as
+    // handled, a host that believes it stops there, and the app never learns a
+    // finger landed — the page still renders perfectly and nothing responds.
+    // `pressTaken` is the viewer's own answer, so this is the check that the
+    // press arrived rather than the check that the router ran.
+    run {
+        val r = router()
+        val item = (0 until r.app.app.toolbar.items.size)
+            .map { r.app.app.toolbar.items[it] }
+            .firstOrNull { it.command == "slide.next" }
+        check("the strip has a button to press", item != null)
+        if (item != null) {
+            r.down((item.x + item.w / 2) * density, (item.y + item.h / 2) * density)
+            check("a press on the strip reaches the viewer", r.pressTaken())
+            r.up((item.x + item.w / 2) * density, (item.y + item.h / 2) * density)
+        }
+
+        val pa = r.app.app
+        r.down((pa.panelThumbX() + pa.panelThumbW() / 2) * density, (pa.panelThumbY(1) + pa.panelThumbH() / 2) * density)
+        check("a press on the slide panel reaches the viewer", r.pressTaken())
+        r.up((pa.panelThumbX() + pa.panelThumbW() / 2) * density, (pa.panelThumbY(1) + pa.panelThumbH() / 2) * density)
+    }
+
     // --- flicks ---------------------------------------------------------------
     run {
         val r = router()
         val overPage = (r.app.slidePanelWidth() + 200) * density
         val overPanel = (r.app.slidePanelWidth() / 2) * density
+        val pressY = 400f * density
 
+        // `PptxApp` opens in edit mode, and there a press on the page starts a
+        // drag or a rubber band — so the flick that follows it is the app's
+        // gesture, not a page turn, or a swipe would leave an edit behind it.
+        check("the viewer starts in edit mode", r.app.editing())
+        r.down(overPage, pressY)
+        check("…where a press on the page is the app's", r.pressTaken())
+        check("…so a flick after it is not a page turn", !r.fling(overPage, -3000f, 0f))
+        checkEq("…and the deck did not move", 0, r.app.slideIndex())
+        r.up(overPage, pressY)
+
+        // The host leaves edit mode on start-up; this is the same route.
+        r.command("edit.toggle")
+        check("the toggle leaves edit mode", !r.app.editing())
+
+        r.down(overPage, pressY)
+        check("…where the app takes nothing on the page", !r.pressTaken())
         check("a flick left turns the page", r.fling(overPage, -3000f, 0f))
         checkEq("…forwards", 1, r.app.slideIndex())
+        r.up(overPage, pressY)
 
+        r.down(overPage, pressY)
         check("a flick right turns it back", r.fling(overPage, 3000f, 0f))
         checkEq("…backwards", 0, r.app.slideIndex())
+        r.up(overPage, pressY)
 
         check("a flick that starts over the panel is the panel's", !r.fling(overPanel, -3000f, 0f))
         checkEq("…so the deck did not move", 0, r.app.slideIndex())
