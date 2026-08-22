@@ -59,6 +59,13 @@ class ResolvedRunStyle {
 
 class ResolvedParagraphStyle {
     def align:int 0
+    ; Was the alignment actually stated, or is `align` just the default? An
+    ; unaligned right-to-left paragraph belongs against the RIGHT margin, and
+    ; that can only be decided if "nobody said" is distinguishable from
+    ; "somebody said left".
+    def alignSet:boolean false
+    ; -1 nobody said, 0 left to right, 1 right to left.
+    def bidi:int -1
     def spaceBeforePt:double 0.0
     def spaceAfterPt:double 8.0
     def lineSpacing:double 1.15
@@ -76,6 +83,7 @@ class StyleDef {
     def basedOn:string ""
     def typ:string "paragraph"
     def align:int -1
+    def bidi:int -1
     def spaceBeforePt:double -1.0
     def spaceAfterPt:double -1.0
     def lineSpacing:double -1.0
@@ -149,6 +157,27 @@ class WordStyleResolver {
             return 0
         }
         return -1
+    }
+
+    ; A Word toggle element: <w:bidi/> means on, <w:bidi w:val="0"/> means
+    ; off, and absent means "inherit whatever the style said". Returning -1
+    ; for absent is what makes a style overridable — a paragraph that says
+    ; nothing must not silently mean "left to right" and cancel the
+    ; right-to-left style it is based on.
+    sfn toggleOf:int (xml:string name:string) {
+        def at:int (WordXml.findNext(xml name 0))
+        if (at < 0) {
+            return -1
+        }
+        def el:string (WordXml.sliceElement(xml name at))
+        def v:string (WordXml.attr((WordXml.openTag(el)) "w:val"))
+        if ((strlen v) == 0) {
+            return 1
+        }
+        if (((v == "0") || (v == "false")) || (v == "off")) {
+            return 0
+        }
+        return 1
     }
 
     fn parseStylesXml:void (xml:string) {
@@ -251,6 +280,9 @@ class WordStyleResolver {
             def jcEl:string (WordXml.sliceElement(pEl "w:jc" jc))
             defn.align = (WordStyleResolver.alignOf((WordXml.attr((WordXml.openTag(jcEl)) "w:val"))))
         }
+        ; A style can be the right-to-left one — which is how a whole Arabic
+        ; document is usually written, rather than by marking each paragraph.
+        defn.bidi = (WordStyleResolver.toggleOf(pEl "w:bidi"))
         def sp2:int (WordXml.findNext(pEl "w:spacing" 0))
         if (sp2 >= 0) {
             def spEl2:string (WordXml.sliceElement(pEl "w:spacing" sp2))
@@ -549,6 +581,10 @@ class WordStyleResolver {
             def defn:StyleDef (this.lookup(sid))
             if (defn.align >= 0) {
                 ps.align = defn.align
+                ps.alignSet = true
+            }
+            if (defn.bidi >= 0) {
+                ps.bidi = defn.bidi
             }
             if (defn.spaceBeforePt >= 0.0) {
                 ps.spaceBeforePt = defn.spaceBeforePt
@@ -590,12 +626,37 @@ class WordStyleResolver {
         if ((strlen pPrXml) == 0) {
             return
         }
+        ; The paragraph's own direction beats the style's, and is read BEFORE
+        ; the alignment because `w:jc` values "start" and "end" mean opposite
+        ; margins depending on it.
+        def b:int (WordStyleResolver.toggleOf(pPrXml "w:bidi"))
+        if (b >= 0) {
+            ps.bidi = b
+        }
         def jc:int (WordXml.findNext(pPrXml "w:jc" 0))
         if (jc >= 0) {
             def jcEl:string (WordXml.sliceElement(pPrXml "w:jc" jc))
-            def a:int (WordStyleResolver.alignOf((WordXml.attr((WordXml.openTag(jcEl)) "w:val"))))
+            def val:string (WordXml.attr((WordXml.openTag(jcEl)) "w:val"))
+            def a:int (WordStyleResolver.alignOf(val))
+            ; "start" and "end" are the direction-relative names, and they are
+            ; what Word writes in the strict flavour of the format. Reading
+            ; them as left and right puts every right-to-left paragraph
+            ; against the wrong margin.
+            if (val == "start") {
+                a = 0
+                if (ps.bidi == 1) {
+                    a = 2
+                }
+            }
+            if (val == "end") {
+                a = 2
+                if (ps.bidi == 1) {
+                    a = 0
+                }
+            }
             if (a >= 0) {
                 ps.align = a
+                ps.alignSet = true
             }
         }
         def sp:int (WordXml.findNext(pPrXml "w:spacing" 0))
@@ -697,6 +758,17 @@ class WordStyleResolver {
         }
         def ps:ResolvedParagraphStyle (this.resolveParagraphStyle(sid))
         this.applyDirectPPr(pPrXml ps p)
+        ; An unaligned right-to-left paragraph belongs against the RIGHT
+        ; margin. Word does not write a `w:jc` for it — the direction is the
+        ; alignment — so a reader that only looks at `w:jc` puts every Arabic
+        ; paragraph in the document hard against the left margin, which is the
+        ; first thing anyone notices and the last thing they forgive.
+        if (ps.bidi == 1) {
+            if (ps.alignSet == false) {
+                ps.align = 2
+            }
+        }
+        p.bidi = ps.bidi
         p.align = ps.align
         p.spaceBeforePt = ps.spaceBeforePt
         p.spaceAfterPt = ps.spaceAfterPt

@@ -36,6 +36,17 @@ class DocxInk {
     ; true:  append to the display list instead.
     def toList:boolean false
     def fontFamily:string "Open Sans"
+    ; Which way the paragraph being painted runs: -1 work it out from the
+    ; text, 0 left to right, 1 right to left. It is state on the ink rather
+    ; than an argument on every call for the same reason `fontFamily` is —
+    ; it belongs to the paragraph, not to the run, and threading it through
+    ; every `text`, `textStyled` and prefix call would be the same value
+    ; written eight times.
+    ;
+    ; It matters where the text alone would answer wrongly: a line that opens
+    ; with a Latin brand name and is otherwise Arabic reads left to right by
+    ; the algorithm's own rule, and right to left because the author said so.
+    def dir:int -1
 
     Constructor () {
     }
@@ -120,7 +131,7 @@ class DocxInk {
         if ((strlen s) == 0) {
             return
         }
-        def shown:string (OfficeText.forDisplay(s))
+        def shown:string (OfficeText.forDisplayDir(s dir))
         DocxTextMetrics.applyStyle(ctx.tr bold italic)
         if (toList == false) {
             ctx.text(shown x y size col)

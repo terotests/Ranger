@@ -236,8 +236,22 @@ class GridView {
     ; Done here and nowhere below: the software painter and the GL painter
     ; both draw whatever string reaches them, so a second pass would put a
     ; right-to-left line back the way it started.
+    ; Which way the cell being drawn reads: -1 work it out from the text, 0
+    ; left to right, 1 right to left. State on the view rather than an
+    ; argument on `pushStyledText`, because it belongs to the CELL and the
+    ; same cell can be drawn as several pieces — wrapped lines, a stacked
+    ; column, two runs of different sizes — and passing it through each of
+    ; them would be the same value written five times.
+    ;
+    ; Set from the style before every piece of cell text and put back to -1
+    ; for chrome, so a stale direction from the last cell cannot reach a
+    ; label. Nothing needs to reset it for correctness — the fast path leaves
+    ; Latin alone whatever it says — but a value that is only right by
+    ; accident is not worth leaving in place.
+    def textDir:int -1
+
     fn pushText:void (dl:EVGDisplayList text:string x:double y:double size:double col:EVGColor) {
-        def shown:string (OfficeText.forDisplay(text))
+        def shown:string (OfficeText.forDisplayDir(text textDir))
         def w:double (ctx.tr.measureWidth(shown size))
         def h:double (ctx.tr.lineHeight(size))
         dl.addText(shown x y size col fontFamily false false w h)
@@ -284,7 +298,7 @@ class GridView {
             return
         }
         this.applyFaceNamed(fontName bold italic)
-        def shown:string (OfficeText.forDisplay(text))
+        def shown:string (OfficeText.forDisplayDir(text textDir))
         def w:double (ctx.tr.measureWidth(shown size))
         def h:double (ctx.tr.lineHeight(size))
         dl.addText(shown x y size col (GridView.faceFamily(fontName)) bold italic w h)
@@ -397,6 +411,16 @@ class GridView {
         if (st.align == "center") {
             return (to_double (rect.x + (to_int ((to_double (rect.w - textW)) / 2.0))))
         }
+        ; A right-to-left cell with no stated alignment sits against the
+        ; RIGHT edge. Excel does not write a `horizontal` for that — the
+        ; reading order IS the alignment — so a reader that looks only at
+        ; `horizontal` puts every Arabic cell in the sheet hard against the
+        ; left edge, which is the first thing anyone notices.
+        if (st.readingOrder == 2) {
+            if (st.align == "left") {
+                return (to_double ((rect.x + rect.w) - textW - 4))
+            }
+        }
         return (to_double (rect.x + 4))
     }
 
@@ -431,6 +455,7 @@ class GridView {
             def lw:int (to_int (ctx.tr.measureWidth(line cellPx)))
             def lx:double (this.alignedX(rect st lw))
             def ly:int (top + (i * lineH))
+            textDir = (st.textDirection())
             this.pushStyledText(dl line lx (to_double ly) cellPx col st.fontName st.bold st.italic)
             this.paintDecoration(dl st lx ly lw cellPx col)
             i = (i + 1)
@@ -536,6 +561,7 @@ class GridView {
             def ch:string (substring txt i (i + 1))
             def cw:int (to_int (ctx.tr.measureWidth(ch cellPx)))
             def x:int ((rect.x + (idiv rect.w 2)) - (idiv cw 2))
+            textDir = (st.textDirection())
             this.pushStyledText(dl ch (to_double x) (to_double y) cellPx col st.fontName st.bold st.italic)
             y = (y + lineH)
             i = (i + 1)
@@ -579,6 +605,7 @@ class GridView {
             ; which is what makes a smaller suffix look attached to the word
             ; before it instead of floating above it.
             def runTop:int (top + (to_int (ctx.tr.lineHeight(cellPx))) - (to_int (ctx.tr.lineHeight(px2))))
+            textDir = (rs2.textDirection())
             this.pushStyledText(dl run2.text x (to_double runTop) px2 runCol rs2.fontName rs2.bold rs2.italic)
             this.paintDecoration(dl rs2 x runTop w px2 runCol)
             x = (x + (to_double w))
@@ -664,6 +691,7 @@ class GridView {
             }
         }
         this.pushClip(dl (to_double clipX) (to_double rect.y) (to_double clipW) (to_double rect.h))
+        textDir = (st.textDirection())
         this.pushStyledText(dl txt tx (to_double top) cellPx col st.fontName st.bold st.italic)
         this.paintDecoration(dl st tx top textW cellPx col)
         this.popClip(dl)
@@ -1933,6 +1961,7 @@ class GridView {
         def tw:double (ctx.tr.measureWidth(sample px))
         def tx:double ((to_double x0) + (((to_double cw) - tw) * 0.5))
         def ty:double ((to_double y0) + (((to_double ch) - px) * 0.5))
+        textDir = -1
         this.pushStyledText(dl sample tx ty px fg "" false false)
     }
 

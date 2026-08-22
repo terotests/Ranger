@@ -587,6 +587,7 @@
     "office:arabic:test": "bash gallery/office/text/tools/run_arabic_test.sh",
     "office:text:test": "bash gallery/office/text/tools/run_text_test.sh",
     "office:rtl:editors:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/office/text/tests/OfficeRtlEditorsTest.rgr -d=./gallery/office/text/bin -o=OfficeRtlEditorsTest.js -nodecli && node ./gallery/office/text/bin/OfficeRtlEditorsTest.js",
+    "office:rtl:props:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/office/text/tests/OfficeRtlPropsTest.rgr -d=./gallery/office/text/bin -o=OfficeRtlPropsTest.js -nodecli && node ./gallery/office/text/bin/OfficeRtlPropsTest.js",
     "office:color:test": "bash gallery/office/drawing/tools/run_color_test.sh",
     "office:history:test": "bash gallery/office/editor/tools/run_history_test.sh",
     "office:asset:test": "bash gallery/office/assets/tools/run_asset_test.sh",

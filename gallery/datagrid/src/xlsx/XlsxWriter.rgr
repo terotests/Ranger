@@ -403,6 +403,13 @@ class XlsxWriter {
             if (st.textRotation != 0) {
                 str_append align (" textRotation=\"" + (to_string st.textRotation) + "\"")
             }
+            ; Written back out, because it was read in. A property a reader
+            ; understands and a writer drops is worse than one neither knows
+            ; about: the file changes meaning every time it is saved, and the
+            ; author who set the direction sees it quietly undone.
+            if (st.readingOrder != 0) {
+                str_append align (" readingOrder=\"" + (to_string st.readingOrder) + "\"")
+            }
             if ((strlen align) > 0) {
                 str_append xf (" applyAlignment=\"1\"><alignment" + align + "/></xf>")
             } {

@@ -453,6 +453,10 @@ class DocxView {
     ; Paint a visual line using paragraph TextSpan runs (bold/color/underline).
     ; Layout still wraps with the line's primary size; run styles drive glyphs.
     fn paintStyledLine:void (line:LaidLine lx:int ly:int) {
+        ; The paragraph's direction, before anything is drawn. Every ink call
+        ; below is a piece of the same paragraph, so this is set once here
+        ; rather than passed down through each of them.
+        ink.dir = line.bidi
         def size:double line.fontSizePx
         if (size < 8.0) {
             size = 8.0

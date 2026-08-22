@@ -546,7 +546,7 @@ class PptxToEvg {
                     ; that changes face mid-sentence still puts its runs in
                     ; logical order — but each run now reads correctly, which
                     ; is the whole of an ordinary Arabic slide.
-                    piece = (OfficeText.forDisplay(piece))
+                    piece = (OfficeText.forDisplayDir(piece para.rtl))
                     def fontSize:double (run.fontSizePt * s)
                     def pieceW:double (measure.widthOf(piece fontSize run.bold run.italic))
                     def drawX:double penX

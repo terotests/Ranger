@@ -234,6 +234,16 @@ class PptxTextRun {
 class PptxParagraph {
     def align:string "l"        ; l / ctr / r / just
     def alignSet:boolean false
+    ; `<a:pPr rtl="1">`: which way the paragraph runs. -1 nobody said, 0 left
+    ; to right, 1 right to left. Three states because a paragraph inherits
+    ; from the list style and from the layout, and "unset" has to be
+    ; distinguishable from "explicitly left to right" for either to be
+    ; overridable.
+    ;
+    ; It decides which edge an unaligned paragraph is set against and — where
+    ; the text alone would answer wrongly, a line that opens with a Latin
+    ; product name and is otherwise Arabic — which direction the line reads.
+    def rtl:int -1
     def spaceBeforePt:double 0.0
     def spaceAfterPt:double 0.0
     def lineSpacingPct:double 100.0   ; 100 = single
