@@ -519,9 +519,49 @@ class PptxChart {
     }
 }
 
+; ------------------------------------------------------------------------------
+; What a shape on a slide is.
+;
+; The comment that used to sit here said the same thing, and a comment is not
+; something the compiler checks. These are read in the parser, the resolver,
+; the editor, the painter and the writer — six places, all of which had the
+; table written out as bare numbers, and any one of them could drift from the
+; others without anything noticing until a shape stopped being drawn.
+; ------------------------------------------------------------------------------
+class PptxShapeKind {
+    ; `p:sp` — an autoshape, a placeholder, a text box.
+    sfn shape:int () {
+        return 0
+    }
+
+    ; `p:pic` — a picture. `imagePart` and `imageBytes` carry it.
+    sfn picture:int () {
+        return 1
+    }
+
+    ; `p:grpSp` — a group. Its `children` are shapes in their own right.
+    sfn group:int () {
+        return 2
+    }
+
+    ; `p:cxnSp` — a connector.
+    sfn connector:int () {
+        return 3
+    }
+
+    ; A `p:graphicFrame` holding `a:tbl`.
+    sfn table:int () {
+        return 4
+    }
+
+    ; A `p:graphicFrame` holding a chart reference.
+    sfn chart:int () {
+        return 5
+    }
+}
+
 class PptxShape {
-    def kind:int 0
-    ; kind: 0 shape, 1 picture, 2 group, 3 connector, 4 table, 5 chart
+    def kind:int (PptxShapeKind.shape())
     def name:string ""
     ; `p:cNvPr/@id`, which is the name the slide's own timing tree uses to say
     ; which shape an animation is about.

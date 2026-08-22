@@ -745,7 +745,7 @@ class PptxResolver {
             this.applyFontRef(shape theme)
             this.resolveTextBody(shape.text theme)
         }
-        if (shape.kind == 4) {
+        if (shape.kind == (PptxShapeKind.table())) {
             def ti:int 0
             while (ti < (array_length shape.tableCells)) {
                 def cell:PptxTableCell (itemAt shape.tableCells ti)

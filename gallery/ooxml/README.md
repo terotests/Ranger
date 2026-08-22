@@ -285,13 +285,31 @@ createEmpty }` lets the UI ask `doc.capabilities.canEditShapes` instead of
 testing `fileExtension == ".pptx"` — and lets a new format be added without the
 shell knowing it exists.
 
-### 13. Retire the magic `kind:int`
+### 13. Retire the magic `kind:int` — **named**
 
-`LaidLine.kind` (0 text, 1 image, 2 tableCellBg, …), `PptxShape.kind` (0 shape,
-1 picture, 2 group, …) and `SpreadsheetUndoOp.structKind` all work, and all
-drift towards `if kind == 7`. These cases carry genuinely different state, so
-they want either named constants or separate node types — the value is in the
-state they stop sharing, not in the object-orientation.
+`DocEditOp.kind` was the one that had already cost something: four separate
+bugs, each a number the producer wrote and the consumer had never been taught
+(see [`office/README.md`](../office/README.md)). The rest are named now too —
+`DocBlockKind`, `LaidLineKind`, `PptxShapeKind`, `SheetStructKind`.
+
+**No live defect was found in any of them.** All four tables were internally
+consistent, every kind had a handler at every end, and the suites went green
+first try. Two things came out of the search that are worth keeping:
+
+- **`DocBlock.kind` and `LaidLine.kind` are different tables over the same
+  small integers**, and both are read inside `DocxLayout.layoutDocument` a few
+  lines apart. `b.kind == 4` is a chart; `cl.kind = 6` is the line drawn for
+  it, because 4 there is a header. Getting those the wrong way round is one
+  character and it compiles.
+- **The spreadsheet's two ends already disagree on how many kinds there are.**
+  The model handles seven, `reapplyStructFormulaAdjust` handles six. That is
+  correct — a sort permutes rows without shifting any reference, so there is
+  nothing to adjust — but nothing said so, and the next kind added would land
+  in the same gap silently. It is written down now.
+
+These cases carry genuinely different state, so the further move is separate
+node types rather than one class with a tag; the value is in the state they
+stop sharing.
 
 ### 14. Conformance as an architecture component
 

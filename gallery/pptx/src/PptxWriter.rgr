@@ -710,19 +710,19 @@ class PptxWriter {
     }
 
     fn shapeXml:string (shape:PptxShape) {
-        if (shape.kind == 2) {
+        if (shape.kind == (PptxShapeKind.group())) {
             return (this.groupXml(shape))
         }
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             return (this.pictureXml(shape))
         }
-        if (shape.kind == 4) {
+        if (shape.kind == (PptxShapeKind.table())) {
             return (this.tableXml(shape))
         }
-        if (shape.kind == 5) {
+        if (shape.kind == (PptxShapeKind.chart())) {
             return (this.chartFrameXml(shape))
         }
-        if (shape.kind == 3) {
+        if (shape.kind == (PptxShapeKind.connector())) {
             return (this.connectorXml(shape))
         }
         return (this.spXml(shape))

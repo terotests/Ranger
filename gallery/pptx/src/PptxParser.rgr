@@ -1071,7 +1071,7 @@ class PptxParser {
 
     fn parseShape:PptxShape (sp:PptxXmlNode) {
         def shape (new PptxShape())
-        shape.kind = 0
+        shape.kind = (PptxShapeKind.shape())
         def nv@(optional):PptxXmlNode (sp.firstChild("nvSpPr"))
         if (!null? nv) {
             def nvn:PptxXmlNode (unwrap nv)
@@ -1119,7 +1119,7 @@ class PptxParser {
 
     fn parsePicture:PptxShape (pic:PptxXmlNode slidePart:string) {
         def shape (new PptxShape())
-        shape.kind = 1
+        shape.kind = (PptxShapeKind.picture())
         def nv@(optional):PptxXmlNode (pic.firstChild("nvPicPr"))
         if (!null? nv) {
             def nvn:PptxXmlNode (unwrap nv)
@@ -1159,7 +1159,7 @@ class PptxParser {
 
     fn parseGroup:PptxShape (grp:PptxXmlNode slidePart:string) {
         def shape (new PptxShape())
-        shape.kind = 2
+        shape.kind = (PptxShapeKind.group())
         def nv@(optional):PptxXmlNode (grp.firstChild("nvGrpSpPr"))
         if (!null? nv) {
             def nvn:PptxXmlNode (unwrap nv)
@@ -1296,7 +1296,7 @@ class PptxParser {
 
     fn parseTable:PptxShape (tbl:PptxXmlNode x:double y:double w:double h:double) {
         def shape (new PptxShape())
-        shape.kind = 4
+        shape.kind = (PptxShapeKind.table())
         shape.name = "Table"
         shape.x = x
         shape.y = y
@@ -1497,7 +1497,7 @@ class PptxParser {
                 rid = ((unwrap chartEl).attr("id"))
             }
             def shape (new PptxShape())
-            shape.kind = 5
+            shape.kind = (PptxShapeKind.chart())
             shape.name = "Chart"
             if ((strlen frameName) > 0) {
                 shape.name = frameName
@@ -1536,7 +1536,7 @@ class PptxParser {
         }
         if (node.name == "cxnSp") {
             def shape (new PptxShape())
-            shape.kind = 3
+            shape.kind = (PptxShapeKind.connector())
             def nv@(optional):PptxXmlNode (node.firstChild("nvCxnSpPr"))
             if (!null? nv) {
                 def cNv@(optional):PptxXmlNode ((unwrap nv).firstChild("cNvPr"))

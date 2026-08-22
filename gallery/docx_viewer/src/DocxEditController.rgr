@@ -1175,7 +1175,7 @@ class DocxEditController {
             def li:int 0
             while (li < (array_length page.lines)) {
                 def line:LaidLine (itemAt page.lines li)
-                if (line.kind == 0) {
+                if (LaidLineKind.isBodyText(line.kind)) {
                     if (line.paraIndex == pid) {
                         if ((off >= line.docStart) && (off <= line.docEnd)) {
                             clear out
@@ -1229,10 +1229,10 @@ class DocxEditController {
         if (line.paraIndex <= 0) {
             return false
         }
-        if (line.kind == 0) {
+        if (LaidLineKind.isBodyText(line.kind)) {
             return true
         }
-        if (line.kind == 1) {
+        if (line.kind == (LaidLineKind.image())) {
             def p:Paragraph (unwrap line.paragraphRef)
             if ((strlen p.text) == 0) {
                 return true
@@ -1254,7 +1254,7 @@ class DocxEditController {
                     ; An image-only paragraph also emits an empty text line;
                     ; keep just one stop for it.
                     def dup:boolean false
-                    if (line.kind == 1) {
+                    if (line.kind == (LaidLineKind.image())) {
                         def k:int 0
                         while (k < (array_length outPage)) {
                             if ((itemAt outPage k) == pi) {
@@ -1393,7 +1393,7 @@ class DocxEditController {
         def li:int 0
         while (li < (array_length page.lines)) {
             def line:LaidLine (itemAt page.lines li)
-            if (line.kind == 0) {
+            if (LaidLineKind.isBodyText(line.kind)) {
                 if (line.paraIndex > 0) {
                     count = (count + 1)
                 }
@@ -1827,7 +1827,7 @@ class DocxEditController {
         def i:int 0
         while (i < (array_length page.lines)) {
             def line:LaidLine (itemAt page.lines i)
-            if (line.kind == 0) {
+            if (LaidLineKind.isBodyText(line.kind)) {
                 def bw:int line.boxW
                 if (bw < 4) {
                     bw = line.width
@@ -1857,7 +1857,7 @@ class DocxEditController {
             def ii:int 0
             while (ii < (array_length page.lines)) {
                 def imgLine:LaidLine (itemAt page.lines ii)
-                if (imgLine.kind == 1) {
+                if (imgLine.kind == (LaidLineKind.image())) {
                     if ((y >= imgLine.y) && (y < (imgLine.y + imgLine.height))) {
                         if ((x >= imgLine.x) && (x < (imgLine.x + imgLine.width))) {
                             def ip:Paragraph (unwrap imgLine.paragraphRef)
@@ -1880,7 +1880,7 @@ class DocxEditController {
             def j:int 0
             while (j < (array_length page.lines)) {
                 def line2:LaidLine (itemAt page.lines j)
-                if (line2.kind == 0) {
+                if (LaidLineKind.isBodyText(line2.kind)) {
                     def bw2:int line2.boxW
                     if (bw2 < 4) {
                         bw2 = line2.width

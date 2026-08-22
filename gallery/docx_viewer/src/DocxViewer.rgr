@@ -614,7 +614,7 @@ class DocxViewer {
         def i:int 0
         while (i < (array_length pg.lines)) {
             def line:LaidLine (itemAt pg.lines i)
-            if (line.kind == 6) {
+            if (line.kind == (LaidLineKind.chart())) {
                 if (x >= line.x) {
                     if (x <= (line.x + line.width)) {
                         if (y >= line.y) {

@@ -2571,24 +2571,29 @@ class GridApp {
 
     ; Redo of a structural op only replays the raw insert/delete/move — formula
     ; text must be shifted again the same way the forward path did.
+    ;
+    ; A sort (`reorderRows`) is deliberately absent: it permutes rows without
+    ; shifting any reference, so there is nothing here to adjust. That was true
+    ; before this comment and is stated now so the gap reads as a decision
+    ; rather than as a kind someone forgot.
     fn reapplyStructFormulaAdjust:void (op:SpreadsheetUndoOp) {
-        if (op.structKind == 1) {
+        if (op.structKind == (SheetStructKind.insertColumn())) {
             this.adjustFormulasForColumns(op.structAt 1)
         }
-        if (op.structKind == 2) {
+        if (op.structKind == (SheetStructKind.deleteColumn())) {
             this.adjustFormulasForColumns(op.structAt -1)
         }
-        if (op.structKind == 3) {
+        if (op.structKind == (SheetStructKind.moveColumn())) {
             this.adjustFormulasForColumns(op.structAt -1)
             this.adjustFormulasForColumns(op.structTo 1)
         }
-        if (op.structKind == 4) {
+        if (op.structKind == (SheetStructKind.insertRow())) {
             this.adjustFormulasForRows(op.structAt 1)
         }
-        if (op.structKind == 5) {
+        if (op.structKind == (SheetStructKind.deleteRow())) {
             this.adjustFormulasForRows(op.structAt -1)
         }
-        if (op.structKind == 6) {
+        if (op.structKind == (SheetStructKind.moveRow())) {
             this.adjustFormulasForRows(op.structAt -1)
             this.adjustFormulasForRows(op.structTo 1)
         }
@@ -2616,7 +2621,7 @@ class GridApp {
             return
         }
         model.beginTx()
-        model.pushStructOp(1 at 0)
+        model.pushStructOp((SheetStructKind.insertColumn()) at 0)
         this.snapshotOtherSheetFormulas()
         model.insertColumnRaw(at)
         model.endTx()
@@ -2632,7 +2637,7 @@ class GridApp {
             return
         }
         model.beginTx()
-        model.pushStructOp(2 at 0)
+        model.pushStructOp((SheetStructKind.deleteColumn()) at 0)
         this.snapshotOtherSheetFormulas()
         model.deleteColumnRaw(at)
         model.endTx()
@@ -2657,7 +2662,7 @@ class GridApp {
             return
         }
         model.beginTx()
-        model.pushStructOp(3 from to)
+        model.pushStructOp((SheetStructKind.moveColumn()) from to)
         this.snapshotOtherSheetFormulas()
         model.moveColumnRaw(from to)
         model.endTx()
@@ -2727,7 +2732,7 @@ class GridApp {
             return
         }
         model.beginTx()
-        model.pushStructOp(4 at 0)
+        model.pushStructOp((SheetStructKind.insertRow()) at 0)
         this.snapshotOtherSheetFormulas()
         model.insertRowRaw(at)
         model.endTx()
@@ -2743,7 +2748,7 @@ class GridApp {
             return
         }
         model.beginTx()
-        model.pushStructOp(5 at 0)
+        model.pushStructOp((SheetStructKind.deleteRow()) at 0)
         this.snapshotOtherSheetFormulas()
         model.deleteRowRaw(at)
         model.endTx()
@@ -2768,7 +2773,7 @@ class GridApp {
             return
         }
         model.beginTx()
-        model.pushStructOp(6 from to)
+        model.pushStructOp((SheetStructKind.moveRow()) from to)
         this.snapshotOtherSheetFormulas()
         model.moveRowRaw(from to)
         model.endTx()

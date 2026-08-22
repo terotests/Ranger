@@ -157,12 +157,12 @@ class PptxEditorShots {
         def si8:int 0
         while (si8 < (array_length shapes8)) {
             def cand8:PptxShape (itemAt shapes8 si8)
-            if (cand8.kind == 1) {
+            if (cand8.kind == (PptxShapeKind.picture())) {
                 if (firstPic == 0) {
                     firstPic = cand8.editId
                 }
             }
-            if (cand8.kind == 0) {
+            if (cand8.kind == (PptxShapeKind.shape())) {
                 if (picked8 == 0) {
                     picked8 = cand8.editId
                 }

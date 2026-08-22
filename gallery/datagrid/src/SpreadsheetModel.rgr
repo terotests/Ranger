@@ -70,6 +70,64 @@ class CellPos {
 ; One tracked cell edit. Both the display value and the formula text are
 ; captured so undo of "=A1+B1" restores the formula, not just the number.
 ; Ops sharing a non-zero txId undo/redo together (paste, fill, delete range).
+; ------------------------------------------------------------------------------
+; Which structural change an undo op is.
+;
+; Written as bare numbers at both ends, and the two ends already disagree on
+; how many there are: the model handles seven, and `reapplyStructFormulaAdjust`
+; in the host handles six. That happens to be right — a sort permutes rows
+; without shifting any reference, so there is nothing for it to adjust — but
+; nothing in the code says so, and the next kind added will land in the same
+; gap silently. This is the shape that produced four separate bugs in the
+; document editor's op kinds.
+; ------------------------------------------------------------------------------
+class SheetStructKind {
+    ; Not a structural op at all: an ordinary cell edit.
+    sfn none:int () {
+        return 0
+    }
+
+    sfn insertColumn:int () {
+        return 1
+    }
+
+    sfn deleteColumn:int () {
+        return 2
+    }
+
+    sfn moveColumn:int () {
+        return 3
+    }
+
+    sfn insertRow:int () {
+        return 4
+    }
+
+    sfn deleteRow:int () {
+        return 5
+    }
+
+    sfn moveRow:int () {
+        return 6
+    }
+
+    ; A sort: every row moved at once, as ONE undoable action. The permutation
+    ; is in `structOrder` rather than a sequence of moves, because a sort is
+    ; one action to the person who asked for it.
+    sfn reorderRows:int () {
+        return 7
+    }
+
+    ; Do rows or columns move? The snapshot fields are shared between the two,
+    ; and this is the question the code kept asking as `kind < 4`.
+    sfn isColumnOp:boolean (kind:int) {
+        if (kind < 1) {
+            return false
+        }
+        return (kind < 4)
+    }
+}
+
 class SpreadsheetUndoOp {
     def row:int 0
     def col:int 0
@@ -80,12 +138,11 @@ class SpreadsheetUndoOp {
     def beforeStyle:int -1
     def afterStyle:int -1
     def touchStyle:boolean false
-    ; Structural op: 0 none, 1 insert column, 2 delete column, 3 move column,
-    ; 4 insert row, 5 delete row, 6 move row, 7 reorder every row (a sort).
-    ; Rows and columns share the
-    ; snapshot fields below: what they hold is "the line that was lifted out",
-    ; and which direction it ran is what `structKind` says.
-    def structKind:int 0
+    ; Which structural change this op is, if any — see `SheetStructKind`. Rows
+    ; and columns share the snapshot fields below: what they hold is "the line
+    ; that was lifted out", and which direction it ran is what `structKind`
+    ; says.
+    def structKind:int (SheetStructKind.none())
     def structAt:int 0
     def structTo:int 0
     def colValues:[string]
@@ -2092,7 +2149,7 @@ class SpreadsheetModel {
     ; and one Ctrl+Z has to put the sheet back the way it was.
     fn pushReorderOp:void (order:[int]) {
         def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
-        op.structKind = 7
+        op.structKind = (SheetStructKind.reorderRows())
         op.txId = curTx
         def i:int 0
         while (i < (array_length order)) {
@@ -2113,7 +2170,7 @@ class SpreadsheetModel {
         op.structAt = at
         op.structTo = to
         op.txId = curTx
-        if (kind < 4) {
+        if (SheetStructKind.isColumnOp(kind)) {
             op.colWidthSaved = (this.colWidth(at))
         } {
             op.colWidthSaved = (this.rowHeight(at))
@@ -2134,52 +2191,52 @@ class SpreadsheetModel {
 
     fn applyStructOp:void (op:SpreadsheetUndoOp toAfter:boolean) {
         if toAfter {
-            if (op.structKind == 1) {
+            if (op.structKind == (SheetStructKind.insertColumn())) {
                 this.insertColumnRaw(op.structAt)
             }
-            if (op.structKind == 2) {
+            if (op.structKind == (SheetStructKind.deleteColumn())) {
                 this.deleteColumnRaw(op.structAt)
             }
-            if (op.structKind == 3) {
+            if (op.structKind == (SheetStructKind.moveColumn())) {
                 this.moveColumnRaw(op.structAt op.structTo)
             }
-            if (op.structKind == 4) {
+            if (op.structKind == (SheetStructKind.insertRow())) {
                 this.insertRowRaw(op.structAt)
             }
-            if (op.structKind == 5) {
+            if (op.structKind == (SheetStructKind.deleteRow())) {
                 this.deleteRowRaw(op.structAt)
             }
-            if (op.structKind == 6) {
+            if (op.structKind == (SheetStructKind.moveRow())) {
                 this.moveRowRaw(op.structAt op.structTo)
             }
-            if (op.structKind == 7) {
+            if (op.structKind == (SheetStructKind.reorderRows())) {
                 this.reorderRowsRaw(op.structOrder)
             }
             return
         }
-        if (op.structKind == 1) {
+        if (op.structKind == (SheetStructKind.insertColumn())) {
             this.deleteColumnRaw(op.structAt)
         }
-        if (op.structKind == 2) {
+        if (op.structKind == (SheetStructKind.deleteColumn())) {
             this.insertColumnRaw(op.structAt)
             this.restoreColumn(op.structAt op.colValues op.colFormulas op.colStyles)
             this.setColWidth(op.structAt op.colWidthSaved)
         }
-        if (op.structKind == 3) {
+        if (op.structKind == (SheetStructKind.moveColumn())) {
             this.moveColumnRaw(op.structTo op.structAt)
         }
-        if (op.structKind == 4) {
+        if (op.structKind == (SheetStructKind.insertRow())) {
             this.deleteRowRaw(op.structAt)
         }
-        if (op.structKind == 5) {
+        if (op.structKind == (SheetStructKind.deleteRow())) {
             this.insertRowRaw(op.structAt)
             this.restoreRow(op.structAt op.colValues op.colFormulas op.colStyles)
             this.setRowHeight(op.structAt op.colWidthSaved)
         }
-        if (op.structKind == 6) {
+        if (op.structKind == (SheetStructKind.moveRow())) {
             this.moveRowRaw(op.structTo op.structAt)
         }
-        if (op.structKind == 7) {
+        if (op.structKind == (SheetStructKind.reorderRows())) {
             ; The inverse permutation: whatever went to i came from
             ; structOrder[i], so to put it back, row structOrder[i] takes i.
             def inv:[int]
@@ -2206,7 +2263,7 @@ class SpreadsheetModel {
     }
 
     fn applyOp:void (op:SpreadsheetUndoOp toAfter:boolean) {
-        if (op.structKind != 0) {
+        if (op.structKind != (SheetStructKind.none())) {
             this.applyStructOp(op toAfter)
             structDirty = true
             return

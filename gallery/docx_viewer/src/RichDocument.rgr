@@ -285,8 +285,53 @@ class DocumentTable {
 }
 
 ; kind: 0=paragraph 1=table 2=pageBreak 3=sectionBreak
+; ------------------------------------------------------------------------------
+; What a body block is.
+;
+; These numbers used to be written bare at both ends. That is the shape that
+; produced four separate bugs in the document editor's op kinds — a number the
+; producer wrote and the consumer had never been taught — and here it is worse
+; than it looks, because a laid-out line has a `kind` too and it means
+; something else entirely:
+;
+;     DocBlock.kind    0 paragraph  1 table  2 page break  3 section break  4 chart
+;     LaidLine.kind    0 text  1 image  2 fill  3 border  4 header  5 footer  6 chart
+;
+; Both are read in `DocxLayout.layoutDocument`, eight lines apart: `b.kind == 4`
+; is a chart and `cl.kind = 6` is the line drawn for it. Getting those the wrong
+; way round is one character, it compiles, and a chart silently becomes page
+; furniture. Naming them is what stops the two tables from being confusable.
+; ------------------------------------------------------------------------------
+class DocBlockKind {
+    ; A paragraph of the body text.
+    sfn para:int () {
+        return 0
+    }
+
+    ; A table.
+    sfn table:int () {
+        return 1
+    }
+
+    ; An explicit page break: the same section continues on a new page.
+    sfn pageBreak:int () {
+        return 2
+    }
+
+    ; A section break: `sectionIndex` says which section starts here, so the
+    ; margins, the header and the footer all change with it.
+    sfn sectionBreak:int () {
+        return 3
+    }
+
+    ; A chart, laid out whole — it is never split across a page boundary.
+    sfn chart:int () {
+        return 4
+    }
+}
+
 class DocBlock {
-    def kind:int 0
+    def kind:int (DocBlockKind.para())
     def paragraph:Paragraph (new Paragraph)
     def table:DocumentTable (new DocumentTable)
     def chart:DocChart (new DocChart)
@@ -297,34 +342,34 @@ class DocBlock {
 
     sfn chartBlock:DocBlock (c:DocChart) {
         def b:DocBlock (new DocBlock)
-        b.kind = 4
+        b.kind = (DocBlockKind.chart())
         b.chart = c
         return b
     }
 
     sfn para:DocBlock (p:Paragraph) {
         def b:DocBlock (new DocBlock)
-        b.kind = 0
+        b.kind = (DocBlockKind.para())
         b.paragraph = p
         return b
     }
 
     sfn tbl:DocBlock (t:DocumentTable) {
         def b:DocBlock (new DocBlock)
-        b.kind = 1
+        b.kind = (DocBlockKind.table())
         b.table = t
         return b
     }
 
     sfn pageBreak:DocBlock () {
         def b:DocBlock (new DocBlock)
-        b.kind = 2
+        b.kind = (DocBlockKind.pageBreak())
         return b
     }
 
     sfn sectionBreak:DocBlock (secIdx:int) {
         def b:DocBlock (new DocBlock)
-        b.kind = 3
+        b.kind = (DocBlockKind.sectionBreak())
         b.sectionIndex = secIdx
         return b
     }

@@ -220,7 +220,7 @@ class DocxView {
         def i:int 0
         while (i < (array_length pg.lines)) {
             def line:LaidLine (itemAt pg.lines i)
-            if (line.kind == 0) {
+            if (LaidLineKind.isBodyText(line.kind)) {
                 if (line.paraIndex > 0) {
                     def order:int (edit.adapter.bodyOrderOf(line.paraIndex))
                     if ((order >= sOrder) && (order <= eOrder)) {
@@ -347,13 +347,13 @@ class DocxView {
             def line:LaidLine (itemAt pg.lines i)
             def lx:int (line.x + ox)
             def ly:int (line.y + oy)
-            if (line.kind == 2) {
+            if (line.kind == (LaidLineKind.fill())) {
                 ink.rect(lx ly line.width line.height (this.hexColor(line.fillHex)))
             }
-            if (line.kind == 3) {
+            if (line.kind == (LaidLineKind.border())) {
                 ink.rect(lx ly line.width line.height (this.hexColor(line.borderColor)))
             }
-            if (line.kind == 1) {
+            if (line.kind == (LaidLineKind.image())) {
                 def p:Paragraph line.paragraphRef
                 if (line.imageIndex < (array_length p.images)) {
                     def dimg:DocImage (itemAt p.images line.imageIndex)
@@ -375,10 +375,10 @@ class DocxView {
                     }
                 }
             }
-            if (line.kind == 6) {
+            if (line.kind == (LaidLineKind.chart())) {
                 this.paintChartLine(line lx ly)
             }
-            if ((line.kind == 0) || (line.kind == 4) || (line.kind == 5)) {
+            if (((line.kind == (LaidLineKind.text())) || (line.kind == (LaidLineKind.header()))) || (line.kind == (LaidLineKind.footer()))) {
                 this.paintStyledLine(line lx ly)
             }
             i = (i + 1)
@@ -433,7 +433,7 @@ class DocxView {
         }
         def p:Paragraph line.paragraphRef
         def muteChrome:boolean false
-        if ((line.kind == 4) || (line.kind == 5)) {
+        if ((line.kind == (LaidLineKind.header())) || (line.kind == (LaidLineKind.footer()))) {
             muteChrome = true
         }
         if ((p.id <= 0) || ((array_length p.spans) == 0)) {

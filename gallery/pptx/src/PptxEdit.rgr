@@ -1643,7 +1643,7 @@ class PptxEditor {
         }
         def s:PptxSlide (unwrap slide)
         def sh (new PptxShape())
-        sh.kind = 0
+        sh.kind = (PptxShapeKind.shape())
         sh.editId = nextId
         nextId = (nextId + 1)
         sh.name = ("Shape " + (to_string sh.editId))
@@ -1667,7 +1667,7 @@ class PptxEditor {
         }
         def s:PptxSlide (unwrap slide)
         def sh (new PptxShape())
-        sh.kind = 0
+        sh.kind = (PptxShapeKind.shape())
         sh.editId = nextId
         nextId = (nextId + 1)
         sh.name = ("TextBox " + (to_string sh.editId))
@@ -1692,7 +1692,7 @@ class PptxEditor {
         }
         def s:PptxSlide (unwrap slide)
         def sh (new PptxShape())
-        sh.kind = 1
+        sh.kind = (PptxShapeKind.picture())
         sh.editId = nextId
         nextId = (nextId + 1)
         sh.name = ("Picture " + (to_string sh.editId))
@@ -1938,7 +1938,7 @@ class PptxEditor {
         def s:PptxSlide (unwrap slide)
         def b:PptxEditRect (this.selectionBounds())
         def grp (new PptxShape())
-        grp.kind = 2
+        grp.kind = (PptxShapeKind.group())
         grp.editId = nextId
         nextId = (nextId + 1)
         grp.name = ("Group " + (to_string grp.editId))
@@ -1993,7 +1993,7 @@ class PptxEditor {
         while (i < (array_length s.shapes)) {
             def sh:PptxShape (itemAt s.shapes i)
             def open:boolean false
-            if (sh.kind == 2) {
+            if (sh.kind == (PptxShapeKind.group())) {
                 if (sh.inherited == false) {
                     if (this.isSelected(sh.editId)) {
                         open = true
@@ -2217,7 +2217,7 @@ class PptxEditor {
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
-            if (sh.kind == 0) {
+            if (sh.kind == (PptxShapeKind.shape())) {
                 sh.preset = preset
                 sh.hasPath = false
             }
@@ -2676,20 +2676,20 @@ class PptxEditor {
             return false
         }
         def sh:PptxShape (unwrap hit)
-        if (sh.kind == 1) {
+        if (sh.kind == (PptxShapeKind.picture())) {
             return false
         }
-        if (sh.kind == 2) {
+        if (sh.kind == (PptxShapeKind.group())) {
             return false
         }
         ; A table and a chart carry their own content. Setting `hasText` on
         ; one would give it a second, empty text body that the writer would
         ; then have to explain — and a click can now reach this, where before
         ; only a deliberate F2 could.
-        if (sh.kind == 4) {
+        if (sh.kind == (PptxShapeKind.table())) {
             return false
         }
-        if (sh.kind == 5) {
+        if (sh.kind == (PptxShapeKind.chart())) {
             return false
         }
         sh.hasText = true
@@ -3340,7 +3340,7 @@ class PptxEditor {
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
-            if (sh.kind != 1) {
+            if (sh.kind != (PptxShapeKind.picture())) {
                 sh.fill = (PptxClone.color(format.fill))
                 sh.fillGrad = (PptxClone.gradient(format.grad))
             }
@@ -3926,7 +3926,7 @@ class PptxEditor {
         if on {
             def sh (new PptxShape())
             sh.name = "Slide Number Placeholder"
-            sh.kind = 0
+            sh.kind = (PptxShapeKind.shape())
             sh.hasXfrm = true
             sh.width = 60.0
             sh.height = 20.0
@@ -3972,7 +3972,7 @@ class PptxEditor {
         if ((strlen text) > 0) {
             def sh (new PptxShape())
             sh.name = "Footer Placeholder"
-            sh.kind = 0
+            sh.kind = (PptxShapeKind.shape())
             sh.hasXfrm = true
             sh.width = (doc.slideWidth * 0.5)
             sh.height = 20.0

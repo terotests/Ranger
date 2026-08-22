@@ -680,7 +680,7 @@ class PptxApp {
     }
 
     sfn collectImageParts:void (shape:PptxShape names:[string]) {
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             if ((strlen shape.imagePart) > 0) {
                 if ((buffer_length shape.imageBytes) > 0) {
                     def seen:boolean false
@@ -722,7 +722,7 @@ class PptxApp {
     }
 
     sfn findImageBytes:buffer (shape:PptxShape part:string) {
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             if (shape.imagePart == part) {
                 return shape.imageBytes
             }
@@ -1772,7 +1772,7 @@ class PptxApp {
             out = (out + ",\"runs\":" + (to_string runCount))
             out = (out + ",\"paragraphs\":" + (to_string (array_length shape.text.paragraphs)))
         }
-        if (shape.kind == 4) {
+        if (shape.kind == (PptxShapeKind.table())) {
             def blob:string ""
             def ti:int 0
             while (ti < (array_length shape.tableCells)) {
@@ -1789,7 +1789,7 @@ class PptxApp {
             out = (out + ",\"tableRows\":" + (to_string shape.tableRows))
             out = (out + ",\"tableCols\":" + (to_string shape.tableCols))
         }
-        if (shape.kind == 5) {
+        if (shape.kind == (PptxShapeKind.chart())) {
             out = (out + ",\"chartType\":" + (this.jsonEscape(shape.chart.chartType)))
             if ((strlen shape.chart.title) > 0) {
                 out = (out + ",\"text\":" + (this.jsonEscape(shape.chart.title)))
@@ -1799,11 +1799,11 @@ class PptxApp {
             out = (out + ",\"fill\":" + (this.jsonEscape(shape.fill.srgb)))
             out = (out + ",\"fillScheme\":" + (to_string shape.fill.isScheme))
         }
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             out = (out + ",\"imagePart\":" + (this.jsonEscape(shape.imagePart)))
             out = (out + ",\"imageBytes\":" + (to_string (buffer_length shape.imageBytes)))
         }
-        if (shape.kind == 2) {
+        if (shape.kind == (PptxShapeKind.group())) {
             out = (out + ",\"children\":" + (to_string (array_length shape.children)))
         }
         out = (out + ",\"inherited\":" + (to_string shape.inherited))
