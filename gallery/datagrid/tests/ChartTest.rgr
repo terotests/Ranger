@@ -541,7 +541,11 @@ class ChartTest {
         this.checkTrue("picker opened" app.chartDialog.visible)
         this.check("found the block around the cell" (app.pendingChart.rangeLabel()) "A61:C64")
         this.checkTrue("header row guessed" app.pendingChart.useHeaderRow)
-        this.checkTrue("header column guessed" app.pendingChart.useHeaderCol)
+        ; "The first column labels the rows" used to be a flag. It is a COLUMN
+        ; now — the one the numbers are broken down by — which is the same fact
+        ; said precisely enough to also give the chart a title.
+        this.checkInt("the quarter column is the category" app.pendingChart.catCol 0)
+        this.check("and the chart says what it is of" app.pendingChart.title "Widgets and Gadgets by Quarter")
         def pieCtl:EVGControl (app.chartDialog.controlById(100 + (ChartKind.pie())))
         this.checkFalse("pie offered but disabled" pieCtl.enabled)
         def colCtl:EVGControl (app.chartDialog.controlById(100 + (ChartKind.column())))

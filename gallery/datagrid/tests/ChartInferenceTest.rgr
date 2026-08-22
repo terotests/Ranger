@@ -1,0 +1,451 @@
+; ==============================================================================
+; ChartInferenceTest — what a selection is a chart OF.
+; ==============================================================================
+;
+; Select the business table, ask for a chart, and what came back was a heatmap
+; of seven "series" called Date, Region, Product, Qty, UnitPrice, Revenue and
+; Margin, plotted against categories called 1, 2, 3 … 200, with no title. Every
+; one of those is wrong, and they are wrong for one reason: the old code read a
+; rectangle as a matrix of numbers with a label row on top. A range is not a
+; matrix — it is a table, and its columns mean things.
+;
+; So the checks below are about MEANING rather than about geometry:
+;
+;   * a text column is a way of grouping, not a series to plot
+;   * a category that repeats is a GROUP BY — two hundred invoice lines are
+;     four bars, not two hundred
+;   * summing a margin percentage gives 174%, which is not a number; a rate is
+;     averaged
+;   * a column of numbers whose header says "ID" is a name, not a quantity
+;   * two measures fifty times apart do not share an axis, because the answer
+;     to that is never a second axis
+;   * a chart is called "Revenue by Region", not "Column — A1:G201"
+;
+; Every case is built here rather than read from a fixture, so what each rule
+; does is visible beside the assertion that it did it.
+;
+;   npm run datagrid:chart:infer:test
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class InferCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d < 0.005))
+    }
+}
+
+class ChartInferenceTest {
+    sfn app:GridApp () {
+        def a:GridApp (new GridApp)
+        a.init("gallery/pdf_writer/assets/fonts")
+        a.model.clearSheet()
+        a.model.resize(40 8)
+        return a
+    }
+
+    ; The chart the picker would open on this selection.
+    sfn planFor:GridChart (a:GridApp r0:int c0:int r1:int c1:int) {
+        a.sel.setAnchor(r0 c0)
+        a.sel.setActive(r1 c1)
+        def ch:GridChart (new GridChart)
+        a.selectionChart(ch)
+        return ch
+    }
+
+    sfn valueAt:double (d:ChartData cat:int series:int) {
+        if (cat < 0) {
+            return -1.0
+        }
+        if (series < 0) {
+            return -1.0
+        }
+        def i:int ((cat * (d.seriesCount())) + series)
+        if (i < (array_length d.values)) {
+            return (itemAt d.values i)
+        }
+        return -1.0
+    }
+
+    sfn catIndex:int (d:ChartData name:string) {
+        def i:int 0
+        while (i < (d.catCount())) {
+            if ((itemAt d.cats i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Region, Product, Qty, Revenue, Margin — the shape of a real sales table,
+    ; with each region appearing three times so grouping has something to do.
+    sfn salesTable:GridApp () {
+        def a:GridApp (ChartInferenceTest.app())
+        a.model.setCell(0 0 "Region")
+        a.model.setCell(0 1 "Product")
+        a.model.setCell(0 2 "Qty")
+        a.model.setCell(0 3 "Revenue")
+        a.model.setCell(0 4 "Margin")
+        def regions:[string]
+        push regions "North"
+        push regions "South"
+        push regions "North"
+        push regions "East"
+        push regions "South"
+        push regions "North"
+        def prods:[string]
+        push prods "Widget"
+        push prods "Widget"
+        push prods "Gadget"
+        push prods "Gadget"
+        push prods "Widget"
+        push prods "Widget"
+        def qty:[string]
+        push qty "10"
+        push qty "20"
+        push qty "30"
+        push qty "40"
+        push qty "50"
+        push qty "60"
+        def rev:[string]
+        push rev "100"
+        push rev "200"
+        push rev "300"
+        push rev "400"
+        push rev "500"
+        push rev "600"
+        def mar:[string]
+        push mar "0.10"
+        push mar "0.20"
+        push mar "0.30"
+        push mar "0.20"
+        push mar "0.10"
+        push mar "0.30"
+        def i:int 0
+        while (i < 6) {
+            a.model.setCell((i + 1) 0 (itemAt regions i))
+            a.model.setCell((i + 1) 1 (itemAt prods i))
+            a.model.setCell((i + 1) 2 (itemAt qty i))
+            a.model.setCell((i + 1) 3 (itemAt rev i))
+            a.model.setCell((i + 1) 4 (itemAt mar i))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    sfn main:void () {
+        def c:InferCheck (new InferCheck)
+        print "== ChartInferenceTest =="
+
+        print "-- a text column is not a series --"
+        def a:GridApp (ChartInferenceTest.salesTable())
+        def ch:GridChart (ChartInferenceTest.planFor(a 0 0 6 4))
+        def d:ChartData (new ChartData)
+        c.ok("the selection charts" (d.extract(a.model ch)))
+        c.eqInt("Region is the category, not a series" ch.catCol 0)
+        def names:string ""
+        def si:int 0
+        while (si < (d.seriesCount())) {
+            names = ((names + " ") + (itemAt d.series si))
+            si = (si + 1)
+        }
+        print ("   series:" + names)
+        c.ok("no series is called Region" ((ChartInferenceTest.hasWord(d.series "Region")) == false))
+        c.ok("nor Product" ((ChartInferenceTest.hasWord(d.series "Product")) == false))
+
+        print "-- a category that repeats is a GROUP BY --"
+        c.eqStr("the plan says to group" ch.agg "group")
+        c.eqInt("three regions, not six rows" (d.catCount()) 3)
+        def northI:int (ChartInferenceTest.catIndex(d "North"))
+        c.ok("North is one of them" (northI >= 0))
+        def revI:int (ChartInferenceTest.seriesIndex(d "Revenue"))
+        c.ok("Revenue is a series" (revI >= 0))
+        c.near("and North's revenue is the sum of its rows" (ChartInferenceTest.valueAt(d northI revI)) 1000.0)
+
+        print "-- a rate is averaged, not summed --"
+        ; Margin is 0.10 + 0.30 + 0.30 over North. Summed that is 70%, which
+        ; is not a margin anyone has; averaged it is 23.3%.
+        ; Asked on a chart OF the margin: Region and Margin alone, so nothing
+        ; larger crowds it off the axis.
+        def m:GridApp (ChartInferenceTest.salesTable())
+        def mch:GridChart (new GridChart)
+        mch.r0 = 0
+        mch.r1 = 6
+        mch.c0 = 0
+        mch.c1 = 4
+        push mch.sourceCols 0
+        push mch.sourceCols 4
+        ChartInference.plan(m.model mch)
+        c.eqStr("Margin is averaged" (ChartInferenceTest.aggOf(mch 4)) "avg")
+        def md:ChartData (new ChartData)
+        c.ok("it charts" (md.extract(m.model mch)))
+        def mn:int (ChartInferenceTest.catIndex(md "North"))
+        ; North's margins are 0.10, 0.30 and 0.30. Added up that is 70%, which
+        ; is not a margin anyone has.
+        c.near("and North's margin is the average of its rows" (ChartInferenceTest.valueAt(md mn 0)) 0.2333)
+        c.eqStr("Qty is summed" (ChartInferenceTest.aggOf(ch 2)) "sum")
+
+        print "-- and it does not share an axis with a quantity --"
+        ; Revenue is in the hundreds and Margin is a fraction; drawn together
+        ; the margin is a flat line on the floor. The chart is the quantities.
+        c.ok("Margin is not on the axis" ((ChartInferenceTest.hasCol(ch.valueCols 4)) == false))
+        c.ok("Revenue is" (ChartInferenceTest.hasCol(ch.valueCols 3)))
+
+        print "-- the chart says what it is of --"
+        c.ok("there is a title at all" ((strlen ch.title) > 0))
+        c.eqStr("and it names the measures and the category" ch.title "Qty and Revenue by Region")
+        c.ok("the window caption is the title" ((ch.caption()) == ch.title))
+
+        print "-- an ID column is a name, not a quantity --"
+        def idApp:GridApp (ChartInferenceTest.app())
+        idApp.model.setCell(0 0 "CategoryID")
+        idApp.model.setCell(0 1 "Category")
+        idApp.model.setCell(0 2 "Amount")
+        def k:int 0
+        while (k < 4) {
+            idApp.model.setCell((k + 1) 0 (to_string (k + 1)))
+            idApp.model.setCell((k + 1) 1 ("Cat" + (to_string (k + 1))))
+            idApp.model.setCell((k + 1) 2 (to_string ((k + 1) * 100)))
+            k = (k + 1)
+        }
+        def idch:GridChart (ChartInferenceTest.planFor(idApp 0 0 4 2))
+        c.ok("CategoryID is not plotted" ((ChartInferenceTest.hasCol(idch.valueCols 0)) == false))
+        c.ok("Amount is" (ChartInferenceTest.hasCol(idch.valueCols 2)))
+        c.eqStr("and the chart is about the category" idch.title "Amount by Category")
+
+        print "-- a table of nothing but words is a COUNT --"
+        def cApp:GridApp (ChartInferenceTest.app())
+        cApp.model.setCell(0 0 "Region")
+        def regs:[string]
+        push regs "North"
+        push regs "South"
+        push regs "North"
+        push regs "North"
+        def ri:int 0
+        while (ri < 4) {
+            cApp.model.setCell((ri + 1) 0 (itemAt regs ri))
+            ri = (ri + 1)
+        }
+        def cch:GridChart (ChartInferenceTest.planFor(cApp 0 0 4 0))
+        c.eqStr("counting is the plan" cch.agg "count")
+        c.eqStr("and the title says so" cch.title "Count by Region")
+        def cd:ChartData (new ChartData)
+        c.ok("it charts" (cd.extract(cApp.model cch)))
+        c.eqInt("two regions" (cd.catCount()) 2)
+        def nI:int (ChartInferenceTest.catIndex(cd "North"))
+        c.near("North was seen three times" (ChartInferenceTest.valueAt(cd nI 0)) 3.0)
+
+        print "-- a date is a line, in the order it was read --"
+        def dApp:GridApp (ChartInferenceTest.app())
+        dApp.model.setCell(0 0 "Day")
+        dApp.model.setCell(0 1 "Visits")
+        def dateStyle:CellStyle (new CellStyle)
+        dateStyle.numFmt = "yyyy-mm-dd"
+        def dsid:int (dApp.model.styleIdFor(dateStyle))
+        def di:int 0
+        while (di < 5) {
+            dApp.model.setCell((di + 1) 0 (to_string (45000 + di)))
+            dApp.model.setCellStyleId((di + 1) 0 dsid)
+            dApp.model.setCell((di + 1) 1 (to_string ((di + 1) * 7)))
+            di = (di + 1)
+        }
+        def dch:GridChart (ChartInferenceTest.planFor(dApp 0 0 5 1))
+        c.eqInt("the day column is the category" dch.catCol 0)
+        c.eqInt("and time is drawn as a line" dch.kind (ChartKind.line()))
+        c.eqStr("titled by what it plots" dch.title "Visits by Day")
+
+        print "-- a second dimension becomes the series --"
+        ; One measure and two ways to cut it: Region along the bottom, Product
+        ; as the colours. That is a grouped bar, which is what "Revenue by
+        ; Region and Product" means.
+        def sApp:GridApp (ChartInferenceTest.salesTable())
+        ; Ctrl-picked columns: Region, Product, Revenue.
+        def sch:GridChart (new GridChart)
+        sch.r0 = 0
+        sch.r1 = 6
+        sch.c0 = 0
+        sch.c1 = 3
+        push sch.sourceCols 0
+        push sch.sourceCols 1
+        push sch.sourceCols 3
+        ChartInference.plan(sApp.model sch)
+        c.eqInt("Region is the category" sch.catCol 0)
+        c.eqInt("Product is the series" sch.seriesCol 1)
+        c.eqStr("and the title says both" sch.title "Revenue by Region and Product")
+        def sd:ChartData (new ChartData)
+        c.ok("it charts" (sd.extract(sApp.model sch)))
+        c.eqInt("three regions" (sd.catCount()) 3)
+        c.eqInt("two products" (sd.seriesCount()) 2)
+        def wI:int (ChartInferenceTest.seriesIndex(sd "Widget"))
+        def nI2:int (ChartInferenceTest.catIndex(sd "North"))
+        c.near("North's widgets are its widget rows added up" (ChartInferenceTest.valueAt(sd nI2 wI)) 700.0)
+
+        print "-- a year of daily readings is asked by month --"
+        ; 365 labels along the bottom is a grey smear, not an axis. The
+        ; question becomes "by month", which is the same GROUP BY one level
+        ; coarser — and the labels sort because the year comes first.
+        def yApp:GridApp (ChartInferenceTest.app())
+        yApp.model.growTo(400 3)
+        yApp.model.setCell(0 0 "Day")
+        yApp.model.setCell(0 1 "Visits")
+        def yStyle:CellStyle (new CellStyle)
+        yStyle.numFmt = "yyyy-mm-dd"
+        def ysid:int (yApp.model.styleIdFor(yStyle))
+        def yi:int 0
+        while (yi < 365) {
+            yApp.model.setCell((yi + 1) 0 (to_string (45292 + yi)))
+            yApp.model.setCellStyleId((yi + 1) 0 ysid)
+            yApp.model.setCell((yi + 1) 1 "1")
+            yi = (yi + 1)
+        }
+        def ych:GridChart (ChartInferenceTest.planFor(yApp 0 0 365 1))
+        c.eqStr("the days are bucketed by month" ych.catBucket "month")
+        c.eqStr("which means grouping" ych.agg "group")
+        def yd:ChartData (new ChartData)
+        c.ok("it charts" (yd.extract(yApp.model ych)))
+        c.eqInt("twelve months, not three hundred and sixty-five days" (yd.catCount()) 12)
+        c.eqStr("labelled so they sort" (itemAt yd.cats 0) "2024-01")
+        c.near("January had thirty-one readings" (ChartInferenceTest.valueAt(yd 0 0)) 31.0)
+
+        print "-- and a decade by year --"
+        def zApp:GridApp (ChartInferenceTest.app())
+        zApp.model.growTo(200 3)
+        zApp.model.setCell(0 0 "Day")
+        zApp.model.setCell(0 1 "Visits")
+        def zsid:int (zApp.model.styleIdFor(yStyle))
+        def zi:int 0
+        while (zi < 120) {
+            ; One reading a month for ten years.
+            zApp.model.setCell((zi + 1) 0 (to_string (40000 + (zi * 30))))
+            zApp.model.setCellStyleId((zi + 1) 0 zsid)
+            zApp.model.setCell((zi + 1) 1 "2")
+            zi = (zi + 1)
+        }
+        def zch:GridChart (ChartInferenceTest.planFor(zApp 0 0 120 1))
+        c.eqStr("ten years of months is asked by quarter or year" (ChartInferenceTest.oneOf(zch.catBucket "quarter" "year")) "yes")
+        def zd:ChartData (new ChartData)
+        c.ok("it charts" (zd.extract(zApp.model zch)))
+        c.ok("in a readable number of categories" ((zd.catCount()) <= 14))
+
+        print "-- a bare grid of numbers still charts --"
+        ; No headers, nothing to group by: the old rectangle reading is the
+        ; fallback, and it has to still be there.
+        def gApp:GridApp (ChartInferenceTest.app())
+        def gr:int 0
+        while (gr < 3) {
+            def gc:int 0
+            while (gc < 3) {
+                gApp.model.setCell(gr gc (to_string ((gr * 3) + gc + 1)))
+                gc = (gc + 1)
+            }
+            gr = (gr + 1)
+        }
+        def gch:GridChart (ChartInferenceTest.planFor(gApp 0 0 2 2))
+        def gd:ChartData (new ChartData)
+        c.ok("it charts" (gd.extract(gApp.model gch)))
+        c.ok("with something in it" ((gd.catCount()) > 0))
+
+        print "-- many categories lie on their side --"
+        def bApp:GridApp (ChartInferenceTest.app())
+        bApp.model.setCell(0 0 "Name")
+        bApp.model.setCell(0 1 "Score")
+        def bi:int 0
+        while (bi < 20) {
+            bApp.model.setCell((bi + 1) 0 ("Person " + (to_string bi)))
+            bApp.model.setCell((bi + 1) 1 (to_string (bi + 1)))
+            bi = (bi + 1)
+        }
+        def bch:GridChart (ChartInferenceTest.planFor(bApp 0 0 20 1))
+        c.eqInt("twenty names under a column do not fit, so it is a bar" bch.kind (ChartKind.bar()))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    sfn hasWord:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn hasCol:boolean (list:[int] want:int) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; How a chart says it will combine one of its columns, or "" when that
+    ; column is not on the axis at all.
+    sfn aggOf:string (ch:GridChart col:int) {
+        def i:int 0
+        while (i < (array_length ch.valueCols)) {
+            if ((itemAt ch.valueCols i) == col) {
+                return (itemAt ch.valueAggs i)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn oneOf:string (got:string a:string b:string) {
+        if (got == a) {
+            return "yes"
+        }
+        if (got == b) {
+            return "yes"
+        }
+        return got
+    }
+
+    sfn seriesIndex:int (d:ChartData name:string) {
+        def i:int 0
+        while (i < (d.seriesCount())) {
+            if ((itemAt d.series i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}

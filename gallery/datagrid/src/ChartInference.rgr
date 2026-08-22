@@ -1,0 +1,873 @@
+; ==============================================================================
+; ChartInference.rgr — working out what a selection is a chart OF.
+; ==============================================================================
+;
+; Select the business table and ask for a chart, and what came back was a
+; heatmap of seven "series" called Date, Region, Product, Qty, UnitPrice,
+; Revenue and Margin, plotted against categories called 1, 2, 3 … 200. Every
+; one of those is wrong, and they are wrong for one reason: the old code
+; treated a rectangle as a matrix of numbers with a label row on top. A
+; spreadsheet range is not a matrix. It is a TABLE, and its columns have
+; meanings.
+;
+; So this reads the columns first and decides what each one IS:
+;
+;   measure     mostly numbers — the thing being asked about
+;   date        numbers under a date format — an axis that has an order
+;   dimension   text that REPEATS — something to group by
+;   label       text that is nearly all distinct — a name for each row
+;   identifier  numbers that are really names (an "ID" column, a running count)
+;   blank       nothing in it
+;
+; and then answers the question a chart actually asks, which is a SQL query:
+;
+;   SELECT <category>, <agg>(<measure>) … FROM <selection> GROUP BY <category>
+;
+; Everything below is a rule for filling in that statement.
+;
+; The two that matter most, because they are what made the old charts useless:
+;
+;   * A TEXT COLUMN IS NOT A SERIES. `Region` is not a quantity that can be
+;     plotted; it is what you plot the quantities BY. Charting it as a series
+;     produced a row of empty slots and pushed the series count past the point
+;     where the picker offered a heatmap.
+;   * A CATEGORY THAT REPEATS MEANS GROUP BY. Two hundred rows of Region and
+;     Revenue is not two hundred bars; it is four. Nobody wants a bar per
+;     invoice line, and Excel's own chart of that selection is unreadable too.
+;
+; And one that is quieter but worse when it is wrong: SUM IS NOT ALWAYS THE
+; ANSWER. Summing a margin percentage over twelve rows gives 174%, which is
+; not a number that exists. A measure whose header reads like a rate, a share
+; or a unit price is AVERAGED; everything else is summed.
+;
+; What comes out is a `GridChart` with its category, its series, its measures,
+; its aggregation and its title filled in. The chart stays a live description
+; of a range — editing a cell still redraws it — because the plan names
+; COLUMNS, not the numbers it found in them.
+; ==============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "XlsxNumberFormat.rgr"
+Import "GridChart.rgr"
+
+; What one column of the selection turns out to be.
+class ColumnFacts {
+    def col:int 0
+    def header:string ""
+    ; Counted over the sampled rows.
+    def numeric:int 0
+    def texty:int 0
+    def blank:int 0
+    def distinct:int 0
+    def role:string "blank"
+    ; A measure whose values are a rate rather than a quantity: averaging is
+    ; the only aggregation that means anything.
+    def rate:boolean false
+    ; The average size of what is in it, ignoring sign. Two measures on one
+    ; axis only work when this is comparable — see `keepComparable`.
+    def magnitude:double 0.0
+
+    Constructor () {
+    }
+
+    fn rows:int () {
+        return ((numeric + texty) + blank)
+    }
+}
+
+class ChartInference {
+    ; How many rows are read to decide what a column IS. Typing a column does
+    ; not need the whole sheet — a hundred rows say whether it is text or
+    ; numbers — and a workbook with 200k rows should not pay for the answer.
+    ; The AGGREGATION reads everything; only the typing is sampled.
+    sfn sampleRows:int () {
+        return 200
+    }
+
+    ; Past this many distinct values a dimension stops being something to
+    ; group by and starts being a list of names. Four regions is a category;
+    ; four hundred invoice numbers is not.
+    sfn maxGroups:int () {
+        return 40
+    }
+
+    ; The skill's series ladder: past six, colour alone stops telling them
+    ; apart. A second dimension wider than this is not made into series.
+    sfn maxSeries:int () {
+        return 6
+    }
+
+    ; --- reading one column ---------------------------------------------------
+    sfn factsFor:ColumnFacts (model:SpreadsheetModel col:int top:int bottom:int header:string) {
+        def f:ColumnFacts (new ColumnFacts)
+        f.col = col
+        f.header = header
+        def seen:[string:boolean]
+        def flag:[boolean]
+        def dateFmt:int 0
+        def pctFmt:int 0
+        def r:int top
+        def limit:int (top + (ChartInference.sampleRows()))
+        if (limit > bottom) {
+            limit = bottom
+        }
+        while (r <= limit) {
+            def raw:string (model.getCell(r col))
+            if ((strlen raw) == 0) {
+                f.blank = (f.blank + 1)
+            } {
+                ChartInference.asNumber(raw flag)
+                def isNum:boolean false
+                if ((array_length flag) > 0) {
+                    isNum = (itemAt flag 0)
+                }
+                if isNum {
+                    f.numeric = (f.numeric + 1)
+                    def mag:double (ChartInference.asNumber(raw flag))
+                    if (mag < 0.0) {
+                        mag = (0.0 - mag)
+                    }
+                    f.magnitude = (f.magnitude + mag)
+                    def st:CellStyle (model.getCellStyle(r col))
+                    if (XlsxNumberFormat.isDatePattern(st.numFmt)) {
+                        dateFmt = (dateFmt + 1)
+                    }
+                    if ((indexOf st.numFmt "%") >= 0) {
+                        pctFmt = (pctFmt + 1)
+                    }
+                } {
+                    f.texty = (f.texty + 1)
+                }
+                def key:string (to_lowercase raw)
+                if ((has seen key) == false) {
+                    set seen key true
+                    f.distinct = (f.distinct + 1)
+                }
+            }
+            r = (r + 1)
+        }
+        if (f.numeric > 0) {
+            f.magnitude = (f.magnitude / (to_double f.numeric))
+        }
+        f.rate = (ChartInference.headerIsRate(header))
+        if (pctFmt > 0) {
+            f.rate = true
+        }
+        f.role = (ChartInference.roleOf(f dateFmt))
+        return f
+    }
+
+    ; Which of the six a column is.
+    sfn roleOf:string (f:ColumnFacts dateFmt:int) {
+        def filled:int (f.numeric + f.texty)
+        if (filled == 0) {
+            return "blank"
+        }
+        ; "Mostly" rather than "all": one stray "n/a" in a column of numbers
+        ; does not make it a list of words.
+        def mostlyNumeric:boolean ((f.numeric * 4) >= (filled * 3))
+        if mostlyNumeric {
+            if ((dateFmt * 2) >= f.numeric) {
+                return "date"
+            }
+            if (ChartInference.headerIsId(f.header)) {
+                return "identifier"
+            }
+            ; A column of numbers that never repeats and whose header says it
+            ; names something is a name, not a measurement. Without the header
+            ; saying so we believe the numbers — a column of prices is all
+            ; distinct too.
+            return "measure"
+        }
+        ; Text. Whether it can be grouped by is the whole question.
+        if (f.distinct <= (ChartInference.maxGroups())) {
+            if ((f.distinct * 2) <= filled) {
+                return "dimension"
+            }
+        }
+        return "label"
+    }
+
+    ; A header that names an identifier rather than a quantity. Charting the
+    ; sum of CategoryID is the classic nonsense chart.
+    sfn headerIsId:boolean (header:string) {
+        def h:string (to_lowercase (trim header))
+        if ((strlen h) == 0) {
+            return false
+        }
+        if (h == "id") {
+            return true
+        }
+        if (h == "#") {
+            return true
+        }
+        if (h == "no") {
+            return true
+        }
+        if (h == "nro") {
+            return true
+        }
+        if (ChartInference.tailIs(h " id")) {
+            return true
+        }
+        if (ChartInference.tailIs(h "id")) {
+            ; "Paid" and "Valid" end in "id" too; only take it when what comes
+            ; before it reads like a noun boundary.
+            def n:int (strlen h)
+            if (n > 2) {
+                def before:int (charAt h (n - 3))
+                if ((before == 32) || (before == 95) || (before == 45)) {
+                    return true
+                }
+            }
+        }
+        if (ChartInference.tailIs(h "code")) {
+            return true
+        }
+        if (ChartInference.tailIs(h "number")) {
+            return true
+        }
+        return false
+    }
+
+    ; A measure that is a rate, a share or a per-unit figure. Adding these up
+    ; produces a number that does not exist; the average is what was meant.
+    sfn headerIsRate:boolean (header:string) {
+        def h:string (to_lowercase (trim header))
+        if ((strlen h) == 0) {
+            return false
+        }
+        if ((indexOf h "%") >= 0) {
+            return true
+        }
+        if ((indexOf h "percent") >= 0) {
+            return true
+        }
+        if ((indexOf h "margin") >= 0) {
+            return true
+        }
+        if ((indexOf h "rate") >= 0) {
+            return true
+        }
+        if ((indexOf h "ratio") >= 0) {
+            return true
+        }
+        if ((indexOf h "share") >= 0) {
+            return true
+        }
+        if ((indexOf h "average") >= 0) {
+            return true
+        }
+        if ((indexOf h "avg") >= 0) {
+            return true
+        }
+        if ((indexOf h "mean") >= 0) {
+            return true
+        }
+        if ((indexOf h "unitprice") >= 0) {
+            return true
+        }
+        if ((indexOf h "unit price") >= 0) {
+            return true
+        }
+        if ((indexOf h "price") >= 0) {
+            return true
+        }
+        if ((indexOf h "score") >= 0) {
+            return true
+        }
+        return false
+    }
+
+
+    ; --- the plan -------------------------------------------------------------
+    ; Fill in the chart's question from the columns it can see. `ch` arrives
+    ; with its range and its source columns already set; everything else — the
+    ; category, the series, the measures, the aggregation, the type and the
+    ; title — is decided here.
+    sfn plan:boolean (model:SpreadsheetModel ch:GridChart) {
+        return (ChartInference.planWith(model ch (ChartInference.hasHeaderRow(model ch))))
+    }
+
+    ; The same, with the header question already answered — by the guess above
+    ; on a fresh selection, or by the picker's checkbox when a reader
+    ; disagrees with it.
+    sfn planWith:boolean (model:SpreadsheetModel ch:GridChart useHeader:boolean) {
+        ch.catCol = -1
+        ch.seriesCol = -1
+        clear ch.valueCols
+        clear ch.valueAggs
+        ch.agg = ""
+
+        def n:int (ch.sourceColCount())
+        if (n == 0) {
+            return false
+        }
+        ch.useHeaderRow = useHeader
+        def top:int ch.r0
+        if ch.useHeaderRow {
+            top = (top + 1)
+        }
+        if (top > ch.r1) {
+            return false
+        }
+
+        def facts:[ColumnFacts]
+        def i:int 0
+        while (i < n) {
+            def col:int (ch.sourceColAt(i))
+            def header:string ""
+            if ch.useHeaderRow {
+                header = (model.getCell(ch.r0 col))
+            }
+            push facts (ChartInference.factsFor(model col top ch.r1 header))
+            i = (i + 1)
+        }
+
+        ; --- the category: what the numbers are broken down BY ----------------
+        ; A date wins, because time has an order nothing else does and a reader
+        ; expects it along the bottom. Otherwise the dimension with the FEWEST
+        ; distinct values: that is the coarsest way to cut the table, which is
+        ; what a first chart of it should show.
+        def catIdx:int -1
+        def bestDistinct:int 0
+        def fi:int 0
+        while (fi < (array_length facts)) {
+            def f:ColumnFacts (itemAt facts fi)
+            if (f.role == "date") {
+                if (catIdx < 0) {
+                    catIdx = fi
+                }
+            }
+            fi = (fi + 1)
+        }
+        if (catIdx < 0) {
+            ; The LEFTMOST dimension, not the narrowest one.
+            ;
+            ; "Fewest distinct values" sounds like the coarsest and therefore
+            ; the most useful cut, and it fights the way people write tables:
+            ; the column a table is about goes first. A sales table of Region,
+            ; Product, Qty, Revenue is about regions, and choosing Product
+            ; because there happen to be two of them charts the wrong question.
+            ; The narrowness rule is still right — for the SERIES, below, where
+            ; a narrow split is what colour can carry.
+            def di:int 0
+            while (di < (array_length facts)) {
+                def d:ColumnFacts (itemAt facts di)
+                if (d.role == "dimension") {
+                    if (catIdx < 0) {
+                        catIdx = di
+                        bestDistinct = d.distinct
+                    }
+                }
+                di = (di + 1)
+            }
+        }
+        if (catIdx < 0) {
+            def li:int 0
+            while (li < (array_length facts)) {
+                def l:ColumnFacts (itemAt facts li)
+                if (l.role == "label") {
+                    if (catIdx < 0) {
+                        catIdx = li
+                    }
+                }
+                li = (li + 1)
+            }
+        }
+
+        ; --- the series: a SECOND way to cut it -------------------------------
+        ; Only when there is one measure to split, and only while the split is
+        ; narrow enough that colour can still tell the pieces apart.
+        def seriesIdx:int -1
+        def measures:int 0
+        def mi:int 0
+        while (mi < (array_length facts)) {
+            def m:ColumnFacts (itemAt facts mi)
+            if (m.role == "measure") {
+                measures = (measures + 1)
+            }
+            mi = (mi + 1)
+        }
+        if (measures == 1) {
+            ; The NARROWEST remaining dimension, because this one becomes the
+            ; colours and colour runs out first — past six, a legend stops
+            ; telling them apart.
+            def bestSeries:int 0
+            def si:int 0
+            while (si < (array_length facts)) {
+                def sfx:ColumnFacts (itemAt facts si)
+                if (si != catIdx) {
+                    if (sfx.role == "dimension") {
+                        if (sfx.distinct <= (ChartInference.maxSeries())) {
+                            if (seriesIdx < 0) {
+                                seriesIdx = si
+                                bestSeries = sfx.distinct
+                            } {
+                                if (sfx.distinct < bestSeries) {
+                                    seriesIdx = si
+                                    bestSeries = sfx.distinct
+                                }
+                            }
+                        }
+                    }
+                }
+                si = (si + 1)
+            }
+        }
+
+        ; --- the measures -----------------------------------------------------
+        ; Everything numeric that is not the category or the series, then
+        ; narrowed: a first chart of a table should be ONE readable picture,
+        ; not every number it has on one axis.
+        def picked:[ColumnFacts]
+        def vi:int 0
+        while (vi < (array_length facts)) {
+            def v:ColumnFacts (itemAt facts vi)
+            if (vi != catIdx) {
+                if (vi != seriesIdx) {
+                    if (v.role == "measure") {
+                        push picked v
+                    }
+                }
+            }
+            vi = (vi + 1)
+        }
+        ChartInference.narrowMeasures(picked)
+        def pi:int 0
+        while (pi < (array_length picked)) {
+            def p:ColumnFacts (itemAt picked pi)
+            push ch.valueCols p.col
+            if p.rate {
+                push ch.valueAggs "avg"
+            } {
+                push ch.valueAggs "sum"
+            }
+            pi = (pi + 1)
+        }
+        if ((array_length ch.valueCols) == 0) {
+            ; No measures at all. A table of nothing but dimensions is still a
+            ; question — "how many of each" — and counting is the answer a
+            ; spreadsheet gives it. Charting nothing is not.
+            if (catIdx >= 0) {
+                def cfc:ColumnFacts (itemAt facts catIdx)
+                ch.catCol = cfc.col
+                ch.agg = "count"
+                ch.kind = (ChartKind.column())
+                if ((strlen cfc.header) > 0) {
+                    ch.title = ("Count by " + cfc.header)
+                }
+                ch.useHeaderCol = false
+                return true
+            }
+            ; Nothing numeric and nothing to count by: fall back to the old
+            ; rectangle reading, so a grid of numbers with no headers still
+            ; charts.
+            return false
+        }
+
+        ch.catBucket = ""
+        if (catIdx >= 0) {
+            def cf:ColumnFacts (itemAt facts catIdx)
+            ch.catCol = cf.col
+            ; A category that repeats is a GROUP BY. One that does not is a
+            ; row per bar, which is what a small table wants.
+            def rowsSeen:int (cf.rows())
+            if (cf.distinct < rowsSeen) {
+                ch.agg = "group"
+            }
+            ; A year of daily readings is 365 categories, and 365 labels along
+            ; the bottom is a grey smear rather than an axis. A date that fine
+            ; is asked by month instead — and by quarter or year when even
+            ; months are too many, which is what a decade of data looks like.
+            if (cf.role == "date") {
+                ch.catBucket = (ChartInference.bucketFor(model ch cf))
+                if ((strlen ch.catBucket) > 0) {
+                    ch.agg = "group"
+                }
+            }
+        }
+        if (seriesIdx >= 0) {
+            def sf:ColumnFacts (itemAt facts seriesIdx)
+            ch.seriesCol = sf.col
+            ch.agg = "group"
+        }
+        ; A date axis is not grouped by default: a reading per day IS the
+        ; series, and collapsing it would throw the shape away. It is grouped
+        ; only when the same date genuinely repeats.
+        ch.useHeaderCol = false
+        ch.kind = (ChartInference.kindFor(model ch facts catIdx seriesIdx))
+        ch.title = (ChartInference.titleFor(model ch facts catIdx seriesIdx))
+        return true
+    }
+
+
+
+    ; How coarse a date axis has to be to fit. The sample says how many
+    ; distinct days are in reach; the whole selection is usually larger, so
+    ; the span is taken from the rows rather than from the sample count.
+    sfn bucketFor:string (model:SpreadsheetModel ch:GridChart cf:ColumnFacts) {
+        def top:int ch.r0
+        if ch.useHeaderRow {
+            top = (top + 1)
+        }
+        def rows:int ((ch.r1 - top) + 1)
+        ; Few enough readings to draw one per row: leave them alone. A weekly
+        ; report of twelve rows is not improved by being made monthly.
+        if (rows <= (ChartInference.readableCats())) {
+            if (cf.distinct <= (ChartInference.readableCats())) {
+                return ""
+            }
+        }
+        ; How long a span the dates cover, from the first and last of them.
+        def flag:[boolean]
+        def lo:double 0.0
+        def hi:double 0.0
+        def seen:boolean false
+        def r:int top
+        while (r <= ch.r1) {
+            def v:double (ChartInference.asNumber((model.getCell(r cf.col)) flag))
+            def ok:boolean false
+            if ((array_length flag) > 0) {
+                ok = (itemAt flag 0)
+            }
+            if ok {
+                if (seen == false) {
+                    lo = v
+                    hi = v
+                    seen = true
+                } {
+                    if (v < lo) {
+                        lo = v
+                    }
+                    if (v > hi) {
+                        hi = v
+                    }
+                }
+            }
+            r = (r + 1)
+        }
+        if (seen == false) {
+            return ""
+        }
+        def days:double (hi - lo)
+        def months:double (days / 30.4)
+        if (months <= (to_double (ChartInference.readableCats()))) {
+            return "month"
+        }
+        def quarters:double (months / 3.0)
+        if (quarters <= (to_double (ChartInference.readableCats()))) {
+            return "quarter"
+        }
+        return "year"
+    }
+
+    ; How many categories fit along the bottom of a chart before the labels
+    ; stop being readable. Twelve months is the shape everyone knows.
+    sfn readableCats:int () {
+        return 12
+    }
+
+    ; Which of the numeric columns end up on the axis.
+    ;
+    ; Two rules, and both exist because one axis is the only honest way to draw
+    ; a chart. A second y-scale is the most common chart mistake there is, so
+    ; the answer to "these numbers are not comparable" is to leave some of them
+    ; out rather than to invent a second axis for them:
+    ;
+    ;   * A RATE IS NOT A QUANTITY. Margin sits between 0 and 1; revenue is in
+    ;     the thousands. Drawn together the margin is a flat line on the floor.
+    ;     When a table has both, the quantities are the chart and the rates are
+    ;     a second chart nobody asked for yet.
+    ;   * ORDERS OF MAGNITUDE. Even among quantities, a column fifty times
+    ;     larger than another flattens it into the axis. Keep the big one and
+    ;     whatever is within reach of it.
+    ;
+    ; Then a cap, because past four series a legend stops helping.
+    sfn narrowMeasures:void (picked:[ColumnFacts]) {
+        def n:int (array_length picked)
+        if (n <= 1) {
+            return
+        }
+        def amounts:[ColumnFacts]
+        def i:int 0
+        while (i < n) {
+            def f:ColumnFacts (itemAt picked i)
+            if (f.rate == false) {
+                push amounts f
+            }
+            i = (i + 1)
+        }
+        def keep:[ColumnFacts]
+        if ((array_length amounts) > 0) {
+            def a:int 0
+            while (a < (array_length amounts)) {
+                push keep (itemAt amounts a)
+                a = (a + 1)
+            }
+        } {
+            def b:int 0
+            while (b < n) {
+                push keep (itemAt picked b)
+                b = (b + 1)
+            }
+        }
+        ; The largest magnitude sets the scale everything else has to live on.
+        def biggest:double 0.0
+        def k:int 0
+        while (k < (array_length keep)) {
+            def kf:ColumnFacts (itemAt keep k)
+            if (kf.magnitude > biggest) {
+                biggest = kf.magnitude
+            }
+            k = (k + 1)
+        }
+        def floor:double (biggest / (ChartInference.scaleSpread()))
+        def near:[ColumnFacts]
+        def m:int 0
+        while (m < (array_length keep)) {
+            def mf:ColumnFacts (itemAt keep m)
+            if (mf.magnitude >= floor) {
+                if ((array_length near) < (ChartInference.maxMeasures())) {
+                    push near mf
+                }
+            }
+            m = (m + 1)
+        }
+        if ((array_length near) == 0) {
+            return
+        }
+        clear picked
+        def z:int 0
+        while (z < (array_length near)) {
+            push picked (itemAt near z)
+            z = (z + 1)
+        }
+    }
+
+    ; How far apart two measures may be and still share an axis.
+    sfn scaleSpread:double () {
+        return 25.0
+    }
+
+    ; Past four series a legend stops helping and the picture stops being one
+    ; picture.
+    sfn maxMeasures:int () {
+        return 4
+    }
+
+    ; Read the selection again with the header question answered by hand.
+    ; The picker's checkbox is not a flag to store: whether the first row is
+    ; names decides what every column is CALLED, which decides which one is the
+    ; category and what the chart is titled.
+    sfn replan:void (model:SpreadsheetModel ch:GridChart forceHeader:boolean) {
+        ChartInference.planWith(model ch forceHeader)
+    }
+
+    ; A header row is a row of words over columns that are not words. The old
+    ; test asked only about the LAST column, which called a table with a text
+    ; column on the right headerless.
+    sfn hasHeaderRow:boolean (model:SpreadsheetModel ch:GridChart) {
+        if (ch.r1 <= ch.r0) {
+            return false
+        }
+        def n:int (ch.sourceColCount())
+        def flag:[boolean]
+        def topText:int 0
+        def bodyNum:int 0
+        def i:int 0
+        while (i < n) {
+            def col:int (ch.sourceColAt(i))
+            def head:string (model.getCell(ch.r0 col))
+            if ((strlen head) > 0) {
+                ChartInference.asNumber(head flag)
+                if ((array_length flag) > 0) {
+                    if ((itemAt flag 0) == false) {
+                        topText = (topText + 1)
+                    }
+                }
+            }
+            def below:string (model.getCell((ch.r0 + 1) col))
+            if ((strlen below) > 0) {
+                ChartInference.asNumber(below flag)
+                if ((array_length flag) > 0) {
+                    if (itemAt flag 0) {
+                        bodyNum = (bodyNum + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (topText == 0) {
+            return false
+        }
+        ; Words on top and at least one number under them: a header. Words on
+        ; top of words is a header too when every column has one, which is what
+        ; a table of names and categories looks like.
+        if (bodyNum > 0) {
+            return true
+        }
+        return (topText == n)
+    }
+
+    ; --- the form -------------------------------------------------------------
+    ; The job the reader has to do picks the type. Time is a line; a handful of
+    ; categories is a column; many categories are a bar, because a name under a
+    ; column is unreadable past about a dozen of them; two dimensions are a
+    ; grouped bar until there are too many to tell apart, and then a stack.
+    sfn kindFor:int (model:SpreadsheetModel ch:GridChart facts:[ColumnFacts] catIdx:int seriesIdx:int) {
+        def measures:int (array_length ch.valueCols)
+        def catRole:string ""
+        def groups:int 0
+        if (catIdx >= 0) {
+            def cf:ColumnFacts (itemAt facts catIdx)
+            catRole = cf.role
+            groups = cf.distinct
+        }
+        if (catRole == "date") {
+            if (measures == 1) {
+                return (ChartKind.line())
+            }
+            return (ChartKind.line())
+        }
+        if (seriesIdx >= 0) {
+            def sf:ColumnFacts (itemAt facts seriesIdx)
+            if (sf.distinct > 3) {
+                return (ChartKind.stacked())
+            }
+            return (ChartKind.column())
+        }
+        if (measures >= 4) {
+            return (ChartKind.stacked())
+        }
+        if (measures >= 2) {
+            return (ChartKind.column())
+        }
+        ; One measure. Past about a dozen categories the names stop fitting
+        ; under a column, so the chart lies on its side.
+        if (groups > 12) {
+            return (ChartKind.bar())
+        }
+        return (ChartKind.column())
+    }
+
+    ; --- the title ------------------------------------------------------------
+    ; "Revenue by Region", which is what the chart is, rather than "Column —
+    ; A1:G201", which is where it came from. The old code had no title at all
+    ; and the window's caption said the range.
+    sfn titleFor:string (model:SpreadsheetModel ch:GridChart facts:[ColumnFacts] catIdx:int seriesIdx:int) {
+        if ((array_length ch.valueCols) == 0) {
+            return ""
+        }
+        def what:string ""
+        def i:int 0
+        def n:int (array_length ch.valueCols)
+        while (i < n) {
+            def name:string (ChartInference.headerOf(facts (itemAt ch.valueCols i)))
+            if ((strlen name) == 0) {
+                return ""
+            }
+            if (i == 0) {
+                what = name
+            } {
+                if (i == (n - 1)) {
+                    what = ((what + " and ") + name)
+                } {
+                    what = ((what + ", ") + name)
+                }
+            }
+            i = (i + 1)
+        }
+        ; Three or more measures listed by name is a sentence, not a title.
+        if (n > 3) {
+            what = "Totals"
+        }
+        if (catIdx < 0) {
+            return what
+        }
+        def cf:ColumnFacts (itemAt facts catIdx)
+        if ((strlen cf.header) == 0) {
+            return what
+        }
+        def out:string ((what + " by ") + cf.header)
+        if (seriesIdx >= 0) {
+            def sf:ColumnFacts (itemAt facts seriesIdx)
+            if ((strlen sf.header) > 0) {
+                out = ((out + " and ") + sf.header)
+            }
+        }
+        return out
+    }
+
+    sfn headerOf:string (facts:[ColumnFacts] col:int) {
+        def i:int 0
+        while (i < (array_length facts)) {
+            def f:ColumnFacts (itemAt facts i)
+            if (f.col == col) {
+                return f.header
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; `endsWith` is a name the compiler keeps for itself, hence `tailIs`.
+    sfn tailIs:boolean (s:string suffix:string) {
+        def n:int (strlen s)
+        def m:int (strlen suffix)
+        if (m > n) {
+            return false
+        }
+        return ((substring s (n - m) n) == suffix)
+    }
+
+    ; The same number parser the chart data uses, so a value that plots is a
+    ; value that counts as numeric here.
+    sfn asNumber:double (raw:string outOk:[boolean]) {
+        clear outOk
+        def s:string (trim raw)
+        if ((strlen s) == 0) {
+            push outOk false
+            return 0.0
+        }
+        ; A trailing percent sign is a number in a spreadsheet.
+        def pct:boolean false
+        if ((charAt s ((strlen s) - 1)) == 37) {
+            pct = true
+            s = (trim (substring s 0 ((strlen s) - 1)))
+        }
+        def cleaned:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            ; Digits, sign, point and exponent survive; thousands separators,
+            ; currency symbols and spaces are dropped.
+            if (((ch >= 48) && (ch <= 57)) || (ch == 45) || (ch == 43) || (ch == 46) || (ch == 101) || (ch == 69)) {
+                cleaned = (cleaned + (substring s i (i + 1)))
+            } {
+                if ((ch == 44) || (ch == 32) || (ch == 36) || (ch == 8364) || (ch == 163)) {
+                    ; separator or currency — skip
+                } {
+                    push outOk false
+                    return 0.0
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cleaned) == 0) {
+            push outOk false
+            return 0.0
+        }
+        def v@(optional):double (to_double cleaned)
+        if (null? v) {
+            push outOk false
+            return 0.0
+        }
+        push outOk true
+        def out:double (unwrap v)
+        if pct {
+            out = (out / 100.0)
+        }
+        return out
+    }
+}
