@@ -32,7 +32,7 @@ A `partial` counts as half. Whether that is the right weight is a judgement,
 so it is stated rather than buried: the alternative is scoring "we have
 something narrower" as either a lie or a zero.
 
-## JointJS 4 — 42.5/48 (89%)
+## JointJS 4 — 45/48 (94%)
 
 ### Elements and links — 7/8
 
@@ -77,7 +77,7 @@ something narrower" as either a lie or a zero.
 | Port labels | `layout.ports.portLabel` | ✓ done | `portRoles` | a row's own name is the label |
 | Port groups and roles | `portsgroup / magnet` | ✓ done | `connectionLimit` |  |
 
-### Interaction — 8/10
+### Interaction — 10/10
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
@@ -86,18 +86,18 @@ something narrower" as either a lie or a zero.
 | Move elements | `element interactivity` | ✓ done | `dragNode` |  |
 | Rubber-band selection | `paper selection` | ✓ done | `boxSelect` |  |
 | Granular interactivity | `paper.interactive` | ✓ done | `perNodeDraggable` | per node: draggable, selectable, connectable |
-| Element tools | `elementTools` | ~ partial | `resizeNode` | resize grips, but no remove or connect button on the element |
-| Highlighters | `highlighters.stroke / mask` | ~ partial | `clickSelect` | selection and hover borders; no mask or opacity highlighter |
-| Touch support | `touch events` | · todo | — | pointer events, but no pinch |
+| Element tools | `elementTools` | ✓ done | `elementTools` | resize grips, a remove button and a connect button |
+| Highlighters | `highlighters.stroke / mask` | ✓ done | `highlighters` | stroke, mask and opacity, on top of selection and hover |
+| Touch support | `touch events` | ✓ done | `pinchZoom` | pointer events and pinch to zoom |
 | In-place text editing | `(Rappid: inspector / text editing)` | ✓ done | `inPlaceEdit` |  |
 | Undo / redo | `(Rappid: dia.CommandManager)` | ✓ done | `undoMove` |  |
 
-### Graph and data — 5/6
+### Graph and data — 5.5/6
 
 | Capability | JointJS | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Import / export JSON | `graph.toJSON / fromJSON` | ✓ done | `serialization` |  |
-| Graph traversal API | `getNeighbors, getPredecessors, dfs, bfs` | ~ partial | `graphApi` | degrees and adjacency, but no walk |
+| Graph traversal API | `getNeighbors, getPredecessors, dfs, bfs` | ✓ done | `graphWalk` |  |
 | Elements at a point | `findModelsFromPoint` | ✓ done | `graphApi` |  |
 | Embedded elements | `embed / getEmbeddedCells` | ✓ done | `embedding` | parentId, and a container carries its children |
 | Automatic layouts | `layout.DirectedGraph` | ✓ done | `radialLayout` | layered, force, radial, mind map |
@@ -112,7 +112,7 @@ something narrower" as either a lie or a zero.
 | SVG output | `SVG-based rendering` | ✓ done | `edgeTypes` | SVG, and PDF, HTML and a GPU display list |
 | Viewport-limited rendering | `paper async / viewport` | ✓ done | `culling` |  |
 
-## Syncfusion EJ2 Diagram — 55.5/63 (88%)
+## Syncfusion EJ2 Diagram — 59/63 (94%)
 
 ### Nodes — 17/18
 
@@ -150,7 +150,7 @@ something narrower" as either a lie or a zero.
 | Connector bridging | `objects/connector-bridging` | ✓ done | `lineJumps` |  |
 | Segment editing by hand | `SegmentEditing / connector-editing` | ✓ done | `linkSegments` |  |
 
-### Labels and ports — 6/7
+### Labels and ports — 7/7
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
@@ -158,22 +158,22 @@ something narrower" as either a lie or a zero.
 | Annotations on connectors | `objects/annotation` | ✓ done | `annotations` |  |
 | Text wrapping | `TextWrap` | ✓ done | `textWrap` |  |
 | Text overflow / clipping | `TextOverflow` | ✓ done | `textWrap` | ellipsis after wrap and autofit |
-| Several annotations per object | `annotations: [...]` | · todo | — | one label per node, one per edge |
+| Several annotations per object | `annotations: [...]` | ✓ done | `multipleAnnotations` |  |
 | Ports | `objects/port` | ✓ done | `connectPorts` |  |
 | Port shapes and alignment | `PortShapes, PortAlignment` | ✓ done | `multipleHandles` |  |
 
-### Interaction — 8.5/12
+### Interaction — 11/12
 
 | Capability | Syncfusion | Status | Probe | Note |
 | --- | --- | --- | --- | --- |
 | Drag | `interaction/tool` | ✓ done | `dragNode` |  |
 | Resize | `SizingOptions` | ✓ done | `resizeNode` |  |
-| Rotate | `rotateAngle` | · todo | — | no rotation in the model |
+| Rotate | `rotateAngle` | ~ partial | `rotation` | the outline, hit test and ports turn; the text stays upright |
 | Rubber-band selection | `RubberBandSelectionMode` | ✓ done | `boxSelect` |  |
 | Drawing tools | `drawingObject` | ~ partial | `addNode` | a palette that adds, not a drag-to-draw tool |
 | Keyboard commands | `diagram/keyboard-commands` | ✓ done | `selectAll` |  |
-| Context menu | `objects/context-menu` | · todo | — |  |
-| Tooltips | `objects/tooltip` | · todo | — |  |
+| Context menu | `objects/context-menu` | ✓ done | `contextMenu` |  |
+| Tooltips | `objects/tooltip` | ✓ done | `tooltips` |  |
 | Undo / redo | `objects/undo-redo` | ✓ done | `undoMove` |  |
 | In-place text editing | `startTextEdit` | ✓ done | `inPlaceEdit` |  |
 | Snapping to gridlines | `objects/snapping` | ✓ done | `snapPosition` |  |

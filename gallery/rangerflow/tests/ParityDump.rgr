@@ -1051,6 +1051,131 @@ class ParityDump {
         if (numbers < 4) { rulerOk = false }
         this.probe("rulers" rulerOk "the surface carries a scale in flow units, with numbered ticks")
 
+        ; --- several annotations on one object -------------------------------
+        ; The row is "annotations: [...]", so one label is not enough: a node
+        ; has to carry a step number in one corner and a cost in the other,
+        ; and both have to reach the scene at the places they were pinned to.
+        def ag2 (new FlowGraph)
+        def an1:FlowNode (ag2.node("a" "Tarkista tilaus" 60.0 60.0))
+        an1.width = 180.0
+        an1.height = 70.0
+        def an2:FlowNode (ag2.node("b" "Lähetä" 60.0 260.0))
+        an2.width = 180.0
+        an2.height = 70.0
+        def top:FlowAnnotation (an1.addAnnotation("3" 0.12 0.16))
+        top.bold = true
+        an1.addAnnotation("2 min" 0.82 0.84)
+        def ae:FlowEdge (ag2.connect("a" "b"))
+        ae.edgeType = "smoothstep"
+        ae.label = "kyllä"
+        ae.addAnnotation("SLA 24 h" 0.5 -14.0)
+        ag2.reindex()
+        def aed:FlowEditor (FlowEditor.of(ag2))
+        aed.setSize(700.0 500.0)
+        aed.view.showControls = false
+        aed.view.showMinimap = false
+        def asc:FlowScene (aed.view.build())
+        def three:boolean ((an1.annotationCount()) == 2)
+        if ((ae.annotationCount()) != 1) { three = false }
+        ; Drawn, and drawn WHERE they were pinned: the "3" above and left of
+        ; the middle, the "2 min" below and right of it.
+        def hi:int (ParityDump.textIndex(asc "3"))
+        def lo:int (ParityDump.textIndex(asc "2 min"))
+        def sla:int (ParityDump.textIndex(asc "SLA 24 h"))
+        if (hi < 0) { three = false }
+        if (lo < 0) { three = false }
+        if (sla < 0) { three = false }
+        if three {
+            def hiItem:SceneItem (asc.at(hi))
+            def loItem:SceneItem (asc.at(lo))
+            if (hiItem.y >= loItem.y) { three = false }
+            if (hiItem.x >= loItem.x) { three = false }
+        }
+        ; …and the label is still the label. An annotation that replaced it
+        ; would pass every count above.
+        if ((ParityDump.textIndex(asc "Tarkista tilaus")) < 0) { three = false }
+        if ((ParityDump.textIndex(asc "kyllä")) < 0) { three = false }
+        this.probe("multipleAnnotations" three "a node carries several annotations besides its label, each where it was pinned")
+
+        ; --- tooltips ---------------------------------------------------------
+        an2.tooltip = "Lähettää vahvistuksen asiakkaalle"
+        def tinp (new FlowInput)
+        tinp.x = (aed.view.sx(150.0))
+        tinp.y = (aed.view.sy(295.0))
+        aed.pointerMove(tinp)
+        def tipSc:FlowScene (aed.view.build())
+        def tipped:boolean ((ParityDump.textIndex(tipSc "Lähettää vahvistuksen asiakkaalle")) >= 0)
+        ; Nothing to say means nothing said, rather than the label repeated.
+        def qinp (new FlowInput)
+        qinp.x = (aed.view.sx(150.0))
+        qinp.y = (aed.view.sy(95.0))
+        aed.pointerMove(qinp)
+        def quietSc:FlowScene (aed.view.build())
+        if ((strlen aed.view.tooltipText) != 0) { tipped = false }
+        this.probe("tooltips" tipped "resting on a node shows what it has to say, and nothing when it has nothing")
+
+        ; --- the context menu -------------------------------------------------
+        def minp (new FlowInput)
+        minp.x = (aed.view.sx(150.0))
+        minp.y = (aed.view.sy(95.0))
+        minp.secondary = true
+        aed.pointerDown(minp)
+        def opened:boolean (aed.menuOpen())
+        def menuSc:FlowScene (aed.view.build())
+        if ((ParityDump.textIndex(menuSc "Poista")) < 0) { opened = false }
+        ; Right-clicking a node selects it, so the menu acts on what was
+        ; pointed at rather than on whatever happened to be selected before.
+        if (an1.selected == false) { opened = false }
+        ; And picking a row does the thing. "Käännä 90°" is on the node menu,
+        ; so find it, click it, and the node is turned.
+        def row:int (ParityDump.menuRow(aed.view "Käännä 90°"))
+        def picked:boolean (row >= 0)
+        if picked {
+            def pinp (new FlowInput)
+            pinp.x = ((aed.view.menuX()) + 20.0)
+            pinp.y = (((aed.view.menuY()) + (aed.view.menuRowTop(row))) + 8.0)
+            aed.pointerDown(pinp)
+            if ((fabs (an1.rotation - 90.0)) > 0.001) { picked = false }
+            if (aed.menuOpen()) { picked = false }
+        }
+        if (picked == false) { opened = false }
+        ; A press on the surface with the menu open dismisses it and does
+        ; nothing else.
+        aed.openMenuAt(300.0 300.0)
+        def away (new FlowInput)
+        away.x = 20.0
+        away.y = 20.0
+        aed.pointerDown(away)
+        if (aed.menuOpen()) { opened = false }
+        this.probe("contextMenu" opened "right-clicking opens a menu for what is under the pointer, and picking a row does it")
+
+        ; --- rotation ---------------------------------------------------------
+        ; The node was turned a quarter turn by the menu, above. What that has
+        ; to mean is that its geometry turned with it: the outline, the hit
+        ; test and the ports.
+        def turned:boolean ((fabs (an1.rotation - 90.0)) < 0.001)
+        def ring2:[double] (an1.outline())
+        ; A 180x70 box turned 90° is 70 wide and 180 tall, about the same
+        ; centre.
+        def ringW:double (ParityDump.spanOf(ring2 true))
+        def ringH:double (ParityDump.spanOf(ring2 false))
+        if ((fabs (ringW - 70.0)) > 0.5) { turned = false }
+        if ((fabs (ringH - 180.0)) > 0.5) { turned = false }
+        ; A point that was inside the upright box and is outside the turned
+        ; one has to be reported as outside — which is the whole reason the
+        ; hit test spins the question rather than the shape.
+        def cx9:double (an1.centerX())
+        def cy9:double (an1.centerY())
+        if (an1.holdsPoint((cx9 + 80.0) cy9)) { turned = false }
+        if ((an1.holdsPoint(cx9 (cy9 + 80.0))) == false) { turned = false }
+        ; The right-hand port went with it: it is now at the BOTTOM.
+        def rightSide:double (an1.handleY(1))
+        if ((rightSide - cy9) < 60.0) { turned = false }
+        ; And one undo puts it back upright.
+        aed.undo.undo(ag2)
+        if ((fabs an1.rotation) > 0.001) { turned = false }
+        this.probe("rotation" turned "a node turns about its centre, and its outline, hit test and ports turn with it")
+
         ; --- graph API: elements at a point, how connected a node is --------
         def hit:int (g3.nodeAtPoint(60.0 25.0))
         def degs:[int] (g3.degrees())
@@ -1058,6 +1183,141 @@ class ParityDump {
         if ((array_length degs) != (g3.nodeCount())) { api = false }
         if ((itemAt degs 0) != 1) { api = false }
         this.probe("graphApi" api "the graph answers what is at a point and how connected each node is")
+
+        ; --- walking the graph ----------------------------------------------
+        ; a → b → d, a → c → d, and e off on its own. Direction has to matter:
+        ; d's successors are nobody and its predecessors are two, and a walk
+        ; downstream from a must not wander back up into c's other parent.
+        def wg (new FlowGraph)
+        wg.node("a" "A" 0.0 0.0)
+        wg.node("b" "B" 0.0 100.0)
+        wg.node("c" "C" 200.0 100.0)
+        wg.node("d" "D" 100.0 200.0)
+        wg.node("e" "E" 400.0 400.0)
+        wg.connect("a" "b")
+        wg.connect("a" "c")
+        wg.connect("b" "d")
+        wg.connect("c" "d")
+        wg.reindex()
+        def ai:int (ParityDump.nodeIndex(wg "a"))
+        def di:int (ParityDump.nodeIndex(wg "d"))
+        def ei2:int (ParityDump.nodeIndex(wg "e"))
+        def walk:boolean ((array_length (wg.successors(ai))) == 2)
+        if ((array_length (wg.predecessors(ai))) != 0) { walk = false }
+        if ((array_length (wg.successors(di))) != 0) { walk = false }
+        if ((array_length (wg.predecessors(di))) != 2) { walk = false }
+        if ((array_length (wg.neighbours(di))) != 2) { walk = false }
+        ; Downstream of a is all four, and each of them once.
+        def down:[int] (wg.bfsFrom(ai true false))
+        if ((array_length down) != 4) { walk = false }
+        if ((itemAt down 0) != ai) { walk = false }
+        ; Depth first reaches the same four, in a different order — and the
+        ; order is the point: b's child before a's second child.
+        def deep:[int] (wg.dfsFrom(ai true false))
+        if ((array_length deep) != 4) { walk = false }
+        if ((itemAt deep 1) != (ParityDump.nodeIndex(wg "b"))) { walk = false }
+        if ((itemAt deep 2) != di) { walk = false }
+        ; e is its own component, and nothing reaches it.
+        if ((array_length (wg.componentOf(ei2))) != 1) { walk = false }
+        if ((array_length (wg.componentOf(ai))) != 4) { walk = false }
+        this.probe("graphWalk" walk "the graph walks itself: neighbours, predecessors, successors, breadth first and depth first")
+
+        ; --- pinch ------------------------------------------------------------
+        ; Two fingers, and the flow point between them does not move. The same
+        ; contract the wheel keeps, which is why this is the same arithmetic.
+        def ped:FlowEditor (this.twoNodeEditor())
+        ped.view.viewport.zoom = 1.0
+        ped.view.viewport.x = 0.0
+        ped.view.viewport.y = 0.0
+        def heldX:double (ped.flowX(400.0))
+        def heldY:double (ped.flowY(300.0))
+        ped.pinchBegin(340.0 300.0 460.0 300.0)
+        ; Opened to twice the span, about the same middle: the zoom doubles.
+        ped.pinchTo(280.0 300.0 520.0 300.0)
+        def pinched:boolean ((fabs (ped.view.viewport.zoom - 2.0)) < 0.001)
+        if ((fabs ((ped.flowX(400.0)) - heldX)) > 0.001) { pinched = false }
+        if ((fabs ((ped.flowY(300.0)) - heldY)) > 0.001) { pinched = false }
+        ; …and the fingers may travel while they spread. Whatever is between
+        ; them stays between them.
+        ped.pinchTo(380.0 340.0 620.0 340.0)
+        if ((fabs ((ped.flowX(500.0)) - heldX)) > 0.001) { pinched = false }
+        if ((fabs ((ped.flowY(340.0)) - heldY)) > 0.001) { pinched = false }
+        ; A pinch closed past the minimum clamps rather than inverting.
+        ped.pinchTo(499.0 340.0 501.0 340.0)
+        if (ped.view.viewport.zoom < ped.view.viewport.minZoom) { pinched = false }
+        ped.pinchEnd()
+        this.probe("pinchZoom" pinched "two fingers zoom about the point between them, and it stays between them")
+
+        ; --- element tools ----------------------------------------------------
+        ; The buttons beside a selected node: × takes it away, + starts a
+        ; connection from it.
+        def ted:FlowEditor (this.twoNodeEditor())
+        def ta:FlowNode (ted.graph.nodeById("a"))
+        ta.selected = true
+        def toolsSc:FlowScene (ted.view.build())
+        def tools:boolean ((ParityDump.tagCount(toolsSc "tool:remove")) > 0)
+        if ((ParityDump.tagCount(toolsSc "tool:connect")) < 1) { tools = false }
+        ; Pressing + puts the editor into click-to-connect from this node, so
+        ; the next click on another node joins the two.
+        def cinp (new FlowInput)
+        cinp.x = (ted.view.toolCX(ta 1))
+        cinp.y = (ted.view.toolCY(ta 1))
+        ted.pointerDown(cinp)
+        ted.pointerUp(cinp)
+        def before:int (ted.graph.edgeCount())
+        def binp (new FlowInput)
+        binp.x = 340.0
+        binp.y = 20.0
+        ted.pointerDown(binp)
+        ted.pointerUp(binp)
+        if ((ted.graph.edgeCount()) != (before + 1)) { tools = false }
+        ; And × is the delete. Select the node again — connecting moved the
+        ; selection — then press it.
+        ted.graph.clearSelection()
+        ta.selected = true
+        def n0t:int (ted.graph.nodeCount())
+        def rinp (new FlowInput)
+        rinp.x = (ted.view.toolCX(ta 0))
+        rinp.y = (ted.view.toolCY(ta 0))
+        ted.pointerDown(rinp)
+        if ((ted.graph.nodeCount()) != (n0t - 1)) { tools = false }
+        ; Nothing selected, no buttons: a column beside every node would be a
+        ; diagram made of buttons.
+        def emptySc:FlowScene (ted.view.build())
+        if ((ParityDump.tagCount(emptySc "tool:remove")) != 0) { tools = false }
+        this.probe("elementTools" tools "a selected node carries a remove button and a connect button")
+
+        ; --- highlighters ------------------------------------------------------
+        def hed:FlowEditor (this.twoNodeEditor())
+        def ha:FlowNode (hed.graph.nodeById("a"))
+        def hb:FlowNode (hed.graph.nodeById("b"))
+        def plainSc:FlowScene (hed.view.build())
+        def plainQuads:int (plainSc.count())
+        ha.highlight = "stroke"
+        def strokeSc:FlowScene (hed.view.build())
+        def lit:boolean ((strokeSc.count()) > plainQuads)
+        ; A mask is the same halo, thicker: the ring it adds has to be wider
+        ; than the stroke one, or the two are the same highlighter twice.
+        def strokeRing:int (ParityDump.widestRing(strokeSc "node:a"))
+        ha.highlight = "mask"
+        def maskSc:FlowScene (hed.view.build())
+        def maskRing:int (ParityDump.widestRing(maskSc "node:a"))
+        if (maskRing <= strokeRing) { lit = false }
+        ; And the opacity highlighter works the other way round: it fades
+        ; everything it is put on, rather than adding to it.
+        hb.highlight = "opacity"
+        def fadeSc:FlowScene (hed.view.build())
+        def faded:boolean false
+        def fi:int 0
+        while (fi < (fadeSc.count())) {
+            def fit:SceneItem (fadeSc.at(fi))
+            if (fit.tag == "node:b") {
+                if (fit.opacity < 0.9) { faded = true }
+            }
+            fi = (fi + 1)
+        }
+        if (faded == false) { lit = false }
+        this.probe("highlighters" lit "a node can be haloed, masked or faded, on top of being selected")
     }
 
     ; The automatic layouts, each measured by what it is FOR rather than by
@@ -1196,6 +1456,93 @@ class ParityDump {
         def dia:FlowNode (cg.nodeById("tarkista"))
         if (dia.shape != "diamond") { chart = false }
         this.probe("flowchartLayout" chart "a flowchart runs from its terminator down to its end, in the shapes the kinds asked for")
+    }
+
+    ; A node's index by id, which the graph keeps but does not publish.
+    sfn nodeIndex:int (g:FlowGraph id:string) {
+        def n:FlowNode (g.nodeById(id))
+        return n.index
+    }
+
+    ; How many scene items carry a tag.
+    sfn tagCount:int (sc:FlowScene tag:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.tag == tag) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The widest ring drawn under a tag, as tenths of a pixel — an int, so a
+    ; comparison between two builds cannot come down to a rounding bit.
+    sfn widestRing:int (sc:FlowScene tag:string) {
+        def best:double 0.0
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.tag == tag) {
+                if (it.strokeWidth > best) {
+                    best = it.strokeWidth
+                }
+            }
+            i = (i + 1)
+        }
+        return (to_int (best * 10.0))
+    }
+
+    ; Where in the scene a given string was drawn, or -1.
+    sfn textIndex:int (sc:FlowScene text:string) {
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.kind == 1) {
+                if (it.text == text) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Which row of the open menu carries a label.
+    sfn menuRow:int (v:FlowView label:string) {
+        def i:int 0
+        while (i < (v.menu.count())) {
+            def it:FlowMenuItem (v.menu.at(i))
+            if (it.label == label) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; How wide or how tall a ring is.
+    sfn spanOf:double (pts:[double] wantX:boolean) {
+        def lo:double 0.0
+        def hi:double 0.0
+        def first:boolean true
+        def i:int 0
+        while (i < (array_length pts)) {
+            def v:double (itemAt pts i)
+            if (wantX == false) {
+                v = (itemAt pts (i + 1))
+            }
+            if first {
+                lo = v
+                hi = v
+                first = false
+            } {
+                if (v < lo) { lo = v }
+                if (v > hi) { hi = v }
+            }
+            i = (i + 2)
+        }
+        return (hi - lo)
     }
 
     ; Does a flattened path go within `tol` of a point?

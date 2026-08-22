@@ -35,6 +35,10 @@ class FlowInput {
     def shift:boolean false
     def ctrl:boolean false
     def alt:boolean false
+    ; The right-hand button, or a long press on a touch screen. It is a
+    ; separate flag rather than a button number because the only thing above
+    ; this layer that cares is "was this a request for the menu".
+    def secondary:boolean false
 
     Constructor () {
     }
@@ -47,7 +51,8 @@ class FlowUndoEntry {
     ; 0 move, 1 add nodes, 2 remove nodes, 3 add edges, 4 remove edges,
     ; 5 reroute (hand-dragged edge corners; the before/after corner lists live
     ; in oldX / newX, x and y interleaved, and `edges` holds the one edge),
-    ; 6 text (a label typed in place; `target` says which piece of text)
+    ; 6 text (a label typed in place; `target` says which piece of text),
+    ; 7 rotate (degrees before and after, per node, in oldX / newX)
     def kind:int 0
     ; The edited item, in the view's tag vocabulary — "node:<id>",
     ; "row:<id>:<n>", "edge:<id>" — so undo puts the text back where it came
@@ -131,6 +136,26 @@ class FlowUndo {
                     n.syncFromModel()
                 }
                 i = (i + 1)
+            }
+            return
+        }
+        ; A rotation. It looks like a move — a list of node ids and a before
+        ; and after per node — but the numbers are degrees, and putting them
+        ; back through the move branch would teleport every turned node to the
+        ; origin.
+        if (e.kind == 7) {
+            def i7:int 0
+            while (i7 < (array_length e.nodeIds)) {
+                def id7:string (itemAt e.nodeIds i7)
+                if (g.hasNode(id7)) {
+                    def n7:FlowNode (g.nodeById(id7))
+                    if reverse {
+                        n7.rotation = (itemAt e.oldX i7)
+                    } {
+                        n7.rotation = (itemAt e.newX i7)
+                    }
+                }
+                i7 = (i7 + 1)
             }
             return
         }
@@ -380,6 +405,17 @@ class FlowEditor {
     def snapSize:double 16.0
     def panOnDrag:boolean true
     def zoomOnScroll:boolean true
+    ; React Flow's `zoomOnPinch`, and the touch half of JointJS's paper.scale.
+    def zoomOnPinch:boolean true
+    ; The gesture in progress: the span the fingers started at, the zoom then,
+    ; and the flow point they are holding.
+    def pinching:boolean false
+    def pinchSpan:double 1.0
+    def pinchZoom:double 1.0
+    def pinchMidX:double 0.0
+    def pinchMidY:double 0.0
+    def pinchFlowX:double 0.0
+    def pinchFlowY:double 0.0
     def selectionOnDrag:boolean true
     ; How near an edge the pointer has to be, in screen pixels, to select it.
     def edgeHitSlop:double 6.0
@@ -620,6 +656,36 @@ class FlowEditor {
         pressFlowY = (this.flowY(inp.y))
         movedSincePress = false
 
+        ; The menu is on top of everything, so it gets first refusal on the
+        ; press — including a press that lands outside it, which is how a menu
+        ; is dismissed everywhere else.
+        if view.menu.open {
+            def row:int (view.menuRowAt(inp.x inp.y))
+            if (row >= 0) {
+                def picked:string (view.menu.idAt(row))
+                this.closeMenu()
+                this.runMenu(picked)
+                mode = 0
+                return
+            }
+            if (view.menuHolds(inp.x inp.y)) {
+                mode = 0
+                return
+            }
+            this.closeMenu()
+        }
+        if inp.secondary {
+            this.openMenuAt(inp.x inp.y)
+            mode = 0
+            return
+        }
+        ; The element tools sit outside the node, so they get asked before the
+        ; grips and before anything hit-tests the node itself.
+        def tool:string (view.toolAt(inp.x inp.y))
+        if ((strlen tool) > 0) {
+            this.pressTool(tool)
+            return
+        }
         def btn:int (view.controlAt(inp.x inp.y))
         if (btn >= 0) {
             this.pressControl(btn)
@@ -940,6 +1006,10 @@ class FlowEditor {
         if (ady > 2.0) { movedSincePress = true }
 
         if (mode == 0) {
+            if view.menu.open {
+                view.menu.highlight = (view.menuRowAt(inp.x inp.y))
+                return
+            }
             this.updateHover(inp.x inp.y)
             return
         }
@@ -978,6 +1048,128 @@ class FlowEditor {
         def fy:double (this.flowY(sy))
         view.hoverNode = (graph.nodeAtPoint(fx fy))
         view.hoverPort = (this.portAt(sx sy))
+        this.updateTooltip(sx sy fx fy)
+    }
+
+    ; ------------------------------------------------------------ tooltips ---
+    ; What the thing under the pointer has to say for itself. A node first,
+    ; then an edge, and nothing at all if neither was given anything to say —
+    ; a tooltip that repeats the label is a tooltip that teaches the reader to
+    ; ignore tooltips.
+    fn updateTooltip:void (sx:double sy:double fx:double fy:double) {
+        view.tooltipText = ""
+        view.tooltipX = sx
+        view.tooltipY = sy
+        if (view.showTooltips == false) { return }
+        if (view.hoverNode >= 0) {
+            def n:FlowNode (graph.nodeAt(view.hoverNode))
+            if ((strlen n.tooltip) > 0) {
+                view.tooltipText = n.tooltip
+                return
+            }
+        }
+        def ei:int (this.edgeAt(sx sy))
+        if (ei >= 0) {
+            def e:FlowEdge (graph.edgeAt(ei))
+            if ((strlen e.tooltip) > 0) {
+                view.tooltipText = e.tooltip
+            }
+        }
+    }
+
+    ; -------------------------------------------------------- context menu ---
+    ; What you can do, built from what is under the pointer. Three menus, not
+    ; one with everything greyed out: a menu whose rows are mostly disabled is
+    ; a menu the reader has to scan every time to find the two that are not.
+    fn openMenuAt:void (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni >= 0) {
+            def n:FlowNode (graph.nodeAt(ni))
+            ; Right-clicking something that is not in the selection selects it
+            ; first, because a menu that acted on a different node from the one
+            ; you pointed at would be worse than no menu.
+            if (n.selected == false) {
+                graph.clearSelection()
+                n.selected = true
+            }
+            view.menu.reset(sx sy ("node:" + n.id))
+            view.menu.add("rename" "Nimeä…")
+            view.menu.add("duplicate" "Monista")
+            view.menu.addRule()
+            view.menu.add("rotate" "Käännä 90°")
+            view.menu.add("reroute" "Reititä uudelleen")
+            view.menu.addRule()
+            view.menu.add("delete" "Poista")
+            return
+        }
+        def ei:int (this.edgeAt(sx sy))
+        if (ei >= 0) {
+            def e:FlowEdge (graph.edgeAt(ei))
+            graph.clearSelection()
+            e.selected = true
+            view.menu.reset(sx sy ("edge:" + e.id))
+            view.menu.add("rename" "Nimeä…")
+            view.menu.add("straighten" "Suorista")
+            view.menu.addRule()
+            view.menu.add("delete" "Poista")
+            return
+        }
+        view.menu.reset(sx sy "")
+        view.menu.add("addnode" "Lisää laatikko")
+        view.menu.addRule()
+        view.menu.add("selectall" "Valitse kaikki")
+        view.menu.add("fit" "Sovita näkymään")
+    }
+
+    fn closeMenu:void () {
+        view.menu.close()
+    }
+
+    fn menuOpen:boolean () {
+        return view.menu.open
+    }
+
+    ; The menu's ids, acted on. Each is something the editor could already do;
+    ; the menu is a second way in rather than a second implementation.
+    fn runMenu:void (id:string) {
+        if (id == "delete") {
+            this.deleteSelection()
+            return
+        }
+        if (id == "selectall") {
+            this.selectAll()
+            return
+        }
+        if (id == "fit") {
+            this.fitView()
+            return
+        }
+        if (id == "addnode") {
+            this.addNode("Uusi" "rect" pressFlowX pressFlowY)
+            return
+        }
+        if (id == "rotate") {
+            this.rotateSelected(90.0)
+            return
+        }
+        if (id == "duplicate") {
+            this.duplicateSelection()
+            return
+        }
+        if (id == "reroute") {
+            this.rerouteSelection()
+            return
+        }
+        if (id == "straighten") {
+            this.straightenSelection()
+            return
+        }
+        if (id == "rename") {
+            this.beginEdit(view.menu.target)
+            return
+        }
     }
 
     fn dragTo:void (sx:double sy:double) {
@@ -1358,6 +1550,173 @@ class FlowEditor {
     def newNodeHeight:double 52.0
     def newNodeSeq:int 0
 
+    ; --------------------------------------------------- rotate, duplicate ---
+    ; A node turned about its own centre. Everything geometric already goes
+    ; through four functions on FlowNode, so the outline, the hit test and the
+    ; ports all come along; what stays upright is the text, which is what a
+    ; reader wants anyway — a diagram whose labels have to be read sideways is
+    ; a diagram nobody reads twice.
+    fn rotateSelected:int (degrees:double) {
+        def moved:int 0
+        def entry (new FlowUndoEntry)
+        entry.kind = 0
+        entry.label = "rotate"
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.selected {
+                push entry.nodeIds n.id
+                push entry.oldX n.rotation
+                n.rotation = (FlowEditor.wrapAngle((n.rotation + degrees)))
+                push entry.newX n.rotation
+                moved = (moved + 1)
+            }
+            i = (i + 1)
+        }
+        if (moved > 0) {
+            ; The move entry carries positions, not angles, so a rotation is
+            ; recorded as its own kind rather than pretending to be one.
+            entry.kind = 7
+            undo.record(entry)
+            onGraphChanged = true
+        }
+        return moved
+    }
+
+    sfn wrapAngle:double (a:double) {
+        def v:double a
+        while (v >= 360.0) { v = (v - 360.0) }
+        while (v < 0.0) { v = (v + 360.0) }
+        return v
+    }
+
+    ; A copy of everything selected, offset so it is visibly a copy, and
+    ; selected in place of the original — which is what every editor does and
+    ; what makes "duplicate, drag, duplicate, drag" one gesture instead of
+    ; three.
+    fn duplicateSelection:int () {
+        def made:[FlowNode]
+        def i:int 0
+        def n0:int (graph.nodeCount())
+        while (i < n0) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.selected {
+                newNodeSeq = (newNodeSeq + 1)
+                def id:string ("n" + (to_string newNodeSeq))
+                while (graph.hasNode(id)) {
+                    newNodeSeq = (newNodeSeq + 1)
+                    id = ("n" + (to_string newNodeSeq))
+                }
+                def c (new FlowNode)
+                c.id = id
+                c.label = n.label
+                c.shape = n.shape
+                c.nodeType = n.nodeType
+                c.width = n.width
+                c.height = n.height
+                c.rotation = n.rotation
+                c.bgColor = n.bgColor
+                c.borderColor = n.borderColor
+                c.tooltip = n.tooltip
+                c.x = (n.x + 24.0)
+                c.y = (n.y + 24.0)
+                def sp:int 0
+                while (sp < (array_length n.shapePoints)) {
+                    push c.shapePoints (itemAt n.shapePoints sp)
+                    sp = (sp + 1)
+                }
+                def an:int 0
+                while (an < (n.annotationCount())) {
+                    def src:FlowAnnotation (n.annotationAt(an))
+                    def cp:FlowAnnotation (c.addAnnotation(src.text src.offsetX src.offsetY))
+                    cp.fontSize = src.fontSize
+                    cp.color = src.color
+                    cp.bold = src.bold
+                    an = (an + 1)
+                }
+                c.addSideHandles()
+                c.syncFromModel()
+                push made c
+            }
+            i = (i + 1)
+        }
+        if ((array_length made) == 0) {
+            return 0
+        }
+        graph.clearSelection()
+        def k:int 0
+        while (k < (array_length made)) {
+            def m:FlowNode (itemAt made k)
+            graph.addNode(m)
+            m.selected = true
+            k = (k + 1)
+        }
+        graph.reindex()
+        def entry (new FlowUndoEntry)
+        entry.kind = 1
+        entry.label = "duplicate"
+        def d:int 0
+        while (d < (array_length made)) {
+            push entry.nodes (itemAt made d)
+            d = (d + 1)
+        }
+        undo.record(entry)
+        onGraphChanged = true
+        return (array_length made)
+    }
+
+    ; Throw away a hand-placed route and let the router have the edge back.
+    fn rerouteSelection:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(i))
+            def touched:boolean e.selected
+            if (e.sourceIndex >= 0) {
+                def a:FlowNode (graph.nodeAt(e.sourceIndex))
+                if a.selected { touched = true }
+            }
+            if (e.targetIndex >= 0) {
+                def b:FlowNode (graph.nodeAt(e.targetIndex))
+                if b.selected { touched = true }
+            }
+            if touched {
+                if (e.pinnedRoute || ((array_length e.waypoints) > 0)) {
+                    e.pinnedRoute = false
+                    clear e.waypoints
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (n > 0) {
+            onGraphChanged = true
+        }
+        return n
+    }
+
+    ; The same for one edge, which is what the menu offers on a line: drop the
+    ; corners somebody dragged and draw it the short way again.
+    fn straightenSelection:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(i))
+            if e.selected {
+                e.pinnedRoute = false
+                clear e.waypoints
+                e.hasLaneX = false
+                e.hasLaneY = false
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        if (n > 0) {
+            onGraphChanged = true
+        }
+        return n
+    }
+
     fn addNode:FlowNode (label:string shape:string flowX:double flowY:double) {
         newNodeSeq = (newNodeSeq + 1)
         def id:string ("n" + (to_string newNodeSeq))
@@ -1527,6 +1886,85 @@ class FlowEditor {
     }
 
     ; ---------------------------------------------------------------- wheel --
+    ; ---------------------------------------------------------- the tools ---
+    ; What the buttons beside a selected node do. `remove` is the delete that
+    ; was already there; `connect` puts the editor into click-to-connect with
+    ; this node as the source, which is the touch-friendly way to draw a line
+    ; and the one JointJS calls HoverConnect.
+    fn pressTool:void (id:string) {
+        def idx:int (view.toolNode(graph))
+        if (idx < 0) {
+            mode = 0
+            return
+        }
+        def n:FlowNode (graph.nodeAt(idx))
+        if (id == "remove") {
+            this.deleteSelection()
+            mode = 0
+            return
+        }
+        if (id == "connect") {
+            connectOnClick = true
+            clickConnectFrom = n.id
+            mode = 0
+            return
+        }
+        mode = 0
+    }
+
+    ; ----------------------------------------------------------- the pinch --
+    ; Two fingers, and the flow point between them stays between them. That is
+    ; the whole contract, and it is the same one `zoomAt` keeps for the wheel —
+    ; which is why this is arithmetic on the viewport rather than a second
+    ; zoom implementation with its own rounding.
+    ;
+    ; The scale comes from the ratio of the spans, so a pinch that opens to
+    ; twice its width doubles the zoom no matter how fast it got there, and a
+    ; gesture interrupted halfway leaves the viewport where the fingers left
+    ; it rather than snapping.
+    fn pinchBegin:void (x1:double y1:double x2:double y2:double) {
+        pinching = true
+        pinchSpan = (FlowEditor.spanBetween(x1 y1 x2 y2))
+        if (pinchSpan < 1.0) { pinchSpan = 1.0 }
+        pinchZoom = view.viewport.zoom
+        pinchMidX = ((x1 + x2) * 0.5)
+        pinchMidY = ((y1 + y2) * 0.5)
+        ; The flow point the fingers are holding. Everything else follows from
+        ; keeping this one still.
+        pinchFlowX = (this.flowX(pinchMidX))
+        pinchFlowY = (this.flowY(pinchMidY))
+    }
+
+    fn pinchTo:void (x1:double y1:double x2:double y2:double) {
+        if (pinching == false) {
+            this.pinchBegin(x1 y1 x2 y2)
+            return
+        }
+        if (zoomOnPinch == false) { return }
+        def span:double (FlowEditor.spanBetween(x1 y1 x2 y2))
+        if (span < 1.0) { span = 1.0 }
+        def want:double (pinchZoom * (span / pinchSpan))
+        if (want < view.viewport.minZoom) { want = view.viewport.minZoom }
+        if (want > view.viewport.maxZoom) { want = view.viewport.maxZoom }
+        def midX:double ((x1 + x2) * 0.5)
+        def midY:double ((y1 + y2) * 0.5)
+        view.viewport.zoom = want
+        ; Put the held point back under the fingers — which have moved, so
+        ; this is the pan half of the gesture as well as the zoom half.
+        view.viewport.x = (midX - (pinchFlowX * want))
+        view.viewport.y = (midY - (pinchFlowY * want))
+    }
+
+    fn pinchEnd:void () {
+        pinching = false
+    }
+
+    sfn spanBetween:double (x1:double y1:double x2:double y2:double) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
     fn wheel:void (inp:FlowInput delta:double) {
         if (zoomOnScroll == false) {
             view.viewport.panBy(0.0 (0.0 - delta))
