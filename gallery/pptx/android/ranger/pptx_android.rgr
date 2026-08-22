@@ -133,12 +133,29 @@ class PptxAndroid {
         app.gotoSlide(i)
     }
 
-    fn next:void () {
+    ; Forward and back, meaning whichever of those the app is currently in.
+    ;
+    ; While a show is running they are NOT `nextSlide` / `prevSlide`: a slide
+    ; with a build reveals one step at a time, and moving between slides runs a
+    ; transition. Calling the plain ones during a show skips both — the build
+    ; arrives already finished and the transition never starts — which looks
+    ; like the deck's animations being ignored rather than like the host asking
+    ; the wrong question. `presentNext` answers false at the end of the deck;
+    ; there is nowhere further to go, which is not a failure.
+    fn next:boolean () {
+        if app.presenting {
+            return (app.presentNext())
+        }
         app.nextSlide()
+        return true
     }
 
-    fn prev:void () {
+    fn prev:boolean () {
+        if app.presenting {
+            return (app.presentPrev())
+        }
         app.prevSlide()
+        return true
     }
 
     ; --- input ----------------------------------------------------------------

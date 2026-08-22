@@ -33,11 +33,14 @@ this port does not fork a line of any of them.
 | `ranger/pptx_android.rgr` | The host facade — the only Ranger written for Android |
 | `common/…/EvgSurface.kt` | The eight things a backend has to draw |
 | `common/…/EvgPainter.kt` | The walk: display list → surface calls. Shared |
+| `common/…/TouchRouter.kt` | What a finger means. Shared, and driven by the checks |
 | `app/…/AndroidEvgSurface.kt` | `android.graphics` implementation of the surface |
 | `app/…/SlideView.kt` | The `View`: units, touch, gestures, the show's clock |
 | `app/…/MainActivity.kt` | Assets, the file picker, Back, the menu |
 | `desktop/…/AwtEvgSurface.kt` | The same surface on Java2D, so the port is testable |
 | `desktop/…/RenderDeck.kt` | Deck → PNGs, off-device |
+| `desktop/…/CheckPort.kt` | The corpus through the painter, and every touch rule |
+| `desktop/…/RecordingSurface.kt` | Counts what the painter dispatched, so coverage is a number |
 | `desktop/androidstubs/` | Platform declarations so the host type-checks without an SDK |
 | `scripts/` | Ranger→Kotlin, assets, APK, emulator, and the two off-device checks |
 
@@ -87,16 +90,33 @@ npm run pptx:android:verify      # render fixture decks through the shared paint
 npm run pptx:android:typecheck   # type-check the three Android-only files
 ```
 
-This compiles the generated Kotlin with `kotlinc`, opens five fixture decks on
-the JVM, renders every slide through the **same** `EvgPainter` the app uses, and
-writes PNGs to `tmp/pptx-android/`. It needs `kotlinc` and a JDK and nothing
-else — no SDK, no emulator, no device.
+This compiles the generated Kotlin with `kotlinc` and then asks two questions.
 
-It is not a substitute for running the app, but it covers everything except the
-three Android-only files: Ranger→Kotlin compiling at all, the viewer parsing a
-real `.pptx` on a JVM, the display list coming out with the right commands in
-it, the painter walking them, and the result being a slide rather than an empty
-page.
+**Does the whole corpus draw?** All 31 `.pptx` fixtures are opened and every
+slide is laid out and painted through the **same** `EvgPainter` the app uses,
+wrapped in a `RecordingSurface` that counts what was dispatched. "Some ink
+appeared" is a weak check — a painter that had quietly stopped drawing text
+would pass it — so the run asserts the corpus reaches text, borders, pictures,
+clipping, vector paths, rounded corners, gradients, shadows, bold and
+non-ASCII runs, and that every `save` was restored and was a clip or a rotation
+and nothing else. What no fixture reaches is **printed** rather than left
+silent: today that is `strokePath`, holed and even-odd paths, mirrored pictures
+and italic runs.
+
+**Do touches do what they should?** [`TouchRouter`](common/src/main/kotlin/fi/ranger/pptx/input/TouchRouter.kt)
+holds every rule about what a finger means, so all of it is driven here against
+a real deck: a tap on a slide thumbnail selects that slide, a tap on a toolbar
+button runs its command, a flick over the page turns it while a flick that
+started over the panel does not, a mostly-vertical flick is a scroll, and the
+show's tap / pinch / pan / double-tap / Back behave — including that the point
+under a pinch stays under the pinch, that the pan never leaves the page, and
+that during a show a tap walks the slide's **build** before it moves on.
+
+167 checks, `kotlinc` and a JDK, no SDK, no emulator, no device.
+
+It is not a substitute for running the app, but what is left unchecked is only
+the platform delegation: `AndroidEvgSurface` calling `android.graphics.Canvas`,
+and `SlideView` unpacking a `MotionEvent`.
 
 `pptx:android:typecheck` covers most of what is left. `desktop/androidstubs/`
 declares the platform members the host calls, with the signatures the SDK gives
@@ -175,7 +195,7 @@ them makes both worse:
 
 | | Not presenting | Presenting |
 | --- | --- | --- |
-| Tap | goes to the app (toolbar, slide panel, shapes) | left half back, right half forward |
+| Tap | goes to the app (toolbar, slide panel, shapes) | left half back, right half forward — walking the slide's build first |
 | Horizontal fling | previous / next slide (over the page only) | previous / next slide |
 | Pinch | — | zoom 1×–6× |
 | Drag | the app's own pointer | pan, while zoomed |
@@ -234,18 +254,22 @@ Verified, off-device, on this repository's fixtures:
 * The compiled viewer opens real `.pptx` packages on a JVM — ZIP, OOXML, theme
   and placeholder resolution, JPEG and PNG decoding, TrueType metrics, EVG
   layout — and answers with a display list per slide.
-* `EvgPainter` + `AwtEvgSurface` render `20-business-deck`, `09-kitchen`,
-  `21-gradient`, `25-table` and `28-transitions`: chrome, slide panel with
-  thumbnails, titles, body text with per-run colour, rounded rects, ellipses and
-  `custGeom` chevrons as real curves, two-stop gradients, PNG and JPEG pictures,
-  tables, notes and the status bar.
+* `EvgPainter` + `AwtEvgSurface` render **all 31 fixture decks, 39 slides**:
+  chrome, slide panel with thumbnails, titles, body text with per-run colour,
+  rounded rects, ellipses and `custGeom` chevrons as real curves, two-stop
+  gradients, PNG and JPEG pictures, tables, notes and the status bar. 4 948
+  filled boxes, 1 055 vector paths, 911 text runs, 673 outlines, 101 clips.
+* `TouchRouter` — every rule about what a finger means — is driven against a
+  real deck: thumbnail taps, toolbar taps, flicks over the page and over the
+  panel, and the show's tap / pinch / pan / double-tap / Back. 167 checks.
 * Per slide change on a warm JVM at 1280×800: **1–10 ms** to build the frame,
   **8–28 ms** to paint it. Neither is per frame — a still slide is not
   repainted.
 
 * `AndroidEvgSurface`, `SlideView` and `MainActivity` type-check against the
   platform stubs — well-formed, overrides matching, nothing called that does not
-  exist.
+  exist. `SlideView` is now thin enough that what it holds is `MotionEvent`
+  unpacking and a call into `TouchRouter`.
 
 Not verified here: the APK build, and whether Skia draws what the surface asks
 it to. Both need an Android SDK, and `dl.google.com` is not reachable from the
