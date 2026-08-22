@@ -74,6 +74,10 @@ class PptxToolbar extends EVGToolbar {
         this.add("format.paste" "" "Paint it on" (ToolIcon.borderAll()))
         this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
         this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
+        this.add("text.bullet" "" "Bulleted list" (ToolIcon.bulletList()))
+        this.add("text.number" "" "Numbered list" (ToolIcon.numberList()))
+        this.add("text.outdent" "" "Outdent the list" (ToolIcon.indentLess()))
+        this.add("text.indent" "" "Indent the list" (ToolIcon.indentMore()))
         this.addSeparator()
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
         this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.cond()))
@@ -529,6 +533,10 @@ class PptxApp {
         commands.add("edit.distribute.v" "Distribute down" "Arrange" "")
         commands.add("edit.bold" "Bold text" "Format" "Ctrl+B")
         commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
+        commands.add("text.bullet" "Bulleted list" "Format" "")
+        commands.add("text.number" "Numbered list" "Format" "")
+        commands.add("text.indent" "Indent the list" "Format" "Tab")
+        commands.add("text.outdent" "Outdent the list" "Format" "Shift+Tab")
         commands.addArg("edit.fill" "Fill colour" "Format" "")
         commands.addArg("edit.line" "Outline colour" "Format" "")
         commands.addArg("edit.text" "Set the text" "Format" "")
@@ -1168,6 +1176,17 @@ class PptxApp {
             if (k == (UIKey.f5())) {
                 this.runCommand("show.start" "")
                 taken = true
+            }
+            ; Tab in a text box is what every editor uses to indent a list
+            ; item, and shift+Tab to take it back out.
+            if (k == (UIKey.tab())) {
+                if (editor.isEditingText()) {
+                    if input.shiftDown {
+                        taken = (this.runCommand("text.outdent" ""))
+                    } {
+                        taken = (this.runCommand("text.indent" ""))
+                    }
+                }
             }
             if (taken == false) {
                 if (k == (UIKey.f2())) {
@@ -2768,6 +2787,26 @@ class PptxApp {
         if (id == "edit.italic") {
             def it:boolean (this.selectionItalic())
             return (editor.setTextItalic((it == false)))
+        }
+        ; Lists. Both toggle: asking for the list a paragraph already is turns
+        ; it off, which is what every editor's list button does.
+        if (id == "text.bullet") {
+            if ((editor.listKind()) == "bullet") {
+                return (editor.setListKind("none"))
+            }
+            return (editor.setListKind("bullet"))
+        }
+        if (id == "text.number") {
+            if ((editor.listKind()) == "number") {
+                return (editor.setListKind("none"))
+            }
+            return (editor.setListKind("number"))
+        }
+        if (id == "text.indent") {
+            return (editor.indentList(1))
+        }
+        if (id == "text.outdent") {
+            return (editor.indentList(0 - 1))
         }
         if (id == "edit.fill") {
             if ((strlen arg) == 0) {

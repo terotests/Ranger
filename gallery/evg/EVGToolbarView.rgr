@@ -104,6 +104,31 @@ class EVGToolbarView {
         fontFamily = family
     }
 
+    ; Rows of text with an arrow at the left pointing the way the indent
+    ; moves. The two indent icons differ only in that direction.
+    fn pushIndentIcon:void (dl:EVGDisplayList cx:int cy:int deeper:boolean) {
+        def row:int 0
+        while (row < 3) {
+            def ry:double (to_double ((cy - 5) + (row * 4)))
+            def x0:double (to_double (cx - 1))
+            if (row == 1) {
+                x0 = (to_double (cx - 1))
+            }
+            this.pushRect(dl x0 ry 8.0 2.0 theme.ink)
+            row = (row + 1)
+        }
+        def step:int 0
+        while (step < 3) {
+            def half:double (to_double (3 - step))
+            def ax:double (to_double (cx - 7))
+            if (deeper == false) {
+                ax = ((to_double (cx - 7)) + (3.0 - half))
+            }
+            this.pushRect(dl ax (to_double ((cy - 3) + (step * 2))) half 2.0 theme.accent)
+            step = (step + 1)
+        }
+    }
+
     ; --- the primitives the icons are made of ---------------------------------
     fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
         dl.addRect(x y w h col)
@@ -362,6 +387,37 @@ class EVGToolbarView {
                 this.pushRect(dl (to_double (cx - 4)) (to_double ((cy - 5) + (row * 2))) (to_double half) 2.0 theme.accent)
                 row = (row + 1)
             }
+            return
+        }
+        ; A list is three rows with a marker in front of each: a square for a
+        ; dotted list, a digit for a numbered one. The arrow ones add the
+        ; direction the indent moves.
+        if (k == (ToolIcon.bulletList())) {
+            def row:int 0
+            while (row < 3) {
+                def ry:double (to_double ((cy - 5) + (row * 4)))
+                this.pushRect(dl (to_double (cx - 7)) ry 2.0 2.0 theme.accent)
+                this.pushRect(dl (to_double (cx - 3)) ry 10.0 2.0 theme.ink)
+                row = (row + 1)
+            }
+            return
+        }
+        if (k == (ToolIcon.numberList())) {
+            def row2:int 0
+            while (row2 < 3) {
+                def ry2:double (to_double ((cy - 5) + (row2 * 4)))
+                this.pushToolText(dl (to_string (row2 + 1)) (cx - 6) ((cy - 4) + (row2 * 4)) 7.0 theme.accent false)
+                this.pushRect(dl (to_double (cx - 3)) ry2 10.0 2.0 theme.ink)
+                row2 = (row2 + 1)
+            }
+            return
+        }
+        if (k == (ToolIcon.indentMore())) {
+            this.pushIndentIcon(dl cx cy true)
+            return
+        }
+        if (k == (ToolIcon.indentLess())) {
+            this.pushIndentIcon(dl cx cy false)
             return
         }
         if (k == (ToolIcon.sqlBox())) {

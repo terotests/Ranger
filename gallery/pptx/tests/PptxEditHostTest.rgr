@@ -60,6 +60,17 @@ class PptxEditHostTest {
         return (itemAt shapes 0)
     }
 
+    sfn numbered:void (body:PptxTextBody level:int text:string) {
+        def para (new PptxParagraph())
+        para.level = level
+        para.hasBullet = true
+        para.bulletAutoNum = true
+        def run (new PptxTextRun())
+        run.text = text
+        push para.runs run
+        push body.paragraphs para
+    }
+
     sfn indexOfCommand:int (app:PptxApp id:string) {
         def i:int 0
         while (i < (app.toolbar.count())) {
@@ -228,6 +239,69 @@ class PptxEditHostTest {
         def atRight:PptxTextPos (app2.caretFromPoint(sh rightX topY))
         c.ok("a click on the left of a line comes before one on the right" (atLeft.col < atRight.col))
         app2.editor.endTextEdit()
+
+        print "-- lists --"
+        ; A numbered list's numbers are not in the file: the paragraph says it
+        ; is numbered and in which scheme, and the number is its place in the
+        ; run of items above it. A viewer that drew the stored character put a
+        ; dot in front of every item instead.
+        def lb:PptxApp (PptxEditHostTest.build())
+        def ls:PptxShape (PptxEditHostTest.firstShape(lb))
+        lb.editor.select(ls.editId)
+        c.ok("a box with text starts with no list" ((lb.editor.listKind()) == "none"))
+        c.ok("it can be made a bulleted one" (lb.editor.setListKind("bullet")))
+        c.ok("and says so" ((lb.editor.listKind()) == "bullet"))
+        c.ok("it can be made numbered instead" (lb.editor.setListKind("number")))
+        c.ok("and says so" ((lb.editor.listKind()) == "number"))
+        def firstPara:PptxParagraph (itemAt ls.text.paragraphs 0)
+        c.ok("the paragraph is numbered" firstPara.bulletAutoNum)
+        c.ok("the list button turns it off again" (lb.runCommand("text.number" "")))
+        c.ok("and it is off" ((lb.editor.listKind()) == "none"))
+
+        print "-- what a numbered item is numbered --"
+        def body (new PptxTextBody())
+        PptxEditHostTest.numbered(body 0 "one")
+        PptxEditHostTest.numbered(body 0 "two")
+        PptxEditHostTest.numbered(body 1 "under two")
+        PptxEditHostTest.numbered(body 1 "also under two")
+        PptxEditHostTest.numbered(body 0 "three")
+        c.ok("the first item is 1." ((PptxTextLayout.autoNumber(body 0)) == "1."))
+        c.ok("the second is 2." ((PptxTextLayout.autoNumber(body 1)) == "2."))
+        c.ok("a nested item starts over at 1." ((PptxTextLayout.autoNumber(body 2)) == "1."))
+        c.ok("and counts on from there" ((PptxTextLayout.autoNumber(body 3)) == "2."))
+        c.ok("the outer list carries on past the nested one" ((PptxTextLayout.autoNumber(body 4)) == "3."))
+        c.ok("letters count like spreadsheet columns" ((PptxTextLayout.numberIn("alphaLcParenR" 27)) == "aa)"))
+        c.ok("roman numerals are roman" ((PptxTextLayout.numberIn("romanUcPeriod" 24)) == "XXIV."))
+        c.ok("and a scheme in brackets gets both" ((PptxTextLayout.numberIn("arabicParenBoth" 7)) == "(7)"))
+
+        print "-- a line break inside a paragraph --"
+        ; `<a:br/>` — shift+Enter — and a newline left in a run's text. Both
+        ; ended a line in PowerPoint and neither did here: the text ran on and
+        ; wrapped wherever the box happened to end.
+        def brBody (new PptxTextBody())
+        brBody.wrap = true
+        def brPara (new PptxParagraph())
+        def r1 (new PptxTextRun())
+        r1.text = "one"
+        r1.fontSizePt = 12.0
+        def r2 (new PptxTextRun())
+        r2.text = "\n"
+        r2.fontSizePt = 12.0
+        def r3 (new PptxTextRun())
+        r3.text = "two"
+        r3.fontSizePt = 12.0
+        push brPara.runs r1
+        push brPara.runs r2
+        push brPara.runs r3
+        push brBody.paragraphs brPara
+        def brLines:[PptxTextLine] (PptxTextLayout.layout(brBody lb.view.converter.measure 1.0 0.0 0.0 400.0 200.0))
+        c.ok("the break makes two lines out of one paragraph" ((array_length brLines) == 2))
+        if ((array_length brLines) == 2) {
+            def l1:PptxTextLine (itemAt brLines 0)
+            def l2:PptxTextLine (itemAt brLines 1)
+            c.ok("both belong to the same paragraph" ((l1.para == 0) && (l2.para == 0)))
+            c.ok("and the second is below the first" (l2.y > l1.y))
+        }
 
         print "-- a drag is one edit, however many frames it took --"
         def depth0:int (app2.editor.historyDepth())

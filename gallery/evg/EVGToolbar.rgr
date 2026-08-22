@@ -116,6 +116,13 @@ class ToolIcon {
     ; A show, as a triangle pointing right — the one icon a presentation tool
     ; cannot do without.
     sfn play:int ()        { return 49 }
+
+    ; Lists: a dotted one, a numbered one, and the two that move an item in
+    ; and out of its parent.
+    sfn bulletList:int ()  { return 50 }
+    sfn numberList:int ()  { return 51 }
+    sfn indentMore:int ()  { return 52 }
+    sfn indentLess:int ()  { return 53 }
 }
 
 class ToolItem {

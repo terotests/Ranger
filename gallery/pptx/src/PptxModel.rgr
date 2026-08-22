@@ -166,6 +166,14 @@ class PptxParagraph {
     def lineSpacingPct:double 100.0   ; 100 = single
     def level:int 0
     def hasBullet:boolean false
+    ; A NUMBERED list rather than a dotted one. `<a:buAutoNum>` says the
+    ; scheme — "arabicPeriod" is 1. 2. 3., "alphaLcParenR" is a) b) c) — and
+    ; where the count starts. The number itself is not in the file: it is the
+    ; paragraph's position among the ones like it, which is why a viewer that
+    ; drew the stored character instead put a dot in front of every item.
+    def bulletAutoNum:boolean false
+    def bulletScheme:string "arabicPeriod"
+    def bulletStartAt:int 1
     def bulletChar:string "•"
     ; Where the level's indent puts this paragraph, and what the bullet in
     ; front of it looks like — both inherited from the list style unless the
@@ -224,6 +232,8 @@ class PptxLevelStyle {
     def spaceAfterSet:boolean false
     ; The bullet: "" nothing stated, "none", "char", "autonum".
     def bulletKind:string ""
+    def bulletScheme:string "arabicPeriod"
+    def bulletStartAt:int 1
     def bulletChar:string "•"
     def bulletFont:string ""
     def bulletColor:PptxColor (new PptxColor())
@@ -284,6 +294,8 @@ class PptxLevelStyle {
         }
         if ((strlen o.bulletKind) > 0) {
             bulletKind = o.bulletKind
+            bulletScheme = o.bulletScheme
+            bulletStartAt = o.bulletStartAt
             bulletChar = o.bulletChar
         }
         if ((strlen o.bulletFont) > 0) {
