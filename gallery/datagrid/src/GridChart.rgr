@@ -26,6 +26,7 @@
 ; ==============================================================================
 
 Import "SpreadsheetModel.rgr"
+Import "DateSerial.rgr"
 
 ; The chart types offered, as small integers so they can be radio-button ids.
 ;
@@ -246,6 +247,31 @@ class GridChart {
     ; Both default on, which is what a spreadsheet selection usually looks like.
     def useHeaderRow:boolean true
     def useHeaderCol:boolean true
+    ; --- what the columns MEAN ------------------------------------------------
+    ; A rectangle of cells is a table, and a chart is a question about it:
+    ;
+    ;   SELECT <catCol>, <agg>(<valueCols>) … GROUP BY <catCol>, <seriesCol>
+    ;
+    ; `catCol` is the column the numbers are broken down BY, `seriesCol` a
+    ; second way to cut them, `valueCols` the measures and `valueAggs` how each
+    ; one is combined when a category repeats — summed, or averaged when it is
+    ; a rate rather than a quantity.
+    ;
+    ; All of it is off by default and `catCol` of -1 means "read the rectangle
+    ; the old way", so every chart written before this still means what it
+    ; meant. `ChartInference` is what fills them in.
+    def catCol:int -1
+    def seriesCol:int -1
+    def valueCols:[int]
+    def valueAggs:[string]
+    ; "" plots a row per row; "group" collapses repeated categories;
+    ; "count" plots how many rows fall into each.
+    def agg:string ""
+    ; How a DATE category is bucketed before it is grouped: "" is the day
+    ; itself, "month", "quarter" and "year" are the coarser cuts. A year of
+    ; daily readings is 365 categories, and 365 labels along the bottom is a
+    ; grey smear — the answer is to ask the question by month.
+    def catBucket:string ""
     ; Drawn above the plot, and used as the window's caption when it is set —
     ; one title, in both places it belongs.
     def title:string ""
@@ -278,6 +304,18 @@ class GridChart {
         }
         useHeaderRow = o.useHeaderRow
         useHeaderCol = o.useHeaderCol
+        catCol = o.catCol
+        seriesCol = o.seriesCol
+        clear valueCols
+        clear valueAggs
+        def vci:int 0
+        while (vci < (array_length o.valueCols)) {
+            push valueCols (itemAt o.valueCols vci)
+            push valueAggs (itemAt o.valueAggs vci)
+            vci = (vci + 1)
+        }
+        agg = o.agg
+        catBucket = o.catBucket
         title = o.title
         showLegend = o.showLegend
         x = o.x
@@ -325,6 +363,23 @@ class GridChart {
             return title
         }
         return ((ChartKind.label(kind)) + " — " + (this.rangeLabel()))
+    }
+
+    ; Is this chart described by a plan rather than by a bare rectangle?
+    fn planned:boolean () {
+        if ((array_length valueCols) > 0) {
+            return true
+        }
+        ; Counting is a plan with no measures in it: how many rows fall into
+        ; each category is a question a table of nothing but words can answer.
+        return (agg == "count")
+    }
+
+    fn aggAt:string (i:int) {
+        if (i < (array_length valueAggs)) {
+            return (itemAt valueAggs i)
+        }
+        return "sum"
     }
 
     ; Does an edit at (r, c) change this chart?
@@ -466,6 +521,11 @@ class ChartData {
         catTitle = ""
         valueTitle = ""
         seriesTitle = ""
+        ; A chart with a plan says which column is the category and which are
+        ; the measures; one without is a bare rectangle read the old way.
+        if (ch.planned()) {
+            return (this.extractPlanned(model ch))
+        }
 
         def top:int ch.r0
         def firstValue:int 0
@@ -546,6 +606,287 @@ class ChartData {
             seriesTitle = "Series"
         }
         return (points > 0)
+    }
+
+
+    ; --- the planned reading --------------------------------------------------
+    ; One pass down the rows, accumulating into a bucket per (category, series).
+    ; That is a GROUP BY, and it is the whole difference between two hundred
+    ; bars of one invoice line each and four bars of a region's revenue.
+    ;
+    ; A row is skipped when its category is blank — an empty cell is not a
+    ; group called "" — and a measure that will not parse is left UNFILLED
+    ; rather than counted as zero, so a gap in the data reads as a gap.
+    fn extractPlanned:boolean (model:SpreadsheetModel ch:GridChart) {
+        def top:int ch.r0
+        if ch.useHeaderRow {
+            top = (top + 1)
+        }
+        if (top > ch.r1) {
+            return false
+        }
+        def counting:boolean (ch.agg == "count")
+        def measures:int (array_length ch.valueCols)
+        if (measures == 0) {
+            if (counting == false) {
+                return false
+            }
+            measures = 1
+        }
+        def grouped:boolean (ch.agg == "group")
+        if counting {
+            grouped = true
+        }
+
+        ; Series names: one per measure, or one per distinct value of the
+        ; series column when there is one — never both, because a grid of
+        ; measure × series has no room in a legend.
+        def bySeriesCol:boolean (ch.seriesCol >= 0)
+        def catKeys:[string]
+        def catIndex:[string:int]
+        def serKeys:[string]
+        def serIndex:[string:int]
+        if (bySeriesCol == false) {
+            def mi:int 0
+            while (mi < measures) {
+                def name:string ""
+                if counting {
+                    name = "Count"
+                } {
+                    if ch.useHeaderRow {
+                        name = (model.getCell(ch.r0 (itemAt ch.valueCols mi)))
+                    }
+                    if ((strlen name) == 0) {
+                        name = ("Series " + (to_string (mi + 1)))
+                    }
+                }
+                push series name
+                set serIndex name mi
+                push serKeys name
+                mi = (mi + 1)
+            }
+        }
+
+        ; Sums and counts per bucket, laid out the way `values` will be.
+        def sums:[double]
+        def counts:[int]
+        def flag:[boolean]
+        def r:int top
+        while (r <= ch.r1) {
+            def key:string ""
+            if (ch.catCol >= 0) {
+                if ((strlen ch.catBucket) > 0) {
+                    key = (ChartData.bucketKey((model.getCell(r ch.catCol)) ch.catBucket))
+                } {
+                    key = (model.getDisplay(r ch.catCol))
+                }
+                if ((strlen (trim key)) == 0) {
+                    key = ""
+                }
+            } {
+                key = (to_string ((r - top) + 1))
+            }
+            if ((strlen key) > 0) {
+                ; Grouped: rows with the same label land in the same bucket,
+                ; which is the GROUP BY. Ungrouped: every row is its own bar,
+                ; even when two of them are called the same thing.
+                def ci:int -1
+                if grouped {
+                    if (has catIndex key) {
+                        ci = (unwrap (get catIndex key))
+                    }
+                }
+                if (ci < 0) {
+                    ci = (array_length catKeys)
+                    push catKeys key
+                    set catIndex key ci
+                }
+                def si:int 0
+                if bySeriesCol {
+                    def sname:string (model.getDisplay(r ch.seriesCol))
+                    if ((strlen (trim sname)) == 0) {
+                        sname = "(blank)"
+                    }
+                    si = -1
+                    if (has serIndex sname) {
+                        si = (unwrap (get serIndex sname))
+                    }
+                    if (si < 0) {
+                        si = (array_length serKeys)
+                        if (si < (ChartData.slotStride())) {
+                            push serKeys sname
+                            set serIndex sname si
+                            push series sname
+                        } {
+                            si = -1
+                        }
+                    }
+                    def raw:string (model.getCell(r (itemAt ch.valueCols 0)))
+                    def v:double (ChartData.asNumber(raw flag))
+                    def ok:boolean false
+                    if ((array_length flag) > 0) {
+                        ok = (itemAt flag 0)
+                    }
+                    if (si < 0) {
+                        ok = false
+                    }
+                    if ok {
+                        ChartData.addTo(sums counts (ci * (ChartData.slotStride())) si v)
+                    }
+                } {
+                    if counting {
+                        ; One per row that landed in this bucket.
+                        ChartData.addTo(sums counts (ci * (ChartData.slotStride())) 0 1.0)
+                    }
+                    def mi2:int 0
+                    while (mi2 < (array_length ch.valueCols)) {
+                        def raw2:string (model.getCell(r (itemAt ch.valueCols mi2)))
+                        def v2:double (ChartData.asNumber(raw2 flag))
+                        def ok2:boolean false
+                        if ((array_length flag) > 0) {
+                            ok2 = (itemAt flag 0)
+                        }
+                        if ok2 {
+                            ChartData.addTo(sums counts (ci * (ChartData.slotStride())) mi2 v2)
+                        }
+                        mi2 = (mi2 + 1)
+                    }
+                }
+            }
+            r = (r + 1)
+        }
+
+        def nc:int (array_length catKeys)
+        def ns:int (array_length series)
+        if (nc == 0) {
+            return false
+        }
+        if (ns == 0) {
+            return false
+        }
+        ; Lay the buckets out row-major, turning a sum into an average where
+        ; the plan asked for one.
+        def ci2:int 0
+        while (ci2 < nc) {
+            push cats (itemAt catKeys ci2)
+            def si2:int 0
+            while (si2 < ns) {
+                def slot:int (((ci2 * (ChartData.slotStride())) + si2))
+                def total:double 0.0
+                def cnt:int 0
+                if (slot < (array_length sums)) {
+                    total = (itemAt sums slot)
+                    cnt = (itemAt counts slot)
+                }
+                def want:string "sum"
+                if bySeriesCol {
+                    want = (ch.aggAt(0))
+                } {
+                    want = (ch.aggAt(si2))
+                }
+                def out:double total
+                if (want == "avg") {
+                    if (cnt > 0) {
+                        out = (total / (to_double cnt))
+                    }
+                }
+                push values out
+                push filled (cnt > 0)
+                if (cnt > 0) {
+                    points = (points + 1)
+                }
+                si2 = (si2 + 1)
+            }
+            ci2 = (ci2 + 1)
+        }
+
+        ; Are the categories numbers? A date axis reads as text here — it is
+        ; formatted — but its ORDER is the row order, which is what a line
+        ; wants, so nothing has to be sorted.
+        catNumeric = true
+        def k:int 0
+        while (k < (array_length cats)) {
+            ChartData.asNumber((itemAt cats k) flag)
+            if ((array_length flag) > 0) {
+                if ((itemAt flag 0) == false) {
+                    catNumeric = false
+                }
+            }
+            k = (k + 1)
+        }
+        if (ch.catCol >= 0) {
+            if ch.useHeaderRow {
+                catTitle = (model.getCell(ch.r0 ch.catCol))
+            }
+        }
+        if (ns == 1) {
+            valueTitle = (itemAt series 0)
+        }
+        if (ns > 1) {
+            seriesTitle = "Series"
+            if bySeriesCol {
+                if ch.useHeaderRow {
+                    seriesTitle = (model.getCell(ch.r0 ch.seriesCol))
+                }
+            }
+        }
+        return (points > 0)
+    }
+
+    ; A date serial, as the month / quarter / year it falls in. The label is
+    ; also the sort key, which is why the year comes first and the month is
+    ; padded — the rows arrive in whatever order the sheet has them and the
+    ; categories come out in the order they were first seen.
+    sfn bucketKey:string (raw:string want:string) {
+        def flag:[boolean]
+        def serial:double (ChartData.asNumber(raw flag))
+        def ok:boolean false
+        if ((array_length flag) > 0) {
+            ok = (itemAt flag 0)
+        }
+        if (ok == false) {
+            return (trim raw)
+        }
+        def ymd:[int]
+        DateSerial.toYMD(serial ymd)
+        if ((array_length ymd) < 3) {
+            return (trim raw)
+        }
+        def y:int (itemAt ymd 0)
+        def m:int (itemAt ymd 1)
+        if (want == "year") {
+            return (to_string y)
+        }
+        if (want == "quarter") {
+            def q:int ((idiv (m - 1) 3) + 1)
+            return (((to_string y) + " Q") + (to_string q))
+        }
+        def mm:string (to_string m)
+        if (m < 10) {
+            mm = ("0" + mm)
+        }
+        return (((to_string y) + "-") + mm)
+    }
+
+    ; How many series one category's buckets have room for. A flat index is
+    ; cheaper than a map of pairs, and a chart with more series than this is
+    ; not a chart anyone can read — the skill's ladder gives up at eight.
+    sfn slotStride:int () {
+        return 64
+    }
+
+    ; Grow the two parallel bucket arrays as far as `slot` and add to it.
+    sfn addTo:void (sums:[double] counts:[int] catBase:int series:int v:double) {
+        if (series >= (ChartData.slotStride())) {
+            return
+        }
+        def slot:int (catBase + series)
+        while ((array_length sums) <= slot) {
+            push sums 0.0
+            push counts 0
+        }
+        set_at sums slot ((itemAt sums slot) + v)
+        set_at counts slot ((itemAt counts slot) + 1)
     }
 
     ; Can this selection be drawn as `kind` at all? The picker greys out what

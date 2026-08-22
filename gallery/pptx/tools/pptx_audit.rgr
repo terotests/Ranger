@@ -1,0 +1,379 @@
+; ==============================================================================
+; pptx_audit — what this reader does NOT understand about a deck
+; ==============================================================================
+;
+; Every fixture in this gallery was written by the same hand as the reader, so
+; every fixture is understood by construction. Two decks from outside turned up
+; six defects in an afternoon, and all six had the same shape: an element the
+; reader walked straight past, drawing nothing and saying nothing.
+;
+; This is the tool that stops that being a surprise. It walks every XML part of
+; a package through the reader's OWN parser and counts the elements it finds,
+; against the set the reader actually looks at. What comes out is a list, in
+; order of how often it appears, of the things this deck says that we do not
+; hear — and a list is something that can be worked through.
+;
+;   npm run pptx:audit -- path/to/deck.pptx
+;   npm run pptx:audit                       # every fixture in the gallery
+; ==============================================================================
+
+Import "../src/OpcPackage.rgr"
+Import "../src/PptxXml.rgr"
+
+class PptxAudit {
+    def counts:[string:int]
+    def names:[string]
+    def known:[string:int]
+    def knownNames:[string]
+    def parts:int 0
+    def elements:int 0
+
+    Constructor () {
+    }
+
+    ; The elements the reader looks at, by local name. Derived from the lookups
+    ; in `PptxParser` — `firstChild`, `find`, `childrenNamed` and the
+    ; `name ==` comparisons — plus the ones that are structure rather than
+    ; content and are correctly walked through rather than read.
+    sfn handled:[string] () {
+        return ([] _:string (
+            ; structure walked through
+            "presentation" "sld" "sldLayout" "sldMaster" "notesSlide" "notesMaster"
+            "theme" "themeOverride" "themeElements" "objectDefaults" "extraClrSchemeLst"
+            "graphic" "graphicData" "extLst" "ext" "AlternateContent" "Choice" "Fallback"
+            "Relationships" "Relationship" "Types" "Default" "Override"
+            "Properties" "cp:coreProperties" "coreProperties"
+            ; read
+            "cSld" "spTree" "sp" "pic" "grpSp" "cxnSp" "graphicFrame"
+            "nvSpPr" "nvPicPr" "nvGrpSpPr" "nvCxnSpPr" "nvGraphicFramePr"
+            "cNvPr" "cNvSpPr" "cNvPicPr" "cNvGrpSpPr" "cNvCxnSpPr" "cNvGraphicFramePr"
+            "nvPr" "ph" "spPr" "grpSpPr" "spLocks" "grpSpLocks" "picLocks"
+            "xfrm" "off" "ext" "chOff" "chExt" "prstGeom" "custGeom" "avLst" "gd"
+            "pathLst" "path" "moveTo" "lnTo" "cubicBezTo" "quadBezTo" "arcTo" "close" "pt"
+            "solidFill" "noFill" "gradFill" "gsLst" "gs" "lin" "srgbClr" "schemeClr" "sysClr"
+            "alpha" "lumMod" "lumOff" "tint" "shade" "satMod"
+            "ln" "headEnd" "tailEnd" "prstDash" "round" "bevel" "miter"
+            "effectLst" "outerShdw" "style" "lnRef" "fillRef" "effectRef" "fontRef"
+            "txBody" "bodyPr" "lstStyle" "p" "pPr" "r" "rPr" "t" "fld" "br" "endParaRPr"
+            "defRPr" "defPPr" "lvl1pPr" "latin" "ea" "cs" "sym"
+            "buNone" "buChar" "buAutoNum" "buFont" "buClr" "buSzPct" "buSzPts" "highlight"
+            "spcBef" "spcAft" "spcPct" "spcPts" "lnSpc" "normAutofit" "noAutofit" "spAutoFit"
+            "txStyles" "titleStyle" "bodyStyle" "otherStyle" "defaultTextStyle" "notesStyle"
+            "lvl1pPr" "lvl2pPr" "lvl3pPr" "lvl4pPr" "lvl5pPr" "lvl6pPr" "lvl7pPr" "lvl8pPr" "lvl9pPr"
+            "blipFill" "blip" "stretch" "fillRect" "tile"
+            "tbl" "tblPr" "tblGrid" "gridCol" "tr" "tc" "tcPr"
+            "lnL" "lnR" "lnT" "lnB" "tableStyleId"
+            "chart" "chartSpace" "plotArea" "barChart" "lineChart" "pieChart"
+            "ser" "cat" "val" "numCache" "strCache" "pt" "v" "title" "tx"
+            "clrScheme" "fontScheme" "fmtScheme" "majorFont" "minorFont"
+            "fillStyleLst" "lnStyleLst" "effectStyleLst" "effectStyle" "bgFillStyleLst"
+            "dk1" "dk2" "lt1" "lt2" "accent1" "accent2" "accent3" "accent4" "accent5" "accent6"
+            "hlink" "folHlink"
+            "sldSz" "notesSz" "sldIdLst" "sldId" "sldMasterIdLst" "sldMasterId"
+            "sldLayoutIdLst" "sldLayoutId" "notesMasterIdLst" "notesMasterId"
+            "sectionLst" "section" "bg" "bgPr" "bgRef" "clrMap" "clrMapOvr" "masterClrMapping"
+            "transition" "timing" "tnLst" "cTn" "childTnLst" "seq" "par" "set" "animEffect"
+            "cBhvr" "tgtEl" "spTgt" "txEl" "pRg" "attrNameLst" "attrName" "to" "strVal"
+            "stCondLst" "cond" "prevCondLst" "nextCondLst" "sldTgt" "dur"
+            "fade" "push" "wipe" "cut" "cover" "pull" "split" "blinds" "checker" "circle"
+            "comb" "diamond" "dissolve" "newsflash" "plus" "randomBar" "strips" "wedge" "wheel" "zoom"
+        ))
+    }
+
+    ; Known, and deliberately not drawn. The difference between this list and
+    ; the one above is the difference between a decision and an oversight, and
+    ; a report that does not separate them is a report nobody reads twice.
+    sfn outOfScope:[string] () {
+        return ([] _:string (
+            ; 3-D. A slide's shapes are flat here and are meant to be.
+            "scene3d" "sp3d" "camera" "lightRig" "rot" "bevelT" "bevelB" "extrusionClr"
+            "contourClr" "flatTx" "backdrop" "anchor" "norm" "up"
+            ; Fonts the deck carries with it. Loading a face out of a package
+            ; is a font-stack change, not a reader change.
+            "embeddedFontLst" "embeddedFont" "regular" "bold" "italic" "boldItalic"
+            ; The theme's per-script font fallbacks. The Latin face is the one
+            ; this reader draws with.
+            "font"
+            ; Animation beyond the build: time-value lists, motion, colour.
+            "anim" "animClr" "animMotion" "animRot" "animScale" "tavLst" "tav" "val"
+            "cmd" "iterate" "tmAbs" "tmPct" "subTnLst" "endCondLst" "bldLst" "bldP" "bldGraphic"
+            ; Which slide the header, footer and date appear on. This reader
+            ; puts them on the master, which is where they are edited.
+            "hf"
+            ; Notes and handout geometry, and the parts nobody draws.
+            "notes" "notesStyle" "handoutMaster" "sldSyncPr"
+            ; A custom geometry's text rectangle, its adjustment/handle/
+            ; connection lists: this reader draws the PATH, lays text out in
+            ; the shape's box rather than in the sub-rectangle a path names,
+            ; and has no handles to drag.
+            "rect" "gdLst" "ahLst" "cxnLst" "ahXY" "ahPolar" "cxn" "pos"
+            ; Locks on a frame. A table cannot be dragged out of shape here in
+            ; any case.
+            "graphicFrameLocks"
+            ; Picture adjustments beyond the bitmap itself.
+            "alphaModFix" "lum" "duotone" "grayscl" "biLevel" "clrChange" "srcRect"
+            ; Where a click goes. Nothing here follows a link.
+            "hlinkClick" "hlinkHover" "hlinkMouseOver"
+            ; A path gradient's focus rectangle — this reader draws linear
+            ; gradients between two stops.
+            "fillToRect" "path"
+        ))
+    }
+
+    fn isOutOfScope:boolean (name:string) {
+        def h:[string] (PptxAudit.outOfScope())
+        def i:int 0
+        while (i < (array_length h)) {
+            if ((itemAt h i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn isHandled:boolean (name:string) {
+        def h:[string] (PptxAudit.handled())
+        def i:int 0
+        while (i < (array_length h)) {
+            if ((itemAt h i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn note:void (name:string) {
+        elements = (elements + 1)
+        if (this.isHandled(name)) {
+            return
+        }
+        if (this.isOutOfScope(name)) {
+            def k@(optional):int (get known name)
+            if (null? k) {
+                push knownNames name
+                set known name 1
+            } {
+                set known name ((unwrap k) + 1)
+            }
+            return
+        }
+        def have@(optional):int (get counts name)
+        if (null? have) {
+            push names name
+            set counts name 1
+        } {
+            set counts name ((unwrap have) + 1)
+        }
+    }
+
+    fn walk:void (node:PptxXmlNode) {
+        if node.isText {
+            return
+        }
+        this.note(node.name)
+        def i:int 0
+        while (i < (node.childCount())) {
+            this.walk((node.childAt(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; Only the parts that carry the presentation. The document properties and
+    ; the application's own bookkeeping are not this reader's business, and
+    ; counting them would drown the list that matters.
+    sfn interesting:boolean (part:string) {
+        if ((indexOf part "ppt/slides/") == 0) {
+            return ((indexOf part ".rels") < 0)
+        }
+        if ((indexOf part "ppt/slideLayouts/") == 0) {
+            return ((indexOf part ".rels") < 0)
+        }
+        if ((indexOf part "ppt/slideMasters/") == 0) {
+            return ((indexOf part ".rels") < 0)
+        }
+        if ((indexOf part "ppt/notesSlides/") == 0) {
+            return ((indexOf part ".rels") < 0)
+        }
+        if ((indexOf part "ppt/theme/") == 0) {
+            return true
+        }
+        if (part == "ppt/presentation.xml") {
+            return true
+        }
+        return false
+    }
+
+    fn audit:boolean (dir:string name:string) {
+        def pkg (new OpcPackage())
+        if ((pkg.openParts(dir name)) == false) {
+            print ("  could not open " + name)
+            return false
+        }
+        def xml (new PptxXmlParser())
+        def all:[string] (pkg.listParts())
+        def i:int 0
+        while (i < (array_length all)) {
+            def part:string (itemAt all i)
+            if (PptxAudit.interesting(part)) {
+                def text:string (pkg.readXml(part))
+                if ((strlen text) > 0) {
+                    def root@(optional):PptxXmlNode (xml.parse(text))
+                    if (!null? root) {
+                        parts = (parts + 1)
+                        this.walk((unwrap root))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        pkg.close()
+        return true
+    }
+
+    ; Most-used first, so the list reads as a work order rather than as a dump.
+    fn report:void () {
+        print ("  parts read: " + (to_string parts) + ", elements: " + (to_string elements))
+        if ((array_length knownNames) > 0) {
+            print ("  known and deliberately not drawn: " + (to_string (array_length knownNames)) + " kinds")
+        }
+        if ((array_length names) == 0) {
+            print "  nothing else in this deck is unread"
+            return
+        }
+        print "  UNREAD — nobody decided about these:"
+        def left:[string] names
+        def shown:int 0
+        while ((array_length left) > 0) {
+            def best:string ""
+            def bestN:int (0 - 1)
+            def i:int 0
+            while (i < (array_length left)) {
+                def n:string (itemAt left i)
+                def c@(optional):int (get counts n)
+                def cv:int (?? c 0)
+                if (cv > bestN) {
+                    bestN = cv
+                    best = n
+                }
+                i = (i + 1)
+            }
+            print (("    " + best + "  ×" + (to_string bestN)))
+            def rest:[string]
+            def k:int 0
+            while (k < (array_length left)) {
+                if ((itemAt left k) != best) {
+                    push rest (itemAt left k)
+                }
+                k = (k + 1)
+            }
+            left = rest
+            shown = (shown + 1)
+        }
+        print ("  " + (to_string shown) + " kinds nobody has decided about")
+    }
+
+    sfn splitDir:string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((substring path i (i + 1)) == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring path 0 cut)
+    }
+
+    sfn splitName:string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((substring path i (i + 1)) == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) (strlen path))
+    }
+
+    ; Every fixture in the gallery, and a non-zero exit when any of them says
+    ; something this reader has not decided about. A new fixture that uses a
+    ; new element is exactly the thing that should fail here — the decision is
+    ; cheap to make and expensive to discover in a screenshot.
+    sfn checkAll:int () {
+        def fixtures:[string] ([] _:string (
+            "01-text.pptx" "02-shapes.pptx" "04-multi.pptx" "05-group.pptx"
+            "06-text-runs.pptx" "07-theme-fills.pptx" "08-presets.pptx"
+            "16-image-png.pptx" "19-text-fidelity.pptx" "20-business-deck.pptx"
+            "21-gradient.pptx" "22-shadow.pptx" "23-bullets.pptx" "24-custom-geom.pptx"
+            "25-table.pptx" "26-chart-vela.pptx" "27-accented-text.pptx"
+            "28-transitions.pptx" "29-theme-styles.pptx" "30-table-grid.pptx"
+            "31-inherited-text.pptx"
+        ))
+        def bad:int 0
+        def i:int 0
+        while (i < (array_length fixtures)) {
+            def f:string (itemAt fixtures i)
+            def a (new PptxAudit())
+            if (a.audit("gallery/pptx/fixtures" f)) {
+                if ((array_length a.names) > 0) {
+                    print ("-- " + f + " --")
+                    a.report()
+                    bad = (bad + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return bad
+    }
+
+    sfn main:void () {
+        print "=== what this reader walks past ==="
+        def argCount0:int (shell_arg_cnt)
+        if (argCount0 > 0) {
+            if ((shell_arg 0) == "--check") {
+                def bad:int (PptxAudit.checkAll())
+                if (bad == 0) {
+                    print "  every fixture is read or deliberately not read"
+                    print "ALL PASS"
+                } {
+                    print ((to_string bad) + " fixture(s) say something nobody has decided about")
+                    print "SOME FAILED"
+                }
+                return
+            }
+        }
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def path:string (shell_arg 0)
+            print ("-- " + path + " --")
+            def a (new PptxAudit())
+            if (a.audit((PptxAudit.splitDir(path)) (PptxAudit.splitName(path)))) {
+                a.report()
+            }
+            return
+        }
+        def fixtures:[string] ([] _:string (
+            "20-business-deck.pptx" "25-table.pptx" "26-chart-vela.pptx"
+            "28-transitions.pptx" "29-theme-styles.pptx" "30-table-grid.pptx"
+        ))
+        def i:int 0
+        while (i < (array_length fixtures)) {
+            def f:string (itemAt fixtures i)
+            print ("-- " + f + " --")
+            def a2 (new PptxAudit())
+            if (a2.audit("gallery/pptx/fixtures" f)) {
+                a2.report()
+            }
+            i = (i + 1)
+        }
+    }
+}

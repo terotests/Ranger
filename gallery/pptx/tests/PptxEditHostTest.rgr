@@ -129,6 +129,25 @@ class PptxEditHostTest {
         return true
     }
 
+    ; How many of the current slide's shapes the show would draw right now —
+    ; a build hides the ones whose step has not been reached.
+    sfn visibleCount:int (app:PptxApp) {
+        def slide@(optional):PptxSlide (app.currentSlide())
+        if (null? slide) {
+            return 0
+        }
+        def s:PptxSlide (unwrap slide)
+        def n:int 0
+        def i:int 0
+        while (i < (array_length s.shapes)) {
+            if (app.editor.shapeVisibleAt(s (itemAt s.shapes i) app.presentStep)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn near:boolean (a:double b:double tol:double) {
         def d:double (fabs (a - b))
         return (d < tol)
@@ -639,6 +658,162 @@ class PptxEditHostTest {
         c.ok("removing it works" (app5.runCommand("section.remove" "")))
         c.ok("and the deck is back to none here" ((app5.editor.sectionOfSlide(0)) < 0))
         c.ok("removing again is refused" ((app5.runCommand("section.remove" "")) == false))
+
+        print "-- the deck, shown --"
+        def show:PptxApp (PptxEditHostTest.buildDeck("28-transitions.pptx"))
+        c.ok("the deck opens" ((show.slideCount()) == 2))
+        c.ok("a show starts" (show.runCommand("show.start" "")))
+        c.ok("and it is presenting" show.presenting)
+        c.ok("editing is off while it runs" (show.editMode == false))
+        ; The slide fills the window: no strip, no panel, no status line.
+        def full:EVGDisplayList (show.buildFrame())
+        c.ok("the show draws" ((array_length full.cmds) > 0))
+        c.ok("the slide starts at the top of the window" ((show.slideOriginY()) < 40.0))
+        ; Slide one has a two-step build, so the first clicks build it.
+        def steps:int (show.editor.buildCount())
+        c.ok("slide one has a build" (steps == 2))
+        def hiddenAtStart:int (PptxEditHostTest.visibleCount(show))
+        c.ok("a click builds rather than turning the page" (show.presentNext()))
+        c.ok("still on the first slide" (show.index == 0))
+        c.ok("and one more shape is on it" ((PptxEditHostTest.visibleCount(show)) == (hiddenAtStart + 1)))
+        show.presentNext()
+        c.ok("the build is finished" (show.presentStep == steps))
+        c.ok("the next click turns the page" (show.presentNext()))
+        c.ok("and it turned" (show.index == 1))
+        ; Slide two pushes up, so a transition is running and has a length.
+        c.ok("a transition is running" (show.showLength > 0.0))
+        c.ok("which has not finished yet" ((show.showProgress()) < 1.0))
+        def mid:EVGDisplayList (show.buildFrame())
+        c.ok("a transition draws both pages" ((array_length mid.cmds) > (array_length full.cmds)))
+        show.tick(2.0)
+        c.ok("time finishes it" ((show.showLength) == 0.0))
+        def after:EVGDisplayList (show.buildFrame())
+        c.ok("and the frame is one page again" ((array_length after.cmds) > 0))
+        c.ok("the last slide does not go further" ((show.presentNext()) == false))
+        c.ok("back works" (show.presentPrev()))
+        c.ok("and lands on the slide before" (show.index == 0))
+        c.ok("fully built" (show.presentStep == steps))
+
+        print "-- what a presenter reaches for --"
+        c.ok("N shows the presenter's own screen" (show.showChar("n")))
+        c.ok("and it is up" show.presenterView)
+        def pres:EVGDisplayList (show.buildFrame())
+        c.ok("which draws the next slide and the notes beside it" ((array_length pres.cmds) > 0))
+        c.ok("the slide is narrower for it" ((show.showAreaW()) < (to_double show.W)))
+        show.showChar("n")
+        c.ok("and N puts it away" (show.presenterView == false))
+        c.ok("B blanks the screen" (show.showChar("b")))
+        def blank:EVGDisplayList (show.buildFrame())
+        c.ok("a blanked screen draws almost nothing" ((array_length blank.cmds) < 8))
+        show.showChar("b")
+        c.ok("and B brings it back" (show.showBlank == false))
+        c.ok("P puts a pen out" (show.showChar("p")))
+        c.ok("and the pen is out" (show.penMode == "pen"))
+        ; Drawing with it: a press, a drag, a release — one stroke on this
+        ; slide, in slide points, so it stays where it was drawn.
+        def inkBefore:int (show.inkStrokeCount())
+        show.pointer(300 300 true true false)
+        show.pointer(340 320 false true false)
+        show.pointer(380 300 false false true)
+        c.ok("a stroke was drawn" ((show.inkStrokeCount()) == (inkBefore + 1)))
+        def inked:EVGDisplayList (show.buildFrame())
+        c.ok("and it is in the picture" ((array_length inked.cmds) > (array_length full.cmds)))
+        c.ok("the pen does not turn the page" (show.index == 0))
+        c.ok("E rubs it off" (show.showChar("e")))
+        c.ok("and the slide is clean" ((show.inkStrokeCount()) == 0))
+        c.ok("L is a laser instead" (show.showChar("l")))
+        c.ok("which is not ink" (show.penMode == "laser"))
+        show.pointer(400 300 false false true)
+        c.ok("and a laser leaves nothing behind" ((show.inkStrokeCount()) == 0))
+        ; Escape gives up the pen first and the show second, so a presenter
+        ; cannot drop out of the show by trying to put the pen away.
+        def esc (new UIInput)
+        esc.newFrame()
+        esc.pushKey((UIKey.escape()))
+        show.update(esc)
+        c.ok("Escape puts the pointer away" ((strlen show.penMode) == 0))
+        c.ok("and stays in the show" show.presenting)
+        def esc2 (new UIInput)
+        esc2.newFrame()
+        esc2.pushKey((UIKey.escape()))
+        show.update(esc2)
+        c.ok("a second Escape ends it" (show.presenting == false))
+
+        print "-- the show is made in the editor --"
+        def maker:PptxApp (PptxEditHostTest.buildDeck("04-multi.pptx"))
+        c.ok("a transition can be set from a command" (maker.runCommand("slide.transition" "wipe:d:0.5")))
+        c.ok("and it took" ((maker.editor.transitionKind()) == "wipe"))
+        ; The fixture's own shapes, plus one inserted, so the build is about
+        ; the build and not about how many shapes the deck happened to have.
+        maker.runCommand("shape.rect" "")
+        maker.runCommand("shape.ellipse" "")
+        def shapes2:[PptxShape] (maker.editor.editableShapes())
+        c.ok("there are shapes to animate" ((array_length shapes2) >= 2))
+        if ((array_length shapes2) >= 2) {
+            def a1:PptxShape (itemAt shapes2 0)
+            def a2:PptxShape (itemAt shapes2 1)
+            maker.editor.select(a1.editId)
+            maker.editor.addToSelection(a2.editId)
+            c.ok("both can be animated" (maker.runCommand("shape.animate" "fade")))
+            c.ok("which is a two-step build" ((maker.editor.buildCount()) == 2))
+            maker.editor.select(a2.editId)
+            c.ok("the second step can be moved earlier" (maker.runCommand("build.earlier" "")))
+            def slideNow@(optional):PptxSlide (maker.editor.currentSlide())
+            if (!null? slideNow) {
+                def sn:PptxSlide (unwrap slideNow)
+                def first:PptxBuildStep (itemAt sn.build 0)
+                c.ok("and it went first" (first.editId == a2.editId))
+            }
+            c.ok("the build can be cleared" (maker.runCommand("shape.animate.clear" "")))
+            c.ok("leaving none" ((maker.editor.buildCount()) == 0))
+        }
+        c.ok("a slide can advance itself" (maker.runCommand("slide.advance" "3")))
+        def s0@(optional):PptxSlide (maker.editor.currentSlide())
+        if (!null? s0) {
+            def sv:PptxSlide (unwrap s0)
+            c.ok("after the time it was given" (sv.transition.afterSeconds > 2.9))
+            ; …and the show acts on it without a click.
+            maker.runCommand("show.start" "")
+            def wasAt:int maker.index
+            maker.tick(4.0)
+            c.ok("a timed slide turns on its own" (maker.index != wasAt))
+        }
+
+        print "-- the panel builds what is on screen, and keeps it --"
+        def big:PptxApp (PptxEditHostTest.buildDeck("20-business-deck.pptx"))
+        ; A deck long enough that the panel cannot be drawing all of it: the
+        ; deck is duplicated until it is well past a screenful.
+        while ((big.slideCount()) < 60) {
+            big.runCommand("slide.duplicate" "")
+        }
+        big.gotoSlide(0)
+        def f1:EVGDisplayList (big.buildFrame())
+        def built1:int (big.panelBuiltLastFrame())
+        c.ok("the deck is long" ((big.slideCount()) >= 60))
+        c.ok("but the panel builds only what fits" (built1 < 20))
+        c.ok("and it built something" (built1 > 0))
+        ; The same frame again: nothing changed, so nothing is built again.
+        def f2:EVGDisplayList (big.buildFrame())
+        c.ok("an idle frame builds no thumbnail at all" ((big.panelBuiltLastFrame()) == 0))
+        c.ok("it keeps the ones it had" ((big.panelKeptLastFrame()) == built1))
+        ; Change a slide and its thumbnail — and only its thumbnail — is built
+        ; again, because a kept picture is tagged with the revision it was
+        ; taken at.
+        def sel:[PptxShape] (big.editor.editableShapes())
+        if ((array_length sel) > 0) {
+            def s1:PptxShape (itemAt sel 0)
+            big.editor.select(s1.editId)
+            big.editor.moveSelection(12.0 0.0)
+            def f3:EVGDisplayList (big.buildFrame())
+            c.ok("an edited slide is drawn again" ((big.panelBuiltLastFrame()) == 1))
+            c.ok("and the rest are kept" ((big.panelKeptLastFrame()) == (built1 - 1)))
+        }
+        ; Scrolling moves them, so they are built where they now are.
+        big.scrollPanel(-3)
+        def f4:EVGDisplayList (big.buildFrame())
+        c.ok("scrolling builds them where they moved to" ((big.panelBuiltLastFrame()) > 0))
+        def f5:EVGDisplayList (big.buildFrame())
+        c.ok("and stopping keeps them again" ((big.panelBuiltLastFrame()) == 0))
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

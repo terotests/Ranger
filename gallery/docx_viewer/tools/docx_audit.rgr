@@ -1,0 +1,352 @@
+; ==============================================================================
+; docx_audit — what this reader does NOT understand about a document
+; ==============================================================================
+;
+; The same instrument the pptx side grew in phase E8, for the same reason: every
+; fixture here was written by the same hand as the reader, so every fixture is
+; understood by construction. A document from outside is the only thing that
+; finds an element walked straight past — drawing nothing, saying nothing.
+;
+; WordprocessingML is read here by SCANNING rather than by parsing into a tree,
+; so this scans too: it walks the opening tags of every part that carries the
+; document and counts the ones the reader never looks at, in two lists — the
+; ones somebody decided not to draw, and the ones nobody has decided about. The
+; difference between those two is the difference between a decision and an
+; oversight.
+;
+;   npm run docx:audit -- path/to/file.docx
+;   npm run docx:audit:check          # every fixture, as a test
+; ==============================================================================
+
+Import "../src/DocxPackage.rgr"
+
+class DocxAudit {
+    def counts:[string:int]
+    def names:[string]
+    def known:[string:int]
+    def knownNames:[string]
+    def parts:int 0
+    def elements:int 0
+
+    Constructor () {
+    }
+
+    ; What the reader looks at, by qualified tag name. Taken from the lookups in
+    ; `WordMlParser`, `WordStyleResolver` and `WordNumbering`, plus the elements
+    ; that are structure and are correctly walked through rather than read.
+    sfn handled:[string] () {
+        return ([] _:string (
+            ; structure
+            "w:document" "w:body" "w:styles" "w:numbering" "w:settings" "w:fonts"
+            "w:hdr" "w:ftr" "w:footnotes" "w:endnotes" "w:webSettings"
+            "Relationships" "Relationship" "Types" "Default" "Override"
+            "mc:AlternateContent" "mc:Choice" "mc:Fallback"
+            ; paragraphs, runs, text
+            "w:p" "w:pPr" "w:r" "w:rPr" "w:t" "w:br" "w:tab" "w:sym"
+            "w:pStyle" "w:rStyle" "w:jc" "w:ind" "w:spacing" "w:shd" "w:color"
+            "w:b" "w:i" "w:u" "w:sz" "w:szCs" "w:rFonts" "w:lang" "w:noProof"
+            "w:pageBreakBefore" "w:keepNext" "w:keepLines" "w:widowControl"
+            ; styles
+            "w:docDefaults" "w:pPrDefault" "w:rPrDefault" "w:style" "w:basedOn"
+            "w:name" "w:next" "w:qFormat" "w:uiPriority" "w:semiHidden"
+            "w:unhideWhenUsed" "w:link" "w:rsid" "w:latentStyles" "w:lsdException"
+            ; numbering
+            "w:numPr" "w:numId" "w:ilvl" "w:num" "w:abstractNum" "w:abstractNumId"
+            "w:lvl" "w:numFmt" "w:lvlText" "w:start" "w:lvlJc" "w:pStyle"
+            "w:multiLevelType" "w:tmpl" "w:nsid" "w:lvlOverride" "w:startOverride"
+            ; sections
+            "w:sectPr" "w:pgSz" "w:pgMar" "w:cols" "w:docGrid" "w:type"
+            "w:headerReference" "w:footerReference" "w:titlePg"
+            ; tables
+            "w:tbl" "w:tblPr" "w:tblGrid" "w:gridCol" "w:tr" "w:trPr" "w:tc" "w:tcPr"
+            "w:tcW" "w:tblW" "w:gridSpan" "w:vMerge" "w:tcBorders" "w:tblBorders"
+            "w:top" "w:bottom" "w:left" "w:right" "w:insideH" "w:insideV"
+            "w:tblLayout" "w:tblLook" "w:tblStyle" "w:tblCellMar" "w:vAlign"
+            ; drawings and pictures
+            "w:drawing" "w:pict" "wp:inline" "wp:anchor" "wp:extent" "wp:docPr"
+            "wp:cNvGraphicFramePr" "wp:effectExtent" "wp:positionH" "wp:positionV"
+            "wp:posOffset" "wp:wrapNone" "wp:wrapSquare" "wp:wrapTopAndBottom"
+            "a:graphic" "a:graphicData" "pic:pic" "pic:nvPicPr" "pic:cNvPr"
+            "pic:cNvPicPr" "pic:blipFill" "a:blip" "a:stretch" "a:fillRect"
+            "pic:spPr" "a:xfrm" "a:off" "a:ext" "a:prstGeom" "a:avLst"
+        ))
+    }
+
+    ; Known, and deliberately not drawn.
+    sfn outOfScope:[string] () {
+        return ([] _:string (
+            ; Revision marks. This reader shows the document as it stands.
+            "w:ins" "w:del" "w:delText" "w:rPrChange" "w:pPrChange" "w:tblPrChange"
+            "w:moveFrom" "w:moveTo" "w:proofErr" "w:bookmarkStart" "w:bookmarkEnd"
+            ; Comments live in their own part and are not drawn in the page.
+            "w:commentRangeStart" "w:commentRangeEnd" "w:commentReference"
+            ; Fields, which are computed by the application that wrote them.
+            "w:fldSimple" "w:fldChar" "w:instrText" "w:hyperlink"
+            ; Word's own bookkeeping.
+            "w:proofState" "w:defaultTabStop" "w:characterSpacingControl"
+            "w:compat" "w:compatSetting" "w:rsids" "w:rsid" "w:themeFontLang"
+            "w:clrSchemeMapping" "w:shapeDefaults" "w:decimalSymbol" "w:listSeparator"
+            "w:zoom" "w:view" "w:mathPr" "w:attachedTemplate" "w:font" "w:panose1"
+            "w:charset" "w:family" "w:pitch" "w:sig" "w:embedRegular" "w:altName"
+            ; Equations.
+            "m:oMath" "m:oMathPara" "m:r" "m:t" "m:f" "m:num" "m:den" "m:mathPr"
+            ; VML, the old drawing language. The `w:drawing` form is read.
+            "v:shape" "v:imagedata" "v:rect" "v:shapetype" "v:stroke" "v:fill"
+            "v:path" "v:textbox" "v:formulas" "v:f" "v:shadow" "o:lock" "o:idmap"
+            ; Content controls: the content inside them IS read, the wrapper is
+            ; not a thing that draws.
+            "w:sdt" "w:sdtPr" "w:sdtContent" "w:sdtEndPr" "w:id" "w:alias"
+            "w:docPartObj" "w:docPartGallery" "w:docPartUnique"
+            ; Effects on a run that this renderer does not draw.
+            "w:strike" "w:dstrike" "w:caps" "w:smallCaps" "w:vertAlign" "w:highlight"
+            "w:outline" "w:emboss" "w:imprint" "w:effect" "w:em" "w:w" "w:kern"
+            ; Text boxes and shapes beyond a picture.
+            "wps:wsp" "wps:cNvSpPr" "wps:spPr" "wps:txbx" "w:txbxContent" "wps:bodyPr"
+            "a:solidFill" "a:srgbClr" "a:ln" "a:noFill" "a:latin" "a:effectLst"
+            ; Tab stops, borders and framing this renderer lays out without.
+            "w:tabs" "w:tab" "w:pBdr" "w:framePr" "w:suppressAutoHyphens"
+            "w:contextualSpacing" "w:autoSpaceDE" "w:autoSpaceDN" "w:adjustRightInd"
+            "w:snapToGrid" "w:bidi" "w:textDirection" "w:cantSplit" "w:tblHeader"
+            "w:trHeight" "w:noWrap" "w:hideMark" "w:cnfStyle" "w:divId"
+        ))
+    }
+
+    sfn inList:boolean (name:string list:[string]) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn note:void (name:string) {
+        elements = (elements + 1)
+        if (DocxAudit.inList(name (DocxAudit.handled()))) {
+            return
+        }
+        if (DocxAudit.inList(name (DocxAudit.outOfScope()))) {
+            def k@(optional):int (get known name)
+            if (null? k) {
+                push knownNames name
+                set known name 1
+            } {
+                set known name ((unwrap k) + 1)
+            }
+            return
+        }
+        def have@(optional):int (get counts name)
+        if (null? have) {
+            push names name
+            set counts name 1
+        } {
+            set counts name ((unwrap have) + 1)
+        }
+    }
+
+    ; WordprocessingML is read here by scanning, so this scans: every opening
+    ; tag, by the name it is written with. Closing tags, declarations and
+    ; comments are skipped — one count per element, not two.
+    fn scan:void (xml:string) {
+        def n:int (strlen xml)
+        def i:int 0
+        while (i < n) {
+            if ((charAt xml i) == 60) {
+                def j:int (i + 1)
+                if (j < n) {
+                    def c:int (charAt xml j)
+                    ; `/` closing, `?` declaration, `!` comment or doctype.
+                    if ((c != 47) && (c != 63) && (c != 33)) {
+                        def k:int j
+                        while (k < n) {
+                            def ch:int (charAt xml k)
+                            ; space, tab, CR, LF, `/`, `>` — a tag name ends at
+                            ; any of them.
+                            if ((ch == 32) || (ch == 9) || (ch == 10) || (ch == 13)) {
+                                break
+                            }
+                            if ((ch == 47) || (ch == 62)) {
+                                break
+                            }
+                            k = (k + 1)
+                        }
+                        def name:string (substring xml j k)
+                        if ((strlen name) > 0) {
+                            this.note(name)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The parts that carry the document. The application's own bookkeeping and
+    ; the thumbnail are not this reader's business.
+    sfn interesting:boolean (part:string) {
+        if (part == "word/document.xml") { return true }
+        if (part == "word/styles.xml") { return true }
+        if (part == "word/numbering.xml") { return true }
+        if ((indexOf part "word/header") == 0) { return ((indexOf part ".rels") < 0) }
+        if ((indexOf part "word/footer") == 0) { return ((indexOf part ".rels") < 0) }
+        if ((indexOf part "word/footnotes") == 0) { return ((indexOf part ".rels") < 0) }
+        if ((indexOf part "word/endnotes") == 0) { return ((indexOf part ".rels") < 0) }
+        return false
+    }
+
+    fn audit:boolean (dir:string name:string) {
+        def pkg (new DocxPackage())
+        if ((pkg.open(dir name)) == false) {
+            print ("  could not open " + name)
+            return false
+        }
+        def all:[string] (pkg.zip.listFiles())
+        def i:int 0
+        while (i < (array_length all)) {
+            def part:string (itemAt all i)
+            if (DocxAudit.interesting(part)) {
+                def text:string (pkg.readPart(part))
+                if ((strlen text) > 0) {
+                    parts = (parts + 1)
+                    this.scan(text)
+                }
+            }
+            i = (i + 1)
+        }
+        pkg.close()
+        return true
+    }
+
+    fn report:void () {
+        print ("  parts read: " + (to_string parts) + ", elements: " + (to_string elements))
+        if ((array_length knownNames) > 0) {
+            print ("  known and deliberately not drawn: " + (to_string (array_length knownNames)) + " kinds")
+        }
+        if ((array_length names) == 0) {
+            print "  nothing else in this document is unread"
+            return
+        }
+        print "  UNREAD — nobody decided about these:"
+        def left:[string] names
+        def shown:int 0
+        while ((array_length left) > 0) {
+            def best:string ""
+            def bestN:int (0 - 1)
+            def i:int 0
+            while (i < (array_length left)) {
+                def nm:string (itemAt left i)
+                def c@(optional):int (get counts nm)
+                def cv:int (?? c 0)
+                if (cv > bestN) {
+                    bestN = cv
+                    best = nm
+                }
+                i = (i + 1)
+            }
+            print (("    " + best + "  ×" + (to_string bestN)))
+            def rest:[string]
+            def k:int 0
+            while (k < (array_length left)) {
+                if ((itemAt left k) != best) {
+                    push rest (itemAt left k)
+                }
+                k = (k + 1)
+            }
+            left = rest
+            shown = (shown + 1)
+        }
+        print ("  " + (to_string shown) + " kinds nobody has decided about")
+    }
+
+    sfn splitDir:string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((substring path i (i + 1)) == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        return (substring path 0 cut)
+    }
+
+    sfn splitName:string (path:string) {
+        def cut:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((substring path i (i + 1)) == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return path
+        }
+        return (substring path (cut + 1) (strlen path))
+    }
+
+    sfn fixtures:[string] () {
+        return ([] _:string (
+            "hello.docx" "lists_demo.docx" "styles_demo.docx" "images_demo.docx"
+            "05-table-basic.docx" "06-table-format.docx" "07-table-merged.docx"
+            "08-pages.docx" "09-page-break.docx" "10-landscape-section.docx"
+            "11-mixed-sections.docx" "12-header-footer.docx" "13-images-mixed.docx"
+            "14-styles-indent.docx" "20-business-report.docx" "21-accented-text.docx"
+        ))
+    }
+
+    sfn main:void () {
+        print "=== what this reader walks past ==="
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def arg0:string (shell_arg 0)
+            if (arg0 == "--check") {
+                def files:[string] (DocxAudit.fixtures())
+                def bad:int 0
+                def i:int 0
+                while (i < (array_length files)) {
+                    def f:string (itemAt files i)
+                    def a (new DocxAudit())
+                    if (a.audit("gallery/docx_viewer/fixtures" f)) {
+                        if ((array_length a.names) > 0) {
+                            print ("-- " + f + " --")
+                            a.report()
+                            bad = (bad + 1)
+                        }
+                    }
+                    i = (i + 1)
+                }
+                if (bad == 0) {
+                    print "  every fixture is read or deliberately not read"
+                    print "ALL PASS"
+                } {
+                    print ((to_string bad) + " fixture(s) say something nobody has decided about")
+                    print "SOME FAILED"
+                }
+                return
+            }
+            print ("-- " + arg0 + " --")
+            def a2 (new DocxAudit())
+            if (a2.audit((DocxAudit.splitDir(arg0)) (DocxAudit.splitName(arg0)))) {
+                a2.report()
+            }
+            return
+        }
+        def files2:[string] (DocxAudit.fixtures())
+        def k:int 0
+        while (k < (array_length files2)) {
+            def f2:string (itemAt files2 k)
+            print ("-- " + f2 + " --")
+            def a3 (new DocxAudit())
+            if (a3.audit("gallery/docx_viewer/fixtures" f2)) {
+                a3.report()
+            }
+            k = (k + 1)
+        }
+    }
+}

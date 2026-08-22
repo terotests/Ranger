@@ -350,6 +350,20 @@ class EVGToolbarView {
             this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 1)) 1.0 2.0 dbInk)
             return
         }
+        if (k == (ToolIcon.play())) {
+            ; A triangle out of rows: the icon painter has rectangles and text,
+            ; which between them draw everything else on this strip too.
+            def row:int 0
+            while (row < 5) {
+                def half:int (5 - row)
+                if (row > 2) {
+                    half = (row - 1)
+                }
+                this.pushRect(dl (to_double (cx - 4)) (to_double ((cy - 5) + (row * 2))) (to_double half) 2.0 theme.accent)
+                row = (row + 1)
+            }
+            return
+        }
         if (k == (ToolIcon.sqlBox())) {
             this.pushToolText(dl "SQL" cx cy 9.0 theme.accent false)
             return

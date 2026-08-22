@@ -68,6 +68,8 @@ function pointerPayload(e, down) {
     x: Math.round(((e.clientX - rect.left) / rect.width) * cssW),
     y: Math.round(((e.clientY - rect.top) / rect.height) * cssH),
     down,
+    shift: !!e.shiftKey,
+    ctrl: !!(e.ctrlKey || e.metaKey),
   };
 }
 
@@ -75,22 +77,57 @@ canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
   post(pointerPayload(e, true));
 });
+// A drag is a press, a MOVE and a release: without the moves in between, a
+// shape teleports on release and a rubber band never appears.
+canvas.addEventListener("pointermove", (e) => {
+  if (!(e.buttons & 1)) return;
+  post(pointerPayload(e, true));
+});
 canvas.addEventListener("pointerup", (e) => {
   post(pointerPayload(e, false));
 });
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    post({ type: "wheel", delta: e.deltaY > 0 ? -1 : 1 });
+  },
+  { passive: false },
+);
+
+const KEYS = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  Home: "home",
+  End: "end",
+  PageUp: "pageUp",
+  PageDown: "pageDown",
+  Delete: "del",
+  Backspace: "backspace",
+  Escape: "escape",
+  Enter: "enter",
+  Tab: "tab",
+  F2: "f2",
+  F5: "f5",
+};
 
 window.addEventListener("keydown", (e) => {
-  const map = {
-    ArrowLeft: "left",
-    ArrowRight: "right",
-    Home: "home",
-    End: "end",
-    Escape: "escape",
-  };
-  const key = map[e.key];
-  if (!key) return;
-  e.preventDefault();
-  post({ type: "key", key });
+  const ctrl = !!(e.ctrlKey || e.metaKey);
+  const key = KEYS[e.key];
+  if (key) {
+    e.preventDefault();
+    post({ type: "key", key, shift: !!e.shiftKey, ctrl });
+    return;
+  }
+  // Anything printable is text — including a Ctrl chord, which the app reads
+  // as a shortcut. This window used to send five keys and nothing else, so a
+  // box could be dragged and its words could not be changed.
+  if (e.key.length === 1) {
+    e.preventDefault();
+    post({ type: "text", text: e.key, shift: !!e.shiftKey, ctrl });
+  }
 });
 
 async function loadFixtures() {

@@ -94,10 +94,39 @@ class PptxGeom {
         if (preset == "flowChartTerminator") {
             return "M 0.17,0 L 0.83,0 A 0.17,0.5 0 0 1 0.83,1 L 0.17,1 A 0.17,0.5 0 0 1 0.17,0 Z"
         }
+        ; Brackets and braces are OPEN paths — they are a stroke, not a filled
+        ; area, which is what a shape with `noFill` and a line is.
+        if (preset == "leftBracket") {
+            return "M 1,0 L 0.25,0 L 0,0.12 L 0,0.88 L 0.25,1 L 1,1"
+        }
+        if (preset == "rightBracket") {
+            return "M 0,0 L 0.75,0 L 1,0.12 L 1,0.88 L 0.75,1 L 0,1"
+        }
+        if (preset == "leftBrace") {
+            return "M 1,0 L 0.62,0.06 L 0.62,0.44 L 0,0.5 L 0.62,0.56 L 0.62,0.94 L 1,1"
+        }
+        if (preset == "rightBrace") {
+            return "M 0,0 L 0.38,0.06 L 0.38,0.44 L 1,0.5 L 0.38,0.56 L 0.38,0.94 L 0,1"
+        }
+        if (preset == "line") {
+            return "M 0,0 L 1,1"
+        }
         if (preset == "roundRect") {
             return ""
         }
         return ""
+    }
+
+    ; A path that is a line rather than an area: filling it would draw a solid
+    ; blob where the deck asked for a stroke.
+    sfn isOpenPath:boolean (preset:string) {
+        if (preset == "leftBracket") { return true }
+        if (preset == "rightBracket") { return true }
+        if (preset == "leftBrace") { return true }
+        if (preset == "rightBrace") { return true }
+        if (preset == "line") { return true }
+        if (preset == "straightConnector1") { return true }
+        return false
     }
 
     ; Flatten path data into the unit-space point list the painter consumes.

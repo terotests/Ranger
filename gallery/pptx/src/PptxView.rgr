@@ -60,6 +60,21 @@ class PptxView {
         ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Bold.ttf")
         ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-Italic.ttf")
         ctx.tr.loadFont(fontFamily "Open_Sans/OpenSans-BoldItalic.ttf")
+        ; Emoji. A text face has none of them, and a codepoint the face cannot
+        ; draw comes out as `.notdef` — a filled circle, which is what a deck
+        ; with a 😆 in it was showing. `FontManager` already falls back per
+        ; CODEPOINT across every loaded face, so having the glyphs loaded at
+        ; all is the whole fix. Noto Emoji is the monochrome one: black and
+        ; white, which reads correctly at any size and costs nothing to
+        ; rasterize through the same path as every other glyph.
+        ctx.tr.addFace("Noto_Emoji/NotoEmoji-Regular.ttf")
+        ; The same problem one block down the codepoint chart: a bullet is a
+        ; geometric shape — ● ○ ■ ▪ — and Open Sans has none of them, so every
+        ; list in every deck drew a row of empty boxes down its left edge. Noto
+        ; Sans carries them (and the dashes and guillemets a deck reaches for
+        ; when it runs out of circles), and joins the fallback pool without
+        ; becoming the face anything is drawn in.
+        ctx.tr.addFace("Noto_Sans/NotoSans-Regular.ttf")
         ctx.tr.fontFamily = fontFamily
         ctx.tr.applyFace()
         this.attachMeasurer()
@@ -161,7 +176,15 @@ class PptxView {
     ; else could fix. `PptxApp` puts the shared strip around this now, the same
     ; one the spreadsheet and the document have.
     fn buildDisplayList:EVGDisplayList (slide:PptxSlide) {
-        converter.setScale((this.fitScale(slide)))
+        return (this.buildDisplayListAt(slide (this.fitScale(slide))))
+    }
+
+    ; The same scene at a scale the caller chose. A show fits the slide into
+    ; whatever the window leaves — which is not what `chromeW` / `chromeH`
+    ; describe — and a picture drawn at one scale under an origin computed at
+    ; another is a slide that runs off the side of its own frame.
+    fn buildDisplayListAt:EVGDisplayList (slide:PptxSlide scale:double) {
+        converter.setScale(scale)
         converter.slideNumber = (slideIndex + 1)
         return (converter.slideToDisplayList(slide))
     }

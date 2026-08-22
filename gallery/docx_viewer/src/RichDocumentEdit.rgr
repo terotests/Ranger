@@ -107,6 +107,7 @@ class RichDocumentEdit {
     ; Overlapping spans are split/clipped — never dropped wholesale (that used
     ; to wipe heading/title run formatting down to default 11pt on Backspace).
     fn replaceRange:void (paragraphId:int start:int end:int text:string) {
+        doc.touch()
         def p:Paragraph (this.findParagraph(paragraphId))
         if (p.id != paragraphId) {
             return
@@ -197,6 +198,7 @@ class RichDocumentEdit {
     }
 
     fn splitParagraph:int (paragraphId:int offset:int) {
+        doc.touch()
         def idx:int (this.findParagraphIndex(paragraphId))
         if (idx < 0) {
             return paragraphId
@@ -525,6 +527,7 @@ class RichDocumentEdit {
     ; Word adds a row when you Tab out of the last cell. The new row copies the
     ; last row's cell count and cell chrome so it matches the table.
     fn appendTableRow:int (blockIndex:int) {
+        doc.touch()
         if ((blockIndex < 0) || (blockIndex >= (doc.blockCount()))) {
             return -1
         }
@@ -580,6 +583,7 @@ class RichDocumentEdit {
     }
 
     fn removeLastTableRow:boolean (blockIndex:int) {
+        doc.touch()
         if ((blockIndex < 0) || (blockIndex >= (doc.blockCount()))) {
             return false
         }
@@ -612,6 +616,7 @@ class RichDocumentEdit {
 
     ; Splice a fresh table block immediately before the given paragraph's block.
     fn insertTableBefore:DocumentTable (paragraphId:int) {
+        doc.touch()
         def t:DocumentTable (doc.addTableOnly())
         def at:int (this.blockIndexOfParagraph(paragraphId))
         if (at < 0) {
@@ -640,6 +645,7 @@ class RichDocumentEdit {
     ; table paste: a chart is a block, and the paragraph it interrupts has
     ; already been split in two.
     fn insertChartBefore:DocChart (paragraphId:int json:string) {
+        doc.touch()
         def c:DocChart (doc.addChart(json))
         ; addChart appended a block for it; take that back off and put it
         ; where the caret is instead.
@@ -670,6 +676,7 @@ class RichDocumentEdit {
     ; Remove the block holding this chart (used to undo a chart paste, and to
     ; delete one).
     fn removeChartBlock:boolean (chartId:int) {
+        doc.touch()
         def keep:[DocBlock]
         def found:boolean false
         def i:int 0
@@ -700,6 +707,7 @@ class RichDocumentEdit {
 
     ; Remove the block holding this table (used to undo a table paste).
     fn removeTableById:boolean (tableId:int) {
+        doc.touch()
         def at:int -1
         def bi:int 0
         while (bi < (doc.blockCount())) {
@@ -734,6 +742,7 @@ class RichDocumentEdit {
 
     ; Merge paragraphId into previous top-level body paragraph.
     fn mergePrevious:DocumentPosition (paragraphId:int) {
+        doc.touch()
         def fail:DocumentPosition (DocumentPosition.create(0 0))
         def idx:int (this.findParagraphIndex(paragraphId))
         if (idx <= 0) {
@@ -828,6 +837,7 @@ class RichDocumentEdit {
     ;   "size"                        points, from `num`
     ;   "font" "color"                text, from `text`
     fn applyRun:void (paragraphId:int start:int end:int what:string on:boolean num:double text:string) {
+        doc.touch()
         def p:Paragraph (this.findParagraph(paragraphId))
         if (p.id != paragraphId) {
             return

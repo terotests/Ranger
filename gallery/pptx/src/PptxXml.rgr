@@ -480,7 +480,21 @@ class PptxXmlParser {
                     }
                     ti = (ti + 1)
                 }
-                if (onlySpace == false) {
+                ; Whitespace between elements is layout, not content, and
+                ; keeping it turns every pretty-printed file into a tree full
+                ; of blank nodes. Inside an element that HOLDS text it is the
+                ; content: `<a:t> </a:t>` is the space between two words, and
+                ; dropping it ran "The Ultimate Training Diary" together.
+                def keep:boolean (onlySpace == false)
+                if (onlySpace) {
+                    if (node.name == "t") {
+                        keep = true
+                    }
+                    if ((node.attr("xml:space")) == "preserve") {
+                        keep = true
+                    }
+                }
+                if keep {
                     def tnode (new PptxXmlNode())
                     tnode.isText = true
                     tnode.text = decoded

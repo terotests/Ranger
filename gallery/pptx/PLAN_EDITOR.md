@@ -400,20 +400,160 @@ the deck still opens), an edited-master round trip, and a footer/slide-number
 round trip that checks the number came back as a *field* and not as a number.
 `artifacts/11_sections_and_footer.png` and `12_master_edit.png`.
 
-## Phase E6 — presenting
+## Phase E6 — presenting (done)
 
-Transitions · entrance / emphasis / exit animations with a timeline · presenter
-view with notes and a next-slide preview · pen and laser annotations during a
-show. The viewer already paints the final state of a slide; animation is a
-time-varying scene, which is the interesting part.
+Everything before this phase paints the FINAL state of a slide. A show is a
+picture that changes over time, and the thing that made this phase work is
+admitting that the app has no clock: a host calls `tick(seconds)` and
+everything that moves moves from there. A headless host that never calls it
+sees a still — which is the right answer for a test and for a PNG — and a
+browser that calls it every animation frame sees the show.
 
-## Phase E7 — scale
+- **Transitions.** `p:transition` is parsed (the effect is the element name
+  inside it, the speed is a word, the length is milliseconds in the extension
+  list), written back, and animated. A `fade` goes through black, because a
+  display list has no way to draw one scene at half strength; a `push` takes
+  the outgoing page with it and a `wipe` or `cover` slides the new one over,
+  both by drawing the two scenes at an offset inside one clip — much less
+  arithmetic than compositing, and the same picture for a viewer.
+- **Builds.** `p:timing` is a deep tree — a sequence of click groups, each a
+  tree of parallel and sequential nodes — and what is wanted from it is flat:
+  which shape, which paragraph, what effect, and whether it waits for a click.
+  The walk looks for the INNERMOST `p:par` that names a shape, which is one
+  effect, and reads the answer off it. A step names its shape by the number the
+  FILE uses and everything above names shapes by `editId`, so the two are
+  linked once on attach and re-linked at save — the writer renumbers every
+  shape, and a build written with stale numbers animates the wrong things.
+- **The show itself.** No strip, no panel, no notes strip, no status line: the
+  slide is fitted to the window (or to what the presenter's own screen leaves
+  beside the notes), and a click goes on — the next build step if there is one,
+  the next slide otherwise. Going back lands on the slide before, fully built,
+  which is what a presenter means by "back". Space, Enter, the arrows, Page
+  Up/Down, Home and End all work, because a presenter is not looking at the
+  screen they are pressing.
+- **The presenter's own screen.** N: the slide, the one after it, the notes for
+  the slide that is up, and a clock — all drawn into the same display list as
+  everything else.
+- **Ink and a laser.** P draws on the slide and E rubs it off; L is a dot that
+  follows the pointer and leaves nothing behind. Ink is kept in SLIDE POINTS,
+  not window pixels, so it stays where it was drawn when the window is resized
+  or the presenter's screen is a different shape from the audience's.
+- **B blanks the screen**, which is what a presenter presses when the slide is
+  not the thing to look at any more.
 
-Operation-log history with inverses instead of deck snapshots · dirty-rectangle
-painting rather than rebuilding the display list per frame · **virtualizing**
-the slide panel of E4b, so a hundred-slide deck renders the dozen thumbnails
-that are on screen · a document big enough to make the difference measurable,
-in `bench/`, the way the text editor and the grid are benched.
+Commands: `show.start` (F5), `show.stop`, `show.next`, `show.prev`,
+`show.presenter`, `show.blank`, `show.pen`, `show.laser`, `show.ink.clear`,
+`slide.transition`, `slide.advance`, `shape.animate`, `shape.animate.clear`,
+`build.earlier`, `build.later`.
+
+Checked in three places, because the three hosts differ in exactly the way that
+matters: 55 in the host suite (a click builds rather than turning the page, the
+transition draws both pages and finishes on time, going back lands fully built,
+the pen leaves a stroke and the laser does not, Escape gives up the pen before
+it gives up the show), a round trip through the writer (`28-transitions.pptx`:
+a transition and a build come back, and the build still names a shape on the
+slide after every shape has been renumbered), and **10 in the browser**, which
+is the only host here with a real clock. `artifacts/13_present_transition.png`
+is a push caught a third of the way through; `14_presenter_view.png` is the
+presenter's screen with a line drawn on the slide by hand.
+
+## Phase E7 — scale (done)
+
+The one phase written entirely about cost, and the only one where the answer
+could not be argued about: `bench/pptx_bench.rgr` builds a deck big enough for
+the difference to show and times the six things an editor does between one
+frame and the next. `docs/EDITOR_BENCH.md` has the numbers.
+
+What it found was not what the phase was written expecting. **Frames were
+already flat** in the size of the deck — the slide panel has only ever built
+the thumbnails that are on screen, which is what E4b meant by virtualizing it,
+and the rule was there before the decks were long enough to notice. What was
+linear was **every edit**: `pushSnapshot` copied all five hundred slides to
+record a change to one, so a keystroke cost 30 ms and a drag frame 25 ms.
+
+- **The history shares the slides that did not change.** The phase was written
+  asking for an operation log with inverses, and the argument against writing
+  one is still the one recorded in E1: a shape is a tree, one operation touches
+  several levels of it, and an op log is a rewrite of every operation. There is
+  a cheaper way to the same number. A step copies only the slides whose
+  **revision** moved on and shares the rest — in both directions, since a
+  restore keeps the live slide where it stands when it already holds the state
+  the snapshot does. The invariant it rests on is that **a slide's revision
+  changes whenever its content does**, so the bump happens *before* the capture
+  rather than after it, and the two operations that rewrite every slide rather
+  than the one in front of you (`remergeChrome`, `retheme`) say so explicitly.
+  A slide gets a `key` of its own for this, the same idea as a shape's
+  `editId`: an index stops naming the same slide the moment the deck is
+  reordered.
+- **The panel keeps its thumbnails**, tagged with the revision, the place and
+  the width they were built at. It was seven eighths of every frame; an idle
+  frame now builds none of them, editing a slide builds one, and scrolling
+  builds the ones that moved.
+
+At a thousand slides a keystroke is 0.04 ms, an undo 0.22 ms and a frame 1.0 ms
+— nothing between frames follows the deck any more. The checks that keep it
+honest are in `pptx:editor:test` (`testSharedHistory`, `testDeckWideUndo`: a
+shared copy that goes stale is a silent bug) and in the host suite (a
+sixty-slide deck builds under twenty thumbnails, an idle frame builds none, an
+edited slide builds exactly one).
+
+## Phase E8 — decks nobody here wrote (done)
+
+Every fixture in this gallery was written by the same hand as the reader, so
+every fixture is understood by construction. Two decks from outside turned up
+six defects in an afternoon, and all six had the same shape: an element the
+reader walked straight past, drawing nothing and saying nothing. This phase is
+about that class of hole rather than about any one of its instances.
+
+**`npm run pptx:audit -- deck.pptx`** walks every part of a package through the
+reader's own parser and reports the elements it does not look at, most-used
+first, in two lists: **known and deliberately not drawn** (3-D, embedded fonts,
+hyperlinks, per-script font fallbacks, animation beyond the build) and
+**UNREAD — nobody decided about these**. The difference between those two lists
+is the difference between a decision and an oversight, and it turns "the slide
+looks wrong" into a work order. `npm run pptx:audit:check` runs it over every
+fixture and fails when one says something nobody has decided about, so a new
+fixture cannot quietly introduce a new hole.
+
+Pointed at the two decks, the list was 24 and 39 kinds of element long. What it
+was mostly saying was one thing: **text is inherited, not stated**.
+
+- **Nine levels of list style, down a chain.** DrawingML states `a:lvl1pPr` …
+  `a:lvl9pPr`, and this reader read the first — and only from the shape itself.
+  So every sub-bullet in every real deck came out in the top level's size,
+  colour and indent. A list style is nine `PptxLevelStyle`s now, every field
+  paired with a "was this stated" flag because they are MERGED: master
+  `p:txStyles` → the master's own placeholder → the layout's placeholder → the
+  shape → the paragraph. The order matters and cost a defect to get right: a
+  deck built by anything but PowerPoint leaves `p:txStyles` as a generic black
+  nobody meant and puts the real typography on the master's placeholder, which
+  is *above* it in the chain.
+- **A paragraph that states its own bullet keeps it**, including `<a:buNone/>`,
+  and a stated `marL="0"` is a decision rather than a silence — which needed
+  "was this stated" flags on the paragraph too.
+- **`a:normAutofit`.** PowerPoint already worked out how far the text had to
+  shrink to fit its box and wrote the answer down. Drawing it at full size in a
+  box sized for the shrunken version is an overflow with a known cause.
+- **Bullets have their own colour, size and face** (`buClr`, `buSzPct`,
+  `buSzPts`, `buFont`), and the layout uses the deck's own `marL`/`indent`
+  instead of a level's worth of invented indent.
+- **`a:highlight`** — the colour drawn behind a run, which a deck uses as a
+  marker pen.
+- And the same fallback gap the emoji had, one block down the codepoint chart:
+  **a bullet is a geometric shape** (● ○ ■ ▪) and the text face has none of
+  them, so every list drew a column of empty boxes. Noto Sans joins the
+  fallback pool.
+
+After it, the two decks report **9 and 22 kinds, all of them deliberate, and
+nothing unread**. `31-inherited-text.pptx` is the fixture that pins it down —
+a master whose typography lives on its placeholders with `p:txStyles` saying
+something else entirely, nine levels each with its own size, colour, indent and
+bullet, a paragraph that turns its bullet off, a shrunken body and a
+highlighted run — and it round-trips through the writer byte for byte, which
+needed the writer to state what the levels resolved to (there is no master left
+to inherit from) and one more instance of a defect this repository keeps
+meeting: `to_int` floors, so `emu(-18pt)` rounded outwards twice and wrote
+-228601 where the file said -228600.
 
 ## Non-goals
 
@@ -429,4 +569,7 @@ npm run pptx:editor:test        # the editing core, on a deck built in memory
 npm run pptx:editor:host:test   # pointer, keys, overlay, commands
 npm run pptx:web:test           # the browser build, including a real drag
 npm run pptx:window             # the hosted window
+npm run pptx:bench              # what a deck costs to edit, by size
+npm run pptx:audit -- deck.pptx # what this reader does not understand about it
+npm run pptx:audit:check        # …over every fixture, as a test
 ```

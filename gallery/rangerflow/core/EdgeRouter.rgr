@@ -834,6 +834,168 @@ class EdgeRouter {
         return out
     }
 
+    ; ------------------------------------------------------------ bridges ---
+    ; Where two lines cross, one hops over the other — JointJS calls it the
+    ; `jumpover` connector, Syncfusion calls it connector bridging, and it is
+    ; the only honest answer to a crossing you cannot route away. Two lines
+    ; meeting at a point are ambiguous: a reader cannot tell whether they join.
+    ; A hop says they do not.
+    ;
+    ; Done on the FLATTENED polyline, in the coordinates it will be drawn in,
+    ; so a bridge is the same size on screen at any zoom and every backend gets
+    ; it — a bridge that only the GPU drew would be a diagram that means
+    ; something different in print.
+    ;
+    ; `others` is a flat list of x1 y1 x2 y2 quads: the segments this line is
+    ; allowed to hop over. Only one line of a pair should be given the other,
+    ; or they would both hop and the crossing would look like a knot.
+    sfn bridgePolyline:[double] (pts:[double] others:[double] radius:double) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return pts
+        }
+        if ((array_length others) < 4) {
+            return pts
+        }
+        def out:[double]
+        push out (itemAt pts 0)
+        push out (itemAt pts 1)
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt pts ayAt)
+            def bx:double (itemAt pts (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt pts byAt)
+            def dx:double (bx - ax)
+            def dy:double (by - ay)
+            def len:double (sqrt ((dx * dx) + (dy * dy)))
+            if (len > 0.0001) {
+                ; Every crossing on this segment, as a distance along it.
+                def hits:[double] (EdgeRouter.crossingsAlong(ax ay bx by others))
+                EdgeRouter.sortDoubles(hits)
+                def ux:double (dx / len)
+                def uy:double (dy / len)
+                def walked:double 0.0
+                def k:int 0
+                while (k < (array_length hits)) {
+                    def at:double (itemAt hits k)
+                    ; Too close to an end, or to the last hop, and the arc
+                    ; would poke out of the line rather than sit on it.
+                    def okHere:boolean true
+                    if (at < (radius + 1.0)) { okHere = false }
+                    if (at > (len - (radius + 1.0))) { okHere = false }
+                    if (at < (walked + (radius * 2.0))) { okHere = false }
+                    if okHere {
+                        def from:double (at - radius)
+                        def to:double (at + radius)
+                        push out (ax + (ux * from))
+                        push out (ay + (uy * from))
+                        EdgeRouter.arcOver(out ax ay ux uy at radius)
+                        push out (ax + (ux * to))
+                        push out (ay + (uy * to))
+                        walked = to
+                    }
+                    k = (k + 1)
+                }
+            }
+            push out bx
+            push out by
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The half-circle itself, bulging to the left of the direction of travel.
+    ; Which side does not matter as long as it is always the same one: two
+    ; hops on the same line bulging opposite ways read as a wobble.
+    sfn arcOver:void (out:[double] ax:double ay:double ux:double uy:double at:double radius:double) {
+        def cx:double (ax + (ux * at))
+        def cy:double (ay + (uy * at))
+        def nx:double (0.0 - uy)
+        def ny:double ux
+        def steps:int 7
+        def i:int 1
+        while (i < steps) {
+            def t:double ((to_double i) / (to_double steps))
+            def a:double (3.141592653589793 * (1.0 - t))
+            def along:double (0.0 - (radius * (cos a)))
+            def outw:double (radius * (sin a))
+            push out ((cx + (ux * along)) + (nx * outw))
+            push out ((cy + (uy * along)) + (ny * outw))
+            i = (i + 1)
+        }
+    }
+
+    ; Distances along a b→ segment at which it properly crosses one of the
+    ; others. Touching at an endpoint is not a crossing, so the straddle test
+    ; is strict on both sides — the same rule `EdgeOverlap` counts by.
+    sfn crossingsAlong:[double] (ax:double ay:double bx:double by:double others:[double]) {
+        def out:[double]
+        def quads:int (idiv (array_length others) 4)
+        def i:int 0
+        while (i < quads) {
+            def cx:double (itemAt others (i * 4))
+            def cyAt:int ((i * 4) + 1)
+            def cy:double (itemAt others cyAt)
+            def dxAt:int ((i * 4) + 2)
+            def dx:double (itemAt others dxAt)
+            def dyAt:int ((i * 4) + 3)
+            def dy:double (itemAt others dyAt)
+            def d1:double (EdgeRouter.side(cx cy dx dy ax ay))
+            def d2:double (EdgeRouter.side(cx cy dx dy bx by))
+            def d3:double (EdgeRouter.side(ax ay bx by cx cy))
+            def d4:double (EdgeRouter.side(ax ay bx by dx dy))
+            def crosses:boolean true
+            if ((d1 * d2) >= 0.0) { crosses = false }
+            if ((d3 * d4) >= 0.0) { crosses = false }
+            if crosses {
+                def denom:double (d1 - d2)
+                if ((fabs denom) > 0.000001) {
+                    def t:double (d1 / denom)
+                    def sx:double (bx - ax)
+                    def sy:double (by - ay)
+                    push out (t * (sqrt ((sx * sx) + (sy * sy))))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn side:double (ax:double ay:double bx:double by:double px:double py:double) {
+        return (((bx - ax) * (py - ay)) - ((by - ay) * (px - ax)))
+    }
+
+    sfn sortDoubles:void (arr:[double]) {
+        def n:int (array_length arr)
+        def i:int 1
+        while (i < n) {
+            def v:double (itemAt arr i)
+            def j:int (i - 1)
+            def at:int 0
+            def settled:boolean false
+            while (j >= 0) {
+                if (settled == false) {
+                    if ((itemAt arr j) > v) {
+                        set_at arr (j + 1) (itemAt arr j)
+                        j = (j - 1)
+                    } {
+                        at = (j + 1)
+                        settled = true
+                        j = -1
+                    }
+                }
+            }
+            if (settled == false) {
+                at = 0
+            }
+            set_at arr at v
+            i = (i + 1)
+        }
+    }
+
     ; A corner list, turned into a path with the turns rounded. React Flow's
     ; `getBend`, and the one place it lives: the stepped router, the corridor
     ; router and the layered layout's routed edges all hand their corners here
@@ -909,11 +1071,235 @@ class EdgeRouter {
     }
 
     ; The one entry point the view and the exporters call.
+    ; ------------------------------------------------- the other routers ----
+    ; Three families JointJS publishes that the React Flow port did not have a
+    ; reason to grow. None of them is a variation on a theme: a curve is a
+    ; different KIND of smooth from a bezier, a metro line is orthogonal with
+    ; its corners cut, and a one-side route is the answer to "both ends are on
+    ; the same face of the same wall".
+
+    ; `connectors.curve`. A bezier's shape is fixed by the two port normals and
+    ; a curvature that React Flow derives from the distance; a curve's is set
+    ; by a tension the caller chooses, which is the whole point of having both.
+    ; Tension 0 is a straight line, 1 is a wide sweep.
+    sfn curve:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int tension:double) {
+        def p (new EdgePath)
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        def span:double (sqrt ((dx * dx) + (dy * dy)))
+        def reach:double (span * (tension * 0.5))
+        if (reach < 1.0) { reach = 1.0 }
+        def c1x:double (x1 + ((FlowPosition.normalX(s1)) * reach))
+        def c1y:double (y1 + ((FlowPosition.normalY(s1)) * reach))
+        def c2x:double (x2 + ((FlowPosition.normalX(s2)) * reach))
+        def c2y:double (y2 + ((FlowPosition.normalY(s2)) * reach))
+        p.moveTo(x1 y1)
+        p.curveTo(c1x c1y c2x c2y x2 y2)
+        return p
+    }
+
+    ; The same connector asked to pass THROUGH a list of points, which is what
+    ; a curve connector is for once a link has vertices: a Catmull-Rom spline
+    ; converted segment by segment to the cubic the path already speaks. The
+    ; sixth of the chord is the standard conversion factor; the tension scales
+    ; it, so the same vertices can give a taut curve or a loose one.
+    sfn curveThrough:EdgePath (pts:[double] tension:double) {
+        def p (new EdgePath)
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return p
+        }
+        if (n == 2) {
+            p.moveTo((itemAt pts 0) (itemAt pts 1))
+            p.lineTo((itemAt pts 2) (itemAt pts 3))
+            return p
+        }
+        p.moveTo((itemAt pts 0) (itemAt pts 1))
+        def k:double (tension / 6.0)
+        def i:int 0
+        while (i < (n - 1)) {
+            def prev:int (i - 1)
+            if (prev < 0) { prev = 0 }
+            def next:int (i + 2)
+            if (next > (n - 1)) { next = (n - 1) }
+            def p0x:double (itemAt pts (prev * 2))
+            def p0y:double (itemAt pts ((prev * 2) + 1))
+            def p1x:double (itemAt pts (i * 2))
+            def p1y:double (itemAt pts ((i * 2) + 1))
+            def p2x:double (itemAt pts ((i + 1) * 2))
+            def p2y:double (itemAt pts (((i + 1) * 2) + 1))
+            def p3x:double (itemAt pts (next * 2))
+            def p3y:double (itemAt pts ((next * 2) + 1))
+            def c1x:double (p1x + ((p2x - p0x) * k))
+            def c1y:double (p1y + ((p2y - p0y) * k))
+            def c2x:double (p2x - ((p3x - p1x) * k))
+            def c2y:double (p2y - ((p3y - p1y) * k))
+            p.curveTo(c1x c1y c2x c2y p2x p2y)
+            i = (i + 1)
+        }
+        return p
+    }
+
+    ; `routers.metro`. An underground map is orthogonal with its corners cut
+    ; at 45°, and the reason is legibility rather than style: a diagonal reads
+    ; as "this line continues" where a right angle reads as "something happens
+    ; here". Each corner is replaced by a chamfer no longer than half the
+    ; shorter of the two runs meeting at it, so a short leg cannot be eaten.
+    sfn metroPoints:[double] (pts:[double] chamfer:double) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        if (n < 3) {
+            return (EdgeRouter.copyPoints(pts))
+        }
+        push out (itemAt pts 0)
+        push out (itemAt pts 1)
+        def i:int 1
+        while (i < (n - 1)) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ay:double (itemAt pts (((i - 1) * 2) + 1))
+            def bx:double (itemAt pts (i * 2))
+            def by:double (itemAt pts ((i * 2) + 1))
+            def cx2:double (itemAt pts ((i + 1) * 2))
+            def cy2:double (itemAt pts (((i + 1) * 2) + 1))
+            def inLen:double (EdgeRouter.dist(ax ay bx by))
+            def outLen:double (EdgeRouter.dist(bx by cx2 cy2))
+            def cut:double chamfer
+            if (cut > (inLen * 0.5)) { cut = (inLen * 0.5) }
+            if (cut > (outLen * 0.5)) { cut = (outLen * 0.5) }
+            if (cut < 1.0) {
+                push out bx
+                push out by
+            } {
+                def t1:double (cut / inLen)
+                def t2:double (cut / outLen)
+                push out (bx + ((ax - bx) * t1))
+                push out (by + ((ay - by) * t1))
+                push out (bx + ((cx2 - bx) * t2))
+                push out (by + ((cy2 - by) * t2))
+            }
+            i = (i + 1)
+        }
+        push out (itemAt pts ((n - 1) * 2))
+        push out (itemAt pts (((n - 1) * 2) + 1))
+        return out
+    }
+
+    sfn metro:EdgePath (x1:double y1:double s1:int x2:double y2:double s2:int offset:double chamfer:double) {
+        def raw:[double] (EdgeRouter.stepPoints(x1 y1 s1 x2 y2 s2 offset))
+        def merged:[double] (EdgeRouter.mergeRuns(raw))
+        def cut:[double] (EdgeRouter.metroPoints(merged chamfer))
+        return (EdgeRouter.polyPath(cut))
+    }
+
+    ; `routers.oneSide`. Both ends leave by the SAME face and the line runs
+    ; along outside it — the shape you want when two boxes sit in a column and
+    ; the connection between them must not be drawn through everything in
+    ; between. `side` is the face, and `pad` how far clear of both it runs.
+    sfn oneSidePoints:[double] (x1:double y1:double x2:double y2:double side:int pad:double) {
+        def out:[double]
+        push out x1
+        push out y1
+        if (side == 2) {
+            def low:double y1
+            if (y2 > low) { low = y2 }
+            def line:double (low + pad)
+            push out x1
+            push out line
+            push out x2
+            push out line
+        }
+        if (side == 0) {
+            def high:double y1
+            if (y2 < high) { high = y2 }
+            def lineT:double (high - pad)
+            push out x1
+            push out lineT
+            push out x2
+            push out lineT
+        }
+        if (side == 1) {
+            def far:double x1
+            if (x2 > far) { far = x2 }
+            def lineR:double (far + pad)
+            push out lineR
+            push out y1
+            push out lineR
+            push out y2
+        }
+        if (side == 3) {
+            def near:double x1
+            if (x2 < near) { near = x2 }
+            def lineL:double (near - pad)
+            push out lineL
+            push out y1
+            push out lineL
+            push out y2
+        }
+        push out x2
+        push out y2
+        return (EdgeRouter.mergeRuns(out))
+    }
+
+    sfn oneSide:EdgePath (x1:double y1:double x2:double y2:double side:int pad:double radius:double) {
+        def pts:[double] (EdgeRouter.oneSidePoints(x1 y1 x2 y2 side pad))
+        return (EdgeRouter.bendPath(pts radius))
+    }
+
+    sfn polyPath:EdgePath (pts:[double]) {
+        def p (new EdgePath)
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return p
+        }
+        p.moveTo((itemAt pts 0) (itemAt pts 1))
+        def i:int 1
+        while (i < n) {
+            p.lineTo((itemAt pts (i * 2)) (itemAt pts ((i * 2) + 1)))
+            i = (i + 1)
+        }
+        return p
+    }
+
+    sfn copyPoints:[double] (pts:[double]) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length pts)) {
+            push out (itemAt pts i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Which side a one-side route should use when nobody said: the face both
+    ; ends are nearest to sharing.
+    sfn oneSideDefault:int (x1:double y1:double s1:int x2:double y2:double s2:int) {
+        if (s1 == s2) {
+            return s1
+        }
+        if ((fabs (x2 - x1)) > (fabs (y2 - y1))) {
+            if (x2 >= x1) { return 1 }
+            return 3
+        }
+        if (y2 >= y1) { return 2 }
+        return 0
+    }
+
     sfn route:EdgePath (g:FlowGraph e:FlowEdge) {
         ; Waypoints win over everything. An edge the layered layout routed has
         ; already been told where to go — around the nodes standing in its way
         ; — and recomputing a route here would throw that away.
         if ((array_length e.waypoints) >= 4) {
+            ; A curve connector asked to pass through vertices is the one case
+            ; where "something already routed this" is not the end of it: the
+            ; corners are where it goes, and the kind is how it gets there.
+            if (e.edgeType == "curve") {
+                return (EdgeRouter.curveThrough(e.waypoints 1.0))
+            }
+            if (e.edgeType == "metro") {
+                def merged:[double] (EdgeRouter.mergeRuns(e.waypoints))
+                def cut:[double] (EdgeRouter.metroPoints(merged 14.0))
+                return (EdgeRouter.polyPath(cut))
+            }
             return (EdgeRouter.bendPath(e.waypoints 5.0))
         }
         def x1:double (g.endpointX(e true))
@@ -950,6 +1336,7 @@ class EdgeRouter {
         if (kind == "step") { stepped = true }
         if (kind == "smoothstep") { stepped = true }
         if (kind == "orthogonal") { stepped = true }
+        if (kind == "metro") { stepped = true }
         if (stepped == false) {
             return out
         }
@@ -976,6 +1363,12 @@ class EdgeRouter {
         if (kind == "orthogonal") {
             return (EdgeRouter.smoothStepAt(x1 y1 s1 x2 y2 s2 24.0 6.0 hasCx cx hasCy cy))
         }
+        if (kind == "metro") {
+            def raw:[double] (EdgeRouter.stepPointsAt(x1 y1 s1 x2 y2 s2 20.0 hasCx cx hasCy cy))
+            def merged:[double] (EdgeRouter.mergeRuns(raw))
+            def cut:[double] (EdgeRouter.metroPoints(merged 14.0))
+            return (EdgeRouter.polyPath(cut))
+        }
         return (EdgeRouter.routeBetween(x1 y1 s1 x2 y2 s2 kind))
     }
 
@@ -997,6 +1390,16 @@ class EdgeRouter {
         }
         if (kind == "simplebezier") {
             return (EdgeRouter.bezier(x1 y1 s1 x2 y2 s2 0.15))
+        }
+        if (kind == "curve") {
+            return (EdgeRouter.curve(x1 y1 s1 x2 y2 s2 0.8))
+        }
+        if (kind == "metro") {
+            return (EdgeRouter.metro(x1 y1 s1 x2 y2 s2 20.0 14.0))
+        }
+        if (kind == "oneside") {
+            def face:int (EdgeRouter.oneSideDefault(x1 y1 s1 x2 y2 s2))
+            return (EdgeRouter.oneSide(x1 y1 x2 y2 face 28.0 5.0))
         }
         return (EdgeRouter.bezier(x1 y1 s1 x2 y2 s2 0.25))
     }

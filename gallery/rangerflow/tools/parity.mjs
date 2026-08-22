@@ -199,7 +199,7 @@ const CAPABILITIES = [
     ["fitView", "fitView()", "fitView"],
     ["Controls: zoom in / out", "<Controls />", "controlsZoomIn"],
     ["Controls: fit view", "<Controls />", "controlsFit"],
-    ["Pinch to zoom", "zoomOnPinch", null],
+    ["Pinch to zoom", "zoomOnPinch", "pinchZoom"],
     ["Pan on scroll", "panOnScroll", null],
   ]],
   ["Selection", [

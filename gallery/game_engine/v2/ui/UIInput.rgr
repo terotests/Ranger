@@ -36,6 +36,8 @@ class UIKey {
     sfn pageUp:int ()    { return 12 }
     sfn pageDown:int ()  { return 13 }
     sfn f2:int ()        { return 14 }
+    ; F5 is what every presentation tool in existence starts a show with.
+    sfn f5:int ()        { return 15 }
 }
 
 class UIInput {

@@ -49,8 +49,25 @@ class DocxViewer {
             doc.title = file
         }
         edit.bindDocument(doc)
+        ; A different document: nothing the layout holds is about this one.
+        view.layout.invalidate()
         currentPage = 0
         return true
+    }
+
+    ; A document the caller already has, rather than one read from a package.
+    ; The bench builds one in memory, and so does anything that wants to drive
+    ; this viewer without a file behind it.
+    fn attachDocument:void (d:RichDocument) {
+        doc = d
+        if ((strlen doc.title) == 0) {
+            doc.title = "untitled"
+        }
+        edit.bindDocument(doc)
+        ; A different document: nothing the layout holds is about this one.
+        view.layout.invalidate()
+        currentPage = 0
+        this.renderPage(0)
     }
 
     ; The same, from bytes. `openFile` is this with a file read in front of it.
@@ -73,6 +90,8 @@ class DocxViewer {
             doc.title = name
         }
         edit.bindDocument(doc)
+        ; A different document: nothing the layout holds is about this one.
+        view.layout.invalidate()
         currentPage = 0
         return true
     }

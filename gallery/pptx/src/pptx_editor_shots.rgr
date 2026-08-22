@@ -221,6 +221,39 @@ class PptxEditorShots {
         app12.runCommand("master.edit" "")
         PptxEditorShots.shot(app12 "12_master_edit.png")
 
+        ; 13 — the deck being shown: no strip, no panel, the slide as large as
+        ; the window allows, mid-transition between two pages
+        def app13:PptxApp (PptxEditorShots.open("28-transitions.pptx"))
+        app13.runCommand("show.start" "")
+        app13.presentNext()
+        app13.presentNext()
+        app13.presentNext()
+        ; A third of the way through the push, so both pages are on screen.
+        app13.tick(0.13)
+        PptxEditorShots.shot(app13 "13_present_transition.png")
+
+        ; 14 — the presenter's own screen: what is on the wall, what is next,
+        ; the notes and the clock, with a line drawn on the slide by hand
+        def app14:PptxApp (PptxEditorShots.open("20-business-deck.pptx"))
+        app14.gotoSlide(2)
+        app14.runCommand("notes.set" "Open with the three numbers, then hand over for the demo. Two minutes, no more.")
+        app14.runCommand("show.start" "")
+        app14.tick(184.0)
+        app14.presenterView = true
+        app14.setPen("pen")
+        def px0:int (PptxEditorShots.screenX(app14 120.0))
+        def py0:int (PptxEditorShots.screenY(app14 210.0))
+        app14.pointer(px0 py0 true true false)
+        def st:int 1
+        while (st <= 8) {
+            app14.pointer((px0 + (st * 22)) (py0 + (12 - (st * 3))) false true false)
+            st = (st + 1)
+        }
+        app14.pointer((px0 + 176) (py0 - 12) false false true)
+        app14.setPen("laser")
+        app14.pointer((px0 + 260) (py0 + 40) false false false)
+        PptxEditorShots.shot(app14 "14_presenter_view.png")
+
         print "done"
     }
 }

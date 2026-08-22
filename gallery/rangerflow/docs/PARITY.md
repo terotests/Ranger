@@ -23,8 +23,8 @@ places, not whether it was written with the same commands.
 | Node bounds | `getNodesBounds` | 2/2 — 100% | 0.000 px |
 | Selection overlap | `getRectsOverlappingArea` | 5/5 — 100% | 0.438 px |
 | Force layout | `d3-force` | 5/5 — 100% | 0.065 % shape |
-| Behaviour | `probes against FlowEditor` | 45/51 — 88% | — |
-| **Overall** | mean of the 7 families | **98.3%** | |
+| Behaviour | `probes against FlowEditor` | 46/51 — 90% | — |
+| **Overall** | mean of the 7 families | **98.6%** | |
 
 The overall figure is the mean of the family percentages, not of the cases:
 320 edge paths and 50 capabilities are not 370 equally important facts, and a
@@ -68,7 +68,7 @@ component, or an example it ships. `done` requires a named probe in
 `todo` however finished it feels, and a probe that fails turns the row red —
 which is worse than `todo`, because it means the documentation lies.
 
-### Viewport — 6/8
+### Viewport — 7/8
 
 | Capability | React Flow | Status | Probe |
 | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ which is worse than `todo`, because it means the documentation lies.
 | fitView | `fitView()` | ✓ done | `fitView` |
 | Controls: zoom in / out | `<Controls />` | ✓ done | `controlsZoomIn` |
 | Controls: fit view | `<Controls />` | ✓ done | `controlsFit` |
-| Pinch to zoom | `zoomOnPinch` | · todo | — |
+| Pinch to zoom | `zoomOnPinch` | ✓ done | `pinchZoom` |
 | Pan on scroll | `panOnScroll` | · todo | — |
 
 ### Selection — 10/10

@@ -19,8 +19,11 @@ Import "../core/FlowEditor.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
+Import "../domains/uml/UMLActivity.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/business/BusinessCharts.rgr"
+Import "../layout/TreeLayouts.rgr"
+Import "../export/FlowExport.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/ForceLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
@@ -64,6 +67,7 @@ class RangerFlowWeb {
         input.y = y
         input.shift = shift
         input.ctrl = ctrl
+        input.secondary = false
         userMoved = true
         editor.pointerDown(input)
         if simRunning {
@@ -97,6 +101,104 @@ class RangerFlowWeb {
             ; broken edges are touched, so this costs a Dijkstra or two rather
             ; than a rewrite of the diagram.
             OrthoRouter.repairAll(graph)
+        }
+    }
+
+    ; The right-hand button, or a long press. It goes through the same
+    ; pointerDown as everything else — the editor decides what the menu says
+    ; and what a row does; the page only reports which button it was.
+    fn contextDown:void (x:double y:double) {
+        input.x = x
+        input.y = y
+        input.shift = false
+        input.ctrl = false
+        input.secondary = true
+        userMoved = true
+        editor.pointerDown(input)
+    }
+
+    fn menuOpen:boolean () {
+        return (editor.menuOpen())
+    }
+
+    fn closeMenu:void () {
+        editor.closeMenu()
+    }
+
+    ; --- two fingers ---------------------------------------------------------
+    fn pinchBegin:void (x1:double y1:double x2:double y2:double) {
+        userMoved = true
+        editor.pinchBegin(x1 y1 x2 y2)
+    }
+
+    fn pinchTo:void (x1:double y1:double x2:double y2:double) {
+        userMoved = true
+        editor.pinchTo(x1 y1 x2 y2)
+    }
+
+    fn pinchEnd:void () {
+        editor.pinchEnd()
+    }
+
+    ; --- columns on a table ---------------------------------------------------
+    ; A schema you can look at and not change is a picture of a schema. Both
+    ; of these put the caret where the reader is going to type next, because a
+    ; column called `uusi_sarake` that you then have to hunt for is a column
+    ; nobody renames.
+    fn addRow:int () {
+        def at:int (editor.addRowToSelected())
+        if (at >= 0) { userMoved = true }
+        return at
+    }
+
+    fn removeRow:boolean () {
+        def ok:boolean (editor.removeRowFromSelected())
+        if ok { userMoved = true }
+        return ok
+    }
+
+    ; How many columns the selected table has — what a button greys itself out
+    ; on, and what a test asserts.
+    fn selectedRowCount:int () {
+        def n:FlowNode (editor.selectedNode())
+        if ((strlen n.id) == 0) {
+            return -1
+        }
+        if ((n.sectionCount()) == 0) {
+            return -1
+        }
+        return (n.rowTotal())
+    }
+
+    ; --- what the toolbar can now ask for ------------------------------------
+    fn rotateSelected:int () {
+        def n:int (editor.rotateSelected(90.0))
+        if (n > 0) { userMoved = true }
+        return n
+    }
+
+    fn duplicateSelection:int () {
+        def n:int (editor.duplicateSelection())
+        if (n > 0) { userMoved = true }
+        return n
+    }
+
+    ; Mark a node — a search hit, a table a query touches. "" clears it.
+    fn setHighlight:boolean (id:string kind:string) {
+        if ((graph.hasNode(id)) == false) {
+            return false
+        }
+        def n:FlowNode (graph.nodeById(id))
+        n.highlight = kind
+        return true
+    }
+
+    fn clearHighlights:void () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            n.highlight = ""
+            i = (i + 1)
         }
     }
 
@@ -160,6 +262,15 @@ class RangerFlowWeb {
         }
         if (name == "process") {
             return (this.loadProcess())
+        }
+        if (name == "mindmap") {
+            return (this.loadMindMap())
+        }
+        if (name == "radial") {
+            return (this.loadRadial())
+        }
+        if (name == "activity") {
+            return (this.loadActivity())
         }
         return (this.loadSqlFixture())
     }
@@ -339,6 +450,51 @@ class RangerFlowWeb {
         return true
     }
 
+    ; ------------------------------------------------------- tree layouts ---
+    ; A mind map and a radial tree from the SAME graph, which is the point: a
+    ; layout is a way of reading a hierarchy, not a kind of diagram. The graph
+    ; is built the way a real one would be — a flat array of records naming
+    ; their own parents, which is what a REST call gives you.
+    fn treeSource:string () {
+        return "[{\"id\":\"rf\",\"parent\":\"\",\"name\":\"RangerFlow\"},{\"id\":\"core\",\"parent\":\"rf\",\"name\":\"Core\"},{\"id\":\"model\",\"parent\":\"core\",\"name\":\"Graph model\"},{\"id\":\"shapes\",\"parent\":\"core\",\"name\":\"Shapes\"},{\"id\":\"text\",\"parent\":\"core\",\"name\":\"Text fitting\"},{\"id\":\"lay\",\"parent\":\"rf\",\"name\":\"Layout\"},{\"id\":\"layered\",\"parent\":\"lay\",\"name\":\"Layered\"},{\"id\":\"force\",\"parent\":\"lay\",\"name\":\"Force\"},{\"id\":\"radial\",\"parent\":\"lay\",\"name\":\"Radial\"},{\"id\":\"mind\",\"parent\":\"lay\",\"name\":\"Mind map\"},{\"id\":\"route\",\"parent\":\"rf\",\"name\":\"Routing\"},{\"id\":\"lanes\",\"parent\":\"route\",\"name\":\"Lanes\"},{\"id\":\"ortho\",\"parent\":\"route\",\"name\":\"Grid router\"},{\"id\":\"jump\",\"parent\":\"route\",\"name\":\"Line jumps\"},{\"id\":\"out\",\"parent\":\"rf\",\"name\":\"Output\"},{\"id\":\"gl\",\"parent\":\"out\",\"name\":\"WebGL\"},{\"id\":\"pdf\",\"parent\":\"out\",\"name\":\"PDF\"},{\"id\":\"svg\",\"parent\":\"out\",\"name\":\"SVG\"}]"
+    }
+
+    fn loadMindMap:boolean () {
+        def g:FlowGraph (FlowGraphJson.fromDataSource((this.treeSource()) "id" "parent" "name"))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        def m:MindMapLayout (MindMapLayout.of(graph))
+        m.rootId = "rf"
+        m.run()
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " solmua — mind map, haarat tasapainossa juuren molemmin puolin")
+        return true
+    }
+
+    fn loadRadial:boolean () {
+        def g:FlowGraph (FlowGraphJson.fromDataSource((this.treeSource()) "id" "parent" "name"))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        def r:RadialLayout (RadialLayout.of(graph))
+        r.rootId = "rf"
+        r.run()
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " solmua — säteittäinen puu, sukupolvi per kehä")
+        return true
+    }
+
+    fn setRulers:void (on:boolean) {
+        editor.view.showRulers = on
+    }
+
+    fn setBridges:void (on:boolean) {
+        editor.view.bridgeEdges = on
+    }
+
     ; ------------------------------------------------- business and ATK ----
     ; The ATK chart in the shapes it is supposed to be in — a stadium for the
     ; start, a diamond for the decision, a drum for the register, a page with a
@@ -388,6 +544,58 @@ class RangerFlowWeb {
         simRunning = false
         editor.pinWhileDragging = false
         status = ((to_string (g.nodeCount())) + " vaihetta, " + (to_string (g.edgeCount())) + " yhteyttä — ATK-kaavio ISO 5807:n muodoilla")
+        return true
+    }
+
+    ; A UML activity diagram: the other UML, the one that is a flowchart. Its
+    ; whole point here is the vocabulary — an action is a rounded box, a fork
+    ; is a bar, a signal sent is a box with a point on it and a signal
+    ; received is one with a bite out of it — so the demo uses every shape it
+    ; has rather than a tidy subset.
+    fn loadActivity:boolean () {
+        def a (new ActivityDiagram)
+        a.node("alku" "" (ActivityKind.initial()))
+        a.action("vastaanota" "Vastaanota tilaus")
+        a.node("haara" "" (ActivityKind.fork()))
+        a.action("luotto" "Tarkista luottotiedot")
+        a.action("varasto" "Varaa tuotteet")
+        a.node("yhdista" "" (ActivityKind.joining()))
+        a.node("kelpaa" "Kelpaako?" (ActivityKind.decision()))
+        a.node("lasku" "Lähetä lasku" (ActivityKind.send()))
+        a.node("odota" "Odota maksua" (ActivityKind.waiting()))
+        a.node("kuittaus" "Maksukuittaus" (ActivityKind.receive()))
+        a.action("toimita" "Toimita tilaus")
+        a.node("loppu" "" (ActivityKind.final()))
+        a.flow("alku" "vastaanota")
+        a.flow("vastaanota" "haara")
+        a.flow("haara" "luotto")
+        a.flow("haara" "varasto")
+        a.flow("luotto" "yhdista")
+        a.flow("varasto" "yhdista")
+        a.flow("yhdista" "kelpaa")
+        a.guarded("kelpaa" "lasku" "kyllä")
+        a.guarded("kelpaa" "loppu" "ei")
+        a.flow("lasku" "odota")
+        a.flow("odota" "kuittaus")
+        a.flow("kuittaus" "toimita")
+        a.flow("toimita" "loppu")
+        def g:FlowGraph (a.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 66.0
+        lay.nodeGap = 40.0
+        lay.run()
+        ActivityDiagram.faceEdges(graph)
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " solmua — UML-aktiviteettikaavio: haarautuminen, signaalit ja ajastin")
         return true
     }
 
@@ -460,6 +668,44 @@ class RangerFlowWeb {
         editor.pinWhileDragging = false
         status = ((to_string (array_length p.laneIds)) + " uimarataa — raahaa rataa, niin sen vaiheet tulevat mukana")
         return true
+    }
+
+    ; ------------------------------------------------------- text editing ---
+    ; The page owns a real, invisible <input> and mirrors it here on every
+    ; keystroke: that is the only way a dead key, an ä, or a phone's keyboard
+    ; produces the right characters on a canvas. The editor still owns the
+    ; model, so the desktop host and the tests type through `keyDown` instead
+    ; and get the same result.
+    fn beginEditAt:boolean (x:double y:double) {
+        return (editor.beginEditAt(x y))
+    }
+
+    fn editing:boolean () {
+        return (editor.editing())
+    }
+
+    fn editValue:string () {
+        return editor.editText
+    }
+
+    fn editCaret:int () {
+        return editor.editCaret
+    }
+
+    fn setEditText:void (text:string caret:int) {
+        editor.setEditText(text caret)
+    }
+
+    fn commitEdit:boolean () {
+        def ok:boolean (editor.commitEdit())
+        if ok {
+            this.reroute()
+        }
+        return ok
+    }
+
+    fn cancelEdit:void () {
+        editor.cancelEdit()
     }
 
     ; ---------------------------------------------------------- authoring ---
@@ -807,6 +1053,89 @@ class RangerFlowWeb {
         }
         report = (report + "toolbar ok; ")
         graph.clearSelection()
+
+        ; Columns, on whichever scenario has a table in it. A schema you can
+        ; look at and not change is a picture of a schema, so the test adds a
+        ; column, checks the table grew, and takes it back — and skips itself
+        ; on the diagrams that have no compartments to put a column in.
+        n.selected = true
+        def rows0:int (this.selectedRowCount())
+        if (rows0 >= 0) {
+            def at:int (this.addRow())
+            if (at < 0) {
+                simRunning = wasRunning
+                return "FAIL adding a column did nothing"
+            }
+            if ((this.selectedRowCount()) != (rows0 + 1)) {
+                simRunning = wasRunning
+                return "FAIL the table did not grow a column"
+            }
+            ; The caret lands in the new column's name, so the reader types
+            ; over the placeholder instead of hunting for it.
+            if ((this.editing()) == false) {
+                simRunning = wasRunning
+                return "FAIL the new column has no caret in it"
+            }
+            this.setEditText("asiakas_id" 10)
+            this.commitEdit()
+            def newTag:string ((("row:" + n.id) + ":") + (to_string at))
+            if ((FlowUndo.readText(graph newTag)) != "asiakas_id") {
+                simRunning = wasRunning
+                return "FAIL the new column kept the placeholder name"
+            }
+            ; Two undos: the name, then the column itself.
+            this.undo()
+            this.undo()
+            if ((this.selectedRowCount()) != rows0) {
+                simRunning = wasRunning
+                return "FAIL undo left the column behind"
+            }
+            report = (report + "columns ok; ")
+        } {
+            report = (report + "columns n/a; ")
+        }
+        graph.clearSelection()
+
+        ; Typing into a label, the way a double-click starts it. What is under
+        ; the pointer depends on the diagram — a table's row here, a step's
+        ; name there — so the test asks the editor which piece of text it
+        ; caught rather than assuming. A caret you cannot see and text that
+        ; does not come back is the failure worth catching.
+        if ((this.beginEditAt(sx sy)) == false) {
+            simRunning = wasRunning
+            return "FAIL double-click started no edit"
+        }
+        def target:string editor.editTarget
+        def wasCalled:string (FlowUndo.readText(graph target))
+        if ((editor.editText) != wasCalled) {
+            simRunning = wasRunning
+            return "FAIL the buffer did not start from the text it is editing"
+        }
+        editor.caretToEnd()
+        editor.typeText(" X")
+        if ((FlowUndo.readText(graph target)) != wasCalled) {
+            simRunning = wasRunning
+            return "FAIL typing wrote to the model before commit"
+        }
+        this.commitEdit()
+        if ((FlowUndo.readText(graph target)) != (wasCalled + " X")) {
+            simRunning = wasRunning
+            return "FAIL commit did not write the typed text"
+        }
+        this.undo()
+        if ((FlowUndo.readText(graph target)) != wasCalled) {
+            simRunning = wasRunning
+            return "FAIL one undo did not take the whole edit back"
+        }
+        ; …and Escape leaves the model alone.
+        this.beginEditAt(sx sy)
+        editor.typeText("zzz")
+        this.cancelEdit()
+        if ((FlowUndo.readText(graph target)) != wasCalled) {
+            simRunning = wasRunning
+            return "FAIL escape wrote the buffer anyway"
+        }
+        report = (report + "edit ok; ")
         def json:string (editor.sceneJson())
         if ((strlen json) < 100) {
             simRunning = wasRunning

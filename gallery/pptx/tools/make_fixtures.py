@@ -245,15 +245,57 @@ def sp_tree(*children: str) -> str:
   </p:cSld>"""
 
 
-def slide_xml(body: str) -> str:
+def slide_xml(body: str, tail: str = "") -> str:
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
  xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
 {body}
   <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
+{tail}
 </p:sld>
 """
+
+
+def click_effect(cid: int, spid: int, filter_name: str, dur: int,
+                 paragraph: int | None = None) -> tuple[str, int]:
+    """One click group of a build: a shape appears, with an effect over it."""
+    inner = ""
+    if paragraph is not None:
+        inner = f'<p:txEl><p:pRg st="{paragraph}" end="{paragraph}"/></p:txEl>'
+    tgt = f'<p:tgtEl><p:spTgt spid="{spid}">{inner}</p:spTgt></p:tgtEl>'
+    xml = (
+        f'<p:par><p:cTn id="{cid}" fill="hold">'
+        f'<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst>'
+        f'<p:par><p:cTn id="{cid + 1}" fill="hold">'
+        f'<p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>'
+        f'<p:par><p:cTn id="{cid + 2}" presetID="1" presetClass="entr" fill="hold"'
+        f' nodeType="clickEffect" dur="{dur}">'
+        f'<p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst>'
+        f'<p:set><p:cBhvr><p:cTn id="{cid + 3}" dur="1" fill="hold"/>{tgt}'
+        f'<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst>'
+        f'</p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set>'
+        f'<p:animEffect transition="in" filter="{filter_name}">'
+        f'<p:cBhvr><p:cTn id="{cid + 4}" dur="{dur}"/>{tgt}</p:cBhvr></p:animEffect>'
+        f"</p:childTnLst></p:cTn></p:par>"
+        f"</p:childTnLst></p:cTn></p:par>"
+        f"</p:childTnLst></p:cTn></p:par>"
+    )
+    return xml, cid + 5
+
+
+def timing_xml(effects: str) -> str:
+    return (
+        '<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never"'
+        ' nodeType="tmRoot"><p:childTnLst>'
+        '<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite"'
+        f' nodeType="mainSeq"><p:childTnLst>{effects}</p:childTnLst></p:cTn>'
+        '<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl>'
+        "</p:cond></p:prevCondLst>"
+        '<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl>'
+        "</p:cond></p:nextCondLst></p:seq>"
+        "</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>"
+    )
 
 
 def text_shape(
@@ -467,6 +509,268 @@ def slide_rels(layout: bool = True, images: dict[str, str] | None = None) -> str
   {body}
 </Relationships>
 """
+
+
+
+# A theme whose fmtScheme actually does something: a plain fill, a light
+# gradient and a dark one, the way Office's own theme is built. Shapes that
+# carry only a <p:style> get their look from here.
+STYLED_THEME_FMT = """  <a:fmtScheme name="Ranger styled">
+      <a:fillStyleLst>
+        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+        <a:gradFill rotWithShape="1"><a:gsLst>
+          <a:gs pos="0"><a:schemeClr val="phClr"><a:tint val="50000"/></a:schemeClr></a:gs>
+          <a:gs pos="100000"><a:schemeClr val="phClr"><a:tint val="20000"/></a:schemeClr></a:gs>
+        </a:gsLst><a:lin ang="5400000" scaled="1"/></a:gradFill>
+        <a:gradFill rotWithShape="1"><a:gsLst>
+          <a:gs pos="0"><a:schemeClr val="phClr"><a:shade val="80000"/></a:schemeClr></a:gs>
+          <a:gs pos="100000"><a:schemeClr val="phClr"><a:shade val="40000"/></a:schemeClr></a:gs>
+        </a:gsLst><a:lin ang="0" scaled="1"/></a:gradFill>
+      </a:fillStyleLst>
+      <a:lnStyleLst>
+        <a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"><a:shade val="50000"/></a:schemeClr></a:solidFill></a:ln>
+        <a:ln w="25400"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>
+        <a:ln w="38100"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>
+      </a:lnStyleLst>
+      <a:effectStyleLst>
+        <a:effectStyle><a:effectLst/></a:effectStyle>
+        <a:effectStyle><a:effectLst><a:outerShdw blurRad="40000" dist="23000" dir="5400000" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="35000"/></a:srgbClr></a:outerShdw></a:effectLst></a:effectStyle>
+        <a:effectStyle><a:effectLst/></a:effectStyle>
+      </a:effectStyleLst>
+      <a:bgFillStyleLst>
+        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+      </a:bgFillStyleLst>
+    </a:fmtScheme>"""
+
+
+def styled_theme() -> str:
+    """THEME with its format scheme replaced by one that has gradients in it."""
+    start = THEME.index("<a:fmtScheme")
+    end = THEME.index("</a:fmtScheme>") + len("</a:fmtScheme>")
+    return THEME[:start] + STYLED_THEME_FMT.strip() + THEME[end:]
+
+
+def adj_shape(sid: int, name: str, x: int, y: int, cx: int, cy: int,
+              prst: str, adj: int | None, line: str = "C0504D",
+              fill: str | None = "4472C4", w: int = 28575) -> str:
+    """A preset with its own adjustment, and possibly no fill — a bracket or a
+    brace is a stroke, and a rounded rectangle's corners are what `adj` says."""
+    av = f'<a:gd name="adj" fmla="val {adj}"/>' if adj is not None else ""
+    fill_xml = f'<a:solidFill><a:srgbClr val="{fill}"/></a:solidFill>' if fill else "<a:noFill/>"
+    return f"""      <p:sp>
+        <p:nvSpPr><p:cNvPr id="{sid}" name="{name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="{prst}"><a:avLst>{av}</a:avLst></a:prstGeom>
+          {fill_xml}
+          <a:ln w="{w}"><a:solidFill><a:srgbClr val="{line}"/></a:solidFill></a:ln>
+        </p:spPr>
+      </p:sp>"""
+
+
+# A master whose typography lives where a deck built by anything but PowerPoint
+# puts it: on the master's own placeholder shapes, with `p:txStyles` left as a
+# generic black nobody meant. Nine levels, each with its own size, colour,
+# indent and bullet.
+def inherited_master() -> str:
+    def lvl(i: int, size: int, colour: str, indent: int, bullet: str) -> str:
+        return (
+            f'<a:lvl{i}pPr marL="{indent}" indent="-228600" algn="l">'
+            f'<a:buClr><a:srgbClr val="{colour}"/></a:buClr>'
+            f'<a:buSzPts val="{size - 200}"/>'
+            f'<a:buChar char="{bullet}"/>'
+            f'<a:defRPr sz="{size}"><a:solidFill><a:srgbClr val="{colour}"/></a:solidFill>'
+            f'<a:latin typeface="Calibri"/></a:defRPr></a:lvl{i}pPr>'
+        )
+    body_levels = "".join(
+        lvl(i, 2800 - (i - 1) * 200, ["1F4E79", "2E75B6", "9DC3E6", "BDD7EE",
+                                      "DEEBF7", "F2F2F2", "D9D9D9", "BFBFBF", "A6A6A6"][i - 1],
+            457200 * i, "●○■▪•–›»⁃"[i - 1])
+        for i in range(1, 10)
+    )
+    title_style = (
+        '<a:lvl1pPr algn="l"><a:buNone/>'
+        '<a:defRPr sz="4000" b="1"><a:solidFill><a:srgbClr val="C00000"/></a:solidFill>'
+        '<a:latin typeface="Calibri"/></a:defRPr></a:lvl1pPr>'
+    )
+    ph = (
+        '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title Placeholder"/><p:cNvSpPr txBox="1"/>'
+        '<p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>'
+        '<p:spPr><a:xfrm><a:off x="457200" y="274638"/><a:ext cx="8229600" cy="1143000"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+        f'<p:txBody><a:bodyPr/><a:lstStyle>{title_style}</a:lstStyle><a:p/></p:txBody></p:sp>'
+        '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Body Placeholder"/><p:cNvSpPr txBox="1"/>'
+        '<p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
+        '<p:spPr><a:xfrm><a:off x="457200" y="1600200"/><a:ext cx="8229600" cy="4525963"/></a:xfrm>'
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+        f'<p:txBody><a:bodyPr/><a:lstStyle>{body_levels}</a:lstStyle><a:p/></p:txBody></p:sp>'
+    )
+    # txStyles says something ELSE, so a reader that stops there is caught.
+    tx_styles = (
+        "<p:txStyles>"
+        '<p:titleStyle><a:lvl1pPr><a:defRPr sz="1400"><a:solidFill><a:srgbClr val="000000"/>'
+        "</a:solidFill></a:defRPr></a:lvl1pPr></p:titleStyle>"
+        '<p:bodyStyle><a:lvl1pPr><a:defRPr sz="1400"><a:solidFill><a:srgbClr val="000000"/>'
+        "</a:solidFill></a:defRPr></a:lvl1pPr></p:bodyStyle>"
+        '<p:otherStyle><a:lvl1pPr><a:defRPr sz="1400"/></a:lvl1pPr></p:otherStyle>'
+        "</p:txStyles>"
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld><p:spTree>
+    <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+    <p:grpSpPr/>
+    {ph}
+  </p:spTree></p:cSld>
+  <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2"
+   accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6"
+   hlink="hlink" folHlink="folHlink"/>
+  <p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>
+  {tx_styles}
+</p:sldMaster>
+"""
+
+
+def levelled_body(sid: int, levels: list[tuple[int, str]], x: int = 457200,
+                  y: int = 1600200, cx: int = 8229600, cy: int = 4000000,
+                  autofit: tuple[int, int] | None = None,
+                  last_no_bullet: bool = False) -> str:
+    """A body placeholder that states almost nothing: the levels come from the
+    master, which is the whole point."""
+    fit = ""
+    if autofit:
+        fit = f'<a:normAutofit fontScale="{autofit[0]}" lnSpcReduction="{autofit[1]}"/>'
+    paras = []
+    for i, (lvl, text) in enumerate(levels):
+        last = last_no_bullet and i == len(levels) - 1
+        ppr = f'<a:pPr lvl="{lvl}"' + (' marL="0" indent="0"><a:buNone/></a:pPr>' if last else "/>")
+        paras.append(
+            f"<a:p>{ppr}<a:r><a:rPr lang=\"en-US\"/><a:t>{_xml_escape(text)}</a:t></a:r></a:p>"
+        )
+    return f"""      <p:sp>
+        <p:nvSpPr><p:cNvPr id="{sid}" name="Levelled body"/><p:cNvSpPr txBox="1"/>
+          <p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
+        <p:txBody><a:bodyPr>{fit}</a:bodyPr><a:lstStyle/>
+          {"".join(paras)}
+        </p:txBody>
+      </p:sp>"""
+
+
+def highlight_shape(sid: int, x: int, y: int, cx: int, cy: int) -> str:
+    def run(t: str, hl: str | None) -> str:
+        h = f'<a:highlight><a:srgbClr val="{hl}"/></a:highlight>' if hl else ""
+        return (f'<a:r><a:rPr lang="en-US" sz="2000">{h}</a:rPr>'
+                f"<a:t>{_xml_escape(t)}</a:t></a:r>")
+    return f"""      <p:sp>
+        <p:nvSpPr><p:cNvPr id="{sid}" name="Highlighted"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>
+        <p:txBody><a:bodyPr/><a:lstStyle/>
+          <a:p>{run("plain ", None)}{run("marked", "FFFF00")}{run(" plain", None)}</a:p>
+        </p:txBody>
+      </p:sp>"""
+
+
+def styled_table(sid: int, x: int, y: int, cols: list[int], rows: list[list[str]],
+                 row_h: int = 400000, frame: tuple[int, int] = (3000000, 3000000),
+                 rule_after_first: bool = True) -> str:
+    """A table whose grid is what it states, in a frame that says otherwise —
+    which is what Google Slides writes, and what a reader must not believe."""
+    grid = "".join(f'<a:gridCol w="{w}"/>' for w in cols)
+    trs = []
+    for ri, row in enumerate(rows):
+        tcs = []
+        for text in row:
+            rule = ""
+            if rule_after_first and ri == 0:
+                rule = ('<a:lnB w="9525"><a:solidFill><a:srgbClr val="C0504D"/></a:solidFill>'
+                        '<a:prstDash val="solid"/></a:lnB>')
+            # Every other edge is stated and invisible, the way a real deck does it.
+            blank = "".join(
+                f'<a:ln{e} w="9525"><a:solidFill><a:srgbClr val="B7B7B7"><a:alpha val="0"/>'
+                f"</a:srgbClr></a:solidFill></a:ln{e}>"
+                for e in ("L", "R", "T")
+            )
+            body = (
+                '<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="l"/>'
+                f'<a:r><a:rPr lang="en-US" sz="1400"><a:solidFill><a:srgbClr val="CCCCCC"/>'
+                f"</a:solidFill></a:rPr><a:t>{_xml_escape(text)}</a:t></a:r></a:p></a:txBody>"
+            )
+            tcs.append(
+                f'<a:tc>{body}<a:tcPr marL="91425" marR="91425" marT="91425" marB="91425">'
+                f"{blank}{rule}</a:tcPr></a:tc>"
+            )
+        trs.append(f'<a:tr h="{row_h}">' + "".join(tcs) + "</a:tr>")
+    return f"""      <p:graphicFrame>
+        <p:nvGraphicFramePr><p:cNvPr id="{sid}" name="Styled table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+        <p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{frame[0]}" cy="{frame[1]}"/></p:xfrm>
+        <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+          <a:tbl><a:tblPr><a:noFill/></a:tblPr><a:tblGrid>{grid}</a:tblGrid>{"".join(trs)}</a:tbl>
+        </a:graphicData></a:graphic>
+      </p:graphicFrame>"""
+
+
+def styled_shape(sid: int, name: str, x: int, y: int, cx: int, cy: int,
+                 fill_idx: int, line_idx: int, scheme: str = "accent1",
+                 text: str | None = None, font_scheme: str = "lt1",
+                 prst: str = "rect") -> str:
+    """A shape that states no fill of its own: the theme's fmtScheme has it."""
+    body = (
+        "<p:txBody><a:bodyPr rtlCol=\"0\" anchor=\"ctr\"/><a:lstStyle/>"
+        "<a:p><a:pPr algn=\"ctr\"/>"
+        + (f"<a:r><a:rPr lang=\"en-US\" sz=\"1800\"/><a:t>{_xml_escape(text)}</a:t></a:r>" if text else "")
+        + "</a:p></p:txBody>"
+    )
+    return f"""      <p:sp>
+        <p:nvSpPr><p:cNvPr id="{sid}" name="{name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="{prst}"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:style>
+          <a:lnRef idx="{line_idx}"><a:schemeClr val="{scheme}"/></a:lnRef>
+          <a:fillRef idx="{fill_idx}"><a:schemeClr val="{scheme}"/></a:fillRef>
+          <a:effectRef idx="0"><a:schemeClr val="{scheme}"/></a:effectRef>
+          <a:fontRef idx="minor"><a:schemeClr val="{font_scheme}"/></a:fontRef>
+        </p:style>
+        {body}
+      </p:sp>"""
+
+
+def arrow_connector(sid: int, x: int, y: int, cx: int, cy: int,
+                    tail: str = "arrow", head: str = "none",
+                    flip_h: bool = False, flip_v: bool = False) -> str:
+    flips = (' flipH="1"' if flip_h else "") + (' flipV="1"' if flip_v else "")
+    return f"""      <p:cxnSp>
+        <p:nvCxnSpPr><p:cNvPr id="{sid}" name="Straight Arrow Connector {sid}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>
+        <p:spPr>
+          <a:xfrm{flips}><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="straightConnector1"><a:avLst/></a:prstGeom>
+          <a:ln w="28575"><a:solidFill><a:srgbClr val="C0504D"/></a:solidFill><a:headEnd type="{head}"/><a:tailEnd type="{tail}"/></a:ln>
+        </p:spPr>
+      </p:cxnSp>"""
+
+
+def spaced_runs_shape(sid: int, x: int, y: int, cx: int, cy: int) -> str:
+    """Three runs where the middle one is a single space — the space IS content."""
+    def run(t: str) -> str:
+        return f'<a:r><a:rPr lang="en-US" sz="2000"/><a:t>{t}</a:t></a:r>'
+    return f"""      <p:sp>
+        <p:nvSpPr><p:cNvPr id="{sid}" name="Spaced runs"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/>
+        </p:spPr>
+        <p:txBody><a:bodyPr wrap="square" rtlCol="0"/><a:lstStyle/>
+          <a:p>{run("The")}{run(" ")}{run("Ultimate")}{run(" ")}{run("Diary")}</a:p>
+        </p:txBody>
+      </p:sp>"""
 
 
 def write_pptx(
@@ -2308,6 +2612,67 @@ def main() -> None:
         zf.writestr("ppt/charts/chart1.xml", chart_part)
     print(f"wrote {path}")
 
+
+    # 28 — a show: a transition per slide and a click-through build on one
+    t1 = text_shape(2, "Title box", 400000, 400000, 7000000, 1200000,
+                    "A show, not a page", size_hundredths=4000, bold=True)
+    t2 = text_shape(3, "First point", 400000, 2000000, 3200000, 900000,
+                    "First", fill="ED7D31", color="FFFFFF", scheme=None)
+    t3 = text_shape(4, "Second point", 3900000, 2000000, 3200000, 900000,
+                    "Second", fill="70AD47", color="FFFFFF", scheme=None)
+    e1, nid = click_effect(3, 3, "fade", 500)
+    e2, nid = click_effect(nid, 4, "wipe(right)", 750)
+    show1 = slide_xml(
+        sp_tree(t1, t2, t3),
+        '<p:transition spd="med"><p:fade/></p:transition>' + timing_xml(e1 + e2),
+    )
+    show2 = slide_xml(
+        sp_tree(text_shape(2, "Next", 400000, 1200000, 7000000, 2000000,
+                           "Pushed up from below", fill="5B9BD5",
+                           color="FFFFFF", scheme=None)),
+        '<p:transition spd="fast" advTm="4000"><p:push dir="u"/></p:transition>',
+    )
+    write_pptx("28-transitions.pptx", [(show1, slide_rels()), (show2, slide_rels())])
+
+    # 29 — the theme doing the work: <p:style> fills, arrows, and a space run
+    styled = sp_tree(
+        styled_shape(2, "Solid from theme", 300000, 300000, 2400000, 900000,
+                     fill_idx=1, line_idx=2, text="fillRef 1"),
+        styled_shape(3, "Gradient from theme", 3000000, 300000, 2400000, 900000,
+                     fill_idx=2, line_idx=1, text="fillRef 2"),
+        styled_shape(4, "Dark gradient", 5700000, 300000, 2400000, 900000,
+                     fill_idx=3, line_idx=1, scheme="dk2", text="fillRef 3"),
+        arrow_connector(5, 600000, 1800000, 2000000, 0),
+        arrow_connector(6, 3200000, 1800000, 2000000, 600000, head="arrow"),
+        arrow_connector(7, 6000000, 1800000, 1600000, 600000, flip_v=True),
+        spaced_runs_shape(8, 600000, 3000000, 5000000, 700000),
+    )
+    write_pptx("29-theme-styles.pptx", [(slide_xml(styled), slide_rels())],
+               theme_xml=styled_theme())
+
+    # 30 — a table that states its own grid, with only the edges it names
+    table30 = sp_tree(styled_table(
+        2, 400000, 800000,
+        cols=[1200000, 3600000, 2400000],
+        rows=[["", "JavaScript", "Scala.js"],
+              ["Typing", "TypeScript, Flow, and a long line that has to wrap", "Built-in"],
+              ["Tooling", "Gulp, Bower, Babel, JSX, npm, Webpack, Browserify", "SBT"]],
+    ))
+    write_pptx("30-table-grid.pptx", [(slide_xml(table30), slide_rels())])
+
+    # 31 — typography a deck inherits rather than states
+    inh = sp_tree(
+        levelled_body(2, [(0, "First level"), (1, "Second level"), (2, "Third level"),
+                          (3, "Fourth level"), (0, "Back to the first"),
+                          (0, "This one says it has no bullet")], last_no_bullet=True),
+        highlight_shape(3, 457200, 5000000, 5000000, 600000),
+    )
+    fitted = sp_tree(levelled_body(
+        2, [(0, "Shrunk to fit"), (0, "by the tool that wrote this")],
+        autofit=(62000, 20000)))
+    write_pptx("31-inherited-text.pptx", [(slide_xml(inh), slide_rels()),
+                                          (slide_xml(fitted), slide_rels())],
+               master_xml=inherited_master())
 
     print("fixtures ready")
 

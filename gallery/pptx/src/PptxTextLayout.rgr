@@ -220,14 +220,33 @@ class PptxTextLayout {
             def para:PptxParagraph (itemAt body.paragraphs pi)
             def text:string (PptxTextLayout.paraText(para))
             def n:int (strlen text)
-            def indent:double ((to_double para.level) * 18.0 * scale)
+            ; Where the text starts, and where the bullet hangs. The deck says
+            ; both — `marL` is the text's left edge and `indent` is the bullet's
+            ; offset from it, negative for the hanging bullet every list has —
+            ; and only when it says neither is a level's worth invented.
+            def indent:double 0.0
+            if para.marginSet {
+                indent = (para.marginLeftPt * scale)
+            } {
+                indent = ((to_double para.level) * 18.0 * scale)
+            }
             def bullet:string ""
             def bulletW:double 0.0
-            def bulletSize:double (PptxTextLayout.maxRunSize(para 0 n scale))
+            def textSize:double (PptxTextLayout.maxRunSize(para 0 n scale))
+            def bulletSize:double textSize
+            if (para.bulletSizePt > 0.0) {
+                bulletSize = (para.bulletSizePt * scale)
+            } {
+                if (para.bulletSizePct != 100.0) {
+                    bulletSize = (textSize * (para.bulletSizePct / 100.0))
+                }
+            }
             if para.hasBullet {
                 bullet = (para.bulletChar + " ")
-                indent = (indent + (12.0 * scale))
                 bulletW = (m.widthOf(bullet bulletSize false false))
+                if (para.indentSet == false) {
+                    indent = (indent + (12.0 * scale))
+                }
             }
             def avail:double (contentW - indent - bulletW)
             if (avail < 8.0) {
@@ -294,7 +313,10 @@ class PptxTextLayout {
                 line.h = lineH
                 def visibleEnd:int (PptxTextLayout.trimEndCol(text start end))
                 line.w = (PptxTextLayout.measureSlice(para start visibleEnd m scale))
-                def lineX:double (contentX + indent + bulletW)
+                def lineX:double (contentX + indent)
+                if (para.indentSet == false) {
+                    lineX = ((contentX + indent) + bulletW)
+                }
                 if (para.align == "ctr") {
                     lineX = (lineX + ((avail - line.w) * 0.5))
                 }
@@ -305,7 +327,14 @@ class PptxTextLayout {
                 line.y = total
                 if firstLine {
                     line.bullet = bullet
-                    line.bulletX = (contentX + indent - bulletW)
+                    ; A hanging indent puts the bullet where `indent` says, to
+                    ; the LEFT of the text; without one it sits immediately in
+                    ; front of it.
+                    if para.indentSet {
+                        line.bulletX = ((contentX + indent) + (para.indentPt * scale))
+                    } {
+                        line.bulletX = ((contentX + indent) - bulletW)
+                    }
                     if (bulletW > 0.0) {
                         line.bulletX = (contentX + ((to_double para.level) * 18.0 * scale))
                     }

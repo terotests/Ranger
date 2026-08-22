@@ -23,6 +23,7 @@ Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "GridFormat.rgr"
 Import "GridChart.rgr"
+Import "ChartInference.rgr"
 Import "GridChartView.rgr"
 Import "GridClip.rgr"
 Import "script/GridScriptEngine.rgr"
@@ -4506,6 +4507,29 @@ class GridApp {
         if (c1 > c0) {
             out.useHeaderCol = leftIsText
         }
+        ; And then the real question: what is this selection a chart OF? The
+        ; rectangle reading above is the fallback — a grid of numbers with no
+        ; headers still charts — but a TABLE gets read as one: which column is
+        ; the category, which are the measures, and whether a repeated category
+        ; means the rows should be added up.
+        ChartInference.plan(model out)
+    }
+
+    ; What the grouping checkbox should say, which depends on what it would
+    ; be grouping. "Add up repeated Regions" is a question anyone can answer;
+    ; "aggregate" is not.
+    fn groupLabel:string () {
+        if (pendingChart.catCol < 0) {
+            return "Add up repeated rows"
+        }
+        def name:string ""
+        if pendingChart.useHeaderRow {
+            name = (model.getCell(pendingChart.r0 pendingChart.catCol))
+        }
+        if ((strlen name) == 0) {
+            return "Add up repeated rows"
+        }
+        return (("Add up repeated " + name) + " rows")
     }
 
     ; Open the picker: on the current selection when `editId` is 0, on an
@@ -4534,7 +4558,13 @@ class GridApp {
         def has:boolean (probe.extract(model pendingChart))
         if (editId == 0) {
             if has {
-                pendingChart.kind = (probe.suggestedKind())
+                ; A planned chart already chose its type from what the columns
+                ; MEAN — a date is a line, two dimensions are a grouped bar.
+                ; `suggestedKind` only knows the shape of the numbers, so it
+                ; must not overrule it.
+                if ((pendingChart.planned()) == false) {
+                    pendingChart.kind = (probe.suggestedKind())
+                }
             }
         }
         ; Never open on a choice that cannot be drawn.
@@ -4608,8 +4638,19 @@ class GridApp {
         }
         chartDialog.endColumns()
         chartDialog.addSeparator()
-        chartDialog.addCheckbox(301 "First row names the series" pendingChart.useHeaderRow)
-        chartDialog.addCheckbox(302 "First column labels the rows" pendingChart.useHeaderCol)
+        chartDialog.addCheckbox(301 "First row names the columns" pendingChart.useHeaderRow)
+        ; What the second question IS depends on how the selection was read.
+        ; A planned chart already knows which column labels the rows — it says
+        ; so in `catCol` — so asking again would be a checkbox that does
+        ; nothing. What is worth asking there is whether repeated categories
+        ; should be added up, which is the difference between four bars and
+        ; two hundred.
+        if (pendingChart.planned()) {
+            def grouping:boolean ((pendingChart.agg == "group") || (pendingChart.agg == "count"))
+            chartDialog.addCheckbox(302 (this.groupLabel()) grouping)
+        } {
+            chartDialog.addCheckbox(302 "First column labels the rows" pendingChart.useHeaderCol)
+        }
         chartDialog.addCheckbox(303 "Show legend" pendingChart.showLegend)
         chartDialog.addInput(311 "Title" pendingChart.title)
         def ids:[int]
@@ -4657,8 +4698,37 @@ class GridApp {
         if (st > 200) {
             pendingChart.style = (st - 200)
         }
-        pendingChart.useHeaderRow = (chartDialog.isChecked(301))
-        pendingChart.useHeaderCol = (chartDialog.isChecked(302))
+        def wantHeader:boolean (chartDialog.isChecked(301))
+        if (wantHeader != pendingChart.useHeaderRow) {
+            ; The header row decides what every column is CALLED, which decides
+            ; which of them is the category and what the chart is titled. So
+            ; changing it is not a flag to store — it is a reason to read the
+            ; selection again.
+            pendingChart.useHeaderRow = wantHeader
+            if (pendingChart.planned()) {
+                ChartInference.replan(model pendingChart wantHeader)
+            }
+        }
+        if (pendingChart.planned()) {
+            def wantGroup:boolean (chartDialog.isChecked(302))
+            def isGroup:boolean ((pendingChart.agg == "group") || (pendingChart.agg == "count"))
+            if (wantGroup != isGroup) {
+                if wantGroup {
+                    pendingChart.agg = "group"
+                    if ((array_length pendingChart.valueCols) == 0) {
+                        pendingChart.agg = "count"
+                    }
+                } {
+                    ; Counting IS the grouping; without it there is nothing to
+                    ; plot, so a count chart cannot be ungrouped.
+                    if ((array_length pendingChart.valueCols) > 0) {
+                        pendingChart.agg = ""
+                    }
+                }
+            }
+        } {
+            pendingChart.useHeaderCol = (chartDialog.isChecked(302))
+        }
         pendingChart.showLegend = (chartDialog.isChecked(303))
         pendingChart.title = (chartDialog.inputValue(311))
     }

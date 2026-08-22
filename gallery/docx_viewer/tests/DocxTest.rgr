@@ -1054,6 +1054,69 @@ class DocxTest {
         c.ok("framebuffer" ((buffer_length (viewer.view.raw())) > 1000))
         c.ok("pages>=1" ((viewer.pageCount()) >= 1))
 
+        ; --- glyphs a text face does not have --------------------------------
+        ;
+        ; Word writes its bullet levels as geometric shapes — ● ○ ▪ — and Open
+        ; Sans has none of them, so every list drew a column of empty boxes;
+        ; an emoji in running text drew one too. `FontManager` has had
+        ; per-codepoint fallback all along; what was missing was a face to fall
+        ; back TO.
+        print "== glyphs that need a fallback face =="
+        c.ok("open the glyph fixture" (viewer.openFile(fix "22-glyph-fallback.docx")))
+        def tr:UITextRenderer viewer.view.ctx.tr
+        def digitW:double (tr.measureWidth("0" 24.0))
+        def circle:double (tr.measureWidth("●" 24.0))
+        def ring:double (tr.measureWidth("○" 24.0))
+        def square:double (tr.measureWidth("▪" 24.0))
+        def emoji:double (tr.measureWidth((EVGCodepoint.toStr(128518)) 24.0))
+        c.ok("a filled circle measures as a real glyph" (circle > (digitW * 0.5)))
+        c.ok("a hollow one too" (ring > (digitW * 0.5)))
+        c.ok("and a small square" (square > 2.0))
+        c.ok("an emoji is wider than a digit" (emoji > digitW))
+        ; A codepoint NOTHING has must still measure and still draw, rather
+        ; than reading glyph tables out of a face that was never loaded.
+        def weird:double (tr.measureWidth((EVGCodepoint.toStr(984567)) 24.0))
+        c.ok("a codepoint no face has still measures" (weird >= 0.0))
+        viewer.renderPage(0)
+        c.ok("and the page with all of them draws" ((buffer_length (viewer.view.raw())) > 1000))
+
+        ; --- twips round, they do not truncate --------------------------------
+        ;
+        ; Fifteen twips to the pixel, so anything not a multiple of fifteen
+        ; lands between two — and `to_int` floors, which also sends a negative
+        ; outdent a whole pixel the wrong way.
+        print "== twips to pixels =="
+        c.eqInt("a whole inch is 96px" (DocxLayout.twipsToPx(1440)) 96)
+        c.eqInt("half an inch is 48" (DocxLayout.twipsToPx(720)) 48)
+        c.eqInt("160 twips rounds up, not down" (DocxLayout.twipsToPx(160)) 11)
+        c.eqInt("100 twips rounds to 7" (DocxLayout.twipsToPx(100)) 7)
+        c.eqInt("an outdent rounds away from zero" (DocxLayout.twipsToPx(0 - 100)) (0 - 7))
+        c.eqInt("and a small one does not become a pixel" (DocxLayout.twipsToPx(0 - 40)) (0 - 3))
+        c.eqInt("an inch of EMU is 96px" (DocImage.emuToPx(914400)) 96)
+        c.eqInt("and a negative one is -96" (DocImage.emuToPx(0 - 914400)) (0 - 96))
+
+        ; --- the layout is kept until the document changes ---------------------
+        ;
+        ; Drawing one page used to lay out ALL of them, so a frame cost what
+        ; the document was long. The document says when it has moved on, and
+        ; that number is the whole dependency.
+        print "== the layout is not rebuilt to draw the same page =="
+        c.ok("open a document with several pages" (viewer.openFile(fix "08-pages.docx")))
+        viewer.renderPage(0)
+        def rev0:int (viewer.document()).revision
+        def pages0:int (viewer.pageCount())
+        viewer.renderPage(0)
+        c.ok("drawing again changes nothing" (((viewer.document()).revision) == rev0))
+        c.ok("and the pages are still there" ((viewer.pageCount()) == pages0))
+        viewer.setEditMode(true)
+        viewer.clickAt(120 120 false)
+        viewer.typeText("z")
+        def rev1:int (viewer.document()).revision
+        c.ok("typing says the document moved on" (rev1 > rev0))
+        viewer.keyUndo()
+        c.ok("and so does undoing it" ((((viewer.document()).revision)) > rev1))
+        viewer.setEditMode(false)
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

@@ -51,14 +51,22 @@ class DocxView {
     fn init:void (fontDir:string) {
         ctx.tr.addFontDir(fontDir)
         ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
-        ctx.tr.fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
-        ctx.tr.fm.loadFont("Cinzel/Cinzel-Regular.ttf")
-        ctx.tr.fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        ctx.tr.addFace("Open_Sans/OpenSans-Bold.ttf")
+        ctx.tr.addFace("Cinzel/Cinzel-Regular.ttf")
+        ctx.tr.addFace("Josefin_Sans/JosefinSans-Regular.ttf")
+        ; The glyphs a document reaches for that a text face does not carry.
+        ; Word writes its bullet levels as ● ○ ▪ — geometric shapes, not
+        ; letters — so every list drew a column of empty boxes; and an emoji in
+        ; running text drew one too. `FontManager` has had per-codepoint
+        ; fallback all along, and these two faces are what give it something to
+        ; fall back TO. Neither becomes the face anything is drawn in.
+        ctx.tr.addFace("Noto_Sans/NotoSans-Regular.ttf")
+        ctx.tr.addFace("Noto_Emoji/NotoEmoji-Regular.ttf")
     }
 
     fn present:void (doc:RichDocument page:int nums:WordNumbering) {
         docRef = doc
-        layout.layout(doc ctx.tr nums)
+        layout.layoutIfNeeded(doc ctx.tr nums)
         if (page < 0) {
             page = 0
         }
@@ -85,7 +93,7 @@ class DocxView {
 
     fn presentWithEdit:void (doc:RichDocument page:int nums:WordNumbering edit:DocxEditController) {
         docRef = doc
-        layout.layout(doc ctx.tr nums)
+        layout.layoutIfNeeded(doc ctx.tr nums)
         if (page < 0) {
             page = 0
         }
@@ -122,7 +130,7 @@ class DocxView {
     ; opinion about it.
     fn buildDisplayList:EVGDisplayList (doc:RichDocument page:int nums:WordNumbering edit:DocxEditController editing:boolean) {
         docRef = doc
-        layout.layout(doc ctx.tr nums)
+        layout.layoutIfNeeded(doc ctx.tr nums)
         if (page < 0) {
             page = 0
         }
@@ -278,7 +286,7 @@ class DocxView {
 
     fn presentAll:void (doc:RichDocument nums:WordNumbering maxPages:int) {
         docRef = doc
-        layout.layout(doc ctx.tr nums)
+        layout.layoutIfNeeded(doc ctx.tr nums)
         def n:int (layout.pageCount())
         if (n < 1) {
             canvas.init(100 100)
