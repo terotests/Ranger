@@ -1,0 +1,221 @@
+; ==============================================================================
+; book_web.rgr - the book editor, in the browser, with no host behind it
+; ==============================================================================
+;
+; `web/serve.mjs` runs the editor in Node and posts events at it over HTTP.
+; That is useful for driving it from a script, and it is the wrong shape for
+; the product: an editor that needs a server to move a frame is not an editor
+; you can put on a page.
+;
+; Ranger compiles to JavaScript, so the editor can be IN the page - the same
+; `BookApp`, the same `EVGDisplayList`, the same `evg-webgl.js`, no server and
+; no round trip per pointer move.
+;
+; What a browser cannot do is read files, and the editor used the file system
+; for two things: the font faces and the photographs. Both take bytes here, so
+; the page fetches them (or the user drops them in) and hands them over.
+;
+; The facade is deliberately small. Everything interesting is already a command
+; id, so a page needs one entry point for those, one for the pointer, one for
+; keys, and a way to ask for the scene.
+; ==============================================================================
+
+Import "../src/BookApp.rgr"
+Import "../src/BookApi.rgr"
+
+class BookWeb {
+    def app:BookApp (new BookApp)
+    def input:UIInput (new UIInput)
+    def note:string ""
+
+    Constructor () {
+    }
+
+    fn start:void (w:int h:int) {
+        app.W = w
+        app.H = h
+        app.initBare()
+    }
+
+    fn resize:void (w:int h:int) {
+        app.resize(w h)
+        app.render()
+    }
+
+    ; --- what the page has to hand over --------------------------------------
+
+    fn addFace:boolean (data:buffer) {
+        return (app.addFaceBytes(data))
+    }
+
+    fn addFont:boolean (family:string data:buffer) {
+        return (app.addFontBytes(family data))
+    }
+
+    ; A family the page has loaded faces for. A face registers under its own
+    ; name, and the layout has to be told that name is available or it measures
+    ; every run in the default face and the display type comes out wrong.
+    fn noteFamily:void (name:string) {
+        app.noteFamily(name)
+    }
+
+    ; A picture, by the exact path the document names it with. The display list
+    ; carries that string, so the page can also use it as the texture key.
+    fn addImage:void (path:string data:buffer) {
+        app.addImageBytes(path data)
+    }
+
+    ; The book that ships with the editor. `assetBase` is what the page can
+    ; fetch the photographs from.
+    fn openSample:void (assetBase:string) {
+        app.loadSample(assetBase)
+    }
+
+    fn assetCount:int () {
+        def paths:[string] (app.assetPaths())
+        return (array_length paths)
+    }
+
+    fn assetAt:string (i:int) {
+        def paths:[string] (app.assetPaths())
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length paths)) {
+            return ""
+        }
+        return (itemAt paths i)
+    }
+
+    ; --- input ---------------------------------------------------------------
+
+    fn pointer:void (x:int y:int down:boolean shift:boolean ctrl:boolean) {
+        input.newFrame()
+        input.setModifiers(shift ctrl)
+        input.setPointerPos(x y)
+        input.setPointerDown(down)
+        app.update(input)
+    }
+
+    fn key:void (code:int shift:boolean) {
+        input.newFrame()
+        input.setModifiers(shift false)
+        input.pushKey(code)
+        app.update(input)
+    }
+
+    ; A Ctrl chord arrives as the letter, the way a native host delivers it.
+    fn chord:void (letter:string shift:boolean) {
+        input.newFrame()
+        input.setModifiers(shift true)
+        input.pushText(letter)
+        app.update(input)
+    }
+
+    fn scroll:void (delta:int x:int y:int) {
+        input.newFrame()
+        input.setPointerPos(x y)
+        input.addScroll(delta)
+        app.update(input)
+    }
+
+    fn command:boolean (id:string arg:string) {
+        def ok:boolean (app.runCommand(id arg))
+        app.render()
+        return ok
+    }
+
+    ; Key codes, so the page does not have to know the numbers.
+    fn keyLeft:int () {
+        return (UIKey.left())
+    }
+
+    fn keyRight:int () {
+        return (UIKey.right())
+    }
+
+    fn keyUp:int () {
+        return (UIKey.up())
+    }
+
+    fn keyDown:int () {
+        return (UIKey.down())
+    }
+
+    fn keyHome:int () {
+        return (UIKey.home())
+    }
+
+    fn keyEnd:int () {
+        return (UIKey.end())
+    }
+
+    fn keyEscape:int () {
+        return (UIKey.escape())
+    }
+
+    fn keyDelete:int () {
+        return (UIKey.del())
+    }
+
+    ; --- output --------------------------------------------------------------
+
+    fn sceneJson:string () {
+        return (app.sceneJson())
+    }
+
+    fn metaJson:string () {
+        def d:BookDocument (app.document())
+        def report:BookPreflightReport (app.runPreflight())
+        def ed:BookEditor app.editor
+        def out:string "{"
+        out = (out + "\"title\": \"" + (BookApi.jsonString(d.title)) + "\"")
+        out = (out + ", \"author\": \"" + (BookApi.jsonString(d.author)) + "\"")
+        out = (out + ", \"pages\": " + (to_string (d.pageCount())))
+        out = (out + ", \"spreads\": " + (to_string (d.spreadCount())))
+        out = (out + ", \"spread\": " + (to_string (ed.spreadIndex())))
+        out = (out + ", \"page\": " + (to_string ed.pageIndex))
+        out = (out + ", \"editing\": " + (BookApi.jsonBool(ed.editMode)))
+        out = (out + ", \"selected\": " + (to_string (ed.selectionCount())))
+        out = (out + ", \"overset\": " + (BookApi.jsonBool((ed.overset()))))
+        out = (out + ", \"errors\": " + (to_string (report.errorCount())))
+        out = (out + ", \"warnings\": " + (to_string (report.warningCount())))
+        out = (out + ", \"undo\": " + (BookApi.jsonBool((ed.canUndo()))))
+        out = (out + ", \"status\": \"" + (BookApi.jsonString((app.statusLine()))) + "\"")
+        out = (out + "}")
+        return out
+    }
+
+    ; The laid-out book as data, for a page that wants to show more than the
+    ; canvas does - a list of pages, say, or a preflight panel in HTML.
+    fn bookJson:string () {
+        def api (new BookApi())
+        api.doc = (app.document())
+        api.flow = app.editor.flowResult
+        api.flowValid = true
+        return (api.toJson())
+    }
+
+    ; The printable book: the same SVG the demo writes, for the page to hand
+    ; the reader as a download. No server, and no second layout.
+    fn spreadSvg:string (index:int) {
+        def api (new BookApi())
+        api.doc = (app.document())
+        api.flow = app.editor.flowResult
+        api.flowValid = true
+        return (api.spreadSvg(index))
+    }
+
+    fn documentTsx:string () {
+        def api (new BookApi())
+        api.doc = (app.document())
+        api.flow = app.editor.flowResult
+        api.flowValid = true
+        return (api.tsx())
+    }
+
+    fn preflightText:string () {
+        def report:BookPreflightReport (app.runPreflight())
+        return (report.asText())
+    }
+}

@@ -1,0 +1,212 @@
+; ==============================================================================
+; book_print.rgr - the files a printer actually wants
+; ==============================================================================
+;
+;   npm run book:print
+;
+; A book on screen is one artefact; a book at a press is three:
+;
+;   interior.tsx   the pages, single, in reading order, page 1 a recto, blanks
+;                  included - turned into a PDF at trim + bleed by the EVG tool
+;   cover.tsx      back, spine and front on one landscape sheet, whose width
+;                  depends on the extent and the paper
+;   print.json     what the order needs: extent, trim, bleed, spine width, and
+;                  the exact command that made the PDFs
+;
+; Everything measurable is measured against a `BookPrintSpec` - a supplier's
+; requirements as data - so "is this ready" has an answer rather than an
+; opinion. Change the spec and the same book is checked against a different
+; press.
+; ==============================================================================
+
+Import "BookApi.rgr"
+Import "BookSample.rgr"
+Import "BookCover.rgr"
+Import "../../pdf_writer/src/fonts/EVGFontSetup.rgr"
+
+class BookPrint {
+    sfn main:void () {
+        print "== Ranger book engine: print bundle =="
+
+        def specName:string "layflat-210"
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            specName = (shell_arg 0)
+        }
+        def spec:BookPrintSpec (BookPrintSpec.byName(specName))
+
+        ; Real faces before layout, or the line breaks in the PDF are not the
+        ; ones that were measured.
+        def setup (new EVGFontSetup())
+        setup.init("./gallery/book/" "")
+        def manager:FontManager (setup.getManager())
+        def measurer (new TTFTextMeasurer(manager))
+        def engine (new EVGTextEngine())
+        engine.setMeasurer(measurer)
+
+        def api (new BookApi())
+        api.useTextEngine(engine)
+        api.usePrintSpec(spec)
+        def doc:BookDocument (BookSample.laidOut("../../pdf_writer/assets/images/" api.flowEngine))
+        api.doc = doc
+        api.invalidate()
+
+        ; The trim the supplier sells, not the one the sample happened to use.
+        if (spec.trimNamed()) {
+            doc.pageWidth = spec.trimWidth
+            doc.pageHeight = spec.trimHeight
+            BookPrint.resizePages(doc)
+            api.invalidate()
+        }
+        def padded:int (api.padToExtent())
+
+        print (spec.describe())
+        if (padded > 0) {
+            print (("Added " + (to_string padded)) + " blank page(s) to reach an extent the binding can make")
+        }
+        print (api.summary())
+
+        def cover (new BookCoverSpec())
+        if (specName == "softcover-a5") {
+            def sc:BookCoverSpec (BookCoverSpec.softcover())
+            cover = sc
+        }
+        if (specName == "layflat-210") {
+            def lf:BookCoverSpec (BookCoverSpec.layflat())
+            cover = lf
+        }
+        def pages:int (doc.pageCount())
+        def trimWmm:double (BookUnits.toMm(doc.pageWidth))
+        def trimHmm:double (BookUnits.toMm(doc.pageHeight))
+        print (cover.describe(trimWmm trimHmm pages))
+
+        def report:BookPreflightReport (api.runPreflight())
+        print "Preflight:"
+        print (report.asText())
+
+        def out:string "./gallery/book/output"
+        try {
+            create_dir out
+        } {
+        }
+        write_file out "preflight.txt" (report.asText())
+        api.writeTsx(out "interior.tsx")
+
+        ; The cover is its own document, rendered by the same renderer.
+        def coverDoc:BookDocument (api.coverDocument(cover false))
+        def coverApi (new BookApi())
+        coverApi.useTextEngine(engine)
+        coverApi.doc = coverDoc
+        coverApi.invalidate()
+        coverApi.writeTsx(out "cover.tsx")
+
+        write_file out "print.json" (BookPrint.manifest(doc spec cover report))
+
+        ; The page sizes are computed, so the commands that render them are
+        ; computed too. Writing them out beats printing numbers for somebody to
+        ; retype - a cover PDF made at the wrong width is a cover with the
+        ; title on the front board and the spine somewhere in the picture.
+        def script:string (BookPrint.commands(doc spec cover))
+        write_file out "render.sh" script
+        print ("Wrote interior.tsx, cover.tsx, print.json, preflight.txt and render.sh to " + out)
+        print ""
+        print "Turn them into PDFs with the EVG tooling:"
+        print script
+    }
+
+    ; A page carries its own size, so changing the document's trim has to reach
+    ; the pages that are already on it.
+    sfn resizePages:void (doc:BookDocument) {
+        def i:int 0
+        while (i < (doc.pageCount())) {
+            def p:BookPage (doc.pageAt(i))
+            p.width = doc.pageWidth
+            p.height = doc.pageHeight
+            i = (i + 1)
+        }
+    }
+
+    sfn commands:string (doc:BookDocument spec:BookPrintSpec cover:BookCoverSpec) {
+        def pages:int (doc.pageCount())
+        def trimWmm:double (BookUnits.toMm(doc.pageWidth))
+        def trimHmm:double (BookUnits.toMm(doc.pageHeight))
+        def cw:double (cover.coverWidthMm(trimWmm pages))
+        def ch:double (cover.coverHeightMm(trimHmm))
+        def cwPt:double (BookUnits.mm(cw))
+        def chPt:double (BookUnits.mm(ch))
+        def tool:string "node gallery/pdf_writer/bin/evg_pdf_tool.js"
+
+        ; The finishing arguments: the colours, the claim, and the printing
+        ; condition the claim is about. `-strict-print` is on deliberately - a
+        ; file that says PDF/X and is not one is worse than a file that says
+        ; nothing, so the script fails rather than writing it.
+        def finish:string ""
+        def pdfx:string (spec.pdfxFlag())
+        if ((strlen pdfx) > 0) {
+            finish = (" -pdfx " + pdfx)
+            finish = (finish + " -intent \"" + spec.outputIntentId + "\"")
+            finish = (finish + " -intent-info \"" + spec.outputIntentInfo + "\"")
+            if (spec.colourSpace == "cmyk") {
+                finish = (finish + " -colors cmyk")
+            }
+            finish = (finish + " -strict-print")
+        }
+        def meta:string (" -title \"" + doc.title + "\" -author \"" + doc.author + "\"")
+
+        def out:string "#!/usr/bin/env bash\n"
+        out = (out + "# Written by book_print.rgr. The page sizes are computed from the print\n")
+        out = (out + "# spec and the extent, which is why this is a file rather than a paragraph\n")
+        out = (out + "# of numbers to retype.\n")
+        out = (out + "set -e\n")
+        out = (out + "cd \"$(dirname \"$0\")/../../..\"\n")
+        out = (out + "\n# The interior: single pages, reading order, trim plus bleed on every side,\n")
+        out = (out + "# identified as a print file and told which printing condition it is for.\n")
+        out = (out + tool + " \\\n")
+        out = (out + "  gallery/book/output/interior.tsx gallery/book/output/interior.pdf \\\n")
+        out = (out + "  -w " + (BookRenderer.num(doc.pageWidth)) + " -h " + (BookRenderer.num(doc.pageHeight)))
+        out = (out + " -bleed " + (BookRenderer.num(spec.bleed)))
+        out = (out + finish + meta + "\n")
+        out = (out + "\n# The cover: one landscape sheet, back | spine | front.\n")
+        out = (out + tool + " \\\n")
+        out = (out + "  gallery/book/output/cover.tsx gallery/book/output/cover.pdf \\\n")
+        out = (out + "  -w " + (BookRenderer.num(cwPt)) + " -h " + (BookRenderer.num(chPt)))
+        out = (out + finish + meta + "\n")
+        return out
+    }
+
+    ; What a print-on-demand API asks for, in the order it asks for it. The
+    ; page count and the trim are the two fields every one of them has.
+    sfn manifest:string (doc:BookDocument spec:BookPrintSpec cover:BookCoverSpec report:BookPreflightReport) {
+        def pages:int (doc.pageCount())
+        def trimWmm:double (BookUnits.toMm(doc.pageWidth))
+        def trimHmm:double (BookUnits.toMm(doc.pageHeight))
+        def spine:double (cover.spineMm(pages))
+        def cw:double (cover.coverWidthMm(trimWmm pages))
+        def ch:double (cover.coverHeightMm(trimHmm))
+        def bleedMm:double (BookUnits.toMm(spec.bleed))
+        def sheetW:double (trimWmm + (bleedMm * 2.0))
+        def sheetH:double (trimHmm + (bleedMm * 2.0))
+
+        def out:string "{\n"
+        out = (out + "  \"title\": \"" + (BookApi.jsonString(doc.title)) + "\",\n")
+        out = (out + "  \"spec\": \"" + spec.name + "\",\n")
+        out = (out + "  \"pageCount\": " + (to_string pages) + ",\n")
+        out = (out + "  \"pageOrder\": \"single pages, reading order, page 1 recto\",\n")
+        out = (out + "  \"trimMm\": [" + (BookCoverSpec.mm1(trimWmm)) + ", " + (BookCoverSpec.mm1(trimHmm)) + "],\n")
+        out = (out + "  \"bleedMm\": " + (BookCoverSpec.mm1(bleedMm)) + ",\n")
+        out = (out + "  \"deliveredPageMm\": [" + (BookCoverSpec.mm1(sheetW)) + ", " + (BookCoverSpec.mm1(sheetH)) + "],\n")
+        out = (out + "  \"binding\": \"" + cover.binding + "\",\n")
+        out = (out + "  \"spineMm\": " + (BookCoverSpec.mm1(spine)) + ",\n")
+        out = (out + "  \"coverSheetMm\": [" + (BookCoverSpec.mm1(cw)) + ", " + (BookCoverSpec.mm1(ch)) + "],\n")
+        out = (out + "  \"colourSpace\": \"" + spec.colourSpace + "\",\n")
+        out = (out + "  \"outputIntent\": \"" + (BookApi.jsonString(spec.outputIntentId)) + "\",\n")
+        out = (out + "  \"pdfProfile\": \"" + spec.pdfProfile + "\",\n")
+        out = (out + "  \"cropMarks\": " + (BookApi.jsonBool(spec.cropMarks)) + ",\n")
+        out = (out + "  \"targetDpi\": " + (BookPrintSpec.intText(spec.targetDpi)) + ",\n")
+        out = (out + "  \"preflight\": {\"errors\": " + (to_string (report.errorCount())) + ", \"warnings\": " + (to_string (report.warningCount())) + "},\n")
+        out = (out + "  \"files\": {\"interior\": \"interior.pdf\", \"cover\": \"cover.pdf\"},\n")
+        out = (out + "  \"note\": \"Take the supplier's own cover template before printing - the spine here is arithmetic, not their file.\"\n")
+        out = (out + "}\n")
+        return out
+    }
+}

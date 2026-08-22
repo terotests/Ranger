@@ -1,17 +1,24 @@
 ; ==============================================================================
-; PptxImageDecode - generic PNG/JPEG bytes → SoftCanvas ImageBuffer
+; EVGImageDecode - PNG/JPEG bytes to a SoftCanvas ImageBuffer
 ; ==============================================================================
 ;
-; Not PPTX-specific beyond living next to the viewer: any gallery code that
-; already has OPC image bytes can reuse this. SoftCanvas blits the same
-; pdf_writer ImageBuffer type.
+; This began as PptxImageDecode, next to the deck viewer, with a note on it
+; saying it was not PPTX-specific and anything with image bytes could reuse it.
+; The book editor is the second thing that needed it, which is the moment a
+; note like that has to become a move: a picture on a page and a picture on a
+; slide are the same JPEG, and two copies of the sniff-the-first-two-bytes
+; decision would drift.
+;
+; Sniffing rather than trusting a file extension is the point of it - an asset
+; named .jpg is regularly a PNG, and SoftCanvas blits the same pdf_writer
+; ImageBuffer either way.
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
-Import "../../game_engine/lpc/src/png_decoder.rgr"
+Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "../game_engine/lpc/src/png_decoder.rgr"
 
-class PptxImageDecode {
+class EVGImageDecode {
     Constructor () {
     }
 

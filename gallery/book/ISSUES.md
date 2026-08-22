@@ -48,3 +48,59 @@ to catch. It found this one on the first run.
 same source behaves differently depending on the target.
 
 Worked around in `book_demo.rgr` with a `try { create_dir out } { }`.
+
+## 4. `EVGDisplayList.addText` marks italic in `textAlign`
+
+```ranger
+fn addText:void (… bold:boolean italic:boolean …) {
+    if italic {
+        c.textAlign = "italic"      ; not a text alignment
+    }
+```
+
+`GridView` reads it back that way, so it is a convention rather than a slip —
+but it means a caller cannot use `addText` for text that is both italic and
+centred, which is most of a page of running text. `BookToEvg` pushes its own
+commands for that reason and puts the weight in `fontWeight`, where the
+painters already look for it.
+
+## 5. A host that loads faces as bytes must load one as a FAMILY
+
+`UITextRenderer` has two ways in:
+
+```ranger
+fn loadFontBytes:boolean (family:string data:buffer)   ; sets hasFont = true
+fn addFaceBytes:boolean (data:buffer)                  ; does not
+```
+
+`measureWidth` falls back to a 3x5 bitmap step while `hasFont` is false. So a
+browser host that hands over every face with `addFaceBytes` gets a renderer
+that *draws* correctly — the page's own text atlas rasterizes with the
+browser's copy of the font — and *measures* with the bitmap fallback. Nothing
+errors. The symptom is that nothing ever wraps: a title runs off the trim while
+being drawn in exactly the right typeface.
+
+The first face has to go in through `addFont(family, bytes)`. The serverless
+page does that, and its self test now asserts the title wraps, because this is
+precisely the class of bug that a screenshot makes look fine.
+
+## 6. A WebGL page needs `@font-face` for the fonts the engine measures with
+
+`evg-webgl.js` rasterizes each text run with the browser's canvas 2D, so the
+faces the ENGINE loaded are invisible to it. A page that measures in Cinzel and
+never declares Cinzel to the browser draws the whole book in a fallback
+sans-serif at Cinzel's widths. Both book pages declare the same four faces the
+engine is given, and await `document.fonts.ready` before the first draw.
+
+## 7. The committed `evg_pdf_tool.js` predates its own `-bleed` flag
+
+`gallery/pdf_writer/src/tools/evg_pdf_tool.rgr` takes `-bleed PT` and the
+renderer does the right thing with it — MediaBox grows to the trim plus bleed
+on every side, and a TrimBox marks the finished page. The build committed in
+`gallery/pdf_writer/bin/` contains no reference to bleed at all, so running the
+committed tool with `-bleed` silently produces a PDF at trim size.
+
+That is the worst shape a stale build can take: the flag is accepted, nothing
+warns, and the file is wrong in a way that is invisible until a press trims
+into the picture. `npm run book:print` recompiles the tool before using it, the
+way `book:pdf` already did.

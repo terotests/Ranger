@@ -1,0 +1,1446 @@
+; ==============================================================================
+; BookEdit.rgr - editing a book, in page points, knowing nothing about pixels
+; ==============================================================================
+;
+; The same seam the slide editor draws: this file knows frames, pages, stories
+; and history; `BookApp` is the only place a window pixel becomes a page point.
+; Keeping the line there is what lets the browser host, an SDL window and a
+; headless test drive the identical editor.
+;
+;     pointer / keys ─► BookEditor ─► BookDocument ─► BookToEvg ─► EVGDisplayList
+;                            │                             ▲
+;                            └────── selection chrome ─────┘
+;
+; Four rules are taken from the slide editor because they were right there and
+; are right here:
+;
+;   An id is not an index.   Z-order and page reordering both renumber, so a
+;                            selection held as an index selects something else
+;                            after the next edit.
+;   History is snapshots.    One gesture can move a frame, re-flow three
+;                            stories and repaginate a chapter.
+;   A drag is one edit.      Thirty frames of dragging are one Ctrl+Z.
+;   Editing is a mode.       A book opened to read cannot be changed by a
+;                            stray click.
+;
+; And one rule that is this program's own, because a slide has no equivalent:
+;
+;   Every geometry edit re-flows.  Resizing a text frame does not move text
+;                                  inside it - it moves text onto other pages.
+;                                  An editor that does not re-flow after a drag
+;                                  is showing a book that does not exist.
+; ==============================================================================
+
+Import "BookAutoLayout.rgr"
+Import "../../evg/EVGSelectChrome.rgr"
+
+class BookEditRect {
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def valid:boolean false
+
+    Constructor () {
+    }
+
+    sfn create:BookEditRect (x:double y:double w:double h:double) {
+        def r (new BookEditRect())
+        r.x = x
+        r.y = y
+        r.w = w
+        r.h = h
+        r.valid = true
+        return r
+    }
+
+    fn contains:boolean (px:double py:double) {
+        if (px < x) {
+            return false
+        }
+        if (py < y) {
+            return false
+        }
+        def right:double (x + w)
+        if (px > right) {
+            return false
+        }
+        def bottom:double (y + h)
+        if (py > bottom) {
+            return false
+        }
+        return true
+    }
+}
+
+; What a snap decided, so the host can draw the line the frame snapped to.
+class BookSnapResult {
+    def dx:double 0.0
+    def dy:double 0.0
+    def hasX:boolean false
+    def hasY:boolean false
+    def lineX:double 0.0
+    def lineY:double 0.0
+
+    Constructor () {
+    }
+}
+
+class BookEditor {
+    def doc:BookDocument (new BookDocument())
+    def flow:BookFlowEngine (new BookFlowEngine())
+    def layout:BookAutoLayout (new BookAutoLayout())
+    def flowResult:BookFlowResult (new BookFlowResult())
+
+    def editMode:boolean false
+    def pageIndex:int 0
+    def selection:[string]
+
+    ; Snapping to the other frames on the page, to the margins and to the page
+    ; itself. Tolerance is in page points, so it means the same thing at any
+    ; zoom - which is the reason it is here rather than in the host.
+    def snapEnabled:boolean true
+    def snapTolerance:double 5.0
+    def lastSnap:BookSnapResult (new BookSnapResult())
+
+    ; A drag is expressed as a total offset from where it began, not as a
+    ; stream of small deltas. Snapping is why: a frame sitting ON a guide, moved
+    ; one point at a time, is pulled back onto the guide by every step and can
+    ; never be dragged off it. Measuring from the drag's origin makes the pull
+    ; happen once, against the position the pointer is actually asking for.
+    def dragging:boolean false
+    def dragIds:[string]
+    def dragX:[double]
+    def dragY:[double]
+    def dragW:[double]
+    def dragH:[double]
+    def dragBoundsX:double 0.0
+    def dragBoundsY:double 0.0
+    def dragBoundsW:double 0.0
+    def dragBoundsH:double 0.0
+
+    def history:[BookDocument]
+    def redoStack:[BookDocument]
+    def historyLimit:int 60
+    def dirty:boolean false
+
+    Constructor () {
+        layout.setEngine(flow)
+    }
+
+    fn attach:void (d:BookDocument) {
+        doc = d
+        layout.setEngine(flow)
+        clear selection
+        clear history
+        clear redoStack
+        pageIndex = 0
+        dirty = false
+        this.reflow()
+    }
+
+    fn setTextEngine:void (e:EVGTextEngine) {
+        flow.setTextEngine(e)
+        this.reflow()
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Flow
+    ; ---------------------------------------------------------------------
+
+    fn reflow:BookFlowResult () {
+        def r:BookFlowResult (flow.flowAll(doc))
+        flowResult = r
+        return r
+    }
+
+    fn overset:boolean () {
+        return flowResult.overflow
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Pages
+    ; ---------------------------------------------------------------------
+
+    fn pageCount:int () {
+        return (doc.pageCount())
+    }
+
+    fn currentPage:BookPage () {
+        def n:int (doc.pageCount())
+        if (n == 0) {
+            return (new BookPage())
+        }
+        if (pageIndex < 0) {
+            pageIndex = 0
+        }
+        if (pageIndex >= n) {
+            pageIndex = (n - 1)
+        }
+        return (doc.pageAt(pageIndex))
+    }
+
+    fn gotoPage:void (i:int) {
+        def n:int (doc.pageCount())
+        if (n == 0) {
+            pageIndex = 0
+            return
+        }
+        def want:int i
+        if (want < 0) {
+            want = 0
+        }
+        if (want >= n) {
+            want = (n - 1)
+        }
+        if (want != pageIndex) {
+            clear selection
+        }
+        pageIndex = want
+    }
+
+    ; A spread is the unit a book is read and edited in: page 0 alone, then
+    ; pairs. Turning a page in an editor should turn the sheet, not the leaf.
+    fn spreadIndex:int () {
+        if (pageIndex == 0) {
+            return 0
+        }
+        def rest:int (pageIndex - 1)
+        def half:int (idiv rest 2)
+        return (half + 1)
+    }
+
+    fn gotoSpread:void (s:int) {
+        if (s <= 0) {
+            this.gotoPage(0)
+            return
+        }
+        def base:int ((s - 1) * 2)
+        this.gotoPage((base + 1))
+    }
+
+    fn nextSpread:void () {
+        def s:int (this.spreadIndex())
+        this.gotoSpread((s + 1))
+    }
+
+    fn prevSpread:void () {
+        def s:int (this.spreadIndex())
+        this.gotoSpread((s - 1))
+    }
+
+    ; The two pages of the spread the cursor is on. -1 where there is none.
+    fn spreadLeft:int () {
+        def s:int (this.spreadIndex())
+        if (s == 0) {
+            return -1
+        }
+        def base:int ((s - 1) * 2)
+        def idx:int (base + 1)
+        if (idx >= (doc.pageCount())) {
+            return -1
+        }
+        return idx
+    }
+
+    fn spreadRight:int () {
+        def s:int (this.spreadIndex())
+        def idx:int 0
+        if (s > 0) {
+            def base:int ((s - 1) * 2)
+            idx = (base + 2)
+        }
+        if (idx >= (doc.pageCount())) {
+            return -1
+        }
+        return idx
+    }
+
+    fn addPage:BookPage (masterName:string) {
+        this.pushSnapshot()
+        def p:BookPage (doc.newPage(masterName))
+        pageIndex = p.index
+        this.reflow()
+        return p
+    }
+
+    fn duplicatePage:boolean () {
+        def n:int (doc.pageCount())
+        if (n == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def src:BookPage (doc.pageAt(pageIndex))
+        def copy:BookPage (src.copyOf())
+        ; New frames need new ids, or the duplicate's text frame would answer
+        ; to the original's name and the story would flow into both.
+        def i:int 0
+        while (i < (array_length copy.frames)) {
+            def f:BookFrame (itemAt copy.frames i)
+            f.id = (doc.nextId("f"))
+            ; A copied page is not part of the original's story chain: the
+            ; text would otherwise appear twice, once in each.
+            f.nextFrameId = ""
+            i = (i + 1)
+        }
+        def at:int (pageIndex + 1)
+        insert doc.pages at copy
+        doc.renumberPages()
+        pageIndex = at
+        clear selection
+        this.reflow()
+        return true
+    }
+
+    fn deletePage:boolean () {
+        def n:int (doc.pageCount())
+        if (n == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def gone:BookPage (doc.pageAt(pageIndex))
+        ; A frame that pointed into this page has to stop pointing at it, or
+        ; the chain walk ends at a frame that is not there any more.
+        def i:int 0
+        while (i < (array_length gone.frames)) {
+            def f:BookFrame (itemAt gone.frames i)
+            this.unlinkTo(f.id f.nextFrameId)
+            i = (i + 1)
+        }
+        remove_index doc.pages pageIndex
+        doc.renumberPages()
+        clear selection
+        this.gotoPage(pageIndex)
+        this.reflow()
+        return true
+    }
+
+    ; Anything pointing at `id` is redirected past it, so deleting a page in
+    ; the middle of a chapter joins the two halves rather than cutting it.
+    fn unlinkTo:void (id:string successor:string) {
+        def pi:int 0
+        while (pi < (array_length doc.pages)) {
+            def p:BookPage (itemAt doc.pages pi)
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.nextFrameId == id) {
+                    f.nextFrameId = successor
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+    }
+
+    fn movePage:boolean (to:int) {
+        def n:int (doc.pageCount())
+        if (n < 2) {
+            return false
+        }
+        if (to < 0) {
+            return false
+        }
+        if (to >= n) {
+            return false
+        }
+        if (to == pageIndex) {
+            return false
+        }
+        this.pushSnapshot()
+        def p:BookPage (doc.pageAt(pageIndex))
+        remove_index doc.pages pageIndex
+        insert doc.pages to p
+        doc.renumberPages()
+        pageIndex = to
+        this.reflow()
+        return true
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Selection
+    ; ---------------------------------------------------------------------
+
+    fn selectionCount:int () {
+        return (array_length selection)
+    }
+
+    fn isSelected:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length selection)) {
+            if ((itemAt selection i) == id) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn select:void (id:string additive:boolean) {
+        if ((strlen id) == 0) {
+            if (additive == false) {
+                clear selection
+            }
+            return
+        }
+        if additive {
+            if (this.isSelected(id)) {
+                def keep:[string]
+                def i:int 0
+                while (i < (array_length selection)) {
+                    def s:string (itemAt selection i)
+                    if (s != id) {
+                        push keep s
+                    }
+                    i = (i + 1)
+                }
+                clear selection
+                def k:int 0
+                while (k < (array_length keep)) {
+                    push selection (itemAt keep k)
+                    k = (k + 1)
+                }
+                return
+            }
+            push selection id
+            return
+        }
+        clear selection
+        push selection id
+    }
+
+    ; Everything on the current spread that the author is allowed to touch.
+    ; Master frames are drawn and not selectable, the same way a slide's layout
+    ; chrome is: they belong to the master, and editing one there would silently
+    ; make it a page-local override.
+    fn selectableFrames:[string] () {
+        def out:[string]
+        def pages:[int]
+        def l:int (this.spreadLeft())
+        def r:int (this.spreadRight())
+        if (l >= 0) {
+            push pages l
+        }
+        if (r >= 0) {
+            push pages r
+        }
+        def pi:int 0
+        while (pi < (array_length pages)) {
+            def idx:int (itemAt pages pi)
+            def p:BookPage (doc.pageAt(idx))
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.fromMaster == false) {
+                    push out f.id
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+        return out
+    }
+
+    fn selectAll:void () {
+        clear selection
+        def ids:[string] (this.selectableFrames())
+        def i:int 0
+        while (i < (array_length ids)) {
+            push selection (itemAt ids i)
+            i = (i + 1)
+        }
+    }
+
+    ; Topmost first: the last frame in the list is the one painted last, so it
+    ; is the one a click on overlapping frames should get.
+    fn hitTest:string (pageIdx:int px:double py:double) {
+        if (pageIdx < 0) {
+            return ""
+        }
+        if (pageIdx >= (doc.pageCount())) {
+            return ""
+        }
+        def p:BookPage (doc.pageAt(pageIdx))
+        def i:int ((array_length p.frames) - 1)
+        while (i >= 0) {
+            def f:BookFrame (itemAt p.frames i)
+            if (f.fromMaster == false) {
+                def r:BookEditRect (BookEditRect.create(f.x f.y f.w f.h))
+                if (r.contains(px py)) {
+                    return f.id
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    fn frameById:BookFrame (id:string) {
+        return (doc.frameFor(id))
+    }
+
+    fn selectionBounds:BookEditRect () {
+        def out (new BookEditRect())
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                def right:double (f.x + f.w)
+                def bottom:double (f.y + f.h)
+                if (out.valid == false) {
+                    out.x = f.x
+                    out.y = f.y
+                    out.w = f.w
+                    out.h = f.h
+                    out.valid = true
+                } {
+                    def x0:double out.x
+                    def y0:double out.y
+                    def x1:double (out.x + out.w)
+                    def y1:double (out.y + out.h)
+                    if (f.x < x0) {
+                        x0 = f.x
+                    }
+                    if (f.y < y0) {
+                        y0 = f.y
+                    }
+                    if (right > x1) {
+                        x1 = right
+                    }
+                    if (bottom > y1) {
+                        y1 = bottom
+                    }
+                    out.x = x0
+                    out.y = y0
+                    out.w = (x1 - x0)
+                    out.h = (y1 - y0)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The page a selected frame lives on, so the host knows which half of the
+    ; spread to measure against.
+    fn selectionPage:int () {
+        if ((array_length selection) == 0) {
+            return pageIndex
+        }
+        def id:string (itemAt selection 0)
+        def idx:int (doc.pageIndexOfFrame(id))
+        if (idx < 0) {
+            return pageIndex
+        }
+        return idx
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Snapping
+    ; ---------------------------------------------------------------------
+
+    ; Candidate edges on a page: the other frames' edges and centres, the
+    ; margins, and the page's own edges and centre.
+    fn snapXs:[double] (pageIdx:int) {
+        def out:[double]
+        if (pageIdx < 0) {
+            return out
+        }
+        if (pageIdx >= (doc.pageCount())) {
+            return out
+        }
+        def p:BookPage (doc.pageAt(pageIdx))
+        push out 0.0
+        push out p.width
+        push out (p.width * 0.5)
+        if (doc.hasMaster(p.masterName)) {
+            def m:BookMasterPage (doc.masterFor(p.masterName))
+            def recto:boolean (p.isRecto())
+            def left:double (m.leftMarginFor(recto))
+            def right:double (m.rightMarginFor(recto))
+            push out left
+            push out (p.width - right)
+        }
+        def i:int 0
+        while (i < (array_length p.frames)) {
+            def f:BookFrame (itemAt p.frames i)
+            if ((this.isSelected(f.id)) == false) {
+                push out f.x
+                push out (f.x + f.w)
+                def mid:double (f.w * 0.5)
+                push out (f.x + mid)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn snapYs:[double] (pageIdx:int) {
+        def out:[double]
+        if (pageIdx < 0) {
+            return out
+        }
+        if (pageIdx >= (doc.pageCount())) {
+            return out
+        }
+        def p:BookPage (doc.pageAt(pageIdx))
+        push out 0.0
+        push out p.height
+        push out (p.height * 0.5)
+        if (doc.hasMaster(p.masterName)) {
+            def m:BookMasterPage (doc.masterFor(p.masterName))
+            push out m.marginTop
+            push out (p.height - m.marginBottom)
+        }
+        def i:int 0
+        while (i < (array_length p.frames)) {
+            def f:BookFrame (itemAt p.frames i)
+            if ((this.isSelected(f.id)) == false) {
+                push out f.y
+                push out (f.y + f.h)
+                def mid:double (f.h * 0.5)
+                push out (f.y + mid)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The nearest candidate to any of the three edges a moving box presents,
+    ; within tolerance. Returns the adjustment to add to the proposed delta.
+    sfn nearestAdjust:double (candidates:[double] a:double b:double c:double tolerance:double) {
+        def best:double 0.0
+        def bestDist:double tolerance
+        def edges:[double]
+        push edges a
+        push edges b
+        push edges c
+        def i:int 0
+        while (i < (array_length candidates)) {
+            def cand:double (itemAt candidates i)
+            def e:int 0
+            while (e < 3) {
+                def edge:double (itemAt edges e)
+                def d:double (cand - edge)
+                def ad:double d
+                if (ad < 0.0) {
+                    ad = (0.0 - ad)
+                }
+                if (ad < bestDist) {
+                    bestDist = ad
+                    best = d
+                }
+                e = (e + 1)
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    sfn nearestLine:double (candidates:[double] a:double b:double c:double tolerance:double) {
+        def best:double 0.0
+        def bestDist:double tolerance
+        def edges:[double]
+        push edges a
+        push edges b
+        push edges c
+        def i:int 0
+        while (i < (array_length candidates)) {
+            def cand:double (itemAt candidates i)
+            def e:int 0
+            while (e < 3) {
+                def edge:double (itemAt edges e)
+                def d:double (cand - edge)
+                def ad:double d
+                if (ad < 0.0) {
+                    ad = (0.0 - ad)
+                }
+                if (ad < bestDist) {
+                    bestDist = ad
+                    best = cand
+                }
+                e = (e + 1)
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The snap for a box at (bx, by, bw, bh) being moved by (dx, dy).
+    fn snapFor:BookSnapResult (bx:double by:double bw:double bh:double dx:double dy:double) {
+        def res (new BookSnapResult())
+        res.dx = dx
+        res.dy = dy
+        if (snapEnabled == false) {
+            lastSnap = res
+            return res
+        }
+        def pageIdx:int (this.selectionPage())
+        def xs:[double] (this.snapXs(pageIdx))
+        def ys:[double] (this.snapYs(pageIdx))
+
+        def left:double (bx + dx)
+        def right:double (left + bw)
+        def midX:double (left + (bw * 0.5))
+        def adjX:double (BookEditor.nearestAdjust(xs left right midX snapTolerance))
+        if (adjX != 0.0) {
+            res.dx = (dx + adjX)
+            res.hasX = true
+            res.lineX = (BookEditor.nearestLine(xs left right midX snapTolerance))
+        }
+
+        def top:double (by + dy)
+        def bottom:double (top + bh)
+        def midY:double (top + (bh * 0.5))
+        def adjY:double (BookEditor.nearestAdjust(ys top bottom midY snapTolerance))
+        if (adjY != 0.0) {
+            res.dy = (dy + adjY)
+            res.hasY = true
+            res.lineY = (BookEditor.nearestLine(ys top bottom midY snapTolerance))
+        }
+        lastSnap = res
+        return res
+    }
+
+    fn snapDelta:BookSnapResult (dx:double dy:double) {
+        def bounds:BookEditRect (this.selectionBounds())
+        if (bounds.valid == false) {
+            def res (new BookSnapResult())
+            res.dx = dx
+            res.dy = dy
+            lastSnap = res
+            return res
+        }
+        return (this.snapFor(bounds.x bounds.y bounds.w bounds.h dx dy))
+    }
+
+    ; ---------------------------------------------------------------------
+    ; A drag, measured from where it started
+    ; ---------------------------------------------------------------------
+
+    fn beginDrag:void () {
+        clear dragIds
+        clear dragX
+        clear dragY
+        clear dragW
+        clear dragH
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                push dragIds id
+                push dragX f.x
+                push dragY f.y
+                push dragW f.w
+                push dragH f.h
+            }
+            i = (i + 1)
+        }
+        def b:BookEditRect (this.selectionBounds())
+        dragBoundsX = b.x
+        dragBoundsY = b.y
+        dragBoundsW = b.w
+        dragBoundsH = b.h
+        dragging = b.valid
+    }
+
+    fn endDrag:void () {
+        dragging = false
+    }
+
+    ; Move the selection to (its position when the drag began) + this offset.
+    fn dragBy:boolean (totalDx:double totalDy:double) {
+        if (editMode == false) {
+            return false
+        }
+        if (dragging == false) {
+            return false
+        }
+        def snap:BookSnapResult (this.snapFor(dragBoundsX dragBoundsY dragBoundsW dragBoundsH totalDx totalDy))
+        def i:int 0
+        while (i < (array_length dragIds)) {
+            def id:string (itemAt dragIds i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                f.x = ((itemAt dragX i) + snap.dx)
+                f.y = ((itemAt dragY i) + snap.dy)
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    ; Resize the selection's box to what this handle and this offset ask for,
+    ; measured from the box the drag began on.
+    fn resizeTo:boolean (handle:int totalDx:double totalDy:double) {
+        if (editMode == false) {
+            return false
+        }
+        if (dragging == false) {
+            return false
+        }
+        def x0:double dragBoundsX
+        def y0:double dragBoundsY
+        def x1:double (dragBoundsX + dragBoundsW)
+        def y1:double (dragBoundsY + dragBoundsH)
+        def west:boolean (EVGSelectChrome.movesWest(handle))
+        def east:boolean (EVGSelectChrome.movesEast(handle))
+        def north:boolean (EVGSelectChrome.movesNorth(handle))
+        def south:boolean (EVGSelectChrome.movesSouth(handle))
+        if west {
+            x0 = (x0 + totalDx)
+        }
+        if east {
+            x1 = (x1 + totalDx)
+        }
+        if north {
+            y0 = (y0 + totalDy)
+        }
+        if south {
+            y1 = (y1 + totalDy)
+        }
+        def minSide:double 8.0
+        if ((x1 - x0) < minSide) {
+            if west {
+                x0 = (x1 - minSide)
+            } {
+                x1 = (x0 + minSide)
+            }
+        }
+        if ((y1 - y0) < minSide) {
+            if north {
+                y0 = (y1 - minSide)
+            } {
+                y1 = (y0 + minSide)
+            }
+        }
+        def sx:double 1.0
+        def sy:double 1.0
+        if (dragBoundsW > 0.0) {
+            sx = ((x1 - x0) / dragBoundsW)
+        }
+        if (dragBoundsH > 0.0) {
+            sy = ((y1 - y0) / dragBoundsH)
+        }
+        def i:int 0
+        while (i < (array_length dragIds)) {
+            def id:string (itemAt dragIds i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                def relX:double ((itemAt dragX i) - dragBoundsX)
+                def relY:double ((itemAt dragY i) - dragBoundsY)
+                f.x = (x0 + (relX * sx))
+                f.y = (y0 + (relY * sy))
+                f.w = ((itemAt dragW i) * sx)
+                f.h = ((itemAt dragH i) * sy)
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Moving and resizing
+    ; ---------------------------------------------------------------------
+
+    ; A drag frame. The host calls this per pointer move and pushes ONE
+    ; snapshot when the drag begins, so the whole gesture is one undo.
+    fn applyMove:boolean (dx:double dy:double) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        def snap:BookSnapResult (this.snapDelta(dx dy))
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                f.x = (f.x + snap.dx)
+                f.y = (f.y + snap.dy)
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    ; Handles are numbered clockwise from the top-left corner:
+    ;   0 NW   1 N   2 NE   3 E   4 SE   5 S   6 SW   7 W
+    fn applyResize:boolean (handle:int dx:double dy:double) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        def bounds:BookEditRect (this.selectionBounds())
+        if (bounds.valid == false) {
+            return false
+        }
+        def x0:double bounds.x
+        def y0:double bounds.y
+        def x1:double (bounds.x + bounds.w)
+        def y1:double (bounds.y + bounds.h)
+
+        ; Which edges this handle owns is shared with the slide editor - the
+        ; two number their handles the same way on purpose.
+        def west:boolean (EVGSelectChrome.movesWest(handle))
+        def east:boolean (EVGSelectChrome.movesEast(handle))
+        def north:boolean (EVGSelectChrome.movesNorth(handle))
+        def south:boolean (EVGSelectChrome.movesSouth(handle))
+
+        if west {
+            x0 = (x0 + dx)
+        }
+        if east {
+            x1 = (x1 + dx)
+        }
+        if north {
+            y0 = (y0 + dy)
+        }
+        if south {
+            y1 = (y1 + dy)
+        }
+        ; A frame narrower than this is a frame nobody can grab again.
+        def minSide:double 8.0
+        if ((x1 - x0) < minSide) {
+            if west {
+                x0 = (x1 - minSide)
+            } {
+                x1 = (x0 + minSide)
+            }
+        }
+        if ((y1 - y0) < minSide) {
+            if north {
+                y0 = (y1 - minSide)
+            } {
+                y1 = (y0 + minSide)
+            }
+        }
+
+        def sx:double 1.0
+        def sy:double 1.0
+        if (bounds.w > 0.0) {
+            sx = ((x1 - x0) / bounds.w)
+        }
+        if (bounds.h > 0.0) {
+            sy = ((y1 - y0) / bounds.h)
+        }
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                def relX:double (f.x - bounds.x)
+                def relY:double (f.y - bounds.y)
+                f.x = (x0 + (relX * sx))
+                f.y = (y0 + (relY * sy))
+                f.w = (f.w * sx)
+                f.h = (f.h * sy)
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    fn nudge:boolean (dx:double dy:double) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def wasSnap:boolean snapEnabled
+        snapEnabled = false
+        this.applyMove(dx dy)
+        snapEnabled = wasSnap
+        return true
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Frames
+    ; ---------------------------------------------------------------------
+
+    fn addFrame:string (kind:string x:double y:double w:double h:double) {
+        if ((doc.pageCount()) == 0) {
+            return ""
+        }
+        this.pushSnapshot()
+        def page:BookPage (this.currentPage())
+        def f (new BookFrame())
+        f.id = (doc.nextId("f"))
+        f.kind = kind
+        f.x = x
+        f.y = y
+        f.w = w
+        f.h = h
+        if (kind == "shape") {
+            f.fill = "#dfe6f2"
+        }
+        page.addFrame(f)
+        this.select(f.id false)
+        dirty = true
+        this.reflow()
+        return f.id
+    }
+
+    ; A text frame is not useful until it belongs to a story, so creating one
+    ; joins the story the page is already showing when there is one.
+    fn addTextFrame:string (storyId:string x:double y:double w:double h:double) {
+        def id:string (this.addFrame("text" x y w h))
+        if ((strlen id) == 0) {
+            return ""
+        }
+        def f:BookFrame (doc.frameFor(id))
+        f.storyId = storyId
+        this.reflow()
+        return id
+    }
+
+    fn addImageFrame:string (assetId:string x:double y:double w:double h:double) {
+        def id:string (this.addFrame("image" x y w h))
+        if ((strlen id) == 0) {
+            return ""
+        }
+        def f:BookFrame (doc.frameFor(id))
+        f.assetId = assetId
+        f.fit = "cover"
+        return id
+    }
+
+    fn deleteSelection:boolean () {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            this.removeFrame(id)
+            i = (i + 1)
+        }
+        clear selection
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    fn removeFrame:void (id:string) {
+        def pi:int 0
+        while (pi < (array_length doc.pages)) {
+            def p:BookPage (itemAt doc.pages pi)
+            def fi:int 0
+            while (fi < (array_length p.frames)) {
+                def f:BookFrame (itemAt p.frames fi)
+                if (f.id == id) {
+                    this.unlinkTo(id f.nextFrameId)
+                    remove_index p.frames fi
+                    return
+                }
+                fi = (fi + 1)
+            }
+            pi = (pi + 1)
+        }
+    }
+
+    fn duplicateSelection:boolean () {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def made:[string]
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def idx:int (doc.pageIndexOfFrame(id))
+                def page:BookPage (doc.pageAt(idx))
+                def src:BookFrame (doc.frameFor(id))
+                def copy:BookFrame (src.copyOf())
+                copy.id = (doc.nextId("f"))
+                copy.x = (copy.x + 12.0)
+                copy.y = (copy.y + 12.0)
+                ; A duplicate is not a continuation of the original's story.
+                copy.nextFrameId = ""
+                page.addFrame(copy)
+                push made copy.id
+            }
+            i = (i + 1)
+        }
+        clear selection
+        def k:int 0
+        while (k < (array_length made)) {
+            push selection (itemAt made k)
+            k = (k + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    ; Z-order within a page. Frames are painted in list order inside a layer,
+    ; so "front" is the end of the list.
+    fn reorder:boolean (mode:string) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def idx:int (doc.pageIndexOfFrame(id))
+                def page:BookPage (doc.pageAt(idx))
+                def at:int (BookEditor.indexOfFrame(page id))
+                if (at >= 0) {
+                    def f:BookFrame (itemAt page.frames at)
+                    def n:int (array_length page.frames)
+                    def to:int at
+                    if (mode == "front") {
+                        to = (n - 1)
+                    }
+                    if (mode == "back") {
+                        to = 0
+                    }
+                    if (mode == "forward") {
+                        to = (at + 1)
+                    }
+                    if (mode == "backward") {
+                        to = (at - 1)
+                    }
+                    if (to < 0) {
+                        to = 0
+                    }
+                    if (to >= n) {
+                        to = (n - 1)
+                    }
+                    if (to != at) {
+                        remove_index page.frames at
+                        insert page.frames to f
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        return true
+    }
+
+    sfn indexOfFrame:int (page:BookPage id:string) {
+        def i:int 0
+        while (i < (array_length page.frames)) {
+            def f:BookFrame (itemAt page.frames i)
+            if (f.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn alignSelection:boolean (mode:string) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) < 2) {
+            return false
+        }
+        def bounds:BookEditRect (this.selectionBounds())
+        if (bounds.valid == false) {
+            return false
+        }
+        this.pushSnapshot()
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                if (mode == "left") {
+                    f.x = bounds.x
+                }
+                if (mode == "right") {
+                    f.x = ((bounds.x + bounds.w) - f.w)
+                }
+                if (mode == "hcenter") {
+                    def cx:double (bounds.x + (bounds.w * 0.5))
+                    def hw:double (f.w * 0.5)
+                    f.x = (cx - hw)
+                }
+                if (mode == "top") {
+                    f.y = bounds.y
+                }
+                if (mode == "bottom") {
+                    f.y = ((bounds.y + bounds.h) - f.h)
+                }
+                if (mode == "vcenter") {
+                    def cy:double (bounds.y + (bounds.h * 0.5))
+                    def hh:double (f.h * 0.5)
+                    f.y = (cy - hh)
+                }
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    ; ---------------------------------------------------------------------
+    ; The gesture a slide editor does not have
+    ; ---------------------------------------------------------------------
+
+    ; Link the selected text frames into one chain, in selection order. This is
+    ; the editing operation that makes this a book tool: it does not move any
+    ; text, it changes where the text is allowed to go, and the flow decides
+    ; the rest.
+    fn linkSelection:boolean () {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) < 2) {
+            return false
+        }
+        def ids:[string]
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                if (f.kind == "text") {
+                    push ids id
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length ids) < 2) {
+            return false
+        }
+        this.pushSnapshot()
+        def head:BookFrame (doc.frameFor((itemAt ids 0)))
+        def storyId:string head.storyId
+        if ((strlen storyId) == 0) {
+            storyId = (doc.nextId("story"))
+            doc.newStory(storyId)
+            head.storyId = storyId
+        }
+        def k:int 0
+        while (k < ((array_length ids) - 1)) {
+            def a:string (itemAt ids k)
+            def b:string (itemAt ids (k + 1))
+            doc.linkFrames(a b)
+            k = (k + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    fn unlinkSelection:boolean () {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                f.nextFrameId = ""
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Properties
+    ; ---------------------------------------------------------------------
+
+    fn setFill:boolean (hex:string) {
+        return (this.applyToSelection("fill" hex 0.0))
+    }
+
+    fn setStroke:boolean (hex:string) {
+        return (this.applyToSelection("stroke" hex 0.0))
+    }
+
+    fn setFit:boolean (mode:string) {
+        return (this.applyToSelection("fit" mode 0.0))
+    }
+
+    fn setColumns:boolean (n:int) {
+        def v:double (to_double n)
+        return (this.applyToSelection("columns" "" v))
+    }
+
+    fn setFocus:boolean (fx:double fy:double) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                f.focusX = fx
+                f.focusY = fy
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        return true
+    }
+
+    fn applyToSelection:boolean (what:string text:string value:double) {
+        if (editMode == false) {
+            return false
+        }
+        if ((array_length selection) == 0) {
+            return false
+        }
+        this.pushSnapshot()
+        def i:int 0
+        while (i < (array_length selection)) {
+            def id:string (itemAt selection i)
+            if (doc.hasFrame(id)) {
+                def f:BookFrame (doc.frameFor(id))
+                if (what == "fill") {
+                    f.fill = text
+                }
+                if (what == "stroke") {
+                    f.stroke = text
+                    if (f.strokeWidth <= 0.0) {
+                        f.strokeWidth = 1.0
+                    }
+                }
+                if (what == "fit") {
+                    f.fit = text
+                }
+                if (what == "columns") {
+                    def n:int (to_int value)
+                    if (n < 1) {
+                        n = 1
+                    }
+                    f.columns = n
+                }
+            }
+            i = (i + 1)
+        }
+        dirty = true
+        this.reflow()
+        return true
+    }
+
+    ; ---------------------------------------------------------------------
+    ; History
+    ; ---------------------------------------------------------------------
+
+    fn pushSnapshot:void () {
+        def snap:BookDocument (doc.copyOf())
+        push history snap
+        clear redoStack
+        while ((array_length history) > historyLimit) {
+            remove_index history 0
+        }
+    }
+
+    fn canUndo:boolean () {
+        return ((array_length history) > 0)
+    }
+
+    fn canRedo:boolean () {
+        return ((array_length redoStack) > 0)
+    }
+
+    fn undo:boolean () {
+        if ((array_length history) == 0) {
+            return false
+        }
+        def current:BookDocument (doc.copyOf())
+        push redoStack current
+        def last:int ((array_length history) - 1)
+        def snap:BookDocument (itemAt history last)
+        remove_index history last
+        doc.restoreFrom(snap)
+        clear selection
+        this.gotoPage(pageIndex)
+        this.reflow()
+        return true
+    }
+
+    fn redo:boolean () {
+        if ((array_length redoStack) == 0) {
+            return false
+        }
+        def current:BookDocument (doc.copyOf())
+        push history current
+        def last:int ((array_length redoStack) - 1)
+        def snap:BookDocument (itemAt redoStack last)
+        remove_index redoStack last
+        doc.restoreFrom(snap)
+        clear selection
+        this.gotoPage(pageIndex)
+        this.reflow()
+        return true
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Book-scale operations
+    ; ---------------------------------------------------------------------
+
+    fn runAutoLayout:BookAutoLayoutResult (storyId:string masterName:string) {
+        this.pushSnapshot()
+        def ids:[string]
+        def i:int 0
+        while (i < (array_length doc.assets)) {
+            def a:BookAsset (itemAt doc.assets i)
+            push ids a.id
+            i = (i + 1)
+        }
+        def r:BookAutoLayoutResult (layout.build(doc storyId ids masterName))
+        dirty = true
+        this.reflow()
+        return r
+    }
+
+    fn padToSignature:int (multiple:int) {
+        this.pushSnapshot()
+        def n:int (layout.padToSignature(doc multiple))
+        if (n > 0) {
+            dirty = true
+        }
+        this.reflow()
+        return n
+    }
+}

@@ -1,0 +1,1345 @@
+; ==============================================================================
+; BookApp.rgr - the book editor's host seam
+; ==============================================================================
+;
+; The only place in this directory where a window pixel becomes a page point.
+; Everything above it is `BookEditor`, which knows pages and frames and nothing
+; about windows; everything below it is a host - the browser, an SDL window, a
+; headless test - which knows pixels and nothing about books.
+;
+;     pointer / keys ─► BookApp ─► BookEditor ─► BookDocument
+;                          │                          │
+;                          │                     BookToEvg
+;                          ▼                          ▼
+;                    selection chrome ───►  one EVGDisplayList  ──► WebGL / GL
+;                    toolbar, panel,                              ─► SoftCanvas
+;                    status, dialogs
+;
+; The chrome goes into the SAME display list as the pages, after them. That is
+; what lets every host draw a complete editor without knowing what a handle is,
+; and it is why an exported book has none of it: the export never builds this
+; list, it goes through `BookRender`.
+;
+; The frame around the canvas - the strip, the window layer, the command table -
+; is the shared one the spreadsheet, the document and the deck all use. A fourth
+; toolbar in a fourth style would have been the wrong kind of new code.
+; ==============================================================================
+
+Import "BookEdit.rgr"
+Import "BookView.rgr"
+Import "BookPreflight.rgr"
+Import "BookSample.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
+Import "../../evg/EVGToolbarView.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "../../evg/EVGCommands.rgr"
+Import "../../evg/EVGSelectChrome.rgr"
+
+class BookToolbar extends EVGToolbar {
+    ; The strip cannot work out whether the book is being edited, or which
+    ; spread you are on, any more than it can work out what a spread is.
+    def editOn:boolean false
+    def framesOn:boolean false
+    def marginsOn:boolean false
+    def snapOn:boolean true
+
+    Constructor () {
+    }
+
+    fn build:void () {
+        clear items
+        this.add("nav.first" "" "First spread" (ToolIcon.alignLeft()))
+        this.add("nav.prev" "" "Previous spread" (ToolIcon.undo()))
+        this.add("nav.next" "" "Next spread" (ToolIcon.redo()))
+        this.add("nav.last" "" "Last spread" (ToolIcon.alignRight()))
+        this.addText("nav.pick" "" "1 / 1" 88)
+        this.addSeparator()
+        this.add("edit.toggle" "" "Edit the book" (ToolIcon.paint()))
+        this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        this.addSeparator()
+        this.add("frame.text" "" "Insert a text frame" (ToolIcon.textColor()))
+        this.add("frame.image" "" "Insert a picture frame" (ToolIcon.report()))
+        this.add("frame.shape" "" "Insert a shape" (ToolIcon.borderAll()))
+        this.addSeparator()
+        ; The two buttons that make this a book tool rather than a page tool.
+        this.add("frame.link" "" "Flow the story through these frames" (ToolIcon.link()))
+        this.add("frame.unlink" "" "Break the flow here" (ToolIcon.borderNone()))
+        this.addSeparator()
+        this.add("edit.duplicate" "" "Duplicate" (ToolIcon.merge()))
+        this.add("edit.delete" "" "Delete" (ToolIcon.deleteRow()))
+        this.add("edit.front" "" "Bring to front" (ToolIcon.valignTop()))
+        this.add("edit.back" "" "Send to back" (ToolIcon.valignBot()))
+        this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
+        this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
+        this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
+        this.addSeparator()
+        this.add("image.cover" "" "Crop the picture to fill the frame" (ToolIcon.borderOut()))
+        this.add("image.contain" "" "Fit the whole picture in" (ToolIcon.borderNone()))
+        this.addSeparator()
+        this.add("page.add" "" "New page" (ToolIcon.newFile()))
+        this.add("page.duplicate" "" "Duplicate page" (ToolIcon.insertRow()))
+        this.add("page.delete" "" "Delete page" (ToolIcon.deleteRow()))
+        this.addSeparator()
+        this.add("view.frames" "" "Show the frame edges" (ToolIcon.borderAll()))
+        this.add("view.margins" "" "Show the margins" (ToolIcon.freeze()))
+        this.add("view.snap" "" "Snap to the guides" (ToolIcon.merge()))
+        this.add("book.preflight" "" "Check it for print" (ToolIcon.validate()))
+    }
+
+    fn refresh:void (spread:int spreads:int) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            t.pressed = false
+            if (t.command == "nav.pick") {
+                def a:string (to_string (spread + 1))
+                def b:string (to_string spreads)
+                t.label = (a + " / " + b)
+            }
+            if (t.command == "edit.toggle") {
+                t.pressed = editOn
+            }
+            if (t.command == "view.frames") {
+                t.pressed = framesOn
+            }
+            if (t.command == "view.margins") {
+                t.pressed = marginsOn
+            }
+            if (t.command == "view.snap") {
+                t.pressed = snapOn
+            }
+            i = (i + 1)
+        }
+    }
+}
+
+class BookApp {
+    def editor:BookEditor (new BookEditor())
+    def view:BookView (new BookView())
+    def preflight:BookPreflight (new BookPreflight())
+
+    def W:int 1180
+    def H:int 800
+    def toolbar:BookToolbar (new BookToolbar)
+    def toolbarView:EVGToolbarView (new EVGToolbarView)
+    def windows:EVGWindowManager (new EVGWindowManager)
+    def commands:GridCommandTable (new GridCommandTable)
+    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    def toolbarH:int 30
+    def statusH:int 22
+    def status:string ""
+
+    def panelW:int 132
+    def panelVisible:boolean true
+    def panelScroll:int 0
+
+    ; 0 none, 1 move, 2 resize, 3 marquee
+    def dragMode:int 0
+    def dragHandle:int -1
+    def dragLastX:double 0.0
+    def dragLastY:double 0.0
+    def dragMoved:boolean false
+    def marqueeAX:double 0.0
+    def marqueeAY:double 0.0
+    def marqueeBX:double 0.0
+    def marqueeBY:double 0.0
+    def modShift:boolean false
+    def modCtrl:boolean false
+
+    def preflightWindow:EVGWindow (new EVGWindow)
+    def lastReport:BookPreflightReport (new BookPreflightReport())
+
+    Constructor () {
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Start-up
+    ; ---------------------------------------------------------------------
+
+    fn init:void (fontDir:string) {
+        view.init(W H fontDir)
+        this.initFrame()
+    }
+
+    ; Start without reading a font directory. A browser cannot read files, so
+    ; the faces arrive as bytes instead - see web/book_web.rgr.
+    fn initBare:void () {
+        view.initBare(W H)
+        this.initFrame()
+    }
+
+    fn addFontBytes:boolean (family:string data:buffer) {
+        def ok:boolean (view.ctx.tr.loadFontBytes(family data))
+        ; The flow engine measures through the same renderer, so a face that
+        ; arrives after the layout means the layout was computed with the wrong
+        ; widths. Re-flowing is cheaper than being wrong.
+        view.attachMeasurer()
+        editor.reflow()
+        return ok
+    }
+
+    fn addFaceBytes:boolean (data:buffer) {
+        def ok:boolean (view.ctx.tr.addFaceBytes(data))
+        view.attachMeasurer()
+        editor.reflow()
+        return ok
+    }
+
+    ; A family the host has loaded faces for, so a run naming it is measured
+    ; and painted in it. A byte-loading host knows this and the view cannot.
+    fn noteFamily:void (name:string) {
+        view.noteFamily(name)
+        editor.reflow()
+    }
+
+    fn initFrame:void () {
+        toolbar.build()
+        toolbarH = (toolbar.heightFor(W))
+        view.chromeH = (toolbarH + statusH)
+        view.chromeW = (this.panelWidth())
+        this.registerCommands()
+        ; The canvas measures with the faces it paints with, and the flow
+        ; engine is handed the same measurer - see BookView.attachMeasurer.
+        editor.setTextEngine(view.textEngine)
+    }
+
+    fn registerCommands:void () {
+        commands.add("nav.next" "Next spread" "View" "Right")
+        commands.add("nav.prev" "Previous spread" "View" "Left")
+        commands.add("nav.first" "First spread" "View" "Home")
+        commands.add("nav.last" "Last spread" "View" "End")
+        commands.addArg("nav.goto" "Go to page" "View" "")
+        commands.add("edit.toggle" "Edit the book" "Edit" "Ctrl+E")
+        commands.add("edit.undo" "Undo" "Edit" "Ctrl+Z")
+        commands.add("edit.redo" "Redo" "Edit" "Ctrl+Y")
+        commands.add("edit.delete" "Delete" "Edit" "Del")
+        commands.add("edit.duplicate" "Duplicate" "Edit" "Ctrl+D")
+        commands.add("edit.selectall" "Select all" "Edit" "Ctrl+A")
+        commands.add("frame.text" "Insert a text frame" "Insert" "")
+        commands.add("frame.image" "Insert a picture frame" "Insert" "")
+        commands.add("frame.shape" "Insert a shape" "Insert" "")
+        commands.add("frame.link" "Flow the story through these frames" "Story" "Ctrl+L")
+        commands.add("frame.unlink" "Break the flow here" "Story" "")
+        commands.add("edit.front" "Bring to front" "Arrange" "")
+        commands.add("edit.back" "Send to back" "Arrange" "")
+        commands.add("edit.align.left" "Align left" "Arrange" "")
+        commands.add("edit.align.hcenter" "Align centre" "Arrange" "")
+        commands.add("edit.align.right" "Align right" "Arrange" "")
+        commands.add("edit.align.top" "Align top" "Arrange" "")
+        commands.add("edit.align.bottom" "Align bottom" "Arrange" "")
+        commands.addArg("image.fit" "How the picture fills its frame" "Picture" "")
+        commands.add("image.cover" "Crop the picture to fill the frame" "Picture" "")
+        commands.add("image.contain" "Fit the whole picture in" "Picture" "")
+        commands.add("page.add" "New page" "Pages" "")
+        commands.add("page.duplicate" "Duplicate page" "Pages" "")
+        commands.add("page.delete" "Delete page" "Pages" "")
+        commands.add("page.moveup" "Move page earlier" "Pages" "")
+        commands.add("page.movedown" "Move page later" "Pages" "")
+        commands.add("view.frames" "Show the frame edges" "View" "")
+        commands.add("view.margins" "Show the margins" "View" "")
+        commands.add("view.snap" "Snap to the guides" "View" "")
+        commands.add("view.panel" "Show the pages" "View" "")
+        commands.add("book.preflight" "Check it for print" "Book" "")
+        commands.add("book.autolayout" "Lay the story out again" "Book" "")
+        commands.add("book.signature" "Pad to a multiple of four" "Book" "")
+        commands.add("dialog.close" "Close the dialog" "View" "Esc")
+    }
+
+    fn attach:void (d:BookDocument) {
+        editor.attach(d)
+        this.refreshStatus()
+    }
+
+    fn document:BookDocument () {
+        return editor.doc
+    }
+
+    ; Open the bundled book, laid out with the canvas's own font measurements.
+    ; A host with no file system - the browser one - has nothing else to open,
+    ; and a host that does have one still wants something to show first.
+    fn loadSample:void (assetBase:string) {
+        def d:BookDocument (BookSample.laidOut(assetBase editor.flow))
+        this.attach(d)
+    }
+
+    ; The asset paths the sample refers to, so a host can read the files and
+    ; hand the bytes back through addImageBytes.
+    fn assetPaths:[string] () {
+        def out:[string]
+        def d:BookDocument editor.doc
+        def i:int 0
+        while (i < (array_length d.assets)) {
+            def a:BookAsset (itemAt d.assets i)
+            push out a.path
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A picture the host has read off disk or out of a fetch. The key is the
+    ; asset path exactly as the document spells it, because that is the string
+    ; the display list will carry.
+    fn addImageBytes:void (key:string bytes:buffer) {
+        view.cacheImage(key bytes)
+    }
+
+    fn resize:void (nw:int nh:int) {
+        W = nw
+        H = nh
+        view.resize(nw nh)
+        toolbarH = (toolbar.heightFor(W))
+        view.chromeH = (toolbarH + statusH)
+        view.chromeW = (this.panelWidth())
+    }
+
+    fn panelWidth:int () {
+        if (panelVisible == false) {
+            return 0
+        }
+        return panelW
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Where the sheet is
+    ; ---------------------------------------------------------------------
+
+    ; A spread is drawn as a sheet two pages wide, always - so the opening
+    ; recto sits on the right of it with nothing facing it, which is what a
+    ; reader sees when the book is opened.
+    fn sheetW:double () {
+        def d:BookDocument editor.doc
+        return (d.pageWidth * 2.0)
+    }
+
+    fn sheetH:double () {
+        def d:BookDocument editor.doc
+        return d.pageHeight
+    }
+
+    fn scale:double () {
+        def w:double (this.sheetW())
+        def h:double (this.sheetH())
+        return (view.fitScale(w h))
+    }
+
+    fn originX:double () {
+        def s:double (this.scale())
+        def w:double (this.sheetW())
+        def drawn:double (w * s)
+        def panel:double (to_double (this.panelWidth()))
+        def avail:double ((to_double W) - panel)
+        def slack:double (avail - drawn)
+        return (panel + (slack * 0.5))
+    }
+
+    fn originY:double () {
+        def s:double (this.scale())
+        def h:double (this.sheetH())
+        def drawn:double (h * s)
+        def top:double (to_double toolbarH)
+        def avail:double ((to_double H) - top)
+        def bottom:double (to_double statusH)
+        def usable:double (avail - bottom)
+        def slack:double (usable - drawn)
+        return (top + (slack * 0.5))
+    }
+
+    ; The device x of a page's left edge on the sheet.
+    fn pageOriginX:double (pageIdx:int) {
+        def ox:double (this.originX())
+        def s:double (this.scale())
+        def d:BookDocument editor.doc
+        def right:boolean (this.isRightPage(pageIdx))
+        if right {
+            def step:double (d.pageWidth * s)
+            return (ox + step)
+        }
+        return ox
+    }
+
+    fn isRightPage:boolean (pageIdx:int) {
+        def r:int (editor.spreadRight())
+        return (pageIdx == r)
+    }
+
+    ; Which page of the spread a window point is over, and where on it.
+    ; -1 when the point is not on either page.
+    fn pageAt:int (px:int py:int) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return -1
+        }
+        def ox:double (this.originX())
+        def oy:double (this.originY())
+        def d:BookDocument editor.doc
+        def relX:double (((to_double px) - ox) / s)
+        def relY:double (((to_double py) - oy) / s)
+        if (relY < 0.0) {
+            return -1
+        }
+        if (relY > d.pageHeight) {
+            return -1
+        }
+        if (relX < 0.0) {
+            return -1
+        }
+        def total:double (d.pageWidth * 2.0)
+        if (relX > total) {
+            return -1
+        }
+        if (relX < d.pageWidth) {
+            return (editor.spreadLeft())
+        }
+        return (editor.spreadRight())
+    }
+
+    fn pointX:double (px:int pageIdx:int) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return 0.0
+        }
+        def po:double (this.pageOriginX(pageIdx))
+        return (((to_double px) - po) / s)
+    }
+
+    fn pointY:double (py:int) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return 0.0
+        }
+        def oy:double (this.originY())
+        return (((to_double py) - oy) / s)
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Commands
+    ; ---------------------------------------------------------------------
+
+    fn runCommand:boolean (id:string arg:string) {
+        if (id == "nav.next") {
+            editor.nextSpread()
+            this.refreshStatus()
+            return true
+        }
+        if (id == "nav.prev") {
+            editor.prevSpread()
+            this.refreshStatus()
+            return true
+        }
+        if (id == "nav.first") {
+            editor.gotoSpread(0)
+            this.refreshStatus()
+            return true
+        }
+        if (id == "nav.last") {
+            def d:BookDocument editor.doc
+            def n:int (d.spreadCount())
+            editor.gotoSpread((n - 1))
+            this.refreshStatus()
+            return true
+        }
+        if (id == "nav.goto") {
+            def v@(optional):int (str2int arg)
+            if v {
+                def n:int (unwrap v)
+                editor.gotoPage((n - 1))
+                this.refreshStatus()
+                return true
+            }
+            return false
+        }
+        if (id == "edit.toggle") {
+            editor.editMode = (editor.editMode == false)
+            toolbar.editOn = editor.editMode
+            if (editor.editMode == false) {
+                clear editor.selection
+            }
+            this.refreshStatus()
+            return true
+        }
+        if (id == "edit.undo") {
+            def ok:boolean (editor.undo())
+            this.refreshStatus()
+            return ok
+        }
+        if (id == "edit.redo") {
+            def ok2:boolean (editor.redo())
+            this.refreshStatus()
+            return ok2
+        }
+        if (id == "edit.selectall") {
+            editor.selectAll()
+            this.refreshStatus()
+            return true
+        }
+        if (id == "edit.delete") {
+            def ok3:boolean (editor.deleteSelection())
+            this.refreshStatus()
+            return ok3
+        }
+        if (id == "edit.duplicate") {
+            def ok4:boolean (editor.duplicateSelection())
+            this.refreshStatus()
+            return ok4
+        }
+        if (id == "edit.front") {
+            return (editor.reorder("front"))
+        }
+        if (id == "edit.back") {
+            return (editor.reorder("back"))
+        }
+        if (id == "edit.align.left") {
+            return (editor.alignSelection("left"))
+        }
+        if (id == "edit.align.hcenter") {
+            return (editor.alignSelection("hcenter"))
+        }
+        if (id == "edit.align.right") {
+            return (editor.alignSelection("right"))
+        }
+        if (id == "edit.align.top") {
+            return (editor.alignSelection("top"))
+        }
+        if (id == "edit.align.bottom") {
+            return (editor.alignSelection("bottom"))
+        }
+        if (id == "frame.link") {
+            def ok5:boolean (editor.linkSelection())
+            this.refreshStatus()
+            return ok5
+        }
+        if (id == "frame.unlink") {
+            def ok6:boolean (editor.unlinkSelection())
+            this.refreshStatus()
+            return ok6
+        }
+        if (id == "frame.text") {
+            return (this.insertFrame("text"))
+        }
+        if (id == "frame.image") {
+            return (this.insertFrame("image"))
+        }
+        if (id == "frame.shape") {
+            return (this.insertFrame("shape"))
+        }
+        if (id == "image.cover") {
+            return (editor.setFit("cover"))
+        }
+        if (id == "image.contain") {
+            return (editor.setFit("contain"))
+        }
+        if (id == "image.fit") {
+            return (editor.setFit(arg))
+        }
+        if (id == "page.add") {
+            def page:BookPage (editor.currentPage())
+            editor.addPage(page.masterName)
+            this.refreshStatus()
+            return true
+        }
+        if (id == "page.duplicate") {
+            def ok7:boolean (editor.duplicatePage())
+            this.refreshStatus()
+            return ok7
+        }
+        if (id == "page.delete") {
+            def ok8:boolean (editor.deletePage())
+            this.refreshStatus()
+            return ok8
+        }
+        if (id == "page.moveup") {
+            def up:int (editor.pageIndex - 1)
+            return (editor.movePage(up))
+        }
+        if (id == "page.movedown") {
+            def down:int (editor.pageIndex + 1)
+            return (editor.movePage(down))
+        }
+        if (id == "view.frames") {
+            view.conv.showFrames = (view.conv.showFrames == false)
+            toolbar.framesOn = view.conv.showFrames
+            return true
+        }
+        if (id == "view.margins") {
+            view.conv.showMargins = (view.conv.showMargins == false)
+            toolbar.marginsOn = view.conv.showMargins
+            return true
+        }
+        if (id == "view.snap") {
+            editor.snapEnabled = (editor.snapEnabled == false)
+            toolbar.snapOn = editor.snapEnabled
+            return true
+        }
+        if (id == "view.panel") {
+            panelVisible = (panelVisible == false)
+            view.chromeW = (this.panelWidth())
+            return true
+        }
+        if (id == "book.preflight") {
+            this.openPreflight()
+            return true
+        }
+        if (id == "book.signature") {
+            def added:int (editor.padToSignature(4))
+            status = ("padded with " + (to_string added) + " page(s)")
+            return true
+        }
+        if (id == "dialog.close") {
+            if preflightWindow.visible {
+                preflightWindow.close()
+                return true
+            }
+            return false
+        }
+        return false
+    }
+
+    ; A new frame lands in the middle of the page the cursor is on, at a size
+    ; that is a fraction of the page rather than a number of points - the same
+    ; gesture has to make sense on a 5x8 novel and a 250 mm picture book.
+    fn insertFrame:boolean (kind:string) {
+        if (editor.editMode == false) {
+            return false
+        }
+        def d:BookDocument editor.doc
+        if ((d.pageCount()) == 0) {
+            return false
+        }
+        def w:double (d.pageWidth * 0.4)
+        def h:double (d.pageHeight * 0.25)
+        def x:double ((d.pageWidth - w) * 0.5)
+        def y:double ((d.pageHeight - h) * 0.5)
+        def id:string ""
+        if (kind == "text") {
+            def storyId:string (this.storyOnPage())
+            id = (editor.addTextFrame(storyId x y w h))
+        }
+        if (kind == "image") {
+            def assetId:string (this.firstAssetId())
+            id = (editor.addImageFrame(assetId x y w h))
+        }
+        if (kind == "shape") {
+            id = (editor.addFrame("shape" x y w h))
+        }
+        this.refreshStatus()
+        return ((strlen id) > 0)
+    }
+
+    ; The story this page is already showing, so a new text frame joins the
+    ; book rather than starting a second, orphaned one.
+    fn storyOnPage:string () {
+        def page:BookPage (editor.currentPage())
+        def i:int 0
+        while (i < (array_length page.frames)) {
+            def f:BookFrame (itemAt page.frames i)
+            def isText:boolean (f.kind == "text")
+            def named:boolean ((strlen f.storyId) > 0)
+            if (isText && named) {
+                return f.storyId
+            }
+            i = (i + 1)
+        }
+        def d:BookDocument editor.doc
+        if ((array_length d.stories) > 0) {
+            def s:BookStory (itemAt d.stories 0)
+            return s.id
+        }
+        return ""
+    }
+
+    fn firstAssetId:string () {
+        def d:BookDocument editor.doc
+        if ((array_length d.assets) == 0) {
+            return ""
+        }
+        def a:BookAsset (itemAt d.assets 0)
+        return a.id
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Preflight, in a window
+    ; ---------------------------------------------------------------------
+
+    fn runPreflight:BookPreflightReport () {
+        def r:BookPreflightReport (preflight.run(editor.doc editor.flowResult))
+        lastReport = r
+        return r
+    }
+
+    fn openPreflight:void () {
+        def r:BookPreflightReport (this.runPreflight())
+        preflightWindow.reset()
+        preflightWindow.title = "Ready to print?"
+        def errs:int (r.errorCount())
+        def warns:int (r.warningCount())
+        def head:string ((to_string errs) + " error(s), " + (to_string warns) + " warning(s)")
+        preflightWindow.addLabel(head)
+        preflightWindow.addSeparator()
+        def shown:int 0
+        def i:int 0
+        while (i < (r.count())) {
+            if (shown < 12) {
+                def it:BookPreflightItem (r.itemAtIndex(i))
+                def line:string (it.asLine())
+                preflightWindow.addLabel(line)
+                shown = (shown + 1)
+            }
+            i = (i + 1)
+        }
+        def more:int ((r.count()) - shown)
+        if (more > 0) {
+            preflightWindow.addLabel(((to_string more) + " more…"))
+        }
+        preflightWindow.finish()
+        def cx:int (idiv W 2)
+        def cy:int (idiv H 3)
+        preflightWindow.openWithin(cx cy W H)
+        windows.add(preflightWindow)
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Pointer
+    ; ---------------------------------------------------------------------
+
+    fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (windows.handlePointer(px py pressed down released)) {
+            return true
+        }
+        if (this.panelPointer(px py pressed down released)) {
+            return true
+        }
+        toolbar.hot = (toolbar.hit(px py))
+        if pressed {
+            if (toolbar.hot >= 0) {
+                def t:ToolItem (toolbar.at(toolbar.hot))
+                return (this.runCommand(t.command t.arg))
+            }
+        }
+        if editor.editMode {
+            return (this.canvasPointer(px py pressed down released))
+        }
+        ; Reading rather than editing: the left and right thirds of the sheet
+        ; turn the spread, the way a book is read.
+        if pressed {
+            if (py >= toolbarH) {
+                def bottom:int (H - statusH)
+                if (py < bottom) {
+                    def third:int (idiv W 3)
+                    if (px < third) {
+                        editor.prevSpread()
+                        this.refreshStatus()
+                        return true
+                    }
+                    def twoThirds:int (idiv (W * 2) 3)
+                    if (px > twoThirds) {
+                        editor.nextSpread()
+                        this.refreshStatus()
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    fn canvasPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        def pageIdx:int (this.pageAt(px py))
+        if pressed {
+            dragMoved = false
+            ; A handle first: it sits on the selection's edge, and the frame
+            ; under it would otherwise take the click.
+            def h:int (this.handleAt(px py))
+            if (h >= 0) {
+                dragMode = 2
+                dragHandle = h
+                def hp:int (editor.selectionPage())
+                dragLastX = (this.pointX(px hp))
+                dragLastY = (this.pointY(py))
+                editor.pushSnapshot()
+                editor.beginDrag()
+                return true
+            }
+            if (pageIdx < 0) {
+                clear editor.selection
+                this.refreshStatus()
+                return true
+            }
+            def x:double (this.pointX(px pageIdx))
+            def y:double (this.pointY(py))
+            def hit:string (editor.hitTest(pageIdx x y))
+            if ((strlen hit) > 0) {
+                if ((editor.isSelected(hit)) == false) {
+                    editor.select(hit modShift)
+                } {
+                    if modShift {
+                        editor.select(hit true)
+                    }
+                }
+                dragMode = 1
+                dragLastX = x
+                dragLastY = y
+                editor.pushSnapshot()
+                editor.beginDrag()
+                this.refreshStatus()
+                return true
+            }
+            ; Empty page: start a marquee.
+            if (modShift == false) {
+                clear editor.selection
+            }
+            dragMode = 3
+            marqueeAX = x
+            marqueeAY = y
+            marqueeBX = x
+            marqueeBY = y
+            editor.gotoPage(pageIdx)
+            this.refreshStatus()
+            return true
+        }
+
+        if down {
+            ; The offset is measured from where the drag STARTED, not from the
+            ; last frame. Snapping is why: a frame already sitting on a guide,
+            ; asked to move a point at a time, is pulled back onto the guide by
+            ; every step and can never be dragged off it.
+            if (dragMode == 1) {
+                def hp2:int (editor.selectionPage())
+                def nx:double (this.pointX(px hp2))
+                def ny:double (this.pointY(py))
+                def dx:double (nx - dragLastX)
+                def dy:double (ny - dragLastY)
+                editor.dragBy(dx dy)
+                dragMoved = true
+                return true
+            }
+            if (dragMode == 2) {
+                def hp3:int (editor.selectionPage())
+                def rx:double (this.pointX(px hp3))
+                def ry:double (this.pointY(py))
+                def rdx:double (rx - dragLastX)
+                def rdy:double (ry - dragLastY)
+                editor.resizeTo(dragHandle rdx rdy)
+                dragMoved = true
+                return true
+            }
+            if (dragMode == 3) {
+                def mp:int (this.pageAt(px py))
+                if (mp >= 0) {
+                    marqueeBX = (this.pointX(px mp))
+                    marqueeBY = (this.pointY(py))
+                }
+                return true
+            }
+        }
+
+        if released {
+            if (dragMode == 3) {
+                this.selectInMarquee()
+            }
+            if (dragMode > 0) {
+                if (dragMoved == false) {
+                    ; Nothing moved, so the snapshot pushed on press is noise.
+                    if (dragMode < 3) {
+                        def n:int (array_length editor.history)
+                        if (n > 0) {
+                            remove_index editor.history (n - 1)
+                        }
+                    }
+                }
+            }
+            editor.endDrag()
+            dragMode = 0
+            dragHandle = -1
+            this.refreshStatus()
+            return true
+        }
+        return false
+    }
+
+    fn selectInMarquee:void () {
+        def box:[double] (EVGSelectChrome.marquee(marqueeAX marqueeAY marqueeBX marqueeBY))
+        def mx:double (itemAt box 0)
+        def my:double (itemAt box 1)
+        def mw:double (itemAt box 2)
+        def mh:double (itemAt box 3)
+        def pageIdx:int editor.pageIndex
+        if (pageIdx < 0) {
+            return
+        }
+        def d:BookDocument editor.doc
+        if (pageIdx >= (d.pageCount())) {
+            return
+        }
+        def p:BookPage (d.pageAt(pageIdx))
+        def i:int 0
+        while (i < (array_length p.frames)) {
+            def f:BookFrame (itemAt p.frames i)
+            if (f.fromMaster == false) {
+                if (EVGSelectChrome.overlaps(mx my mw mh f.x f.y f.w f.h)) {
+                    if ((editor.isSelected(f.id)) == false) {
+                        push editor.selection f.id
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn handleAt:int (px:int py:int) {
+        if ((editor.selectionCount()) == 0) {
+            return -1
+        }
+        def b:BookEditRect (editor.selectionBounds())
+        if (b.valid == false) {
+            return -1
+        }
+        def pageIdx:int (editor.selectionPage())
+        def s:double (this.scale())
+        def po:double (this.pageOriginX(pageIdx))
+        def oy:double (this.originY())
+        def x0:double (po + (b.x * s))
+        def y0:double (oy + (b.y * s))
+        def x1:double (x0 + (b.w * s))
+        def y1:double (y0 + (b.h * s))
+        return (EVGSelectChrome.handleAt(x0 y0 x1 y1 (to_double px) (to_double py) 7.0))
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Pages panel
+    ; ---------------------------------------------------------------------
+
+    fn panelThumbH:int () {
+        def d:BookDocument editor.doc
+        if (d.pageWidth <= 0.0) {
+            return 40
+        }
+        def w:double (to_double (panelW - 24))
+        def ratio:double (d.pageHeight / d.pageWidth)
+        def h:double ((w * 0.5) * ratio)
+        return (to_int h)
+    }
+
+    fn panelStep:int () {
+        def h:int (this.panelThumbH())
+        return (h + 16)
+    }
+
+    fn panelSpreadAt:int (px:int py:int) {
+        if (panelVisible == false) {
+            return -1
+        }
+        if (px >= panelW) {
+            return -1
+        }
+        if (py < toolbarH) {
+            return -1
+        }
+        def step:int (this.panelStep())
+        if (step <= 0) {
+            return -1
+        }
+        def rel:int ((py - toolbarH) + panelScroll)
+        def idx:int (idiv rel step)
+        def d:BookDocument editor.doc
+        if (idx < 0) {
+            return -1
+        }
+        if (idx >= (d.spreadCount())) {
+            return -1
+        }
+        return idx
+    }
+
+    fn panelPointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        if (panelVisible == false) {
+            return false
+        }
+        if (px >= panelW) {
+            return false
+        }
+        if (py < toolbarH) {
+            return false
+        }
+        def bottom:int (H - statusH)
+        if (py >= bottom) {
+            return false
+        }
+        if pressed {
+            def idx:int (this.panelSpreadAt(px py))
+            if (idx >= 0) {
+                editor.gotoSpread(idx)
+                this.refreshStatus()
+            }
+        }
+        return true
+    }
+
+    fn scrollPanel:void (delta:int) {
+        def step:int (this.panelStep())
+        panelScroll = (panelScroll - (delta * step))
+        if (panelScroll < 0) {
+            panelScroll = 0
+        }
+        def d:BookDocument editor.doc
+        def total:int ((d.spreadCount()) * step)
+        def viewH:int ((H - toolbarH) - statusH)
+        def maxScroll:int (total - viewH)
+        if (maxScroll < 0) {
+            maxScroll = 0
+        }
+        if (panelScroll > maxScroll) {
+            panelScroll = maxScroll
+        }
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Keys
+    ; ---------------------------------------------------------------------
+
+    fn update:void (input:UIInput) {
+        modShift = input.shiftDown
+        modCtrl = input.ctrlDown
+        if input.ctrlDown {
+            this.chords(input.textInput)
+        }
+        def i:int 0
+        while (i < (input.keyCount())) {
+            def k:int (input.keyAt(i))
+            this.key(k input.shiftDown)
+            i = (i + 1)
+        }
+        if (input.scrollDelta != 0) {
+            def limit:int (this.panelWidth())
+            if (input.pointerX < limit) {
+                this.scrollPanel(input.scrollDelta)
+            }
+        }
+        this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
+        this.render()
+    }
+
+    fn key:void (k:int shift:boolean) {
+        if (k == (UIKey.escape())) {
+            if preflightWindow.visible {
+                preflightWindow.close()
+                return
+            }
+            clear editor.selection
+            return
+        }
+        if (k == (UIKey.del())) {
+            this.runCommand("edit.delete" "")
+            return
+        }
+        ; Arrows nudge a selected frame while editing and turn the spread
+        ; otherwise. The same key, meaning the thing the mode is about.
+        def step:double 1.0
+        if shift {
+            step = 10.0
+        }
+        def editing:boolean editor.editMode
+        def hasSel:boolean ((editor.selectionCount()) > 0)
+        if (k == (UIKey.left())) {
+            if (editing && hasSel) {
+                def negStep:double (0.0 - step)
+                editor.nudge(negStep 0.0)
+            } {
+                this.runCommand("nav.prev" "")
+            }
+            return
+        }
+        if (k == (UIKey.right())) {
+            if (editing && hasSel) {
+                editor.nudge(step 0.0)
+            } {
+                this.runCommand("nav.next" "")
+            }
+            return
+        }
+        if (k == (UIKey.up())) {
+            if (editing && hasSel) {
+                def negUp:double (0.0 - step)
+                editor.nudge(0.0 negUp)
+            } {
+                this.runCommand("nav.prev" "")
+            }
+            return
+        }
+        if (k == (UIKey.down())) {
+            if (editing && hasSel) {
+                editor.nudge(0.0 step)
+            } {
+                this.runCommand("nav.next" "")
+            }
+            return
+        }
+        if (k == (UIKey.home())) {
+            this.runCommand("nav.first" "")
+            return
+        }
+        if (k == (UIKey.end())) {
+            this.runCommand("nav.last" "")
+        }
+    }
+
+    fn chords:void (text:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def c:string (substring text 0 1)
+        if ((c == "z") || (c == "Z")) {
+            this.runCommand("edit.undo" "")
+        }
+        if ((c == "y") || (c == "Y")) {
+            this.runCommand("edit.redo" "")
+        }
+        if ((c == "e") || (c == "E")) {
+            this.runCommand("edit.toggle" "")
+        }
+        if ((c == "d") || (c == "D")) {
+            this.runCommand("edit.duplicate" "")
+        }
+        if ((c == "a") || (c == "A")) {
+            this.runCommand("edit.selectall" "")
+        }
+        if ((c == "l") || (c == "L")) {
+            this.runCommand("frame.link" "")
+        }
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Painting
+    ; ---------------------------------------------------------------------
+
+    fn buildFrame:EVGDisplayList () {
+        def framed:EVGDisplayList (new EVGDisplayList)
+        ; The desk. A light one, a shade darker and warmer than the paper, so
+        ; the page reads as a sheet lying on a table rather than as a hole cut
+        ; in a dark screen - which is what a proof looks like, and what an
+        ; editor for printed things ought to look like.
+        framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(226 222 214)))
+
+        def s:double (this.scale())
+        view.conv.setScale(s)
+        def oy:double (this.originY())
+        def d:BookDocument editor.doc
+        def flow:BookFlowResult editor.flowResult
+
+        def l:int (editor.spreadLeft())
+        def r:int (editor.spreadRight())
+        if (l >= 0) {
+            def lp:BookPage (d.pageAt(l))
+            def lx:double (this.pageOriginX(l))
+            def w:double (lp.width * s)
+            def h:double (lp.height * s)
+            framed.addFrame((lx - 1.0) (oy - 1.0) (w + 2.0) (h + 2.0) 1.0 (EVGColor.rgb(186 178 165)))
+            view.conv.paintPage(framed d flow lp lx oy)
+        }
+        if (r >= 0) {
+            def rp:BookPage (d.pageAt(r))
+            def rx:double (this.pageOriginX(r))
+            def w2:double (rp.width * s)
+            def h2:double (rp.height * s)
+            framed.addFrame((rx - 1.0) (oy - 1.0) (w2 + 2.0) (h2 + 2.0) 1.0 (EVGColor.rgb(186 178 165)))
+            view.conv.paintPage(framed d flow rp rx oy)
+        }
+
+        if editor.editMode {
+            this.paintChrome(framed)
+        }
+        this.paintPanel(framed)
+
+        toolbarView.attach(view.ctx view.fontFamily)
+        toolbarView.theme = theme
+        def spread:int (editor.spreadIndex())
+        def spreads:int (d.spreadCount())
+        toolbar.refresh(spread spreads)
+        toolbarView.paint(framed toolbar 0 0 W toolbarH)
+
+        def sy:int (H - statusH)
+        framed.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)
+        framed.addRect(0.0 (to_double sy) (to_double W) 1.0 theme.line)
+        def label:string (this.statusLine())
+        toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
+
+        def wi:int 0
+        while (wi < (array_length windows.windows)) {
+            def wnd:EVGWindow (itemAt windows.windows wi)
+            wnd.paint(framed view.ctx.tr W H)
+            wnd.paintOverlay(framed view.ctx.tr)
+            wi = (wi + 1)
+        }
+        return framed
+    }
+
+    ; The selection, its handles, the snap guides and the marquee - into the
+    ; same list as the pages, after them, so every host draws them for free.
+    fn paintChrome:void (dl:EVGDisplayList) {
+        def accent:EVGColor (EVGColor.rgb(80 150 255))
+        def s:double (this.scale())
+        def oy:double (this.originY())
+
+        ; Every selected frame gets an outline; the group gets the handles.
+        def i:int 0
+        while (i < (array_length editor.selection)) {
+            def id:string (itemAt editor.selection i)
+            def d:BookDocument editor.doc
+            if (d.hasFrame(id)) {
+                def idx:int (d.pageIndexOfFrame(id))
+                def f:BookFrame (d.frameFor(id))
+                def po:double (this.pageOriginX(idx))
+                def fx:double (po + (f.x * s))
+                def fy:double (oy + (f.y * s))
+                dl.addFrame(fx fy (f.w * s) (f.h * s) 1.0 accent)
+                ; A text frame that continues elsewhere says so on the page.
+                if f.overflowed {
+                    def warn:EVGColor (EVGColor.rgb(230 90 60))
+                    def bx:double ((fx + (f.w * s)) - 10.0)
+                    def by:double ((fy + (f.h * s)) - 10.0)
+                    dl.addRect(bx by 9.0 9.0 warn)
+                }
+            }
+            i = (i + 1)
+        }
+
+        if ((editor.selectionCount()) > 0) {
+            def b:BookEditRect (editor.selectionBounds())
+            if b.valid {
+                def pageIdx:int (editor.selectionPage())
+                def po2:double (this.pageOriginX(pageIdx))
+                def x0:double (po2 + (b.x * s))
+                def y0:double (oy + (b.y * s))
+                def x1:double (x0 + (b.w * s))
+                def y1:double (y0 + (b.h * s))
+                def hi:int 0
+                while (hi < 8) {
+                    def hx:double (EVGSelectChrome.handleCx(x0 x1 hi))
+                    def hy:double (EVGSelectChrome.handleCy(y0 y1 hi))
+                    dl.addRect((hx - 3.0) (hy - 3.0) 6.0 6.0 accent)
+                    hi = (hi + 1)
+                }
+            }
+        }
+
+        ; The line a drag snapped to, drawn the length of the sheet so it reads
+        ; as a guide rather than as part of the frame.
+        def snap:BookSnapResult editor.lastSnap
+        if (dragMode == 1) {
+            def guide:EVGColor (EVGColor.rgb(240 120 190))
+            def pageIdx2:int (editor.selectionPage())
+            def po3:double (this.pageOriginX(pageIdx2))
+            def d2:BookDocument editor.doc
+            if snap.hasX {
+                def gx:double (po3 + (snap.lineX * s))
+                dl.addRect(gx oy 1.0 (d2.pageHeight * s) guide)
+            }
+            if snap.hasY {
+                def gy:double (oy + (snap.lineY * s))
+                dl.addRect(po3 gy (d2.pageWidth * s) 1.0 guide)
+            }
+        }
+
+        if (dragMode == 3) {
+            def box:[double] (EVGSelectChrome.marquee(marqueeAX marqueeAY marqueeBX marqueeBY))
+            def po4:double (this.pageOriginX(editor.pageIndex))
+            def mx:double (po4 + ((itemAt box 0) * s))
+            def my:double (oy + ((itemAt box 1) * s))
+            def mw:double ((itemAt box 2) * s)
+            def mh:double ((itemAt box 3) * s)
+            def wash:EVGColor (EVGColor.rgba(80 150 255 0.18))
+            dl.addRect(mx my mw mh wash)
+            dl.addFrame(mx my mw mh 1.0 accent)
+        }
+    }
+
+    fn paintPanel:void (dl:EVGDisplayList) {
+        if (panelVisible == false) {
+            return
+        }
+        def top:double (to_double toolbarH)
+        def h:double (to_double ((H - toolbarH) - statusH))
+        dl.addRect(0.0 top (to_double panelW) h (EVGColor.rgb(243 241 236)))
+        dl.addRect((to_double (panelW - 1)) top 1.0 h theme.line)
+
+        def d:BookDocument editor.doc
+        def spreads:int (d.spreadCount())
+        def step:int (this.panelStep())
+        def thumbH:int (this.panelThumbH())
+        def thumbW:int (panelW - 24)
+        def current:int (editor.spreadIndex())
+        def i:int 0
+        while (i < spreads) {
+            def y:int (((toolbarH + 8) + (i * step)) - panelScroll)
+            def bottom:int (H - statusH)
+            if (y > toolbarH) {
+                if (y < bottom) {
+                    def bg:EVGColor (EVGColor.rgb(255 253 249))
+                    if (i == current) {
+                        bg = (EVGColor.rgb(80 150 255))
+                    }
+                    dl.addRect(10.0 (to_double y) (to_double thumbW) (to_double thumbH) bg)
+                    ; The spine, so a spread reads as two pages.
+                    def midX:double (10.0 + ((to_double thumbW) * 0.5))
+                    dl.addRect(midX (to_double y) 1.0 (to_double thumbH) (EVGColor.rgb(214 208 197)))
+                    dl.addFrame(10.0 (to_double y) (to_double thumbW) (to_double thumbH) 1.0 (EVGColor.rgb(214 208 197)))
+                    def n:string (to_string (i + 1))
+                    toolbarView.pushText(dl n 14.0 (to_double (y + thumbH + 1)) 10.0 theme.dim)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn statusLine:string () {
+        def d:BookDocument editor.doc
+        def spread:int (editor.spreadIndex())
+        def spreads:int (d.spreadCount())
+        def out:string d.title
+        out = (out + "   spread " + (to_string (spread + 1)) + " / " + (to_string spreads))
+        out = (out + "   page " + (to_string (editor.pageIndex + 1)) + " / " + (to_string (d.pageCount())))
+        if editor.editMode {
+            out = (out + "   EDIT")
+            def n:int (editor.selectionCount())
+            if (n > 0) {
+                out = (out + "   " + (to_string n) + " selected")
+            }
+        } {
+            out = (out + "   reading (Ctrl+E to edit)")
+        }
+        if (editor.overset()) {
+            out = (out + "   OVERSET")
+        }
+        if ((strlen status) > 0) {
+            out = (out + "   " + status)
+        }
+        return out
+    }
+
+    fn refreshStatus:void () {
+        toolbar.editOn = editor.editMode
+        toolbar.framesOn = view.conv.showFrames
+        toolbar.marginsOn = view.conv.showMargins
+        toolbar.snapOn = editor.snapEnabled
+    }
+
+    fn render:void () {
+        def dl:EVGDisplayList (this.buildFrame())
+        view.paintSoftCanvas(dl)
+    }
+
+    fn raw:buffer () {
+        return (view.raw())
+    }
+
+    ; The shape `gallery/evg/gl/evg-webgl.js` reads: the page size it maps to
+    ; clip space, and the list under `list`.
+    fn sceneJson:string () {
+        def dl:EVGDisplayList (this.buildFrame())
+        def body:string (dl.toJson())
+        def out:string "{\"width\": "
+        out = (out + (to_string W) + ", \"height\": " + (to_string H))
+        out = (out + ", \"list\": " + body + "}")
+        return out
+    }
+}

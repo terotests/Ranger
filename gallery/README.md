@@ -16,7 +16,7 @@ the long-form writeups live here.
 | [`ranger_engine`](ranger_engine/README.md) | An engine that runs **Ranger** source directly: bytecode VM plus a JIT tier that compiles hot functions to host code |
 | [`vela`](vela/README.md) | Vega-compatible visualization runtime: a Vega spec in, a scene out, checked against official Vega |
 | [`text_editor`](text_editor/README.md) | EVG/SoftCanvas multiline text-editor prototype (canvas-editor benchmark target), JS validation + bench |
-| [`book`](book/README.md) | Visual book composition engine: stories, linked text frames, master pages, auto layout, preflight, and PDF through the EVG tooling |
+| [`book`](book/README.md) | Visual book composition engine **and editor**: stories, linked text frames, master pages, auto layout, preflight, PDF through the EVG tooling — and a spread editor that runs in the browser on WebGL with no server |
 | [`pptx`](pptx/README.md) | PPTX Lite reader/viewer: OPC ZIP → PptxModel → theme resolve → EVG display list |
 | [`docx_viewer`](docx_viewer/README.md) | DOCX viewer + editing MVP: WordprocessingML → RichDocument → paginated layout → EVG; Word-style keyboard, multi-paragraph selection, and pastes a spreadsheet selection as a table |
 | [`rangerflow`](rangerflow/README.md) | React Flow-shaped interactive graph editor on EVG + WebGL, with a database ERD / UML class editor on top and PDF export |

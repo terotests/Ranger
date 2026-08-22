@@ -1,0 +1,398 @@
+; ==============================================================================
+; BookEditorTest.rgr - editing a book, checked without a window
+; ==============================================================================
+;
+;   npm run book:editor:test
+;
+; `BookEditor` knows page points and nothing about pixels, so all of it can be
+; checked from a script. What is worth checking is the part a slide editor does
+; not have to think about: **an edit changes the pagination**. Resizing a text
+; frame does not move text inside it, it moves text onto other pages, and an
+; editor that does not re-flow after a drag is showing a book that does not
+; exist.
+;
+; The host seam is checked too, through `BookApp`, because the arithmetic that
+; turns a window pixel into a point on the left or right page of a spread is
+; exactly the sort of thing that looks right and is off by a page width.
+; ==============================================================================
+
+Import "../src/BookApp.rgr"
+
+class EdCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def label:string (name + " (got " + (to_string got) + " want " + (to_string want) + ")")
+        this.ok(label (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def label:string (name + " (got " + (BookRenderer.num(got)) + " want " + (BookRenderer.num(want)) + ")")
+        this.ok(label (d <= tol))
+    }
+}
+
+class BookEditorTest {
+
+    ; A two-page book with one story running through two linked frames, sized
+    ; so that the split between them is known.
+    sfn fixture:BookDocument () {
+        def d (BookDocument.create("Fixture" "square-210"))
+        def body (BookStyle.create("body" "Noto Sans" 10.0))
+        body.leading = 10.0
+        body.orphans = 1
+        body.widows = 1
+        d.addStyle(body)
+        def m (BookMasterPage.create("story"))
+        m.setMargins(40.0 40.0 60.0 40.0)
+        d.addMaster(m)
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10" "body")
+        def p1:BookPage (d.newPage("story"))
+        def p2:BookPage (d.newPage("story"))
+        def f1 (BookFrame.textFrame("a" 60.0 60.0 400.0 40.0 "main"))
+        p1.addFrame(f1)
+        def f2 (BookFrame.textFrame("b" 60.0 60.0 400.0 200.0 "main"))
+        p2.addFrame(f2)
+        d.linkFrames("a" "b")
+        return d
+    }
+
+    sfn editorOn:BookEditor () {
+        def d:BookDocument (BookEditorTest.fixture())
+        def ed (new BookEditor())
+        ed.attach(d)
+        ed.editMode = true
+        return ed
+    }
+
+    ; ---------------------------------------------------------------------
+
+    sfn testEditIsAMode:void (c:EdCheck) {
+        print "-- a book opened to read cannot be changed by a stray click --"
+        def d:BookDocument (BookEditorTest.fixture())
+        def ed (new BookEditor())
+        ed.attach(d)
+        ed.select("a" false)
+        c.ok("nothing moves while reading" ((ed.applyMove(20.0 20.0)) == false))
+        c.ok("and nothing is deleted" ((ed.deleteSelection()) == false))
+        def f:BookFrame (d.frameFor("a"))
+        c.near("the frame is where it was" f.x 60.0 0.001)
+        ed.editMode = true
+        c.ok("editing armed, it moves" (ed.applyMove(20.0 0.0)))
+    }
+
+    sfn testEditRepaginates:void (c:EdCheck) {
+        print "-- an edit changes which page the words are on --"
+        def ed:BookEditor (BookEditorTest.editorOn())
+        def before:[BookLine] (ed.flowResult.linesInFrame("a"))
+        c.eqInt("the short frame takes four lines" (array_length before) 4)
+
+        ed.select("a" false)
+        ed.pushSnapshot()
+        ; Pull the bottom edge down by five lines' worth.
+        ed.applyResize(5 0.0 50.0)
+        def after:[BookLine] (ed.flowResult.linesInFrame("a"))
+        c.eqInt("a taller frame takes nine" (array_length after) 9)
+        def rest:[BookLine] (ed.flowResult.linesInFrame("b"))
+        c.eqInt("and the next page keeps the rest" (array_length rest) 1)
+
+        ed.undo()
+        def back:[BookLine] (ed.flowResult.linesInFrame("a"))
+        c.eqInt("undo puts the pagination back too" (array_length back) 4)
+    }
+
+    sfn testDragIsOneEdit:void (c:EdCheck) {
+        print "-- thirty frames of dragging are one undo --"
+        def ed:BookEditor (BookEditorTest.editorOn())
+        ed.select("a" false)
+        ; What a host does: one snapshot on press, then a total offset per
+        ; pointer frame, measured from where the drag began.
+        ed.pushSnapshot()
+        ed.beginDrag()
+        def i:int 0
+        while (i < 30) {
+            def total:double (to_double (i + 1))
+            ed.dragBy(total 0.0)
+            i = (i + 1)
+        }
+        ed.endDrag()
+        def moved:BookFrame (ed.doc.frameFor("a"))
+        c.near("the frame travelled the whole drag" moved.x 90.0 0.001)
+        c.ok("a frame that starts on a guide can still be dragged off it" (moved.x > 60.0))
+        ed.undo()
+        def back:BookFrame (ed.doc.frameFor("a"))
+        c.near("and one undo takes all of it back" back.x 60.0 0.001)
+        c.ok("with nothing left to undo" ((ed.canUndo()) == false))
+        ed.redo()
+        def again:BookFrame (ed.doc.frameFor("a"))
+        c.near("redo puts it back" again.x 90.0 0.001)
+    }
+
+    sfn testSnapping:void (c:EdCheck) {
+        print "-- a frame snaps to the margins and to its neighbours --"
+        def ed:BookEditor (BookEditorTest.editorOn())
+        def page:BookPage (ed.doc.pageAt(0))
+        def box (BookFrame.shapeFrame("s" 200.0 300.0 100.0 50.0 "#cccccc"))
+        page.addFrame(box)
+        ed.reflow()
+        ed.select("s" false)
+        ; The inner margin of a recto is 60; nudging the box to 57 should pull
+        ; its left edge onto it.
+        def snap:BookSnapResult (ed.snapDelta(-143.0 0.0))
+        c.ok("the drag was adjusted" snap.hasX)
+        c.near("onto the margin" snap.lineX 60.0 0.001)
+        def moved:double (200.0 + snap.dx)
+        c.near("so the frame lands on it exactly" moved 60.0 0.001)
+
+        ed.snapEnabled = false
+        def free:BookSnapResult (ed.snapDelta(-143.0 0.0))
+        c.ok("with snapping off it is left alone" (free.hasX == false))
+        c.near("and the delta is the one asked for" free.dx -143.0 0.001)
+    }
+
+    sfn testLinkingIsTheGesture:void (c:EdCheck) {
+        print "-- linking two frames moves no text and changes every page --"
+        def d (BookDocument.create("Link" "a5"))
+        def body (BookStyle.create("body" "Noto Sans" 10.0))
+        body.leading = 10.0
+        body.orphans = 1
+        body.widows = 1
+        d.addStyle(body)
+        def s:BookStory (d.newStory("main"))
+        s.addParagraph("l1\nl2\nl3\nl4\nl5\nl6" "body")
+        def p1:BookPage (d.newPage(""))
+        def p2:BookPage (d.newPage(""))
+        def f1 (BookFrame.textFrame("a" 40.0 40.0 300.0 30.0 "main"))
+        p1.addFrame(f1)
+        ; The second frame names no story: linking is what gives it one.
+        def f2 (BookFrame.textFrame("b" 40.0 40.0 300.0 200.0 ""))
+        p2.addFrame(f2)
+        def ed (new BookEditor())
+        ed.attach(d)
+        ed.editMode = true
+        c.ok("the story overflows to begin with" (ed.overset()))
+
+        ed.select("a" false)
+        ed.select("b" true)
+        c.ok("both frames are selected" ((ed.selectionCount()) == 2))
+        c.ok("linking them works" (ed.linkSelection()))
+        c.ok("and now the story fits" ((ed.overset()) == false))
+        def onB:[BookLine] (ed.flowResult.linesInFrame("b"))
+        c.eqInt("the rest of it is on the second page" (array_length onB) 3)
+        def linked:BookFrame (d.frameFor("b"))
+        c.ok("the second frame took the first one's story" (linked.storyId == "main"))
+
+        ed.unlinkSelection()
+        c.ok("breaking the link oversets it again" (ed.overset()))
+    }
+
+    sfn testPages:void (c:EdCheck) {
+        print "-- pages: add, duplicate, delete, reorder --"
+        def ed:BookEditor (BookEditorTest.editorOn())
+        c.eqInt("two pages to start" (ed.pageCount()) 2)
+        ed.addPage("story")
+        c.eqInt("adding one makes three" (ed.pageCount()) 3)
+        c.eqInt("and moves to it" ed.pageIndex 2)
+
+        ed.gotoPage(0)
+        ed.duplicatePage()
+        c.eqInt("duplicating makes four" (ed.pageCount()) 4)
+        c.eqInt("and lands on the copy" ed.pageIndex 1)
+        def copy:BookPage (ed.doc.pageAt(1))
+        def orig:BookPage (ed.doc.pageAt(0))
+        def a:BookFrame (orig.frameAt(0))
+        def b:BookFrame (copy.frameAt(0))
+        c.ok("the copy's frame has its own id" (a.id != b.id))
+        c.ok("and is not a continuation of the original" (b.nextFrameId == ""))
+
+        ed.deletePage()
+        c.eqInt("deleting takes it away again" (ed.pageCount()) 3)
+        def last:BookPage (ed.doc.pageAt(2))
+        c.eqInt("page indexes are renumbered" last.index 2)
+
+        ed.gotoPage(0)
+        ed.movePage(2)
+        c.eqInt("a moved page is where it was put" ed.pageIndex 2)
+        def first:BookPage (ed.doc.pageAt(0))
+        c.eqInt("and the numbering follows" first.index 0)
+    }
+
+    sfn testDeletingAPageJoinsTheChain:void (c:EdCheck) {
+        print "-- deleting a page in the middle joins the halves --"
+        def d:BookDocument (BookEditorTest.fixture())
+        def p3:BookPage (d.newPage("story"))
+        def f3 (BookFrame.textFrame("c" 60.0 60.0 400.0 200.0 "main"))
+        p3.addFrame(f3)
+        d.linkFrames("b" "c")
+        def ed (new BookEditor())
+        ed.attach(d)
+        ed.editMode = true
+        def chain:[string] (d.frameChain("a"))
+        c.eqInt("three frames in the chain" (array_length chain) 3)
+
+        ed.gotoPage(1)
+        ed.deletePage()
+        def after:[string] (d.frameChain("a"))
+        c.eqInt("two after deleting the middle page" (array_length after) 2)
+        c.ok("and the first now points at the last" ((itemAt after 1) == "c"))
+    }
+
+    sfn testSelection:void (c:EdCheck) {
+        print "-- selection, and what is not selectable --"
+        def ed:BookEditor (BookEditorTest.editorOn())
+        ed.gotoPage(0)
+        def hit:string (ed.hitTest(0 100.0 70.0))
+        c.ok("a click inside a frame finds it" (hit == "a"))
+        def miss:string (ed.hitTest(0 5.0 5.0))
+        c.ok("a click on bare page finds nothing" (miss == ""))
+
+        ; A master page with furniture on it: drawn, and not selectable.
+        def m:BookMasterPage (ed.doc.masterFor("story"))
+        def mark (BookFrame.shapeFrame("mark" 10.0 10.0 30.0 30.0 "#ff0000"))
+        m.addFrame(mark)
+        def p:BookPage (ed.doc.newPage("story"))
+        ed.gotoPage(p.index)
+        def onMaster:string (ed.hitTest(p.index 20.0 20.0))
+        c.ok("master furniture does not take a click" (onMaster == ""))
+    }
+
+    sfn testHostMapsPixelsToPages:void (c:EdCheck) {
+        print "-- the host seam: a window pixel to a point on a page --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        app.attach(d)
+        app.editor.gotoSpread(1)
+        def left:int (app.editor.spreadLeft())
+        def right:int (app.editor.spreadRight())
+        c.eqInt("the second spread is pages 1 and 2" left 1)
+        c.eqInt("with no page 2 in a two-page book" right -1)
+
+        ; A point in the middle of the left page comes back as that page.
+        def s:double (app.scale())
+        def po:double (app.pageOriginX(left))
+        def oy:double (app.originY())
+        def px:int (to_int (po + (200.0 * s)))
+        def py:int (to_int (oy + (150.0 * s)))
+        c.eqInt("the point is on the left page" (app.pageAt(px py)) left)
+        c.near("and maps back to where it came from" (app.pointX(px left)) 200.0 2.0)
+        c.near("in both axes" (app.pointY(py)) 150.0 2.0)
+
+        ; Above the sheet is not a page at all.
+        c.eqInt("a point off the sheet is no page" (app.pageAt(px (to_int (oy - 40.0)))) -1)
+    }
+
+    sfn testHostCommands:void (c:EdCheck) {
+        print "-- the commands a toolbar button sends --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        app.attach(d)
+        c.ok("reading to begin with" (app.editor.editMode == false))
+        app.runCommand("edit.toggle" "")
+        c.ok("edit.toggle arms editing" app.editor.editMode)
+        c.ok("and the strip knows" app.toolbar.editOn)
+
+        app.runCommand("nav.next" "")
+        c.eqInt("nav.next turns the spread" (app.editor.spreadIndex()) 1)
+        app.runCommand("nav.first" "")
+        c.eqInt("nav.first comes back" (app.editor.spreadIndex()) 0)
+
+        def before:int (d.pageCount())
+        app.runCommand("page.add" "")
+        c.eqInt("page.add adds one" (d.pageCount()) (before + 1))
+
+        app.runCommand("frame.shape" "")
+        c.eqInt("frame.shape inserts and selects it" (app.editor.selectionCount()) 1)
+        app.runCommand("edit.delete" "")
+        c.eqInt("edit.delete takes it away" (app.editor.selectionCount()) 0)
+
+        app.runCommand("view.frames" "")
+        c.ok("view.frames turns the frame edges on" app.view.conv.showFrames)
+        app.runCommand("view.frames" "")
+        c.ok("and off again" (app.view.conv.showFrames == false))
+    }
+
+    sfn testSceneHasEverything:void (c:EdCheck) {
+        print "-- one display list carries the book and the chrome --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        app.attach(d)
+        app.editor.gotoSpread(1)
+        def plain:EVGDisplayList (app.buildFrame())
+        def n0:int (plain.count())
+        c.ok("there is a page in it" (n0 > 10))
+        def hasText:boolean false
+        def i:int 0
+        while (i < n0) {
+            def cmd:EVGDrawCmd (plain.at(i))
+            if (cmd.kind == 3) {
+                hasText = true
+            }
+            i = (i + 1)
+        }
+        c.ok("with text on it" hasText)
+
+        ; The selection chrome goes into the same list, after the pages.
+        app.runCommand("edit.toggle" "")
+        app.editor.select("a" false)
+        def withChrome:EVGDisplayList (app.buildFrame())
+        c.ok("selecting draws more, not less" ((withChrome.count()) > n0))
+    }
+
+    sfn testPreflightThroughTheHost:void (c:EdCheck) {
+        print "-- preflight is a command, and answers about this book --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        app.attach(d)
+        def r:BookPreflightReport (app.runPreflight())
+        c.ok("it found something to say" ((r.count()) > 0))
+        app.runCommand("book.preflight" "")
+        c.ok("the command opens a window" app.preflightWindow.visible)
+        app.runCommand("dialog.close" "")
+        c.ok("and Escape closes it" (app.preflightWindow.visible == false))
+    }
+
+    sfn main:void () {
+        print "== BookEditorTest =="
+        def c (new EdCheck())
+        BookEditorTest.testEditIsAMode(c)
+        BookEditorTest.testEditRepaginates(c)
+        BookEditorTest.testDragIsOneEdit(c)
+        BookEditorTest.testSnapping(c)
+        BookEditorTest.testLinkingIsTheGesture(c)
+        BookEditorTest.testPages(c)
+        BookEditorTest.testDeletingAPageJoinsTheChain(c)
+        BookEditorTest.testSelection(c)
+        BookEditorTest.testHostMapsPixelsToPages(c)
+        BookEditorTest.testHostCommands(c)
+        BookEditorTest.testSceneHasEverything(c)
+        BookEditorTest.testPreflightThroughTheHost(c)
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

@@ -116,6 +116,31 @@ class EVGPDFRenderer {
     ; side, the page content is shifted into the middle, and the PDF declares a
     ; TrimBox so a printer knows where the finished page actually ends.
     def bleed:double 0.0
+
+    ; --- print finishing -----------------------------------------------------
+    ; "rgb" writes the device colours it always wrote. "cmyk" converts every
+    ; fill, stroke and glyph to process ink on the way out, which is what a
+    ; sheet-fed press wants and what PDF/X-1a requires.
+    def colorMode:string "rgb"
+    ; "" for an ordinary PDF, or "X-4" / "X-1a" to identify the file as one.
+    ; The identification is a claim, and a claim has obligations: an output
+    ; intent, a Trapped value, embedded fonts, and the boxes the bleed code
+    ; already writes.
+    def pdfxProfile:string ""
+    ; The printing condition the colours are for. A registered characterization
+    ; name - FOGRA39 for European coated offset, CGATS TR 001 for US web - is
+    ; what lets an output intent be legal without shipping an ICC profile in
+    ; the file. It is not a colour transform and does not pretend to be one.
+    def outputIntent:string "FOGRA39"
+    def outputIntentInfo:string "Coated FOGRA39 (ISO 12647-2:2004)"
+    def docTitle:string ""
+    def docAuthor:string ""
+    def producer:string "Ranger EVG PDF writer"
+    ; How many pictures went in as untagged DeviceRGB. In an RGB workflow that
+    ; is exactly right; in a CMYK one it is the gap between "the vectors are
+    ; separated" and "this file is PDF/X", and it is counted rather than
+    ; assumed away.
+    def rgbImages:int 0
     def unsupportedGlyphs:[int]
     def unsupportedContexts:[string]
     def pageWidth:double 595.0
@@ -642,7 +667,7 @@ class EVGPDFRenderer {
         }
         
         ; PDF header
-        pdf.writeString("%PDF-1.5\n")
+        pdf.writeString((this.headerLine()))
         pdf.writeByte(37)   ; %
         pdf.writeByte(226)  ; high-bit char
         pdf.writeByte(227)  ; high-bit char
@@ -974,6 +999,7 @@ class EVGPDFRenderer {
                 pdf.writeString(" /Width " + (to_string newW))
                 pdf.writeString(" /Height " + (to_string newH))
                 pdf.writeString(" /ColorSpace /DeviceRGB")
+                rgbImages = (rgbImages + 1)
                 pdf.writeString(" /BitsPerComponent 8")
                 pdf.writeString(" /Filter /DCTDecode")
                 pdf.writeString(" /Length " + (to_string encodedLen))
@@ -1082,10 +1108,43 @@ class EVGPDFRenderer {
         pagesObjNum = nextObjNum
         nextObjNum = nextObjNum + 1
         
+        ; --- print finishing ---
+        ; The XMP packet, the output intent and the document information. They
+        ; are written only when the file claims to be a print file, so an
+        ; ordinary PDF is byte-for-byte what it was before any of this existed.
+        def metadataObjNum:int 0
+        def intentObjNum:int 0
+        def infoObjNum:int 0
+        if (this.wantsFinishing()) {
+            def xmp:string (this.xmpPacket())
+            def xmpLen:int (EVGPDFRenderer.byteLength(xmp))
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString("<< /Type /Metadata /Subtype /XML /Length " + (to_string xmpLen) + " >>\nstream\n")
+            pdf.writeString(xmp)
+            pdf.writeString("endstream\nendobj\n\n")
+            metadataObjNum = nextObjNum
+            nextObjNum = nextObjNum + 1
+
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString((this.outputIntentBody()))
+            pdf.writeString("endobj\n\n")
+            intentObjNum = nextObjNum
+            nextObjNum = nextObjNum + 1
+
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString((this.infoBody()))
+            pdf.writeString("endobj\n\n")
+            infoObjNum = nextObjNum
+            nextObjNum = nextObjNum + 1
+        }
+
         ; Catalog object
         push objectOffsets (pdf.size())
         pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-        pdf.writeString("<< /Type /Catalog /Pages " + (to_string pagesObjNum) + " 0 R >>\n")
+        pdf.writeString((this.catalogBody(pagesObjNum metadataObjNum intentObjNum)))
         pdf.writeString("endobj\n\n")
         def catalogObjNum:int nextObjNum
         nextObjNum = nextObjNum + 1
@@ -1105,7 +1164,7 @@ class EVGPDFRenderer {
         
         ; Trailer
         pdf.writeString("trailer\n")
-        pdf.writeString("<< /Size " + (to_string nextObjNum) + " /Root " + (to_string catalogObjNum) + " 0 R >>\n")
+        pdf.writeString((this.trailerBody(nextObjNum catalogObjNum infoObjNum)))
         pdf.writeString("startxref\n")
         pdf.writeString((to_string xrefOffset) + "\n")
         pdf.writeString("%%EOF\n")
@@ -1128,7 +1187,7 @@ class EVGPDFRenderer {
         clear embeddedImages
         
         ; PDF header (version 1.5 for TrueType embedding)
-        pdf.writeString("%PDF-1.5\n")
+        pdf.writeString((this.headerLine()))
         pdf.writeByte(37)   ; %
         pdf.writeByte(226)  ; high-bit char
         pdf.writeByte(227)  ; high-bit char
@@ -1375,6 +1434,7 @@ class EVGPDFRenderer {
                 pdf.writeString(" /Width " + (to_string newW))
                 pdf.writeString(" /Height " + (to_string newH))
                 pdf.writeString(" /ColorSpace /DeviceRGB")
+                rgbImages = (rgbImages + 1)
                 pdf.writeString(" /BitsPerComponent 8")
                 pdf.writeString(" /Filter /DCTDecode")
                 pdf.writeString(" /Length " + (to_string encodedLen))
@@ -1457,10 +1517,43 @@ class EVGPDFRenderer {
         pagesObjNum = nextObjNum
         nextObjNum = nextObjNum + 1
         
+        ; --- print finishing ---
+        ; The XMP packet, the output intent and the document information. They
+        ; are written only when the file claims to be a print file, so an
+        ; ordinary PDF is byte-for-byte what it was before any of this existed.
+        def metadataObjNum:int 0
+        def intentObjNum:int 0
+        def infoObjNum:int 0
+        if (this.wantsFinishing()) {
+            def xmp:string (this.xmpPacket())
+            def xmpLen:int (EVGPDFRenderer.byteLength(xmp))
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString("<< /Type /Metadata /Subtype /XML /Length " + (to_string xmpLen) + " >>\nstream\n")
+            pdf.writeString(xmp)
+            pdf.writeString("endstream\nendobj\n\n")
+            metadataObjNum = nextObjNum
+            nextObjNum = nextObjNum + 1
+
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString((this.outputIntentBody()))
+            pdf.writeString("endobj\n\n")
+            intentObjNum = nextObjNum
+            nextObjNum = nextObjNum + 1
+
+            push objectOffsets (pdf.size())
+            pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+            pdf.writeString((this.infoBody()))
+            pdf.writeString("endobj\n\n")
+            infoObjNum = nextObjNum
+            nextObjNum = nextObjNum + 1
+        }
+
         ; Object 7: Catalog
         push objectOffsets (pdf.size())
         pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-        pdf.writeString("<< /Type /Catalog /Pages " + (to_string pagesObjNum) + " 0 R >>\n")
+        pdf.writeString((this.catalogBody(pagesObjNum metadataObjNum intentObjNum)))
         pdf.writeString("endobj\n\n")
         def catalogObjNum:int nextObjNum
         nextObjNum = nextObjNum + 1
@@ -1480,7 +1573,7 @@ class EVGPDFRenderer {
         
         ; Trailer
         pdf.writeString("trailer\n")
-        pdf.writeString("<< /Size " + (to_string nextObjNum) + " /Root " + (to_string catalogObjNum) + " 0 R >>\n")
+        pdf.writeString((this.trailerBody(nextObjNum catalogObjNum infoObjNum)))
         pdf.writeString("startxref\n")
         pdf.writeString((to_string xrefOffset) + "\n")
         pdf.writeString("%%EOF\n")
@@ -1965,13 +2058,13 @@ class EVGPDFRenderer {
             def r:double (fillColor.r / 255.0)
             def g:double (fillColor.g / 255.0)
             def b:double (fillColor.b / 255.0)
-            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+            streamBuffer.writeString((this.fillOp(r g b)))
         }
         if strokeColor.isSet {
             def sr:double (strokeColor.r / 255.0)
             def sg:double (strokeColor.g / 255.0)
             def sb:double (strokeColor.b / 255.0)
-            streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " RG\n")
+            streamBuffer.writeString((this.strokeOp(sr sg sb)))
             if (strokeWidth > 0.0) {
                 streamBuffer.writeString((this.formatNum(strokeWidth)) + " w\n")
             }
@@ -2238,7 +2331,7 @@ class EVGPDFRenderer {
                 blendedB = 1.0
             }
             
-            streamBuffer.writeString((this.formatNum(blendedR)) + " " + (this.formatNum(blendedG)) + " " + (this.formatNum(blendedB)) + " rg\n")
+            streamBuffer.writeString((this.fillOp(blendedR blendedG blendedB)))
             
             ; Draw shadow shape at offset position with spread
             def sx:double (x + offsetX - spread)
@@ -2277,7 +2370,7 @@ class EVGPDFRenderer {
         def r:double (color.r / 255.0)
         def g:double (color.g / 255.0)
         def b:double (color.b / 255.0)
-        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+        streamBuffer.writeString((this.fillOp(r g b)))
         ; Draw rounded rectangle
         this.drawRoundedRectPath(x y w h radius)
         streamBuffer.writeString("f\n")
@@ -2420,7 +2513,7 @@ class EVGPDFRenderer {
             def g:double (((c1.g * (1.0 - localT)) + (c2.g * localT)) / 255.0)
             def b:double (((c1.b * (1.0 - localT)) + (c2.b * localT)) / 255.0)
             
-            streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+            streamBuffer.writeString((this.fillOp(r g b)))
             
             ; Draw a strip
             if isHorizontal {
@@ -2469,7 +2562,7 @@ class EVGPDFRenderer {
         def r:double (borderColor.r / 255.0)
         def g:double (borderColor.g / 255.0)
         def b:double (borderColor.b / 255.0)
-        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " RG\n")
+        streamBuffer.writeString((this.strokeOp(r g b)))
         ; Set line width
         streamBuffer.writeString((this.formatNum(borderWidth)) + " w\n")
         ; Draw rounded rectangle outline
@@ -2494,7 +2587,7 @@ class EVGPDFRenderer {
         def r:double (borderColor.r / 255.0)
         def g:double (borderColor.g / 255.0)
         def b:double (borderColor.b / 255.0)
-        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " RG\n")
+        streamBuffer.writeString((this.strokeOp(r g b)))
         ; Set line width
         streamBuffer.writeString((this.formatNum(borderWidth)) + " w\n")
         ; Draw rectangle outline
@@ -2629,7 +2722,7 @@ class EVGPDFRenderer {
                         def shSeg:PDFTextSegment (itemAt shSegs shi)
                         streamBuffer.writeString("BT\n")
                         streamBuffer.writeString((this.segmentFontName(shSeg)) + " " + (this.formatNum(fontSize)) + " Tf\n")
-                        streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " rg\n")
+                        streamBuffer.writeString((this.fillOp(sr sg sb)))
                         streamBuffer.writeString((this.formatNum(shSeg.x)) + " " + (this.formatNum(shadowY)) + " Td\n")
                         streamBuffer.writeString((this.segmentShowOperator(shSeg)) + "\n")
                         streamBuffer.writeString("ET\n")
@@ -2666,7 +2759,7 @@ class EVGPDFRenderer {
                 }
                 streamBuffer.writeString("BT\n")
                 streamBuffer.writeString((this.segmentFontName(seg)) + " " + (this.formatNum(fontSize)) + " Tf\n")
-                streamBuffer.writeString((this.formatNum(sr)) + " " + (this.formatNum(sg)) + " " + (this.formatNum(sb)) + " rg\n")
+                streamBuffer.writeString((this.fillOp(sr sg sb)))
                 streamBuffer.writeString((this.formatNum(seg.x)) + " " + (this.formatNum(lineY)) + " Td\n")
                 streamBuffer.writeString((this.segmentShowOperator(seg)) + "\n")
                 streamBuffer.writeString("ET\n")
@@ -2985,7 +3078,7 @@ class EVGPDFRenderer {
         def r:double (color.r / 255.0)
         def g:double (color.g / 255.0)
         def b:double (color.b / 255.0)
-        streamBuffer.writeString((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " RG\n")
+        streamBuffer.writeString((this.strokeOp(r g b)))
         streamBuffer.writeString("1 w\n")
         streamBuffer.writeString((this.formatNum(x)) + " " + (this.formatNum(lineY)) + " m\n")
         streamBuffer.writeString((this.formatNum((x + w))) + " " + (this.formatNum(lineY)) + " l\n")
@@ -3203,6 +3296,366 @@ class EVGPDFRenderer {
         return result
     }
     
+    ; -------------------------------------------------------------------------
+    ; Colour
+    ; -------------------------------------------------------------------------
+
+    fn setColorMode:void (mode:string) {
+        colorMode = mode
+    }
+
+    fn setPdfxProfile:void (profile:string) {
+        pdfxProfile = profile
+    }
+
+    fn setOutputIntent:void (identifier:string info:string) {
+        outputIntent = identifier
+        outputIntentInfo = info
+    }
+
+    fn setDocumentInfo:void (title:string author:string) {
+        docTitle = title
+        docAuthor = author
+    }
+
+    fn isCmyk:boolean () {
+        return (colorMode == "cmyk")
+    }
+
+    ; RGB to process ink, with maximum black generation.
+    ;
+    ; This is a DEVICE conversion: no profile is consulted, so it is what a
+    ; press would do to untagged RGB anyway, done here where it can at least be
+    ; declared. The one thing it gets right that matters more than accuracy is
+    ; that pure black comes out as 100% K and nothing else - text separated into
+    ; four inks is text that goes soft the moment the registration drifts, and
+    ; it is the single most common way a good-looking file prints badly.
+    ;
+    ; Anything better needs an ICC transform. Preflight says so rather than
+    ; letting the number look authoritative.
+    sfn toCmyk:[double] (r:double g:double b:double) {
+        def out:[double]
+        def c:double (1.0 - r)
+        def m:double (1.0 - g)
+        def y:double (1.0 - b)
+        def k:double c
+        if (m < k) {
+            k = m
+        }
+        if (y < k) {
+            k = y
+        }
+        if (k >= 0.9999) {
+            push out 0.0
+            push out 0.0
+            push out 0.0
+            push out 1.0
+            return out
+        }
+        def span:double (1.0 - k)
+        push out ((c - k) / span)
+        push out ((m - k) / span)
+        push out ((y - k) / span)
+        push out k
+        return out
+    }
+
+    fn fillOp:string (r:double g:double b:double) {
+        if (colorMode == "cmyk") {
+            def v:[double] (EVGPDFRenderer.toCmyk(r g b))
+            def c:string (this.formatNum((itemAt v 0)))
+            def m:string (this.formatNum((itemAt v 1)))
+            def y:string (this.formatNum((itemAt v 2)))
+            def k:string (this.formatNum((itemAt v 3)))
+            return (c + " " + m + " " + y + " " + k + " k\n")
+        }
+        return ((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " rg\n")
+    }
+
+    fn strokeOp:string (r:double g:double b:double) {
+        if (colorMode == "cmyk") {
+            def v:[double] (EVGPDFRenderer.toCmyk(r g b))
+            def c:string (this.formatNum((itemAt v 0)))
+            def m:string (this.formatNum((itemAt v 1)))
+            def y:string (this.formatNum((itemAt v 2)))
+            def k:string (this.formatNum((itemAt v 3)))
+            return (c + " " + m + " " + y + " " + k + " K\n")
+        }
+        return ((this.formatNum(r)) + " " + (this.formatNum(g)) + " " + (this.formatNum(b)) + " RG\n")
+    }
+
+    ; -------------------------------------------------------------------------
+    ; The finishing objects a print file needs
+    ; -------------------------------------------------------------------------
+
+    ; PDF/X-4 is a PDF 1.6 feature set. Claiming it in a 1.5 header is the sort
+    ; of contradiction a preflight tool opens with.
+    fn headerLine:string () {
+        if ((strlen pdfxProfile) > 0) {
+            return "%PDF-1.6\n"
+        }
+        return "%PDF-1.5\n"
+    }
+
+    fn wantsFinishing:boolean () {
+        return ((strlen pdfxProfile) > 0)
+    }
+
+    sfn pdfString:string (v:string) {
+        def out:string ""
+        def n:int (strlen v)
+        def i:int 0
+        while (i < n) {
+            def ch:string (substring v i (i + 1))
+            if (ch == "(") {
+                out = (out + "\\(")
+            } {
+                if (ch == ")") {
+                    out = (out + "\\)")
+                } {
+                    if (ch == "\\") {
+                        out = (out + "\\\\")
+                    } {
+                        out = (out + ch)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; XML-safe AND ASCII-safe.
+    ;
+    ; The second half is not decoration: `GrowableBuffer.writeString` writes one
+    ; byte per UTF-16 unit, so a title with an umlaut in it would go into the
+    ; stream as a single mangled byte inside a packet that declares itself
+    ; UTF-8. Numeric character references keep the text correct and keep the
+    ; packet ASCII, which also makes its /Length arithmetic trivially right.
+    sfn xmlEscape:string (v:string) {
+        def out:string ""
+        def n:int (strlen v)
+        def i:int 0
+        while (i < n) {
+            def code:int (charAt v i)
+            if (code == 38) {
+                out = (out + "&amp;")
+            } {
+                if (code == 60) {
+                    out = (out + "&lt;")
+                } {
+                    if (code == 62) {
+                        out = (out + "&gt;")
+                    } {
+                        if (code < 127) {
+                            out = (out + (substring v i (i + 1)))
+                        } {
+                            ; A surrogate pair is one character, and referencing
+                            ; the halves separately is not valid XML.
+                            def point:int code
+                            def isHigh:boolean ((code >= 55296) && (code <= 56319))
+                            if isHigh {
+                                if ((i + 1) < n) {
+                                    def low:int (charAt v (i + 1))
+                                    def isLow:boolean ((low >= 56320) && (low <= 57343))
+                                    if isLow {
+                                        def hi:int ((code - 55296) * 1024)
+                                        def lo:int (low - 56320)
+                                        point = ((hi + lo) + 65536)
+                                        i = (i + 1)
+                                    }
+                                }
+                            }
+                            out = (out + "&#" + (to_string point) + ";")
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A PDF text string. Pure ASCII goes in as a literal; anything else becomes
+    ; UTF-16BE with a byte-order mark, which is the only encoding a PDF reader
+    ; is required to understand for text outside PDFDocEncoding. Writing the raw
+    ; units would put one truncated byte per character into the file.
+    sfn pdfTextString:string (v:string) {
+        def n:int (strlen v)
+        def ascii:boolean true
+        def i:int 0
+        while (i < n) {
+            def code:int (charAt v i)
+            if (code > 126) {
+                ascii = false
+            }
+            i = (i + 1)
+        }
+        if ascii {
+            return ("(" + (EVGPDFRenderer.pdfString(v)) + ")")
+        }
+        def out:string "<FEFF"
+        def k:int 0
+        while (k < n) {
+            def unit:int (charAt v k)
+            out = (out + (EVGPDFRenderer.hex4(unit)))
+            k = (k + 1)
+        }
+        return (out + ">")
+    }
+
+    sfn hex4:string (v:int) {
+        def digits:string "0123456789ABCDEF"
+        def out:string ""
+        def shift:int 12
+        while (shift >= 0) {
+            def nib:int ((idiv v (EVGPDFRenderer.pow16(shift))) % 16)
+            out = (out + (substring digits nib (nib + 1)))
+            shift = (shift - 4)
+        }
+        return out
+    }
+
+    sfn pow16:int (shift:int) {
+        if (shift <= 0) {
+            return 1
+        }
+        if (shift == 4) {
+            return 16
+        }
+        if (shift == 8) {
+            return 256
+        }
+        return 4096
+    }
+
+    ; The XMP packet. PDF/X is identified HERE and nowhere else - a reader that
+    ; wants to know whether this file claims to be a print file looks for
+    ; pdfxid:GTS_PDFXVersion, not for a dictionary key.
+    fn xmpPacket:string () {
+        def title:string (EVGPDFRenderer.xmlEscape(docTitle))
+        def author:string (EVGPDFRenderer.xmlEscape(docAuthor))
+        def prod:string (EVGPDFRenderer.xmlEscape(producer))
+        def out:string "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n"
+        out = (out + "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n")
+        out = (out + " <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n")
+        out = (out + "  <rdf:Description rdf:about=\"\" xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\">\n")
+        out = (out + "   <pdfxid:GTS_PDFXVersion>PDF/" + pdfxProfile + "</pdfxid:GTS_PDFXVersion>\n")
+        out = (out + "  </rdf:Description>\n")
+        out = (out + "  <rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\">\n")
+        out = (out + "   <pdf:Producer>" + prod + "</pdf:Producer>\n")
+        out = (out + "   <pdf:Trapped>False</pdf:Trapped>\n")
+        out = (out + "  </rdf:Description>\n")
+        out = (out + "  <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\n")
+        out = (out + "   <xmp:CreatorTool>" + prod + "</xmp:CreatorTool>\n")
+        out = (out + "  </rdf:Description>\n")
+        out = (out + "  <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n")
+        out = (out + "   <dc:format>application/pdf</dc:format>\n")
+        if ((strlen title) > 0) {
+            out = (out + "   <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">" + title + "</rdf:li></rdf:Alt></dc:title>\n")
+        }
+        if ((strlen author) > 0) {
+            out = (out + "   <dc:creator><rdf:Seq><rdf:li>" + author + "</rdf:li></rdf:Seq></dc:creator>\n")
+        }
+        out = (out + "  </rdf:Description>\n")
+        out = (out + " </rdf:RDF>\n")
+        out = (out + "</x:xmpmeta>\n")
+        out = (out + "<?xpacket end=\"w\"?>\n")
+        return out
+    }
+
+    ; What the finishing did, and what it could not do. Printed rather than
+    ; returned because the one thing that must not happen is a file that claims
+    ; conformance it does not have and says nothing about it.
+    ;
+    ; The gap is images. Text and vectors are converted to process ink here;
+    ; a JPEG is not, and an untagged DeviceRGB image inside a file whose output
+    ; intent is a CMYK printing condition is a PDF/X conformance failure - not a
+    ; cosmetic one. There are two honest ways out and this reports both.
+    fn finishingReport:string () {
+        if ((this.wantsFinishing()) == false) {
+            return ""
+        }
+        def out:string ""
+        out = (out + "  PDF/" + pdfxProfile + ": output intent " + outputIntent + ", colours " + colorMode + ", Trapped False\n")
+        if (this.isCmyk()) {
+            if (rgbImages > 0) {
+                out = (out + "  WARNING: " + (to_string rgbImages) + " image(s) are embedded as untagged DeviceRGB while the\n")
+                out = (out + "  output intent is a CMYK condition. Text and vectors are separated; the\n")
+                out = (out + "  pictures are not, and PDF/" + pdfxProfile + " does not allow that combination.\n")
+                out = (out + "  Either supply the pictures already in CMYK, or keep the whole job in RGB\n")
+                out = (out + "  with an RGB output intent - which several print-on-demand services\n")
+                out = (out + "  prefer - rather than shipping a file that only claims to be separated.\n")
+            }
+        }
+        return out
+    }
+
+    fn conformanceIssues:int () {
+        if ((this.wantsFinishing()) == false) {
+            return 0
+        }
+        if (this.isCmyk()) {
+            return rgbImages
+        }
+        return 0
+    }
+
+    ; The packet's length in BYTES. `strlen` counts UTF-16 units, and a title
+    ; with an umlaut in it would leave /Length short by one for every non-ASCII
+    ; character - a stream that ends early is a file no reader will open.
+    sfn byteLength:int (v:string) {
+        def scratch (new GrowableBuffer())
+        scratch.writeString(v)
+        return (scratch.size())
+    }
+
+    ; The output intent: which printing condition these numbers are for. A
+    ; registered characterization name stands in for an embedded ICC profile,
+    ; which is what keeps this file honest without shipping a megabyte of
+    ; someone else's profile inside it.
+    fn outputIntentBody:string () {
+        def out:string "<< /Type /OutputIntent /S /GTS_PDFX"
+        out = (out + " /OutputConditionIdentifier " + (EVGPDFRenderer.pdfTextString(outputIntent)))
+        out = (out + " /OutputCondition " + (EVGPDFRenderer.pdfTextString(outputIntentInfo)))
+        out = (out + " /Info " + (EVGPDFRenderer.pdfTextString(outputIntentInfo)))
+        out = (out + " /RegistryName (http://www.color.org) >>\n")
+        return out
+    }
+
+    ; /Trapped is not optional in PDF/X: a file that does not say whether it has
+    ; been trapped cannot be one.
+    fn infoBody:string () {
+        def out:string "<< /Producer " + (EVGPDFRenderer.pdfTextString(producer))
+        if ((strlen docTitle) > 0) {
+            out = (out + " /Title " + (EVGPDFRenderer.pdfTextString(docTitle)))
+        }
+        if ((strlen docAuthor) > 0) {
+            out = (out + " /Author " + (EVGPDFRenderer.pdfTextString(docAuthor)))
+        }
+        out = (out + " /Trapped /False >>\n")
+        return out
+    }
+
+    fn catalogBody:string (pagesNum:int metadataNum:int intentNum:int) {
+        def out:string "<< /Type /Catalog /Pages " + (to_string pagesNum) + " 0 R"
+        if (this.wantsFinishing()) {
+            out = (out + " /Metadata " + (to_string metadataNum) + " 0 R")
+            out = (out + " /OutputIntents [" + (to_string intentNum) + " 0 R]")
+        }
+        out = (out + " >>\n")
+        return out
+    }
+
+    fn trailerBody:string (size:int catalogNum:int infoNum:int) {
+        def out:string "<< /Size " + (to_string size) + " /Root " + (to_string catalogNum) + " 0 R"
+        if (this.wantsFinishing()) {
+            out = (out + " /Info " + (to_string infoNum) + " 0 R")
+        }
+        out = (out + " >>\n")
+        return out
+    }
+
     fn formatNum:string (n:double) {
         ; PDF real numbers may NOT use exponential notation — the syntax has no
         ; such form, and a viewer is within its rights to reject the whole

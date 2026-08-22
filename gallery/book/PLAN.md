@@ -45,6 +45,33 @@ Ranger owns outright.
 | One-object API and a JSON projection for a host UI | `BookApi.rgr` | done |
 | 76 assertions on JavaScript, Go and Python | `tests/BookTest.rgr` | done |
 
+## Stage 1b — the editor (done)
+
+| Piece | Where | State |
+| --- | --- | --- |
+| Placed lines → `EVGDisplayList` (WebGL, OpenGL, software canvas) | `BookToEvg.rgr` | done |
+| Selection, hit test, marquee; master frames are drawn, not selectable | `BookEdit.rgr` | done |
+| Move, resize from 8 handles, measured from where the drag began | `BookEdit.rgr` | done |
+| Snapping to margins, page edges and centres, and other frames | `BookEdit.rgr` | done |
+| Insert text / picture / shape frames; delete, duplicate, z-order, align | `BookEdit.rgr` | done |
+| **Link and unlink the story flow** — the gesture a slide editor has no use for | `BookEdit.rgr` | done |
+| Pages: add, duplicate, delete, reorder; deleting one joins the chain | `BookEdit.rgr` | done |
+| Undo / redo over whole-document snapshots; a drag is one edit | `BookEdit.rgr` | done |
+| Every geometry edit re-flows | `BookEdit.rgr` | done |
+| Host seam: window pixel → point on the left or right page of a spread | `BookApp.rgr` | done |
+| Shared toolbar, pages panel, status line, command table, preflight window | `BookApp.rgr` | done |
+| Selection chrome in the same display list as the pages | `BookApp.rgr` | done |
+| The canvas measures with the faces it paints with | `BookView.rgr`, `EVGContextMeasurer.rgr` | done |
+| Serverless browser build — the whole engine in the page, WebGL 2 | `web/standalone/` | done |
+| Node-hosted variant, for driving the editor from a script | `web/serve.mjs` | done |
+| 64 editor assertions, 17 in a real browser | `tests/`, `web/standalone/smoke.mjs` | done |
+
+Extracted into `gallery/evg` on the way, because the book editor was the second
+caller: `EVGImageDecode` (PNG/JPEG bytes → pixels), `EVGSelectChrome` (handle
+geometry and which edges each handle owns), `EVGContextMeasurer` (EVG text
+measurement backed by a host's own renderer), and
+`EVGDisplayList.offsetBy` / `.appendFrom`.
+
 ## Stage 2 — typography that survives a proof
 
 The current line breaker is greedy, and justification is done by the renderer
@@ -73,31 +100,58 @@ for a printed book. In order of visible improvement:
 3. **Vector decoration on the page**, already possible through `kind = "path"`,
    but with EVG's path editing rather than hand-written path data.
 
-## Stage 4 — the editor
+## Stage 4 — the editor, continued
 
-The model is deliberately host-agnostic; the editor is a separate program that
-draws `api.toJson()` and calls back into the API. What it needs:
+The canvas, the panel and the editing core are in (stage 1b). What is left is
+the half that needs a caret and a properties panel:
 
-1. A **spread canvas** on EVG, with frame selection, drag, resize — the same
-   machinery `rangerflow` and `datagrid` already use.
-2. A **pages panel** showing spreads, with drag-to-reorder (which is a document
-   operation the model does not have yet: moving a page must re-mirror its
-   master frames).
-3. A **story view** — editing the text, not the page. Editing a story should
-   re-flow and show which pages changed.
-4. **Overset made visible.** The red frame edge is already in the renderer
-   (`options.showFrames`); the editor needs to surface it as a place to go.
-5. **Master page editing**, and re-applying a master to pages that have
-   overrides.
+1. **A caret in a text frame.** Typing into a story, not into a box: the
+   position is a paragraph and a column of the STORY, and the caret's rectangle
+   has to be found from the flow's placed lines. `PptxTextEdit` solves the same
+   problem against OOXML runs and is the shape to copy, not the code.
+2. **A properties panel** — style, fill, fit, focus, columns — in the shared
+   window layer, so the commands that exist (`image.fit`, `edit.fill`,
+   `frame.columns`) get a surface.
+3. **Drag-to-reorder in the pages panel.** `movePage` is there; the panel only
+   selects.
+4. **The story view** — editing the text away from the page, with the flow
+   showing which pages changed.
+5. **Master page editing**, and re-applying a master to pages with overrides.
+6. **Saving.** The document is data; a `.book` file is a serializer and a
+   parser, and `toJson` is already most of the first one.
 
 ## Stage 5 — output that a printer accepts
 
-1. **CMYK and ICC.** Currently everything is RGB. This is a PDF writer change,
-   not a book engine change, but preflight is where it gets checked.
-2. **Crop marks, bleed marks, a slug area.** The model already carries a bleed
-   value; nothing draws it yet.
-3. **PDF/X-ready output** — the flag a print shop asks for.
-4. **EPUB**, which is the same story model with the pagination thrown away, and
+Done (stage 5a): `BookPrintSpec` holds a supplier's requirements as data and
+preflight checks against it — trim size, extent (minimum, maximum, multiple),
+bleed, outer and **gutter** safety, dpi. `BookCover` computes the spine from
+the extent and the paper and builds the cover as its own landscape document.
+`npm run book:print` writes the interior at trim + bleed with a TrimBox, the
+cover, a `print.json` manifest carrying the fields a print-on-demand API asks
+for, and the render commands with the computed sizes in them.
+
+Done (stage 5b): the exported PDF finishes itself. `%PDF-1.6`, an XMP packet
+identifying PDF/X-4 or X-1a, an `/OutputIntents` naming the printing condition,
+`/Trapped /False`, and an `/Info` dictionary — written only when the file is
+asked to claim conformance, so an ordinary PDF is unchanged. `-colors cmyk`
+separates fills, strokes and glyphs to process ink with maximum black
+generation, so pure black is 100% K. Images are the remaining gap and are
+counted and reported rather than assumed away; `-strict-print` refuses to write
+a file that claims PDF/X it does not meet.
+
+Left:
+
+1. **An ICC transform behind the CMYK conversion.** What is there is a device
+   conversion, declared as one. A profiled one needs an ICC engine.
+2. **CMYK image data.** Decoding a JPEG and re-encoding it as a four-component
+   Adobe JPEG is the missing piece; the decoder and the encoder both exist.
+3. **An embedded output profile** (`DestOutputProfile`), rather than the
+   registered characterization name that stands in for it now.
+4. **Crop and registration marks**, for the suppliers that want them. Off by
+   default and it should stay that way: an unwanted set of marks is a reprint.
+4. **A supplier's own cover template as input**, so the generated arithmetic can
+   be checked against their file rather than replacing it.
+5. **EPUB**, which is the same story model with the pagination thrown away, and
    is therefore nearly free once stories and styles are the source of truth.
 
 ## Design rules that should not be traded away

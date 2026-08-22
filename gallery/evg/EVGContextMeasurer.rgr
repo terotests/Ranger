@@ -1,0 +1,159 @@
+; ==============================================================================
+; EVGContextMeasurer - EVG text measurement backed by the host's own renderer
+; ==============================================================================
+;
+; PLAN_CSS_LAYOUT_AND_FONTS.md 4.1 rule 1: the same face measures and paints.
+; There were already two measurers that hold to it - `SimpleTextMeasurer`,
+; which guesses, and `TTFTextMeasurer`, which reads font files for print - and
+; a gap between them: an interactive app paints through `UIContext`, whose text
+; renderer has its own loaded faces, and nothing let a layout ask *that*.
+;
+; So an editor laid its text out with guessed widths and drew it with real
+; ones, and a caret or a justified line landed next to its glyphs rather than
+; on them. This closes it: give the flow engine one of these, and the wrap the
+; engine computes is the wrap the canvas draws.
+;
+; The family switch by weight is the one detail that matters. A host renderer
+; keeps bold as a separate face under a suffixed name (`Open Sans-Bold`), and
+; measuring the regular face for a bold string lands short of the text.
+; ==============================================================================
+
+Import "EVGTextMeasurer.rgr"
+Import "../game_engine/ui/UIContext.rgr"
+
+class EVGContextMeasurer {
+    Extends(EVGTextMeasurer)
+
+    def hasCtx:boolean false
+    def ctx:UIContext (new UIContext)
+    ; The family the host actually loaded. A document naming something else is
+    ; drawn in this one, so it must be measured in this one too.
+    def family:string "Open Sans"
+    def bold:boolean false
+    def italic:boolean false
+    ; The families the host actually loaded. A document naming something else
+    ; is drawn in the default face, so it must be measured in that face too -
+    ; and preflight has to be told, which is what `hasFace` is asked for.
+    def known:[string]
+    ; Used only until a context is attached.
+    def emFactor:double 0.55
+
+    Constructor () {
+    }
+
+    fn attach:void (c:UIContext fam:string) {
+        ctx = c
+        family = fam
+        hasCtx = true
+        this.addKnown(fam)
+    }
+
+    fn addKnown:void (name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length known)) {
+            if ((itemAt known i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push known name
+    }
+
+    ; Which face the next measurement is for. The caller sets it around a run
+    ; rather than passing it, because `EVGTextMeasurer`'s contract is a family
+    ; name and a size and nothing else.
+    fn setWeight:void (b:boolean i:boolean) {
+        bold = b
+        italic = i
+    }
+
+    fn faceFor:string (b:boolean i:boolean) {
+        if b {
+            if i {
+                return (family + "-Bold Italic")
+            }
+            return (family + "-Bold")
+        }
+        if i {
+            return (family + "-Italic")
+        }
+        return family
+    }
+
+    ; True once a context is attached: from then on these are real metrics from
+    ; the face that will be painted, which is what `EVGTextEngine` asks before
+    ; deciding whether a layout can be trusted.
+    fn isFontAccurate:boolean () {
+        return hasCtx
+    }
+
+    ; The host has exactly one family loaded, and paints everything in it.
+    ; Claiming otherwise would let a document name a face nobody has and get no
+    ; warning for it.
+    fn hasFace:boolean (fontFamily:string) {
+        if (hasCtx == false) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length known)) {
+            if ((itemAt known i) == fontFamily) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The face a run is measured with: the family it names when the host has
+    ; it, and the default otherwise - which is what the painter will draw with.
+    fn faceName:string (fontFamily:string b:boolean i:boolean) {
+        def base:string family
+        if (this.hasFace(fontFamily)) {
+            base = fontFamily
+        }
+        if b {
+            if i {
+                return (base + "-Bold Italic")
+            }
+            return (base + "-Bold")
+        }
+        if i {
+            return (base + "-Italic")
+        }
+        return base
+    }
+
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        def m (new EVGTextMetrics())
+        def w:double 0.0
+        if ((strlen text) > 0) {
+            if hasCtx {
+                def prev:string ctx.tr.fontFamily
+                ctx.tr.fontFamily = (this.faceName(fontFamily bold italic))
+                w = (ctx.measureWidth(text fontSize))
+                ctx.tr.fontFamily = prev
+            } {
+                def n:double (to_double (strlen text))
+                w = (n * fontSize * emFactor)
+            }
+        }
+        m.width = w
+        m.ascent = (fontSize * 0.8)
+        m.descent = (fontSize * 0.2)
+        m.height = (fontSize * 1.2)
+        m.lineHeight = (fontSize * 1.2)
+        return m
+    }
+
+    fn measureTextWidth:double (text:string fontFamily:string fontSize:double) {
+        def m:EVGTextMetrics (this.measureText(text fontFamily fontSize))
+        return m.width
+    }
+
+    fn getLineHeight:double (fontFamily:string fontSize:double) {
+        return (fontSize * 1.2)
+    }
+}

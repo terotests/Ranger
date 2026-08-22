@@ -1,0 +1,403 @@
+; ==============================================================================
+; BookToEvg.rgr - a laid-out page as draw commands
+; ==============================================================================
+;
+; `BookRender.rgr` writes SVG and TSX: text, for a file. This writes the third
+; form, and the only one an editor can use - an `EVGDisplayList`, which is what
+; every EVG host draws:
+;
+;     BookDocument + flow
+;            |
+;       BookToEvg              one page, in device pixels
+;            |
+;     EVGDisplayList  ──┬──►  WebGL 2   (gallery/evg/gl)
+;                       ├──►  OpenGL / SDL
+;                       └──►  SoftCanvas (headless, screenshots, tests)
+;
+; It re-lays out nothing. The flow engine has already decided where every line
+; sits in page points; this multiplies by a scale and pushes a command. That is
+; the same rule the SVG and TSX writers follow, and it is what keeps the canvas
+; and the PDF showing the same book.
+;
+; Commands are built here rather than through `EVGDisplayList.addText` because
+; that helper marks italic by writing "italic" into `textAlign` - a convention
+; the DataGrid relies on - and a page of running text needs `textAlign` for
+; what it says: left, centre, right.
+; ==============================================================================
+
+Import "BookRender.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "../../evg/SVGPathParser.rgr"
+
+class BookToEvg {
+    ; Device pixels per page point.
+    def scale:double 1.0
+    ; Editor chrome. Off when the list is a preview of the printed page.
+    def showMargins:boolean false
+    def showFrames:boolean false
+    def showBleed:boolean false
+    ; Prefix put in front of an asset path before it becomes an image `src`.
+    ; The host looks images up by exactly this string.
+    def assetBase:string ""
+    ; Furniture text - a title, a caption, a folio - is not part of a story and
+    ; was never broken into lines by the flow engine. It still has to wrap, and
+    ; it has to wrap the same way the SVG and PDF writers wrap it, so it goes
+    ; through the same engine.
+    def engine:BookFlowEngine (new BookFlowEngine())
+
+    Constructor () {
+    }
+
+    fn setFlowEngine:void (e:BookFlowEngine) {
+        engine = e
+    }
+
+    fn setScale:void (s:double) {
+        scale = s
+    }
+
+    ; ---------------------------------------------------------------------
+
+    sfn colorOf:EVGColor (hex:string fallback:EVGColor) {
+        if ((strlen hex) == 0) {
+            return fallback
+        }
+        return (EVGColor.parse(hex))
+    }
+
+    ; One page, at the given device offset. Everything else is built on this.
+    fn paintPage:void (dl:EVGDisplayList doc:BookDocument flow:BookFlowResult page:BookPage ox:double oy:double) {
+        def pw:double (page.width * scale)
+        def ph:double (page.height * scale)
+        def white:EVGColor (EVGColor.rgb(255 255 255))
+        def bg:EVGColor (BookToEvg.colorOf(page.background white))
+        dl.addRect(ox oy pw ph bg)
+
+        def layers:[string]
+        push layers "background"
+        push layers "content"
+        push layers "overlay"
+        def li:int 0
+        while (li < (array_length layers)) {
+            def layer:string (itemAt layers li)
+            def fi:int 0
+            while (fi < (array_length page.frames)) {
+                def f:BookFrame (itemAt page.frames fi)
+                if (f.layer == layer) {
+                    this.paintFrame(dl doc flow page f ox oy)
+                }
+                fi = (fi + 1)
+            }
+            li = (li + 1)
+        }
+
+        if showMargins {
+            this.paintMargins(dl doc page ox oy)
+        }
+    }
+
+    fn pageList:EVGDisplayList (doc:BookDocument flow:BookFlowResult page:BookPage) {
+        def dl (new EVGDisplayList)
+        this.paintPage(dl doc flow page 0.0 0.0)
+        return dl
+    }
+
+    ; ---------------------------------------------------------------------
+
+    fn paintMargins:void (dl:EVGDisplayList doc:BookDocument page:BookPage ox:double oy:double) {
+        if ((doc.hasMaster(page.masterName)) == false) {
+            return
+        }
+        def m:BookMasterPage (doc.masterFor(page.masterName))
+        def recto:boolean (page.isRecto())
+        def left:double (m.leftMarginFor(recto))
+        def right:double (m.rightMarginFor(recto))
+        def w:double (page.width - left)
+        def boxW:double (w - right)
+        def h:double (page.height - m.marginTop)
+        def boxH:double (h - m.marginBottom)
+        def col:EVGColor (EVGColor.rgba(90 150 240 0.55))
+        dl.addFrame((ox + (left * scale)) (oy + (m.marginTop * scale)) (boxW * scale) (boxH * scale) 1.0 col)
+    }
+
+    fn paintFrame:void (dl:EVGDisplayList doc:BookDocument flow:BookFlowResult page:BookPage frame:BookFrame ox:double oy:double) {
+        def x:double (ox + (frame.x * scale))
+        def y:double (oy + (frame.y * scale))
+        def w:double (frame.w * scale)
+        def h:double (frame.h * scale)
+
+        if (frame.kind == "shape") {
+            this.paintShape(dl frame x y w h)
+        }
+        if (frame.kind == "path") {
+            this.paintPath(dl frame x y w h)
+        }
+        if (frame.kind == "image") {
+            this.paintImage(dl doc frame x y w h ox oy)
+        }
+        if (frame.kind == "text") {
+            this.paintText(dl doc flow page frame x y w h)
+        }
+
+        if showFrames {
+            def col:EVGColor (EVGColor.rgba(150 165 185 0.9))
+            if frame.overflowed {
+                col = (EVGColor.rgb(220 60 50))
+            }
+            dl.addFrame(x y w h 1.0 col)
+        }
+    }
+
+    fn paintShape:void (dl:EVGDisplayList frame:BookFrame x:double y:double w:double h:double) {
+        if ((strlen frame.fill) > 0) {
+            def col:EVGColor (EVGColor.parse(frame.fill))
+            def c (new EVGDrawCmd)
+            c.kind = 0
+            c.x = x
+            c.y = y
+            c.w = w
+            c.h = h
+            c.r = (col.red())
+            c.g = (col.green())
+            c.b = (col.blue())
+            def alpha:double (col.alpha())
+            c.a = (alpha * frame.opacity)
+            c.radius = (frame.cornerRadius * scale)
+            c.rotate = frame.rotation
+            push dl.cmds c
+        }
+        if ((strlen frame.stroke) > 0) {
+            def sc:EVGColor (EVGColor.parse(frame.stroke))
+            def t:double (frame.strokeWidth * scale)
+            if (t < 1.0) {
+                t = 1.0
+            }
+            dl.addFrame(x y w h t sc)
+        }
+    }
+
+    ; A vector decoration. The path is parsed and flattened here, in the size
+    ; it will be drawn at, because a GPU backend has no path parser and the
+    ; right number of segments for a curve depends on how big it is.
+    fn paintPath:void (dl:EVGDisplayList frame:BookFrame x:double y:double w:double h:double) {
+        if ((strlen frame.pathData) == 0) {
+            return
+        }
+        def parser (new SVGPathParser())
+        parser.parse(frame.pathData)
+        def b:PathBounds (parser.getBounds())
+        if (b.width <= 0.0) {
+            return
+        }
+        if (b.height <= 0.0) {
+            return
+        }
+        def sx:double (w / b.width)
+        def sy:double (h / b.height)
+        def k:double sx
+        if (sy < sx) {
+            k = sy
+        }
+        def e:double (x - (b.minX * k))
+        def f:double (y - (b.minY * k))
+        def rings:[PathRing] (parser.flattenRings(24 k 0.0 0.0 k e f))
+        if ((array_length rings) == 0) {
+            return
+        }
+        def fill:string frame.fill
+        if ((strlen fill) > 0) {
+            def col:EVGColor (EVGColor.parse(fill))
+            def ri:int 0
+            while (ri < (array_length rings)) {
+                def ring:PathRing (itemAt rings ri)
+                dl.addPolygon(ring.pts col)
+                ri = (ri + 1)
+            }
+        }
+        if ((strlen frame.stroke) > 0) {
+            def sc:EVGColor (EVGColor.parse(frame.stroke))
+            def t:double (frame.strokeWidth * scale)
+            if (t < 1.0) {
+                t = 1.0
+            }
+            def si:int 0
+            while (si < (array_length rings)) {
+                def ring2:PathRing (itemAt rings si)
+                dl.addPolyline(ring2.pts t sc)
+                si = (si + 1)
+            }
+        }
+    }
+
+    ; The picture, and the crop. `cover` deliberately draws a rectangle bigger
+    ; than the frame and lets the clip take the rest off - which is the whole
+    ; reason the display list has a clip: the interesting half of a photograph
+    ; is rarely its centre, and `focusX` / `focusY` choose which half survives.
+    fn paintImage:void (dl:EVGDisplayList doc:BookDocument frame:BookFrame x:double y:double w:double h:double ox:double oy:double) {
+        if ((doc.hasAsset(frame.assetId)) == false) {
+            def pale:EVGColor (EVGColor.rgb(242 242 242))
+            dl.addRect(x y w h pale)
+            dl.addFrame(x y w h 1.0 (EVGColor.rgb(204 68 68)))
+            return
+        }
+        def asset:BookAsset (doc.assetFor(frame.assetId))
+        def box:BookImageBox (BookToEvg.fitBox(frame asset))
+        dl.addClip(x y w h)
+        def c (new EVGDrawCmd)
+        c.kind = 2
+        c.x = (ox + (box.x * scale))
+        c.y = (oy + (box.y * scale))
+        c.w = (box.w * scale)
+        c.h = (box.h * scale)
+        c.src = (assetBase + asset.path)
+        c.a = frame.opacity
+        c.rotate = frame.rotation
+        push dl.cmds c
+        dl.addClipEnd()
+    }
+
+    ; The same arithmetic `BookRender` uses for SVG. Duplicated deliberately:
+    ; the renderer must not depend on the display-list builder or the other way
+    ; round, and one of them being wrong is caught by the tests comparing both.
+    sfn fitBox:BookImageBox (frame:BookFrame asset:BookAsset) {
+        def box (new BookImageBox())
+        def aw:double asset.naturalWidth
+        def ah:double asset.naturalHeight
+        if ((aw <= 0.0) || (ah <= 0.0)) {
+            box.x = frame.x
+            box.y = frame.y
+            box.w = frame.w
+            box.h = frame.h
+            return box
+        }
+        if (frame.fit == "fill") {
+            box.x = frame.x
+            box.y = frame.y
+            box.w = frame.w
+            box.h = frame.h
+            return box
+        }
+        def k:double 1.0
+        if (frame.fit == "none") {
+            k = 1.0
+        } {
+            def sx:double (frame.w / aw)
+            def sy:double (frame.h / ah)
+            if (frame.fit == "contain") {
+                k = sx
+                if (sy < sx) {
+                    k = sy
+                }
+            } {
+                k = sx
+                if (sy > sx) {
+                    k = sy
+                }
+            }
+        }
+        def dw:double (aw * k)
+        def dh:double (ah * k)
+        def slackX:double (frame.w - dw)
+        def slackY:double (frame.h - dh)
+        box.x = (frame.x + (slackX * frame.focusX))
+        box.y = (frame.y + (slackY * frame.focusY))
+        box.w = dw
+        box.h = dh
+        return box
+    }
+
+    ; ---------------------------------------------------------------------
+
+    fn paintText:void (dl:EVGDisplayList doc:BookDocument flow:BookFlowResult page:BookPage frame:BookFrame x:double y:double w:double h:double) {
+        ; Master-page furniture: a folio, a running head.
+        if ((strlen frame.text) > 0) {
+            def resolved:string (BookRenderer.substitute(frame.text doc page))
+            def style:BookStyle (doc.styleFor(frame.styleName))
+            def col:EVGColor (BookToEvg.colorOf(style.color (EVGColor.black())))
+            def leading:double (style.leadingFor())
+            def lines:[BookBrokenLine] (engine.breakParagraph(resolved style frame.w))
+            def li:int 0
+            while (li < (array_length lines)) {
+                def ln:BookBrokenLine (itemAt lines li)
+                if ((strlen ln.text) > 0) {
+                    def c (new EVGDrawCmd)
+                    c.kind = 3
+                    c.x = x
+                    def down:double ((to_double li) * leading * scale)
+                    c.y = (y + down)
+                    c.w = w
+                    c.h = (leading * scale)
+                    c.text = ln.text
+                    c.fontFamily = style.fontFamily
+                    c.fontSize = (style.fontSize * scale)
+                    c.fontWeight = (BookToEvg.weightOf(style.bold style.italic))
+                    c.textAlign = style.align
+                    c.r = (col.red())
+                    c.g = (col.green())
+                    c.b = (col.blue())
+                    c.a = (col.alpha())
+                    push dl.cmds c
+                }
+                li = (li + 1)
+            }
+            return
+        }
+
+        def lines:[BookLine] (flow.linesInFrame(frame.id))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:BookLine (itemAt lines i)
+            if ((strlen ln.text) > 0) {
+                this.paintLine(dl ln x y frame)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn weightOf:string (bold:boolean italic:boolean) {
+        if bold {
+            if italic {
+                return "bolditalic"
+            }
+            return "bold"
+        }
+        if italic {
+            return "italic"
+        }
+        return ""
+    }
+
+    ; A placed line. `x` and `y` are the frame's device origin, and the line
+    ; carries its own position in page points relative to the page - so the
+    ; frame origin is subtracted back out rather than added.
+    fn paintLine:void (dl:EVGDisplayList ln:BookLine frameX:double frameY:double frame:BookFrame) {
+        def dx:double (frameX + ((ln.x - frame.x) * scale))
+        def dy:double (frameY + ((ln.top - frame.y) * scale))
+        def col:EVGColor (BookToEvg.colorOf(ln.color (EVGColor.black())))
+        def c (new EVGDrawCmd)
+        c.kind = 3
+        c.x = dx
+        c.y = dy
+        c.w = (ln.maxWidth * scale)
+        c.h = (ln.lineHeight * scale)
+        c.text = ln.text
+        c.fontFamily = ln.fontFamily
+        c.fontSize = (ln.fontSize * scale)
+        c.fontWeight = (BookToEvg.weightOf(ln.bold ln.italic))
+        ; A justified line is drawn left on the canvas: stretching the word
+        ; spaces is a paint decision the PDF and SVG writers make and the
+        ; canvas cannot, so the preview shows the break the engine chose
+        ; rather than pretending to a justification it has not computed.
+        def align:string ln.align
+        if (align == "justify") {
+            align = "left"
+        }
+        c.textAlign = align
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+}

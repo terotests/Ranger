@@ -119,17 +119,26 @@ class BookAutoLayout {
     ; How far a full-bleed image runs past the trim. 3 mm is what the trade
     ; assumes; generating it here is what makes an auto-laid-out book pass
     ; preflight instead of merely looking right on screen.
-    def bleedOverhang:double 8.5
+    def bleedOverhang:double 8.503937007874017
     ; Keep adding pages after the story ends, until every image is placed.
     def placeAllImages:boolean true
+    ; The paper. A generated page inherits it, because a book printed on cream
+    ; stock and previewed on white is two different books.
+    def background:string ""
+    ; A picture with a caption gets one, under it, in the space the running
+    ; text would otherwise have had.
+    def captionStyle:string "caption"
+    def captionHeight:double 20.0
 
     Constructor () {
         def r:[BookRecipe] (BookRecipe.pictureBook())
         recipes = r
         maxPages = 400
         imageGap = 18.0
-        bleedOverhang = 8.5
+        bleedOverhang = (BookUnits.mm(3.0))
         placeAllImages = true
+        captionStyle = "caption"
+        captionHeight = 20.0
     }
 
     fn setEngine:void (e:BookFlowEngine) {
@@ -211,6 +220,9 @@ class BookAutoLayout {
                     skips = 0
                     pagesMade = (pagesMade + 1)
                     def page:BookPage (doc.newPage(masterName))
+                    if ((strlen background) > 0) {
+                        page.background = background
+                    }
                     result.pagesCreated = (result.pagesCreated + 1)
                     def master:BookMasterPage (doc.masterFor(masterName))
                     def recto:boolean (page.isRecto())
@@ -280,6 +292,35 @@ class BookAutoLayout {
                             textHeight = 0.0
                         }
                         page.addFrame(img)
+
+                        ; A caption belongs to the picture, so it is placed with
+                        ; it and comes out of the text's share rather than
+                        ; floating over it.
+                        def asset:BookAsset (doc.assetFor(assetId))
+                        def wantsCaption:boolean ((strlen asset.caption) > 0)
+                        if (wantsCaption && (recipe.bleed == false)) {
+                            def cap (new BookFrame())
+                            cap.id = (doc.nextId("cap"))
+                            cap.kind = "text"
+                            cap.text = asset.caption
+                            cap.styleName = captionStyle
+                            cap.x = innerX
+                            cap.w = innerW
+                            cap.h = captionHeight
+                            def imgBottom:double (img.y + img.h)
+                            cap.y = (imgBottom + 6.0)
+                            page.addFrame(cap)
+                            if recipe.imageOnTop {
+                                def pushed:double (captionHeight + 6.0)
+                                textTop = (textTop + pushed)
+                                textHeight = (textHeight - pushed)
+                            } {
+                                ; The picture is at the foot, so its caption sits
+                                ; under it, off the bottom margin instead.
+                                def below:double (page.height - master.marginBottom)
+                                cap.y = below
+                            }
+                        }
                     }
 
                     if (useText && (textHeight > 0.0)) {
@@ -352,7 +393,9 @@ class BookAutoLayout {
         t.x = margin
         t.y = third
         t.w = w
-        t.h = 60.0
+        ; Tall enough for a title that wraps: the frame is where the title
+        ; starts, and a two-line title is the common case, not the exception.
+        t.h = 96.0
         page.addFrame(t)
 
         def a (new BookFrame())
@@ -361,7 +404,7 @@ class BookAutoLayout {
         a.text = "{author}"
         a.styleName = "subtitle"
         a.x = margin
-        a.y = (third + 70.0)
+        a.y = (third + 126.0)
         a.w = w
         a.h = 40.0
         page.addFrame(a)
