@@ -217,6 +217,7 @@
     "datagrid:edit:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridEditTest.rgr -d=./gallery/datagrid/bin -o=GridEditTest.js -nodecli && node ./gallery/datagrid/bin/GridEditTest.js",
     "datagrid:export:test": "mkdir -p gallery/datagrid/harness/out/export && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/XlsxWriteTest.rgr -d=./gallery/datagrid/bin -o=XlsxWriteTest.js -nodecli && node ./gallery/datagrid/bin/XlsxWriteTest.js && python3 gallery/datagrid/tools/check_export.py",
     "datagrid:chart:infer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/ChartInferenceTest.rgr -d=./gallery/datagrid/bin -o=ChartInferenceTest.js -nodecli && node ./gallery/datagrid/bin/ChartInferenceTest.js",
+    "datagrid:sort:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridSortTest.rgr -d=./gallery/datagrid/bin -o=GridSortTest.js -nodecli && node ./gallery/datagrid/bin/GridSortTest.js",
     "datagrid:chart:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/ChartTest.rgr -d=./gallery/datagrid/bin -o=ChartTest.js -nodecli && node ./gallery/datagrid/bin/ChartTest.js",
     "datagrid:render:parity": "bash gallery/datagrid/tools/run_render_parity.sh",
     "datagrid:text:test": "bash gallery/datagrid/tools/run_text_model_test.sh",
