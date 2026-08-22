@@ -180,7 +180,9 @@ class ChartInferenceTest {
         c.ok("nor Product" ((ChartInferenceTest.hasWord(d.series "Product")) == false))
 
         print "-- a category that repeats is a GROUP BY --"
-        c.eqStr("the plan says to group" ch.agg "group")
+        c.eqStr("the plan says to combine them" ch.agg "auto")
+        c.ok("which is a grouping" (ch.grouping()))
+        c.eqStr("and the function it worked out to is a sum" (ch.effectiveAgg()) "sum")
         c.eqInt("three regions, not six rows" (d.catCount()) 3)
         def northI:int (ChartInferenceTest.catIndex(d "North"))
         c.ok("North is one of them" (northI >= 0))
@@ -326,7 +328,7 @@ class ChartInferenceTest {
         }
         def ych:GridChart (ChartInferenceTest.planFor(yApp 0 0 365 1))
         c.eqStr("the days are bucketed by month" ych.catBucket "month")
-        c.eqStr("which means grouping" ych.agg "group")
+        c.eqStr("which means grouping" ych.agg "auto")
         def yd:ChartData (new ChartData)
         c.ok("it charts" (yd.extract(yApp.model ych)))
         c.eqInt("twelve months, not three hundred and sixty-five days" (yd.catCount()) 12)
@@ -384,6 +386,95 @@ class ChartInferenceTest {
         def bch:GridChart (ChartInferenceTest.planFor(bApp 0 0 20 1))
         c.eqInt("twenty names under a column do not fit, so it is a bar" bch.kind (ChartKind.bar()))
 
+        print "== the function is the reader's to choose =="
+        ; It was decided silently — a sum for quantities, an average for rates
+        ; — with no way to see which had happened or to ask for the smallest,
+        ; the largest, or how many.
+        def fApp:GridApp (ChartInferenceTest.salesTable())
+        def fch:GridChart (ChartInferenceTest.planFor(fApp 0 0 6 4))
+        c.eqStr("it opens on what it worked out" (fch.effectiveAgg()) "sum")
+        def revIdx:int -1
+        def fi2:int 0
+        while (fi2 < (array_length fch.valueCols)) {
+            if ((itemAt fch.valueCols fi2) == 3) {
+                revIdx = fi2
+            }
+            fi2 = (fi2 + 1)
+        }
+        c.ok("Revenue is on the axis" (revIdx >= 0))
+
+        ; North's revenues are 100, 300 and 600.
+        def sums:ChartData (new ChartData)
+        c.ok("summed" (sums.extract(fApp.model fch)))
+        def nA:int (ChartInferenceTest.catIndex(sums "North"))
+        c.near("the sum is a thousand" (ChartInferenceTest.valueAt(sums nA revIdx)) 1000.0)
+
+        fch.agg = "avg"
+        def avgs:ChartData (new ChartData)
+        c.ok("averaged" (avgs.extract(fApp.model fch)))
+        c.near("the average is a third of it" (ChartInferenceTest.valueAt(avgs nA revIdx)) 333.3333)
+
+        fch.agg = "min"
+        def mins:ChartData (new ChartData)
+        c.ok("the smallest" (mins.extract(fApp.model fch)))
+        ; A minimum seeded with zero would say 0 here, which is the mistake
+        ; every first version of this makes.
+        c.near("is the smallest of the three, not zero" (ChartInferenceTest.valueAt(mins nA revIdx)) 100.0)
+
+        fch.agg = "max"
+        def maxes:ChartData (new ChartData)
+        c.ok("the largest" (maxes.extract(fApp.model fch)))
+        c.near("is the largest of the three" (ChartInferenceTest.valueAt(maxes nA revIdx)) 600.0)
+
+        fch.agg = "count"
+        def cnts:ChartData (new ChartData)
+        c.ok("how many" (cnts.extract(fApp.model fch)))
+        c.eqInt("counting is one series, not one per measure" (cnts.seriesCount()) 1)
+        c.eqStr("called Count" (itemAt cnts.series 0) "Count")
+        def nC:int (ChartInferenceTest.catIndex(cnts "North"))
+        c.near("North had three rows" (ChartInferenceTest.valueAt(cnts nC 0)) 3.0)
+
+        fch.agg = ""
+        def raws:ChartData (new ChartData)
+        c.ok("or not combined at all" (raws.extract(fApp.model fch)))
+        c.eqInt("six rows, six bars" (raws.catCount()) 6)
+
+        print "-- and the title says which question was asked --"
+        def tApp:GridApp (ChartInferenceTest.salesTable())
+        def tch:GridChart (new GridChart)
+        tch.r0 = 0
+        tch.r1 = 6
+        tch.c0 = 0
+        tch.c1 = 4
+        push tch.sourceCols 0
+        push tch.sourceCols 3
+        ChartInference.plan(tApp.model tch)
+        c.eqStr("a sum needs no word for it" tch.title "Revenue by Region")
+        tch.agg = "avg"
+        ChartInference.retitle(tApp.model tch)
+        c.eqStr("an average does" tch.title "Average Revenue by Region")
+        tch.agg = "max"
+        ChartInference.retitle(tApp.model tch)
+        c.eqStr("and so does a maximum" tch.title "Highest Revenue by Region")
+
+        print "-- the picker shows it, and changing it changes the chart --"
+        def pApp:GridApp (ChartInferenceTest.salesTable())
+        pApp.sel.setAnchor(0 0)
+        pApp.sel.setActive(6 4)
+        pApp.openChartDialog(0)
+        c.ok("the picker opened" pApp.chartDialog.visible)
+        def sumCtl:EVGControl (pApp.chartDialog.controlById(321))
+        c.ok("Sum is offered" (sumCtl.id == 321))
+        c.ok("and shown as the one in force" sumCtl.checked)
+        c.eqStr("labelled in words" sumCtl.text "Sum")
+        ; Pick Average, the way a click does.
+        pApp.chartDialog.selectRadio(322)
+        def pin (new UIInput)
+        pin.newFrame()
+        pApp.update(pin)
+        c.eqStr("picking Average changes the chart" (pApp.pendingChart.effectiveAgg()) "avg")
+        c.ok("and rewrites the title" ((ChartInferenceTest.headIs(pApp.pendingChart.title "Average")) ))
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
@@ -426,6 +517,14 @@ class ChartInferenceTest {
             i = (i + 1)
         }
         return ""
+    }
+
+    ; `startsWith` is a name the compiler keeps for itself, hence `headIs`.
+    sfn headIs:boolean (s:string prefix:string) {
+        if ((strlen prefix) > (strlen s)) {
+            return false
+        }
+        return ((substring s 0 (strlen prefix)) == prefix)
     }
 
     sfn oneOf:string (got:string a:string b:string) {

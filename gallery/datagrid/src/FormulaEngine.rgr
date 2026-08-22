@@ -1115,6 +1115,122 @@ class FormulaParser {
     ; The column walk, transposed. Same rules: a reference AT a deleted line
     ; breaks, a reference past it shifts, and a range breaks only when its
     ; whole span goes.
+    ; --- reordering the rows --------------------------------------------------
+    ; Sorting MOVES cells. A formula travels with its row — `reorderRowsRaw`
+    ; carries the text along — and its references do not, so `B3+C3+D3` on the
+    ; Rent row still added row 3 after Rent moved to row 6. Every total in the
+    ; sheet then quietly belonged to a different row, which is worse than a
+    ; sort that does nothing: the numbers are wrong and they look fine.
+    ;
+    ; `newRowOf[old]` is where the row that was at `old` ended up. A reference
+    ; to a moved cell follows the cell — absolute as well as relative, because
+    ; the cell physically MOVED, which is the cut-and-paste rule rather than
+    ; the fill-down one.
+    ;
+    ; A RANGE is the interesting case. `SUM(B3:B7)` over the whole sorted block
+    ; must stay `SUM(B3:B7)`: the block still holds the same rows, only in a
+    ; different order, so remapping its ends would shrink it to an arbitrary
+    ; sub-range. So a range whose rows map ONTO THEMSELVES is left alone, and
+    ; only one that straddles the edge of what moved has its ends remapped.
+    sfn remapRowOf:int (newRowOf:[int] row:int) {
+        if (row < 0) {
+            return row
+        }
+        if (row >= (array_length newRowOf)) {
+            return row
+        }
+        return (itemAt newRowOf row)
+    }
+
+    sfn rangeIsClosed:boolean (newRowOf:[int] r0:int r1:int) {
+        if (r1 < r0) {
+            return false
+        }
+        def lo:int -1
+        def hi:int -1
+        def r:int r0
+        while (r <= r1) {
+            def m:int (FormulaParser.remapRowOf(newRowOf r))
+            if (r == r0) {
+                lo = m
+                hi = m
+            } {
+                if (m < lo) {
+                    lo = m
+                }
+                if (m > hi) {
+                    hi = m
+                }
+            }
+            r = (r + 1)
+        }
+        if (lo != r0) {
+            return false
+        }
+        return (hi == r1)
+    }
+
+    sfn remapRowsNode:boolean (n:FormulaNode sheetName:string newRowOf:[int] allowUnprefixed:boolean) {
+        def touched:boolean false
+        if ((n.kind == 3) || (n.kind == 4)) {
+            def applies:boolean false
+            if ((strlen n.sheet) == 0) {
+                applies = allowUnprefixed
+            } {
+                if ((SheetTable.fold(n.sheet)) == (SheetTable.fold(sheetName))) {
+                    applies = true
+                }
+            }
+            if applies {
+                if (n.kind == 3) {
+                    def nr:int (FormulaParser.remapRowOf(newRowOf n.row))
+                    if (nr != n.row) {
+                        n.row = nr
+                        touched = true
+                    }
+                } {
+                    if ((FormulaParser.rangeIsClosed(newRowOf n.row n.row2)) == false) {
+                        def a:int (FormulaParser.remapRowOf(newRowOf n.row))
+                        def b:int (FormulaParser.remapRowOf(newRowOf n.row2))
+                        if (b < a) {
+                            def t:int a
+                            a = b
+                            b = t
+                        }
+                        if ((a != n.row) || (b != n.row2)) {
+                            n.row = a
+                            n.row2 = b
+                            touched = true
+                        }
+                    }
+                }
+            }
+        }
+        def i:int 0
+        def kn:int (array_length n.kids)
+        while (i < kn) {
+            if (FormulaParser.remapRowsNode((itemAt n.kids i) sheetName newRowOf allowUnprefixed)) {
+                touched = true
+            }
+            i = (i + 1)
+        }
+        return touched
+    }
+
+    ; The rewritten formula, or "" when it did not need rewriting or could not
+    ; be parsed — either way the caller leaves that cell alone.
+    sfn remapRows:string (expr:string sheetName:string newRowOf:[int] allowUnprefixed:boolean) {
+        def p:FormulaParser (new FormulaParser)
+        def ast:FormulaNode (p.parse(expr))
+        if (p.ok == false) {
+            return ""
+        }
+        if ((FormulaParser.remapRowsNode(ast sheetName newRowOf allowUnprefixed)) == false) {
+            return ""
+        }
+        return (FormulaParser.serializeNode(ast))
+    }
+
     sfn adjustRowsNode:boolean (n:FormulaNode sheetName:string at:int delta:int allowUnprefixed:boolean) {
         def broke:boolean false
         if ((n.kind == 3) || (n.kind == 4)) {

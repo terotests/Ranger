@@ -1,0 +1,481 @@
+; ==============================================================================
+; GridSortTest — sorting a column, and the three ways it went wrong.
+; ==============================================================================
+;
+; Sorting looks like the simplest thing in a spreadsheet and is not: it is the
+; only ordinary action that MOVES data that other data is pointing at.
+;
+;   * A formula travels with its row. `=B3+C3+D3` on row 3 that lands on row 6
+;     still added row 3 — so every total in the sheet quietly belonged to a
+;     different row. Wrong numbers that look completely fine.
+;   * A sheet is written the way a page is: a title, maybe a blank line, then
+;     the table. Reading only row 0 to decide "how many rows are a heading"
+;     found the TITLE, so the real header row was sorted into the body.
+;   * Which rows stay put is a fact about the DATA. Taking it from the frozen
+;     pane count meant a sheet with nine frozen rows had nine headings, and a
+;     sort marked the column and moved nothing — which looks exactly like
+;     sorting being broken.
+;
+; And it has to survive size. The merge asked `getCell` for both sides of
+; every comparison: half a million rows is ~9.5M comparisons, so ~19M map
+; lookups to answer questions about 500k values. The keys are read once now,
+; which is what the last case here is watching for — not a stopwatch, but the
+; shape of the curve.
+;
+;   npm run datagrid:sort:test
+; ==============================================================================
+
+Import "../src/GridApp.rgr"
+
+class SortCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class GridSortTest {
+    sfn app:GridApp () {
+        def a:GridApp (new GridApp)
+        a.init("gallery/pdf_writer/assets/fonts")
+        return a
+    }
+
+    ; Sort the way a click gets there: open the column menu, hit-test the item
+    ; where it is painted, and dispatch whatever the hit test says. A sort that
+    ; only works when the action id is handed to it is not tested.
+    sfn clickSort:int (a:GridApp col:int asc:boolean) {
+        a.openHeaderMenu(col 100 100)
+        def want:int 1
+        if (asc == false) {
+            want = 2
+        }
+        def py:int (a.view.menuY + 26)
+        py = (py + (20 * (want - 1)))
+        py = (py + 5)
+        def px:int (a.view.menuX + 10)
+        def hit:int (a.hitHeaderMenu(px py))
+        a.runHeaderMenu(hit)
+        a.closeHeaderMenu()
+        return hit
+    }
+
+    ; Is the column non-decreasing below the heading, as the app shows it —
+    ; through the view's row order, not the raw model.
+    sfn outOfOrder:int (a:GridApp col:int asc:boolean) {
+        def head:int a.sheetView.sortHeadRows
+        def n:int (a.sheetView.rowCount())
+        def prev:string ""
+        def first:boolean true
+        def bad:int 0
+        def i:int head
+        while (i < n) {
+            def mr:int (a.sheetView.modelRow(i))
+            def v:string (a.model.getCell(mr col))
+            if ((strlen v) > 0) {
+                if (first == false) {
+                    def cmp:int (a.sheetView.compareValues(prev v))
+                    if asc {
+                        if (cmp > 0) {
+                            bad = (bad + 1)
+                        }
+                    } {
+                        if (cmp < 0) {
+                            bad = (bad + 1)
+                        }
+                    }
+                }
+                prev = v
+                first = false
+            }
+            i = (i + 1)
+        }
+        return bad
+    }
+
+    ; ------------------------------------------------------------------
+    ; 1. Every column of a real workbook, both directions.
+    ; ------------------------------------------------------------------
+    sfn workbookSweep:void (c:SortCheck) {
+        print "-- the business workbook, every column, both ways"
+        def a:GridApp (GridSortTest.app())
+        if ((a.loadXlsx("gallery/datagrid/fixtures/business-workbook.xlsx")) == false) {
+            c.ok("business-workbook.xlsx loads" false)
+            return
+        }
+        def si:int 0
+        def bad:int 0
+        def tried:int 0
+        while (si < (a.book.sheetCount())) {
+            a.setActiveSheet(si)
+            def sh:SpreadsheetModel (a.book.sheetAt(si))
+            def cols:int ((sh.usedCol()) + 1)
+            if (cols > 7) {
+                cols = 7
+            }
+            def col:int 0
+            while (col < cols) {
+                GridSortTest.clickSort(a col true)
+                bad = (bad + (GridSortTest.outOfOrder(a col true)))
+                GridSortTest.clickSort(a col false)
+                bad = (bad + (GridSortTest.outOfOrder(a col false)))
+                tried = (tried + 2)
+                col = (col + 1)
+            }
+            si = (si + 1)
+        }
+        c.ok(("every sheet and column sorts (" + (to_string tried) + " sorts)") (tried > 20))
+        c.eqInt("nothing came back out of order" bad 0)
+    }
+
+    ; ------------------------------------------------------------------
+    ; 2. A table under a title row keeps its header.
+    ; ------------------------------------------------------------------
+    sfn titledTable:GridApp () {
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize(8 3)
+        a.model.setCell(0 0 "Quarterly costs")
+        a.model.setCell(2 0 "Category")
+        a.model.setCell(2 1 "Jan")
+        a.model.setCell(3 0 "Rent")
+        a.model.setCell(3 1 "100")
+        a.model.setCell(4 0 "Salaries")
+        a.model.setCell(4 1 "300")
+        a.model.setCell(5 0 "Logistics")
+        a.model.setCell(5 1 "200")
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        return a
+    }
+
+    sfn headerRows:void (c:SortCheck) {
+        print "-- a title row, a blank line, and then the table"
+        def a:GridApp (GridSortTest.titledTable())
+        c.eqInt("the heading is found under the title" (a.sheetView.inferHeaderRows()) 3)
+        GridSortTest.clickSort(a 0 true)
+        c.eqStr("the title stays on top" (a.model.getCell(0 0)) "Quarterly costs")
+        c.eqStr("and the header stays over the body" (a.model.getCell(2 0)) "Category")
+        c.eqStr("first row of the body" (a.model.getCell(3 0)) "Logistics")
+        c.eqStr("second" (a.model.getCell(4 0)) "Rent")
+        c.eqStr("third" (a.model.getCell(5 0)) "Salaries")
+        c.eqStr("and its number came with it" (a.model.getCell(3 1)) "200")
+    }
+
+    ; A frozen pane is a reading decision, not a claim about the data. Nine
+    ; frozen rows must not mean nine headings — that is a sort that marks the
+    ; column and moves nothing.
+    sfn frozenPanes:void (c:SortCheck) {
+        print "-- a deep frozen pane does not swallow the table"
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize(8 2)
+        a.model.setCell(0 0 "Name")
+        a.model.setCell(1 0 "Delta")
+        a.model.setCell(2 0 "Charlie")
+        a.model.setCell(3 0 "Alpha")
+        a.model.setCell(4 0 "Bravo")
+        a.model.freezeRows = 4
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        GridSortTest.clickSort(a 0 true)
+        c.eqStr("the header still stays" (a.model.getCell(0 0)) "Name")
+        c.eqStr("and the body actually moved" (a.model.getCell(1 0)) "Alpha")
+        c.eqStr("second" (a.model.getCell(2 0)) "Bravo")
+        c.eqStr("third" (a.model.getCell(3 0)) "Charlie")
+        c.eqStr("fourth" (a.model.getCell(4 0)) "Delta")
+    }
+
+    ; A frozen FIRST row is worth honouring even when nothing about the data
+    ; says heading — text over text, no bold, no fill.
+    sfn frozenFirstRow:void (c:SortCheck) {
+        print "-- a frozen first row is a heading"
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize(5 2)
+        a.model.setCell(0 0 "zebra")
+        a.model.setCell(1 0 "delta")
+        a.model.setCell(2 0 "alpha")
+        a.model.freezeRows = 1
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        GridSortTest.clickSort(a 0 true)
+        c.eqStr("it did not sort itself into the body" (a.model.getCell(0 0)) "zebra")
+        c.eqStr("the body sorted" (a.model.getCell(1 0)) "alpha")
+        c.eqStr("under it" (a.model.getCell(2 0)) "delta")
+    }
+
+    ; ------------------------------------------------------------------
+    ; 3. Formulas travel with their row.
+    ; ------------------------------------------------------------------
+    sfn formulaSheet:GridApp () {
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize(5 4)
+        a.model.setCell(0 0 "Category")
+        a.model.setCell(0 1 "Jan")
+        a.model.setCell(0 2 "Feb")
+        a.model.setCell(0 3 "Total")
+        a.model.setCell(1 0 "Rent")
+        a.model.setCell(1 1 "100")
+        a.model.setCell(1 2 "110")
+        a.model.setFormula(1 3 "B2+C2")
+        a.model.setCell(2 0 "Salaries")
+        a.model.setCell(2 1 "300")
+        a.model.setCell(2 2 "330")
+        a.model.setFormula(2 3 "B3+C3")
+        a.model.setCell(3 0 "Logistics")
+        a.model.setCell(3 1 "200")
+        a.model.setCell(3 2 "220")
+        a.model.setFormula(3 3 "B4+C4")
+        a.model.freezeRows = 1
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        a.engine.rebuildAll()
+        return a
+    }
+
+    sfn formulasFollow:void (c:SortCheck) {
+        print "-- a total belongs to its own row after the sort"
+        def a:GridApp (GridSortTest.formulaSheet())
+        c.eqStr("Rent totals 210 before" (a.model.getCell(1 3)) "210")
+        GridSortTest.clickSort(a 0 true)
+        c.eqStr("Logistics is first now" (a.model.getCell(1 0)) "Logistics")
+        c.eqStr("and its total is its own" (a.model.getCell(1 3)) "420")
+        c.eqStr("Rent moved down" (a.model.getCell(2 0)) "Rent")
+        c.eqStr("and took 210 with it" (a.model.getCell(2 3)) "210")
+        c.eqStr("Salaries last" (a.model.getCell(3 0)) "Salaries")
+        c.eqStr("with 630" (a.model.getCell(3 3)) "630")
+        ; The formula TEXT has to have moved too, not just the value that was
+        ; cached from before the sort.
+        def f:string (a.model.getFormula(1 3))
+        c.eqStr("and the reference was rewritten" f "B2+C2")
+    }
+
+    ; A formula that names a row OTHER than its own follows that row, not its
+    ; own offset.
+    sfn crossRowRefs:void (c:SortCheck) {
+        print "-- a formula that points at another row follows that row"
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize(5 3)
+        a.model.setCell(0 0 "Name")
+        a.model.setCell(1 0 "Charlie")
+        a.model.setCell(1 1 "3")
+        a.model.setCell(2 0 "Alpha")
+        a.model.setCell(2 1 "1")
+        a.model.setCell(3 0 "Bravo")
+        a.model.setCell(3 1 "2")
+        ; Charlie's cell adds Alpha's number, wherever Alpha ends up.
+        a.model.setFormula(1 2 "B3*10")
+        a.model.freezeRows = 1
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        a.engine.rebuildAll()
+        c.eqStr("10 before the sort" (a.model.getCell(1 2)) "10")
+        GridSortTest.clickSort(a 0 true)
+        c.eqStr("Charlie is last now" (a.model.getCell(3 0)) "Charlie")
+        c.eqStr("and still reads Alpha's 1" (a.model.getCell(3 2)) "10")
+    }
+
+    ; ------------------------------------------------------------------
+    ; 4. Empty tail rows stay at the bottom in BOTH directions.
+    ; ------------------------------------------------------------------
+    sfn emptyTail:void (c:SortCheck) {
+        print "-- blank rows belong after the data, ascending or descending"
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize(6 2)
+        a.model.setCell(0 0 "Name")
+        a.model.setCell(1 0 "delta")
+        a.model.setCell(3 0 "alpha")
+        a.model.setCell(5 0 "bravo")
+        a.model.freezeRows = 1
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        GridSortTest.clickSort(a 0 true)
+        c.eqStr("ascending: first" (a.model.getCell(1 0)) "alpha")
+        c.eqStr("ascending: second" (a.model.getCell(2 0)) "bravo")
+        c.eqStr("ascending: third" (a.model.getCell(3 0)) "delta")
+        c.eqStr("ascending: then blanks" (a.model.getCell(4 0)) "")
+        GridSortTest.clickSort(a 0 false)
+        c.eqStr("descending: first" (a.model.getCell(1 0)) "delta")
+        c.eqStr("descending: second" (a.model.getCell(2 0)) "bravo")
+        c.eqStr("descending: third" (a.model.getCell(3 0)) "alpha")
+        c.eqStr("descending: blanks still last" (a.model.getCell(4 0)) "")
+    }
+
+    ; ------------------------------------------------------------------
+    ; 5. Numbers sort as numbers, mixed columns fall back to text.
+    ; ------------------------------------------------------------------
+    sfn numbersAndText:void (c:SortCheck) {
+        print "-- 9 comes before 10, and a mixed column still has an order"
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize(6 3)
+        a.model.setCell(0 0 "Name")
+        a.model.setCell(0 1 "N")
+        a.model.setCell(1 0 "a")
+        a.model.setCell(1 1 "10")
+        a.model.setCell(2 0 "b")
+        a.model.setCell(2 1 "9")
+        a.model.setCell(3 0 "c")
+        a.model.setCell(3 1 "100")
+        a.model.setCell(4 0 "d")
+        a.model.setCell(4 1 "-5")
+        a.model.freezeRows = 1
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        GridSortTest.clickSort(a 1 true)
+        c.eqStr("-5 first" (a.model.getCell(1 1)) "-5")
+        c.eqStr("then 9" (a.model.getCell(2 1)) "9")
+        c.eqStr("then 10" (a.model.getCell(3 1)) "10")
+        c.eqStr("then 100" (a.model.getCell(4 1)) "100")
+        c.eqStr("and the name came along" (a.model.getCell(2 0)) "b")
+        ; The prepared keys have to agree with the comparison they replaced.
+        c.eqInt("keys: 9 before 10" (a.sheetView.compareValues("9" "10")) -1)
+        c.eqInt("keys: text after number" (a.sheetView.compareValues("9" "nine")) -1)
+        c.eqInt("keys: text against text" (a.sheetView.compareValues("zeta" "alpha")) 1)
+    }
+
+    ; ------------------------------------------------------------------
+    ; 6. Undo puts every row back, formulas included.
+    ; ------------------------------------------------------------------
+    sfn undoRestores:void (c:SortCheck) {
+        print "-- undo puts the sheet back the way it was"
+        def a:GridApp (GridSortTest.formulaSheet())
+        GridSortTest.clickSort(a 0 true)
+        c.eqStr("sorted" (a.model.getCell(1 0)) "Logistics")
+        a.undoEdit()
+        c.eqStr("undone: Rent is back on top" (a.model.getCell(1 0)) "Rent")
+        c.eqStr("with its own total" (a.model.getCell(1 3)) "210")
+        c.eqStr("and its own formula" (a.model.getFormula(1 3)) "B2+C2")
+        c.eqStr("Logistics back at the bottom" (a.model.getCell(3 0)) "Logistics")
+        c.eqStr("with 420" (a.model.getCell(3 3)) "420")
+    }
+
+    ; ------------------------------------------------------------------
+    ; 7. Size. Not a stopwatch — the shape of the curve.
+    ; ------------------------------------------------------------------
+    sfn bigSheet:GridApp (rows:int) {
+        def a:GridApp (GridSortTest.app())
+        a.model.clearSheet()
+        a.model.resize((rows + 1) 3)
+        a.model.setCell(0 0 "Name")
+        a.model.setCell(0 1 "Value")
+        def i:int 0
+        while (i < rows) {
+            def k:int ((i * 7919) % rows)
+            a.model.setCell((i + 1) 0 ("Item " + (to_string k)))
+            a.model.setCell((i + 1) 1 (to_string k))
+            i = (i + 1)
+        }
+        a.model.freezeRows = 1
+        a.sheetView.markDirty()
+        a.sheetView.rebuild()
+        return a
+    }
+
+    sfn scales:void (c:SortCheck) {
+        print "-- four times the rows must not be sixteen times the work"
+        def small:GridApp (GridSortTest.bigSheet(25000))
+        def t0:double (wall_clock_ms)
+        def o1:[int]
+        small.sheetView.sortedOrder(1 true o1)
+        def t1:double (wall_clock_ms)
+        def big:GridApp (GridSortTest.bigSheet(100000))
+        def t2:double (wall_clock_ms)
+        def o2:[int]
+        big.sheetView.sortedOrder(1 true o2)
+        def t3:double (wall_clock_ms)
+        def ms1:double (t1 - t0)
+        def ms2:double (t3 - t2)
+        c.eqInt("25k rows all named once" (array_length o1) 25001)
+        c.eqInt("100k rows all named once" (array_length o2) 100001)
+        ; Every row exactly once, and the header still first.
+        def seen:[boolean]
+        def i:int 0
+        while (i < (array_length o2)) {
+            push seen false
+            i = (i + 1)
+        }
+        def dup:int 0
+        i = 0
+        while (i < (array_length o2)) {
+            def r:int (itemAt o2 i)
+            if (itemAt seen r) {
+                dup = (dup + 1)
+            }
+            set_at seen r true
+            i = (i + 1)
+        }
+        c.eqInt("no row named twice" dup 0)
+        c.eqInt("the header did not move" (itemAt o2 0) 0)
+        ; A stopwatch is flaky; a quadratic is not subtle. Four times the rows
+        ; on an n log n sort is about 4.3x the work — the ceiling here is more
+        ; than three times that, and a quadratic would be sixteen.
+        def floor1:double ms1
+        if (floor1 < 20.0) {
+            floor1 = 20.0
+        }
+        def ratio:double (ms2 / floor1)
+        print (("   25k=" + (to_string (to_int ms1))) + "ms 100k=" + (to_string (to_int ms2)) + "ms")
+        c.ok(("growth stays near n log n (x" + (to_string (to_int ratio)) + ")") (ratio < 14.0))
+        ; And it finishes at all, sorted.
+        def sorted:boolean true
+        i = 2
+        def prev:double -1.0
+        while (i < (array_length o2)) {
+            def r2:int (itemAt o2 i)
+            def v@(optional):double (to_double (big.model.getCell(r2 1)))
+            if v {
+                def d:double (unwrap v)
+                if (d < prev) {
+                    sorted = false
+                }
+                prev = d
+            }
+            i = (i + 1)
+        }
+        c.ok("100k rows come back in order" sorted)
+    }
+
+    sfn main:void () {
+        def c:SortCheck (new SortCheck)
+        print "GridSortTest"
+        print ""
+        GridSortTest.workbookSweep(c)
+        GridSortTest.headerRows(c)
+        GridSortTest.frozenPanes(c)
+        GridSortTest.frozenFirstRow(c)
+        GridSortTest.formulasFollow(c)
+        GridSortTest.crossRowRefs(c)
+        GridSortTest.emptyTail(c)
+        GridSortTest.numbersAndText(c)
+        GridSortTest.undoRestores(c)
+        GridSortTest.scales(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

@@ -226,6 +226,10 @@ class GridApp {
     def borderLine:string "thin"
     def borderInk:string "#000000"
     ; Renaming a sheet, and which one.
+    ; Whether the title in the picker's box is the one the app worked out or
+    ; one the reader typed. Changing the question rewrites the first and must
+    ; never touch the second.
+    def chartTitleIsOurs:boolean true
     def renameDialog:EVGWindow (new EVGWindow)
     def renameIndex:int 0
     def renameStatus:string ""
@@ -2918,6 +2922,11 @@ class GridApp {
             model.pushReorderOp(order)
             this.snapshotOtherSheetFormulas()
             model.reorderRowsRaw(order)
+            ; The cells moved; their references have to move with them.
+            ; Without this a `=B3+C3+D3` that travelled from row 3 to row 6
+            ; still added row 3, so every total in the sheet quietly belonged
+            ; to a different row — numbers that are wrong and look fine.
+            this.remapFormulasForOrder(order)
             model.endTx()
             this.afterStructuralChange()
         } {
@@ -2925,6 +2934,56 @@ class GridApp {
             sheetView.rebuild()
             grid.updateVisible(model)
         }
+    }
+
+    ; Every formula in the workbook, after the rows of this sheet were
+    ; permuted. `order[i]` is the row that ENDED UP at i, so the map a formula
+    ; needs — where did the row that was at `r` go — is its inverse.
+    fn remapFormulasForOrder:void (order:[int]) {
+        def n:int (array_length order)
+        def newRowOf:[int]
+        def i:int 0
+        while (i < n) {
+            push newRowOf i
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < n) {
+            def from:int (itemAt order k)
+            if (from >= 0) {
+                if (from < n) {
+                    set_at newRowOf from k
+                }
+            }
+            k = (k + 1)
+        }
+        def sheetName:string model.name
+        def si:int 0
+        def sn:int (book.sheetCount())
+        while (si < sn) {
+            def sheet:SpreadsheetModel (book.sheetAt(si))
+            ; On the sheet that moved, a bare `B3` means a row of this sheet
+            ; and follows it. On another sheet a bare `B3` is that sheet's own
+            ; row and must not; only `Costs!B3` moves.
+            def sameSheet:boolean (si == book.activeIndex)
+            def keys:[string]
+            def texts:[string]
+            sheet.snapshotFormulas(keys texts)
+            def fi:int 0
+            while (fi < (array_length keys)) {
+                def key:string (itemAt keys fi)
+                def expr:string (itemAt texts fi)
+                def rewritten:string (FormulaParser.remapRows(expr sheetName newRowOf sameSheet))
+                if ((strlen rewritten) > 0) {
+                    if (rewritten != expr) {
+                        set sheet.formulas key rewritten
+                    }
+                }
+                fi = (fi + 1)
+            }
+            si = (si + 1)
+        }
+        model.version = (model.version + 1)
     }
 
     fn applyFilter:void (col:int values:[string]) {
@@ -4520,16 +4579,34 @@ class GridApp {
     ; "aggregate" is not.
     fn groupLabel:string () {
         if (pendingChart.catCol < 0) {
-            return "Add up repeated rows"
+            return "Combine repeated rows"
         }
         def name:string ""
         if pendingChart.useHeaderRow {
             name = (model.getCell(pendingChart.r0 pendingChart.catCol))
         }
         if ((strlen name) == 0) {
-            return "Add up repeated rows"
+            return "Combine repeated rows"
         }
-        return (("Add up repeated " + name) + " rows")
+        return (("Combine repeated " + name) + " rows")
+    }
+
+    ; The functions the picker offers, in the order it offers them. "Don't" is
+    ; first because it is the answer to a different question — whether to
+    ; combine at all — and putting it beside the others is what makes that one
+    ; row rather than a checkbox and a row.
+    sfn aggCount:int () {
+        return 6
+    }
+
+    sfn aggAt:string (i:int) {
+        if (i == 0) { return "" }
+        if (i == 1) { return "sum" }
+        if (i == 2) { return "avg" }
+        if (i == 3) { return "min" }
+        if (i == 4) { return "max" }
+        if (i == 5) { return "count" }
+        return "sum"
     }
 
     ; Open the picker: on the current selection when `editId` is 0, on an
@@ -4544,6 +4621,11 @@ class GridApp {
         }
         chartEditId = editId
         if (editId > 0) {
+            ; An existing chart's title is whatever it already has; the app
+            ; does not get to rewrite it behind the reader.
+            chartTitleIsOurs = false
+        }
+        if (editId > 0) {
             def p:ChartPanel (view.chartLayer.panelForChart(editId))
             if (p.chart.id != editId) {
                 return
@@ -4553,6 +4635,7 @@ class GridApp {
             def fresh:GridChart (new GridChart)
             this.selectionChart(fresh)
             pendingChart.copyFrom(fresh)
+            chartTitleIsOurs = true
         }
         def probe:ChartData (new ChartData)
         def has:boolean (probe.extract(model pendingChart))
@@ -4642,12 +4725,21 @@ class GridApp {
         ; What the second question IS depends on how the selection was read.
         ; A planned chart already knows which column labels the rows — it says
         ; so in `catCol` — so asking again would be a checkbox that does
-        ; nothing. What is worth asking there is whether repeated categories
-        ; should be added up, which is the difference between four bars and
-        ; two hundred.
+        ; nothing. What matters there is how rows that share a category are
+        ; COMBINED, and that was being decided silently: a sum for quantities,
+        ; an average for rates, and no way to see which had happened or to ask
+        ; for the smallest, the largest, or how many.
         if (pendingChart.planned()) {
-            def grouping:boolean ((pendingChart.agg == "group") || (pendingChart.agg == "count"))
-            chartDialog.addCheckbox(302 (this.groupLabel()) grouping)
+            chartDialog.addLabel((this.groupLabel()))
+            def now:string (pendingChart.effectiveAgg())
+            chartDialog.beginColumns(3)
+            def ai:int 0
+            while (ai < (GridApp.aggCount())) {
+                def fn:string (GridApp.aggAt(ai))
+                chartDialog.addRadio((320 + ai) (GridChart.aggLabel(fn)) 4 (fn == now))
+                ai = (ai + 1)
+            }
+            chartDialog.endColumns()
         } {
             chartDialog.addCheckbox(302 "First column labels the rows" pendingChart.useHeaderCol)
         }
@@ -4710,19 +4802,22 @@ class GridApp {
             }
         }
         if (pendingChart.planned()) {
-            def wantGroup:boolean (chartDialog.isChecked(302))
-            def isGroup:boolean ((pendingChart.agg == "group") || (pendingChart.agg == "count"))
-            if (wantGroup != isGroup) {
-                if wantGroup {
-                    pendingChart.agg = "group"
+            def picked:int (chartDialog.selectedInGroup(4))
+            if (picked >= 320) {
+                def fn:string (GridApp.aggAt((picked - 320)))
+                if (fn != (pendingChart.effectiveAgg())) {
+                    ; A chart with no measures is counting rows and cannot be
+                    ; anything else: there is nothing to take the average of.
                     if ((array_length pendingChart.valueCols) == 0) {
                         pendingChart.agg = "count"
+                    } {
+                        pendingChart.agg = fn
                     }
-                } {
-                    ; Counting IS the grouping; without it there is nothing to
-                    ; plot, so a count chart cannot be ungrouped.
-                    if ((array_length pendingChart.valueCols) > 0) {
-                        pendingChart.agg = ""
+                    ; The title said which question was being asked, so it has
+                    ; to say the new one — unless the reader typed their own.
+                    if (chartTitleIsOurs) {
+                        ChartInference.retitle(model pendingChart)
+                        chartDialog.setInputValue(311 pendingChart.title)
                     }
                 }
             }
@@ -4730,7 +4825,12 @@ class GridApp {
             pendingChart.useHeaderCol = (chartDialog.isChecked(302))
         }
         pendingChart.showLegend = (chartDialog.isChecked(303))
-        pendingChart.title = (chartDialog.inputValue(311))
+        def typed:string (chartDialog.inputValue(311))
+        if (typed != pendingChart.title) {
+            ; The box says something the app did not put there.
+            chartTitleIsOurs = false
+        }
+        pendingChart.title = typed
     }
 
     ; The header checkboxes change which cells are data, which changes which

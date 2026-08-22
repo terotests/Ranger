@@ -18,6 +18,13 @@ class SheetView {
     def rowOffsets:[int]
     def colOffsets:[int]
     def dirty:boolean true
+    ; Sort keys, read once per row (decorate-sort-undecorate) and indexed by
+    ; model row. The merge used to ask `getCell` for both sides of every
+    ; comparison: a 500k-row sort is ~9.5M comparisons, so ~19M map lookups
+    ; to answer questions about 500k distinct values.
+    def sortKind:[int]
+    def sortNum:[double]
+    def sortText:[string]
 
     Constructor () {
     }
@@ -51,11 +58,23 @@ class SheetView {
             }
             r = (r + 1)
         }
-        sortHeadRows = model.freezeRows
-        if (model.sortCol >= 0) {
-            if (sortHeadRows == 0) {
-                sortHeadRows = (this.inferHeaderRows())
+        ; What counts as a heading is a fact about the DATA, and it has to be
+        ; the same fact here as in `sortedOrder` — the view sort and the sort
+        ; that moves the rows disagreeing about where the table starts is how
+        ; a header ends up in the middle of one of them.
+        sortHeadRows = (this.inferHeaderRows())
+        if (model.freezeRows > 0) {
+            ; The FIRST frozen row is a heading nearly every time, even on a
+            ; sheet where nothing about the data says so — and whatever else
+            ; is frozen below it, that top row must not sort into the body.
+            ; How DEEP the pane is says nothing: nine frozen rows are not nine
+            ; headings, and reading it that way is how a sort came to mark the
+            ; column and move nothing at all.
+            if (sortHeadRows < 1) {
+                sortHeadRows = 1
             }
+        }
+        if (model.sortCol >= 0) {
             this.sortRows(rows model.sortCol model.sortAsc)
         }
         ; keep freeze header rows first if present
@@ -130,6 +149,7 @@ class SheetView {
         if (n < 2) {
             return
         }
+        this.buildSortKeys(rows col)
         def tmp:[int]
         def i:int 0
         while (i < n) {
@@ -137,6 +157,72 @@ class SheetView {
             i = (i + 1)
         }
         this.mergeSortRows(rows tmp 0 n col asc)
+    }
+
+    ; Read the sort column once per row, before any comparing happens.
+    ;
+    ; Indexed by model row rather than by position in `rows` so the merge can
+    ; look a key up by the row number it is already carrying.
+    fn buildSortKeys:void (rows:[int] col:int) {
+        clear sortKind
+        clear sortNum
+        clear sortText
+        def n:int (array_length rows)
+        def maxRow:int -1
+        def i:int 0
+        while (i < n) {
+            def r:int (itemAt rows i)
+            if (r > maxRow) {
+                maxRow = r
+            }
+            i = (i + 1)
+        }
+        def slot:int 0
+        while (slot <= maxRow) {
+            push sortKind 0
+            push sortNum 0.0
+            push sortText ""
+            slot = (slot + 1)
+        }
+        i = 0
+        while (i < n) {
+            def row:int (itemAt rows i)
+            def v:string (model.getCell(row col))
+            if ((strlen v) > 0) {
+                set_at sortText row v
+                def d@(optional):double (to_double v)
+                if d {
+                    def dv:double (unwrap d)
+                    set_at sortKind row 1
+                    set_at sortNum row dv
+                } {
+                    set_at sortKind row 2
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Same ordering as `compareValues`, off the prepared keys.
+    fn compareKeys:int (a:int b:int) {
+        def ka:int (itemAt sortKind a)
+        def kb:int (itemAt sortKind b)
+        if (ka == 1) {
+            if (kb == 1) {
+                def x:double (itemAt sortNum a)
+                def y:double (itemAt sortNum b)
+                if (x < y) {
+                    return -1
+                }
+                if (x > y) {
+                    return 1
+                }
+                return 0
+            }
+        }
+        def sa:string (itemAt sortText a)
+        def sb:string (itemAt sortText b)
+        return (this.compareText(sa sb))
     }
 
     ; The order EVERY row would be in if the sheet were sorted by `col`.
@@ -159,8 +245,8 @@ class SheetView {
         ; (no bold, no fill, text over text). Past the first, freezing says
         ; nothing.
         sortHeadRows = (this.inferHeaderRows())
-        if (sortHeadRows == 0) {
-            if (model.freezeRows > 0) {
+        if (model.freezeRows > 0) {
+            if (sortHeadRows < 1) {
                 sortHeadRows = 1
             }
         }
@@ -185,14 +271,77 @@ class SheetView {
             return 0
         }
         def lastCol:int (model.usedCol())
+        ; The table does not always start at row 1.
+        ;
+        ; A sheet is written the way a page is: a title, maybe a blank line,
+        ; and then the table. Only asking about row 0 found the TITLE and
+        ; called it the header, which left the real header row inside the body
+        ; — where a sort drags it into the middle of the data. It stayed put on
+        ; the fixture here only because "Category" happens to sort before
+        ; "Logistics", which is luck, not behaviour.
+        ;
+        ; So walk down while the rows are not data: a blank row is not, and a
+        ; row with something in ONE column of a table several columns wide is a
+        ; title rather than a row. The first row that looks like a heading over
+        ; the row beneath it ends the head, and is part of it.
+        def head:int 0
+        def limit:int 5
+        if (limit > (model.rowCount - 1)) {
+            limit = (model.rowCount - 1)
+        }
+        while (head < limit) {
+            def filled:int (this.filledCount(head lastCol))
+            if (filled == 0) {
+                ; A blank line above the table.
+                head = (head + 1)
+            } {
+                if (lastCol > 0) {
+                    if (filled == 1) {
+                        ; One cell across a wide sheet: a title.
+                        head = (head + 1)
+                    } {
+                        if (this.looksLikeHeading(head lastCol)) {
+                            return (head + 1)
+                        }
+                        return head
+                    }
+                } {
+                    if (this.looksLikeHeading(head lastCol)) {
+                        return (head + 1)
+                    }
+                    return head
+                }
+            }
+        }
+        return head
+    }
+
+    fn filledCount:int (row:int lastCol:int) {
+        def n:int 0
         def c:int 0
         while (c <= lastCol) {
-            def top:string (model.getCell(0 c))
-            def body:string (model.getCell(1 c))
+            if ((strlen (model.getCell(row c))) > 0) {
+                n = (n + 1)
+            }
+            c = (c + 1)
+        }
+        return n
+    }
+
+    ; Is this row a heading over the one below it? Styled like one — bold or
+    ; filled — or words standing over numbers.
+    fn looksLikeHeading:boolean (row:int lastCol:int) {
+        if ((row + 1) >= model.rowCount) {
+            return false
+        }
+        def c:int 0
+        while (c <= lastCol) {
+            def top:string (model.getCell(row c))
+            def body:string (model.getCell((row + 1) c))
             if ((strlen top) > 0) {
-                def st:CellStyle (model.getCellStyle(0 c))
+                def st:CellStyle (model.getCellStyle(row c))
                 if (st.bold || st.hasFill) {
-                    return 1
+                    return true
                 }
                 if ((strlen body) > 0) {
                     def a@(optional):double (to_double top)
@@ -203,14 +352,14 @@ class SheetView {
                     }
                     if (topNumeric == false) {
                         if b {
-                            return 1
+                            return true
                         }
                     }
                 }
             }
             c = (c + 1)
         }
-        return 0
+        return false
     }
 
     fn mergeSortRows:void (rows:[int] tmp:[int] lo:int hi:int col:int asc:boolean) {
@@ -241,20 +390,20 @@ class SheetView {
                         if (right < sortHeadRows) {
                             takeLeft = false
                         } {
-                            def lv:string (model.getCell(left col))
-                            def rv:string (model.getCell(right col))
+                            def lk:int (itemAt sortKind left)
+                            def rk:int (itemAt sortKind right)
                             ; Empty tail rows belong after data in both orders.
-                            if ((strlen lv) == 0) {
-                                if ((strlen rv) == 0) {
+                            if (lk == 0) {
+                                if (rk == 0) {
                                     takeLeft = true
                                 } {
                                     takeLeft = false
                                 }
                             } {
-                                if ((strlen rv) == 0) {
+                                if (rk == 0) {
                                     takeLeft = true
                                 } {
-                                    def cmp:int (this.compareValues(lv rv))
+                                    def cmp:int (this.compareKeys(left right))
                                     if asc {
                                         if (cmp <= 0) {
                                             takeLeft = true
@@ -302,7 +451,11 @@ class SheetView {
                 return 0
             }
         }
-        ; string fallback: lexicographic by code units
+        return (this.compareText(a b))
+    }
+
+    ; Lexicographic by code units.
+    fn compareText:int (a:string b:string) {
         def i:int 0
         def na:int (strlen a)
         def nb:int (strlen b)

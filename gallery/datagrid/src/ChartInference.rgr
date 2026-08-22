@@ -474,7 +474,7 @@ class ChartInference {
             ; row per bar, which is what a small table wants.
             def rowsSeen:int (cf.rows())
             if (cf.distinct < rowsSeen) {
-                ch.agg = "group"
+                ch.agg = "auto"
             }
             ; A year of daily readings is 365 categories, and 365 labels along
             ; the bottom is a grey smear rather than an axis. A date that fine
@@ -483,14 +483,14 @@ class ChartInference {
             if (cf.role == "date") {
                 ch.catBucket = (ChartInference.bucketFor(model ch cf))
                 if ((strlen ch.catBucket) > 0) {
-                    ch.agg = "group"
+                    ch.agg = "auto"
                 }
             }
         }
         if (seriesIdx >= 0) {
             def sf:ColumnFacts (itemAt facts seriesIdx)
             ch.seriesCol = sf.col
-            ch.agg = "group"
+            ch.agg = "auto"
         }
         ; A date axis is not grouped by default: a reading per day IS the
         ; series, and collapsing it would throw the shape away. It is grouped
@@ -664,6 +664,41 @@ class ChartInference {
         ChartInference.planWith(model ch forceHeader)
     }
 
+    ; The title again, for a plan whose question changed but whose columns did
+    ; not. Picking "Average" in the picker turns "Margin by Region" into
+    ; "Average Margin by Region", and a title that still said the old thing
+    ; would be the chart lying about what it shows.
+    sfn retitle:void (model:SpreadsheetModel ch:GridChart) {
+        def top:int ch.r0
+        if ch.useHeaderRow {
+            top = (top + 1)
+        }
+        if (top > ch.r1) {
+            return
+        }
+        def facts:[ColumnFacts]
+        def catIdx:int -1
+        def seriesIdx:int -1
+        def n:int (ch.sourceColCount())
+        def i:int 0
+        while (i < n) {
+            def col:int (ch.sourceColAt(i))
+            def header:string ""
+            if ch.useHeaderRow {
+                header = (model.getCell(ch.r0 col))
+            }
+            push facts (ChartInference.factsFor(model col top ch.r1 header))
+            if (col == ch.catCol) {
+                catIdx = i
+            }
+            if (col == ch.seriesCol) {
+                seriesIdx = i
+            }
+            i = (i + 1)
+        }
+        ch.title = (ChartInference.titleFor(model ch facts catIdx seriesIdx))
+    }
+
     ; A header row is a row of words over columns that are not words. The old
     ; test asked only about the LAST column, which called a table with a text
     ; column on the right headerless.
@@ -783,13 +818,13 @@ class ChartInference {
             what = "Totals"
         }
         if (catIdx < 0) {
-            return what
+            return ((GridChart.aggTitleWord((ch.effectiveAgg()))) + what)
         }
         def cf:ColumnFacts (itemAt facts catIdx)
         if ((strlen cf.header) == 0) {
             return what
         }
-        def out:string ((what + " by ") + cf.header)
+        def out:string (((GridChart.aggTitleWord((ch.effectiveAgg()))) + what) + " by " + cf.header)
         if (seriesIdx >= 0) {
             def sf:ColumnFacts (itemAt facts seriesIdx)
             if ((strlen sf.header) > 0) {
