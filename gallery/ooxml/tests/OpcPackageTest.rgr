@@ -1,0 +1,266 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OpcPackageTest — one container reader, three formats.
+; ==============================================================================
+;
+; `OoxmlPackageTest` next door checks that the three FORMAT readers agree about
+; text. This checks the layer underneath them: that a .docx, a .xlsx and a
+; .pptx open through the SAME `OpcPackage` and answer the same questions.
+;
+; The load-bearing check is `everyRelationshipResolves`. It walks every part of
+; a package, asks for that part's relationships, resolves each internal one,
+; and requires the answer to name a part the ZIP actually contains. That single
+; invariant is what the three hand-written package readers could not hold:
+;
+;   * Word forced every target under `word/`, so `../media/image1.png` — which
+;     is how a header or a footnote names a picture — resolved to the literal
+;     `word/../media/image1.png` and matched nothing. Only `word/document.xml`
+;     had a relationship table at all, so a header's own rels did not exist.
+;   * The spreadsheet had no relationship layer; four callers scanned the
+;     `_rels` XML themselves, and the shared path resolver said out loud that
+;     it handled "only the two forms a spreadsheet actually writes".
+;
+; So the fixtures here are deliberately the ones with pictures and tables in
+; them: those are the packages whose relationships point sideways and upwards
+; rather than at the file next door.
+;
+;   npm run ooxml:opc:test
+; ==============================================================================
+
+Import "../OpcPackage.rgr"
+
+class OpcCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OpcPackageTest {
+
+    ; ------------------------------------------------------------------
+    ; Paths, with no file involved
+    ; ------------------------------------------------------------------
+    sfn checkPaths:void (c:OpcCheck) {
+        print "-- package paths --"
+        c.eqStr("a picture one directory up"
+            (OpcPackage.joinPartPath("ppt/slides/slide1.xml" "../media/image1.png"))
+            "ppt/media/image1.png")
+        c.eqStr("a part beside this one"
+            (OpcPackage.joinPartPath("ppt/presentation.xml" "slides/slide1.xml"))
+            "ppt/slides/slide1.xml")
+        c.eqStr("an absolute part name loses its leading slash"
+            (OpcPackage.joinPartPath("word/document.xml" "/word/media/image1.png"))
+            "word/media/image1.png")
+        c.eqStr("two levels up, which a chart's own rels write"
+            (OpcPackage.joinPartPath("xl/charts/_rels/chart1.xml" "../../media/image1.png"))
+            "xl/media/image1.png")
+        c.eqStr("a target that goes nowhere"
+            (OpcPackage.joinPartPath("word/document.xml" "./media/image1.png"))
+            "word/media/image1.png")
+        c.eqStr("the root's own relationships name a part from nowhere"
+            (OpcPackage.joinPartPath("" "xl/workbook.xml"))
+            "xl/workbook.xml")
+
+        c.eqStr("rels for a part in a directory"
+            (OpcPackage.relsPathFor("ppt/slides/slide1.xml"))
+            "ppt/slides/_rels/slide1.xml.rels")
+        c.eqStr("rels for a part at the root"
+            (OpcPackage.relsPathFor("workbook.xml"))
+            "_rels/workbook.xml.rels")
+
+        c.eqStr("extension, lower-cased" (OpcPackage.extensionOf("word/media/IMAGE1.PNG")) "png")
+        c.eqStr("a dot in a directory is not an extension"
+            (OpcPackage.extensionOf("a.b/document")) "")
+
+        ; The suffix match is the difference between a slide and a layout.
+        c.ok("a slide relationship is not a slideLayout relationship"
+            ((OpcPackage.typeEndsWith("http://.../relationships/slideLayout" "/slide")) == false))
+        c.ok("a slide relationship is a slide relationship"
+            (OpcPackage.typeEndsWith("http://.../relationships/slide" "/slide")))
+        ; And the reason it cannot be a substring search: the namespace EVERY
+        ; relationship type is written in has "/officeDocument" in the middle of
+        ; it, so `indexOf` says yes to the document properties as readily as to
+        ; the document. A 2016 workbook lists the properties first, and the
+        ; reader then opened `docProps/app.xml` as the workbook.
+        c.ok("the extended properties are not the office document"
+            ((OpcPackage.typeEndsWith(
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties"
+                "/officeDocument")) == false))
+        c.ok("the office document is"
+            (OpcPackage.typeEndsWith(
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+                "/officeDocument")))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Relationships, against real files
+    ; ------------------------------------------------------------------
+
+    ; Every internal relationship in the package names a part that exists.
+    sfn everyRelationshipResolves:void (c:OpcCheck pkg:OpcPackage label:string) {
+        def parts:[string] (pkg.listParts())
+        def checked:int 0
+        def broken:int 0
+        def firstBad:string ""
+        ; The root's own `_rels/.rels` belongs to no part, so it is walked by
+        ; name rather than found by walking parts.
+        def rootRels:[OpcRelationship] (pkg.rootRelationships())
+        def ri:int 0
+        while (ri < (array_length rootRels)) {
+            def rr:OpcRelationship (itemAt rootRels ri)
+            if ((rr.isExternal()) == false) {
+                checked = (checked + 1)
+                def rp:string (OpcPackage.joinPartPath("" rr.target))
+                if ((pkg.hasPart(rp)) == false) {
+                    broken = (broken + 1)
+                    if ((strlen firstBad) == 0) {
+                        firstBad = ("_rels/.rels " + rr.id + " -> " + rp)
+                    }
+                }
+            }
+            ri = (ri + 1)
+        }
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:string (itemAt parts i)
+            ; A `.rels` part has no relationships of its own.
+            if ((indexOf part "_rels/") < 0) {
+                def rels:[OpcRelationship] (pkg.relationshipsFor(part))
+                def j:int 0
+                while (j < (array_length rels)) {
+                    def rel:OpcRelationship (itemAt rels j)
+                    if ((rel.isExternal()) == false) {
+                        checked = (checked + 1)
+                        def target:string (pkg.resolveRelationship(part rel.id))
+                        if ((pkg.hasPart(target)) == false) {
+                            broken = (broken + 1)
+                            if ((strlen firstBad) == 0) {
+                                firstBad = (part + " " + rel.id + " -> '" + target + "'")
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok((label + ": has relationships to check (" + (to_string checked) + ")") (checked > 0))
+        if (broken > 0) {
+            print ("    first unresolved: " + firstBad)
+        }
+        c.eqInt((label + ": every internal relationship names a part that exists") broken 0)
+    }
+
+    ; The picture a package points at is a picture the package contains.
+    sfn imageResolves:void (c:OpcCheck pkg:OpcPackage label:string) {
+        def parts:[string] (pkg.listParts())
+        def found:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:string (itemAt parts i)
+            if ((indexOf part "_rels/") < 0) {
+                if ((strlen found) == 0) {
+                    def hit:string (pkg.findRelationshipByType(part "/image"))
+                    if ((strlen hit) > 0) {
+                        found = hit
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok((label + ": a picture relationship was found") ((strlen found) > 0))
+        if ((strlen found) > 0) {
+            c.ok((label + ": and it names a part that exists — " + found) (pkg.hasPart(found)))
+            def bytes:buffer (pkg.readBinary(found))
+            c.ok((label + ": and the part has bytes in it") ((buffer_length bytes) > 0))
+        }
+    }
+
+    sfn checkFormat:void (c:OpcCheck dir:string file:string wantMain:string label:string wantImage:boolean) {
+        print ("-- " + label + " --")
+        def pkg:OpcPackage (new OpcPackage())
+        def ok:boolean (pkg.openParts(dir file))
+        c.ok((label + ": opened") ok)
+        if (ok == false) {
+            return
+        }
+        c.ok((label + ": has parts") ((array_length (pkg.listParts())) > 0))
+        ; One class, three formats: the main part is READ out of the package
+        ; rather than assumed from the extension.
+        c.eqStr((label + ": the main document part") (pkg.mainDocumentPart()) wantMain)
+        c.ok((label + ": and the main part is really there") (pkg.hasPart(wantMain)))
+        c.ok((label + ": [Content_Types].xml agrees it is xml")
+            ((indexOf (pkg.contentTypeFor(wantMain)) "xml") >= 0))
+        c.eqStr((label + ": an unknown part has no content type") (pkg.contentTypeFor("no/such.part")) "")
+        OpcPackageTest.everyRelationshipResolves(c pkg label)
+        ; Not every fixture has a picture in it; the ones that do are the
+        ; reason this test exists, so they are named rather than guessed.
+        if wantImage {
+            OpcPackageTest.imageResolves(c pkg label)
+        }
+        pkg.close()
+    }
+
+    ; A hyperlink is not a part. Joining "https://example.com/" against a
+    ; slide's directory produces something that looks like a package path and
+    ; is not one, so an external target has to leave by a different door.
+    sfn checkExternal:void (c:OpcCheck) {
+        print "-- external targets --"
+        def xml:string ("<Relationships>"
+            + "<Relationship Id=\"rId1\" Type=\"http://x/relationships/hyperlink\" Target=\"https://example.com/a\" TargetMode=\"External\"/>"
+            + "<Relationship Id='rId2' Type='http://x/relationships/image' Target='../media/image1.png'/>"
+            + "</Relationships>")
+        def rels:[OpcRelationship] (OpcPackage.parseRelationships(xml))
+        c.eqInt("both relationships were read" (array_length rels) 2)
+        if ((array_length rels) == 2) {
+            def a:OpcRelationship (itemAt rels 0)
+            def b:OpcRelationship (itemAt rels 1)
+            c.ok("the hyperlink is external" (a.isExternal()))
+            c.eqStr("and keeps its URL whole" a.target "https://example.com/a")
+            c.ok("the picture is not external" ((b.isExternal()) == false))
+            ; Single quotes are legal XML and Ranger's own writers use double
+            ; ones, so a reader that only knows one spelling reads half a file.
+            c.eqStr("attributes in single quotes are read too" b.target "../media/image1.png")
+        }
+    }
+
+    sfn main:void () {
+        def c:OpcCheck (new OpcCheck)
+        print "== OpcPackageTest =="
+        OpcPackageTest.checkPaths(c)
+        OpcPackageTest.checkExternal(c)
+        OpcPackageTest.checkFormat(c "gallery/docx_viewer/fixtures" "13-images-mixed.docx" "word/document.xml" ".docx" true)
+        OpcPackageTest.checkFormat(c "gallery/datagrid/fixtures" "images.xlsx" "xl/workbook.xml" ".xlsx" true)
+        OpcPackageTest.checkFormat(c "gallery/pptx/fixtures" "16-image-png.pptx" "ppt/presentation.xml" ".pptx" true)
+        ; A deck with everything in it: layouts, masters, themes, notes.
+        OpcPackageTest.checkFormat(c "gallery/pptx/fixtures" "20-business-deck.pptx" "ppt/presentation.xml" ".pptx (business deck)" true)
+        OpcPackageTest.checkFormat(c "gallery/datagrid/fixtures" "tables.xlsx" "xl/workbook.xml" ".xlsx (tables)" false)
+        OpcPackageTest.checkFormat(c "gallery/docx_viewer/fixtures" "12-header-footer.docx" "word/document.xml" ".docx (header/footer)" false)
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

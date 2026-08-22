@@ -22,10 +22,15 @@
 
 Import "XmlLite.rgr"
 Import "../SheetImage.rgr"
+Import "../../../ooxml/OpcPackage.rgr"
 
 class XlsxDrawing {
     ; Every image the drawing described, in document order.
     def images:[SheetImage]
+    ; The drawing's own package path — what its relationship targets are
+    ; relative to. Set by the loader before `parse`; the conventional name is
+    ; only the fallback for a caller that does not know.
+    def partPath:string "xl/drawings/drawing1.xml"
 
     Constructor () {
     }
@@ -131,7 +136,7 @@ class XlsxDrawing {
                     if (local == "blip") {
                         def rid:string (t.attrAny("r:embed" "embed"))
                         if ((strlen rid) > 0) {
-                            img.src = (XlsxDrawing.relTarget(rels rid))
+                            img.src = (this.relTarget(rels rid))
                         }
                     }
                 }
@@ -143,41 +148,29 @@ class XlsxDrawing {
         }
     }
 
-    ; rId → target, resolved against xl/drawings/ — the media path a drawing
-    ; names is written relative to the drawing, as "../media/image1.png".
-    sfn relTarget:string (rels:string id:string) {
+    ; rId → the media part it names. A drawing writes its target relative to
+    ; itself — "../media/image1.png" — so it is resolved against the drawing's
+    ; own path rather than against a directory this file assumes. The scan of
+    ; the `.rels` text is `OpcPackage`'s, which is the same one the .docx and
+    ; .pptx readers use; this file used to have its own, and its own `../`
+    ; walker, which climbed exactly one level however many the target asked for.
+    fn relTarget:string (rels:string id:string) {
         if ((strlen rels) == 0) {
             return ""
         }
-        def p:XmlLite (new XmlLite)
-        p.reset(rels)
-        while (p.pos < p.len) {
-            def t:XmlTag (p.nextTag())
-            if (t.valid == false) {
-                break
-            }
-            if ((t.name == "Relationship") && (t.isEnd == false)) {
-                if ((t.attr("Id")) == id) {
-                    def target:string (t.attr("Target"))
-                    if ((strlen target) == 0) {
-                        return ""
-                    }
-                    if ((charAt target 0) == 47) {
-                        return (substring target 1 (strlen target))
-                    }
-                    def rest:string target
-                    def dir:string "xl/drawings/"
-                    while ((strlen rest) > 3) {
-                        if ((substring rest 0 3) == "../") {
-                            rest = (substring rest 3 (strlen rest))
-                            dir = "xl/"
-                        } {
-                            break
-                        }
-                    }
-                    return (dir + rest)
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(rels))
+        def i:int 0
+        while (i < (array_length list)) {
+            def rel:OpcRelationship (itemAt list i)
+            if (rel.id == id) {
+                if (rel.isExternal()) {
+                    ; A linked picture lives outside the package; there is no
+                    ; part to read, so there is nothing to draw.
+                    return ""
                 }
+                return (OpcPackage.joinPartPath(partPath rel.target))
             }
+            i = (i + 1)
         }
         return ""
     }

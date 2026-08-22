@@ -37,6 +37,7 @@ compiler — the long-form writeups live here.
 | [`rangersql`](rangersql/README.md) | SQL parser, generator and dialect transpiler, checked against SQLGlot's own identity corpus — and RangerDB's SQL front end |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |
 | `process_counter_ios`, `process_counter_android` | Native hosts for the same `@process` demo |
+| [`ooxml`](ooxml/README.md) | What the three OOXML editors share: one OPC package reader (parts, content types, relationships) and the XML text rules — plus the roadmap for what moves there next |
 | `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 
 ---

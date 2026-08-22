@@ -1,19 +1,48 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; DocxPackage - OPC package reader over gallery/zip ZipReader.
+; DocxPackage — what a .docx calls its parts.
+; ==============================================================================
+;
+; The container is not Word's. A .docx, a .xlsx and a .pptx are all OPC
+; packages, and that layer now lives once in `gallery/ooxml/OpcPackage.rgr`.
+; What is left here is the part of a Word package that is actually about Word:
+; that the document is at `word/document.xml`, that its styles are beside it,
+; and that a relationship id in `document.xml` is resolved against
+; `document.xml`.
+;
+; WHAT THIS FIXES BY DELEGATING.
+;
+; The relationship table this class used to keep was flat — one table for the
+; whole document, read out of `word/_rels/document.xml.rels` and nothing else —
+; and every target was forced under `word/`:
+;
+;     "media/image1.png"     → "word/media/image1.png"        correct
+;     "../media/image1.png"  → "word/../media/image1.png"     names no part
+;     "/word/media/x.png"    → "word/media/x.png"             correct
+;     "https://example.com/" → "word/https://example.com/"    names no part
+;
+; The first form is what Word writes for a picture in the body, which is why
+; this held up for as long as it did. The second is what a part in a
+; subdirectory writes, the fourth is every hyperlink in the document, and a
+; header's own relationships were not read at all, so a picture in a header had
+; no path to resolve against.
+;
+; `OpcPackage` resolves a target against the part that names it, which is what
+; the standard says and what makes all four forms come out right.
 ; ==============================================================================
 
-Import "../../zip/ZipReader.rgr"
-Import "../../pdf_writer/src/core/Utf8.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 
 class DocxPackage {
-    def zip:ZipReader (new ZipReader)
+    def opc:OpcPackage (new OpcPackage())
     def openOk:boolean false
     def pathDir:string ""
     def pathFile:string ""
-    def relTargets:[string:string]
-    def relTypes:[string:string]
+    ; The part relationship ids are resolved against. Read from `_rels/.rels`
+    ; when the package opens, rather than assumed, and only falling back to the
+    ; conventional name when a file does not say.
+    def mainPart:string "word/document.xml"
 
     Constructor () {
     }
@@ -21,9 +50,9 @@ class DocxPackage {
     fn open:boolean (dir:string file:string) {
         pathDir = dir
         pathFile = file
-        openOk = (zip.open(dir file))
+        openOk = (opc.openParts(dir file))
         if openOk {
-            this.parseRels()
+            this.findMainPart()
         }
         return openOk
     }
@@ -32,134 +61,102 @@ class DocxPackage {
     fn openBytes:boolean (data:buffer name:string) {
         pathDir = ""
         pathFile = name
-        openOk = (zip.openBytes(data))
+        openOk = (opc.openBytes(data name))
         if openOk {
-            this.parseRels()
+            this.findMainPart()
         }
         return openOk
     }
 
+    fn findMainPart:void () {
+        mainPart = "word/document.xml"
+        def named:string (opc.mainDocumentPart())
+        if ((strlen named) > 0) {
+            mainPart = named
+        }
+    }
+
     fn close:void () {
-        zip.close()
+        opc.close()
         openOk = false
     }
 
     fn hasPart:boolean (name:string) {
-        def e@(optional):ZipEntry (zip.getEntry(name))
-        return (!null? e)
+        return (opc.hasPart(name))
     }
 
     fn readPartBytes:buffer (name:string) {
-        def e@(optional):ZipEntry (zip.getEntry(name))
-        if (null? e) {
-            return (buffer_alloc 0)
-        }
-        def entry:ZipEntry (unwrap e)
-        return (zip.extract(entry))
+        return (opc.readBinary(name))
     }
 
     fn readPart:string (name:string) {
-        def data:buffer (this.readPartBytes(name))
-        if ((buffer_length data) == 0) {
-            return ""
-        }
-        return (Utf8.decode((buffer_to_string data)))
+        return (opc.readXml(name))
     }
 
     fn documentXml:string () {
-        return (this.readPart("word/document.xml"))
+        return (opc.readXml(mainPart))
     }
 
+    ; Styles and numbering are found through the document's own relationships,
+    ; so a package that puts them somewhere other than beside `document.xml`
+    ; still reads. The conventional path is the fallback, not the rule.
     fn stylesXml:string () {
-        return (this.readPart("word/styles.xml"))
+        return (this.readRelatedPart("/styles" "word/styles.xml"))
     }
 
     fn numberingXml:string () {
-        return (this.readPart("word/numbering.xml"))
+        return (this.readRelatedPart("/numbering" "word/numbering.xml"))
+    }
+
+    fn readRelatedPart:string (typeSuffix:string fallback:string) {
+        def part:string (opc.findRelationshipByType(mainPart typeSuffix))
+        if ((strlen part) > 0) {
+            return (opc.readXml(part))
+        }
+        return (opc.readXml(fallback))
     }
 
     fn documentRelsXml:string () {
-        return (this.readPart("word/_rels/document.xml.rels"))
+        return (opc.readXml((OpcPackage.relsPathFor(mainPart))))
     }
 
-    fn parseRels:void () {
-        def xml:string (this.documentRelsXml())
-        if ((strlen xml) == 0) {
-            return
-        }
-        def i:int 0
-        def n:int (strlen xml)
-        while (i < n) {
-            ; `indexOfFrom` returns an ABSOLUTE index; the tail-substring
-            ; form it replaced returned one relative to `i`, and copied the
-            ; rest of the part to get it.
-            def rs:int (indexOfFrom xml "<Relationship" i)
-            if (rs < 0) {
-                return
-            }
-            def gt:int rs
-            while (gt < n) {
-                if ((charAt xml gt) == 62) {
-                    def tag:string (substring xml rs (gt + 1))
-                    def id:string (this.quotedAttr(tag "Id"))
-                    def target:string (this.quotedAttr(tag "Target"))
-                    def typ:string (this.quotedAttr(tag "Type"))
-                    if ((strlen id) > 0) {
-                        if ((strlen target) > 0) {
-                            def part:string target
-                            if ((indexOf target "word/") == 0) {
-                                part = target
-                            } {
-                                if ((indexOf target "/") == 0) {
-                                    part = (substring target 1 (strlen target))
-                                } {
-                                    part = ("word/" + target)
-                                }
-                            }
-                            set relTargets id part
-                            set relTypes id typ
-                        }
-                    }
-                    i = (gt + 1)
-                    gt = n
-                } {
-                    gt = (gt + 1)
-                }
-            }
-        }
-    }
-
-    fn quotedAttr:string (tag:string name:string) {
-        def key:string (name + "=\"")
-        def at:int (indexOf tag key)
-        if (at < 0) {
-            return ""
-        }
-        def a:int (at + (strlen key))
-        def b:int a
-        def tn:int (strlen tag)
-        while (b < tn) {
-            if ((charAt tag b) == 34) {
-                return (substring tag a b)
-            }
-            b = (b + 1)
-        }
-        return ""
-    }
-
+    ; rId → package path, resolved against `word/document.xml`. A hyperlink
+    ; answers "" here because it is not a part; `relTarget` hands back the URL.
     fn resolveRel:string (relId:string) {
-        def hit@(optional):string (get relTargets relId)
-        if (null? hit) {
-            return ""
-        }
-        return (unwrap hit)
+        return (opc.resolveRelationship(mainPart relId))
+    }
+
+    ; The same, for a relationship named by some other part — a picture in a
+    ; header, whose `_rels` are the header's and not the document's.
+    fn resolveRelIn:string (part:string relId:string) {
+        return (opc.resolveRelationship(part relId))
     }
 
     fn relType:string (relId:string) {
-        def hit@(optional):string (get relTypes relId)
-        if (null? hit) {
-            return ""
-        }
-        return (unwrap hit)
+        return (opc.relationshipType(mainPart relId))
+    }
+
+    ; The target as written: a URL for an external relationship, and the
+    ; unresolved relative path for an internal one.
+    fn relTarget:string (relId:string) {
+        return (opc.relationshipTarget(mainPart relId))
+    }
+
+    fn isExternalRel:boolean (relId:string) {
+        return (opc.isExternalRelationship(mainPart relId))
+    }
+
+    fn listParts:[string] () {
+        return (opc.listParts())
+    }
+
+    fn contentTypeFor:string (part:string) {
+        return (opc.contentTypeFor(part))
+    }
+
+    ; The package underneath, for a caller that needs the container rather than
+    ; Word's names for things.
+    fn opcPackage:OpcPackage () {
+        return opc
     }
 }

@@ -6,6 +6,7 @@
 
 Import "XmlLite.rgr"
 Import "XlsxPackage.rgr"
+Import "../../../ooxml/OpcPackage.rgr"
 
 class XlsxSheetInfo {
     def name:string ""
@@ -20,47 +21,40 @@ class XlsxSheetInfo {
 class XlsxWorkbook {
     def sheets:[XlsxSheetInfo]
     def rels:[string:string]
+    ; The workbook part itself — what sheet targets are resolved against. Read
+    ; from the package when it opens rather than assumed.
+    def mainPart:string "xl/workbook.xml"
 
     Constructor () {
     }
 
+    ; The workbook's own relationships: rId → target, exactly as written. The
+    ; scan is `OpcPackage`'s, the same one the .docx and .pptx readers use.
     fn parseRels:void (xml:string) {
         def empty:[string:string]
         rels = empty
         if ((strlen xml) == 0) {
             return
         }
-        def p:XmlLite (new XmlLite)
-        p.reset(xml)
-        while (p.pos < p.len) {
-            def t:XmlTag (p.nextTag())
-            if (t.valid == false) {
-                break
-            }
-            if ((t.name == "Relationship") && (t.isEnd == false)) {
-                def id:string (t.attr("Id"))
-                def target:string (t.attr("Target"))
-                if (((strlen id) > 0) && ((strlen target) > 0)) {
-                    set rels id target
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(xml))
+        def i:int 0
+        while (i < (array_length list)) {
+            def rel:OpcRelationship (itemAt list i)
+            if ((strlen rel.target) > 0) {
+                if ((rel.isExternal()) == false) {
+                    set rels rel.id rel.target
                 }
             }
+            i = (i + 1)
         }
     }
 
+    ; A sheet's target is written relative to the WORKBOOK part that names it,
+    ; so that is what it is resolved against — rather than against a literal
+    ; "xl/" this class used to prepend, which is the same answer only as long
+    ; as the workbook is where everyone expects it to be.
     fn resolvePath:string (target:string) {
-        ; Targets are relative to xl/, or absolute /xl/...
-        if ((strlen target) >= 3) {
-            if ((substring target 0 3) == "../") {
-                return (substring target 3 (strlen target))
-            }
-        }
-        if ((strlen target) >= 1) {
-            if ((charAt target 0) == 47) {
-                ; absolute part name /xl/worksheets/sheet1.xml → xl/worksheets/...
-                return (substring target 1 (strlen target))
-            }
-        }
-        return ("xl/" + target)
+        return (OpcPackage.joinPartPath(mainPart target))
     }
 
     fn parseWorkbook:void (xml:string) {
@@ -96,8 +90,9 @@ class XlsxWorkbook {
     }
 
     fn load:void (pkg:XlsxPackage) {
-        this.parseRels((pkg.entryText("xl/_rels/workbook.xml.rels")))
-        this.parseWorkbook((pkg.entryText("xl/workbook.xml")))
+        mainPart = (pkg.workbookPart())
+        this.parseRels((pkg.entryText((OpcPackage.relsPathFor(mainPart)))))
+        this.parseWorkbook((pkg.entryText(mainPart)))
     }
 
     fn sheetCount:int () {

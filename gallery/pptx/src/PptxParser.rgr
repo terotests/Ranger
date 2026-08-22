@@ -9,7 +9,7 @@
 ; are left to PptxResolver — this layer only materialises what the XML says.
 ; ==============================================================================
 
-Import "OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 Import "PptxXml.rgr"
 Import "PptxModel.rgr"
 Import "PptxGeom.rgr"

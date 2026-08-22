@@ -33,6 +33,7 @@
 ; ==============================================================================
 
 Import "XmlLite.rgr"
+Import "../../../ooxml/OpcPackage.rgr"
 Import "../SheetTable.rgr"
 Import "../SpreadsheetModel.rgr"
 
@@ -179,30 +180,22 @@ class XlsxTable {
 
     ; Every table relationship on a sheet, in the order the rels part lists
     ; them. A sheet may carry several tables, so `relTargetOfType` — which
-    ; answers with the first — is not enough here.
+    ; answers with the first — is not enough here. The scan is `OpcPackage`'s,
+    ; the same one the .docx and .pptx readers use.
     sfn tableTargets:void (rels:string out:[string]) {
         if ((strlen rels) == 0) {
             return
         }
-        def p:XmlLite (new XmlLite)
-        p.reset(rels)
-        while (p.pos < p.len) {
-            def tag:XmlTag (p.nextTag())
-            if (tag.valid == false) {
-                break
-            }
-            if ((tag.name == "Relationship") && (tag.isEnd == false)) {
-                def ty:string (tag.attr("Type"))
-                def n:int (strlen ty)
-                if (n >= 6) {
-                    if ((substring ty (n - 6) n) == "/table") {
-                        def target:string (tag.attr("Target"))
-                        if ((strlen target) > 0) {
-                            push out target
-                        }
-                    }
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(rels))
+        def i:int 0
+        while (i < (array_length list)) {
+            def rel:OpcRelationship (itemAt list i)
+            if (OpcPackage.typeEndsWith(rel.type "/table")) {
+                if ((strlen rel.target) > 0) {
+                    push out rel.target
                 }
             }
+            i = (i + 1)
         }
     }
 

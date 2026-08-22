@@ -16,7 +16,7 @@ Import "../src/PptxWriter.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"
 Import "../src/PptxEdit.rgr"
-Import "../src/OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 
 class PptxWriterTest {
     def passed:int 0

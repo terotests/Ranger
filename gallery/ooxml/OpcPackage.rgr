@@ -1,0 +1,638 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OpcPackage.rgr — the one Open Packaging Conventions reader for this gallery.
+; ==============================================================================
+;
+; A .docx, a .xlsx and a .pptx are the same container: a ZIP whose members are
+; "parts" named by package path, plus `_rels` parts that say which part points
+; at which. Nothing above that layer is shared — Word pagination, Excel
+; formulas and PowerPoint's master/layout inheritance have nothing to say to
+; each other — but the container is the container, and this gallery had grown
+; three of them:
+;
+;   * `pptx/src/OpcPackage.rgr`     — the complete one. Relationships per part,
+;                                     cached, with `../` targets resolved.
+;   * `docx_viewer/src/DocxPackage.rgr` — one relationship table for the whole
+;                                     document, every target forced under
+;                                     `word/`, so a header's own rels were
+;                                     unreachable and `../media/image1.png`
+;                                     resolved to the literal
+;                                     `word/../media/image1.png`, which is not
+;                                     a member of any ZIP.
+;   * `datagrid/src/xlsx/XlsxPackage.rgr` — no relationships at all; four
+;                                     callers parsed the `_rels` XML
+;                                     themselves, and the path resolver
+;                                     documented itself as handling "only the
+;                                     two forms a spreadsheet actually writes".
+;
+; Three copies of one idea is not obviously a problem until one of them is
+; fixed. `OoxmlText` next door exists for the same reason: the entity decoder
+; had been fixed in the spreadsheet and nowhere else. So the container lives
+; here once, and the three formats get readers on top of it.
+;
+;   .docx / .xlsx / .pptx bytes
+;             ↓
+;        OpcPackage            ← ZIP, parts, content types, relationships
+;             ↓
+;   DocxPackage / XlsxPackage / PptxParser   ← what each format calls its parts
+;
+; WHAT IS DELIBERATELY NOT HERE.
+;
+; Encryption. A password-protected workbook arrives as an OLE compound file,
+; not as a ZIP, and turning one into the other is a separate concern with a
+; separate failure mode ("wrong password") that has nothing to do with
+; packaging. `XlsxPackage` decrypts first and hands plain ZIP bytes in, so the
+; core never learns what a password is.
+;
+; Writing. `PptxWriter` and `XlsxWriter` build packages by appending to a
+; `ZipWriter`, and they preserve parts they do not understand by copying them
+; across from an open `OpcPackage`. Reading and writing are not symmetric here
+; yet, and pretending otherwise in the API would hide that.
+; ==============================================================================
+
+Import "../zip/ZipReader.rgr"
+Import "../zip/ZipEntry.rgr"
+Import "../pdf_writer/src/core/Utf8.rgr"
+
+; One `<Relationship>` element: what a part points at, and how.
+class OpcRelationship {
+    def id:string ""
+    def type:string ""
+    def target:string ""
+    ; "External" for a hyperlink or a linked image — everything else is a part
+    ; inside this package. Empty means Internal, which is the default the
+    ; standard gives it and what nearly every writer leaves it as.
+    def targetMode:string ""
+
+    fn isExternal:boolean () {
+        return (targetMode == "External")
+    }
+}
+
+class OpcPackage {
+    def reader:ZipReader (new ZipReader())
+    def isOpen:boolean false
+    def dir:string "."
+    def filename:string ""
+    ; partPath -> parsed relationship list. A slide asks for its own
+    ; relationships once per image, once per hyperlink and once per layout, and
+    ; re-reading and re-scanning the `.rels` part each time made opening a deck
+    ; quadratic in its own cross-references.
+    def relCache:[string:[OpcRelationship]]
+    ; Extension -> content type, and part path -> content type, out of
+    ; `[Content_Types].xml`. Read on first ask; a package that never asks never
+    ; pays for it.
+    def ctDefaults:[string:string]
+    def ctOverrides:[string:string]
+    def ctLoaded:boolean false
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------------
+    ; Opening
+    ; ------------------------------------------------------------------
+
+    sfn splitPath:void (fullPath:string dirOut:[string] nameOut:[string]) {
+        def dir:string "."
+        def name:string fullPath
+        def lastSlash:int -1
+        def len:int (strlen fullPath)
+        def i:int 0
+        while (i < len) {
+            def ch:int (charAt fullPath i)
+            if ((ch == 47) || (ch == 92)) {
+                lastSlash = i
+            }
+            i = (i + 1)
+        }
+        if (lastSlash >= 0) {
+            if (lastSlash == 0) {
+                dir = "/"
+            } {
+                dir = (substring fullPath 0 lastSlash)
+            }
+            name = (substring fullPath (lastSlash + 1) len)
+        }
+        push dirOut dir
+        push nameOut name
+    }
+
+    ; Open an OPC package from a filesystem path.
+    fn open:boolean (fullPath:string) {
+        def dirs:[string]
+        def names:[string]
+        OpcPackage.splitPath(fullPath dirs names)
+        return (this.openParts((itemAt dirs 0) (itemAt names 0)))
+    }
+
+    fn openParts:boolean (path:string name:string) {
+        this.resetState()
+        dir = path
+        filename = name
+        def ok:boolean (reader.open(path name))
+        isOpen = ok
+        return ok
+    }
+
+    ; The package from bytes rather than from a path — what a browser has after
+    ; a fetch, and what a dropped file is.
+    fn openBytes:boolean (bytes:buffer name:string) {
+        this.resetState()
+        dir = ""
+        filename = name
+        def ok:boolean (reader.openBytes(bytes))
+        isOpen = ok
+        return ok
+    }
+
+    ; Re-opening one `OpcPackage` over a second file — which `DocxViewer` does
+    ; every time the user opens another document — has to forget the first
+    ; file's relationships, or slide 1 of the new deck answers with the old
+    ; deck's image.
+    fn resetState:void () {
+        def emptyRels:[string:[OpcRelationship]]
+        relCache = emptyRels
+        def emptyCt:[string:string]
+        ctDefaults = emptyCt
+        def emptyCt2:[string:string]
+        ctOverrides = emptyCt2
+        ctLoaded = false
+    }
+
+    fn close:void () {
+        reader.close()
+        isOpen = false
+    }
+
+    ; ------------------------------------------------------------------
+    ; Parts
+    ; ------------------------------------------------------------------
+
+    fn listParts:[string] () {
+        if (isOpen == false) {
+            def empty:[string]
+            return empty
+        }
+        return (reader.listFiles())
+    }
+
+    fn hasPart:boolean (name:string) {
+        if (isOpen == false) {
+            return false
+        }
+        def e@(optional):ZipEntry (reader.getEntry(name))
+        if (!null? e) {
+            return true
+        }
+        return false
+    }
+
+    ; The bytes of a part. A PNG does not survive being decoded as UTF-8, so
+    ; anything that is not markup has to come out through here.
+    fn readBinary:buffer (name:string) {
+        if (isOpen == false) {
+            return (buffer_alloc 0)
+        }
+        def e@(optional):ZipEntry (reader.getEntry(name))
+        if (null? e) {
+            return (buffer_alloc 0)
+        }
+        def entry:ZipEntry (unwrap e)
+        return (reader.extract(entry))
+    }
+
+    ; An OOXML part is UTF-8 on disk, and `buffer_to_string` is not a decode:
+    ; it hands back one unit per BYTE. Where a string is bytes that is already
+    ; the answer and `Utf8.decode` returns it untouched; where a string is
+    ; UTF-16 code units — the browser build — the two bytes of "ä" arrive as
+    ; two characters and the slide draws "HÃ¤meenlinna". The .docx reader had
+    ; always decoded here and the .pptx reader had never done it, which is
+    ; exactly the kind of difference one shared reader cannot have.
+    fn readXml:string (name:string) {
+        def data:buffer (this.readBinary(name))
+        if ((buffer_length data) == 0) {
+            return ""
+        }
+        return (Utf8.decode((buffer_to_string data)))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Package paths
+    ; ------------------------------------------------------------------
+
+    ; Resolve a relative OPC target against the part that names it.
+    ; part = "ppt/slides/slide1.xml", target = "../media/image1.png"
+    ;   → "ppt/media/image1.png"
+    sfn joinPartPath:string (part:string target:string) {
+        if ((strlen target) == 0) {
+            return part
+        }
+        ; Absolute package path (rare, but Word writes them).
+        def t0:int (charAt target 0)
+        if (t0 == 47) {
+            return (substring target 1 (strlen target))
+        }
+        ; Directory of the part
+        def lastSlash:int -1
+        def i:int 0
+        def plen:int (strlen part)
+        while (i < plen) {
+            if ((charAt part i) == 47) {
+                lastSlash = i
+            }
+            i = (i + 1)
+        }
+        def base:string ""
+        if (lastSlash >= 0) {
+            base = (substring part 0 lastSlash)
+        }
+        ; Start from the part's own directory, then walk the target.
+        def stack:[string]
+        OpcPackage.splitSegments(base stack)
+        def segs:[string]
+        OpcPackage.splitSegments(target segs)
+        def si:int 0
+        while (si < (array_length segs)) {
+            def seg:string (itemAt segs si)
+            if (seg == "..") {
+                if ((array_length stack) > 0) {
+                    removeLast stack
+                }
+            } {
+                if (seg != ".") {
+                    push stack seg
+                }
+            }
+            si = (si + 1)
+        }
+        def out:string ""
+        def k:int 0
+        while (k < (array_length stack)) {
+            if (k > 0) {
+                out = (out + "/")
+            }
+            out = (out + (itemAt stack k))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Split on '/', dropping empties. The pieces are COPIED with `substring`:
+    ; rebuilding them character by character through `strfromcode (charAt …)`
+    ; is the identity only where a string is code units, and encodes every byte
+    ; a second time where a string is bytes — so a part named with anything
+    ; outside ASCII stops resolving on the C++ build and nowhere else.
+    sfn splitSegments:void (s:string out:[string]) {
+        def n:int (strlen s)
+        def start:int 0
+        def i:int 0
+        while (i <= n) {
+            def done:boolean false
+            if (i == n) {
+                done = true
+            } {
+                if ((charAt s i) == 47) {
+                    done = true
+                }
+            }
+            if done {
+                if (i > start) {
+                    push out (substring s start i)
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Relationships for a part live in <dir>/_rels/<file>.rels
+    sfn relsPathFor:string (part:string) {
+        def lastSlash:int -1
+        def i:int 0
+        def plen:int (strlen part)
+        while (i < plen) {
+            if ((charAt part i) == 47) {
+                lastSlash = i
+            }
+            i = (i + 1)
+        }
+        if (lastSlash < 0) {
+            return ("_rels/" + part + ".rels")
+        }
+        def dir:string (substring part 0 lastSlash)
+        def file:string (substring part (lastSlash + 1) plen)
+        return (dir + "/_rels/" + file + ".rels")
+    }
+
+    ; The lower-cased extension of a part path, without the dot.
+    sfn extensionOf:string (part:string) {
+        def n:int (strlen part)
+        def dot:int -1
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt part i)
+            if (ch == 46) {
+                dot = i
+            }
+            if (ch == 47) {
+                dot = -1
+            }
+            i = (i + 1)
+        }
+        if (dot < 0) {
+            return ""
+        }
+        return (to_lowercase (substring part (dot + 1) n))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Relationships
+    ; ------------------------------------------------------------------
+
+    ; A `.rels` part is a flat list of self-closing elements, so this needs no
+    ; nesting and no general XML parser — which also keeps it identical on
+    ; every target, rather than depending on which of the three XML readers a
+    ; format happens to import.
+    sfn parseRelationships:[OpcRelationship] (xml:string) {
+        def out:[OpcRelationship]
+        if ((strlen xml) == 0) {
+            return out
+        }
+        def pos:int 0
+        def len:int (strlen xml)
+        while (pos < len) {
+            def idx:int (indexOfFrom xml "<Relationship" pos)
+            if (idx < 0) {
+                break
+            }
+            def end:int (indexOfFrom xml ">" idx)
+            if (end < 0) {
+                break
+            }
+            def tag:string (substring xml idx (end + 1))
+            def rel (new OpcRelationship())
+            rel.id = (OpcPackage.attrValue(tag "Id"))
+            rel.type = (OpcPackage.attrValue(tag "Type"))
+            rel.target = (OpcPackage.attrValue(tag "Target"))
+            rel.targetMode = (OpcPackage.attrValue(tag "TargetMode"))
+            if ((strlen rel.id) > 0) {
+                push out rel
+            }
+            pos = (end + 1)
+        }
+        return out
+    }
+
+    sfn attrValue:string (tag:string name:string) {
+        def key:string (name + "=\"")
+        def i:int (indexOf tag key)
+        if (i < 0) {
+            def key2:string (name + "='")
+            def j:int (indexOf tag key2)
+            if (j < 0) {
+                return ""
+            }
+            def start2:int (j + (strlen key2))
+            def end2:int (indexOfFrom tag "'" start2)
+            if (end2 < 0) {
+                return ""
+            }
+            return (substring tag start2 end2)
+        }
+        def start:int (i + (strlen key))
+        def end:int (indexOfFrom tag "\"" start)
+        if (end < 0) {
+            return ""
+        }
+        return (substring tag start end)
+    }
+
+    fn relationshipsFor:[OpcRelationship] (part:string) {
+        ; `has` rather than an optional ARRAY: the C++ writer lowers an
+        ; optional array to a plain vector and then compares it with NULL,
+        ; which does not compile — and an uncompilable reader is a reader
+        ; whose C++ half can never be tested.
+        if (has relCache part) {
+            return (unwrap (get relCache part))
+        }
+        def rpath:string (OpcPackage.relsPathFor(part))
+        def xml:string (this.readXml(rpath))
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(xml))
+        set relCache part list
+        return list
+    }
+
+    ; The package root's own relationships, `_rels/.rels` — where the main
+    ; document part of any OOXML file is named, whichever format it is.
+    fn rootRelationships:[OpcRelationship] () {
+        if (has relCache "") {
+            return (unwrap (get relCache ""))
+        }
+        def list:[OpcRelationship] (OpcPackage.parseRelationships((this.readXml("_rels/.rels"))))
+        set relCache "" list
+        return list
+    }
+
+    ; "/officeDocument" out of `_rels/.rels`: `word/document.xml` for a .docx,
+    ; `xl/workbook.xml` for a .xlsx, `ppt/presentation.xml` for a .pptx. A
+    ; reader that hardcodes the path instead is right about every file Office
+    ; writes and wrong about the ones that put the part somewhere else.
+    ;
+    ; The match is on the END of the type and cannot be anything looser: the
+    ; namespace every relationship type is written in has "/officeDocument" in
+    ; the MIDDLE of it —
+    ;
+    ;   http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties
+    ;
+    ; — so a search for the substring answers with whichever relationship the
+    ; file happens to list first, which in a 2016 workbook is `docProps/app.xml`.
+    fn mainDocumentPart:string () {
+        def rels:[OpcRelationship] (this.rootRelationships())
+        def i:int 0
+        while (i < (array_length rels)) {
+            def rel:OpcRelationship (itemAt rels i)
+            if (OpcPackage.typeEndsWith(rel.type "/officeDocument")) {
+                if ((rel.isExternal()) == false) {
+                    return (OpcPackage.joinPartPath("" rel.target))
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn relationshipById:OpcRelationship (part:string rid:string) {
+        def rels:[OpcRelationship] (this.relationshipsFor(part))
+        def i:int 0
+        while (i < (array_length rels)) {
+            def rel:OpcRelationship (itemAt rels i)
+            if (rel.id == rid) {
+                return rel
+            }
+            i = (i + 1)
+        }
+        return (new OpcRelationship())
+    }
+
+    ; Resolve rId on a part to an absolute package path.
+    ;
+    ; An EXTERNAL relationship — a hyperlink, a linked image — is not a part,
+    ; and joining "https://example.com/" against `ppt/slides` produces a path
+    ; that looks like a part and never is. So external targets answer "" here
+    ; and come back whole from `relationshipTarget`.
+    fn resolveRelationship:string (part:string rid:string) {
+        def rel:OpcRelationship (this.relationshipById(part rid))
+        if ((strlen rel.id) == 0) {
+            return ""
+        }
+        if (rel.isExternal()) {
+            return ""
+        }
+        return (OpcPackage.joinPartPath(part rel.target))
+    }
+
+    ; The target exactly as the file wrote it — a URL for an external
+    ; relationship, and the unresolved relative path for an internal one.
+    fn relationshipTarget:string (part:string rid:string) {
+        def rel:OpcRelationship (this.relationshipById(part rid))
+        return rel.target
+    }
+
+    fn relationshipType:string (part:string rid:string) {
+        def rel:OpcRelationship (this.relationshipById(part rid))
+        return rel.type
+    }
+
+    fn isExternalRelationship:boolean (part:string rid:string) {
+        def rel:OpcRelationship (this.relationshipById(part rid))
+        return (rel.isExternal())
+    }
+
+    ; First relationship whose type ENDS in the given suffix (e.g. "/slide",
+    ; "/theme", "/comments"). Matching the end rather than anywhere keeps
+    ; "/slide" from answering with a "/slideLayout" or a "/slideMaster", which
+    ; is a distinction a deck reader has to get right.
+    fn findRelationshipByType:string (part:string typeSuffix:string) {
+        def rels:[OpcRelationship] (this.relationshipsFor(part))
+        def i:int 0
+        while (i < (array_length rels)) {
+            def rel:OpcRelationship (itemAt rels i)
+            if (OpcPackage.typeEndsWith(rel.type typeSuffix)) {
+                if ((rel.isExternal()) == false) {
+                    return (OpcPackage.joinPartPath(part rel.target))
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn findRelationshipsByType:[string] (part:string typeSuffix:string) {
+        def out:[string]
+        def rels:[OpcRelationship] (this.relationshipsFor(part))
+        def i:int 0
+        while (i < (array_length rels)) {
+            def rel:OpcRelationship (itemAt rels i)
+            if (OpcPackage.typeEndsWith(rel.type typeSuffix)) {
+                if ((rel.isExternal()) == false) {
+                    push out (OpcPackage.joinPartPath(part rel.target))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn typeEndsWith:boolean (type:string suffix:string) {
+        def n:int (strlen type)
+        def m:int (strlen suffix)
+        if (m == 0) {
+            return false
+        }
+        if (n < m) {
+            return false
+        }
+        return ((substring type (n - m) n) == suffix)
+    }
+
+    ; ------------------------------------------------------------------
+    ; Content types
+    ; ------------------------------------------------------------------
+
+    fn loadContentTypes:void () {
+        if ctLoaded {
+            return
+        }
+        ctLoaded = true
+        def xml:string (this.readXml("[Content_Types].xml"))
+        if ((strlen xml) == 0) {
+            return
+        }
+        def pos:int 0
+        def len:int (strlen xml)
+        while (pos < len) {
+            def lt:int (indexOfFrom xml "<" pos)
+            if (lt < 0) {
+                break
+            }
+            def gt:int (indexOfFrom xml ">" lt)
+            if (gt < 0) {
+                break
+            }
+            def tag:string (substring xml lt (gt + 1))
+            if ((indexOf tag "<Default") == 0) {
+                def ext:string (to_lowercase (OpcPackage.attrValue(tag "Extension")))
+                def ct:string (OpcPackage.attrValue(tag "ContentType"))
+                if ((strlen ext) > 0) {
+                    set ctDefaults ext ct
+                }
+            }
+            if ((indexOf tag "<Override") == 0) {
+                def pn:string (OpcPackage.attrValue(tag "PartName"))
+                def ct2:string (OpcPackage.attrValue(tag "ContentType"))
+                if ((strlen pn) > 0) {
+                    ; PartName is written absolute ("/ppt/slides/slide1.xml");
+                    ; every other path in this class is package-relative.
+                    set ctOverrides (OpcPackage.joinPartPath("" pn)) ct2
+                }
+            }
+            pos = (gt + 1)
+        }
+    }
+
+    ; What `[Content_Types].xml` says this part is — an Override if the part
+    ; has one, otherwise the Default for its extension, otherwise "".
+    fn contentTypeFor:string (part:string) {
+        this.loadContentTypes()
+        if (has ctOverrides part) {
+            return (unwrap (get ctOverrides part))
+        }
+        def ext:string (OpcPackage.extensionOf(part))
+        if ((strlen ext) > 0) {
+            if (has ctDefaults ext) {
+                return (unwrap (get ctDefaults ext))
+            }
+        }
+        return ""
+    }
+
+    ; Every part declared with the given content type, in package order. How a
+    ; reader finds all the slides, all the worksheets or all the charts without
+    ; knowing the naming convention a writer happened to use.
+    fn partsOfContentType:[string] (contentType:string) {
+        def out:[string]
+        this.loadContentTypes()
+        def parts:[string] (this.listParts())
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            if ((this.contentTypeFor(p)) == contentType) {
+                push out p
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

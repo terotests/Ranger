@@ -19,7 +19,7 @@
 ;   npm run pptx:audit                       # every fixture in the gallery
 ; ==============================================================================
 
-Import "../src/OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 Import "../src/PptxXml.rgr"
 
 class PptxAudit {

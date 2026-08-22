@@ -204,7 +204,7 @@ class DocxAudit {
             print ("  could not open " + name)
             return false
         }
-        def all:[string] (pkg.zip.listFiles())
+        def all:[string] (pkg.listParts())
         def i:int 0
         while (i < (array_length all)) {
             def part:string (itemAt all i)

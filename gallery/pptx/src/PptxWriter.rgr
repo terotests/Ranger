@@ -29,7 +29,7 @@
 
 Import "PptxModel.rgr"
 Import "../../zip/ZipWriter.rgr"
-Import "OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 
 class PptxWriteMedia {
     def part:string ""          ; the model's package path
@@ -1539,7 +1539,7 @@ class PptxWriter {
                 if (isNew == false) {
                     def relsPath:string (OpcPackage.relsPathFor(path2))
                     def relXml:string (pkg.readXml(relsPath))
-                    def olds:[OpcRelationship] (pkg.parseRelationships(relXml))
+                    def olds:[OpcRelationship] (OpcPackage.parseRelationships(relXml))
                     def ri:int 0
                     while (ri < (array_length olds)) {
                         def rel:OpcRelationship (itemAt olds ri)
@@ -1959,7 +1959,7 @@ class PptxWriter {
 
     sfn presentationRelsWith:string (pkg:OpcPackage xml:string slidePaths:[string]) {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
-        def olds:[OpcRelationship] (pkg.parseRelationships(xml))
+        def olds:[OpcRelationship] (OpcPackage.parseRelationships(xml))
         def i:int 0
         while (i < (array_length olds)) {
             def rel:OpcRelationship (itemAt olds i)

@@ -4,7 +4,7 @@
 ; PptxTest - unit validation for the PPTX Lite pipeline
 ; ==============================================================================
 
-Import "../src/OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 Import "../src/PptxXml.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"

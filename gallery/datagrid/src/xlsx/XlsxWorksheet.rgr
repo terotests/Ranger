@@ -8,6 +8,7 @@
 ; column widths, row heights, merge ranges. No formula engine.
 ; ==============================================================================
 
+Import "../../../ooxml/OpcPackage.rgr"
 Import "XmlLite.rgr"
 Import "XlsxSharedStrings.rgr"
 Import "../SpreadsheetModel.rgr"
@@ -62,8 +63,11 @@ class XlsxWorksheet {
     Constructor () {
     }
 
-    ; rId → Target, out of `xl/worksheets/_rels/sheetN.xml.rels`. A relationship
-    ; part is a flat list of self-closing tags, so this needs no nesting.
+    ; rId → Target, out of a sheet's own `.rels` part. The scan is
+    ; `OpcPackage`'s, which is the same one the .docx and .pptx readers use;
+    ; this file used to have two of its own. The RAW target comes back here
+    ; rather than a package path, because a hyperlink's target is a URL and the
+    ; caller resolves the rest against the part that named it.
     sfn relTarget:string (rels:string id:string) {
         if ((strlen rels) == 0) {
             return ""
@@ -71,44 +75,36 @@ class XlsxWorksheet {
         if ((strlen id) == 0) {
             return ""
         }
-        def p:XmlLite (new XmlLite)
-        p.reset(rels)
-        while (p.pos < p.len) {
-            def t:XmlTag (p.nextTag())
-            if (t.valid == false) {
-                break
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(rels))
+        def i:int 0
+        while (i < (array_length list)) {
+            def rel:OpcRelationship (itemAt list i)
+            if (rel.id == id) {
+                return rel.target
             }
-            if ((t.name == "Relationship") && (t.isEnd == false)) {
-                if ((t.attr("Id")) == id) {
-                    return (t.attr("Target"))
-                }
-            }
+            i = (i + 1)
         }
         return ""
     }
 
-    ; The first relationship of a given type — how the comments part is found.
+    ; The first relationship of a given type — how the comments part and the
+    ; drawing part are found. The suffix has to match the END of the type:
+    ; "/drawing" is not "/drawingHF", and a header picture is not a picture on
+    ; the sheet.
     sfn relTargetOfType:string (rels:string typeSuffix:string) {
         if ((strlen rels) == 0) {
             return ""
         }
-        def p:XmlLite (new XmlLite)
-        p.reset(rels)
-        while (p.pos < p.len) {
-            def t:XmlTag (p.nextTag())
-            if (t.valid == false) {
-                break
-            }
-            if ((t.name == "Relationship") && (t.isEnd == false)) {
-                def ty:string (t.attr("Type"))
-                def n:int (strlen ty)
-                def m:int (strlen typeSuffix)
-                if (n >= m) {
-                    if ((substring ty (n - m) n) == typeSuffix) {
-                        return (t.attr("Target"))
-                    }
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(rels))
+        def i:int 0
+        while (i < (array_length list)) {
+            def rel:OpcRelationship (itemAt list i)
+            if (OpcPackage.typeEndsWith(rel.type typeSuffix)) {
+                if ((rel.isExternal()) == false) {
+                    return rel.target
                 }
             }
+            i = (i + 1)
         }
         return ""
     }

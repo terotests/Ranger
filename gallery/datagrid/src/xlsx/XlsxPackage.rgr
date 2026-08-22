@@ -1,17 +1,37 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; ==============================================================================
-; XlsxPackage - open .xlsx ZIP and read package parts as UTF-8 text.
+; XlsxPackage — what a .xlsx calls its parts, and the one thing a .xlsx has
+; that no other OOXML file does.
+; ==============================================================================
+;
+; The container is shared: a .xlsx is an OPC package like a .docx and a .pptx,
+; and that layer lives once in `gallery/ooxml/OpcPackage.rgr`. What stays here
+; is the two things that are genuinely the spreadsheet's own.
+;
+; ENCRYPTION. A password-protected workbook is not a ZIP at all — it is an OLE
+; compound file with the ZIP inside it — so it has to become a package before
+; it can be opened as one. That has its own failure mode ("wrong password")
+; that has nothing to do with packaging, so the core never learns what a
+; password is: this class decrypts and hands plain ZIP bytes in.
+;
+; PATHS. Callers open a workbook by full path and expect a `lastError` they can
+; show a user, which the container has no opinion about.
+;
+; Everything else — parts, content types, relationships — is delegated, which
+; is also where the spreadsheet GAINS something. It had no relationship layer:
+; four callers scanned the `_rels` XML themselves, and the shared path resolver
+; said out loud that it handled "only the two forms a spreadsheet actually
+; writes". A chart's own relationships write `../../media/image1.png`, which
+; was not one of the two.
 ; ==============================================================================
 
-Import "../../../zip/ZipReader.rgr"
-Import "../../../zip/ZipEntry.rgr"
-Import "../../../pdf_writer/src/core/Utf8.rgr"
+Import "../../../ooxml/OpcPackage.rgr"
 Import "xlsx_office_crypto_ops.rgr"
 Import "XlsxOfficeCrypto.rgr"
 
 class XlsxPackage {
-    def zip:ZipReader (new ZipReader)
+    def opc:OpcPackage (new OpcPackage())
     def openOk:boolean false
     def pathDir:string "."
     def pathName:string ""
@@ -21,23 +41,7 @@ class XlsxPackage {
     }
 
     sfn splitPath:void (fullPath:string dirOut:[string] nameOut:[string]) {
-        def n:int (strlen fullPath)
-        def slash:int -1
-        def i:int 0
-        while (i < n) {
-            def ch:int (charAt fullPath i)
-            if ((ch == 47) || (ch == 92)) {
-                slash = i
-            }
-            i = (i + 1)
-        }
-        if (slash < 0) {
-            push dirOut "."
-            push nameOut fullPath
-        } {
-            push dirOut (substring fullPath 0 slash)
-            push nameOut (substring fullPath (slash + 1) n)
-        }
+        OpcPackage.splitPath(fullPath dirOut nameOut)
     }
 
     ; Turn file bytes into a plain ZIP package. Password-protected Office files
@@ -72,7 +76,7 @@ class XlsxPackage {
     fn openPathPassword:boolean (fullPath:string password:string) {
         def dirs:[string]
         def names:[string]
-        XlsxPackage.splitPath(fullPath dirs names)
+        OpcPackage.splitPath(fullPath dirs names)
         ; Locals (not this.pathDir) — buffer_read_file's ES6 template wraps the
         ; call in an IIFE, so `this` would not be the package instance.
         def dir:string (itemAt dirs 0)
@@ -96,7 +100,7 @@ class XlsxPackage {
             openOk = false
             return false
         }
-        openOk = (zip.openBytes(data))
+        openOk = (opc.openBytes(data pathName))
         if (openOk == false) {
             lastError = "could not open the workbook: not a zip"
         }
@@ -105,52 +109,72 @@ class XlsxPackage {
 
     fn close:void () {
         if openOk {
-            zip.close()
+            opc.close()
         }
         openOk = false
     }
 
     fn listFiles:[string] () {
-        if (openOk == false) {
-            def empty:[string]
-            return empty
-        }
-        return (zip.listFiles())
+        return (opc.listParts())
     }
 
     fn hasEntry:boolean (name:string) {
-        if (openOk == false) {
-            return false
-        }
-        def e@(optional):ZipEntry (zip.getEntry(name))
-        if e {
-            return true
-        }
-        return false
+        return (opc.hasPart(name))
     }
 
     ; The raw bytes of a part. Text parts go through `entryText`; a PNG does
     ; not survive being decoded as UTF-8, so an image has to come out as bytes.
     fn entryBytes:buffer (name:string) {
-        if (openOk == false) {
-            return (buffer_alloc 0)
-        }
-        def e@(optional):ZipEntry (zip.getEntry(name))
-        if (!null? e) {
-            return (zip.extract((unwrap e)))
-        }
-        return (buffer_alloc 0)
+        return (opc.readBinary(name))
     }
 
     fn entryText:string (name:string) {
-        if (openOk == false) {
-            return ""
+        return (opc.readXml(name))
+    }
+
+    ; ------------------------------------------------------------------
+    ; Relationships — new here, and the same ones every other format uses.
+    ; ------------------------------------------------------------------
+
+    ; The workbook part named by `_rels/.rels`, rather than assumed to be at
+    ; `xl/workbook.xml`.
+    fn workbookPart:string () {
+        def named:string (opc.mainDocumentPart())
+        if ((strlen named) > 0) {
+            return named
         }
-        def e@(optional):ZipEntry (zip.getEntry(name))
-        if (!null? e) {
-            def raw:buffer (zip.extract((unwrap e)))
-            return (Utf8.decode((buffer_to_string raw)))
-        }
-        return ""
+        return "xl/workbook.xml"
+    }
+
+    ; rId on a part → package path. An external target — a hyperlink out to the
+    ; web — answers "" here and comes back whole from `relTarget`.
+    fn resolveRel:string (part:string relId:string) {
+        return (opc.resolveRelationship(part relId))
+    }
+
+    fn relTarget:string (part:string relId:string) {
+        return (opc.relationshipTarget(part relId))
+    }
+
+    fn isExternalRel:boolean (part:string relId:string) {
+        return (opc.isExternalRelationship(part relId))
+    }
+
+    fn findRelByType:string (part:string typeSuffix:string) {
+        return (opc.findRelationshipByType(part typeSuffix))
+    }
+
+    fn findRelsByType:[string] (part:string typeSuffix:string) {
+        return (opc.findRelationshipsByType(part typeSuffix))
+    }
+
+    fn contentTypeFor:string (part:string) {
+        return (opc.contentTypeFor(part))
+    }
+
+    ; The package underneath, for a caller that needs the container rather than
+    ; the workbook's names for things.
+    fn opcPackage:OpcPackage () {
+        return opc
     }
 }
