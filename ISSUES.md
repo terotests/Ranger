@@ -2727,3 +2727,92 @@ from `compile` and `build:dist:module`.
 Fixed. Surfaced while rebuilding the compiler for Issue #70: the rebuild had to
 re-apply the patch by hand to avoid regressing, which is what drew attention to
 what the patch actually contained.
+
+---
+
+## Issue #72: Kotlin wrote a `final` class for `class Child extends Base`, so its own subclass would not compile
+
+Kotlin classes and methods are final unless they say `open`. The Kotlin writer
+knows that — it emits `open class` when `RangerAppClassDesc.is_extended_by_children`
+is set, and `open fun` on the same test — but that flag was only ever set for
+**two of the three** ways Ranger spells inheritance.
+
+### Reproduction
+
+Twelve lines, any target flag `-l=kotlin`:
+
+```ranger
+class Base {
+    def n:int 0
+    Constructor () {
+    }
+    fn hello:string () {
+        return "base"
+    }
+}
+
+class Child extends Base {
+    Constructor () {
+    }
+}
+```
+
+Before the fix, the generated Kotlin was:
+
+```kotlin
+class Base( )            // ← final
+ {
+  fun  hello() : String { … }   // ← final
+}
+
+class Child( ) : Base()
+```
+
+…which `kotlinc` rejects: `this type is final, so it cannot be extended`.
+
+Writing the same inheritance as `Extends(Base)` **inside** the class body
+produced `open class Base` and compiled. So did `extends Base` as a body
+statement. Only the class-header form was wrong, which is why this survived so
+long: the compiler's own sources and the `@process` runtime use the other forms,
+and the JavaScript/TypeScript/Go/Python targets do not care either way.
+
+### Cause
+
+`ng_RangerFlowParser.rgr`. The two body forms go through `markParentClass`,
+which sets `is_inherited`, sets `is_extended_by_children`, and records the child
+in `child_classes`. The header form is collected separately into the
+`extendedClasses` map and re-applied in `CollectMethods`, which set only
+`is_inherited` — so any target that asks "is anything derived from this class?"
+was told no.
+
+### Fix
+
+`CollectMethods` now marks the parent the same way `markParentClass` does:
+
+```ranger
+ch.addParentClass(item)
+parent.is_inherited = true
+parent.is_extended_by_children = true
+push parent.child_classes index
+```
+
+### What it was blocking
+
+`gallery/pptx` on Kotlin. The PPTX viewer has exactly one subclass —
+`class PptxToolbar extends EVGToolbar` — and it produced **one** `kotlinc` error
+in 66,082 generated lines. Everything else in the viewer (the ZIP reader, the
+OOXML parser, the theme resolver, the JPEG/PNG decoders, the TrueType reader,
+the EVG layout engine) compiled clean on the first attempt.
+
+### Verification
+
+- The twelve-line fixture above now writes `open class Base` and `open fun hello`.
+- `gallery/pptx/android/ranger/pptx_android.rgr` → Kotlin → `kotlinc`: **zero
+  errors**, and the compiled viewer opens real `.pptx` fixtures on a JVM
+  (`npm run pptx:android:verify`).
+- Compiler self-host fixpoint held: rebuilding `bin/output.js` twice from the
+  patched sources produced byte-identical output.
+
+### Status
+
+Fixed (August 2026).

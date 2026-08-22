@@ -166,6 +166,27 @@ out of the package with it — the parser already leaves the bytes on the model 
 so the page turns those into textures directly rather than asking a server for
 them, which is also why pictures appear in the WebGL path at all now.
 
+## Running it on Android
+
+```bash
+npm run pptx:android            # Ranger → Kotlin → assets → APK   (needs an SDK)
+npm run pptx:android:verify     # …or check the port without one
+```
+
+[`android/`](android/README.md) is the same viewer as an Android app: this
+`src/` tree compiled to **Kotlin** and painted with `android.graphics.Canvas`.
+Not a WebView and not a rewrite — the port is a facade, one walk over the
+display list, and two implementations of an eight-method surface.
+
+The browser has to serialise the display list because a page parses it back
+anyway; Android does not, so the host holds the `EVGDisplayList` itself. Which
+means gradients and shadows work there and not in the GL host — `toJson`
+carries neither.
+
+The second surface is `java.awt.Graphics2D`, so the same painter renders a deck
+to PNGs on any JVM. That is how the port is tested at all: nothing in CI has a
+device to draw on.
+
 ## Run
 
 ```bash

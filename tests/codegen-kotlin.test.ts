@@ -186,6 +186,39 @@ describe("Kotlin Code Generation", () => {
     });
   });
 
+  describe("Inheritance", () => {
+    // ISSUES.md #72. Kotlin classes and methods are final unless they say
+    // `open`, and the two spellings of inheritance were collected by different
+    // code paths — only one of which marked the parent as extended. The header
+    // form therefore produced a final base class that its own subclass, sitting
+    // right below it in the same file, could not extend.
+    it("opens a base class extended through the class header", () => {
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/inheritance_header.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toMatch(/open class\s+Animal/);
+      expect(result.code).toMatch(/class\s+Dog\s*\([^)]*\)\s*:\s*Animal/);
+    });
+
+    it("opens an overridden method on a header-extended base", () => {
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/inheritance_header.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toMatch(/open fun\s+speak/);
+      expect(result.code).toMatch(/override fun\s+speak/);
+    });
+
+    it("opens a base class extended through Extends() in the body", () => {
+      const result = getGeneratedKotlinCode(
+        `${FIXTURES_DIR}/inheritance.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toMatch(/open class\s+Animal/);
+    });
+  });
+
   describe("Reserved Words", () => {
     it("should escape val parameter name for Kotlin", () => {
       const result = getGeneratedKotlinCode(

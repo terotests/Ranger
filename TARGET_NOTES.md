@@ -1041,6 +1041,30 @@ Two more, both worth naming:
 `int`. It answered "absent" for a key that plainly held `3`. Both number getters
 accept either now, the way the Dart, Python, Rust and C# entries do.
 
+### Kotlin: a base class is only `open` if something says it is extended
+
+Kotlin classes and methods are final unless they say `open`, and the writer has
+always known that — `is_extended_by_children` decides both `open class` and
+`open fun`. What it did not know is that Ranger spells inheritance three ways
+and only two of them set the flag: `Extends(Base)` and a body-level
+`extends Base` go through `markParentClass`, while `class Child extends Base`
+— the class HEADER — was collected separately and only ever set `is_inherited`.
+
+So the header form produced a final base class and a subclass right below it
+that `kotlinc` refused to compile. It survived a long time because the
+compiler's own sources and the `@process` runtime use the other two spellings,
+and because no other target asks the question: JavaScript, TypeScript, Go and
+Python emit the same code either way.
+
+What found it was `gallery/pptx` on Kotlin. One subclass in the viewer —
+`class PptxToolbar extends EVGToolbar` — produced the **only** `kotlinc` error
+in 66,082 generated lines; the ZIP reader, the OOXML parser, the theme
+resolver, the JPEG and PNG decoders, the TrueType reader and the EVG layout
+engine all compiled clean on the first attempt. That is a useful measurement in
+its own right: a 66k-line Kotlin program out of a real Ranger application, one
+error, and the error was a missing keyword rather than a missing feature.
+ISSUES.md #72, `tests/codegen-kotlin.test.ts`.
+
 ### What Kotlin took
 
 Kotlin started at 19 compiler errors and, once those were gone, **3490**
