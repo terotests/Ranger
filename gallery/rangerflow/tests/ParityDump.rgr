@@ -1319,20 +1319,45 @@ class ParityDump {
         def toolsSc:FlowScene (ted.view.build())
         def tools:boolean ((ParityDump.tagCount(toolsSc "tool:remove")) > 0)
         if ((ParityDump.tagCount(toolsSc "tool:connect")) < 1) { tools = false }
-        ; Pressing + puts the editor into click-to-connect from this node, so
-        ; the next click on another node joins the two.
+        ; Pressing + arms a connection FROM A HANDLE, with a live line, and
+        ; the next click on a handle lands it.
         def cinp (new FlowInput)
         cinp.x = (ted.view.toolCX(ta 1))
         cinp.y = (ted.view.toolCY(ta 1))
         ted.pointerDown(cinp)
         ted.pointerUp(cinp)
+        if ((ted.pending()) == false) { tools = false }
+        if (ted.view.connecting == false) { tools = false }
         def before:int (ted.graph.edgeCount())
-        def binp (new FlowInput)
-        binp.x = 340.0
-        binp.y = 20.0
-        ted.pointerDown(binp)
-        ted.pointerUp(binp)
+        ; Moving towards the target's handle has to SAY that it is a target,
+        ; before the click rather than after it.
+        def tb:FlowNode (ted.graph.nodeById("b"))
+        def bport:FlowPort (itemAt tb.ports 0)
+        def overX:double (ted.view.sx((tb.portX(bport))))
+        def overY:double (ted.view.sy((tb.portY(bport))))
+        def hoverInp (new FlowInput)
+        hoverInp.x = overX
+        hoverInp.y = overY
+        ted.pointerMove(hoverInp)
+        if (ted.view.connectValid == false) { tools = false }
+        def previewSc:FlowScene (ted.view.build())
+        if ((ParityDump.tagCount(previewSc "chrome")) < 1) { tools = false }
+        ; …and over bare canvas it has to say the opposite.
+        def voidInp (new FlowInput)
+        voidInp.x = 620.0
+        voidInp.y = 420.0
+        ted.pointerMove(voidInp)
+        if ted.view.connectValid { tools = false }
+        ; Landing it.
+        ted.pointerMove(hoverInp)
+        ted.pointerDown(hoverInp)
+        ted.pointerUp(hoverInp)
         if ((ted.graph.edgeCount()) != (before + 1)) { tools = false }
+        ; One press of the button is one connection. The mode disarms itself,
+        ; or every click after it starts another one and no other editing is
+        ; possible again.
+        if (ted.pending()) { tools = false }
+        if ((ted.idle()) == false) { tools = false }
         ; And × is the delete. Select the node again — connecting moved the
         ; selection — then press it.
         ted.graph.clearSelection()

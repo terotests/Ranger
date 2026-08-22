@@ -224,11 +224,30 @@ class RangerFlowWeb {
         return "ns-resize"
     }
 
+    ; The browser hands over the three facts it has and the editor decides
+    ; what the gesture was — see FlowEditor.wheelGesture. Passing the raw
+    ; numbers rather than a pre-digested "zoom by this much" is what makes the
+    ; classification testable without a browser.
+    fn wheelGesture:void (x:double y:double dx:double dy:double pinch:boolean lineMode:boolean) {
+        userMoved = true
+        editor.wheelGesture(x y dx dy pinch lineMode)
+    }
+
     fn wheel:void (x:double y:double delta:double) {
         input.x = x
         input.y = y
         userMoved = true
         editor.wheel(input delta)
+    }
+
+    ; Is a connection waiting for its far end? The page uses it for the cursor
+    ; and to keep the connect button lit.
+    fn pendingConnect:boolean () {
+        return (editor.pending())
+    }
+
+    fn cancelPending:void () {
+        editor.cancelPending()
     }
 
     fn keyDown:boolean (key:string shift:boolean ctrl:boolean) {
@@ -1094,6 +1113,49 @@ class RangerFlowWeb {
         } {
             report = (report + "columns n/a; ")
         }
+        graph.clearSelection()
+
+        ; Connecting, both ways in, and the thing that actually went wrong:
+        ; the element tool's `+` used to switch a sticky mode on and leave it
+        ; on for ever, so after one use the editor could not be used for
+        ; anything else. The check that matters is not "did it connect" — it
+        ; is "is the editor usable afterwards".
+        def cn:FlowNode (graph.nodeAt(hit))
+        graph.clearSelection()
+        cn.selected = true
+        def edges1:int (graph.edgeCount())
+        editor.armPendingFromNode(cn.id true)
+        if ((editor.pending()) == false) {
+            simRunning = wasRunning
+            return "FAIL the + tool armed nothing"
+        }
+        if (editor.view.connecting == false) {
+            simRunning = wasRunning
+            return "FAIL an armed connection draws no line"
+        }
+        ; Clicking bare canvas cancels it and leaves nothing running.
+        this.pointerDown(6.0 (editor.view.height - 6.0) false false)
+        this.pointerUp(6.0 (editor.view.height - 6.0) false false)
+        if (editor.pending()) {
+            simRunning = wasRunning
+            return "FAIL a click on the canvas did not cancel the connection"
+        }
+        if ((editor.idle()) == false) {
+            simRunning = wasRunning
+            return "FAIL something is still running after a cancel"
+        }
+        if ((graph.edgeCount()) != edges1) {
+            simRunning = wasRunning
+            return "FAIL a cancelled connection still made an edge"
+        }
+        ; And Escape gets out of it too, from every mode there is.
+        editor.armPendingFromNode(cn.id true)
+        this.keyDown("Escape" false false)
+        if ((editor.idle()) == false) {
+            simRunning = wasRunning
+            return "FAIL Escape left a mode on"
+        }
+        report = (report + "connect ok; ")
         graph.clearSelection()
 
         ; Typing into a label, the way a double-click starts it. What is under
