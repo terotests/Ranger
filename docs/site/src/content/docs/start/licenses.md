@@ -13,8 +13,11 @@ file or a directory states a different license.
 The MIT license lets you compile a program that you write. You can sell that
 program. You can keep the source of that program closed.
 
-The compiler does not put the AGPL on a program because it compiled that
-program.
+The compiler does not set the license of the output. The license of the
+output follows the source of the program.
+
+The compiler can write small helper functions into the output. Those
+helpers use the MIT license.
 
 ## The gallery directory
 
@@ -32,6 +35,13 @@ The gallery directory holds the application stack of Ranger:
 
 A program that imports a gallery module uses that module. The AGPL then
 applies to that program.
+
+A compiled or transpiled form of a gallery program stays under the
+AGPL. The MIT license of the compiler does not change that.
+
+A separate commercial license may be available for a gallery
+component. That license is an alternative to the AGPL. It is not an
+exception to the AGPL.
 
 ## The direction of a dependency
 

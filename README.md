@@ -16,11 +16,14 @@ Ranger is best approached today as a compiler and language lab with practical mu
 
 Ranger language = permissive. Ranger Gallery technology = copyleft.
 
-The compiler does not put the AGPL on a program you write and compile.
-Using EVG or another `gallery/` module does: that is the application
-framework, not only the language. Full texts: [`LICENSE-MIT`](LICENSE-MIT),
-[`LICENSE-AGPL-3.0`](LICENSE-AGPL-3.0), [`gallery/LICENSE`](gallery/LICENSE).
-The path rule and third-party exceptions are in [`LICENSING.md`](LICENSING.md).
+The compiler does not put a license on a program you write and compile.
+The license of the output follows the source. Compiled gallery programs
+stay AGPL. Using EVG or another `gallery/` module is using that
+framework, not only the language. Alternative commercial licenses may
+be available for `gallery/` components. Full texts:
+[`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-AGPL-3.0`](LICENSE-AGPL-3.0),
+[`gallery/LICENSE`](gallery/LICENSE). The path rule, the output rule,
+and third-party exceptions are in [`LICENSING.md`](LICENSING.md).
 
 ## What Ranger Is Good At
 

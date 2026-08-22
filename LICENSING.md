@@ -52,7 +52,9 @@ The competitive work is the whole stack, not only the Office-format parsers.
 EVG is therefore AGPL with the rest of `gallery/`, not MIT with the compiler.
 
 A later commercial license for EVG or an Office engine is possible because
-those trees are not already given away under MIT.
+those trees are not already given away under MIT. That would be an
+alternative license, not an exception to the AGPL. See
+[Commercial licensing](#commercial-licensing).
 
 ## What you can do
 
@@ -81,6 +83,87 @@ gallery/evg
 
 The same rule applies to DataGrid, the Office readers and editors, the PDF
 and layout tools, and the other gallery programs.
+
+## Generated output
+
+Ranger does not impose a license on programs compiled with Ranger. The
+license of generated output follows the source code and other
+components from which that output is derived.
+
+```text
+MIT source            →  MIT output
+AGPL gallery source   →  AGPL output
+BSD source            →  BSD output
+proprietary source    →  proprietary output
+```
+
+The compiler is a tool. Its MIT license does not attach to a program
+only because Ranger compiled that program.
+
+Compiled or transpiled forms of AGPL-licensed Gallery programs remain
+covered by the AGPL. `gallery/evg/EVGDisplayList.rgr` compiled to
+`.js`, `.cpp`, `.wasm` or an executable is still an AGPL-covered work.
+The compiler being MIT does not allow that output to be published as
+proprietary.
+
+When you distribute AGPL object code, the AGPL source-code terms still
+apply. The corresponding source is the Ranger source from which that
+object code was generated.
+
+This is project policy. It follows the usual GNU rule that a
+compiler's license does not become the license of its output; the
+license of the input follows the compiled form.
+
+## Runtime helpers in the output
+
+The compiler can write small helper functions into the output:
+polyfills from `compiler/Lang.rgr` and `lib/`, operator helpers, and
+other generated runtime support. Those helpers are Ranger platform
+code. They use the MIT license.
+
+```text
+Ranger compiler       MIT
+Ranger runtime        MIT
+generated helpers     MIT
+
+Gallery source        AGPL
+```
+
+MIT helpers can sit next to AGPL gallery code. MIT is compatible with
+the AGPL. The AGPL parts stay AGPL. MIT copyright and permission
+notices for those helpers must stay with the helpers.
+
+That is why the runtime stays MIT: a proprietary Ranger program can
+include the helpers without opening that program. The GCC runtime is
+GPL and needs a separate Runtime Library Exception for the same
+reason. Ranger avoids that exception by keeping the runtime MIT.
+
+## Commercial licensing
+
+Alternative commercial licenses may be available for components under
+`gallery/`. Please contact the copyright holder for details.
+
+`may` is deliberate. This sentence does not promise that a commercial
+license will be granted, or on what terms.
+
+The two routes are alternatives:
+
+```text
+AGPL-3.0-or-later     →  follow the AGPL
+or
+a commercial license  →  follow that license
+```
+
+A commercial license is not an AGPL exception. It is a separate grant
+for the same Ranger-authored work.
+
+A later commercial re-license of gallery code needs the copyright
+holder to be able to grant it. Outside contributions to `gallery/`
+must therefore be compatible with AGPL-3.0-or-later and with a later
+commercial license by the copyright holder. Today `gallery/` commit
+authors are Tero Tolonen and automated agents in this repository, so
+Ranger-authored gallery code can take that path. Third-party trees
+cannot.
 
 ## Dependency direction
 
