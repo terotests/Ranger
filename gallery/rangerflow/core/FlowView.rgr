@@ -1051,6 +1051,9 @@ class FlowView {
         if ((strlen e.label) > 0) {
             this.paintEdgeLabel(sc e path)
         }
+        ; Annotations are not the label and must not depend on it: an edge
+        ; that carries "SLA 24 h" and nothing else has to draw the SLA.
+        this.paintEdgeAnnotations(sc e path)
     }
 
     ; The notation layer: the model says "many", the theme's notation says how.
@@ -1123,7 +1126,6 @@ class FlowView {
         box.tag = tag
         def top:double (this.paintBlock(sc lay mx my theme.edgeLabelText tag false))
         this.paintCaret(sc tag lay mx top false)
-        this.paintEdgeAnnotations(sc e path)
     }
 
     ; The `d` for the SVG/PDF side of the same polyline the GPU gets.
@@ -1331,6 +1333,9 @@ class FlowView {
                     def cx:double (x + (w * a.offsetX))
                     def cy:double (y + (h * a.offsetY))
                     def room:double (this.annotationRoom(x w cx))
+                    if (a.width > 0.0) {
+                        room = (this.sl(a.width))
+                    }
                     def lay:FlowTextLayout (this.layoutText(a.text size room 0.0 2))
                     def col:string a.color
                     if ((strlen col) == 0) {

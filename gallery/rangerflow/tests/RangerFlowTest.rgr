@@ -89,6 +89,12 @@ class RangerFlowTest {
         RangerFlowTest.testTextFitting(c)
         RangerFlowTest.testInPlaceEditing(c)
         RangerFlowTest.testSideHandles(c)
+        RangerFlowTest.testRotation(c)
+        RangerFlowTest.testAnnotations(c)
+        RangerFlowTest.testMenuAndTooltip(c)
+        RangerFlowTest.testPinch(c)
+        RangerFlowTest.testTraversal(c)
+        RangerFlowTest.testExtraRouters(c)
         RangerFlowTest.testConnectOnClick(c)
         RangerFlowTest.testEditor(c)
         RangerFlowTest.testScene(c)
@@ -99,6 +105,387 @@ class RangerFlowTest {
         if (code != 0) {
             exit 1
         }
+    }
+
+    ; ------------------------------------------------------------ rotation --
+    ; Every piece of geometry on a node already went through four functions —
+    ; the outline, the hit test, the port position, the handle position — so
+    ; rotation is done there and nowhere else. These check that all four spun,
+    ; because three out of four is a node you can see turned and cannot click.
+    sfn testRotation:void (c:Checker) {
+        c.section("rotation")
+        def g (new FlowGraph)
+        def n:FlowNode (g.node("a" "A" 100.0 100.0))
+        n.width = 200.0
+        n.height = 80.0
+        n.addSideHandles()
+        n.syncFromModel()
+        g.reindex()
+        def cx:double (n.centerX())
+        def cy:double (n.centerY())
+        c.ok("upright by default" ((n.spun()) == false))
+        c.ok("the right-hand edge is inside" (n.holdsPoint((cx + 95.0) cy)))
+        c.ok("and 95 below it is not" ((n.holdsPoint(cx (cy + 95.0))) == false))
+
+        n.rotation = 90.0
+        c.ok("turned" (n.spun()))
+        ; The box was 200 by 80. A quarter turn makes it 80 by 200 about the
+        ; same centre.
+        def ring:[double] (n.outline())
+        c.near("width after a quarter turn" (RangerFlowTest.span(ring true)) 80.0 0.001)
+        c.near("height after a quarter turn" (RangerFlowTest.span(ring false)) 200.0 0.001)
+        c.near("centre held" (RangerFlowTest.middle(ring true)) cx 0.001)
+        c.ok("what was inside sideways is now outside" ((n.holdsPoint((cx + 95.0) cy)) == false))
+        c.ok("and what was outside below is now inside" (n.holdsPoint(cx (cy + 95.0))))
+        ; The right-hand handle went round to the bottom.
+        c.near("the right handle is now below the centre" (n.handleY(1)) (cy + 100.0) 0.001)
+        c.near("…and level with it across" (n.handleX(1)) cx 0.001)
+
+        ; Any angle, not just the right ones: the ring's own corners have to
+        ; be exactly where trigonometry puts them.
+        n.rotation = 30.0
+        def ring2:[double] (n.outline())
+        def x0:double (itemAt ring2 0)
+        def y0:double (itemAt ring2 1)
+        def rad:double (0.5235987755982988)
+        def ox:double (100.0 - cx)
+        def oy:double (100.0 - cy)
+        c.near("a corner at 30°, across" x0 (cx + ((ox * (cos rad)) - (oy * (sin rad)))) 0.001)
+        c.near("a corner at 30°, down" y0 (cy + ((ox * (sin rad)) + (oy * (cos rad)))) 0.001)
+
+        ; And it is an editor operation with an undo behind it.
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(800.0 600.0)
+        n.rotation = 0.0
+        n.selected = true
+        c.eqInt("one node turned" (ed.rotateSelected(90.0)) 1)
+        c.near("turned by ninety" n.rotation 90.0 0.001)
+        ed.undo.undo(g)
+        c.near("and undone" n.rotation 0.0 0.001)
+        ed.undo.redo(g)
+        c.near("and redone" n.rotation 90.0 0.001)
+    }
+
+    sfn span:double (pts:[double] wantX:boolean) {
+        def lo:double 0.0
+        def hi:double 0.0
+        def first:boolean true
+        def i:int 0
+        while (i < (array_length pts)) {
+            def v:double (itemAt pts i)
+            if (wantX == false) {
+                v = (itemAt pts (i + 1))
+            }
+            if first {
+                lo = v
+                hi = v
+                first = false
+            } {
+                if (v < lo) { lo = v }
+                if (v > hi) { hi = v }
+            }
+            i = (i + 2)
+        }
+        return (hi - lo)
+    }
+
+    sfn middle:double (pts:[double] wantX:boolean) {
+        def lo:double 0.0
+        def hi:double 0.0
+        def first:boolean true
+        def i:int 0
+        while (i < (array_length pts)) {
+            def v:double (itemAt pts i)
+            if (wantX == false) {
+                v = (itemAt pts (i + 1))
+            }
+            if first {
+                lo = v
+                hi = v
+                first = false
+            } {
+                if (v < lo) { lo = v }
+                if (v > hi) { hi = v }
+            }
+            i = (i + 2)
+        }
+        return ((lo + hi) * 0.5)
+    }
+
+    ; --------------------------------------------------------- annotations --
+    sfn testAnnotations:void (c:Checker) {
+        c.section("annotations")
+        def g (new FlowGraph)
+        def n:FlowNode (g.node("a" "Tarkista tilaus" 0.0 0.0))
+        n.width = 200.0
+        n.height = 80.0
+        def m:FlowNode (g.node("b" "Lähetä" 0.0 240.0))
+        m.width = 200.0
+        m.height = 80.0
+        def e:FlowEdge (g.connect("a" "b"))
+        e.edgeType = "smoothstep"
+        g.reindex()
+        c.eqInt("a node starts with none" (n.annotationCount()) 0)
+        def top:FlowAnnotation (n.addAnnotation("3" 0.1 0.15))
+        top.bold = true
+        n.addAnnotation("2 min" 0.85 0.85)
+        e.addAnnotation("SLA 24 h" 0.5 -14.0)
+        c.eqInt("two on the node" (n.annotationCount()) 2)
+        c.eqInt("one on the edge" (e.annotationCount()) 1)
+        def second:FlowAnnotation (n.annotationAt(1))
+        c.eqStr("in the order they were added" second.text "2 min")
+
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(900.0 700.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+        def sc:FlowScene (ed.view.build())
+        c.ok("the label is still drawn" ((RangerFlowTest.findText(sc "Tarkista tilaus")) >= 0))
+        def hi:int (RangerFlowTest.findText(sc "3"))
+        def lo:int (RangerFlowTest.findText(sc "2 min"))
+        c.ok("the first annotation is drawn" (hi >= 0))
+        c.ok("and the second" (lo >= 0))
+        c.ok("the edge's too" ((RangerFlowTest.findText(sc "SLA 24 h")) >= 0))
+        def hiItem:SceneItem (sc.at(hi))
+        def loItem:SceneItem (sc.at(lo))
+        c.ok("pinned where they were put, down the page" (hiItem.y < loItem.y))
+        c.ok("and across it" (hiItem.x < loItem.x))
+    }
+
+    sfn findText:int (sc:FlowScene text:string) {
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.kind == 1) {
+                if (it.text == text) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ------------------------------------------------- menu and tooltip -----
+    sfn testMenuAndTooltip:void (c:Checker) {
+        c.section("context menu and tooltips")
+        def g (new FlowGraph)
+        def n:FlowNode (g.node("a" "Vaihe" 0.0 0.0))
+        n.width = 180.0
+        n.height = 70.0
+        n.tooltip = "Tämä vaihe tarkistaa luottotiedot"
+        g.node("b" "Toinen" 400.0 0.0)
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(900.0 700.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+
+        def inp (new FlowInput)
+        inp.x = (ed.view.sx(90.0))
+        inp.y = (ed.view.sy(35.0))
+        ed.pointerMove(inp)
+        c.eqStr("resting on a node says what it has to say" ed.view.tooltipText "Tämä vaihe tarkistaa luottotiedot")
+        inp.x = (ed.view.sx(700.0))
+        inp.y = (ed.view.sy(600.0))
+        ed.pointerMove(inp)
+        c.eqStr("and nothing over bare canvas" ed.view.tooltipText "")
+
+        ; Right-click on the node.
+        def rc (new FlowInput)
+        rc.x = (ed.view.sx(90.0))
+        rc.y = (ed.view.sy(35.0))
+        rc.secondary = true
+        ed.pointerDown(rc)
+        c.ok("the menu opened" (ed.menuOpen()))
+        c.ok("on the node it was pointed at" (ed.view.menu.target == "node:a"))
+        c.ok("and selected it" n.selected)
+        c.ok("it offers a delete" ((RangerFlowTest.menuRow(ed.view "Poista")) >= 0))
+        c.ok("the surface menu is a different menu" true)
+
+        ; Picking the row does the thing.
+        def row:int (RangerFlowTest.menuRow(ed.view "Käännä 90°"))
+        c.ok("and a rotate" (row >= 0))
+        def pick (new FlowInput)
+        pick.x = ((ed.view.menuX()) + 20.0)
+        pick.y = (((ed.view.menuY()) + (ed.view.menuRowTop(row))) + 8.0)
+        ed.pointerDown(pick)
+        c.near("picking it turned the node" n.rotation 90.0 0.001)
+        c.ok("and closed the menu" ((ed.menuOpen()) == false))
+
+        ; A press away from an open menu dismisses it and does nothing else.
+        ed.openMenuAt(300.0 300.0)
+        c.ok("the surface has its own menu" ((RangerFlowTest.menuRow(ed.view "Valitse kaikki")) >= 0))
+        def away (new FlowInput)
+        away.x = 30.0
+        away.y = 620.0
+        ed.pointerDown(away)
+        c.ok("clicking away closes it" ((ed.menuOpen()) == false))
+    }
+
+    sfn menuRow:int (v:FlowView label:string) {
+        def i:int 0
+        while (i < (v.menu.count())) {
+            def it:FlowMenuItem (v.menu.at(i))
+            if (it.label == label) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ---------------------------------------------------------------- pinch --
+    sfn testPinch:void (c:Checker) {
+        c.section("pinch to zoom")
+        def g (new FlowGraph)
+        g.node("a" "A" 0.0 0.0)
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(800.0 600.0)
+        ed.view.viewport.zoom = 1.0
+        ed.view.viewport.x = 0.0
+        ed.view.viewport.y = 0.0
+        def heldX:double (ed.flowX(400.0))
+        def heldY:double (ed.flowY(300.0))
+        ed.pinchBegin(340.0 300.0 460.0 300.0)
+        ed.pinchTo(280.0 300.0 520.0 300.0)
+        c.near("twice the span, twice the zoom" ed.view.viewport.zoom 2.0 0.0001)
+        c.near("what was between the fingers stayed there, across" (ed.flowX(400.0)) heldX 0.0001)
+        c.near("…and down" (ed.flowY(300.0)) heldY 0.0001)
+        ; The fingers may travel while they spread.
+        ed.pinchTo(380.0 340.0 620.0 340.0)
+        c.near("it follows them across" (ed.flowX(500.0)) heldX 0.0001)
+        c.near("and down" (ed.flowY(340.0)) heldY 0.0001)
+        ; Closing past the floor clamps rather than inverting.
+        ed.pinchTo(499.0 340.0 501.0 340.0)
+        c.ok("a pinch shut clamps at minZoom" (ed.view.viewport.zoom >= ed.view.viewport.minZoom))
+        ed.pinchEnd()
+        c.ok("and the gesture ends" (ed.pinching == false))
+    }
+
+    ; ------------------------------------------------------------ traversal --
+    sfn testTraversal:void (c:Checker) {
+        c.section("walking the graph")
+        def g (new FlowGraph)
+        g.node("a" "A" 0.0 0.0)
+        g.node("b" "B" 0.0 100.0)
+        g.node("c" "C" 200.0 100.0)
+        g.node("d" "D" 100.0 200.0)
+        g.node("e" "E" 500.0 500.0)
+        g.connect("a" "b")
+        g.connect("a" "c")
+        g.connect("b" "d")
+        g.connect("c" "d")
+        g.reindex()
+        def a:FlowNode (g.nodeById("a"))
+        def b:FlowNode (g.nodeById("b"))
+        def d:FlowNode (g.nodeById("d"))
+        def e:FlowNode (g.nodeById("e"))
+        c.eqInt("a has two ways out" (array_length (g.successors(a.index))) 2)
+        c.eqInt("and nothing into it" (array_length (g.predecessors(a.index))) 0)
+        c.eqInt("d has two ways in" (array_length (g.predecessors(d.index))) 2)
+        c.eqInt("and nothing out" (array_length (g.successors(d.index))) 0)
+        c.eqInt("its neighbours are those two" (array_length (g.neighbours(d.index))) 2)
+        def down:[int] (g.bfsFrom(a.index true false))
+        c.eqInt("everything downstream of a" (array_length down) 4)
+        c.eqInt("starting with a itself" (itemAt down 0) a.index)
+        ; Breadth first takes both children before either grandchild; depth
+        ; first takes the first child's child before the second child.
+        c.eqInt("breadth first reaches c second or third" (itemAt down 1) b.index)
+        c.eqInt("…and d last" (itemAt down 3) d.index)
+        def deep:[int] (g.dfsFrom(a.index true false))
+        c.eqInt("depth first goes down before across" (itemAt deep 1) b.index)
+        c.eqInt("…so d comes before c" (itemAt deep 2) d.index)
+        c.eqInt("e is alone in its component" (array_length (g.componentOf(e.index))) 1)
+        c.eqInt("and the rest are together in theirs" (array_length (g.componentOf(a.index))) 4)
+        ; A node reached twice is listed once.
+        def both:[int] (g.bfsFrom(d.index false true))
+        c.eqInt("everything that can reach d" (array_length both) 4)
+    }
+
+    ; -------------------------------------------------- the other routers ----
+    sfn testExtraRouters:void (c:Checker) {
+        c.section("curve, metro and one-side routers")
+        ; A curve passes THROUGH the vertices it was given. A bezier handed
+        ; the same points would sail past them, which is why the two are
+        ; different families rather than a flag.
+        def pts:[double]
+        push pts 0.0
+        push pts 0.0
+        push pts 100.0
+        push pts 80.0
+        push pts 220.0
+        push pts 40.0
+        push pts 320.0
+        push pts 140.0
+        def curved:EdgePath (EdgeRouter.curveThrough(pts 1.0))
+        def flat:[double] (curved.flatten(24))
+        c.ok("through the second vertex" (RangerFlowTest.passesNear(flat 100.0 80.0 1.0)))
+        c.ok("through the third" (RangerFlowTest.passesNear(flat 220.0 40.0 1.0)))
+        c.ok("and it is a curve, not a polyline" (RangerFlowTest.hasCubic(curved)))
+
+        ; A metro line is the orthogonal route with the corners cut, so it has
+        ; diagonals in it and the route it was cut from does not.
+        def stepped:EdgePath (EdgeRouter.step(0.0 0.0 2 300.0 200.0 0 20.0))
+        def metro:EdgePath (EdgeRouter.metro(0.0 0.0 2 300.0 200.0 0 20.0 14.0))
+        c.eqInt("no diagonals in the stepped route" (RangerFlowTest.diagonals((stepped.flatten(2)))) 0)
+        c.ok("but there are in the metro one" ((RangerFlowTest.diagonals((metro.flatten(2)))) > 0)) 
+        ; The chamfer may never eat a leg: both routes still start and end in
+        ; the same place.
+        def sf:[double] (stepped.flatten(2))
+        def mf:[double] (metro.flatten(2))
+        c.near("same start" (itemAt mf 0) (itemAt sf 0) 0.001)
+        c.near("same end" (itemAt mf ((array_length mf) - 1)) (itemAt sf ((array_length sf) - 1)) 0.001)
+
+        ; One side: out, along, and back, all on one face, clear of both ends.
+        def one:[double] (EdgeRouter.oneSidePoints(70.0 25.0 70.0 265.0 1 30.0))
+        c.eqInt("four corners" (idiv (array_length one) 2) 4)
+        c.near("the run is at one x" (itemAt one 2) (itemAt one 4) 0.001)
+        c.ok("clear of both ends" ((itemAt one 2) > 70.0))
+        c.eqInt("the default face for a run to the right" (EdgeRouter.oneSideDefault(0.0 0.0 1 400.0 10.0 3)) 1)
+        c.eqInt("and for one straight down" (EdgeRouter.oneSideDefault(0.0 0.0 2 10.0 400.0 0)) 2)
+    }
+
+    sfn passesNear:boolean (flat:[double] px:double py:double tol:double) {
+        def i:int 0
+        while (i < (array_length flat)) {
+            def dx:double ((itemAt flat i) - px)
+            def dy:double ((itemAt flat (i + 1)) - py)
+            if ((sqrt ((dx * dx) + (dy * dy))) <= tol) {
+                return true
+            }
+            i = (i + 2)
+        }
+        return false
+    }
+
+    sfn hasCubic:boolean (p:EdgePath) {
+        def i:int 0
+        while (i < (p.segCount())) {
+            def seg:EdgeSeg (itemAt p.segs i)
+            if (seg.kind == 2) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn diagonals:int (flat:[double]) {
+        def hits:int 0
+        def i:int 0
+        while (i < ((array_length flat) - 3)) {
+            def dx:double (fabs ((itemAt flat (i + 2)) - (itemAt flat i)))
+            def dy:double (fabs ((itemAt flat (i + 3)) - (itemAt flat (i + 1))))
+            if (dx > 0.1) {
+                if (dy > 0.1) {
+                    hits = (hits + 1)
+                }
+            }
+            i = (i + 2)
+        }
+        return hits
     }
 
     ; ------------------------------------------------------------ viewport --

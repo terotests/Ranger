@@ -79,9 +79,30 @@ function at(ev) {
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
 
+// Two fingers on the surface. The browser gives us a pointer per finger and
+// nothing else; the pinch itself — what the zoom becomes, and what stays
+// still while it changes — is the editor's arithmetic, not this file's.
+const touches = new Map();
+
+function pinchPair() {
+  const live = [...touches.values()];
+  return live.length === 2 ? live : null;
+}
+
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   const [x, y] = at(ev);
+  if (ev.pointerType === "touch") {
+    touches.set(ev.pointerId, [x, y]);
+    const pair = pinchPair();
+    if (pair) {
+      // The second finger cancels whatever the first one had started —
+      // otherwise a pinch drags a node across the diagram as it zooms.
+      app.pointerUp(x, y, false, false);
+      app.pinchBegin(pair[0][0], pair[0][1], pair[1][0], pair[1][1]);
+      return;
+    }
+  }
   const wasEditing = app.editing();
   app.pointerDown(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
   // The core ends the edit when the press lands elsewhere; the hidden input
@@ -90,19 +111,42 @@ canvas.addEventListener("pointerdown", (ev) => {
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
+  if (touches.has(ev.pointerId)) {
+    touches.set(ev.pointerId, [x, y]);
+    const pair = pinchPair();
+    if (pair) {
+      app.pinchTo(pair[0][0], pair[0][1], pair[1][0], pair[1][1]);
+      return;
+    }
+  }
   app.pointerMove(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
   canvas.style.cursor = app.cursorAt(x, y) || "";
 });
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
+  if (touches.delete(ev.pointerId)) {
+    app.pinchEnd();
+    if (touches.size > 0) return;
+  }
   app.pointerUp(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+});
+canvas.addEventListener("pointercancel", (ev) => {
+  if (touches.delete(ev.pointerId)) app.pinchEnd();
 });
 canvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   const [x, y] = at(ev);
   app.wheel(x, y, Math.sign(ev.deltaY));
 }, { passive: false });
-canvas.addEventListener("contextmenu", (ev) => ev.preventDefault());
+// The right-hand button. The menu is drawn on the canvas by the view, so the
+// browser's own menu has to be suppressed — and the press has to reach the
+// editor, which is what decides what the menu says.
+canvas.addEventListener("contextmenu", (ev) => {
+  ev.preventDefault();
+  const [x, y] = at(ev);
+  app.contextDown(x, y);
+  syncSelection();
+});
 
 // ---- typing into a label -------------------------------------------------
 // The canvas cannot receive composed characters, dead keys, or anything a
@@ -205,6 +249,10 @@ const SHAPE_NAMES = {
   rect: "Vaihe", stadium: "Alku", diamond: "Ehto?", parallelogram: "Syöte",
   cylinder: "Tietokanta", document: "Tuloste", trapezoid: "Käsin",
   hexagon: "Valmistelu", predefined: "Aliohjelma", circle: "A", note: "Huomio",
+  sort: "Lajittele", collate: "Kokoa", or: "TAI", papertape: "Reikänauha",
+  directdata: "Levy", sequentialdata: "Nauha", multidocument: "Tulosteet",
+  internalstorage: "Muisti", action: "Toiminto", sendsignal: "Lähetä",
+  receivesignal: "Vastaanota",
 };
 
 for (const btn of document.querySelectorAll("#tools .shape")) {
@@ -223,6 +271,14 @@ connectBtn.addEventListener("click", () => {
 
 document.getElementById("del").addEventListener("click", () => {
   app.deleteSelection();
+  syncSelection();
+});
+document.getElementById("rotate").addEventListener("click", () => {
+  app.rotateSelected();
+  syncSelection();
+});
+document.getElementById("dup").addEventListener("click", () => {
+  app.duplicateSelection();
   syncSelection();
 });
 document.getElementById("undo").addEventListener("click", () => {

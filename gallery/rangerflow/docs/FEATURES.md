@@ -60,9 +60,17 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Per-node draggable/selectable/connectable | ✓ | |
 | Reconnect an edge by dragging its end | · | |
 | Sub-flows / node parenting | ~ | `parentId` is carried; containment is not enforced |
-| Node toolbar / floating UI | · | |
-| Touch: pinch to zoom | · | pointer events are handled; gesture recognition is not |
+| Node toolbar / floating UI | ✓ | a remove and a connect button beside the selected node |
+| Touch: pinch to zoom | ✓ | the flow point between the fingers is invariant — asserted |
 | Helper lines / alignment guides | · | |
+| In-place text editing | ✓ | double-click any label, caret and all |
+| Rotate a node | ~ | outline, hit test and ports turn; the text stays upright |
+| Several annotations per object | ✓ | offsets are a fraction of the object, so they survive a resize |
+| Context menu | ✓ | built from what is under the pointer, drawn on the surface |
+| Tooltips | ✓ | and silent when the object has nothing to say |
+| Highlighters | ✓ | halo, mask, fade — on top of selection and hover |
+| Graph traversal | ✓ | neighbours, predecessors, successors, BFS, DFS, component |
+| Curve / metro / one-side routers | ✓ | JointJS's three; the metro chamfer never eats a leg |
 
 ## `db-schema-viewer` — ER diagram
 
@@ -89,12 +97,14 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Edge routing / lane separation | ✓ | channel routing plus a port fan; segment pairs drawn on top of each other 16 → 1 on the fixture, 12 → 0 on the UML one |
 | Edge routing around obstacles | ✓ | dummy-vertex chains in the layered layout, plus an orthogonal-grid repair pass for nodes moved by hand: 2 of 1261 drop positions still cross, 0 of 429 on the UML diagram (`npm run rangerflow:drag`) |
 | Edge crossing minimisation | ✓ | layered ordering, plus a transpose pass over the tracks in each corridor: the UML diagram goes 2 → 0 and averages 1.88 → 0.24 crossings over 748 drag positions |
-| Node shapes | ✓ | twelve outlines (`core/FlowShapes.rgr`): rect, stadium, diamond, parallelogram, trapezoid, hexagon, cylinder, document, ellipse, circle, note, predefined — drawn, hit-tested and anchored from one ring of points |
+| Node shapes | ✓ | forty-odd outlines (`core/FlowShapes.rgr`) — drawn, hit-tested and anchored from one ring of points, with a second ring for shapes that carry a rule ON them (a sort's bar, an OR's cross, a drum's lid) |
 | ATK / ISO 5807 flowchart | ✓ | `domains/flowchart/`: kinds, `kyllä`/`ei` branch labels, shape per kind |
 | Organisation chart | ✓ | `domains/business/`: units coloured, matrix reports dashed |
 | Swimlane process | ✓ | `domains/business/`: lanes as group nodes with real parenting — drag the lane, the steps follow |
 | Sub-flows / parenting | ✓ | `node.parentId`; a dragged parent carries its children (probe `subFlowDrag`) |
 | Node shapes: triangle, star, plus, regular polygons | ✓ | added to close the gap the Syncfusion meter measured |
+| ISO 5807 in full | ✓ | paper tape, direct data, magnetic tape, sort, multi-document, collate, OR, internal storage — the nine the first pass left out |
+| UML activity notation | ✓ | `domains/uml/UMLActivity.rgr`: actions, fork and join bars, sent and received signals, a time event, initial and final nodes |
 | Caller-supplied outline | ✓ | `node.shapePoints`, unit coordinates across the box |
 | Line jumps / connector bridging | ✓ | JointJS `jumpover`, Syncfusion `connector-bridging` |
 | Radial tree layout | ✓ | `layout/TreeLayouts.rgr`; ring radii measured from the boxes |

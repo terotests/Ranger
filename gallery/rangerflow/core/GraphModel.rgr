@@ -325,6 +325,11 @@ class FlowAnnotation {
     def bold:boolean false
     ; "left" | "center" | "right"
     def align:string "center"
+    ; How wide the text may run before it wraps. Zero means "work it out from
+    ; where I was pinned", which is right for an annotation inside the box and
+    ; wrong for one hung underneath it — a caption under a 60 px symbol is not
+    ; limited to 60 px.
+    def width:double 0.0
 
     Constructor () {
     }

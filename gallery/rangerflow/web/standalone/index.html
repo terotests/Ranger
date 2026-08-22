@@ -49,6 +49,7 @@
       <option value="process">uimaratakaavio</option>
       <option value="mindmap">mind map</option>
       <option value="radial">säteittäinen puu</option>
+      <option value="activity">UML-aktiviteettikaavio</option>
     </select>
   </label>
   <label>layout
@@ -71,6 +72,9 @@
       <option value="step">step</option>
       <option value="default">bezier</option>
       <option value="straight">straight</option>
+      <option value="curve">curve</option>
+      <option value="metro">metro</option>
+      <option value="oneside">one side</option>
     </select>
   </label>
   <label>background
@@ -109,10 +113,23 @@
     <button class="shape" data-shape="predefined"    title="Predefined process">▤</button>
     <button class="shape" data-shape="circle"        title="Connector">◯</button>
     <button class="shape" data-shape="note"          title="Note">🗅</button>
+    <button class="shape" data-shape="sort"          title="Sort">⧫</button>
+    <button class="shape" data-shape="collate"       title="Collate">⧗</button>
+    <button class="shape" data-shape="or"            title="OR junction">⊕</button>
+    <button class="shape" data-shape="papertape"     title="Paper tape">⌇</button>
+    <button class="shape" data-shape="directdata"    title="Direct data">⬭</button>
+    <button class="shape" data-shape="sequentialdata" title="Magnetic tape">⊙</button>
+    <button class="shape" data-shape="multidocument" title="Multi-document">🗏</button>
+    <button class="shape" data-shape="internalstorage" title="Internal storage">▦</button>
+    <button class="shape" data-shape="action"        title="UML action">▢</button>
+    <button class="shape" data-shape="sendsignal"    title="Send signal">▷</button>
+    <button class="shape" data-shape="receivesignal" title="Receive signal">◁</button>
   </span>
   <span class="group">
     <button id="connect" title="Click a source node, then a target">connect</button>
     <button id="del" title="Delete the selection">delete</button>
+    <button id="rotate" title="Turn the selection a quarter turn">rotate</button>
+    <button id="dup" title="Duplicate the selection">duplicate</button>
     <button id="undo" title="Undo">undo</button>
     <button id="redo" title="Redo">redo</button>
   </span>

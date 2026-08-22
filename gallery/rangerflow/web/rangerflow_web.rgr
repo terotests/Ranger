@@ -19,6 +19,7 @@ Import "../core/FlowEditor.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
+Import "../domains/uml/UMLActivity.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
@@ -66,6 +67,7 @@ class RangerFlowWeb {
         input.y = y
         input.shift = shift
         input.ctrl = ctrl
+        input.secondary = false
         userMoved = true
         editor.pointerDown(input)
         if simRunning {
@@ -99,6 +101,74 @@ class RangerFlowWeb {
             ; broken edges are touched, so this costs a Dijkstra or two rather
             ; than a rewrite of the diagram.
             OrthoRouter.repairAll(graph)
+        }
+    }
+
+    ; The right-hand button, or a long press. It goes through the same
+    ; pointerDown as everything else — the editor decides what the menu says
+    ; and what a row does; the page only reports which button it was.
+    fn contextDown:void (x:double y:double) {
+        input.x = x
+        input.y = y
+        input.shift = false
+        input.ctrl = false
+        input.secondary = true
+        userMoved = true
+        editor.pointerDown(input)
+    }
+
+    fn menuOpen:boolean () {
+        return (editor.menuOpen())
+    }
+
+    fn closeMenu:void () {
+        editor.closeMenu()
+    }
+
+    ; --- two fingers ---------------------------------------------------------
+    fn pinchBegin:void (x1:double y1:double x2:double y2:double) {
+        userMoved = true
+        editor.pinchBegin(x1 y1 x2 y2)
+    }
+
+    fn pinchTo:void (x1:double y1:double x2:double y2:double) {
+        userMoved = true
+        editor.pinchTo(x1 y1 x2 y2)
+    }
+
+    fn pinchEnd:void () {
+        editor.pinchEnd()
+    }
+
+    ; --- what the toolbar can now ask for ------------------------------------
+    fn rotateSelected:int () {
+        def n:int (editor.rotateSelected(90.0))
+        if (n > 0) { userMoved = true }
+        return n
+    }
+
+    fn duplicateSelection:int () {
+        def n:int (editor.duplicateSelection())
+        if (n > 0) { userMoved = true }
+        return n
+    }
+
+    ; Mark a node — a search hit, a table a query touches. "" clears it.
+    fn setHighlight:boolean (id:string kind:string) {
+        if ((graph.hasNode(id)) == false) {
+            return false
+        }
+        def n:FlowNode (graph.nodeById(id))
+        n.highlight = kind
+        return true
+    }
+
+    fn clearHighlights:void () {
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            n.highlight = ""
+            i = (i + 1)
         }
     }
 
@@ -168,6 +238,9 @@ class RangerFlowWeb {
         }
         if (name == "radial") {
             return (this.loadRadial())
+        }
+        if (name == "activity") {
+            return (this.loadActivity())
         }
         return (this.loadSqlFixture())
     }
@@ -441,6 +514,58 @@ class RangerFlowWeb {
         simRunning = false
         editor.pinWhileDragging = false
         status = ((to_string (g.nodeCount())) + " vaihetta, " + (to_string (g.edgeCount())) + " yhteyttä — ATK-kaavio ISO 5807:n muodoilla")
+        return true
+    }
+
+    ; A UML activity diagram: the other UML, the one that is a flowchart. Its
+    ; whole point here is the vocabulary — an action is a rounded box, a fork
+    ; is a bar, a signal sent is a box with a point on it and a signal
+    ; received is one with a bite out of it — so the demo uses every shape it
+    ; has rather than a tidy subset.
+    fn loadActivity:boolean () {
+        def a (new ActivityDiagram)
+        a.node("alku" "" (ActivityKind.initial()))
+        a.action("vastaanota" "Vastaanota tilaus")
+        a.node("haara" "" (ActivityKind.fork()))
+        a.action("luotto" "Tarkista luottotiedot")
+        a.action("varasto" "Varaa tuotteet")
+        a.node("yhdista" "" (ActivityKind.joining()))
+        a.node("kelpaa" "Kelpaako?" (ActivityKind.decision()))
+        a.node("lasku" "Lähetä lasku" (ActivityKind.send()))
+        a.node("odota" "Odota maksua" (ActivityKind.waiting()))
+        a.node("kuittaus" "Maksukuittaus" (ActivityKind.receive()))
+        a.action("toimita" "Toimita tilaus")
+        a.node("loppu" "" (ActivityKind.final()))
+        a.flow("alku" "vastaanota")
+        a.flow("vastaanota" "haara")
+        a.flow("haara" "luotto")
+        a.flow("haara" "varasto")
+        a.flow("luotto" "yhdista")
+        a.flow("varasto" "yhdista")
+        a.flow("yhdista" "kelpaa")
+        a.guarded("kelpaa" "lasku" "kyllä")
+        a.guarded("kelpaa" "loppu" "ei")
+        a.flow("lasku" "odota")
+        a.flow("odota" "kuittaus")
+        a.flow("kuittaus" "toimita")
+        a.flow("toimita" "loppu")
+        def g:FlowGraph (a.build())
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        def lay:LayeredLayout (LayeredLayout.of(graph))
+        lay.direction = "TB"
+        lay.layerGap = 66.0
+        lay.nodeGap = 40.0
+        lay.run()
+        ActivityDiagram.faceEdges(graph)
+        EdgeLanes.assign(graph)
+        lay.routeLongEdges()
+        EdgeLanes.assign(graph)
+        OrthoRouter.repairAll(graph)
+        simRunning = false
+        editor.pinWhileDragging = false
+        status = ((to_string (g.nodeCount())) + " solmua — UML-aktiviteettikaavio: haarautuminen, signaalit ja ajastin")
         return true
     }
 

@@ -216,12 +216,24 @@ class ActivityDiagram {
             n.bgColor = "#2f3542"
             n.borderColor = "#2f3542"
         }
+        ; An hourglass has almost no room in it — its widest part is its top,
+        ; and its middle is a point. UML writes the wait beside the symbol
+        ; rather than inside it, so that is where this puts it: the shape
+        ; carries no label at all and an annotation sits under it.
         if (a.kind == "timer") {
-            w = 70.0
-            h = 70.0
+            w = 62.0
+            h = 62.0
+            label = ""
         }
         n.width = w
         n.height = h
+        if (a.kind == "timer") {
+            if ((strlen a.label) > 0) {
+                def under:FlowAnnotation (n.addAnnotation(a.label 0.5 1.38))
+                under.fontSize = 12.0
+                under.width = 130.0
+            }
+        }
         if ((strlen n.bgColor) == 0) {
             n.bgColor = (ActivityDiagram.fillFor(a.kind))
         }

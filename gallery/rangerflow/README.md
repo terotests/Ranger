@@ -61,10 +61,12 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 | [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
 | [`?scenario=radial`](http://localhost:8080/?scenario=radial) | the same graph as a radial tree, a generation per ring |
+| [`?scenario=activity`](http://localhost:8080/?scenario=activity) | a UML **activity** diagram — actions, a fork and a join, signals sent and received, a wait |
 
-Drag to pan, wheel to zoom, shift-drag to box select, drag a handle to connect,
-`Delete`, `Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen,
-and **open .sql** reads a schema in the tab without uploading it anywhere.
+Drag to pan, wheel to zoom, pinch to zoom on a touch screen, shift-drag to box
+select, drag a handle to connect, **right-click for a menu**, `Delete`,
+`Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen, and
+**open .sql** reads a schema in the tab without uploading it anywhere.
 
 The second row is a **toolbar**, and it is not a demo of a toolbar: every
 button calls one method on the app, which calls one method on `FlowEditor`, so
@@ -72,8 +74,9 @@ the same authoring runs in the SDL window and in a headless test.
 
 | | |
 | --- | --- |
-| the eleven shape buttons | add a node of that shape at the middle of the view, selected and ready to be named |
+| the shape buttons | add a node of that shape at the middle of the view, selected and ready to be named — the ISO 5807 set, and the UML activity one |
 | **connect** | React Flow's `connectOnClick`: click the source, click the target. Clicking the pane cancels |
+| **rotate** / **duplicate** | a quarter turn, and a copy offset far enough to be visibly a copy |
 | **delete** / **undo** / **redo** | the same three the keyboard does, for a reader who is holding a mouse |
 | the **name** field | renames the selected node as you type — or double-click the label itself and type where it is |
 
@@ -570,10 +573,27 @@ denominator has to be their claim about themselves. For JointJS an oracle
 *would* be possible — it is not built because the families worth comparing that
 way are already measured against React Flow to two thousandths of a pixel.
 
-|  | before | after |
-| --- | ---: | ---: |
-| JointJS 4 | 29/48 (60%) | **32/48 (67%)** |
-| Syncfusion EJ2 | 38.5/62 (62%) | **49.5/63 (79%)** |
+|  | first pass | honest statuses | now |
+| --- | ---: | ---: | ---: |
+| JointJS 4 | 29/48 (60%) | 39.5/48 (82%) | **45/48 (94%)** |
+| Syncfusion EJ2 | 38.5/62 (62%) | 53.5/63 (85%) | **59/63 (94%)** |
+
+The middle column is not a jump in capability; it is a correction. The meter
+used to **guess** a row's status from whether it had a note — a probe plus a
+note scored half a feature, a probe alone scored a whole one — and that was
+wrong in both directions. Half the notes say what our version is *called*
+rather than what it *lacks* ("smoothstep", "layered (Sugiyama)"), and those
+were being scored as half a feature; meanwhile a row carrying a real
+limitation would have read as whole the moment somebody tidied the note away.
+The status is a written-down field now, sitting next to the evidence for it,
+and the meter fails loudly on a row that claims one without naming a probe —
+or that still says `todo` beside a probe that passes.
+
+Five layout rows were also leaning on the `fitView` probe, which proves the
+viewport algebra and nothing whatever about the layout under it. Each has its
+own probe now, asserting what its layout is *for*: parents above children,
+linked nodes nearer than unlinked ones, a long edge carried through a chain of
+corners, and no two boxes sharing a pixel.
 
 The meter is what drove the work, and what it found was worth having:
 
@@ -583,6 +603,52 @@ The meter is what drove the work, and what it found was worth having:
   **the point a label is drawn at is inside the shape**, which caught the right
   triangle: the centre of its box sits exactly on the hypotenuse, so its text
   was half outside itself.
+- **The rest of ISO 5807** — paper tape, direct data, magnetic tape, sort,
+  multi-document, collate, OR, internal storage. Several of these are an
+  outline *plus a rule drawn on it* — the bar across a sort, the cross in an OR
+  junction, the corners of the sheets behind the front page of a stack — which
+  the shape system had no way to express. It does now, as points, so they reach
+  the PDF and the GPU by the road the rectangles took. The same mechanism
+  replaced the one hand-written special case that was already there, the
+  cylinder's lid.
+- **The UML activity vocabulary** — a different language from the class diagram
+  next door. An action is a rounded box, a fork is a bar, a signal sent is a
+  box with a point pushed out and one received is a box with a bite taken out,
+  a wait is an hourglass, and the diagram starts and ends on filled circles.
+  The hourglass has almost no room *in* it, so its wait is written underneath
+  it as an annotation — which is what UML does and what the annotation
+  mechanism below is for.
+- **Three more router families** — a curve (a spline that passes **through**
+  the link's vertices, with a tension, as against a bezier whose shape is fixed
+  by the two port normals), a metro line (orthogonal with every corner cut to
+  45°, chamfered by no more than half the shorter leg so a short run cannot be
+  eaten), and a one-side route (out, along and back, all on one face).
+- **Several annotations per object.** A node had a label — the name of the
+  thing, in the middle — and that was the whole of the text it could carry. A
+  real diagram wants a step number in one corner, a cost in the other, an SLA
+  above the arrow. The offset is a **fraction** of the object rather than a
+  distance, so an annotation pinned under a box stays under it when somebody
+  makes the box taller.
+- **Rotation**, done at the four functions on `FlowNode` that every piece of
+  geometry already went through. The outline turns; the hit test turns the
+  **question** back into the node's own frame instead, which is one point to
+  rotate rather than thirty; the ports come along for free, and so does every
+  shape and every custom polygon. The text stays upright — which is why that
+  row is scored `partial` and not `done`.
+- **A context menu and tooltips.** The menu is built from what is under the
+  pointer rather than being one menu with most of it greyed out, and its
+  geometry lives on the view so that the row you can *see* and the row you can
+  *press* are computed by the same arithmetic. A tooltip says nothing when
+  there is nothing to say: one that repeats the label teaches the reader to
+  ignore tooltips.
+- **Walking the graph** — neighbours, predecessors, successors, breadth first,
+  depth first, connected component. The graph already knew how connected each
+  node was; what it could not tell you was *what to*.
+- **Pinch to zoom**, keeping the contract the wheel keeps: the flow point
+  between the fingers stays between them — while they spread, and while they
+  travel.
+- **Element tools and highlighters** — a remove button and a connect button
+  beside the selected node, and a halo, a mask or a fade on top of selection.
 - **Line jumps** — where two lines cross, one hops over the other. JointJS
   calls it the `jumpover` connector, Syncfusion calls it connector bridging,
   and it is the only honest answer to a crossing you cannot route away: two
@@ -604,10 +670,12 @@ The meter is what drove the work, and what it found was worth having:
   the 1-2-5 progression a chart axis uses.
 
 What is still missing is listed in [`docs/RIVALS.md`](docs/RIVALS.md) as `todo`
-rather than left out: rotation, BPMN and UML-activity notations, a context
-menu, tooltips, PNG/JPEG encoders, drag-and-drop from the palette, image
-elements, and JointJS's metro and one-side routers. A `todo` row means we do
-not have it — there is no row there that means "probably fine".
+rather than left out: BPMN (a whole notation of its own), image elements,
+PNG/JPEG encoders, a link whose endpoint is another link, and drag-and-drop out
+of the palette. Three rows are `partial` and say what is narrower: rotation
+leaves the text upright, the palette adds rather than being dragged from, and
+page size reaches the export but is not drawn on the surface. A `todo` row
+means we do not have it — there is no row there that means "probably fine".
 
 ## Parity is measured, not claimed
 
@@ -627,8 +695,8 @@ force layout vs d3-force
   tick   0  max   0.000 px   rms  0.000 px   shape error 0.00%
   tick 300  max   1.414 px   rms  0.480 px   shape error 0.06%
 
-behaviour  ████████████████████···· 42/50 capabilities, every one proved by a probe
-overall 97.7%
+behaviour  ██████████████████████·· 46/51 capabilities, every one proved by a probe
+overall 98.6%
 ```
 
 Edge paths are compared by **resampling both curves by arc length**, not by
