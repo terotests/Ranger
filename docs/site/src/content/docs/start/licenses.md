@@ -7,8 +7,8 @@ The repository has two licenses. The path of a file selects the license.
 
 ## The compiler and the language
 
-The compiler, the language runtime and the files outside `gallery/` use the
-MIT license. A file can state a different license.
+Ranger-authored files outside `gallery/` use the MIT license, unless a
+file or a directory states a different license.
 
 The MIT license lets you compile a program that you write. You can sell that
 program. You can keep the source of that program closed.
@@ -18,8 +18,9 @@ program.
 
 ## The gallery directory
 
-The files under `gallery/` use the GNU Affero General Public License. The
-version is 3 or a later version. A file can state a different license.
+Ranger-authored files under `gallery/` use the GNU Affero General Public
+License. The version is 3 or a later version, unless a file or a
+directory states a different license.
 
 The gallery directory holds the application stack of Ranger:
 
@@ -41,7 +42,8 @@ A file in `lib/` or in `compiler/` must not import a gallery module.
 ## Third-party files
 
 Some files in `gallery/` keep the license of their authors. Each of those
-files has its own license file next to it.
+files has its own license file next to it. The gallery AGPL does not
+change the license of those files.
 
 ## Related pages
 

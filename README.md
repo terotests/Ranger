@@ -2,10 +2,11 @@
 
 **Version 3.3.0** | Status: `experimental`
 
-**Licensing:** The Ranger compiler and core language implementation are MIT
-licensed. Advanced applications and technology under `gallery/`, including
-EVG and the Office document stack, are licensed under AGPL-3.0-or-later.
-See [`LICENSE`](LICENSE) for details.
+**Licensing:** Ranger-authored compiler and language sources are MIT licensed,
+unless a file says otherwise. Ranger-authored applications and technology
+under `gallery/`, including EVG and the Office document stack, are licensed
+under AGPL-3.0-or-later unless a file says otherwise. Third-party files keep
+their own licenses. See [`LICENSE`](LICENSE) for details.
 
 Ranger is a self-hosting cross-language compiler for writing portable algorithms, parsers, generators, and small tools once and compiling them to multiple target languages.
 

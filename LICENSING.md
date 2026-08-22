@@ -4,8 +4,8 @@ This repository uses two licenses.
 
 | Path | License | SPDX |
 | --- | --- | --- |
-| Everything outside `gallery/` | MIT, unless a file says otherwise | `MIT` |
-| Everything under `gallery/` | GNU Affero General Public License v3.0 or later, unless a file says otherwise | `AGPL-3.0-or-later` |
+| Ranger-authored code outside `gallery/` | MIT, unless a file or subdirectory says otherwise | `MIT` |
+| Ranger-authored code under `gallery/` | GNU Affero General Public License v3.0 or later, unless a file or subdirectory says otherwise | `AGPL-3.0-or-later` |
 
 The root [`LICENSE`](LICENSE) file is the overview, not a single license
 text. GitHub may not show a single license badge; that is intentional.
@@ -107,6 +107,17 @@ them. Examples: math helpers, XML, JSON, image decoders, and other files
 under `lib/`. They are language infrastructure. EVG and the editors are
 application innovation.
 
+## Copyright and relicensing
+
+A license file change does not re-license another author's code. The
+AGPL applies to Ranger-authored gallery sources. It does not apply to
+third-party files that already state their own license.
+
+`gallery/` commit authors in this repository are Tero Tolonen and
+automated agents working in this repository. No independent external
+human author appears in `git shortlog` for `gallery/`. Third-party
+trees are listed below and keep the license their authors gave them.
+
 ## Third-party material
 
 A few trees under `gallery/` keep the license of their authors. Those files
@@ -146,5 +157,5 @@ The published `ranger-compiler` package is the compiler only (`dist/`,
 ## Earlier snapshots
 
 Copies of this repository published before this split remain under the
-license those copies stated. From this tree forward, `gallery/` is
-AGPL-3.0-or-later unless a file says otherwise.
+license those copies stated. From this tree forward, Ranger-authored
+code under `gallery/` is AGPL-3.0-or-later unless a file says otherwise.

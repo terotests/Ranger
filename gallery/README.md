@@ -6,10 +6,12 @@ They are the engines and reference applications built on the language — EVG,
 display lists, DataGrid / XLSX, DOCX, PPTX, PDF, and the rest of the advanced
 implementations.
 
-**License: AGPL-3.0-or-later** for everything under this directory, unless a
-file says otherwise. See [`LICENSE`](LICENSE) in this folder and
-[`../LICENSE-AGPL-3.0`](../LICENSE-AGPL-3.0) for the full text. The compiler
-and the rest of the repository stay MIT ([`../LICENSE`](../LICENSE)).
+**License: AGPL-3.0-or-later** for Ranger-authored code under this directory,
+unless a file or subdirectory says otherwise. See [`LICENSE`](LICENSE) in
+this folder and [`../LICENSE-AGPL-3.0`](../LICENSE-AGPL-3.0) for the full
+text. Ranger-authored code outside `gallery/` stays MIT unless a file says
+otherwise ([`../LICENSE`](../LICENSE)). Third-party files keep their own
+licenses.
 
 Several projects need extra toolchains, platform-specific commands, or manual
 setup. The main [README](../README.md) stays focused on the language and the

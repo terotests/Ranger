@@ -17,8 +17,9 @@ Source files use the **`.rgr`** extension (not `.clj`). Entry point: `sfn main:v
 
 ## Licenses
 
-- Outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`).
-- Under `gallery/`: **AGPL-3.0-or-later** unless a file says otherwise (`gallery/LICENSE`, `LICENSE-AGPL-3.0`).
+- Ranger-authored code outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`).
+- Ranger-authored code under `gallery/`: **AGPL-3.0-or-later** unless a file says otherwise (`gallery/LICENSE`, `LICENSE-AGPL-3.0`).
+- Third-party files keep their own licenses. Do not treat a path as a relicensing of vendor code.
 - Root [`LICENSE`](LICENSE) is the mixed-license overview, not a single license text.
 - Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`.
 - Details: [`LICENSING.md`](LICENSING.md).
