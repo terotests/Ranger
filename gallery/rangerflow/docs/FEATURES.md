@@ -62,6 +62,12 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Sub-flows / node parenting | ~ | `parentId` is carried; containment is not enforced |
 | Node toolbar / floating UI | ✓ | a remove and a connect button beside the selected node |
 | Touch: pinch to zoom | ✓ | the flow point between the fingers is invariant — asserted |
+| Trackpad: two-finger scroll | ✓ | **pans**, it does not zoom — the sign of `deltaY` depends on the platform's "natural scrolling" setting, so zooming on it is inverted for half its readers and there is no way to tell which half |
+| Trackpad: pinch | ✓ | `ctrlKey` on a wheel event, which is how every platform reports one; zoomed continuously rather than in ×1.1 steps |
+| Click a handle to connect | ✓ | the line follows the pointer from that handle until you click something; a click on anything else cancels |
+| Live target feedback | ✓ | the preview goes solid and rings the handle it would land on — a connect mode that gives no sign it found a target is one you discover by being surprised |
+| Move an edge's end | ✓ | select the line, then drag either end onto another socket; dropped on nothing it goes back |
+| No mode gets stuck | ✓ | every way in is enumerated and both escapes checked (`testNoStuckModes`) |
 | Helper lines / alignment guides | · | |
 | In-place text editing | ✓ | double-click any label, caret and all |
 | Rotate a node | ~ | outline, hit test and ports turn; the text stays upright |
@@ -106,7 +112,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | ISO 5807 in full | ✓ | paper tape, direct data, magnetic tape, sort, multi-document, collate, OR, internal storage — the nine the first pass left out |
 | UML activity notation | ✓ | `domains/uml/UMLActivity.rgr`: actions, fork and join bars, sent and received signals, a time event, initial and final nodes |
 | Caller-supplied outline | ✓ | `node.shapePoints`, unit coordinates across the box |
-| Line jumps / connector bridging | ✓ | JointJS `jumpover`, Syncfusion `connector-bridging` |
+| Line jumps / connector bridging | ✓ | JointJS `jumpover`, Syncfusion `connector-bridging`; a real `A` arc in the SVG and PDF, a flattened one for the GPU, both from one pass |
 | Radial tree layout | ✓ | `layout/TreeLayouts.rgr`; ring radii measured from the boxes |
 | Mind map layout | ✓ | branches balanced by the room each needs, not by count |
 | Read a diagram back from JSON | ✓ | `FlowGraphJson.fromJson` |

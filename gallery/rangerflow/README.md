@@ -63,9 +63,9 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=radial`](http://localhost:8080/?scenario=radial) | the same graph as a radial tree, a generation per ring |
 | [`?scenario=activity`](http://localhost:8080/?scenario=activity) | a UML **activity** diagram — actions, a fork and a join, signals sent and received, a wait |
 
-Drag to pan, wheel to zoom, pinch to zoom on a touch screen, shift-drag to box
-select, drag a handle to connect, **right-click for a menu**, `Delete`,
-`Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen, and
+Drag to pan, wheel to zoom, **two fingers to scroll around** and pinch to zoom,
+shift-drag to box select, drag *or click* a handle to connect, **right-click
+for a menu**, `Delete`, `Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen, and
 **open .sql** reads a schema in the tab without uploading it anywhere.
 
 The second row is a **toolbar**, and it is not a demo of a toolbar: every

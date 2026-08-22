@@ -273,6 +273,79 @@ class FlowScene {
         push items s
     }
 
+    ; The same polyline, but with the hops drawn as real half-circles. A
+    ; display list has no arcs, so the GPU gets the flattened points either
+    ; way; SVG, PDF and HTML go through an `A` command, which EVG's own path
+    ; parser handles, and get an exact semicircle at any zoom rather than a
+    ; sixteen-sided one. That was the other half of what was wrong with the
+    ; hops: the shape was built backwards AND drawn in pieces.
+    ;
+    ; `marks` is what `EdgeRouter.bridgeInto` recorded — entry, exit and
+    ; radius per hop, in the order they appear along the line. So this walks
+    ; the points and the marks together: where the next point IS a hop's
+    ; entry, the arc is emitted and the flattened points inside it skipped.
+    ; One pass produced both, so the two renderings cannot disagree about
+    ; where a hop is, which is the failure a second implementation would
+    ; eventually have.
+    sfn bridgedPath:string (pts:[double] marks:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return ""
+        }
+        if ((array_length marks) < 5) {
+            return (FlowScene.polygonPath(pts false))
+        }
+        def out:string ("M " + (EVGDisplayList.num((itemAt pts 0))) + " " + (EVGDisplayList.num((itemAt pts 1))))
+        def m:int 0
+        def i:int 1
+        while (i < n) {
+            def px:double (itemAt pts (i * 2))
+            def py:double (itemAt pts ((i * 2) + 1))
+            def isEntry:boolean false
+            if ((m + 4) < (array_length marks)) {
+                if ((fabs (px - (itemAt marks m))) < 0.001) {
+                    if ((fabs (py - (itemAt marks (m + 1)))) < 0.001) {
+                        isEntry = true
+                    }
+                }
+            }
+            if isEntry {
+                def xx:double (itemAt marks (m + 2))
+                def xy:double (itemAt marks (m + 3))
+                def rad:double (itemAt marks (m + 4))
+                out = (out + " L " + (EVGDisplayList.num(px)) + " " + (EVGDisplayList.num(py)))
+                ; Small arc, swept the same way every time — the flag that
+                ; keeps two hops on one line bulging the same side.
+                out = (out + " A " + (EVGDisplayList.num(rad)) + " " + (EVGDisplayList.num(rad)) + " 0 0 1 " + (EVGDisplayList.num(xx)) + " " + (EVGDisplayList.num(xy)))
+                def j:int (i + 1)
+                def landed:int -1
+                while (j < n) {
+                    def qx:double (itemAt pts (j * 2))
+                    def qy:double (itemAt pts ((j * 2) + 1))
+                    if ((fabs (qx - xx)) < 0.001) {
+                        if ((fabs (qy - xy)) < 0.001) {
+                            landed = j
+                            j = n
+                        }
+                    }
+                    j = (j + 1)
+                }
+                ; The marks and the points came out of one pass, so this
+                ; cannot happen — and if it ever does, a plain polyline is
+                ; the right thing to fall back to rather than a broken arc.
+                if (landed < 0) {
+                    return (FlowScene.polygonPath(pts false))
+                }
+                i = landed
+                m = (m + 5)
+            } {
+                out = (out + " L " + (EVGDisplayList.num(px)) + " " + (EVGDisplayList.num(py)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     sfn polygonPath:string (pts:[double] close:boolean) {
         def out:string ""
         def n:int (idiv (array_length pts) 2)

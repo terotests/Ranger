@@ -120,7 +120,7 @@ canvas.addEventListener("pointermove", (ev) => {
     }
   }
   app.pointerMove(x, y, ev.shiftKey, ev.ctrlKey || ev.metaKey);
-  canvas.style.cursor = app.cursorAt(x, y) || "";
+  canvas.style.cursor = app.pendingConnect() ? "crosshair" : (app.cursorAt(x, y) || "");
 });
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
@@ -133,10 +133,14 @@ canvas.addEventListener("pointerup", (ev) => {
 canvas.addEventListener("pointercancel", (ev) => {
   if (touches.delete(ev.pointerId)) app.pinchEnd();
 });
+// Three gestures arrive here as one event, and only the browser knows which
+// facts distinguish them — so all three are handed over and the editor
+// classifies. `ctrlKey` on a wheel is not the reader holding Ctrl: it is how
+// every platform reports a trackpad pinch.
 canvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   const [x, y] = at(ev);
-  app.wheel(x, y, Math.sign(ev.deltaY));
+  app.wheelGesture(x, y, ev.deltaX, ev.deltaY, ev.ctrlKey || ev.metaKey, ev.deltaMode === 1);
 }, { passive: false });
 // The right-hand button. The menu is drawn on the canvas by the view, so the
 // browser's own menu has to be suppressed — and the press has to reach the
@@ -201,6 +205,7 @@ typing.addEventListener("keydown", (ev) => {
 typing.addEventListener("blur", () => stopEditing(true));
 
 window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && app.pendingConnect()) { app.cancelPending(); syncSelection(); }
   // While a label is being typed the hidden input has focus and owns the
   // keyboard; the shortcuts below would delete the node you are naming.
   if (ev.target === typing) return;

@@ -89,6 +89,10 @@ class RangerFlowTest {
         RangerFlowTest.testTextFitting(c)
         RangerFlowTest.testInPlaceEditing(c)
         RangerFlowTest.testSideHandles(c)
+        RangerFlowTest.testNoStuckModes(c)
+        RangerFlowTest.testPortClickConnect(c)
+        RangerFlowTest.testReconnect(c)
+        RangerFlowTest.testWheelGesture(c)
         RangerFlowTest.testColumns(c)
         RangerFlowTest.testRotation(c)
         RangerFlowTest.testAnnotations(c)
@@ -106,6 +110,417 @@ class RangerFlowTest {
         if (code != 0) {
             exit 1
         }
+    }
+
+    ; --------------------------------------------------- no stuck modes -----
+    ; The bug this exists for: the element tool's `+` switched `connectOnClick`
+    ; on and nothing ever switched it off, so after one use every click started
+    ; a connection and the editor could not be used for anything else again.
+    ; That is not a bug about connecting — it is a bug about a mode with no way
+    ; out, and the only defence is to enumerate the ways in and check every one
+    ; of them can be left.
+    ;
+    ; So: get into each mode, then apply the two universal escapes — a press
+    ; and release on empty canvas, and the Escape key — and assert the editor
+    ; is idle afterwards. A mode added later that forgets to clean up fails
+    ; here rather than in somebody's hands.
+    sfn testNoStuckModes:void (c:Checker) {
+        c.section("no mode is left on for ever")
+        def names:[string]
+        push names "pan"
+        push names "drag a node"
+        push names "box select"
+        push names "drag from a handle"
+        push names "resize"
+        push names "type in a label"
+        push names "click a handle"
+        push names "the + tool"
+        push names "move an edge end"
+        push names "the context menu"
+        push names "a pinch"
+        push names "connect mode from the toolbar"
+
+        def i:int 0
+        while (i < (array_length names)) {
+            def what:string (itemAt names i)
+            ; Escape first, then the same run again with a click on empty
+            ; canvas — both have to work, and a mode that only one of them
+            ; clears is a mode that traps a reader who reached for the other.
+            def viaEscape:FlowEditor (RangerFlowTest.enterMode(i))
+            c.ok((what + ": the mode is actually on")  ((viaEscape.idle()) == false))
+            viaEscape.keyDown("Escape" false false)
+            c.ok((what + ": Escape gets out") (viaEscape.idle()))
+
+            def viaClick:FlowEditor (RangerFlowTest.enterMode(i))
+            def away (new FlowInput)
+            away.x = 940.0
+            away.y = 560.0
+            viaClick.pointerUp(away)
+            viaClick.pointerDown(away)
+            viaClick.pointerUp(away)
+            c.ok((what + ": a click on the canvas gets out") (viaClick.idle()))
+            i = (i + 1)
+        }
+    }
+
+    ; One editor, driven into mode `which` and left there.
+    sfn enterMode:FlowEditor (which:int) {
+        def g:FlowGraph (RangerFlowTest.twoTables())
+        def step:FlowNode (g.node("step" "Vaihe" 60.0 400.0))
+        step.width = 160.0
+        step.height = 60.0
+        step.resizable = true
+        step.addSideHandles()
+        step.syncFromModel()
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 700.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+        def onNodeX:double (ed.view.sx((step.centerX())))
+        def onNodeY:double (ed.view.sy((step.centerY())))
+        def emptyX:double 940.0
+        def emptyY:double 560.0
+        def inp (new FlowInput)
+
+        if (which == 0) {
+            inp.x = emptyX
+            inp.y = emptyY
+            ed.pointerDown(inp)
+            inp.x = (emptyX - 60.0)
+            ed.pointerMove(inp)
+            return ed
+        }
+        if (which == 1) {
+            inp.x = onNodeX
+            inp.y = onNodeY
+            ed.pointerDown(inp)
+            inp.x = (onNodeX + 40.0)
+            ed.pointerMove(inp)
+            return ed
+        }
+        if (which == 2) {
+            inp.x = emptyX
+            inp.y = emptyY
+            inp.shift = true
+            ed.pointerDown(inp)
+            inp.x = (emptyX - 120.0)
+            inp.y = (emptyY - 90.0)
+            ed.pointerMove(inp)
+            return ed
+        }
+        if (which == 3) {
+            def p:FlowPort (itemAt step.ports 1)
+            inp.x = (ed.view.sx((step.portX(p))))
+            inp.y = (ed.view.sy((step.portY(p))))
+            ed.pointerDown(inp)
+            inp.x = (inp.x + 60.0)
+            ed.pointerMove(inp)
+            return ed
+        }
+        if (which == 4) {
+            step.selected = true
+            inp.x = (ed.view.sx((step.x + step.width)))
+            inp.y = (ed.view.sy((step.y + step.height)))
+            ed.pointerDown(inp)
+            inp.x = (inp.x + 30.0)
+            ed.pointerMove(inp)
+            return ed
+        }
+        if (which == 5) {
+            ed.beginEdit("node:step")
+            ed.typeText("x")
+            return ed
+        }
+        if (which == 6) {
+            ; A press and release on a handle without moving: a CLICK, which
+            ; arms the connection and leaves the line following the pointer.
+            def p2:FlowPort (itemAt step.ports 1)
+            inp.x = (ed.view.sx((step.portX(p2))))
+            inp.y = (ed.view.sy((step.portY(p2))))
+            ed.pointerDown(inp)
+            ed.pointerUp(inp)
+            return ed
+        }
+        if (which == 7) {
+            step.selected = true
+            ed.pressTool("connect")
+            return ed
+        }
+        if (which == 8) {
+            def e:FlowEdge (g.edgeAt(0))
+            e.selected = true
+            inp.x = (ed.view.sx((g.endpointX(e false))))
+            inp.y = (ed.view.sy((g.endpointY(e false))))
+            ed.pointerDown(inp)
+            inp.x = (inp.x + 40.0)
+            ed.pointerMove(inp)
+            return ed
+        }
+        if (which == 9) {
+            ed.openMenuAt(onNodeX onNodeY)
+            return ed
+        }
+        if (which == 10) {
+            ed.pinchBegin(300.0 300.0 400.0 300.0)
+            ed.pinchTo(280.0 300.0 420.0 300.0)
+            return ed
+        }
+        ; The toolbar's own connect toggle, which is sticky ON PURPOSE — but
+        ; still has to be something Escape and a click can get out of.
+        ed.connectOnClick = true
+        inp.x = onNodeX
+        inp.y = onNodeY
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        return ed
+    }
+
+    ; -------------------------------------------- clicking a handle ---------
+    sfn testPortClickConnect:void (c:Checker) {
+        c.section("click a handle to connect")
+        def g:FlowGraph (RangerFlowTest.twoTables())
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 700.0)
+        def customers:FlowNode (g.nodeById("customers"))
+        def orders:FlowNode (g.nodeById("orders"))
+        def from:FlowPort (g.portRef("customers.email:r"))
+        def to:FlowPort (g.portRef("orders.id:l"))
+        def edges0:int (g.edgeCount())
+
+        ; A press and release with no movement is a click: it arms rather than
+        ; cancelling, which is the whole of what was asked for.
+        def inp (new FlowInput)
+        inp.x = (ed.view.sx((customers.portX(from))))
+        inp.y = (ed.view.sy((customers.portY(from))))
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.ok("a click on a handle arms a connection" (ed.pending()))
+        c.ok("and the line is drawn from it" ed.view.connecting)
+        c.eqStr("from that handle" ed.view.connectFrom "customers.email:r")
+
+        ; Over nothing: no target, and the preview says so.
+        def over (new FlowInput)
+        over.x = 900.0
+        over.y = 620.0
+        ed.pointerMove(over)
+        c.ok("over bare canvas there is no target" (ed.view.connectValid == false))
+
+        ; Over a handle it could land on: the preview says THAT.
+        over.x = (ed.view.sx((orders.portX(to))))
+        over.y = (ed.view.sy((orders.portY(to))))
+        ed.pointerMove(over)
+        c.ok("over a valid handle there is one" ed.view.connectValid)
+        def sc:FlowScene (ed.view.build())
+        c.ok("and the preview line is on the surface" ((RangerFlowTest.countTag(sc "chrome")) > 0))
+
+        ; The second click lands it.
+        ed.pointerDown(over)
+        ed.pointerUp(over)
+        c.eqInt("the second click makes the edge" (g.edgeCount()) (edges0 + 1))
+        c.ok("and the mode is off again" ((ed.pending()) == false))
+        c.ok("with nothing left running" (ed.idle()))
+        def made:FlowEdge (g.edgeAt((g.edgeCount()) - 1))
+        c.eqStr("joined at the handle it started from" made.sourcePort "customers.email:r")
+        c.eqStr("to the one it was dropped on" made.targetPort "orders.id:l")
+        ; The sides come from the handles, so the edge is not routed out of
+        ; the node's default face and left looking detached.
+        c.eqInt("leaving by the source handle's own side" made.sourceHandle from.side)
+        c.eqInt("and arriving at the target's" made.targetHandle to.side)
+
+        ; Armed and then clicked somewhere useless: cancelled, nothing made.
+        ; A handle that already has a line on it is still a place to start a
+        ; NEW connection from — the end of the existing line is only grabbable
+        ; once that edge is selected.
+        def n1:int (g.edgeCount())
+        ed.pointerDown(inp)
+        ed.pointerUp(inp)
+        c.ok("armed again, from a handle already in use" (ed.pending()))
+        def nowhere (new FlowInput)
+        nowhere.x = 900.0
+        nowhere.y = 620.0
+        ed.pointerDown(nowhere)
+        ed.pointerUp(nowhere)
+        c.eqInt("a click on nothing makes no edge" (g.edgeCount()) n1)
+        c.ok("and cancels the connection" ((ed.pending()) == false))
+        c.ok("leaving the editor idle" (ed.idle()))
+
+        ; Dragging from a handle still works exactly as it did.
+        def dragInp (new FlowInput)
+        dragInp.x = (ed.view.sx((customers.portX(from))))
+        dragInp.y = (ed.view.sy((customers.portY(from))))
+        ed.pointerDown(dragInp)
+        dragInp.x = (ed.view.sx((orders.portX(to))))
+        dragInp.y = (ed.view.sy((orders.portY(to))))
+        ed.pointerMove(dragInp)
+        ed.pointerUp(dragInp)
+        c.ok("a drag is not armed afterwards" ((ed.pending()) == false))
+        c.ok("and the editor is idle" (ed.idle()))
+    }
+
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m == 0) { return true }
+        if (m > n) { return false }
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring hay i (i + m)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn countTag:int (sc:FlowScene tag:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.tag == tag) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ------------------------------------------------ moving an edge end ----
+    sfn testReconnect:void (c:Checker) {
+        c.section("moving an edge's end to another socket")
+        def g:FlowGraph (RangerFlowTest.twoTables())
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 700.0)
+        def customers:FlowNode (g.nodeById("customers"))
+        def e:FlowEdge (g.edgeAt(0))
+        c.eqStr("it starts on the primary key" e.targetPort "customers.id:r")
+
+        ; An end is only grabbable on a SELECTED edge — otherwise a click on a
+        ; handle that already has a line on it could never start a second
+        ; connection, because the end and the handle are the same point.
+        def unselected (new FlowInput)
+        unselected.x = (ed.view.sx((g.endpointX(e false))))
+        unselected.y = (ed.view.sy((g.endpointY(e false))))
+        ed.pointerDown(unselected)
+        c.ok("an unselected edge's end is not grabbed" (ed.mode != 8))
+        ed.keyDown("Escape" false false)
+        e.selected = true
+
+        ; Grab the target end and drop it on the other column's handle.
+        def endX:double (g.endpointX(e false))
+        def endY:double (g.endpointY(e false))
+        def inp (new FlowInput)
+        inp.x = (ed.view.sx(endX))
+        inp.y = (ed.view.sy(endY))
+        ed.pointerDown(inp)
+        c.eqInt("grabbing the end starts a reconnect" ed.mode 8)
+        c.ok("and it is the target end" (ed.reconnectAtSource == false))
+
+        def other:FlowPort (g.portRef("customers.email:r"))
+        inp.x = (ed.view.sx((customers.portX(other))))
+        inp.y = (ed.view.sy((customers.portY(other))))
+        ed.pointerMove(inp)
+        c.ok("the other column is a valid place to put it" ed.view.connectValid)
+        ed.pointerUp(inp)
+        c.eqStr("the end moved" e.targetPort "customers.email:r")
+        c.eqInt("and no second edge was made" (g.edgeCount()) 1)
+        c.ok("nothing left running" (ed.idle()))
+        ed.undo.undo(g)
+        c.eqStr("one undo puts it back" e.targetPort "customers.id:r")
+        ed.undo.redo(g)
+        c.eqStr("and redo moves it again" e.targetPort "customers.email:r")
+        ed.undo.undo(g)
+
+        ; Dropped on nothing: the end goes back where it was, rather than the
+        ; edge being deleted or left hanging in the air.
+        inp.x = (ed.view.sx((g.endpointX(e false))))
+        inp.y = (ed.view.sy((g.endpointY(e false))))
+        ed.pointerDown(inp)
+        inp.x = 900.0
+        inp.y = 640.0
+        ed.pointerMove(inp)
+        ed.pointerUp(inp)
+        c.eqStr("dropped on nothing, the end stays put" e.targetPort "customers.id:r")
+        c.eqInt("and the edge survives" (g.edgeCount()) 1)
+        c.ok("idle again" (ed.idle()))
+
+        ; An end may not be dropped on its own other end.
+        def selfInp (new FlowInput)
+        selfInp.x = (ed.view.sx((g.endpointX(e false))))
+        selfInp.y = (ed.view.sy((g.endpointY(e false))))
+        ed.pointerDown(selfInp)
+        selfInp.x = (ed.view.sx((g.endpointX(e true))))
+        selfInp.y = (ed.view.sy((g.endpointY(e true))))
+        ed.pointerMove(selfInp)
+        c.ok("its own other end is not a target" (ed.view.connectValid == false))
+        ed.pointerUp(selfInp)
+        c.eqStr("so nothing moved" e.targetPort "customers.id:r")
+
+        ; Grabbing the MIDDLE of a line is still a segment drag, not a
+        ; reconnect — the two would fight over every click otherwise.
+        def midInp (new FlowInput)
+        def path:EdgePath (EdgeRouter.route(g e))
+        midInp.x = (ed.view.sx((path.midX())))
+        midInp.y = (ed.view.sy((path.midY())))
+        ed.pointerDown(midInp)
+        c.ok("the middle of a line is not an end" (ed.mode != 8))
+        ed.keyDown("Escape" false false)
+        c.ok("idle" (ed.idle()))
+    }
+
+    ; ------------------------------------------------------ wheel gestures ---
+    sfn testWheelGesture:void (c:Checker) {
+        c.section("wheel, trackpad and pinch")
+        ; The classification first, because everything else follows from it.
+        c.ok("a wheel notch is not a pan" ((FlowEditor.wheelIsPan(0.0 100.0 false)) == false))
+        c.ok("nor is a notch the other way" ((FlowEditor.wheelIsPan(0.0 -100.0 false)) == false))
+        c.ok("nor three lines of one" ((FlowEditor.wheelIsPan(0.0 3.0 true)) == false))
+        c.ok("anything sideways is a trackpad" (FlowEditor.wheelIsPan(12.0 4.0 false)))
+        c.ok("so is a fractional delta" (FlowEditor.wheelIsPan(0.0 41.5 false)))
+        c.ok("and so is a small one" (FlowEditor.wheelIsPan(0.0 12.0 false)))
+
+        def g (new FlowGraph)
+        g.node("a" "A" 0.0 0.0)
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(800.0 600.0)
+        ed.view.viewport.zoom = 1.0
+        ed.view.viewport.x = 0.0
+        ed.view.viewport.y = 0.0
+
+        ; A wheel notch zooms, and the point under the pointer holds still.
+        def held:double (ed.flowX(400.0))
+        ed.wheelGesture(400.0 300.0 0.0 -100.0 false false)
+        c.ok("a wheel notch up zooms in" (ed.view.viewport.zoom > 1.0))
+        c.near("about the pointer" (ed.flowX(400.0)) held 0.0001)
+        ed.wheelGesture(400.0 300.0 0.0 100.0 false false)
+        c.near("and back down again" ed.view.viewport.zoom 1.0 0.0001)
+
+        ; Two fingers scrolling PANS. It used to zoom, by the sign of deltaY —
+        ; and that sign flips with the platform's "natural scrolling" setting,
+        ; so the same gesture zoomed in for one reader and out for another and
+        ; there was no way to tell which from here.
+        def zoomBefore:double ed.view.viewport.zoom
+        def panBefore:double ed.view.viewport.y
+        ed.wheelGesture(400.0 300.0 0.0 -12.0 false false)
+        c.near("a trackpad scroll does not zoom" ed.view.viewport.zoom zoomBefore 0.0001)
+        c.near("it pans, with the fingers" ed.view.viewport.y (panBefore + 12.0) 0.0001)
+        ed.wheelGesture(400.0 300.0 8.0 0.0 false false)
+        c.near("sideways too" ed.view.viewport.x -8.0 0.0001)
+
+        ; A pinch zooms whichever way the fingers went, because the platform
+        ; marks it as a pinch rather than leaving us to infer it.
+        ed.view.viewport.zoom = 1.0
+        def heldY:double (ed.flowY(300.0))
+        ed.wheelGesture(400.0 300.0 0.0 -20.0 true false)
+        c.ok("pinching open zooms in" (ed.view.viewport.zoom > 1.0))
+        c.near("about the point between the fingers" (ed.flowY(300.0)) heldY 0.0001)
+        def opened:double ed.view.viewport.zoom
+        ed.wheelGesture(400.0 300.0 0.0 20.0 true false)
+        c.ok("pinching shut zooms out" (ed.view.viewport.zoom < opened))
+        ; Small deltas, so the approximation to e^x has to be close.
+        ed.view.viewport.zoom = 1.0
+        ed.wheelGesture(400.0 300.0 0.0 -10.0 true false)
+        c.near("ten pixels of pinch is about ten per cent" ed.view.viewport.zoom 1.105 0.01)
     }
 
     ; ------------------------------------------------- columns on a table ---
@@ -1933,6 +2348,57 @@ class RangerFlowTest {
         }
         c.ok(("the hop leaves the line (got " + (to_string away) + ")") (away > 4.0))
         c.near("right where the other line crosses" atX 100.0 8.0)
+
+        ; The hop has to be walked the way the LINE is going. This is the
+        ; assertion the first version did not have, and the bug it did not
+        ; catch: the arc was swept from π to 0, so the points came back
+        ; entry-point, then a half-circle running BACKWARDS to the entry
+        ; point, then the exit. Every check above still passed — the bulge was
+        ; there, in the right place, the right size — and what was drawn was a
+        ; bow tie. A shape is not proved by its extremes.
+        def backwards:int 0
+        def j:int 1
+        while (j < n) {
+            def prevX:double (itemAt hopped ((j - 1) * 2))
+            def hereX:double (itemAt hopped (j * 2))
+            if (hereX < (prevX - 0.001)) {
+                backwards = (backwards + 1)
+            }
+            j = (j + 1)
+        }
+        c.eqInt("and every point of it advances along the line" backwards 0)
+        ; …and the bulge is all on ONE side. A half-circle that crossed the
+        ; line would also advance monotonically and would still be wrong.
+        def aboveN:int 0
+        def belowN:int 0
+        def k2:int 0
+        while (k2 < n) {
+            def yy:double (itemAt hopped ((k2 * 2) + 1))
+            if (yy < 49.999) { aboveN = (aboveN + 1) }
+            if (yy > 50.001) { belowN = (belowN + 1) }
+            k2 = (k2 + 1)
+        }
+        c.ok("the hop stays on one side of the line" ((aboveN == 0) || (belowN == 0)))
+
+        ; The hop reaches SVG and PDF as a real half-circle rather than as a
+        ; sixteen-sided approximation of one. The polyline is still what the
+        ; GPU draws — a display list has no arcs — so the two have to agree
+        ; about where the hop starts and ends, and they do because one pass
+        ; produced both.
+        def marks:[double]
+        def hopped2:[double] (EdgeRouter.bridgeInto(line cross 6.0 marks))
+        c.eqInt("one hop, one mark of five numbers" (array_length marks) 5)
+        def d:string (FlowScene.bridgedPath(hopped2 marks))
+        c.ok("the path carries an arc command" ((RangerFlowTest.hasSub(d " A ")) ))
+        ; The arc ends where the polyline's hop ends.
+        def exitX:double (itemAt marks 2)
+        def exitY:double (itemAt marks 3)
+        c.ok("and the arc lands on the polyline's exit" (RangerFlowTest.hasSub(d ((EVGDisplayList.num(exitX)) + " " + (EVGDisplayList.num(exitY))))))
+        c.near("the radius is the one asked for" (itemAt marks 4) 6.0 0.001)
+        ; No crossings, no marks, and the path is a plain polyline.
+        def noMarks:[double]
+        def plainD:string (FlowScene.bridgedPath(line noMarks))
+        c.ok("a line with no hops has no arc in it" ((RangerFlowTest.hasSub(plainD " A ")) == false))
 
         ; A line with nothing to cross is left exactly as it was.
         def alone:[double]

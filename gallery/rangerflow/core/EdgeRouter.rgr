@@ -849,7 +849,25 @@ class EdgeRouter {
     ; `others` is a flat list of x1 y1 x2 y2 quads: the segments this line is
     ; allowed to hop over. Only one line of a pair should be given the other,
     ; or they would both hop and the crossing would look like a knot.
+    ; Where each hop ended up, recorded as the algorithm lays them down:
+    ; entry x, entry y, exit x, exit y, radius — five numbers per hop, flat.
+    ; The polyline is what the GPU draws (a display list has no arcs); this is
+    ; what lets the SVG and the PDF draw the same hop as a REAL half-circle
+    ; rather than as a sixteen-sided approximation of one. Two renderings of
+    ; one geometry, from one pass, so they cannot disagree about where the hop
+    ; is — which is the failure a second implementation would eventually have.
+    sfn bridgeMarks:[double] (pts:[double] others:[double] radius:double) {
+        def marks:[double]
+        EdgeRouter.bridgeInto(pts others radius marks)
+        return marks
+    }
+
     sfn bridgePolyline:[double] (pts:[double] others:[double] radius:double) {
+        def marks:[double]
+        return (EdgeRouter.bridgeInto(pts others radius marks))
+    }
+
+    sfn bridgeInto:[double] (pts:[double] others:[double] radius:double marks:[double]) {
         def n:int (idiv (array_length pts) 2)
         if (n < 2) {
             return pts
@@ -890,11 +908,20 @@ class EdgeRouter {
                     if okHere {
                         def from:double (at - radius)
                         def to:double (at + radius)
-                        push out (ax + (ux * from))
-                        push out (ay + (uy * from))
+                        def ex:double (ax + (ux * from))
+                        def ey:double (ay + (uy * from))
+                        def xx:double (ax + (ux * to))
+                        def xy:double (ay + (uy * to))
+                        push out ex
+                        push out ey
                         EdgeRouter.arcOver(out ax ay ux uy at radius)
-                        push out (ax + (ux * to))
-                        push out (ay + (uy * to))
+                        push out xx
+                        push out xy
+                        push marks ex
+                        push marks ey
+                        push marks xx
+                        push marks xy
+                        push marks radius
                         walked = to
                     }
                     k = (k + 1)
@@ -910,16 +937,25 @@ class EdgeRouter {
     ; The half-circle itself, bulging to the left of the direction of travel.
     ; Which side does not matter as long as it is always the same one: two
     ; hops on the same line bulging opposite ways read as a wobble.
+    ;
+    ; The angle sweeps 0 → π, so the arc is walked from `at - radius` to
+    ; `at + radius`: the SAME way the line is going. It used to sweep π → 0,
+    ; which walked the arc backwards — the caller pushed the entry point, then
+    ; a half-circle running back to it, then the exit point, and the result was
+    ; a bow tie rather than a hop. It looked like a knot in the line because it
+    ; was one.
     sfn arcOver:void (out:[double] ax:double ay:double ux:double uy:double at:double radius:double) {
         def cx:double (ax + (ux * at))
         def cy:double (ay + (uy * at))
         def nx:double (0.0 - uy)
         def ny:double ux
-        def steps:int 7
+        ; Enough segments that the flat spots do not show at the zoom a reader
+        ; uses. Seven made a visible polygon at a hop only nine pixels across.
+        def steps:int 16
         def i:int 1
         while (i < steps) {
             def t:double ((to_double i) / (to_double steps))
-            def a:double (3.141592653589793 * (1.0 - t))
+            def a:double (3.141592653589793 * t)
             def along:double (0.0 - (radius * (cos a)))
             def outw:double (radius * (sin a))
             push out ((cx + (ux * along)) + (nx * outw))

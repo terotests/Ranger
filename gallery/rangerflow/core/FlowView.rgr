@@ -79,6 +79,15 @@ class FlowView {
     def connectToX:double 0.0
     def connectToY:double 0.0
     def connecting:boolean false
+    ; True while the pointer is over a handle the pending connection could
+    ; actually land on. The preview line is drawn in a different colour for
+    ; it, because a connect mode that gives no sign it has found a target is a
+    ; connect mode the reader discovers by being surprised.
+    def connectValid:boolean false
+    ; The edge whose end is being moved, or -1. It is drawn without that end
+    ; while the end is in the air, so the reader sees one line pivoting rather
+    ; than two lines overlapping.
+    def reconnecting:int -1
     def boxSelect:FlowRect (new FlowRect)
 
     ; --- in-place editing -----------------------------------------------------
@@ -1012,10 +1021,14 @@ class FlowView {
             push pts (this.sy((path.py(i))))
             i = (i + 1)
         }
+        ; The hops, and where each one is. The polyline is what the GPU draws;
+        ; the marks let the SVG and the PDF draw the same hop as a real
+        ; half-circle rather than a sixteen-sided one.
+        def marks:[double]
         if bridgeEdges {
             def before:[double] (this.segmentsBefore(index))
             if ((array_length before) >= 4) {
-                pts = (EdgeRouter.bridgePolyline(pts before (this.sl(bridgeRadius))))
+                pts = (EdgeRouter.bridgeInto(pts before (this.sl(bridgeRadius)) marks))
             }
         }
         def col:string theme.edgeColor
@@ -1024,7 +1037,7 @@ class FlowView {
         def w:double theme.edgeWidth
         if (e.strokeWidth > 0.0) { w = e.strokeWidth }
         if e.selected { w = (w + 0.8) }
-        def item:SceneItem (sc.path(pts (this.screenPathD(pts)) col (this.sl(w))))
+        def item:SceneItem (sc.path(pts (FlowScene.bridgedPath(pts marks)) col (this.sl(w))))
         item.tag = ("edge:" + e.id)
         if (e.dash > 0.0) {
             item.dash = (this.sl(e.dash))
@@ -1868,9 +1881,36 @@ class FlowView {
             push pts (this.sy((path.py(i))))
             i = (i + 1)
         }
-        def line:SceneItem (sc.path(pts (this.screenPathD(pts)) theme.portActive (this.sl(1.6))))
+        ; Solid and in the accent colour when a click here would land, dashed
+        ; and grey when it would not. That difference IS the feedback: without
+        ; it the reader has no way to know a target is live until after
+        ; committing to it.
+        def col:string theme.portBorder
+        def wide:double (this.sl(1.6))
+        def line:SceneItem (sc.path(pts (this.screenPathD(pts)) col wide))
         line.dash = 6.0
+        if connectValid {
+            line.stroke = theme.portActive
+            line.strokeWidth = (this.sl(2.4))
+            line.dash = 0.0
+        }
         line.tag = "chrome"
+        ; A ring on the handle the line would land on, so the target is named
+        ; as well as the fact that there is one.
+        if connectValid {
+            if ((graph.hasPort(hoverPort))) {
+                def tp:FlowPort (graph.portRef(hoverPort))
+                def town:FlowNode (graph.nodeById(tp.nodeId))
+                def tx:double (this.sx((town.portX(tp))))
+                def ty:double (this.sy((town.portY(tp))))
+                def rr:double (this.sl(7.0))
+                def ring:SceneItem (sc.rect((tx - rr) (ty - rr) (rr * 2.0) (rr * 2.0) ""))
+                ring.radius = rr
+                ring.stroke = theme.portActive
+                ring.strokeWidth = (this.sl(2.0))
+                ring.tag = "chrome"
+            }
+        }
     }
 
     fn paintBoxSelect:void (sc:FlowScene) {

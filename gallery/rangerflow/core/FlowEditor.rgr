@@ -53,6 +53,9 @@ class FlowUndoEntry {
     ; in oldX / newX, x and y interleaved, and `edges` holds the one edge),
     ; 6 text (a label typed in place; `target` says which piece of text),
     ; 7 rotate (degrees before and after, per node, in oldX / newX),
+    ; 10 reconnect (one end of one edge moved to another handle; oldText and
+    ;    newText are the two port ids, oldX / newX the two sides, and oldY[0]
+    ;    is 1 when it was the source end that moved),
     ; 8 add a row to a compartment node, 9 remove one — `rows` holds the row
     ;   itself, `nodeIds` the node it belongs to, oldX the section and the
     ;   place within it, and `edges` whatever was attached to the row's port
@@ -141,6 +144,36 @@ class FlowUndo {
                     n.syncFromModel()
                 }
                 i = (i + 1)
+            }
+            return
+        }
+        ; An edge end moved from one handle to another.
+        if (e.kind == 10) {
+            if ((array_length e.edges) > 0) {
+                def ed:FlowEdge (itemAt e.edges 0)
+                def want:string e.newText
+                def side:int (to_int (itemAt e.newX 0))
+                if reverse {
+                    want = e.oldText
+                    side = (to_int (itemAt e.oldX 0))
+                }
+                def atSource:boolean ((itemAt e.oldY 0) > 0.5)
+                def owner:int (g.portOwner(want))
+                if (owner >= 0) {
+                    def on:FlowNode (g.nodeAt(owner))
+                    if atSource {
+                        ed.source = on.id
+                        ed.sourcePort = want
+                        ed.sourceHandle = side
+                    } {
+                        ed.target = on.id
+                        ed.targetPort = want
+                        ed.targetHandle = side
+                    }
+                    ed.pinnedRoute = false
+                    clear ed.waypoints
+                    g.reindex()
+                }
             }
             return
         }
@@ -455,6 +488,27 @@ class FlowEditor {
     def connectOnClick:boolean false
     def clickConnectFrom:string ""
 
+    ; A connection waiting for its far end. This is what a CLICK on a handle
+    ; leaves behind — as against a drag, which is finished by the time the
+    ; button comes up. The line follows the pointer until the reader clicks
+    ; something to land on, and a click on anything that is not a target
+    ; cancels it. Empty means nothing is pending.
+    def pendingFrom:string ""
+    ; Set when the pending connection was armed by the element tool's `+`
+    ; rather than by the reader turning connect mode on. One connection and it
+    ; disarms itself — a button press is a request to do a thing once, not a
+    ; request to change what every future click means.
+    def pendingOneShot:boolean false
+
+    ; Reconnect: the edge whose end is being dragged, and which end. -1 for
+    ; none. Grabbing the point where a line meets a socket means "put this end
+    ; somewhere else", which is the only thing it could reasonably mean and
+    ; was doing nothing at all.
+    def reconnectEdge:int -1
+    def reconnectAtSource:boolean false
+    def reconnectPort:string ""
+    def reconnectHandle:int -1
+
     ; What a newly added column is called before anybody types over it, and
     ; what type it is given. Both are placeholders and both are meant to be
     ; replaced immediately — which is why `addRowToSelected` puts the caret in
@@ -714,6 +768,10 @@ class FlowEditor {
                 this.commitEdit()
             }
         }
+        ; A press is the start of a new gesture, so a pinch still on record —
+        ; a finger lifted outside the window, a cancelled pointer — ends here
+        ; rather than lingering and swallowing the next one.
+        pinching = false
         pressX = inp.x
         pressY = inp.y
         lastX = inp.x
@@ -765,6 +823,23 @@ class FlowEditor {
             resizeW = rn.width
             resizeH = rn.height
             mode = 5
+            return
+        }
+        ; A connection already waiting for its far end takes the click. It is
+        ; the most specific thing on the surface: the reader asked for it a
+        ; moment ago and the line is following the pointer to prove it.
+        if ((strlen pendingFrom) > 0) {
+            this.finishPending(inp.x inp.y)
+            return
+        }
+        ; The end of a line where it meets a socket means "move this end", not
+        ; "start a new connection from the node underneath". Asked before the
+        ; ports, because the two are within a few pixels of each other by
+        ; construction — an edge end IS on a port.
+        def endHit:int (this.edgeEndAt(inp.x inp.y))
+        if (endHit >= 0) {
+            this.beginReconnect(endHit)
+            mode = 8
             return
         }
         def portId:string (this.portAt(inp.x inp.y))
@@ -1076,6 +1151,16 @@ class FlowEditor {
                 view.menu.highlight = (view.menuRowAt(inp.x inp.y))
                 return
             }
+            ; A pending connection has no button held down, so its live line
+            ; is updated from the idle move rather than from a drag.
+            if ((strlen pendingFrom) > 0) {
+                view.connectToX = (this.flowX(inp.x))
+                view.connectToY = (this.flowY(inp.y))
+                view.hoverPort = (this.portAt(inp.x inp.y))
+                view.connectValid = (this.pendingWouldConnect(inp.x inp.y))
+                this.updateHover(inp.x inp.y)
+                return
+            }
             this.updateHover(inp.x inp.y)
             return
         }
@@ -1105,6 +1190,13 @@ class FlowEditor {
         }
         if (mode == 6) {
             this.segmentDragTo(inp.x inp.y)
+            return
+        }
+        if (mode == 8) {
+            view.connectToX = (this.flowX(inp.x))
+            view.connectToY = (this.flowY(inp.y))
+            view.hoverPort = (this.portAt(inp.x inp.y))
+            view.connectValid = (this.pendingWouldConnect(inp.x inp.y))
             return
         }
     }
@@ -1222,6 +1314,53 @@ class FlowEditor {
 
     ; The menu's ids, acted on. Each is something the editor could already do;
     ; the menu is a second way in rather than a second implementation.
+    ; Everything transient, off. Escape calls it, and so does anything that
+    ; needs the surface back in a known state — the one place that knows the
+    ; full list, so a mode added later has one obvious place to be forgotten
+    ; in rather than five.
+    fn clearTransientModes:void () {
+        if (this.editing()) {
+            this.cancelEdit()
+        }
+        if ((strlen pendingFrom) > 0) {
+            this.cancelPending()
+        }
+        if (reconnectEdge >= 0) {
+            this.clearReconnect()
+        }
+        if (mode == 2) {
+            this.endDrag()
+        }
+        if (mode == 6) {
+            this.endSegmentDrag()
+        }
+        connectOnClick = false
+        clickConnectFrom = ""
+        resizeIndex = -1
+        view.menu.close()
+        view.boxSelect = (new FlowRect)
+        view.connecting = false
+        view.connectFrom = ""
+        view.connectValid = false
+        view.hoverPort = ""
+        pinching = false
+        mode = 0
+    }
+
+    ; Is anything transient still on? A mode nobody can get out of is the
+    ; failure this exists to make testable — see `testNoStuckModes`.
+    fn idle:boolean () {
+        if (mode != 0) { return false }
+        if (this.editing()) { return false }
+        if ((strlen pendingFrom) > 0) { return false }
+        if (reconnectEdge >= 0) { return false }
+        if (view.connecting) { return false }
+        if (view.menu.open) { return false }
+        if pinching { return false }
+        if ((strlen clickConnectFrom) > 0) { return false }
+        return true
+    }
+
     fn runMenu:void (id:string) {
         if (id == "delete") {
             this.deleteSelection()
@@ -1415,6 +1554,14 @@ class FlowEditor {
             view.boxSelect = (new FlowRect)
         }
         if (mode == 4) {
+            ; A press and a release on the same handle is a CLICK, not a
+            ; drag of no length: it arms the connection and leaves the line
+            ; following the pointer. Dragging still works exactly as it did.
+            if (movedSincePress == false) {
+                this.armPending(view.connectFrom false)
+                mode = 0
+                return
+            }
             this.endConnect(inp)
         }
         if (mode == 5) {
@@ -1423,9 +1570,18 @@ class FlowEditor {
         if (mode == 6) {
             this.endSegmentDrag()
         }
+        if (mode == 8) {
+            this.endReconnect(inp.x inp.y)
+        }
         mode = 0
-        view.connecting = false
-        view.connectFrom = ""
+        ; A connection waiting for its far end owns the preview line, so
+        ; clearing it here would blank the very thing that tells the reader
+        ; the mode is on.
+        if ((strlen pendingFrom) == 0) {
+            view.connecting = false
+            view.connectFrom = ""
+            view.connectValid = false
+        }
     }
 
     fn endDrag:void () {
@@ -1466,6 +1622,376 @@ class FlowEditor {
         clear dragIds
         clear dragStartX
         clear dragStartY
+    }
+
+    ; --------------------------------------------- a connection in waiting ---
+    ; Armed by a click on a handle, or by the element tool's `+`. The line
+    ; follows the pointer from the handle it started at until the reader
+    ; clicks something — which is what "connect should always start from that
+    ; connect point" means, and what a drag alone could not offer a reader on
+    ; a trackpad or a touch screen.
+    fn armPending:boolean (portId:string oneShot:boolean) {
+        if ((graph.hasPort(portId)) == false) {
+            return false
+        }
+        pendingFrom = portId
+        pendingOneShot = oneShot
+        view.connectFrom = portId
+        view.connecting = true
+        view.connectValid = false
+        def p:FlowPort (graph.portRef(portId))
+        def owner:FlowNode (graph.nodeById(p.nodeId))
+        view.connectToX = (owner.portX(p))
+        view.connectToY = (owner.portY(p))
+        return true
+    }
+
+    ; Arm from a node rather than a handle: the `+` button has a node, and the
+    ; reader has not said which side of it to leave by. The handle nearest the
+    ; middle of the free side is as good a guess as any, and the router will
+    ; move the line to the right side once there is something to aim at.
+    fn armPendingFromNode:boolean (nodeId:string oneShot:boolean) {
+        if ((graph.hasNode(nodeId)) == false) {
+            return false
+        }
+        def n:FlowNode (graph.nodeById(nodeId))
+        ; A node with no handles has nothing to connect from, and on a force
+        ; graph or a plain flowchart that is most of them. Being ASKED to
+        ; connect from it is as clear a request for handles as there is, so it
+        ; gets the four React Flow would have given it. Doing nothing at all —
+        ; which is what this did — is a button that looks broken.
+        this.ensureHandles(n)
+        def best:string ""
+        def k:int 0
+        while (k < (array_length n.ports)) {
+            def p:FlowPort (itemAt n.ports k)
+            if (p.hidden == false) {
+                if (p.role != "target") {
+                    if ((strlen best) == 0) {
+                        best = p.id
+                    }
+                    if (p.side == n.sourcePosition) {
+                        best = p.id
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        if ((strlen best) == 0) {
+            return false
+        }
+        return (this.armPending(best oneShot))
+    }
+
+    ; The four side handles, if the node has none of its own. A table keeps
+    ; its port-per-row; anything else gets top, right, bottom and left.
+    fn ensureHandles:void (n:FlowNode) {
+        if ((array_length n.ports) > 0) {
+            return
+        }
+        n.addSideHandles()
+        ; The graph keeps a port-id index, and a port that is not in it does
+        ; not exist as far as `hasPort` and `portRef` are concerned. Adding
+        ; handles without this made `armPendingFromNode` add four ports and
+        ; then refuse to use any of them — the + button doing nothing at all
+        ; on every diagram whose nodes had no handles of their own.
+        graph.reindex()
+        onGraphChanged = true
+    }
+
+    ; The handle nearest a point on a node, once the node is sure to have
+    ; some. This is what makes a click anywhere on a target land: the reader
+    ; aims at the box, not at a five-pixel dot.
+    fn nearestHandle:string (n:FlowNode fx:double fy:double) {
+        this.ensureHandles(n)
+        def best:string ""
+        def bestD:double 0.0
+        def k:int 0
+        while (k < (array_length n.ports)) {
+            def p:FlowPort (itemAt n.ports k)
+            if (p.hidden == false) {
+                def d:double (FlowEditor.away((n.portX(p)) (n.portY(p)) fx fy))
+                if ((strlen best) == 0) {
+                    best = p.id
+                    bestD = d
+                } {
+                    if (d < bestD) {
+                        best = p.id
+                        bestD = d
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return best
+    }
+
+    ; What a click at this point would connect to: a handle if the pointer is
+    ; on one, otherwise the nearest handle of whatever node it is over.
+    fn landingPort:string (sx:double sy:double) {
+        def onPort:string (this.portAt(sx sy))
+        if ((strlen onPort) > 0) {
+            return onPort
+        }
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni < 0) {
+            return ""
+        }
+        def n:FlowNode (graph.nodeAt(ni))
+        if (n.connectable == false) {
+            return ""
+        }
+        return (this.nearestHandle(n fx fy))
+    }
+
+    ; Would a click here land the pending connection? The preview asks this on
+    ; every move so the reader can SEE that a target is live before committing
+    ; to it — a connect mode with no feedback is a connect mode you find out
+    ; about by being surprised.
+    fn pendingWouldConnect:boolean (sx:double sy:double) {
+        def from:string pendingFrom
+        if ((strlen from) == 0) {
+            from = view.connectFrom
+        }
+        if ((strlen from) == 0) {
+            return false
+        }
+        def toPort:string (this.landingPort(sx sy))
+        if ((strlen toPort) > 0) {
+            if (mode == 8) {
+                return (this.canReconnectTo(toPort))
+            }
+            return (graph.canConnect(from toPort))
+        }
+        return false
+    }
+
+    ; The second click. Landing on a valid handle makes the edge; anything
+    ; else cancels — which is what was asked for, and what stops a half-made
+    ; connection waiting for a node the reader has stopped looking for.
+    fn finishPending:boolean (sx:double sy:double) {
+        def from:string pendingFrom
+        def toPort:string (this.landingPort(sx sy))
+        def made:boolean false
+        if ((strlen toPort) > 0) {
+            if (graph.canConnect(from toPort)) {
+                this.connectPorts(from toPort)
+                made = true
+            }
+        }
+        this.cancelPending()
+        return made
+    }
+
+    ; Every way out of the pending state goes through here, so there is one
+    ; place that can leave it half-cleared and it is this one.
+    fn cancelPending:void () {
+        pendingFrom = ""
+        pendingOneShot = false
+        view.connecting = false
+        view.connectFrom = ""
+        view.connectValid = false
+        view.hoverPort = ""
+        mode = 0
+    }
+
+    fn pending:boolean () {
+        return ((strlen pendingFrom) > 0)
+    }
+
+    ; The edge two handles make, in one place: the drag path, the click path
+    ; and the reconnect path all end here rather than each building an edge of
+    ; its own that could drift from the others.
+    fn connectPorts:FlowEdge (fromPort:string toPort:string) {
+        def from:FlowPort (graph.portRef(fromPort))
+        def to:FlowPort (graph.portRef(toPort))
+        def e:FlowEdge (FlowEdge.create("" from.nodeId to.nodeId))
+        e.sourcePort = fromPort
+        e.targetPort = toPort
+        e.sourceHandle = from.side
+        e.targetHandle = to.side
+        e.edgeType = "smoothstep"
+        graph.addEdge(e)
+        graph.reindex()
+        def entry (new FlowUndoEntry)
+        entry.kind = 3
+        entry.label = "connect"
+        push entry.edges e
+        undo.record(entry)
+        onGraphChanged = true
+        return e
+    }
+
+    ; ------------------------------------------------------------ reconnect --
+    ; Which edge end is under the pointer, encoded so one int carries both the
+    ; edge and which of its two ends: `index * 2` for the source, `+ 1` for
+    ; the target. -1 for none.
+    fn edgeEndAt:int (sx:double sy:double) {
+        def reach:double (10.0 / view.viewport.zoom)
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def best:int -1
+        def bestD:double reach
+        def i:int 0
+        while (i < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(i))
+            ; Only on a SELECTED edge. An edge end and the handle it sits on
+            ; are the same point by construction, so without this rule the two
+            ; gestures fight: every click on a handle that already has a line
+            ; on it would mean "move that line" and starting a second
+            ; connection from a used handle would become impossible. Selecting
+            ; the edge first is how JointJS arms its arrowhead tool too, and it
+            ; makes which of the two you get something the reader chose rather
+            ; than something they discover.
+            if (e.selected) {
+            if (e.hidden == false) {
+                ; Only an end that is ON a handle can be moved to another one.
+                ; A node-to-node edge has nowhere to move to.
+                if ((strlen e.sourcePort) > 0) {
+                    def d0:double (FlowEditor.away((graph.endpointX(e true)) (graph.endpointY(e true)) fx fy))
+                    if (d0 <= bestD) {
+                        bestD = d0
+                        best = (i * 2)
+                    }
+                }
+                if ((strlen e.targetPort) > 0) {
+                    def d1:double (FlowEditor.away((graph.endpointX(e false)) (graph.endpointY(e false)) fx fy))
+                    if (d1 <= bestD) {
+                        bestD = d1
+                        best = ((i * 2) + 1)
+                    }
+                }
+            }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    sfn away:double (ax:double ay:double bx:double by:double) {
+        def dx:double (ax - bx)
+        def dy:double (ay - by)
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    fn beginReconnect:void (encoded:int) {
+        reconnectEdge = (idiv encoded 2)
+        reconnectAtSource = ((encoded % 2) == 0)
+        def e:FlowEdge (graph.edgeAt(reconnectEdge))
+        if reconnectAtSource {
+            reconnectPort = e.sourcePort
+            reconnectHandle = e.sourceHandle
+        } {
+            reconnectPort = e.targetPort
+            reconnectHandle = e.targetHandle
+        }
+        ; The line is drawn from the end that is STAYING to the pointer, so
+        ; the reader sees the edge pivot about its anchor rather than a second
+        ; line appearing from nowhere.
+        def anchor:string e.targetPort
+        if (reconnectAtSource == false) {
+            anchor = e.sourcePort
+        }
+        view.connectFrom = anchor
+        view.connecting = true
+        view.connectValid = false
+        view.reconnecting = reconnectEdge
+    }
+
+    ; May this end move to that handle? Everything `canConnect` asks, minus
+    ; the objection that the pair is already joined — it is joined BY THE EDGE
+    ; BEING MOVED, and refusing to let an edge land where it already is would
+    ; make a reconnect that changed nothing into a reconnect that deleted
+    ; something.
+    fn canReconnectTo:boolean (toPort:string) {
+        if (reconnectEdge < 0) {
+            return false
+        }
+        def e:FlowEdge (graph.edgeAt(reconnectEdge))
+        def other:string e.targetPort
+        if (reconnectAtSource == false) {
+            other = e.sourcePort
+        }
+        if (toPort == other) {
+            return false
+        }
+        if (toPort == reconnectPort) {
+            return true
+        }
+        def p:FlowPort (graph.portRef(toPort))
+        if (p.nodeId == "") {
+            return false
+        }
+        ; The role has to allow this END specifically: moving a source onto a
+        ; target-only handle is the mistake this catches.
+        if reconnectAtSource {
+            if (p.role == "target") { return false }
+        } {
+            if (p.role == "source") { return false }
+        }
+        if reconnectAtSource {
+            return (graph.canConnect(toPort other))
+        }
+        return (graph.canConnect(other toPort))
+    }
+
+    fn endReconnect:void (sx:double sy:double) {
+        if (reconnectEdge < 0) {
+            this.clearReconnect()
+            return
+        }
+        def e:FlowEdge (graph.edgeAt(reconnectEdge))
+        def toPort:string (this.landingPort(sx sy))
+        def moved:boolean false
+        if ((strlen toPort) > 0) {
+            if (this.canReconnectTo(toPort)) {
+                if (toPort != reconnectPort) {
+                    def p:FlowPort (graph.portRef(toPort))
+                    def entry (new FlowUndoEntry)
+                    entry.kind = 10
+                    entry.label = "reconnect"
+                    push entry.edges e
+                    entry.oldText = reconnectPort
+                    entry.newText = toPort
+                    push entry.oldX (to_double reconnectHandle)
+                    push entry.newX (to_double p.side)
+                    if reconnectAtSource {
+                        push entry.oldY 1.0
+                        e.source = p.nodeId
+                        e.sourcePort = toPort
+                        e.sourceHandle = p.side
+                    } {
+                        push entry.oldY 0.0
+                        e.target = p.nodeId
+                        e.targetPort = toPort
+                        e.targetHandle = p.side
+                    }
+                    ; A hand-placed route belonged to the old shape of the
+                    ; edge. Keeping it would leave the line drawn to where the
+                    ; end used to be.
+                    e.pinnedRoute = false
+                    clear e.waypoints
+                    graph.reindex()
+                    undo.record(entry)
+                    onGraphChanged = true
+                    moved = true
+                }
+            }
+        }
+        this.clearReconnect()
+    }
+
+    fn clearReconnect:void () {
+        reconnectEdge = -1
+        reconnectPort = ""
+        reconnectHandle = -1
+        view.reconnecting = -1
+        view.connecting = false
+        view.connectFrom = ""
+        view.connectValid = false
+        view.hoverPort = ""
     }
 
     fn endConnect:void (inp:FlowInput) {
@@ -2313,8 +2839,15 @@ class FlowEditor {
             return
         }
         if (id == "connect") {
-            connectOnClick = true
-            clickConnectFrom = n.id
+            ; This used to switch `connectOnClick` on and leave it on for
+            ; ever: after one use every click anywhere started a connection
+            ; and no other editing was possible again. It also connected node
+            ; to node, which on a diagram whose edges have been faced by a
+            ; layout produces an arrow that appears to belong to nothing.
+            ;
+            ; Now it arms the same pending connection a click on a handle
+            ; does — from a real handle, with a live line, and one-shot.
+            this.armPendingFromNode(n.id true)
             mode = 0
             return
         }
@@ -2372,6 +2905,92 @@ class FlowEditor {
         def dx:double (x2 - x1)
         def dy:double (y2 - y1)
         return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    ; ------------------------------------------------------ wheel gestures ---
+    ; One physical surface, three gestures, and the browser reports all three
+    ; as `wheel`:
+    ;
+    ;   a mouse wheel          one notch, a large whole-number deltaY, no deltaX
+    ;   two fingers scrolling  small, often fractional, usually with a deltaX
+    ;   two fingers pinching   the same event with ctrlKey set — which is not
+    ;                          the reader holding Ctrl, it is the platform's
+    ;                          way of saying "this was a pinch"
+    ;
+    ; They used to be one case: everything zoomed, by the SIGN of deltaY. That
+    ; is wrong for the middle one in a way that cannot be fixed by flipping the
+    ; sign, because the sign itself depends on a setting we cannot read. With
+    ; "natural scrolling" on — the default on macOS and common on Windows
+    ; precision touchpads — two fingers moving down produce a NEGATIVE deltaY,
+    ; and two fingers moving down with it off produce a positive one. The same
+    ; gesture, opposite numbers. Any app that zooms on it is inverted for half
+    ; its readers and there is no way to tell which half.
+    ;
+    ; So two-finger scrolling no longer zooms at all: it pans, which is what
+    ; every diagram editor does and what makes the direction unambiguous —
+    ; the diagram follows the fingers whichever way the setting is. Zoom is
+    ; the pinch and the wheel, and both of those have a direction everyone
+    ; agrees on.
+    fn wheelGesture:void (sx:double sy:double dx:double dy:double pinch:boolean lineMode:boolean) {
+        if (zoomOnScroll == false) {
+            view.viewport.panBy((0.0 - dx) (0.0 - dy))
+            return
+        }
+        if pinch {
+            if (zoomOnPinch == false) {
+                return
+            }
+            ; Continuous rather than stepped: a pinch arrives as a stream of
+            ; small deltas, and quantising each one to ×1.1 makes a slow
+            ; gesture leap and a fast one crawl. The proper factor is
+            ; e^(-dy/100); there is no `exp` here, and its first two terms are
+            ; within a thousandth over the range a pinch actually delivers
+            ; (|dy| under about ten per event), which is nearer than a reader
+            ; can see. The clamp is for the outliers a fast gesture throws.
+            def k:double ((0.0 - dy) * 0.01)
+            def factor:double ((1.0 + k) + ((k * k) * 0.5))
+            if (factor < 0.2) { factor = 0.2 }
+            if (factor > 5.0) { factor = 5.0 }
+            view.viewport.zoomAt(sx sy factor)
+            return
+        }
+        if (FlowEditor.wheelIsPan(dx dy lineMode)) {
+            view.viewport.panBy((0.0 - dx) (0.0 - dy))
+            return
+        }
+        def step:double 1.1
+        if (dy > 0.0) {
+            step = (1.0 / 1.1)
+        }
+        view.viewport.zoomAt(sx sy step)
+    }
+
+    ; Is this a trackpad scrolling rather than a wheel notching? Three tells,
+    ; any one of which is enough:
+    ;
+    ;   * a sideways component at all — a wheel has none;
+    ;   * a fractional delta — a wheel's is a whole number of notches;
+    ;   * a small delta — a wheel notch is 100 px (or 3 lines) and a trackpad
+    ;     reports the pixels the fingers actually moved.
+    ;
+    ; `lineMode` is the browser's deltaMode 1, which only a real wheel uses;
+    ; it settles the third tell, whose threshold would otherwise call a
+    ; three-line notch a trackpad.
+    sfn wheelIsPan:boolean (dx:double dy:double lineMode:boolean) {
+        if lineMode {
+            return false
+        }
+        if ((fabs dx) > 0.0001) {
+            return true
+        }
+        def whole:double (to_double (to_int dy))
+        if ((fabs (dy - whole)) > 0.0001) {
+            return true
+        }
+        if ((fabs dy) < 40.0) {
+            return true
+        }
+        return false
     }
 
     fn wheel:void (inp:FlowInput delta:double) {
@@ -2447,9 +3066,12 @@ class FlowEditor {
             return (this.deleteSelection())
         }
         if (key == "Escape") {
+            ; Escape used to clear the selection and set two of the eight
+            ; things that can be in progress. Everything transient goes off
+            ; now, because "Escape gets me out" is only true if it is true of
+            ; all of them.
+            this.clearTransientModes()
             graph.clearSelection()
-            mode = 0
-            view.connecting = false
             return true
         }
         if ctrl {
