@@ -18,6 +18,8 @@ one OPC package reader, and the XML text rules.
 
 ```text
 gallery/office/
+    drawing/
+        OfficeColor.rgr        the theme palette, and what is done to a colour
     text/
         OfficeFont.rgr         which face draws this run
         OfficeTextRun.rgr      a stretch of text drawn in one face
@@ -30,6 +32,7 @@ gallery/office/
 npm run office:font:test       # JavaScript and C++
 npm run office:metrics:test    # likewise
 npm run office:style:test      # likewise
+npm run office:color:test      # likewise
 ```
 
 ### `OfficeFont`
@@ -145,11 +148,46 @@ bold placeholder is recorded, un-bolding inside plain text leaves no scar.
   → shaping → glyph runs → measurement → line breaking — with Word's,
   PowerPoint's and Excel's own layout rules on top of it, not merged into it.
 
-### `drawing/` — the DrawingML core
+### `OfficeColor`
 
-`PptxColor`, gradients, line styles, shadows, transforms and geometry are in
-`PptxModel`, but DrawingML is not PowerPoint's: `.xlsx` charts and drawings and
-`.docx` floating drawings use it too.
+DrawingML is not PowerPoint's: the same `<a:clrScheme>` names the same twelve
+colours in a .pptx, a .xlsx and a .docx. The deck reader had the palette, the
+modifier chain and the scheme names. The spreadsheet had none of it and dropped
+every colour that was not a literal hex string:
+
+```xml
+rgb="FFCC0000"           read
+theme="4" tint="0.4"     "" — dropped
+indexed="10"             "" — dropped
+```
+
+The second line is what Excel writes for **every** cell styled from the
+palette — *"Blue, Accent 1, Lighter 40%"* IS a theme index and a tint — and
+`xl/theme/theme1.xml` was in the package unread.
+
+**The trap, and the reason this is one file rather than one function.**
+DrawingML and SpreadsheetML both have a `tint` and they are not the same one:
+
+| | what it does |
+| --- | --- |
+| `<a:tint val="60000"/>` | keeps 60% of each linear RGB channel, adds the rest as white |
+| `tint="-0.25"` | scales the HLS **luminance**, leaving hue and saturation alone |
+
+Same word, different space, different formula. They are `applyDrawingMods` and
+`applyExcelTint`, and the test asserts that the same `0.4` gives two different
+colours through them.
+
+The other thing easy to get backwards: Excel's theme **indices** are not the
+theme file's order. `theme="0"` is the light background and `theme="1"` the
+dark text — the first two pairs are swapped — so a reader that maps them in
+file order paints white on white.
+
+### The rest of `drawing/`
+
+Gradients, line styles, shadows, transforms and shape geometry are still in
+`PptxModel`. They are used by `.xlsx` charts and drawings and by `.docx`
+floating drawings too, and lifting them is the same move colour just made —
+but colour was the one with a reader missing it entirely.
 
 ### The rest of the shared run model
 

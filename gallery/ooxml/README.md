@@ -169,14 +169,22 @@ place of `TextSpan`, `PptxTextRun` and `CellRun`, each of which still holds the
 shared style alongside its own ideas — a field type, a hyperlink, a number
 format — and still spells the tri-state longhand as a companion per property.
 
-### 4. DrawingML core — `gallery/office/drawing/`
+### 4. DrawingML core — colour done, the rest still to lift
 
-`PptxColor`, gradients, line styles, shadows, transforms and shape geometry are
-in `PptxModel`, but DrawingML is not PowerPoint's: `.xlsx` charts and drawings
-(`XlsxDrawing.rgr`), `.docx` floating drawings and WordArt all use it. Lift
-these to `OfficeColor` / `OfficePaint` / `OfficeGradient` / `OfficeStroke` /
-`OfficeShadow` / `OfficeTransform` / `DrawingGeometry` and all three formats
-draw the same shapes the same way.
+[`OfficeColor`](../office/README.md) is the first piece, and it was the one
+with a reader missing it entirely: the spreadsheet dropped every colour named
+by theme, tint or index — which is every cell Excel styles from its own
+palette — while `xl/theme/theme1.xml` sat in the package unread. It reads them
+now, and the deck reader shares the maths rather than keeping a second copy.
+
+The trap that makes this worth one careful file: DrawingML's `tint` and
+SpreadsheetML's `tint` are different functions on different colour spaces, and
+using either where the other belongs gives a colour that is plausible and
+wrong.
+
+Gradients, line styles, shadows, transforms and shape geometry are still in
+`PptxModel`, and `.xlsx` charts and drawings (`XlsxDrawing.rgr`) and `.docx`
+floating drawings use all of them. Same move, still to make.
 
 ### 5. `EditorSession` — one transaction and history framework
 
