@@ -110,9 +110,12 @@ button runs its command, a flick over the page turns it while a flick that
 started over the panel does not, a mostly-vertical flick is a scroll, and the
 show's tap / pinch / pan / double-tap / Back behave — including that the point
 under a pinch stays under the pinch, that the pan never leaves the page, and
-that during a show a tap walks the slide's **build** before it moves on.
+that during a show a tap walks the slide's **build** before it moves on. It
+also checks the thing a host gets wrong silently: that a press on the toolbar
+and on the slide panel **reaches the viewer at all**, which is the viewer's own
+answer rather than the router's.
 
-167 checks, `kotlinc` and a JDK, no SDK, no emulator, no device.
+176 checks, `kotlinc` and a JDK, no SDK, no emulator, no device.
 
 It is not a substitute for running the app, but what is left unchecked is only
 the platform delegation: `AndroidEvgSurface` calling `android.graphics.Canvas`,
@@ -196,11 +199,33 @@ them makes both worse:
 | | Not presenting | Presenting |
 | --- | --- | --- |
 | Tap | goes to the app (toolbar, slide panel, shapes) | left half back, right half forward — walking the slide's build first |
-| Horizontal fling | previous / next slide (over the page only) | previous / next slide |
+| Horizontal fling | previous / next slide, over the page, when the app did not take the press | previous / next slide |
 | Pinch | — | zoom 1×–6× |
 | Drag | the app's own pointer | pan, while zoomed |
 | Double tap | — | back to fit |
 | Back | leaves the app | leaves the show |
+
+Two rules in there are worth stating plainly, because both were learned the
+hard way on a device.
+
+**Nothing in the host consumes a touch.** `GestureDetector.onTouchEvent`
+returns whatever its listener returned, and `onDown` returning `true` — which
+is what almost every example writes, because most views want the detector to
+own the stream — makes it return `true` for every `ACTION_DOWN`. A host that
+treats that as "handled" and stops has eaten the press: the viewer never learns
+a finger landed, so the toolbar, the slide panel and the page all do nothing,
+while the page still renders perfectly. Every callback here returns `false` and
+`onTouchEvent` ignores the return value; the detectors observe, the router
+decides.
+
+**A flick only turns the page when the app did not want the press.** A flick is
+decided on the way up, by which time the viewer has already had the press and
+the moves. In edit mode that means a shape has been picked up or a rubber band
+pulled out, and turning the page on top of that would leave the edit behind. So
+the app's own answer to `pointerAt` settles it — and the host opens the deck in
+**view** mode (`PptxApp` starts in edit mode, where every tap on a slide would
+drag something), which is where the app takes nothing on the page and a flick
+is unambiguous.
 
 `Present` is on the menu, and is the app's own `show.start` command — the same
 dotted id the desktop toolbar and the browser use. Transitions and builds run
@@ -260,8 +285,10 @@ Verified, off-device, on this repository's fixtures:
   gradients, PNG and JPEG pictures, tables, notes and the status bar. 4 948
   filled boxes, 1 055 vector paths, 911 text runs, 673 outlines, 101 clips.
 * `TouchRouter` — every rule about what a finger means — is driven against a
-  real deck: thumbnail taps, toolbar taps, flicks over the page and over the
-  panel, and the show's tap / pinch / pan / double-tap / Back. 167 checks.
+  real deck: that a press on the strip and on the slide panel reaches the
+  viewer at all, thumbnail taps, toolbar taps, flicks over the page and over
+  the panel and in each of the two modes, and the show's tap / pinch / pan /
+  double-tap / Back. 176 checks.
 * Per slide change on a warm JVM at 1280×800: **1–10 ms** to build the frame,
   **8–28 ms** to paint it. Neither is per frame — a still slide is not
   repainted.

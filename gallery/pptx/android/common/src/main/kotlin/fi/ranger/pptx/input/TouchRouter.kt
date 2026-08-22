@@ -49,6 +49,19 @@ class TouchRouter(
     /** Below this a zoom is "not zoomed": a pinch never lands exactly on 1. */
     private val zoomedIn: Boolean get() = zoom > 1f + ZOOM_EPSILON
 
+    /**
+     * Whether the viewer took the press this gesture started with.
+     *
+     * A flick is decided on the way up, by which time the app has already had
+     * the press and the moves — so on a deck being *edited* a swipe has already
+     * dragged a shape or pulled out a rubber band, and turning the page on top
+     * of that would leave the edit behind. The app's own answer settles it: in
+     * edit mode a press on the page is taken (it starts a drag or a marquee) and
+     * the flick is not ours; in view mode the app takes nothing on the page and
+     * a flick is unambiguous. Asking the app beats keeping a copy of its mode.
+     */
+    private var pressWentToApp = false
+
     // --- coordinates ---------------------------------------------------------
 
     fun appX(viewPx: Float): Int = (viewPx / (density * zoom) + panX).toInt()
@@ -58,18 +71,27 @@ class TouchRouter(
     // --- the pointer, outside a show -----------------------------------------
 
     fun down(viewPx: Float, viewPy: Float): Boolean {
-        if (app.presenting()) return true
-        return handled(app.pointerAt(appX(viewPx), appY(viewPy), true, true, false))
+        if (app.presenting()) {
+            pressWentToApp = false
+            return true
+        }
+        pressWentToApp = app.pointerAt(appX(viewPx), appY(viewPy), true, true, false)
+        return true
     }
+
+    /** Whether the viewer claimed the press this gesture began with. */
+    fun pressTaken(): Boolean = pressWentToApp
 
     fun move(viewPx: Float, viewPy: Float): Boolean {
         if (app.presenting()) return true
-        return handled(app.pointerAt(appX(viewPx), appY(viewPy), false, true, false))
+        app.pointerAt(appX(viewPx), appY(viewPy), false, true, false)
+        return true
     }
 
     fun up(viewPx: Float, viewPy: Float): Boolean {
         if (app.presenting()) return true
-        return handled(app.pointerAt(appX(viewPx), appY(viewPy), false, false, true))
+        app.pointerAt(appX(viewPx), appY(viewPy), false, false, true)
+        return true
     }
 
     /** A press and a release in the same place, which is what a tap is. */
@@ -110,7 +132,12 @@ class TouchRouter(
         // Mostly-vertical is a scroll, not a page turn. The 1.5 keeps a
         // diagonal flick from counting as both.
         if (abs(velocityX) < abs(velocityY) * 1.5f) return false
-        if (!app.presenting() && appX(startViewPx) < app.slidePanelWidth()) return false
+        if (!app.presenting()) {
+            if (appX(startViewPx) < app.slidePanelWidth()) return false
+            // The press this flick began with belongs to whoever answered for
+            // it. See `pressWentToApp`.
+            if (pressWentToApp) return false
+        }
         if (velocityX < 0) app.next() else app.prev()
         return true
     }
@@ -146,7 +173,8 @@ class TouchRouter(
 
     fun startShow(): Boolean {
         resetView()
-        return handled(app.command("show.start", ""))
+        app.command("show.start", "")
+        return true
     }
 
     /** True when a show was running and this ended it — what Back needs. */
@@ -157,7 +185,10 @@ class TouchRouter(
         return true
     }
 
-    fun command(id: String, arg: String = ""): Boolean = handled(app.command(id, arg))
+    fun command(id: String, arg: String = ""): Boolean {
+        app.command(id, arg)
+        return true
+    }
 
     fun key(name: String, shift: Boolean = false, ctrl: Boolean = false): Boolean {
         app.key(name, shift, ctrl)
@@ -188,12 +219,6 @@ class TouchRouter(
         panX = panX.coerceIn(0f, maxX)
         panY = panY.coerceIn(0f, maxY)
     }
-
-    // The app answers "did you take it", and a host needs "should I redraw" --
-    // which is a wider question: a press the app declined may still have moved
-    // a hover highlight. Redrawing is cheap and being wrong the other way is a
-    // stale screen, so a touch always asks for a frame.
-    private fun handled(@Suppress("UNUSED_PARAMETER") took: Boolean): Boolean = true
 
     private fun abs(v: Float): Float = if (v < 0f) -v else v
 

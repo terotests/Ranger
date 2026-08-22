@@ -64,34 +64,43 @@ class SlideView @JvmOverloads constructor(
         },
     )
 
+    /**
+     * The detectors **observe**; they never swallow.
+     *
+     * `GestureDetector.onTouchEvent` returns whatever the listener returned,
+     * and `onDown` returning true — which is what every example writes, because
+     * most views want the detector to own the stream — makes it return true for
+     * every `ACTION_DOWN`. A host that then treats that as "handled" and stops
+     * has just eaten the press. The viewer never sees a finger land, so nothing
+     * on the toolbar, the slide panel or the page responds at all, while the
+     * page still renders perfectly: exactly the shape of "it drew but nothing
+     * worked". Every callback here returns false for that reason, and
+     * [onTouchEvent] ignores the return value in any case.
+     */
     private val gestureDetector = GestureDetector(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent) = true
+            override fun onDown(e: MotionEvent) = false
 
             override fun onSingleTapUp(e: MotionEvent): Boolean {
-                if (!touch.tap(e.x)) return false
-                afterInput()
-                return true
+                if (touch.tap(e.x)) afterInput()
+                return false
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
-                if (!touch.doubleTap()) return false
-                invalidate()
-                return true
+                if (touch.doubleTap()) invalidate()
+                return false
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
-                if (!touch.drag(dx, dy)) return false
-                invalidate()
-                return true
+                if (touch.drag(dx, dy)) invalidate()
+                return false
             }
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
                 if (e1 == null) return false
-                if (!touch.fling(e1.x, vx, vy)) return false
-                afterInput()
-                return true
+                if (touch.fling(e1.x, vx, vy)) afterInput()
+                return false
             }
         },
     )
@@ -108,6 +117,13 @@ class SlideView @JvmOverloads constructor(
         if (!started) {
             app.start(dw, dh)
             started = true
+            // A viewer opens as a viewer. `PptxApp` starts in EDIT mode, where a
+            // press on the page picks a shape up or pulls out a rubber band —
+            // which is right for a mouse on a desktop and wrong for a finger on
+            // a deck someone is reading: every tap would drag something. The
+            // strip's own toggle turns it back on, and going through the command
+            // keeps whatever else `setEditMode` maintains.
+            if (app.editing()) touch.command("edit.toggle")
         } else {
             app.resize(dw, dh)
         }
@@ -140,11 +156,20 @@ class SlideView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Both detectors get every event, and so does the viewer.
+     *
+     * Nothing here consumes: a press the viewer never sees is a press it never
+     * releases, and half a drag left open inside the app is worse than a
+     * gesture that did not fire. The router is the one that decides whether a
+     * pointer means anything in the mode the app is currently in, and whether a
+     * flick that also dragged something should turn the page.
+     */
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!started) return false
         scaleDetector.onTouchEvent(event)
-        if (gestureDetector.onTouchEvent(event)) return true
+        gestureDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> touch.down(event.x, event.y)
             MotionEvent.ACTION_MOVE -> touch.move(event.x, event.y)
