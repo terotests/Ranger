@@ -326,6 +326,12 @@ class PptxResolver {
                     para.hasBullet = true
                     para.bulletChar = lvl.bulletChar
                 }
+                if (lvl.bulletKind == "autonum") {
+                    para.hasBullet = true
+                    para.bulletAutoNum = true
+                    para.bulletScheme = lvl.bulletScheme
+                    para.bulletStartAt = lvl.bulletStartAt
+                }
                 if (lvl.bulletKind == "none") {
                     para.hasBullet = false
                 }

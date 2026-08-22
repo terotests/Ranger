@@ -388,13 +388,82 @@ class PptxToEvg {
     ; first line of the paragraph.
     fn lineBoxes:[PptxTextLine] (shape:PptxShape x:double y:double w:double h:double) {
         def s:double ((96.0 / 72.0) * scale)
-        return (PptxTextLayout.layout(shape.text measure s x y w h))
+        def fit:double (this.substituteFit(shape.text (w - (this.ptToPx((shape.text.insetL + shape.text.insetR)))) s))
+        return (PptxTextLayout.layout(shape.text measure (s * fit) x y w h))
+    }
+
+    ; How much to shrink a body whose font we do not have.
+    ;
+    ; A deck names Calibri; we draw Open Sans, which is wider; a label the
+    ; author sized to fit spills onto a second line. Nothing in the file is
+    ; wrong and nothing in the layout is wrong — the font is simply not the
+    ; one the box was measured against.
+    ;
+    ; The file does say how wide the text was meant to be, though: the author
+    ; made the box fit it. So a paragraph that overflows its box by a LITTLE
+    ; is taken as our metrics being off by that little, and the body is scaled
+    ; to fit — which is what PowerPoint's own autofit does, for the same
+    ; reason. A paragraph that overflows by a lot is a paragraph that really
+    ; wraps, and `floor` is what keeps the two apart: nothing here can shrink
+    ; text by more than a sixth, so a real body of prose is left alone.
+    ;
+    ; Only when the face was substituted. A deck whose fonts we have is
+    ; measured correctly already, and second-guessing it would be a bug.
+    fn substituteFit:double (body:PptxTextBody contentW:double s:double) {
+        if (contentW <= 1.0) {
+            return 1.0
+        }
+        def floor:double 0.84
+        def fit:double 1.0
+        def substituted:boolean false
+        def pi:int 0
+        while (pi < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs pi)
+            def natural:double 0.0
+            def ri:int 0
+            while (ri < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs ri)
+                if ((measure.hasFamily(run.fontFamily)) == false) {
+                    substituted = true
+                }
+                natural = (natural + (measure.widthOf(run.text (run.fontSizePt * s) run.bold run.italic)))
+                ri = (ri + 1)
+            }
+            ; The indent this paragraph's level pushes it in by counts against
+            ; the width it has, or a bulleted line is judged against a box it
+            ; never had.
+            def avail:double (contentW - (this.ptToPx(para.marginLeftPt)))
+            if (avail > 1.0) {
+                if (natural > avail) {
+                    def need:double (avail / natural)
+                    if (need < fit) {
+                        fit = need
+                    }
+                }
+            }
+            pi = (pi + 1)
+        }
+        if (substituted == false) {
+            return 1.0
+        }
+        if (fit < floor) {
+            return 1.0
+        }
+        if (fit >= 1.0) {
+            return 1.0
+        }
+        ; A hair under, so a line that measures exactly its box does not sit
+        ; on the boundary and wrap anyway.
+        return (fit * 0.999)
     }
 
     fn emitTextBody:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
         def lines:[PptxTextLine] (this.lineBoxes(shape x y w h))
         def body:PptxTextBody shape.text
-        def s:double ((96.0 / 72.0) * scale)
+        ; The SAME scale the lines were laid out at. Shrinking the layout and
+        ; drawing at full size would put the right number of lines on the
+        ; slide with the wrong glyphs in them.
+        def s:double (((96.0 / 72.0) * scale) * (this.substituteFit(body (w - (this.ptToPx((body.insetL + body.insetR)))) ((96.0 / 72.0) * scale))))
         ; The shape's centre, which is what its text turns about.
         def rotDeg:double shape.rotation
         def hasRot:boolean false
@@ -527,18 +596,13 @@ class PptxToEvg {
         }
     }
 
+    ; `addPolygon` rather than a command built here: it is the one place that
+    ; also closes the ring list and derives the box from the points. Built by
+    ; hand, this shape reached the software canvas — which reads `pts` — and
+    ; nothing else, because a path with no rings serialises to a path with no
+    ; points.
     fn pushPathFill:void (dl:EVGDisplayList pts:[double] col:EVGColor) {
-        if ((array_length pts) < 6) {
-            return
-        }
-        def c (new EVGDrawCmd())
-        c.kind = 6
-        c.pts = pts
-        c.r = (col.red())
-        c.g = (col.green())
-        c.b = (col.blue())
-        c.a = (col.alpha())
-        push dl.cmds c
+        dl.addPolygon(pts col)
     }
 
     fn pushGradRect:void (dl:EVGDisplayList x:double y:double w:double h:double grad:PptxGradient) {
@@ -1091,14 +1155,8 @@ class PptxToEvg {
                     def sflat:[double] (PptxGeom.scaleToBox(unit (x + (this.ptToPx(shape.shadow.offsetXPt))) (y + (this.ptToPx(shape.shadow.offsetYPt))) w h))
                     def spts:[double] (PptxToEvg.rotatePoints(sflat pathCx pathCy shape.rotation))
                     def sc:EVGColor (this.colorFrom(shape.shadow.color))
-                    def sh (new EVGDrawCmd())
-                    sh.kind = 6
-                    sh.pts = spts
-                    sh.r = (sc.red())
-                    sh.g = (sc.green())
-                    sh.b = (sc.blue())
-                    sh.a = shape.shadow.alpha
-                    push dl.cmds sh
+                    def shc:EVGColor (EVGColor.rgba((sc.red()) (sc.green()) (sc.blue()) shape.shadow.alpha))
+                    dl.addPolygon(spts shc)
                 }
                 ; An open path — a bracket, a brace, a line — is a stroke and
                 ; not an area: filling it draws a solid blob where the deck

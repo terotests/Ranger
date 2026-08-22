@@ -135,6 +135,139 @@ class PptxTextLayout {
     ; The column after the next run of spaces, i.e. where the next line could
     ; start if this were the break. A chunk is "word + the spaces after it",
     ; which is what makes trailing spaces belong to the line above.
+    ; What a numbered item is numbered.
+    ;
+    ; The file does not store the number. It stores that the paragraph is
+    ; numbered, in which scheme, and where a run of them starts counting; the
+    ; number is the paragraph's position among the numbered ones directly
+    ; above it at the same level. A paragraph that is not numbered, or is at a
+    ; shallower level, ends the run — which is what makes a sub-list restart
+    ; at one and the list it interrupted carry on afterwards.
+    sfn autoNumber:string (body:PptxTextBody at:int) {
+        def para:PptxParagraph (itemAt body.paragraphs at)
+        def n:int para.bulletStartAt
+        def i:int (at - 1)
+        def counting:boolean true
+        while (counting) {
+            if (i < 0) {
+                counting = false
+            } {
+                def prev:PptxParagraph (itemAt body.paragraphs i)
+                if (prev.level < para.level) {
+                    ; The item this one is nested under: the sub-list starts
+                    ; over rather than continuing its parent's count.
+                    counting = false
+                } {
+                    if (prev.level == para.level) {
+                        if (prev.bulletAutoNum == false) {
+                            counting = false
+                        } {
+                            n = (n + 1)
+                        }
+                    }
+                    ; A DEEPER level between two items is the sub-list under
+                    ; the earlier one, and does not interrupt this count.
+                }
+                i = (i - 1)
+            }
+        }
+        return (PptxTextLayout.numberIn(para.bulletScheme n))
+    }
+
+    ; The ordinal written the way the scheme asks for it. The schemes here are
+    ; the ones a deck actually uses; anything else counts in arabic, which is
+    ; wrong in style but never wrong in order.
+    sfn numberIn:string (scheme:string n:int) {
+        def body:string (to_string n)
+        if ((indexOf scheme "alphaLc") == 0) {
+            body = (PptxTextLayout.alpha(n false))
+        }
+        if ((indexOf scheme "alphaUc") == 0) {
+            body = (PptxTextLayout.alpha(n true))
+        }
+        if ((indexOf scheme "romanLc") == 0) {
+            body = (PptxTextLayout.roman(n false))
+        }
+        if ((indexOf scheme "romanUc") == 0) {
+            body = (PptxTextLayout.roman(n true))
+        }
+        if (PptxTextLayout.tailIs(scheme "ParenBoth")) {
+            return ("(" + body + ")")
+        }
+        if (PptxTextLayout.tailIs(scheme "ParenR")) {
+            return (body + ")")
+        }
+        return (body + ".")
+    }
+
+    sfn tailIs:boolean (s:string tail:string) {
+        def n:int (strlen s)
+        def t:int (strlen tail)
+        if (t > n) {
+            return false
+        }
+        return ((substring s (n - t) n) == tail)
+    }
+
+    ; a, b, … z, aa, ab — the spreadsheet column rule, which is what these
+    ; schemes use once they run past 26.
+    sfn alpha:string (n:int upper:boolean) {
+        def letters:string "abcdefghijklmnopqrstuvwxyz"
+        if upper {
+            letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        }
+        if (n < 1) {
+            return (substring letters 0 1)
+        }
+        def out:string ""
+        def v:int n
+        while (v > 0) {
+            def r:int ((v - 1) % 26)
+            out = ((substring letters r (r + 1)) + out)
+            v = (idiv (v - 1) 26)
+        }
+        return out
+    }
+
+    sfn roman:string (n:int upper:boolean) {
+        if (n < 1) {
+            return "i"
+        }
+        if (n > 3999) {
+            return (to_string n)
+        }
+        def vals:[int] ([] _:int ( 1000 900 500 400 100 90 50 40 10 9 5 4 1 ))
+        def syms:[string] ([] _:string ( "m" "cm" "d" "cd" "c" "xc" "l" "xl" "x" "ix" "v" "iv" "i" ))
+        if upper {
+            syms = ([] _:string ( "M" "CM" "D" "CD" "C" "XC" "L" "XL" "X" "IX" "V" "IV" "I" ))
+        }
+        def out:string ""
+        def v:int n
+        def i:int 0
+        while (i < (array_length vals)) {
+            def val:int (itemAt vals i)
+            while (v >= val) {
+                out = (out + (itemAt syms i))
+                v = (v - val)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Where this line has to stop regardless of width: the next line break in
+    ; the paragraph, or the end of it.
+    sfn nextBreak:int (text:string from:int n:int) {
+        def i:int from
+        while (i < n) {
+            if ((charAt text i) == 10) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn nextChunk:int (text:string from:int) {
         def n:int (strlen text)
         def i:int from
@@ -243,6 +376,9 @@ class PptxTextLayout {
             }
             if para.hasBullet {
                 bullet = (para.bulletChar + " ")
+                if para.bulletAutoNum {
+                    bullet = ((PptxTextLayout.autoNumber(body pi)) + " ")
+                }
                 bulletW = (m.widthOf(bullet bulletSize false false))
                 if (para.indentSet == false) {
                     indent = (indent + (12.0 * scale))
@@ -262,17 +398,26 @@ class PptxTextLayout {
             def more:boolean true
             def firstLine:boolean true
             while (more) {
-                def end:int n
+                ; A line break INSIDE the paragraph: `<a:br/>`, which a deck
+                ; writes wherever someone pressed shift+Enter, and a newline
+                ; left in a run's text. Both end the line here whatever room
+                ; is left on it, so this line's text stops at `limit` and the
+                ; wrap below only ever looks inside that.
+                def limit:int (PptxTextLayout.nextBreak(text start n))
+                def end:int limit
                 if body.wrap {
                     end = start
                     def acc:double 0.0
                     def cursor:int start
                     def stop:boolean false
                     while (stop == false) {
-                        if (cursor >= n) {
+                        if (cursor >= limit) {
                             stop = true
                         } {
                             def nextAt:int (PptxTextLayout.nextChunk(text cursor))
+                            if (nextAt > limit) {
+                                nextAt = limit
+                            }
                             def chunkW:double (PptxTextLayout.measureSlice(para cursor nextAt m scale))
                             def fits:boolean true
                             if ((acc + chunkW) > avail) {
@@ -293,8 +438,8 @@ class PptxTextLayout {
                         }
                     }
                     if (end <= start) {
-                        end = n
-                        if (n > start) {
+                        end = limit
+                        if (limit > start) {
                             end = (start + 1)
                         }
                     }
@@ -344,6 +489,28 @@ class PptxTextLayout {
                 total = (total + lineH)
                 firstLine = false
                 start = end
+                ; The break itself belongs to neither line.
+                if (start < n) {
+                    if ((charAt text start) == 10) {
+                        start = (start + 1)
+                        ; A break as the last thing in a paragraph still opens
+                        ; a line, empty, the way it does everywhere else.
+                        if (start >= n) {
+                            def tail (new PptxTextLine())
+                            tail.para = pi
+                            tail.startCol = start
+                            tail.endCol = start
+                            tail.first = false
+                            tail.align = para.align
+                            tail.size = (PptxTextLayout.maxRunSize(para 0 n scale))
+                            tail.h = (tail.size * spacing * 1.2)
+                            tail.x = (contentX + indent)
+                            tail.y = total
+                            push out tail
+                            total = (total + tail.h)
+                        }
+                    }
+                }
                 if (start >= n) {
                     more = false
                 }

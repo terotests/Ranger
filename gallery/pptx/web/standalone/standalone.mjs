@@ -440,6 +440,23 @@ async function selftest() {
     web.keyMod("f2", false, false);
     await draw();
     ok("F2 puts a caret in the shape", JSON.parse(web.scene()).list.cmds.length > before);
+  // Clicking is how a person actually asks to type. The box is taken while
+  // the shape is still selected — Escape drops the caret AND the selection —
+  // and then two clicks land in it: the first picks it up, the second puts a
+  // caret in it, which is also what the second half of a double click does.
+  const box = JSON.parse(web.selectionBox());
+  const midX = Math.round(box.x + box.w / 2);
+  const midY = Math.round(box.y + box.h / 2);
+  web.keyMod("escape", false, false);
+  await draw();
+  web.pointerAt(midX, midY, true, true, false);
+  web.pointerAt(midX, midY, false, false, true);
+  ok("a first click picks the shape up without typing in it",
+     (web.selectionCount() | 0) === 1 && web.editingText() === false);
+  web.pointerAt(midX, midY, true, true, false);
+  web.pointerAt(midX, midY, false, false, true);
+  await draw();
+  ok("and clicking it again puts a caret in it", web.editingText() === true);
     web.type("Hei", false, false);
     web.type(" maailma", false, false);
     await draw();
@@ -559,6 +576,22 @@ async function selftest() {
   ok("and at least one was drawn", painted > 0);
   web.gotoSlide(0);
   await draw();
+
+  // Drawing the same slide again must not rebuild anything. The text atlas is
+  // rasterised on a 2-D canvas and uploaded, and every picture becomes a GL
+  // texture; doing either on a frame where nothing changed was most of what a
+  // pointer move cost. This is the check that keeps it that way — a cache
+  // keyed on something that is fresh every frame looks exactly like a cache
+  // until you ask it this.
+  lastScene = null;
+  await draw();
+  const frame1 = window.__evgStats;
+  lastScene = null;
+  await draw();
+  const frame2 = window.__evgStats;
+  ok("redrawing the same slide reuses the text atlas", (frame2.atlasRebuilt | 0) === 0);
+  ok("and uploads no picture a second time", (frame2.texturesUploaded | 0) === 0);
+  ok("while still drawing the same thing", (frame2.drawn | 0) === (frame1.drawn | 0));
 
   // The show: the deck without any chrome around it, driven by the page's own
   // clock. A browser is the only host here that HAS a clock, so this is the

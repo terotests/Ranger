@@ -70,11 +70,16 @@ const VERT = `#version 300 es
 in vec2 aCorner;          // unit quad, 0..1
 in vec4 aRect;            // x, y, w, h in page pixels
 in vec4 aColor;           // rgba, 0..1
+in vec4 aColor2;          // far gradient stop, rgba 0..1
 in vec3 aShape;           // radius, thickness (0 = fill), mode
+in float aGrad;           // 0 = flat, 1 = down the box, 2 = across it
 in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover crop
 in float aRot;            // radians, about the rect's own centre
 uniform vec2 uPage;
 out vec4 vColor;
+out vec4 vColor2;
+out float vGrad;
+out vec2 vT;              // 0..1 along the box, for the gradient
 out vec2 vLocal;          // position within the rect, in pixels
 out vec2 vHalf;
 out float vRadius;
@@ -96,6 +101,9 @@ void main() {
   vec2 ndc = vec2((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
   vColor = aColor;
+  vColor2 = aColor2;
+  vGrad = aGrad;
+  vT = aCorner;
   vHalf = aRect.zw * 0.5;
   vLocal = (aCorner - 0.5) * aRect.zw;
   vRadius = aShape.x;
@@ -107,6 +115,9 @@ void main() {
 const FRAG = `#version 300 es
 precision highp float;
 in vec4 vColor;
+in vec4 vColor2;
+in float vGrad;
+in vec2 vT;
 in vec2 vLocal;
 in vec2 vHalf;
 in float vRadius;
@@ -156,6 +167,12 @@ void main() {
   }
   float d;
   float alpha = boxCoverage(d);
+  // A two-stop linear gradient, mixed the way the software canvas mixes it:
+  // straight down the box, or straight across when the fill said so.
+  vec4 base = vColor;
+  if (vGrad > 0.5) {
+    base = mix(vColor, vColor2, clamp(vGrad > 1.5 ? vT.x : vT.y, 0.0, 1.0));
+  }
   if (vThickness > 0.0) {
     // Keep a band just inside the edge.
     float inner = -vThickness;
@@ -163,7 +180,7 @@ void main() {
     alpha = alpha * smoothstep(inner - aa, inner + aa, d);
   }
   if (alpha <= 0.001) discard;
-  outColor = vec4(vColor.rgb, vColor.a * alpha);
+  outColor = vec4(base.rgb, base.a * alpha);
 }`;
 
 // Paths are drawn as plain triangles in page space with one colour per draw:
@@ -283,8 +300,30 @@ export async function loadImages(doc, opts = {}) {
  * anything — it needs a picture of the run. That also keeps kerning exactly as
  * EVG measured it, since the same string goes to the rasterizer whole.
  */
+/**
+ * What makes two text runs the same GLYPHS. Everything that changes the
+ * rasterized shape is in here and nothing else is — a run that moved, or
+ * changed colour, draws the same picture from the same slot.
+ *
+ * The atlas used to be keyed by the command OBJECT, which made it impossible
+ * to reuse between frames: a display list arrives as fresh JSON every time, so
+ * every object is new and every glyph was rasterized and uploaded again. Sixty
+ * times a second.
+ */
+function runKey(c, dpr) {
+  return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
+}
+
 function buildTextAtlas(cmds, dpr) {
-  const runs = cmds.filter((c) => c.k === KIND.TEXT && c.text);
+  const seen = new Set();
+  const runs = [];
+  for (const c of cmds) {
+    if (c.k !== KIND.TEXT || !c.text) continue;
+    const key = runKey(c, dpr);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    runs.push(c);
+  }
   if (!runs.length) return { canvas: null, slots: new Map() };
   const pad = 2;
   const canvas = document.createElement("canvas");
@@ -326,7 +365,7 @@ function buildTextAtlas(cmds, dpr) {
   for (const m of measured) {
     c2.font = `${m.c.italic ? "italic " : ""}${m.c.weight ? m.c.weight + " " : ""}${m.c.size * dpr}px "${m.c.font}", sans-serif`;
     c2.fillText(m.c.text, m.x + pad, m.y + pad + m.asc);
-    slots.set(m.c, {
+    slots.set(runKey(m.c, dpr), {
       u0: m.x / canvas.width, v0: m.y / canvas.height,
       u1: (m.x + m.w) / canvas.width, v1: (m.y + m.h) / canvas.height,
       w: m.w / dpr, h: m.h / dpr, asc: m.asc / dpr, pad: pad / dpr,
@@ -383,6 +422,67 @@ function makeTexture(gl, source) {
  * context that is thrown away takes its programs with it.
  */
 const PROGRAMS = new WeakMap();
+const ATLASES = new WeakMap();
+const IMAGE_TEXTURES = new WeakMap();
+
+/**
+ * The text atlas for this context, rebuilt only when the glyphs change.
+ *
+ * The key is every distinct run signature in paint order: a frame whose text
+ * is the same text at the same sizes reuses the texture that is already on the
+ * card. What it does NOT include is where the runs are or what colour they
+ * are, because neither changes a glyph.
+ */
+function atlasFor(gl, cmds, dpr) {
+  const keys = [];
+  const seen = new Set();
+  for (const c of cmds) {
+    if (c.k !== KIND.TEXT || !c.text) continue;
+    const k = runKey(c, dpr);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    keys.push(k);
+  }
+  const key = keys.join("\u0001");
+  const have = ATLASES.get(gl);
+  if (have && have.key === key) { have.rebuilt = false; return have; }
+  if (have && have.canvas) gl.deleteTexture(have.canvas);
+  const { canvas, slots } = buildTextAtlas(cmds, dpr);
+  const made = {
+    key,
+    slots,
+    // Reported in the stats: rebuilding the atlas means rasterising every run
+    // on a 2-D canvas and uploading it, and doing that on a frame where
+    // nothing about the text changed is the waste this cache exists to stop.
+    // A test can watch it; a timing number on a software GL driver cannot.
+    rebuilt: true,
+    canvas: canvas ? makeTexture(gl, canvas) : makeTexture(gl, new ImageData(1, 1)),
+  };
+  ATLASES.set(gl, made);
+  return made;
+}
+
+/**
+ * One GL texture per image source, for the life of the context. An image at a
+ * given source never changes, so uploading it again is pure cost — and the old
+ * code both re-uploaded and leaked every frame.
+ */
+function textureCacheFor(gl, images) {
+  let cache = IMAGE_TEXTURES.get(gl);
+  if (!cache) {
+    cache = new Map();
+    IMAGE_TEXTURES.set(gl, cache);
+  }
+  let uploaded = 0;
+  for (const [src, img] of images) {
+    if (!img) continue;
+    if (cache.has(src)) continue;
+    cache.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight });
+    uploaded += 1;
+  }
+  cache.uploaded = uploaded;
+  return cache;
+}
 
 function programsFor(gl) {
   const found = PROGRAMS.get(gl);
@@ -427,21 +527,23 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const prog = built.prog;
   gl.useProgram(prog);
 
-  const { canvas: atlasCanvas, slots } = buildTextAtlas(cmds, dpr);
-  const atlas = atlasCanvas
-    ? makeTexture(gl, atlasCanvas)
-    : makeTexture(gl, new ImageData(1, 1));
+  // The atlas, kept until the glyphs in it change. Building it means laying
+  // out every run on a 2-D canvas and uploading the result — and the runs are
+  // the same from one frame to the next almost always, because a frame that
+  // differs by a moved shape has not changed a single letter.
+  const { canvas: atlasCanvas, slots, rebuilt: atlasRebuilt } = atlasFor(gl, cmds, dpr);
+  const atlas = atlasCanvas;
 
-  // One texture per distinct source, uploaded once however many quads use it.
-  const textures = new Map();
-  for (const [src, img] of images) {
-    if (img) textures.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight });
-  }
+  // One texture per distinct source, uploaded ONCE — not once per frame. This
+  // used to make a new GL texture for every picture on every frame and never
+  // delete any of them: a decode and an upload per frame, and a leak.
+  const textures = textureCacheFor(gl, images);
+  const texturesUploaded = textures.uploaded | 0;
 
   // Instances in paint order, plus the runs that must be drawn separately.
   // A run is a stretch of instances that share a texture binding; an image
   // ends the run before it and forms one of its own.
-  const rects = [], colors = [], shapes = [], uvs = [], rots = [];
+  const rects = [], colors = [], colors2 = [], grads = [], shapes = [], uvs = [], rots = [];
   const runs = [];
   let missingImages = 0, drawnImages = 0;
   // The clip in force, as a rectangle or null. A clip is a scissor here, and a
@@ -520,13 +622,15 @@ export function renderDisplayList(gl, doc, opts = {}) {
       shapes.push(c.r || 0, 0, MODE.IMAGE);
       rots.push(((c.rot || 0) * Math.PI) / 180);
       colors.push(1, 1, 1, 1);
+      colors2.push(1, 1, 1, 1);
+      grads.push(0);
       pushRun(runStart, 1, t.tex);
       runStart = rects.length / 4;
       drawnImages += 1;
       continue;
     }
     if (c.k === KIND.TEXT) {
-      const s = slots.get(c);
+      const s = slots.get(runKey(c, dpr));
       if (!s) continue;
       // EVG's y is the top of the LINE BOX, so the baseline goes one
       // face-ascent below it; inside the slot the baseline is pad + ink
@@ -544,6 +648,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
     rots.push(((c.rot || 0) * Math.PI) / 180);
     const col = c.c || [0, 0, 0, 1];
     colors.push(col[0] / 255, col[1] / 255, col[2] / 255, col[3]);
+    // `gd` is the display list's gradient direction: 1 means across the box,
+    // anything else means down it. A command with no `c2` is flat, and the
+    // second stop is then the first, so the shader's mix is a no-op.
+    const col2 = c.c2 || col;
+    colors2.push(col2[0] / 255, col2[1] / 255, col2[2] / 255, col2[3]);
+    grads.push(c.c2 ? (c.gd === 1 ? 2 : 1) : 0);
   }
   flush();
   const count = rects.length / 4;
@@ -566,6 +676,8 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const instanced = [
     { name: "aRect", data: rects, size: 4 },
     { name: "aColor", data: colors, size: 4 },
+    { name: "aColor2", data: colors2, size: 4 },
+    { name: "aGrad", data: grads, size: 1 },
     { name: "aShape", data: shapes, size: 3 },
     { name: "aUV", data: uvs, size: 4 },
     { name: "aRot", data: rots, size: 1 },
@@ -707,6 +819,9 @@ export function renderDisplayList(gl, doc, opts = {}) {
   return {
     drawn: count, textRuns: slots.size, images: drawnImages, missingImages,
     runs: runs.length, paths,
+    // What this frame had to make rather than reuse. Both should be 0 on a
+    // frame that draws what the last one drew.
+    atlasRebuilt: atlasRebuilt ? 1 : 0, texturesUploaded,
     // A context without a stencil buffer cannot fill a path; say so rather than
     // drawing a chart with no bars in it.
     skippedFills,

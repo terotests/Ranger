@@ -60,6 +60,23 @@ class PptxEditHostTest {
         return (itemAt shapes 0)
     }
 
+    sfn dist:double (x0:double y0:double x1:double y1:double) {
+        def dx:double (x1 - x0)
+        def dy:double (y1 - y0)
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
+    sfn numbered:void (body:PptxTextBody level:int text:string) {
+        def para (new PptxParagraph())
+        para.level = level
+        para.hasBullet = true
+        para.bulletAutoNum = true
+        def run (new PptxTextRun())
+        run.text = text
+        push para.runs run
+        push body.paragraphs para
+    }
+
     sfn indexOfCommand:int (app:PptxApp id:string) {
         def i:int 0
         while (i < (app.toolbar.count())) {
@@ -204,6 +221,146 @@ class PptxEditHostTest {
         c.ok("the press selected something" ((app2.editor.selectionCount()) == 1))
         c.ok("and it is the shape that was under it" (app2.editor.isSelected(sh.editId)))
         app2.pointer(px py false false true)
+        c.ok("a first click does not start typing" ((app2.editor.isEditingText()) == false))
+
+        print "-- clicking the shape again puts a caret in it --"
+        ; The complaint this answers: clicking and double-clicking a text box
+        ; did nothing, because the only ways in were F2, Enter and the command.
+        ; A double click reaches this too — its second release is a click on a
+        ; shape the first one already selected.
+        app2.pointer(px py true true false)
+        app2.pointer(px py false false true)
+        c.ok("the second click starts typing" (app2.editor.isEditingText()))
+        c.ok("in the shape that was clicked" (app2.editor.isSelected(sh.editId)))
+        def before:int (strlen (sh.text.plainText()))
+        app2.editor.typeAtCaret("Z")
+        c.ok("and what is typed lands in it" ((strlen (sh.text.plainText())) == (before + 1)))
+        ; And it lands where the click did, not at the end: a click near the
+        ; left edge of the text gives an earlier column than one near the
+        ; right edge. This is the part that makes clicking worth doing.
+        def leftX:int (PptxEditHostTest.screenX(app2 (sh.x + (sh.width * 0.05))))
+        def rightX:int (PptxEditHostTest.screenX(app2 (sh.x + (sh.width * 0.9))))
+        def topY:int (PptxEditHostTest.screenY(app2 (sh.y + (sh.height * 0.2))))
+        def atLeft:PptxTextPos (app2.caretFromPoint(sh leftX topY))
+        def atRight:PptxTextPos (app2.caretFromPoint(sh rightX topY))
+        c.ok("a click on the left of a line comes before one on the right" (atLeft.col < atRight.col))
+        app2.editor.endTextEdit()
+
+        print "-- a selection turns as one thing --"
+        ; Turning every shape by the same angle about its own centre leaves
+        ; them all where they were and spins each in place: on screen a group
+        ; came apart instead of turning. A selection turns about the
+        ; selection's centre.
+        def ra:PptxApp (PptxEditHostTest.build())
+        def rs:[PptxShape] (ra.editor.editableShapes())
+        if ((array_length rs) >= 2) {
+            def s1:PptxShape (itemAt rs 0)
+            def s2:PptxShape (itemAt rs 1)
+            ra.editor.select(s1.editId)
+            ra.editor.addToSelection(s2.editId)
+            def bnd:PptxEditRect (ra.editor.selectionBounds())
+            def pcx:double (bnd.midX())
+            def pcy:double (bnd.midY())
+            def ax0:double (s1.x + (s1.width * 0.5))
+            def ay0:double (s1.y + (s1.height * 0.5))
+            def s2x0:double (s2.x + (s2.width * 0.5))
+            def s2y0:double (s2.y + (s2.height * 0.5))
+            def far0:double (PptxEditHostTest.dist(ax0 ay0 pcx pcy))
+            c.ok("the two shapes are not both at the centre" (far0 > 1.0))
+            c.ok("the selection can be turned" (ra.editor.rotateSelection(90.0)))
+            def ax1:double (s1.x + (s1.width * 0.5))
+            def ay1:double (s1.y + (s1.height * 0.5))
+            c.ok("the shape moved, rather than spinning where it stood"
+                 ((PptxEditHostTest.dist(ax1 ay1 ax0 ay0)) > 1.0))
+            c.ok("and it is the same distance from the centre it turned about"
+                 (PptxEditHostTest.near((PptxEditHostTest.dist(ax1 ay1 pcx pcy)) far0 0.01)))
+            c.ok("its own angle went round with it" (PptxEditHostTest.near(s1.rotation 90.0 0.001)))
+            ; The group did not come apart: the two shapes are still the same
+            ; distance from each other. (Their axis-aligned bounding box is
+            ; NOT preserved by a rotation and is not the thing to check.)
+            def bx0:double (s2.x + (s2.width * 0.5))
+            def by0:double (s2.y + (s2.height * 0.5))
+            c.ok("and the shapes kept their distance from each other"
+                 (PptxEditHostTest.near((PptxEditHostTest.dist(ax1 ay1 bx0 by0))
+                                        (PptxEditHostTest.dist(ax0 ay0 s2x0 s2y0)) 0.01)))
+            ; A quarter turn four times is where it started.
+            ra.editor.rotateSelection(90.0)
+            ra.editor.rotateSelection(90.0)
+            ra.editor.rotateSelection(90.0)
+            def ax4:double (s1.x + (s1.width * 0.5))
+            def ay4:double (s1.y + (s1.height * 0.5))
+            c.ok("four quarter turns come back to the start"
+                 (PptxEditHostTest.near((PptxEditHostTest.dist(ax4 ay4 ax0 ay0)) 0.0 0.01)))
+            ; One shape still turns about itself, which is what its handle says.
+            ra.editor.select(s1.editId)
+            def solo0:double (s1.x + (s1.width * 0.5))
+            ra.editor.rotateSelection(45.0)
+            c.ok("one shape on its own still turns where it stands"
+                 (PptxEditHostTest.near((s1.x + (s1.width * 0.5)) solo0 0.001)))
+        }
+
+        print "-- lists --"
+        ; A numbered list's numbers are not in the file: the paragraph says it
+        ; is numbered and in which scheme, and the number is its place in the
+        ; run of items above it. A viewer that drew the stored character put a
+        ; dot in front of every item instead.
+        def lb:PptxApp (PptxEditHostTest.build())
+        def ls:PptxShape (PptxEditHostTest.firstShape(lb))
+        lb.editor.select(ls.editId)
+        c.ok("a box with text starts with no list" ((lb.editor.listKind()) == "none"))
+        c.ok("it can be made a bulleted one" (lb.editor.setListKind("bullet")))
+        c.ok("and says so" ((lb.editor.listKind()) == "bullet"))
+        c.ok("it can be made numbered instead" (lb.editor.setListKind("number")))
+        c.ok("and says so" ((lb.editor.listKind()) == "number"))
+        def firstPara:PptxParagraph (itemAt ls.text.paragraphs 0)
+        c.ok("the paragraph is numbered" firstPara.bulletAutoNum)
+        c.ok("the list button turns it off again" (lb.runCommand("text.number" "")))
+        c.ok("and it is off" ((lb.editor.listKind()) == "none"))
+
+        print "-- what a numbered item is numbered --"
+        def body (new PptxTextBody())
+        PptxEditHostTest.numbered(body 0 "one")
+        PptxEditHostTest.numbered(body 0 "two")
+        PptxEditHostTest.numbered(body 1 "under two")
+        PptxEditHostTest.numbered(body 1 "also under two")
+        PptxEditHostTest.numbered(body 0 "three")
+        c.ok("the first item is 1." ((PptxTextLayout.autoNumber(body 0)) == "1."))
+        c.ok("the second is 2." ((PptxTextLayout.autoNumber(body 1)) == "2."))
+        c.ok("a nested item starts over at 1." ((PptxTextLayout.autoNumber(body 2)) == "1."))
+        c.ok("and counts on from there" ((PptxTextLayout.autoNumber(body 3)) == "2."))
+        c.ok("the outer list carries on past the nested one" ((PptxTextLayout.autoNumber(body 4)) == "3."))
+        c.ok("letters count like spreadsheet columns" ((PptxTextLayout.numberIn("alphaLcParenR" 27)) == "aa)"))
+        c.ok("roman numerals are roman" ((PptxTextLayout.numberIn("romanUcPeriod" 24)) == "XXIV."))
+        c.ok("and a scheme in brackets gets both" ((PptxTextLayout.numberIn("arabicParenBoth" 7)) == "(7)"))
+
+        print "-- a line break inside a paragraph --"
+        ; `<a:br/>` — shift+Enter — and a newline left in a run's text. Both
+        ; ended a line in PowerPoint and neither did here: the text ran on and
+        ; wrapped wherever the box happened to end.
+        def brBody (new PptxTextBody())
+        brBody.wrap = true
+        def brPara (new PptxParagraph())
+        def r1 (new PptxTextRun())
+        r1.text = "one"
+        r1.fontSizePt = 12.0
+        def r2 (new PptxTextRun())
+        r2.text = "\n"
+        r2.fontSizePt = 12.0
+        def r3 (new PptxTextRun())
+        r3.text = "two"
+        r3.fontSizePt = 12.0
+        push brPara.runs r1
+        push brPara.runs r2
+        push brPara.runs r3
+        push brBody.paragraphs brPara
+        def brLines:[PptxTextLine] (PptxTextLayout.layout(brBody lb.view.converter.measure 1.0 0.0 0.0 400.0 200.0))
+        c.ok("the break makes two lines out of one paragraph" ((array_length brLines) == 2))
+        if ((array_length brLines) == 2) {
+            def l1:PptxTextLine (itemAt brLines 0)
+            def l2:PptxTextLine (itemAt brLines 1)
+            c.ok("both belong to the same paragraph" ((l1.para == 0) && (l2.para == 0)))
+            c.ok("and the second is below the first" (l2.y > l1.y))
+        }
 
         print "-- a drag is one edit, however many frames it took --"
         def depth0:int (app2.editor.historyDepth())

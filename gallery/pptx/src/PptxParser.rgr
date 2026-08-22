@@ -272,7 +272,17 @@ class PptxParser {
         }
         def num@(optional):PptxXmlNode (node.firstChild("buAutoNum"))
         if (!null? num) {
+            def nn:PptxXmlNode (unwrap num)
             lvl.bulletKind = "autonum"
+            def sch:string (nn.attr("type"))
+            if ((strlen sch) > 0) {
+                lvl.bulletScheme = sch
+            }
+            def st:string (nn.attr("startAt"))
+            if ((strlen st) > 0) {
+                def sv@(optional):int (str2int st)
+                lvl.bulletStartAt = (?? sv 1)
+            }
         }
         def bf@(optional):PptxXmlNode (node.firstChild("buFont"))
         if (!null? bf) {
@@ -557,9 +567,19 @@ class PptxParser {
                         }
                     } {
                         if (!null? buAuto) {
+                            def ba:PptxXmlNode (unwrap buAuto)
                             para.hasBullet = true
-                            para.bulletChar = "•"
+                            para.bulletAutoNum = true
                             para.bulletSet = true
+                            def bsch:string (ba.attr("type"))
+                            if ((strlen bsch) > 0) {
+                                para.bulletScheme = bsch
+                            }
+                            def bst:string (ba.attr("startAt"))
+                            if ((strlen bst) > 0) {
+                                def bsv@(optional):int (str2int bst)
+                                para.bulletStartAt = (?? bsv 1)
+                            }
                         } {
                             if (!null? buFont) {
                                 para.hasBullet = true
@@ -604,6 +624,7 @@ class PptxParser {
                 def child:PptxXmlNode (pnode.childAt(j))
                 def isRun:boolean false
                 def isField:boolean false
+                def isBreak:boolean false
                 if (child.isText == false) {
                     if (child.name == "r") {
                         isRun = true
@@ -611,6 +632,23 @@ class PptxParser {
                     if (child.name == "fld") {
                         isField = true
                     }
+                    ; `<a:br/>` — shift+Enter. A line inside a paragraph, not
+                    ; a paragraph of its own: it keeps the paragraph's bullet,
+                    ; its number and its spacing. Carried as a newline in the
+                    ; run text, which is what the layout breaks on and what
+                    ; the writer turns back into a `br`.
+                    if (child.name == "br") {
+                        isBreak = true
+                    }
+                }
+                if isBreak {
+                    def brk (new PptxTextRun())
+                    def brPr@(optional):PptxXmlNode (child.firstChild("rPr"))
+                    if (!null? brPr) {
+                        this.applyRPrToRun((unwrap brPr) brk)
+                    }
+                    brk.text = "\n"
+                    push para.runs brk
                 }
                 if (isRun || isField) {
                     def run (new PptxTextRun())

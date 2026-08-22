@@ -75,6 +75,10 @@ class PptxToolbar extends EVGToolbar {
         this.add("format.paste" "" "Paint it on" (ToolIcon.borderAll()))
         this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
         this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
+        this.add("text.bullet" "" "Bulleted list" (ToolIcon.bulletList()))
+        this.add("text.number" "" "Numbered list" (ToolIcon.numberList()))
+        this.add("text.outdent" "" "Outdent the list" (ToolIcon.indentLess()))
+        this.add("text.indent" "" "Indent the list" (ToolIcon.indentMore()))
         this.addSeparator()
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
         this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.cond()))
@@ -143,6 +147,14 @@ class PptxApp {
     def dragHandle:int -1
     def dragLastX:double 0.0    ; slide points
     def dragLastY:double 0.0
+    ; A press that lands on the shape ALREADY selected, and lets go without
+    ; moving it, is how a person asks to type in it. Held from the press so
+    ; the release can tell "clicked the thing that was already picked" from
+    ; "picked something new" — the selection itself cannot say, because by the
+    ; time the release arrives the shape is selected either way.
+    def clickedSelected:boolean false
+    def clickX:int 0
+    def clickY:int 0
     def dragMoved:boolean false
     def modShift:boolean false
     def modCtrl:boolean false
@@ -215,6 +227,10 @@ class PptxApp {
     ; A blanked screen: B during a show, which is what a presenter presses when
     ; the slide is not the thing to look at any more.
     def showBlank:boolean false
+    ; Whether `render` paints the CPU framebuffer. A host that draws the
+    ; display list itself turns this off; everything headless leaves it on,
+    ; because the framebuffer IS its output.
+    def wantRaster:boolean true
 
     Constructor () {
     }
@@ -518,6 +534,10 @@ class PptxApp {
         commands.add("edit.distribute.v" "Distribute down" "Arrange" "")
         commands.add("edit.bold" "Bold text" "Format" "Ctrl+B")
         commands.add("edit.italic" "Italic text" "Format" "Ctrl+I")
+        commands.add("text.bullet" "Bulleted list" "Format" "")
+        commands.add("text.number" "Numbered list" "Format" "")
+        commands.add("text.indent" "Indent the list" "Format" "Tab")
+        commands.add("text.outdent" "Outdent the list" "Format" "Shift+Tab")
         commands.addArg("edit.fill" "Fill colour" "Format" "")
         commands.addArg("edit.line" "Outline colour" "Format" "")
         commands.addArg("edit.text" "Set the text" "Format" "")
@@ -1158,6 +1178,17 @@ class PptxApp {
                 this.runCommand("show.start" "")
                 taken = true
             }
+            ; Tab in a text box is what every editor uses to indent a list
+            ; item, and shift+Tab to take it back out.
+            if (k == (UIKey.tab())) {
+                if (editor.isEditingText()) {
+                    if input.shiftDown {
+                        taken = (this.runCommand("text.outdent" ""))
+                    } {
+                        taken = (this.runCommand("text.indent" ""))
+                    }
+                }
+            }
             if (taken == false) {
                 if (k == (UIKey.f2())) {
                     taken = (this.startTextEdit())
@@ -1584,9 +1615,18 @@ class PptxApp {
         }
     }
 
+    ; Rasterize the frame into the CPU framebuffer. A host that draws the
+    ; display list ITSELF — the browser, through WebGL — never looks at that
+    ; framebuffer, and painting it anyway was the single most expensive thing
+    ; in a browser profile: a pointer move rasterized nine hundred thousand
+    ; pixels that nothing ever read, and built the frame a second time to do
+    ; it. Such a host sets `wantRaster` false and asks for `sceneJson`.
     fn render:void () {
         view.slideIndex = index
         view.slideCount = (this.slideCount())
+        if (wantRaster == false) {
+            return
+        }
         def dl:EVGDisplayList (this.buildFrame())
         view.paintSoftCanvas(dl)
     }
@@ -2096,14 +2136,7 @@ class PptxApp {
         push pts (y1 - ny)
         push pts (x0 - nx)
         push pts (y0 - ny)
-        def c (new EVGDrawCmd())
-        c.kind = 6
-        c.pts = pts
-        c.r = (col.red())
-        c.g = (col.green())
-        c.b = (col.blue())
-        c.a = (col.alpha())
-        push dl.cmds c
+        dl.addPolygon(pts col)
     }
 
     fn pushQuadOutline:void (dl:EVGDisplayList corners:[double] thickness:double col:EVGColor) {
@@ -2189,6 +2222,9 @@ class PptxApp {
                 dragMode = 2
                 if (h == 8) {
                     dragMode = 4
+                    ; Where everything is before the turn starts, so each
+                    ; frame turns from there.
+                    editor.beginRotate()
                 }
                 dragHandle = h
                 dragLastX = sx
@@ -2197,6 +2233,20 @@ class PptxApp {
                 return true
             }
             def hitId:int (editor.hitTest(sx sy))
+            clickedSelected = false
+            clickX = px
+            clickY = py
+            if (hitId > 0) {
+                if (modShift == false) {
+                    if ((editor.selectionCount()) == 1) {
+                        def already@(optional):PptxShape (editor.firstSelected())
+                        if (!null? already) {
+                            def a:PptxShape (unwrap already)
+                            clickedSelected = (a.editId == hitId)
+                        }
+                    }
+                }
+            }
             editor.selectAt(sx sy modShift)
             dragMode = 0
             if (hitId > 0) {
@@ -2241,8 +2291,19 @@ class PptxApp {
                     }
                 }
                 editor.clearGuides()
+                editor.endRotate()
+                def wasClick:boolean false
+                if (dragMode == 1) {
+                    if (dragMoved == false) {
+                        wasClick = clickedSelected
+                    }
+                }
                 dragMode = 0
                 dragHandle = -1
+                if wasClick {
+                    this.startTextEditAt(clickX clickY)
+                }
+                clickedSelected = false
                 return true
             }
             return false
@@ -2702,6 +2763,26 @@ class PptxApp {
         if (id == "edit.italic") {
             def it:boolean (this.selectionItalic())
             return (editor.setTextItalic((it == false)))
+        }
+        ; Lists. Both toggle: asking for the list a paragraph already is turns
+        ; it off, which is what every editor's list button does.
+        if (id == "text.bullet") {
+            if ((editor.listKind()) == "bullet") {
+                return (editor.setListKind("none"))
+            }
+            return (editor.setListKind("bullet"))
+        }
+        if (id == "text.number") {
+            if ((editor.listKind()) == "number") {
+                return (editor.setListKind("none"))
+            }
+            return (editor.setListKind("number"))
+        }
+        if (id == "text.indent") {
+            return (editor.indentList(1))
+        }
+        if (id == "text.outdent") {
+            return (editor.indentList(0 - 1))
         }
         if (id == "edit.fill") {
             if ((strlen arg) == 0) {
@@ -3185,6 +3266,25 @@ class PptxApp {
     }
 
     ; --- typing ---------------------------------------------------------------
+
+    ; Click a shape to pick it up, click it again to type in it — with the
+    ; caret where the click landed, not at the start, because a person who
+    ; clicked the middle of a word meant the middle of that word. A double
+    ; click reaches the same place: its second release is a click on a shape
+    ; that the first one already selected.
+    fn startTextEditAt:boolean (px:int py:int) {
+        if ((this.startTextEdit()) == false) {
+            return false
+        }
+        def sel@(optional):PptxShape (editor.firstSelected())
+        if (null? sel) {
+            return true
+        }
+        def sh:PptxShape (unwrap sel)
+        def at:PptxTextPos (this.caretFromPoint(sh px py))
+        editor.setCaretPos(at.para at.col false)
+        return true
+    }
 
     fn startTextEdit:boolean () {
         if ((editor.selectionCount()) != 1) {

@@ -428,7 +428,18 @@ class PptxWriter {
             if ((strlen para.bulletFont) > 0) {
                 inner = (inner + "<a:buFont typeface=\"" + (PptxWriter.esc(para.bulletFont)) + "\"/>")
             }
-            inner = (inner + "<a:buChar char=\"" + (PptxWriter.esc(para.bulletChar)) + "\"/>")
+            ; A numbered item says WHICH numbering, not which number: the
+            ; count is the paragraph's place in the run of items above it, and
+            ; writing a `buChar` here would turn every number back into a dot.
+            if para.bulletAutoNum {
+                def numAttrs:string (" type=\"" + (PptxWriter.esc(para.bulletScheme)) + "\"")
+                if (para.bulletStartAt != 1) {
+                    numAttrs = (numAttrs + " startAt=\"" + (to_string para.bulletStartAt) + "\"")
+                }
+                inner = (inner + "<a:buAutoNum" + numAttrs + "/>")
+            } {
+                inner = (inner + "<a:buChar char=\"" + (PptxWriter.esc(para.bulletChar)) + "\"/>")
+            }
         } {
             inner = (inner + "<a:buNone/>")
         }
@@ -437,7 +448,14 @@ class PptxWriter {
         def i:int 0
         while (i < (array_length para.runs)) {
             def run:PptxTextRun (itemAt para.runs i)
-            out = (out + (PptxWriter.runXml(run)))
+            ; A run whose text is a lone newline came from `<a:br/>` and goes
+            ; back as one: written as a `t` it would be whitespace PowerPoint
+            ; collapses, and the line break would be lost on the round trip.
+            if (run.text == "\n") {
+                out = (out + "<a:br/>")
+            } {
+                out = (out + (PptxWriter.runXml(run)))
+            }
             i = (i + 1)
         }
         if ((array_length para.runs) == 0) {

@@ -46,6 +46,21 @@ class PptxTextMeasure {
         return family
     }
 
+    ; Whether the face a deck NAMED is one we can actually draw with. When it
+    ; is not, everything below measures a different font at the same point
+    ; size, and a box the author sized to fit is a box the text spills out of.
+    ; With no renderer attached there is no substitution to detect, so nothing
+    ; here reports one.
+    fn hasFamily:boolean (fam:string) {
+        if ((strlen fam) == 0) {
+            return true
+        }
+        if (hasCtx == false) {
+            return true
+        }
+        return (ctx.tr.fm.hasFont(fam))
+    }
+
     fn widthOf:double (text:string sizePx:double bold:boolean italic:boolean) {
         if ((strlen text) == 0) {
             return 0.0

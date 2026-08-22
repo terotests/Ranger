@@ -30,6 +30,11 @@ class PptxWeb {
     fn start:void (w:int h:int) {
         app.W = w
         app.H = h
+        ; This host draws the display list itself, with WebGL. The CPU
+        ; framebuffer behind `render` is never read here, and painting it was
+        ; the most expensive thing in a browser profile — nine hundred thousand
+        ; pixels per pointer move, plus a second build of the frame to do it.
+        app.wantRaster = false
         app.initBare()
     }
 
@@ -171,6 +176,12 @@ class PptxWeb {
         return app.editMode
     }
 
+    ; Whether there is a caret in a shape right now. A page that can only ask
+    ; "is the editor on" cannot tell a selected box from one being typed in.
+    fn editingText:boolean () {
+        return (app.editor.isEditingText())
+    }
+
     ; --- the show -------------------------------------------------------------
     ;
     ; A browser has a clock and the app does not, so the page drives the show's
@@ -245,6 +256,7 @@ class PptxWeb {
         if (name == "enter")    { return (UIKey.enter()) }
         if (name == "f2")       { return (UIKey.f2()) }
         if (name == "f5")       { return (UIKey.f5()) }
+        if (name == "tab")      { return (UIKey.tab()) }
         return (UIKey.none())
     }
 

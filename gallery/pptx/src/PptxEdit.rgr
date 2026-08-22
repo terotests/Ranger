@@ -414,6 +414,14 @@ class PptxEditor {
     ; in — a shape is picked up and moved, not typed into.
     def editingId:int 0
     def caret:PptxTextPos (new PptxTextPos())
+    ; Where a turning selection started, so every frame of the drag turns from
+    ; the same place rather than from the last frame's answer.
+    def rotActive:boolean false
+    def rotPivotX:double 0.0
+    def rotPivotY:double 0.0
+    def rotStartX:[double]
+    def rotStartY:[double]
+    def rotStartDeg:[double]
     def anchor:PptxTextPos (new PptxTextPos())
     ; What was copied, and where a drag on empty canvas started. The clipboard
     ; is the editor's own — a browser tab cannot read the system one without
@@ -1437,14 +1445,94 @@ class PptxEditor {
         return true
     }
 
-    fn applyRotate:void (deg:double) {
-        def shapes:[PptxShape] (this.movableShapes())
+    ; --- turning a selection ---------------------------------------------------
+    ;
+    ; Turning every shape by the same angle about ITS OWN centre leaves them
+    ; all exactly where they were and spins each in place. That is not a
+    ; rotation of the selection — it is several rotations that happen to share
+    ; an angle, and on screen a group came apart instead of turning.
+    ;
+    ; A selection turns about the selection's centre: each shape keeps its own
+    ; angle relative to the group, and its centre travels round that pivot.
+
+    sfn spinAbout:void (shapes:[PptxShape] pivotX:double pivotY:double delta:double) {
+        def rad:double ((delta * 3.141592653589793) / 180.0)
+        def co:double (cos rad)
+        def si:double (sin rad)
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
-            sh.rotation = (PptxEditor.normalizeDeg(deg))
+            def cx:double ((sh.x + (sh.width * 0.5)) - pivotX)
+            def cy:double ((sh.y + (sh.height * 0.5)) - pivotY)
+            def nx:double (((cx * co) - (cy * si)) + pivotX)
+            def ny:double (((cx * si) + (cy * co)) + pivotY)
+            sh.x = (nx - (sh.width * 0.5))
+            sh.y = (ny - (sh.height * 0.5))
+            sh.rotation = (PptxEditor.normalizeDeg((sh.rotation + delta)))
             i = (i + 1)
         }
+    }
+
+    ; Where every shape was when the turn started. A drag reports the pointer's
+    ; ABSOLUTE angle every frame, so each frame puts the shapes back and turns
+    ; them once from there; adding a delta to what the last frame produced
+    ; would compound rounding all the way round the circle.
+    fn beginRotate:void () {
+        def shapes:[PptxShape] (this.movableShapes())
+        def sx:[double]
+        def sy:[double]
+        def sr:[double]
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            push sx sh.x
+            push sy sh.y
+            push sr sh.rotation
+            i = (i + 1)
+        }
+        rotStartX = sx
+        rotStartY = sy
+        rotStartDeg = sr
+        def b:PptxEditRect (this.selectionBounds())
+        rotPivotX = (b.midX())
+        rotPivotY = (b.midY())
+        rotActive = true
+    }
+
+    fn endRotate:void () {
+        rotActive = false
+    }
+
+    fn applyRotate:void (deg:double) {
+        def shapes:[PptxShape] (this.movableShapes())
+        ; One shape turns about itself, and the handle points where the
+        ; pointer does — the angle IS the shape's angle. With more than one
+        ; there is no such shape, so the selection as a whole takes the angle
+        ; and everything in it comes along.
+        if ((array_length shapes) < 2) {
+            def i:int 0
+            while (i < (array_length shapes)) {
+                def sh:PptxShape (itemAt shapes i)
+                sh.rotation = (PptxEditor.normalizeDeg(deg))
+                i = (i + 1)
+            }
+            return
+        }
+        if (rotActive == false) {
+            this.beginRotate()
+        }
+        if ((array_length rotStartX) != (array_length shapes)) {
+            this.beginRotate()
+        }
+        def r:int 0
+        while (r < (array_length shapes)) {
+            def sh2:PptxShape (itemAt shapes r)
+            sh2.x = (itemAt rotStartX r)
+            sh2.y = (itemAt rotStartY r)
+            sh2.rotation = (itemAt rotStartDeg r)
+            r = (r + 1)
+        }
+        PptxEditor.spinAbout(shapes rotPivotX rotPivotY deg)
     }
 
     fn rotateSelection:boolean (deg:double) {
@@ -1452,11 +1540,16 @@ class PptxEditor {
             return false
         }
         def shapes:[PptxShape] (this.movableShapes())
-        def i:int 0
-        while (i < (array_length shapes)) {
-            def sh:PptxShape (itemAt shapes i)
-            sh.rotation = (PptxEditor.normalizeDeg((sh.rotation + deg)))
-            i = (i + 1)
+        if ((array_length shapes) > 1) {
+            def b:PptxEditRect (this.selectionBounds())
+            PptxEditor.spinAbout(shapes (b.midX()) (b.midY()) deg)
+        } {
+            def i:int 0
+            while (i < (array_length shapes)) {
+                def sh:PptxShape (itemAt shapes i)
+                sh.rotation = (PptxEditor.normalizeDeg((sh.rotation + deg)))
+                i = (i + 1)
+            }
         }
         this.pushSnapshot("rotate")
         return true
@@ -2541,6 +2634,16 @@ class PptxEditor {
         if (sh.kind == 2) {
             return false
         }
+        ; A table and a chart carry their own content. Setting `hasText` on
+        ; one would give it a second, empty text body that the writer would
+        ; then have to explain — and a click can now reach this, where before
+        ; only a deliberate F2 could.
+        if (sh.kind == 4) {
+            return false
+        }
+        if (sh.kind == 5) {
+            return false
+        }
         sh.hasText = true
         if ((array_length sh.text.paragraphs) == 0) {
             def para (new PptxParagraph())
@@ -2762,6 +2865,140 @@ class PptxEditor {
     ; A style command while a caret is in the text means the SELECTION, and a
     ; style command otherwise means the whole shape. Both are what a user
     ; expects, and the difference is only which one is in front of them.
+    ; --- lists ----------------------------------------------------------------
+    ;
+    ; A bullet and a number are properties of a PARAGRAPH, not of a run, so
+    ; these act on whole paragraphs: the ones the caret spans when there is a
+    ; caret, and every paragraph of every selected shape when there is not —
+    ; which is how a person turns a whole box into a list without first
+    ; selecting its text.
+
+    fn listParagraphs:[PptxParagraph] () {
+        def out:[PptxParagraph]
+        def hit@(optional):PptxShape (this.editingShape())
+        if (!null? hit) {
+            def sh:PptxShape (unwrap hit)
+            def a:int anchor.para
+            def b:int caret.para
+            if (a > b) {
+                def swap:int a
+                a = b
+                b = swap
+            }
+            def i:int a
+            while (i <= b) {
+                if (i < (array_length sh.text.paragraphs)) {
+                    push out (itemAt sh.text.paragraphs i)
+                }
+                i = (i + 1)
+            }
+            return out
+        }
+        def shapes:[PptxShape] (this.selectedShapes())
+        def si:int 0
+        while (si < (array_length shapes)) {
+            def s2:PptxShape (itemAt shapes si)
+            if s2.hasText {
+                def pi:int 0
+                while (pi < (array_length s2.text.paragraphs)) {
+                    push out (itemAt s2.text.paragraphs pi)
+                    pi = (pi + 1)
+                }
+            }
+            si = (si + 1)
+        }
+        return out
+    }
+
+    ; "none", "bullet" or "number", read off the first paragraph the command
+    ; would act on — which is what a toggle needs in order to know whether it
+    ; is turning a list on or off.
+    fn listKind:string () {
+        def paras:[PptxParagraph] (this.listParagraphs())
+        if ((array_length paras) == 0) {
+            return "none"
+        }
+        def first:PptxParagraph (itemAt paras 0)
+        if (first.hasBullet == false) {
+            return "none"
+        }
+        if first.bulletAutoNum {
+            return "number"
+        }
+        return "bullet"
+    }
+
+    fn setListKind:boolean (kind:string) {
+        def paras:[PptxParagraph] (this.listParagraphs())
+        if ((array_length paras) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length paras)) {
+            def para:PptxParagraph (itemAt paras i)
+            ; Stated on the paragraph, so the layout's inherited list style
+            ; does not put the bullet back that this just took away.
+            para.bulletSet = true
+            if (kind == "none") {
+                para.hasBullet = false
+                para.bulletAutoNum = false
+            }
+            if (kind == "bullet") {
+                para.hasBullet = true
+                para.bulletAutoNum = false
+                if ((strlen para.bulletChar) == 0) {
+                    para.bulletChar = "\u2022"
+                }
+            }
+            if (kind == "number") {
+                para.hasBullet = true
+                para.bulletAutoNum = true
+            }
+            i = (i + 1)
+        }
+        this.pushSnapshot(("list " + kind))
+        return true
+    }
+
+    ; One level in or out. The level is what the layout indents by and what
+    ; the numbering counts within, so a sub-list starts at one — and when the
+    ; deck stated its own `marL`, that moves with the level too, or nothing
+    ; on screen would change.
+    fn indentList:boolean (delta:int) {
+        def paras:[PptxParagraph] (this.listParagraphs())
+        if ((array_length paras) == 0) {
+            return false
+        }
+        def moved:int 0
+        def i:int 0
+        while (i < (array_length paras)) {
+            def para:PptxParagraph (itemAt paras i)
+            def want:int (para.level + delta)
+            if (want < 0) {
+                want = 0
+            }
+            if (want > 8) {
+                want = 8
+            }
+            if (want != para.level) {
+                if para.marginSet {
+                    para.marginLeftPt = (para.marginLeftPt + ((to_double (want - para.level)) * 18.0))
+                    if (para.marginLeftPt < 0.0) {
+                        para.marginLeftPt = 0.0
+                    }
+                }
+                para.level = want
+                moved = (moved + 1)
+            }
+            i = (i + 1)
+        }
+        if (moved == 0) {
+            return false
+        }
+        this.pushSnapshot("list indent")
+        return true
+    }
+
     fn styleTextRange:boolean (what:string flag:boolean size:double text:string) {
         def hit@(optional):PptxShape (this.editingShape())
         if (null? hit) {

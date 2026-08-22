@@ -662,6 +662,15 @@ class EVGDisplayList {
             }
             out = out + ",\"c\":[" + (to_string c.r) + "," + (to_string c.g)
             out = out + "," + (to_string c.b) + "," + (EVGDisplayList.num(c.a)) + "]"
+            ; A two-stop gradient was on the command and in the software
+            ; canvas but never in the JSON, so every backend on the other side
+            ; of it painted the first stop flat across the box. `gd` is the
+            ; direction (1 = across, otherwise down) and `c2` the far stop.
+            if c.hasGrad {
+                out = out + ",\"gd\":" + (to_string c.gradDir)
+                out = out + ",\"c2\":[" + (to_string c.r2) + "," + (to_string c.g2)
+                out = out + "," + (to_string c.b2) + "," + (EVGDisplayList.num(c.a2)) + "]"
+            }
             if ((strlen c.text) > 0) {
                 out = out + ",\"text\":" + (EVGDisplayList.jsonString(c.text))
                 out = out + ",\"font\":" + (EVGDisplayList.jsonString(c.fontFamily))
@@ -687,7 +696,15 @@ class EVGDisplayList {
             if (c.rotate != 0.0) {
                 out = out + ",\"rot\":" + (EVGDisplayList.num(c.rotate))
             }
-            if ((array_length c.ringEnds) > 0) {
+            ; The GEOMETRY decides whether there is a path, not the ring list:
+            ; a command built by hand — and there are several, in this gallery
+            ; and outside it — sets `pts` and forgets `ringEnds`, and gating
+            ; the points on the ring list dropped every one of those shapes on
+            ; the floor. A backend saw a path command with no path and skipped
+            ; it, silently, so an arrow or a bracket simply was not there. One
+            ; ring covering everything is what a single-contour path means
+            ; anyway, so say it here rather than expecting each caller to.
+            if ((array_length c.pts) > 0) {
                 out = out + ",\"pts\":["
                 def pi:int 0
                 while (pi < (array_length c.pts)) {
@@ -698,13 +715,17 @@ class EVGDisplayList {
                     pi = (pi + 1)
                 }
                 out = out + "],\"ends\":["
-                def ei:int 0
-                while (ei < (array_length c.ringEnds)) {
-                    if (ei > 0) {
-                        out = out + ","
+                if ((array_length c.ringEnds) == 0) {
+                    out = out + (to_string (array_length c.pts))
+                } {
+                    def ei:int 0
+                    while (ei < (array_length c.ringEnds)) {
+                        if (ei > 0) {
+                            out = out + ","
+                        }
+                        out = out + (to_string (itemAt c.ringEnds ei))
+                        ei = (ei + 1)
                     }
-                    out = out + (to_string (itemAt c.ringEnds ei))
-                    ei = (ei + 1)
                 }
                 out = out + "]"
                 if c.evenOdd {
