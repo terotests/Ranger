@@ -177,6 +177,25 @@ class OfficeFont {
         if (n == "cinzel") {
             return "Cinzel"
         }
+        ; The Arabic faces. A document that names one of Word's Arabic fonts
+        ; asked for Arabic and must not be answered with a Latin face that has
+        ; not one glyph of it — the per-codepoint fallback would rescue the
+        ; letters, but the line would be set in a face chosen for the wrong
+        ; script and the Latin words in it would not match.
+        if (((n == "el messiri") || (n == "traditional arabic")) || (n == "simplified arabic")) {
+            return "El Messiri"
+        }
+        if (((n == "arabic typesetting") || (n == "amiri")) || (n == "cairo")) {
+            return "El Messiri"
+        }
+        ; Katibeh is in the repository too and is NOT loaded by any of the
+        ; three editors, so naming it here would send a document to a family
+        ; that resolves to nothing and lands back on Open Sans — the exact
+        ; failure this map exists to prevent. It goes to the Arabic face that
+        ; is actually loaded.
+        if (n == "katibeh") {
+            return "El Messiri"
+        }
         return "Open Sans"
     }
 

@@ -494,6 +494,19 @@ class OfficeArabic {
     ; once the joining is known. Two-shape letters have only the first two,
     ; so a two-shape letter in the middle of a word takes its FINAL form,
     ; not a medial one it does not have.
+    ;
+    ; With one exception that is not a shortcut: a letter that joins on
+    ; NEITHER side comes back as the codepoint it went in as, rather than as
+    ; the isolated presentation form of it. The isolated shape IS the glyph a
+    ; font maps the base codepoint to — that is what makes it the isolated
+    ; shape — and asking for it through Presentation Forms-B instead asks for
+    ; something a lot of fonts do not carry. Both Arabic faces in this
+    ; repository are like that: El Messiri and Katibeh have every final,
+    ; initial and medial form and NOT ONE of the 36 isolated ones, because
+    ; those would be duplicates of glyphs already reachable. Emitting FE8F for
+    ; a lone beh would have drawn a .notdef box in the very case a reader
+    ; notices first — a single letter, a one-letter word, the letter after a
+    ; break in the middle of a word.
     sfn formOf:int (cp:int joinsPrev:boolean joinsNext:boolean) {
         def base:int (OfficeArabic.isoFormOf(cp))
         if (base == 0) {
@@ -501,7 +514,7 @@ class OfficeArabic {
         }
         def count:int (OfficeArabic.formCountOf(cp))
         if (count < 2) {
-            return base
+            return cp
         }
         if joinsPrev {
             if joinsNext {
@@ -516,9 +529,9 @@ class OfficeArabic {
             if (count == 4) {
                 return (base + 2)
             }
-            return base
+            return cp
         }
-        return base
+        return cp
     }
 
     ; The isolated lam-alef ligature for the alef that follows a lam, or 0.

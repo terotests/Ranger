@@ -3131,7 +3131,7 @@ class GridApp {
     }
 
     sfn fontNameCount:int () {
-        return 10
+        return 11
     }
 
     sfn fontNameAt:string (i:int) {
@@ -3145,6 +3145,11 @@ class GridApp {
         if (i == 7) { return "Helvetica" }
         if (i == 8) { return "Droid Serif" }
         if (i == 9) { return "Josefin Sans" }
+        ; The Arabic face. It is in the fallback pool already, so a cell
+        ; holding Arabic draws correctly whichever font is set on it — but a
+        ; workbook whose whole point is Arabic should be able to say so, and
+        ; the picker is the only place a user can.
+        if (i == 10) { return "El Messiri" }
         return "Calibri"
     }
 

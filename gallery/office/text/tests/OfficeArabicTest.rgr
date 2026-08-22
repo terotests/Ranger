@@ -16,6 +16,9 @@
 ;   * hamza joins on neither side, so its neighbours stay isolated too
 ;   * lam + alef is one glyph, not two, and it has a final form of its own
 ;   * the tatweel joins; the zero-width non-joiner deliberately does not
+;   * a letter that joins on neither side comes back as ITSELF, because the
+;     isolated shape is the glyph the base codepoint already maps to and the
+;     Presentation Forms-B duplicate of it is missing from most Arabic fonts
 ;
 ; And one that is about the architecture rather than about Arabic: the array
 ; that comes out is the same length as the one that went in, because every
@@ -149,10 +152,15 @@ class OfficeArabicTest {
     fn testWordShapes:void () {
         print "--- the four shapes ---"
         ; U+FE8F..FE92 are beh isolated, final, initial, medial in that order.
-        this.shaped("one letter alone is isolated" "1576" "65167")
+        ; A letter that joins on neither side comes back as ITSELF, not as its
+        ; isolated presentation form. That is not laziness: the isolated shape
+        ; is the glyph a font maps the base codepoint to, and both Arabic
+        ; faces in this repository carry every joining form and not one of the
+        ; 36 isolated ones. FE8F for a lone beh would draw a .notdef box.
+        this.shaped("one letter alone stays the letter it was" "1576" "1576")
         this.shaped("two letters are initial then final" "1576 1576" "65169 65168")
         this.shaped("three put a medial in the middle" "1576 1576 1576" "65169 65170 65168")
-        this.shaped("a space starts a new word" "1576 1576 32 1576" "65169 65168 32 65167")
+        this.shaped("a space starts a new word" "1576 1576 32 1576" "65169 65168 32 1576")
 
         ; مرحبا — a real word, with a break after the reh and a two-shape
         ; letter at each end of it.
@@ -168,14 +176,14 @@ class OfficeArabicTest {
         ; as "medial" gets this wrong and produces a word joined straight
         ; through a letter that cannot join.
         this.shaped("a right-joining letter breaks the word" "1576 1583 1576"
-            "65169 65194 65167")
+            "65169 65194 1576")
         ; U+0648 WAW has only two shapes. In the middle of joins it takes the
         ; FINAL one, because there is no medial waw to take.
         this.shaped("a two-shape letter in the middle takes its final form"
-            "1576 1608 1576" "65169 65262 65167")
+            "1576 1608 1576" "65169 65262 1576")
         ; Hamza joins on neither side, so all three letters stand alone.
         this.shaped("hamza leaves its neighbours isolated" "1576 1569 1576"
-            "65167 65152 65167")
+            "1576 1569 1576")
     }
 
     fn testMarks:void () {
@@ -192,7 +200,7 @@ class OfficeArabicTest {
             "65169 1600 65168")
         ; ZWNJ is the author saying "do not join these", and it is honoured.
         this.shaped("the zero-width non-joiner breaks the join" "1576 8204 1576"
-            "65167 8204 65167")
+            "1576 8204 1576")
     }
 
     fn testLigature:void () {

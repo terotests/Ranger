@@ -80,6 +80,23 @@ class OfficeRtlEditorsTest {
         return "65166 65170 65187 65198 65251"
     }
 
+    ; The same five letters with a zero-width non-joiner between each, which
+    ; is the author's way of saying "do not join these" — so they keep their
+    ; standing-alone shapes and the word is as wide as it can be.
+    sfn isolated:string () {
+        def out:string ""
+        out = (out + (EVGCodepoint.toStr(1605)))
+        out = (out + (EVGCodepoint.toStr(8204)))
+        out = (out + (EVGCodepoint.toStr(1585)))
+        out = (out + (EVGCodepoint.toStr(8204)))
+        out = (out + (EVGCodepoint.toStr(1581)))
+        out = (out + (EVGCodepoint.toStr(8204)))
+        out = (out + (EVGCodepoint.toStr(1576)))
+        out = (out + (EVGCodepoint.toStr(8204)))
+        out = (out + (EVGCodepoint.toStr(1575)))
+        return out
+    }
+
     ; And what it must NOT: the source order. This is the string the editors
     ; used to emit, and it is also what a SECOND pass would produce, which is
     ; why both failures show up as this same value.
@@ -119,6 +136,7 @@ class OfficeRtlEditorsTest {
         this.testDocx()
         this.testPptx()
         this.testGrid()
+        this.testGlyphsExist()
         print ""
         print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
         if (c.failed == 0) {
@@ -163,6 +181,43 @@ class OfficeRtlEditorsTest {
             (EVGColor.rgb(0 0 0)) "Calibri" 0.0 "left" 200.0 false 0.0)
         c.eqStr("and English is left exactly alone"
             (OfficeRtlEditorsTest.lastText(dl2)) "Hello")
+    }
+
+    ; None of the above would be visible without glyphs to draw.
+    ;
+    ; Every face these editors loaded was a Latin one, so an Arabic document
+    ; drew a row of .notdef boxes — and it would have gone on drawing them
+    ; however correct the reordering and the shaping were. This is the check
+    ; that the face which fixes that is actually loaded, and that it covers
+    ; the forms THIS shaper emits rather than merely "having Arabic in it":
+    ; El Messiri carries every joining form and not one of the 36 isolated
+    ; ones, which is exactly why the shaper leaves a lone letter as its own
+    ; codepoint.
+    fn testGlyphsExist:void () {
+        print "--- and glyphs to draw them with ---"
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def fm:FontManager app.view.ctx.tr.fm
+        ; The base letters, which is what a lone letter comes out as.
+        c.ok("a bare Arabic letter has a glyph" ((fm.fallbackFace(1576)).isLoaded()))
+        c.ok("and so does the meem" ((fm.fallbackFace(1605)).isLoaded()))
+        ; The joining forms of مرحبا, which is what the shaper emits.
+        c.ok("meem initial has a glyph" ((fm.fallbackFace(65251)).isLoaded()))
+        c.ok("reh final has a glyph" ((fm.fallbackFace(65198)).isLoaded()))
+        c.ok("hah initial has a glyph" ((fm.fallbackFace(65187)).isLoaded()))
+        c.ok("beh medial has a glyph" ((fm.fallbackFace(65170)).isLoaded()))
+        c.ok("alef final has a glyph" ((fm.fallbackFace(65166)).isLoaded()))
+        ; And the ligature, which has no base codepoint to fall back on.
+        c.ok("the lam-alef ligature has a glyph" ((fm.fallbackFace(65275)).isLoaded()))
+        c.ok("and its final form too" ((fm.fallbackFace(65276)).isLoaded()))
+        ; The measurement is the shaped one. A joined word is narrower than
+        ; the same letters standing apart, so if these two came out equal the
+        ; shaping would not have reached the measurer at all.
+        def src:string (OfficeRtlEditorsTest.source())
+        def wShaped:double (app.view.ctx.tr.measureWidth(src 20.0))
+        def wIsolated:double (app.view.ctx.tr.measureWidth((OfficeRtlEditorsTest.isolated()) 20.0))
+        c.ok("the word measures narrower joined than apart" (wShaped < wIsolated))
+        c.ok("and it measures something at all" (wShaped > 1.0))
     }
 
     fn testGrid:void () {
