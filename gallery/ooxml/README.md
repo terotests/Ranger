@@ -231,7 +231,7 @@ place of `TextSpan`, `PptxTextRun` and `CellRun`, each of which still holds the
 shared style alongside its own ideas — a field type, a hyperlink, a number
 format — and still spells the tri-state longhand as a companion per property.
 
-### 4. DrawingML core — colour done, the rest still to lift
+### 4. DrawingML core — colour done; the rest has no second user yet
 
 [`OfficeColor`](../office/README.md) is the first piece, and it was the one
 with a reader missing it entirely: the spreadsheet dropped every colour named
@@ -245,8 +245,15 @@ using either where the other belongs gives a colour that is plausible and
 wrong.
 
 Gradients, line styles, shadows, transforms and shape geometry are still in
-`PptxModel`, and `.xlsx` charts and drawings (`XlsxDrawing.rgr`) and `.docx`
-floating drawings use all of them. Same move, still to make.
+`PptxModel`. This entry used to claim that `.xlsx` drawings and `.docx`
+floating drawings use them too, and **that is not true today**: `XlsxDrawing`
+and `WordMlParser.parseDrawing` read a `a:blip` and an extent and nothing else
+— neither reader has shapes at all, so neither has a gradient to lose.
+
+So lifting them is a pure refactor with no second user, which is the opposite
+of what `OfficeColor` was. It becomes worth doing when one of those readers
+grows shapes; doing it first would be moving code to a shared place on the
+strength of one caller.
 
 ### 5. `EditorSession` — the history rules are shared; the session is not yet
 
