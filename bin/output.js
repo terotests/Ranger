@@ -15255,6 +15255,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           const parent = ctx.findClass(item);
           ch.addParentClass(item);
           parent.is_inherited = true;
+          parent.is_extended_by_children = true;
+          parent.child_classes.push(index);
           await operatorsOf.forEach_11(parent.variables, ((item, index) => { 
             ch.ctx.defineVariable(item.name, item);
           }));

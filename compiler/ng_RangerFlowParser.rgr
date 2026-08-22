@@ -6491,6 +6491,15 @@ class RangerFlowParser {
         def parent (ctx.findClass(item))
         ch.addParentClass(item)
         parent.is_inherited = true
+        ; `class Child extends Base` is the CLASS HEADER form and lands here;
+        ; the statement forms (`extends Base` / `Extends(Base)` inside the body)
+        ; go through markParentClass, which also records the child and marks the
+        ; parent extended. This path recorded neither, so a target that has to
+        ; ask "is anything derived from this class?" was told no: Kotlin wrote a
+        ; final `class Base` (and final methods) that its own subclass could not
+        ; extend — one `kotlinc` error for an app that compiled everywhere else.
+        parent.is_extended_by_children = true
+        push parent.child_classes index
 
         parent.variables.forEach({
           ch.ctx.defineVariable(item.name item)

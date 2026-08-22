@@ -1,0 +1,37 @@
+; Test: inheritance written as a class HEADER (`class Dog extends Animal`)
+; rather than as `Extends(Animal)` in the body.
+;
+; The two spellings mean the same thing and were collected by different code
+; paths; only one of them marked the parent as extended, so Kotlin wrote a final
+; `class Animal` that `class Dog : Animal()` could not extend. ISSUES.md #72.
+
+class Animal {
+    def name:string ""
+
+    Constructor (n:string) {
+        name = n
+    }
+
+    fn speak:string () {
+        return "..."
+    }
+}
+
+class Dog extends Animal {
+    Constructor (n:string) {
+        name = n
+    }
+
+    fn speak:string () {
+        return "Woof!"
+    }
+}
+
+class InheritanceHeaderTest {
+    sfn m@(main):void () {
+        def dog (new Dog("Buddy"))
+        print dog.name
+        print (dog.speak())
+        print "Done"
+    }
+}
