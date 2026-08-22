@@ -151,16 +151,23 @@ unicode text → font resolution → shaping → glyph runs → measurement → 
 separate and call into it. Word's line-breaking rules are not PowerPoint's and
 should not be merged; how wide a glyph is, is not a per-format question.
 
-### 3. Shared text runs and styles
+### 3. Shared text runs and styles — the part that was wrong is fixed
 
-Three models already solve the same problem — `TextSpan` (docx), `PptxTextRun`,
-`CellRun` (xlsx). One `TextRun { text, style, source? }` over one `TextStyle`.
+The detail that mattered more than the merge is done. A style property has to
+distinguish **unset**, **inherited** and **explicitly false**, and all three
+readers stored a plain `boolean` and asked `if (bold == false)` — which is true
+of both "said nothing" and "said no". So a word explicitly taken out of bold
+came back bold, in a document, a deck and a cell alike.
 
-The detail that matters more than the merge: a style property has to
-distinguish **unset**, **inherited**, and **explicitly false**. `PptxModel`
-already carries this as `sizeSet` / `alignSet` / `bulletSet` companions to the
-values. Conceptually the field is `StyleValue<boolean>`, not `boolean` — in
-OOXML "not specified" and "specified as false" are different answers.
+[`OfficeStyle`](../office/README.md) is the carrier —`StyleFlag`, `StyleNum`,
+`StyleText`, and an `OfficeTextStyle` over them — and `applyOver` is the
+inheritance rule that is the whole reason it exists. Each format reads,
+resolves, edits and WRITES the distinction now.
+
+What is left is the merge itself: one `TextRun { text, style, source? }` in
+place of `TextSpan`, `PptxTextRun` and `CellRun`, each of which still holds the
+shared style alongside its own ideas — a field type, a hyperlink, a number
+format — and still spells the tri-state longhand as a companion per property.
 
 ### 4. DrawingML core — `gallery/office/drawing/`
 

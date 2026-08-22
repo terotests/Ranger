@@ -22,12 +22,14 @@ gallery/office/
         OfficeFont.rgr         which face draws this run
         OfficeTextRun.rgr      a stretch of text drawn in one face
         OfficeTextMetrics.rgr  offset → x, and x → offset
+        OfficeStyle.rgr        a property that knows it was not stated
         tests/ tools/
 ```
 
 ```bash
 npm run office:font:test       # JavaScript and C++
 npm run office:metrics:test    # likewise
+npm run office:style:test      # likewise
 ```
 
 ### `OfficeFont`
@@ -88,6 +90,47 @@ Two differences between the copies it replaced were not accidents:
   out at one, because `tr.wrap` broke it at one. A run with no size of its own
   takes the caller's.
 
+### `OfficeStyle`
+
+In OOXML **"not specified" is not "specified as false"**, and a `boolean`
+cannot hold both. That is the difference between these two runs under a style
+that says bold:
+
+```xml
+<w:r><w:rPr/>…                        says nothing  → bold
+<w:r><w:rPr><w:b w:val="0"/></w:rPr>  says NOT bold → not bold
+```
+
+All three readers stored a plain boolean and asked `if (bold == false)`, which
+is true of both. So a word explicitly taken out of bold came back bold — in a
+document, in a deck and in a cell:
+
+| | how it decided | what that cost |
+| --- | --- | --- |
+| `.docx` | `if (hasFlag "w:b") { bold = true }` | a word un-bolded inside a bold heading drew bold; its underline was right, having been written with the distinction in mind |
+| `.pptx` | `if (run.bold == false) { if lvl.boldSet … }` | the list-level parser beside it had always read `b` as three answers; the run parser read it as two — and the writer had no way to say "not bold", so it could not be fixed by hand either |
+| `.xlsx` | `if bold { st.bold = true }` | the size on the same class already had the idea, spelled as a sentinel — `0` means "whatever the cell says". A boolean has no spare value to spend that way |
+
+`StyleFlag`, `StyleNum` and `StyleText` are the carriers — Ranger has no
+generics, so `StyleValue<T>` is spelled three times — and `OfficeTextStyle`
+composes them. The whole reason any of it exists is one method:
+
+```text
+applyOver(base)   every property this style STATES replaces base's;
+                  every property it does not, leaves base's alone.
+```
+
+That is inheritance: docDefaults, then the style chain, then the direct
+formatting, each applied over the last. A property that cannot say *"I was not
+stated"* cannot take part in it, which is how a chain silently becomes
+*"whoever set it to true last wins"*.
+
+Each format carries the distinction now where it reads, resolves, edits and
+**writes** — a run that says it is not bold has to say so on the way out too.
+And an editor states a flag only when it differs from what the run would
+inherit anyway, which is what Word does with its own `w:b`: un-bolding inside a
+bold placeholder is recorded, un-bolding inside plain text leaves no scar.
+
 ### The rest of the typography core
 
 - **The `.pptx` layout still keeps its own walk.** Its measurer answers with an
@@ -107,6 +150,16 @@ Two differences between the copies it replaced were not accidents:
 `PptxColor`, gradients, line styles, shadows, transforms and geometry are in
 `PptxModel`, but DrawingML is not PowerPoint's: `.xlsx` charts and drawings and
 `.docx` floating drawings use it too.
+
+### The rest of the shared run model
+
+`OfficeTextStyle` is the intersection the three formats state and inherit.
+Their own run types still hold it alongside their own ideas — a slide run has a
+field type, a document run a hyperlink, a cell run a number format — and each
+still spells the tri-state longhand as a companion per property. Folding those
+into one `TextRun { text, style, source? }` is the rest of the merge; the
+distinction it exists to protect is already in place, which was the part that
+was actually wrong.
 
 ### `core/` — identity, revisions, assets, transactions
 
