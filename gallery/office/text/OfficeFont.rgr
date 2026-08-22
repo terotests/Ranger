@@ -1,0 +1,220 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeFont.rgr — which face draws this run, for every office format here.
+; ==============================================================================
+;
+; A document says "Calibri, bold, italic". A renderer has whatever faces were
+; loaded. Everything between those two sentences is this file, and it had been
+; written three times, differently, and only one of them was right:
+;
+;   * `PptxTextMeasure.faceFor` built "Family-Bold Italic" from what the run
+;     said. Right, but it did not check the face was there, so a deck naming a
+;     font nobody loaded measured against a fallback it never named.
+;   * `DocxTextMetrics.applyFace` took ONE argument, `bold`, and chose between
+;     "Open Sans" and "Open Sans-Bold". A span's family was ignored, and so was
+;     its italic — which is why Word's italic button, its Ctrl+I, and every
+;     italic run in every .docx opened here changed the model and drew nothing.
+;   * The spreadsheet measures its own way again.
+;
+; WHAT A FACE IS CALLED. `FontManager` keys a face by family and style, and
+; takes them written as one string: "Open Sans", "Open Sans-Bold", "Open
+; Sans-Italic", "Open Sans-Bold Italic". It splits on the FIRST dash, so the
+; style may contain a space but the family may not contain a dash.
+;
+; WHY `hasFont` IS NOT ENOUGH. It answers about the FAMILY: ask it for
+; "Open Sans-Bold Italic" and it says yes as soon as any Open Sans face is
+; loaded. To find out whether the exact style is there, the face has to be
+; fetched and its own `fontStyle` compared — which is what `exactFace` does,
+; and what makes the fallback walk below mean anything.
+;
+; THE WALK. A missing face is not a reason to draw nothing, and it is not a
+; reason to draw the wrong thing silently either:
+;
+;   Family + bold + italic          the face the document asked for
+;   Family + bold                   lose the italic before the weight: a bold
+;   Family + italic                 word that draws upright still reads as
+;   Family                          emphasis, an italic one that loses its
+;   fallback + the same walk        weight does not
+;
+; `resolve` answers with the first that exists and "" when nothing does, so a
+; caller can tell "I drew something else" from "there is nothing to draw with".
+; ==============================================================================
+
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+class OfficeFont {
+    ; "Regular" / "Bold" / "Italic" / "Bold Italic" — the words `FontManager`
+    ; records a face under.
+    sfn styleName:string (bold:boolean italic:boolean) {
+        if bold {
+            if italic {
+                return "Bold Italic"
+            }
+            return "Bold"
+        }
+        if italic {
+            return "Italic"
+        }
+        return "Regular"
+    }
+
+    ; The name a renderer is asked for. The regular face is the bare family:
+    ; "Open Sans-Regular" is not what the loader registered it as.
+    sfn faceName:string (family:string bold:boolean italic:boolean) {
+        if ((strlen family) == 0) {
+            return ""
+        }
+        if ((bold == false) && (italic == false)) {
+            return family
+        }
+        return (family + "-" + (OfficeFont.styleName(bold italic)))
+    }
+
+    ; The name, but only if that exact face is loaded. `hasFont` cannot answer
+    ; this: it matches the FAMILY, so it says yes to a bold italic the moment
+    ; any face of the family is there.
+    sfn exactFace:string (fm:FontManager family:string bold:boolean italic:boolean) {
+        if ((strlen family) == 0) {
+            return ""
+        }
+        def want:string (OfficeFont.faceName(family bold italic))
+        def face:TrueTypeFont (fm.getFont(want))
+        if (face.unitsPerEm == 0) {
+            return ""
+        }
+        if (face.fontFamily != family) {
+            return ""
+        }
+        def wantStyle:string (OfficeFont.styleName(bold italic))
+        if (face.fontStyle == wantStyle) {
+            return want
+        }
+        ; A loader that recorded the regular face with an empty style, or as
+        ; "Book", still answers the plain family correctly.
+        if ((bold == false) && (italic == false)) {
+            return want
+        }
+        return ""
+    }
+
+    ; The best face of ONE family: what was asked for, then the same family
+    ; with fewer style bits.
+    sfn nearestInFamily:string (fm:FontManager family:string bold:boolean italic:boolean) {
+        def exact:string (OfficeFont.exactFace(fm family bold italic))
+        if ((strlen exact) > 0) {
+            return exact
+        }
+        if (bold && italic) {
+            def b:string (OfficeFont.exactFace(fm family true false))
+            if ((strlen b) > 0) {
+                return b
+            }
+            def i:string (OfficeFont.exactFace(fm family false true))
+            if ((strlen i) > 0) {
+                return i
+            }
+        }
+        return (OfficeFont.exactFace(fm family false false))
+    }
+
+    ; The face to draw with, or "" when the renderer has nothing at all.
+    sfn resolve:string (fm:FontManager family:string bold:boolean italic:boolean fallback:string) {
+        def hit:string (OfficeFont.nearestInFamily(fm family bold italic))
+        if ((strlen hit) > 0) {
+            return hit
+        }
+        if ((strlen fallback) == 0) {
+            return ""
+        }
+        if (fallback == family) {
+            return ""
+        }
+        return (OfficeFont.nearestInFamily(fm fallback bold italic))
+    }
+
+    ; --- what a document's font name means here --------------------------------
+    ;
+    ; A document names the fonts its author had: Calibri, Arial, Times New
+    ; Roman. This gallery ships five families and none of them are those. So a
+    ; name is mapped onto a family that IS here, and mapped to a DISTINCT one
+    ; where it can be — sending every unknown name to the same face makes
+    ; choosing a font in a toolbar look like a no-op.
+    ;
+    ; This began in the spreadsheet, which is the only one of the three that
+    ; had it. The .docx reader drew everything in Open Sans whatever the
+    ; document said, and the .pptx reader passed the deck's own name straight
+    ; through to a renderer that did not have it. One map, so all three make
+    ; the same substitution and a document opened in two of them looks the
+    ; same in both.
+    sfn aliasFamily:string (name:string) {
+        def n:string (to_lowercase (trim name))
+        if ((strlen n) == 0) {
+            return "Open Sans"
+        }
+        if (n == "open sans") {
+            return "Open Sans"
+        }
+        if (n == "noto sans") {
+            return "Noto Sans"
+        }
+        if ((n == "helvetica") || (n == "helvetica neue")) {
+            return "Helvetica"
+        }
+        if ((n == "droid serif") || (n == "times new roman") || (n == "times") || (n == "georgia") || (n == "serif")) {
+            return "Droid Serif"
+        }
+        if ((n == "josefin sans") || (n == "courier new") || (n == "courier") || (n == "consolas") || (n == "monospace")) {
+            return "Josefin Sans"
+        }
+        if (n == "arial") {
+            return "Noto Sans"
+        }
+        if ((n == "calibri") || (n == "candara") || (n == "segoe ui") || (n == "sans-serif")) {
+            return "Open Sans"
+        }
+        if (n == "cinzel") {
+            return "Cinzel"
+        }
+        return "Open Sans"
+    }
+
+    ; The alias map and the walk in one call: what a document NAMED, drawn with
+    ; the best face this renderer has for it.
+    sfn applyNamed:string (tr:UITextRenderer name:string bold:boolean italic:boolean) {
+        def fam:string (OfficeFont.aliasFamily(name))
+        return (OfficeFont.apply(tr fam bold italic "Open Sans"))
+    }
+
+    ; Did the document name a family this renderer does not have? A box the
+    ; author sized to fit is a box the text spills out of when the answer is
+    ; yes, so it is worth being able to ask.
+    sfn substituted:boolean (fm:FontManager family:string) {
+        if ((strlen family) == 0) {
+            return false
+        }
+        return ((fm.hasFont(family)) == false)
+    }
+
+    ; Point the renderer at a face, and answer which one it ended up on.
+    ;
+    ; It MUST go through `fontFamily` rather than `rt.setFont`: `UITextRenderer`
+    ; calls `applyFace()` at the top of measureWidth / wrap / getCachedLine,
+    ; which resets the rasterizer from `fontFamily`. Poking the rasterizer
+    ; directly is undone by the very next call — which is how bold runs came to
+    ; be measured, and drawn, in the regular face. The raster cache key already
+    ; includes `fontFamily`, so nothing has to be flushed here.
+    sfn apply:string (tr:UITextRenderer family:string bold:boolean italic:boolean fallback:string) {
+        def want:string (OfficeFont.resolve(tr.fm family bold italic fallback))
+        if ((strlen want) == 0) {
+            return tr.fontFamily
+        }
+        if (tr.fontFamily == want) {
+            return want
+        }
+        tr.fontFamily = want
+        tr.applyFace()
+        return want
+    }
+}

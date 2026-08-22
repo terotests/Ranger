@@ -99,10 +99,17 @@ class DocxInk {
     ; measuring either way, so the width recorded on the command is the width
     ; the same renderer would paint.
     fn text:void (s:string x:int y:int size:double col:EVGColor bold:boolean) {
+        this.textStyled(s x y size col bold false)
+    }
+
+    ; The slant reaches the face here. It used to stop at the model: a span
+    ; carried `italic`, the toolbar toggled it, Ctrl+I set it — and this took
+    ; only `bold`, so nothing italic in any document was ever drawn slanted.
+    fn textStyled:void (s:string x:int y:int size:double col:EVGColor bold:boolean italic:boolean) {
         if ((strlen s) == 0) {
             return
         }
-        DocxTextMetrics.applyFace(ctx.tr bold)
+        DocxTextMetrics.applyStyle(ctx.tr bold italic)
         if (toList == false) {
             ctx.text(s x y size col)
             return
@@ -118,6 +125,13 @@ class DocxInk {
         c.fontSize = size
         if bold {
             c.fontWeight = "bold"
+        }
+        ; How a display list says "slanted" — `EVGDisplayList.addText` writes
+        ; the same field, and the JSON it serialises to carries it as
+        ; `"italic":true`. A backend that only ever saw the weight drew every
+        ; italic run upright, which is the browser half of the same bug.
+        if italic {
+            c.textAlign = "italic"
         }
         c.r = (col.red())
         c.g = (col.green())

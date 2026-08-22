@@ -520,12 +520,14 @@ class DocxLayout {
 
         def fontPx:double 14.0
         def bold:boolean false
+        def italic:boolean false
         def underline:boolean false
         def colorHex:string "000000"
         if ((array_length p.spans) > 0) {
             def s0:TextSpan (itemAt p.spans 0)
             fontPx = (DocxLayout.ptToPx(s0.fontSizePt))
             bold = s0.bold
+            italic = s0.italic
             underline = s0.underline
             colorHex = s0.colorHex
         }
@@ -534,8 +536,9 @@ class DocxLayout {
         }
         ; Wrapping and line widths must use the same face the painter will use
         ; for this paragraph's primary run, or a bold paragraph wraps as if it
-        ; were regular and every line measures short.
-        DocxTextMetrics.applyFace((unwrap tr) bold)
+        ; were regular and every line measures short. The slant counts for the
+        ; same reason: an italic face is not the width of its upright one.
+        DocxTextMetrics.applyStyle((unwrap tr) bold italic)
         def lh:int (to_int ((tr.lineHeight(fontPx)) * p.lineSpacing))
         if (lh < 12) {
             lh = 12

@@ -1243,6 +1243,58 @@ class DocxTest {
         }
         viewer.setEditMode(false)
 
+        ; --- italic reaches the face ------------------------------------------
+        ;
+        ; A span carried `italic`, the toolbar toggled it and Ctrl+I set it —
+        ; and `applyFace` took one argument, `bold`, so the slant stopped at
+        ; the model. Every italic run in every document opened here was drawn
+        ; upright, and Word's italic button did nothing anyone could see.
+        ;
+        ; Width is how a test can tell: an italic face is not the same width as
+        ; its upright one, so measuring the same string both ways answers the
+        ; same number only if the face never changed.
+        print "== italic reaches the face =="
+        def itDoc:RichDocument (new RichDocument)
+        def itPara:Paragraph (itDoc.addParagraph())
+        itPara.text = "Hamburgefonstiv and again"
+        def plainSpan:TextSpan (new TextSpan)
+        plainSpan.start = 0
+        plainSpan.end = 15
+        plainSpan.fontSizePt = 11.0
+        push itPara.spans plainSpan
+        def slantSpan:TextSpan (new TextSpan)
+        slantSpan.start = 15
+        slantSpan.end = (strlen itPara.text)
+        slantSpan.italic = true
+        slantSpan.fontSizePt = 11.0
+        push itPara.spans slantSpan
+        def itTr:UITextRenderer (unwrap viewer.view.layout.tr)
+        ; The face the renderer is put on, which is the contract — the widths
+        ; of two faces are the type designer's business, and Open Sans happens
+        ; to give its italic the same advances as its regular.
+        DocxTextMetrics.applyStyle(itTr false false)
+        c.eqStr("plain text asks for the regular face" itTr.fontFamily "Open Sans")
+        DocxTextMetrics.applyStyle(itTr false true)
+        c.eqStr("an italic run asks for the italic face" itTr.fontFamily "Open Sans-Italic")
+        DocxTextMetrics.applyStyle(itTr true false)
+        c.eqStr("a bold run asks for the bold face" itTr.fontFamily "Open Sans-Bold")
+        DocxTextMetrics.applyStyle(itTr true true)
+        c.eqStr("and both asks for both" itTr.fontFamily "Open Sans-Bold Italic")
+        ; The span walk has to see the change, which is the part that was
+        ; missing: runs used to break only where the WEIGHT changed, so an
+        ; italic word inside plain text never got a face of its own.
+        c.ok("the walk knows where the slant starts"
+            (((DocxTextMetrics.italicAt(itPara 3)) == false) && (DocxTextMetrics.italicAt(itPara 20))))
+        c.ok("and gives the two halves different face keys"
+            ((DocxTextMetrics.faceKeyAt(itPara 3)) != (DocxTextMetrics.faceKeyAt(itPara 20))))
+        ; End to end: a real document with italic in it, drawn. The display
+        ; list says `"italic":true` for the runs that are slanted — and it said
+        ; it for none of them before, whatever the document contained.
+        c.ok("open a document with italic in it" (viewer.openFile(fix "20-business-report.docx")))
+        def itScene:string (viewer.sceneJson(0))
+        c.ok("the page carries slanted runs" ((indexOf itScene "\"italic\":true") >= 0))
+        c.ok("and upright ones too" ((indexOf itScene "\"text\"") >= 0))
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

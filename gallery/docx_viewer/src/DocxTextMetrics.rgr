@@ -15,11 +15,21 @@
 ;
 ; Note: like the painter, a run is measured at the visual line's size. Per-span
 ; font SIZE is not honoured yet — layout wraps the paragraph at one size, so
-; measuring at another would put the caret outside the painted text.
+; measuring at another would put the caret outside the painted text. Per-span
+; FAMILY is not honoured for the same reason: `tr.wrap` breaks the paragraph in
+; one face, and measuring the pieces in another would put the line ends
+; somewhere the breaks are not.
+;
+; ITALIC now is. It used to be neither measured nor painted: `applyFace` took
+; one argument, `bold`, so every italic run in every document opened here was
+; drawn upright — and Word's italic button and its Ctrl+I changed the model and
+; nothing on the page. The face naming and the walk when a face is missing are
+; `OfficeFont`'s, shared with the .pptx reader.
 ; ==============================================================================
 
 Import "RichDocument.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
+Import "../../office/text/OfficeFont.rgr"
 
 class DocxTextMetrics {
     ; Select the face for the next draw or measure.
@@ -30,19 +40,20 @@ class DocxTextMetrics {
     ; next call — which is why bold runs used to be measured, and drawn, in the
     ; regular face. The raster cache key already includes fontFamily, so no cache
     ; flush is needed here.
+    ; The family this reader draws with. Per-span families are parsed and kept
+    ; on the model; honouring them here needs the wrap path to honour them too,
+    ; which is the next piece of work rather than this one.
+    sfn family:string () {
+        return "Open Sans"
+    }
+
     sfn applyFace:void (tr:UITextRenderer bold:boolean) {
-        def want:string "Open Sans"
-        if bold {
-            want = "Open Sans-Bold"
-        }
-        if (tr.fontFamily == want) {
-            return
-        }
-        def face:TrueTypeFont (tr.fm.getFont(want))
-        if (face.unitsPerEm > 0) {
-            tr.fontFamily = want
-            tr.applyFace()
-        }
+        DocxTextMetrics.applyStyle(tr bold false)
+    }
+
+    sfn applyStyle:void (tr:UITextRenderer bold:boolean italic:boolean) {
+        def fam:string (DocxTextMetrics.family())
+        OfficeFont.apply(tr fam bold italic fam)
     }
 
     sfn safeSize:double (px:double) {
@@ -52,26 +63,76 @@ class DocxTextMetrics {
         return px
     }
 
-    ; Is the character at `off` painted bold? Spans are half-open [start,end).
-    sfn boldAt:boolean (p:Paragraph off:int) {
+    ; The span covering `off`, or the nearest one. Spans are half-open
+    ; [start,end); an offset past the last span belongs to the last span, which
+    ; is what puts a caret at the end of a paragraph in the style of the text
+    ; in front of it.
+    sfn spanAt@(optional):TextSpan (p:Paragraph off:int) {
         def i:int 0
         def n:int (array_length p.spans)
         while (i < n) {
             def sp:TextSpan (itemAt p.spans i)
             if ((off >= sp.start) && (off < sp.end)) {
-                return sp.bold
+                def hit@(optional):TextSpan sp
+                return hit
             }
             i = (i + 1)
         }
         if (n > 0) {
             def last:TextSpan (itemAt p.spans (n - 1))
             if (off >= last.end) {
-                return last.bold
+                def lastHit@(optional):TextSpan last
+                return lastHit
             }
-            def first:TextSpan (itemAt p.spans 0)
-            return first.bold
+            def firstHit@(optional):TextSpan (itemAt p.spans 0)
+            return firstHit
         }
-        return false
+        def none@(optional):TextSpan
+        return none
+    }
+
+    ; Is the character at `off` painted bold?
+    sfn boldAt:boolean (p:Paragraph off:int) {
+        def hit@(optional):TextSpan (DocxTextMetrics.spanAt(p off))
+        if (null? hit) {
+            return false
+        }
+        def sp:TextSpan (unwrap hit)
+        return sp.bold
+    }
+
+    ; ...and slanted? This is what was missing: without it a run switched face
+    ; only where the WEIGHT changed, so an italic word inside plain text was
+    ; measured and drawn in the same upright face as its neighbours.
+    sfn italicAt:boolean (p:Paragraph off:int) {
+        def hit@(optional):TextSpan (DocxTextMetrics.spanAt(p off))
+        if (null? hit) {
+            return false
+        }
+        def sp:TextSpan (unwrap hit)
+        return sp.italic
+    }
+
+    ; One number for "which face draws this character", so a run break can be
+    ; a single comparison rather than one per style bit — and so a bit added
+    ; later cannot be forgotten in one of the two walks below.
+    sfn faceKeyAt:int (p:Paragraph off:int) {
+        def key:int 0
+        if (DocxTextMetrics.boldAt(p off)) {
+            key = (key + 1)
+        }
+        if (DocxTextMetrics.italicAt(p off)) {
+            key = (key + 2)
+        }
+        return key
+    }
+
+    sfn keyBold:boolean (key:int) {
+        return ((key % 2) == 1)
+    }
+
+    sfn keyItalic:boolean (key:int) {
+        return (((idiv key 2) % 2) == 1)
     }
 
     ; Width of p.text[from,to) as painted: contiguous same-face runs, each
@@ -92,19 +153,19 @@ class DocxTextMetrics {
         }
         def total:int 0
         def runStart:int a
-        def runBold:boolean (DocxTextMetrics.boldAt(p a))
+        def runKey:int (DocxTextMetrics.faceKeyAt(p a))
         def i:int (a + 1)
         while (i <= b) {
             def atEnd:boolean (i == b)
-            def bold:boolean runBold
+            def key:int runKey
             if (atEnd == false) {
-                bold = (DocxTextMetrics.boldAt(p i))
+                key = (DocxTextMetrics.faceKeyAt(p i))
             }
-            if (atEnd || (bold != runBold)) {
-                DocxTextMetrics.applyFace(tr runBold)
+            if (atEnd || (key != runKey)) {
+                DocxTextMetrics.applyStyle(tr (DocxTextMetrics.keyBold(runKey)) (DocxTextMetrics.keyItalic(runKey)))
                 total = (total + (to_int (tr.measureWidth((substring p.text runStart i) size))))
                 runStart = i
-                runBold = bold
+                runKey = key
             }
             i = (i + 1)
         }
@@ -133,16 +194,16 @@ class DocxTextMetrics {
         def size:double (DocxTextMetrics.safeSize(linePx))
         def acc:int 0
         def runStart:int a
-        def runBold:boolean (DocxTextMetrics.boldAt(p a))
+        def runKey:int (DocxTextMetrics.faceKeyAt(p a))
         def i:int (a + 1)
         while (i <= b) {
             def atEnd:boolean (i == b)
-            def bold:boolean runBold
+            def key:int runKey
             if (atEnd == false) {
-                bold = (DocxTextMetrics.boldAt(p i))
+                key = (DocxTextMetrics.faceKeyAt(p i))
             }
-            if (atEnd || (bold != runBold)) {
-                DocxTextMetrics.applyFace(tr runBold)
+            if (atEnd || (key != runKey)) {
+                DocxTextMetrics.applyStyle(tr (DocxTextMetrics.keyBold(runKey)) (DocxTextMetrics.keyItalic(runKey)))
                 def runW:int (to_int (tr.measureWidth((substring p.text runStart i) size)))
                 if (targetX < (acc + runW)) {
                     ; Inside this run — walk it with the run's own face.
@@ -160,7 +221,7 @@ class DocxTextMetrics {
                 }
                 acc = (acc + runW)
                 runStart = i
-                runBold = bold
+                runKey = key
             }
             i = (i + 1)
         }
@@ -169,10 +230,14 @@ class DocxTextMetrics {
 
     ; List markers / chrome are painted with the line's own face, not a span.
     sfn measurePlain:int (tr:UITextRenderer text:string linePx:double bold:boolean) {
+        return (DocxTextMetrics.measureStyled(tr text linePx bold false))
+    }
+
+    sfn measureStyled:int (tr:UITextRenderer text:string linePx:double bold:boolean italic:boolean) {
         if ((strlen text) == 0) {
             return 0
         }
-        DocxTextMetrics.applyFace(tr bold)
+        DocxTextMetrics.applyStyle(tr bold italic)
         return (to_int (tr.measureWidth(text (DocxTextMetrics.safeSize(linePx)))))
     }
 }

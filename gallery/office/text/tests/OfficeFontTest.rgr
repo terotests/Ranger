@@ -1,0 +1,164 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeFontTest — which face a run is drawn with, and what happens when it is
+; not there.
+; ==============================================================================
+;
+; The interesting cases are all absences. A document names a family and a style
+; the renderer may not have, and there are three different right answers: draw
+; the face it asked for, draw the nearest one of that family, or say there is
+; nothing to draw with. Getting the middle one wrong silently is how a bold
+; word comes out light and an italic one comes out upright.
+;
+;   npm run office:font:test
+; ==============================================================================
+
+Import "../OfficeFont.rgr"
+
+class FontCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class OfficeFontTest {
+    sfn main:void () {
+        def c:FontCheck (new FontCheck)
+        print "== OfficeFontTest =="
+
+        print "-- what a face is called --"
+        c.eqStr("regular is the bare family" (OfficeFont.faceName("Open Sans" false false)) "Open Sans")
+        c.eqStr("bold" (OfficeFont.faceName("Open Sans" true false)) "Open Sans-Bold")
+        c.eqStr("italic" (OfficeFont.faceName("Open Sans" false true)) "Open Sans-Italic")
+        c.eqStr("both, with the space FontManager records"
+            (OfficeFont.faceName("Open Sans" true true)) "Open Sans-Bold Italic")
+        c.eqStr("no family, no name" (OfficeFont.faceName("" true true)) "")
+
+        def fm:FontManager (new FontManager)
+        fm.setFontsDirectory("gallery/pdf_writer/assets/fonts")
+
+        print "-- with nothing loaded --"
+        c.eqStr("no face to draw with" (OfficeFont.resolve(fm "Open Sans" false false "Open Sans")) "")
+        c.ok("and every family counts as substituted" (OfficeFont.substituted(fm "Open Sans")))
+
+        print "-- a family with all four faces --"
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        fm.loadFont("Open_Sans/OpenSans-Bold.ttf")
+        fm.loadFont("Open_Sans/OpenSans-Italic.ttf")
+        fm.loadFont("Open_Sans/OpenSans-BoldItalic.ttf")
+        c.eqStr("regular" (OfficeFont.resolve(fm "Open Sans" false false "Open Sans")) "Open Sans")
+        c.eqStr("bold" (OfficeFont.resolve(fm "Open Sans" true false "Open Sans")) "Open Sans-Bold")
+        c.eqStr("italic" (OfficeFont.resolve(fm "Open Sans" false true "Open Sans")) "Open Sans-Italic")
+        c.eqStr("bold italic" (OfficeFont.resolve(fm "Open Sans" true true "Open Sans")) "Open Sans-Bold Italic")
+        c.ok("nothing was substituted" ((OfficeFont.substituted(fm "Open Sans")) == false))
+
+        print "-- a family missing the face that was asked for --"
+        ; Josefin Sans is loaded here WITHOUT its italic, which is the case
+        ; `hasFont` cannot see: it answers about the family and would say the
+        ; italic is present.
+        fm.loadFont("Josefin_Sans/JosefinSans-Regular.ttf")
+        fm.loadFont("Josefin_Sans/JosefinSans-Bold.ttf")
+        c.ok("the family is there" (fm.hasFont("Josefin Sans")))
+        c.eqStr("but the italic face is not" (OfficeFont.exactFace(fm "Josefin Sans" false true)) "")
+        c.eqStr("nor the bold italic" (OfficeFont.exactFace(fm "Josefin Sans" true true)) "")
+        c.eqStr("while the bold one is" (OfficeFont.exactFace(fm "Josefin Sans" true false)) "Josefin Sans-Bold")
+        c.eqStr("so an italic run draws in the regular face"
+            (OfficeFont.resolve(fm "Josefin Sans" false true "Open Sans")) "Josefin Sans")
+        ; Weight is kept before slant: a bold word that draws upright still
+        ; reads as emphasis; an italic one that loses its weight does not.
+        c.eqStr("and a bold italic run keeps the weight"
+            (OfficeFont.resolve(fm "Josefin Sans" true true "Open Sans")) "Josefin Sans-Bold")
+
+        print "-- a family that is not there at all --"
+        c.eqStr("falls back, keeping the style"
+            (OfficeFont.resolve(fm "Comic Sans MS" true true "Open Sans")) "Open Sans-Bold Italic")
+        c.eqStr("and plainly when it asked plainly"
+            (OfficeFont.resolve(fm "Comic Sans MS" false false "Open Sans")) "Open Sans")
+        c.ok("and it says so" (OfficeFont.substituted(fm "Comic Sans MS")))
+        c.eqStr("a fallback that is not there either answers nothing"
+            (OfficeFont.resolve(fm "Comic Sans MS" false false "Papyrus")) "")
+        c.eqStr("and a family that IS its own fallback does not loop"
+            (OfficeFont.resolve(fm "Papyrus" false false "Papyrus")) "")
+
+        print "-- pointing a renderer at one --"
+        def tr:UITextRenderer (new UITextRenderer)
+        tr.fm = fm
+        tr.fontFamily = "Open Sans"
+        def used:string (OfficeFont.apply(tr "Open Sans" true true "Open Sans"))
+        c.eqStr("the renderer moved to the face" used "Open Sans-Bold Italic")
+        c.eqStr("and says so itself" tr.fontFamily "Open Sans-Bold Italic")
+        def again:string (OfficeFont.apply(tr "Open Sans" true true "Open Sans"))
+        c.eqStr("asking for the same face again is a no-op" again "Open Sans-Bold Italic")
+        OfficeFont.apply(tr "Open Sans" false false "Open Sans")
+        c.eqStr("and it comes back to the regular one" tr.fontFamily "Open Sans")
+        ; A face nobody has must not move the renderer off a face it had.
+        def kept:string (OfficeFont.apply(tr "Papyrus" false false "Papyrus"))
+        c.eqStr("an unavailable face leaves the renderer where it was" kept "Open Sans")
+        c.eqStr("and does not change it" tr.fontFamily "Open Sans")
+
+        print "-- the name in the file, and the face we have --"
+        ; A document names the fonts its author had. None of them are here, so
+        ; each maps onto a family that is — and onto a DISTINCT one where it
+        ; can, because sending every unknown name to the same face makes
+        ; choosing a font in a toolbar look like a no-op.
+        c.eqStr("Calibri is the sans we ship" (OfficeFont.aliasFamily("Calibri")) "Open Sans")
+        c.eqStr("Arial is a different one" (OfficeFont.aliasFamily("Arial")) "Noto Sans")
+        c.eqStr("Times New Roman is the serif" (OfficeFont.aliasFamily("Times New Roman")) "Droid Serif")
+        c.eqStr("Courier New is the one that stands in for a monospace"
+            (OfficeFont.aliasFamily("Courier New")) "Josefin Sans")
+        c.eqStr("case and spaces do not matter" (OfficeFont.aliasFamily("  TIMES new roman ")) "Droid Serif")
+        c.eqStr("no name at all is the default" (OfficeFont.aliasFamily("")) "Open Sans")
+        c.eqStr("and a name nobody knows is too" (OfficeFont.aliasFamily("Wingdings")) "Open Sans")
+
+        print "-- the name a face is NOT called --"
+        ; The bug this whole file exists to make impossible. The spreadsheet
+        ; built its own face names and built one that does not exist:
+        ; "Open Sans-BoldItalic", with no space, where the loader records the
+        ; style as "Bold Italic". `getFont` splits on the dash, fails to match
+        ; the style, and answers with the family's FIRST face — the regular
+        ; one, with a real `unitsPerEm` — so the caller's "did I get a face?"
+        ; check passed and every bold italic cell drew upright and light.
+        def wrong:TrueTypeFont (fm.getFont("Open Sans-BoldItalic"))
+        c.ok("the misspelt name still answers with a face" (wrong.unitsPerEm > 0))
+        c.eqStr("but it is the regular one" wrong.fontStyle "Regular")
+        c.eqStr("the name with the space is what the loader recorded"
+            (OfficeFont.faceName("Open Sans" true true)) "Open Sans-Bold Italic")
+        def right:TrueTypeFont (fm.getFont((OfficeFont.faceName("Open Sans" true true))))
+        c.eqStr("and it answers with the face that was asked for" right.fontStyle "Bold Italic")
+
+        print "-- a named font, straight onto a renderer --"
+        def tr2:UITextRenderer (new UITextRenderer)
+        tr2.fm = fm
+        tr2.fontFamily = "Open Sans"
+        c.eqStr("a bold italic cell gets the bold italic face"
+            (OfficeFont.applyNamed(tr2 "Calibri" true true)) "Open Sans-Bold Italic")
+        c.eqStr("a plain one gets the plain face"
+            (OfficeFont.applyNamed(tr2 "Calibri" false false)) "Open Sans")
+        ; A family we ship without the slanted faces walks back rather than
+        ; naming something that is not there.
+        c.eqStr("and a family with no italic keeps its weight"
+            (OfficeFont.applyNamed(tr2 "Josefin Sans" true true)) "Josefin Sans-Bold")
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
