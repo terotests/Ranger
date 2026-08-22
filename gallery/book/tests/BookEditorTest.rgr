@@ -37,6 +37,11 @@ class EdCheck {
         this.ok(label (got == want))
     }
 
+    fn eqStr:void (name:string got:string want:string) {
+        def label:string (name + " (got \"" + got + "\" want \"" + want + "\")")
+        this.ok(label (got == want))
+    }
+
     fn near:void (name:string got:double want:double tol:double) {
         def d:double (got - want)
         if (d < 0.0) {
@@ -272,6 +277,106 @@ class BookEditorTest {
         c.ok("master furniture does not take a click" (onMaster == ""))
     }
 
+    sfn testClickOnPageEdits:void (c:EdCheck) {
+        print "-- a click on the page edits it; only the desk turns it --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        app.attach(d)
+        app.editor.gotoSpread(1)
+        def pageIdx:int (app.editor.spreadLeft())
+        c.ok("reading to begin with" (app.editor.editMode == false))
+
+        ; The middle of the text frame on that page.
+        def frame:BookFrame (d.frameFor("b"))
+        def s:double (app.scale())
+        def po:double (app.pageOriginX(pageIdx))
+        def oy:double (app.originY())
+        def cx:double (frame.x + (frame.w * 0.5))
+        def cy:double (frame.y + (frame.h * 0.5))
+        def px:int (to_int (po + (cx * s)))
+        def py:int (to_int (oy + (cy * s)))
+        def before:int (app.editor.spreadIndex())
+        app.pointer(px py true true false)
+        c.eqInt("the spread did not turn under the click" (app.editor.spreadIndex()) before)
+        c.ok("editing is armed by it" app.editor.editMode)
+        c.eqInt("and the frame under it is selected" (app.editor.selectionCount()) 1)
+        def sel:[string] app.editor.selection
+        def picked:string (itemAt sel 0)
+        c.eqStr("the one that was clicked" picked "b")
+
+        ; The desk still turns the page, which is how a book is read.
+        def app2 (new BookApp())
+        app2.initBare()
+        def d2:BookDocument (BookEditorTest.fixture())
+        app2.attach(d2)
+        def deskY:int (to_int (app2.originY()))
+        def before2:int (app2.editor.spreadIndex())
+        app2.pointer((app2.W - 20) (deskY + 40) true true false)
+        c.eqInt("a click on the desk turns the spread" (app2.editor.spreadIndex()) (before2 + 1))
+        c.ok("and does not arm editing" (app2.editor.editMode == false))
+    }
+
+    sfn testBleedRoom:void (c:EdCheck) {
+        print "-- the bleed needs room, so the sheets do not touch --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        app.attach(d)
+        app.editor.gotoSpread(1)
+        c.ok("the bleed is shown by default" app.showBleed)
+        c.near("and the gap is two bleeds wide" (app.spreadGap()) (app.bleed * 2.0) 0.0001)
+
+        ; The gap is not a page: a click in it selects nothing rather than
+        ; landing on whichever sheet is nearer.
+        def s:double (app.scale())
+        def ox:double (app.originX())
+        def oy:double (app.originY())
+        def mid:double ((d.pageWidth + (app.bleed)) * s)
+        def gx:int (to_int (ox + mid))
+        def gy:int (to_int (oy + (d.pageHeight * 0.5 * s)))
+        c.eqInt("the gap between the sheets is no page" (app.pageAt(gx gy)) -1)
+
+        ; Hidden, the two sheets close up again.
+        app.runCommand("view.bleed" "")
+        c.ok("the toggle turns it off" (app.showBleed == false))
+        c.near("and the gap closes" (app.spreadGap()) 0.0 0.0001)
+        c.ok("the strip knows" (app.toolbar.bleedOn == false))
+    }
+
+    sfn testPageIsClipped:void (c:EdCheck) {
+        print "-- nothing a page draws reaches the desk --"
+        def app (new BookApp())
+        app.initBare()
+        def d:BookDocument (BookEditorTest.fixture())
+        ; A picture that runs well past the trim on every side, which is what a
+        ; full-bleed page is and what used to be painted across the desk.
+        def big (BookAsset.create("big" "big.jpg" 3000.0 3000.0))
+        d.addAsset(big)
+        def page:BookPage (d.pageAt(1))
+        def img (BookFrame.imageFrame("bleeder" -20.0 -20.0 (d.pageWidth + 40.0) (d.pageHeight + 40.0) "big"))
+        page.addFrame(img)
+        app.attach(d)
+        app.editor.gotoSpread(1)
+
+        def dl:EVGDisplayList (app.buildFrame())
+        def clips:int 0
+        def ends:int 0
+        def i:int 0
+        while (i < (dl.count())) {
+            def cmd:EVGDrawCmd (dl.at(i))
+            if (cmd.kind == 4) {
+                clips = (clips + 1)
+            }
+            if (cmd.kind == 5) {
+                ends = (ends + 1)
+            }
+            i = (i + 1)
+        }
+        c.ok("the page pushes a clip" (clips > 0))
+        c.eqInt("and every clip is closed" ends clips)
+    }
+
     sfn testHostMapsPixelsToPages:void (c:EdCheck) {
         print "-- the host seam: a window pixel to a point on a page --"
         def app (new BookApp())
@@ -382,6 +487,9 @@ class BookEditorTest {
         BookEditorTest.testPages(c)
         BookEditorTest.testDeletingAPageJoinsTheChain(c)
         BookEditorTest.testSelection(c)
+        BookEditorTest.testClickOnPageEdits(c)
+        BookEditorTest.testBleedRoom(c)
+        BookEditorTest.testPageIsClipped(c)
         BookEditorTest.testHostMapsPixelsToPages(c)
         BookEditorTest.testHostCommands(c)
         BookEditorTest.testSceneHasEverything(c)

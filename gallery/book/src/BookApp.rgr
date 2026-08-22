@@ -42,6 +42,7 @@ class BookToolbar extends EVGToolbar {
     def framesOn:boolean false
     def marginsOn:boolean false
     def snapOn:boolean true
+    def bleedOn:boolean true
 
     Constructor () {
     }
@@ -83,6 +84,7 @@ class BookToolbar extends EVGToolbar {
         this.addSeparator()
         this.add("view.frames" "" "Show the frame edges" (ToolIcon.borderAll()))
         this.add("view.margins" "" "Show the margins" (ToolIcon.freeze()))
+        this.add("view.bleed" "" "Show the bleed past the trim" (ToolIcon.borderOut()))
         this.add("view.snap" "" "Snap to the guides" (ToolIcon.merge()))
         this.add("book.preflight" "" "Check it for print" (ToolIcon.validate()))
     }
@@ -105,6 +107,9 @@ class BookToolbar extends EVGToolbar {
             }
             if (t.command == "view.margins") {
                 t.pressed = marginsOn
+            }
+            if (t.command == "view.bleed") {
+                t.pressed = bleedOn
             }
             if (t.command == "view.snap") {
                 t.pressed = snapOn
@@ -129,6 +134,13 @@ class BookApp {
     def toolbarH:int 30
     def statusH:int 22
     def status:string ""
+
+    ; How far ink may run past the trim, and whether the canvas shows it. With
+    ; the bleed shown the two pages of a spread cannot sit edge to edge: each
+    ; needs its own overhang, and letting them overlap would draw one page's
+    ; bleed onto the other's live area.
+    def bleed:double 8.503937007874017
+    def showBleed:boolean true
 
     def panelW:int 132
     def panelVisible:boolean true
@@ -238,6 +250,7 @@ class BookApp {
         commands.add("page.movedown" "Move page later" "Pages" "")
         commands.add("view.frames" "Show the frame edges" "View" "")
         commands.add("view.margins" "Show the margins" "View" "")
+        commands.add("view.bleed" "Show the bleed past the trim" "View" "")
         commands.add("view.snap" "Snap to the guides" "View" "")
         commands.add("view.panel" "Show the pages" "View" "")
         commands.add("book.preflight" "Check it for print" "Book" "")
@@ -307,9 +320,20 @@ class BookApp {
     ; A spread is drawn as a sheet two pages wide, always - so the opening
     ; recto sits on the right of it with nothing facing it, which is what a
     ; reader sees when the book is opened.
+    ; The gap between the two pages of a spread: room for both bleeds. Zero
+    ; when the bleed is hidden, and then the spread reads as one sheet again.
+    fn spreadGap:double () {
+        if (showBleed == false) {
+            return 0.0
+        }
+        return (bleed * 2.0)
+    }
+
     fn sheetW:double () {
         def d:BookDocument editor.doc
-        return (d.pageWidth * 2.0)
+        def pages:double (d.pageWidth * 2.0)
+        def gap:double (this.spreadGap())
+        return (pages + gap)
     }
 
     fn sheetH:double () {
@@ -352,7 +376,8 @@ class BookApp {
         def d:BookDocument editor.doc
         def right:boolean (this.isRightPage(pageIdx))
         if right {
-            def step:double (d.pageWidth * s)
+            def gap:double (this.spreadGap())
+            def step:double ((d.pageWidth + gap) * s)
             return (ox + step)
         }
         return ox
@@ -384,12 +409,19 @@ class BookApp {
         if (relX < 0.0) {
             return -1
         }
-        def total:double (d.pageWidth * 2.0)
+        def gap:double (this.spreadGap())
+        def total:double ((d.pageWidth * 2.0) + gap)
         if (relX > total) {
             return -1
         }
         if (relX < d.pageWidth) {
             return (editor.spreadLeft())
+        }
+        ; The gap between the sheets is not a page. A click there selects
+        ; nothing rather than landing on whichever page is nearer.
+        def rightStarts:double (d.pageWidth + gap)
+        if (relX < rightStarts) {
+            return -1
         }
         return (editor.spreadRight())
     }
@@ -566,6 +598,11 @@ class BookApp {
             toolbar.marginsOn = view.conv.showMargins
             return true
         }
+        if (id == "view.bleed") {
+            showBleed = (showBleed == false)
+            toolbar.bleedOn = showBleed
+            return true
+        }
         if (id == "view.snap") {
             editor.snapEnabled = (editor.snapEnabled == false)
             toolbar.snapOn = editor.snapEnabled
@@ -719,9 +756,33 @@ class BookApp {
         if editor.editMode {
             return (this.canvasPointer(px py pressed down released))
         }
-        ; Reading rather than editing: the left and right thirds of the sheet
-        ; turn the spread, the way a book is read.
+
+        ; Reading rather than editing. The page turn lives on the DESK, not on
+        ; the page: a click that lands on a frame used to be swallowed by the
+        ; left-or-right-third gesture, so the one thing an author reaches for
+        ; first - click the picture, move it - turned the spread instead and
+        ; nothing on the page could ever be touched.
+        ;
+        ; So a click on a page selects what is under it and arms editing, which
+        ; is what clicking a thing in an editor is supposed to mean, and only
+        ; the desk on either side turns the page.
         if pressed {
+            def pageIdx:int (this.pageAt(px py))
+            if (pageIdx >= 0) {
+                def x:double (this.pointX(px pageIdx))
+                def y:double (this.pointY(py))
+                def hit:string (editor.hitTest(pageIdx x y))
+                editor.gotoPage(pageIdx)
+                if ((strlen hit) > 0) {
+                    editor.editMode = true
+                    editor.select(hit false)
+                    this.refreshStatus()
+                    return true
+                }
+                ; Bare paper: nothing to select, and still not a page turn.
+                this.refreshStatus()
+                return true
+            }
             if (py >= toolbarH) {
                 def bottom:int (H - statusH)
                 if (py < bottom) {
@@ -1122,7 +1183,13 @@ class BookApp {
 
         def s:double (this.scale())
         view.conv.setScale(s)
+        view.conv.bleed = bleed
+        view.conv.showBleed = showBleed
         def oy:double (this.originY())
+        def over:double 0.0
+        if showBleed {
+            over = (bleed * s)
+        }
         def d:BookDocument editor.doc
         def flow:BookFlowResult editor.flowResult
 
@@ -1133,7 +1200,12 @@ class BookApp {
             def lx:double (this.pageOriginX(l))
             def w:double (lp.width * s)
             def h:double (lp.height * s)
-            framed.addFrame((lx - 1.0) (oy - 1.0) (w + 2.0) (h + 2.0) 1.0 (EVGColor.rgb(186 178 165)))
+            ; The outline goes round the SHEET, which is the trim plus the
+            ; bleed - that is the piece of paper. Where the page is cut is
+            ; drawn inside it, by the page painter.
+            def edge:double (over + 1.0)
+            def doubled:double (edge * 2.0)
+            framed.addFrame((lx - edge) (oy - edge) (w + doubled) (h + doubled) 1.0 (EVGColor.rgb(186 178 165)))
             view.conv.paintPage(framed d flow lp lx oy)
         }
         if (r >= 0) {
@@ -1141,7 +1213,9 @@ class BookApp {
             def rx:double (this.pageOriginX(r))
             def w2:double (rp.width * s)
             def h2:double (rp.height * s)
-            framed.addFrame((rx - 1.0) (oy - 1.0) (w2 + 2.0) (h2 + 2.0) 1.0 (EVGColor.rgb(186 178 165)))
+            def edge2:double (over + 1.0)
+            def doubled2:double (edge2 * 2.0)
+            framed.addFrame((rx - edge2) (oy - edge2) (w2 + doubled2) (h2 + doubled2) 1.0 (EVGColor.rgb(186 178 165)))
             view.conv.paintPage(framed d flow rp rx oy)
         }
 
@@ -1320,6 +1394,7 @@ class BookApp {
         toolbar.editOn = editor.editMode
         toolbar.framesOn = view.conv.showFrames
         toolbar.marginsOn = view.conv.showMargins
+        toolbar.bleedOn = showBleed
         toolbar.snapOn = editor.snapEnabled
     }
 

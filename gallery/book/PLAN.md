@@ -61,6 +61,9 @@ Ranger owns outright.
 | Host seam: window pixel → point on the left or right page of a spread | `BookApp.rgr` | done |
 | Shared toolbar, pages panel, status line, command table, preflight window | `BookApp.rgr` | done |
 | Selection chrome in the same display list as the pages | `BookApp.rgr` | done |
+| Each page clipped to its own sheet; the bleed drawn and veiled | `BookToEvg.rgr` | done |
+| A spread's sheets held two bleeds apart, with a toggle | `BookApp.rgr` | done |
+| A click on a page selects and edits; only the desk turns the spread | `BookApp.rgr` | done |
 | The canvas measures with the faces it paints with | `BookView.rgr`, `EVGContextMeasurer.rgr` | done |
 | Serverless browser build — the whole engine in the page, WebGL 2 | `web/standalone/` | done |
 | Node-hosted variant, for driving the editor from a script | `web/serve.mjs` | done |

@@ -36,7 +36,14 @@ class BookToEvg {
     ; Editor chrome. Off when the list is a preview of the printed page.
     def showMargins:boolean false
     def showFrames:boolean false
-    def showBleed:boolean false
+    ; How far ink is allowed past the trim, in page points. Nothing may be
+    ; drawn further out than this: a full-bleed picture overhangs the page by
+    ; design, and without a clip it lands on the desk and on the facing page.
+    def bleed:double 0.0
+    ; With the bleed shown, the overhang is drawn and then veiled, so it reads
+    ; as "outside the page" rather than as part of it. With it hidden, the page
+    ; is clipped at the trim and looks exactly like the printed sheet.
+    def showBleed:boolean true
     ; Prefix put in front of an asset path before it becomes an image `src`.
     ; The host looks images up by exactly this string.
     def assetBase:string ""
@@ -67,12 +74,28 @@ class BookToEvg {
     }
 
     ; One page, at the given device offset. Everything else is built on this.
+    ; How far past the trim this page is allowed to draw, in device pixels.
+    fn bleedPx:double () {
+        if (showBleed == false) {
+            return 0.0
+        }
+        return (bleed * scale)
+    }
+
     fn paintPage:void (dl:EVGDisplayList doc:BookDocument flow:BookFlowResult page:BookPage ox:double oy:double) {
         def pw:double (page.width * scale)
         def ph:double (page.height * scale)
+        def over:double (this.bleedPx())
         def white:EVGColor (EVGColor.rgb(255 255 255))
         def bg:EVGColor (BookToEvg.colorOf(page.background white))
-        dl.addRect(ox oy pw ph bg)
+
+        ; Everything on this page is cut to the sheet it is printed on. Without
+        ; this a bleeding picture is drawn across the desk and over the facing
+        ; page, which is not what the press will do with it and not what the
+        ; author is deciding about.
+        def doubled:double (over * 2.0)
+        dl.addClip((ox - over) (oy - over) (pw + doubled) (ph + doubled))
+        dl.addRect((ox - over) (oy - over) (pw + doubled) (ph + doubled) bg)
 
         def layers:[string]
         push layers "background"
@@ -90,6 +113,22 @@ class BookToEvg {
                 fi = (fi + 1)
             }
             li = (li + 1)
+        }
+
+        dl.addClipEnd()
+
+        ; The bleed band, veiled. The ink is still there - it has to be, it is
+        ; what the guillotine cuts into - but it is dimmed towards the desk so
+        ; the trim edge is the thing the eye lands on.
+        if (over > 0.0) {
+            def veil:EVGColor (EVGColor.rgba(226 222 214 0.72))
+            dl.addRect((ox - over) (oy - over) (pw + doubled) over veil)
+            dl.addRect((ox - over) (oy + ph) (pw + doubled) over veil)
+            dl.addRect((ox - over) oy over ph veil)
+            dl.addRect((ox + pw) oy over ph veil)
+            ; And the trim itself, so where the page ends is not a guess.
+            def trim:EVGColor (EVGColor.rgba(150 140 125 0.8))
+            dl.addFrame(ox oy pw ph 0.5 trim)
         }
 
         if showMargins {

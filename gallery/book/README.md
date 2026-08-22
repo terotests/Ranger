@@ -137,6 +137,24 @@ engine decides the rest.
 | Ctrl+Z / Ctrl+Y | undo, redo |
 | ← → | turn the spread (nudge the selection while editing) |
 | drag | move; handles resize; empty page starts a marquee |
+| click while reading | selects what is under it and arms editing — a click on a page never turns it |
+
+**A page shows its bleed, and the sheets do not touch.** A full-bleed picture
+overhangs the trim by 3 mm by design; on a canvas with no clip that overhang is
+drawn across the desk and over the facing page, which is neither what the press
+does with it nor what the author is deciding about. Each page is now cut to its
+own sheet — trim plus bleed — and the overhang is veiled towards the desk
+colour with the trim drawn as a hairline inside it, so "past the edge" reads as
+past the edge. The two pages of a spread sit two bleeds apart for the same
+reason: edge to edge, one page's bleed would be painted onto the other's live
+area. **Bleed** in the toolbar turns it off, and then the spread closes up and
+looks like the printed sheet.
+
+**The page turn lives on the desk, not on the page.** Clicking the left or
+right third used to turn the spread wherever you clicked, so the first thing
+anyone reaches for — click the picture, move it — turned the page instead and
+nothing on it could ever be touched. A click on a page now selects what is
+under it and arms editing; only the desk on either side turns the spread.
 
 Frames snap to the margins, to the page's own edges and centre, and to the
 other frames — measured from where the drag **began**, not from the last
