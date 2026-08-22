@@ -2250,6 +2250,9 @@ class PptxApp {
                 dragMode = 2
                 if (h == 8) {
                     dragMode = 4
+                    ; Where everything is before the turn starts, so each
+                    ; frame turns from there.
+                    editor.beginRotate()
                 }
                 dragHandle = h
                 dragLastX = sx
@@ -2316,6 +2319,7 @@ class PptxApp {
                     }
                 }
                 editor.clearGuides()
+                editor.endRotate()
                 def wasClick:boolean false
                 if (dragMode == 1) {
                     if (dragMoved == false) {

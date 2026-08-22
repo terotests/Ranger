@@ -60,6 +60,12 @@ class PptxEditHostTest {
         return (itemAt shapes 0)
     }
 
+    sfn dist:double (x0:double y0:double x1:double y1:double) {
+        def dx:double (x1 - x0)
+        def dy:double (y1 - y0)
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
     sfn numbered:void (body:PptxTextBody level:int text:string) {
         def para (new PptxParagraph())
         para.level = level
@@ -239,6 +245,59 @@ class PptxEditHostTest {
         def atRight:PptxTextPos (app2.caretFromPoint(sh rightX topY))
         c.ok("a click on the left of a line comes before one on the right" (atLeft.col < atRight.col))
         app2.editor.endTextEdit()
+
+        print "-- a selection turns as one thing --"
+        ; Turning every shape by the same angle about its own centre leaves
+        ; them all where they were and spins each in place: on screen a group
+        ; came apart instead of turning. A selection turns about the
+        ; selection's centre.
+        def ra:PptxApp (PptxEditHostTest.build())
+        def rs:[PptxShape] (ra.editor.editableShapes())
+        if ((array_length rs) >= 2) {
+            def s1:PptxShape (itemAt rs 0)
+            def s2:PptxShape (itemAt rs 1)
+            ra.editor.select(s1.editId)
+            ra.editor.addToSelection(s2.editId)
+            def bnd:PptxEditRect (ra.editor.selectionBounds())
+            def pcx:double (bnd.midX())
+            def pcy:double (bnd.midY())
+            def ax0:double (s1.x + (s1.width * 0.5))
+            def ay0:double (s1.y + (s1.height * 0.5))
+            def s2x0:double (s2.x + (s2.width * 0.5))
+            def s2y0:double (s2.y + (s2.height * 0.5))
+            def far0:double (PptxEditHostTest.dist(ax0 ay0 pcx pcy))
+            c.ok("the two shapes are not both at the centre" (far0 > 1.0))
+            c.ok("the selection can be turned" (ra.editor.rotateSelection(90.0)))
+            def ax1:double (s1.x + (s1.width * 0.5))
+            def ay1:double (s1.y + (s1.height * 0.5))
+            c.ok("the shape moved, rather than spinning where it stood"
+                 ((PptxEditHostTest.dist(ax1 ay1 ax0 ay0)) > 1.0))
+            c.ok("and it is the same distance from the centre it turned about"
+                 (PptxEditHostTest.near((PptxEditHostTest.dist(ax1 ay1 pcx pcy)) far0 0.01)))
+            c.ok("its own angle went round with it" (PptxEditHostTest.near(s1.rotation 90.0 0.001)))
+            ; The group did not come apart: the two shapes are still the same
+            ; distance from each other. (Their axis-aligned bounding box is
+            ; NOT preserved by a rotation and is not the thing to check.)
+            def bx0:double (s2.x + (s2.width * 0.5))
+            def by0:double (s2.y + (s2.height * 0.5))
+            c.ok("and the shapes kept their distance from each other"
+                 (PptxEditHostTest.near((PptxEditHostTest.dist(ax1 ay1 bx0 by0))
+                                        (PptxEditHostTest.dist(ax0 ay0 s2x0 s2y0)) 0.01)))
+            ; A quarter turn four times is where it started.
+            ra.editor.rotateSelection(90.0)
+            ra.editor.rotateSelection(90.0)
+            ra.editor.rotateSelection(90.0)
+            def ax4:double (s1.x + (s1.width * 0.5))
+            def ay4:double (s1.y + (s1.height * 0.5))
+            c.ok("four quarter turns come back to the start"
+                 (PptxEditHostTest.near((PptxEditHostTest.dist(ax4 ay4 ax0 ay0)) 0.0 0.01)))
+            ; One shape still turns about itself, which is what its handle says.
+            ra.editor.select(s1.editId)
+            def solo0:double (s1.x + (s1.width * 0.5))
+            ra.editor.rotateSelection(45.0)
+            c.ok("one shape on its own still turns where it stands"
+                 (PptxEditHostTest.near((s1.x + (s1.width * 0.5)) solo0 0.001)))
+        }
 
         print "-- lists --"
         ; A numbered list's numbers are not in the file: the paragraph says it
