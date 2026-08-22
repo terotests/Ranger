@@ -38,6 +38,7 @@ compiler — the long-form writeups live here.
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |
 | `process_counter_ios`, `process_counter_android` | Native hosts for the same `@process` demo |
 | [`ooxml`](ooxml/README.md) | What the three OOXML editors share: one OPC package reader (parts, content types, relationships) and the XML text rules — plus the roadmap for what moves there next |
+| [`office`](office/README.md) | The rest of what they share: one answer to which font face draws a run, with the family alias map and the fallback walk |
 | `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 
 ---

@@ -24,12 +24,18 @@ What they **do** share is infrastructure. This directory is where it goes.
 gallery/ooxml/
     OpcPackage.rgr     the container: ZIP, parts, content types, relationships
     OoxmlText.rgr      XML entity decoding
+    SourceRef.rgr      where a parsed object came from, so it can be written
+                       back unchanged
     tests/
         OpcPackageTest.rgr    one package reader, three formats
         OoxmlPackageTest.rgr  one sentence, read identically out of all three
         OoxmlTextTest.rgr     the entity decoder, on both string models
     tools/             the runners the npm scripts call
 ```
+
+The other half of the shared machinery — fonts, and in time text shaping,
+DrawingML and identity — is next door in
+[`gallery/office`](../office/README.md).
 
 ```bash
 npm run ooxml:opc:test      # the container
@@ -91,34 +97,45 @@ The order below is by leverage, not by size. Each entry names what exists in
 the repo today, so the work starts from the real code rather than from a
 diagram.
 
-### 1. Source-preserving OOXML — opaque parts and node provenance
+### 1. Source-preserving OOXML — done for `.pptx`, open for `.xlsx`
 
-Today writing is parse → regenerate, and `PptxWriter` already says out loud
-that this can rewrite content the model does not fully describe. The fix is to
-let a parsed object carry where it came from:
+`SourceRef` is where a parsed object came from: part, start, end. `PptxXmlNode`
+carries the span of every element it reads, and a child of `p:spTree` or of
+`p:sld` that nothing models becomes a `PptxOpaque` — the span it occupied and
+its place in order. `PptxWriter.saveOver` splices those spans back in.
 
-```text
-SourceRef { part, nodeId }        on model objects
-PreservedXmlNode / OpaquePart     in the package layer
-```
+So SmartArt, embedded objects, ink, vendor extensions and a slide's own
+extension list now survive an edit **to the slide they are on** — an untouched
+slide was already copied through byte for byte. The colour map override
+survives too, where the writer used to state a plain one whatever the slide
+said. And the relationships that preserved markup NAMES survive with it, which
+is what `pptx:writer:verify` checks by resolving every reference in the written
+package.
 
-Then moving a shape rewrites `<a:off x="…"/>` instead of regenerating the whole
-`<p:sp>` subtree, and SmartArt, animations, embedded objects, vendor extensions
-and tags from Office versions that do not exist yet survive a round trip.
+**Ranger does not have to understand something in order to preserve it.**
 
-**Ranger does not have to understand everything in order to preserve
-everything** — and this is the single decision that most determines how
-compatible these editors can ever be.
+What is still open:
 
-### 2. Typography core — `gallery/office/text/`
+- **Shape-level provenance.** A rewritten slide still regenerates each shape
+  from the model, so anything inside a `<p:sp>` that the model does not
+  describe — a shape's own `extLst`, an effect nobody reads — is lost. Doing
+  this safely needs a per-shape "has this changed?" that cannot silently answer
+  wrong, because answering wrong the other way discards the user's edit.
+- **`.xlsx` has no save-over at all.** `XlsxWriter` always writes a fresh
+  package, so preservation there means building the keep-the-package machinery
+  first — which `.pptx` already had when this work started.
 
-`DocxTextMetrics` measures through `UITextRenderer` and carries comments about
-keeping the measure and paint paths identical; `PptxTextMeasure` and
-`PptxTextLayout` solve the same problem separately; the spreadsheet measures
-cells its own way. Font selection is still DOCX-flavoured (`Open Sans`,
-`Open Sans-Bold`).
+### 2. Typography core — started, in `gallery/office/text/`
 
-Share the pipeline, not the layout:
+[`OfficeFont`](../office/README.md) is the first piece: one answer to which
+face draws a run, one family alias map, and one walk when a face is missing. It
+ended three bugs, one per editor — the document reader never drew italic at
+all, the spreadsheet drew every bold italic cell upright and light, and the
+deck reader measured against fallbacks it never named.
+
+Still per-format above it: measurement over styled runs, per-span size and
+family (which needs wrapping to learn about runs first), shaping and line
+breaking. Share the pipeline, not the layout:
 
 ```text
 unicode text → font resolution → shaping → glyph runs → measurement → line breaking
@@ -240,6 +257,7 @@ fidelity** would steer this architecture far better than a feature list does.
 
 ---
 
-The two most strategic are the first two. Source preservation decides how
+The two most strategic were the first two. Source preservation decides how
 compatible these editors can be; the typography core decides how they look.
-Nearly everything else is safer to build once those exist.
+Both are now started rather than planned, and nearly everything else is safer
+to build on top of them.
