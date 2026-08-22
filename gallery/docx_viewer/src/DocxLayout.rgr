@@ -70,6 +70,11 @@ class DocxLayout {
     def numbering:WordNumbering (new WordNumbering)
     def listCounters:[int:int]
     def docRef:RichDocument
+    ; Which revision of the document the pages currently in `pages` were laid
+    ; out from. -1 means "nothing valid here": every path that puts a DIFFERENT
+    ; document in front of this layout says so by calling `invalidate`, so the
+    ; revision never has to be told apart from another document's.
+    def laidRevision:int (0 - 1)
     def curPage:LaidPage (new LaidPage)
     def curSec:DocSection (new DocSection)
     def curSecIdx:int 0
@@ -82,14 +87,44 @@ class DocxLayout {
         return ((pt * 96.0) / 72.0)
     }
 
+    ; 1440 twips to the inch, 96 px to the inch — so fifteen twips to the
+    ; pixel, and every value that is not a multiple of fifteen lands between
+    ; two. `to_int` FLOORS, which drops the fraction rather than rounding it,
+    ; and floors a NEGATIVE outwards: an outdent of -100 twips came out a whole
+    ; pixel further left than it should. Round the magnitude and put the sign
+    ; back — the same fix this repository has now made in the JPEG quantizer,
+    ; the path formatter and the pptx EMU writer.
     sfn twipsToPx:int (tw:int) {
-        return (to_int (((to_double tw) * 96.0) / 1440.0))
+        def v:double (((to_double tw) * 96.0) / 1440.0)
+        if (v < 0.0) {
+            return (0 - (to_int ((0.0 - v) + 0.5)))
+        }
+        return (to_int (v + 0.5))
+    }
+
+    ; Lay the document out only when it has actually changed. Drawing one page
+    ; used to lay out ALL of them, so the cost of a frame followed the length
+    ; of the document — 3.5 ms at a hundred and twenty-five paragraphs, 25 ms
+    ; at a thousand — and typing paid it twice, once to edit and once to draw.
+    ; The document says when it has moved on (`revision`), which is a number,
+    ; and a number is a dependency that cannot be got wrong.
+    fn layoutIfNeeded:void (doc:RichDocument textRenderer:UITextRenderer nums:WordNumbering) {
+        if (laidRevision >= 0) {
+            if (laidRevision == doc.revision) {
+                tr = textRenderer
+                numbering = nums
+                docRef = doc
+                return
+            }
+        }
+        this.layout(doc textRenderer nums)
     }
 
     fn layout:void (doc:RichDocument textRenderer:UITextRenderer nums:WordNumbering) {
         tr = textRenderer
         numbering = nums
         docRef = doc
+        laidRevision = doc.revision
         clear pages
         def freshCounters:[int:int]
         listCounters = freshCounters
@@ -844,6 +879,12 @@ class DocxLayout {
             li = (li + 1)
         }
         return (y + 2)
+    }
+
+    ; A different document is in front of this layout, so nothing it holds is
+    ; about the document it is now being asked about.
+    fn invalidate:void () {
+        laidRevision = (0 - 1)
     }
 
     fn pageCount:int () {

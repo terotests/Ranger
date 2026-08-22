@@ -171,6 +171,37 @@ class PptxWeb {
         return app.editMode
     }
 
+    ; --- the show -------------------------------------------------------------
+    ;
+    ; A browser has a clock and the app does not, so the page drives the show's
+    ; time: every animation frame while a show is running, and none at all when
+    ; it is not.
+
+    fn presenting:boolean () {
+        return app.presenting
+    }
+
+    fn tick:void (seconds:double) {
+        app.tick(seconds)
+    }
+
+    ; True while something is still moving, so the page knows whether to ask
+    ; for another frame: a still slide costs nothing.
+    fn animating:boolean () {
+        if (app.presenting == false) {
+            return false
+        }
+        if (app.showLength > 0.0) {
+            return true
+        }
+        def slide@(optional):PptxSlide (app.currentSlide())
+        if (null? slide) {
+            return false
+        }
+        def s:PptxSlide (unwrap slide)
+        return (s.transition.afterSeconds > 0.0)
+    }
+
     fn selectionCount:int () {
         return (app.editor.selectionCount())
     }
@@ -213,6 +244,7 @@ class PptxWeb {
         if (name == "backspace") { return (UIKey.backspace()) }
         if (name == "enter")    { return (UIKey.enter()) }
         if (name == "f2")       { return (UIKey.f2()) }
+        if (name == "f5")       { return (UIKey.f5()) }
         return (UIKey.none())
     }
 

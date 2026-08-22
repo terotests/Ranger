@@ -406,6 +406,7 @@ def write_docx(
     footers=None,
     content_type_overrides=None,
     final_sect_pr: Optional[str] = None,
+    numbering: Optional[str] = None,
 ):
     """
     Write a .docx package.
@@ -440,7 +441,7 @@ def write_docx(
         z.writestr("_rels/.rels", RELS)
         z.writestr("word/_rels/document.xml.rels", doc_rels)
         z.writestr("word/styles.xml", STYLES_XML)
-        z.writestr("word/numbering.xml", NUMBERING)
+        z.writestr("word/numbering.xml", numbering or NUMBERING)
         z.writestr("word/document.xml", doc_xml(paras, final_sect_pr=final_sect_pr))
         if media:
             for part, data in media:

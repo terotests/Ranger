@@ -312,9 +312,12 @@ class FontManager {
     ;
     ; The rasterizer holds one face at a time and knows the glyph is missing
     ; before it knows what to do about it, so it asks this rather than
-    ; re-deriving the family name it was set up with. Returns a face with
-    ; unitsPerEm == 0 when nothing loaded has the glyph, which the caller must
-    ; check — drawing .notdef from the primary is better than drawing nothing.
+    ; re-deriving the family name it was set up with. Returns an UNLOADED face
+    ; when nothing has the glyph, which the caller must check with
+    ; `isLoaded()` — drawing .notdef from the primary is better than drawing
+    ; nothing, and switching to a face with no tables reads a glyph outline
+    ; out of an empty buffer. `unitsPerEm` is not the check: a fresh face has
+    ; the class default of 1000 in it.
     fn fallbackFace:TrueTypeFont (cp:int) {
         def i:int 0
         while (i < (array_length fonts)) {
@@ -434,7 +437,15 @@ class FontManager {
         def first:boolean true
         while (i < n) {
             def end:int (EVGGrapheme.clusterEnd(cps i))
-            def face:TrueTypeFont (this.faceForClusterFrom(font cps i end))
+            def found:TrueTypeFont (this.faceForClusterFrom(font cps i end))
+            def face:TrueTypeFont font
+            ; An UNLOADED face is this manager's way of saying that nothing has
+            ; the codepoint. Measuring against it would charge the glyph
+            ; nothing at all, and the painter draws `.notdef` from the primary
+            ; — so measure that.
+            if (found.isLoaded()) {
+                face = found
+            }
             def isPrimary:boolean (face.fontPath == font.fontPath)
 
             if isPrimary {

@@ -68,16 +68,23 @@ class PptxWriter {
 
     ; --- units ---------------------------------------------------------------
 
+    ; `to_int` FLOORS, so `v - 0.5` on a negative rounds outwards twice and a
+    ; hanging indent of exactly -18pt came back as -228601 EMU instead of
+    ; -228600 — the same defect this repository has met in the JPEG quantizer
+    ; and in the path formatter. Round the magnitude and put the sign back:
+    ; that is round-half-away-from-zero whichever way `to_int` goes.
     sfn emu:string (pt:double) {
         def v:double (pt * 12700.0)
-        def i:int (to_int (v + 0.5))
         if (v < 0.0) {
-            i = (to_int (v - 0.5))
+            return ("-" + (to_string (to_int ((0.0 - v) + 0.5))))
         }
-        return (to_string i)
+        return (to_string (to_int (v + 0.5)))
     }
 
     sfn hundredths:string (pt:double) {
+        if (pt < 0.0) {
+            return ("-" + (to_string (to_int (((0.0 - pt) * 100.0) + 0.5))))
+        }
         def i:int (to_int ((pt * 100.0) + 0.5))
         return (to_string i)
     }
@@ -208,7 +215,11 @@ class PptxWriter {
         if (c.alpha < 0.999) {
             inner = ("<a:alpha val=\"" + (PptxWriter.pct(c.alpha)) + "\"/>")
         }
-        if c.isScheme {
+        ; A colour that came out of a theme STYLE has already been through two
+        ; chains of modifiers, which no `schemeClr` can say — writing the slot
+        ; name would throw the adjustment away and flatten every themed
+        ; gradient back to its accent colour.
+        if (c.isScheme && (c.baked == false)) {
             if ((strlen inner) > 0) {
                 return ("<a:schemeClr val=\"" + c.scheme + "\">" + inner + "</a:schemeClr>")
             }
@@ -327,7 +338,14 @@ class PptxWriter {
         if ((strlen preset) == 0) {
             preset = "rect"
         }
-        return ("<a:prstGeom prst=\"" + preset + "\"><a:avLst/></a:prstGeom>")
+        ; The shape's adjustment, when it has one — a rounded rectangle whose
+        ; corners are written away comes back with the default ones.
+        def av:string "<a:avLst/>"
+        if (shape.adj >= 0.0) {
+            def v:int (to_int ((shape.adj * 100000.0) + 0.5))
+            av = ("<a:avLst><a:gd name=\"adj\" fmla=\"val " + (to_string v) + "\"/></a:avLst>")
+        }
+        return ("<a:prstGeom prst=\"" + preset + "\">" + av + "</a:prstGeom>")
     }
 
     ; --- text bodies ---------------------------------------------------------
@@ -352,6 +370,9 @@ class PptxWriter {
         if ((strlen run.fontFamily) > 0) {
             inner = (inner + "<a:latin typeface=\"" + (PptxWriter.esc(run.fontFamily)) + "\"/>")
         }
+        if run.highlight.isSet {
+            inner = (inner + "<a:highlight>" + (PptxWriter.colorXml(run.highlight)) + "</a:highlight>")
+        }
         def rPr:string ("<a:rPr" + attrs + "/>")
         if ((strlen inner) > 0) {
             rPr = ("<a:rPr" + attrs + ">" + inner + "</a:rPr>")
@@ -373,11 +394,43 @@ class PptxWriter {
         if para.alignSet {
             attrs = (attrs + " algn=\"" + para.align + "\"")
         }
+        ; What the level style resolved to, written down. A deck saved from
+        ; here has no master to inherit from any more — the flat writer's whole
+        ; contract — so the indent and the bullet have to be stated, or a list
+        ; comes back as a column of unindented lines.
+        if (para.marginLeftPt > 0.0) {
+            attrs = (attrs + " marL=\"" + (PptxWriter.emu(para.marginLeftPt)) + "\"")
+        }
+        if (para.indentPt != 0.0) {
+            attrs = (attrs + " indent=\"" + (PptxWriter.emu(para.indentPt)) + "\"")
+        }
         def inner:string ""
+        if (para.spaceBeforePt > 0.0) {
+            inner = (inner + "<a:spcBef><a:spcPts val=\"" + (to_string (to_int ((para.spaceBeforePt * 100.0) + 0.5))) + "\"/></a:spcBef>")
+        }
+        if (para.spaceAfterPt > 0.0) {
+            inner = (inner + "<a:spcAft><a:spcPts val=\"" + (to_string (to_int ((para.spaceAfterPt * 100.0) + 0.5))) + "\"/></a:spcAft>")
+        }
+        if (para.lineSpacingPct != 100.0) {
+            inner = (inner + "<a:lnSpc><a:spcPct val=\"" + (to_string (to_int ((para.lineSpacingPct * 1000.0) + 0.5))) + "\"/></a:lnSpc>")
+        }
         if para.hasBullet {
-            inner = ("<a:buChar char=\"" + (PptxWriter.esc(para.bulletChar)) + "\"/>")
+            if para.bulletColor.isSet {
+                inner = (inner + "<a:buClr>" + (PptxWriter.colorXml(para.bulletColor)) + "</a:buClr>")
+            }
+            if (para.bulletSizePt > 0.0) {
+                inner = (inner + "<a:buSzPts val=\"" + (to_string (to_int ((para.bulletSizePt * 100.0) + 0.5))) + "\"/>")
+            } {
+                if (para.bulletSizePct != 100.0) {
+                    inner = (inner + "<a:buSzPct val=\"" + (to_string (to_int ((para.bulletSizePct * 1000.0) + 0.5))) + "\"/>")
+                }
+            }
+            if ((strlen para.bulletFont) > 0) {
+                inner = (inner + "<a:buFont typeface=\"" + (PptxWriter.esc(para.bulletFont)) + "\"/>")
+            }
+            inner = (inner + "<a:buChar char=\"" + (PptxWriter.esc(para.bulletChar)) + "\"/>")
         } {
-            inner = "<a:buNone/>"
+            inner = (inner + "<a:buNone/>")
         }
         def pPr:string ("<a:pPr" + attrs + ">" + inner + "</a:pPr>")
         def out:string ("<a:p>" + pPr)
@@ -533,9 +586,18 @@ class PptxWriter {
 
     ; --- shapes --------------------------------------------------------------
 
+    ; Shapes are renumbered on every write, and a slide's timing tree names
+    ; them by that number — so the model is told what number it got, and the
+    ; build written after the shape tree names the shapes the file has.
     fn nextId:int () {
         shapeId = (shapeId + 1)
         return shapeId
+    }
+
+    fn idFor:int (shape:PptxShape) {
+        def id:int (this.nextId())
+        shape.shapeId = id
+        return id
     }
 
     fn shapeXml:string (shape:PptxShape) {
@@ -551,11 +613,48 @@ class PptxWriter {
         if (shape.kind == 5) {
             return (this.chartFrameXml(shape))
         }
+        if (shape.kind == 3) {
+            return (this.connectorXml(shape))
+        }
         return (this.spXml(shape))
     }
 
+    ; A connector is written as one: a `p:cxnSp` with the line's colour, its
+    ; width and the arrowheads on its ends. Written as a plain shape it came
+    ; back as a rectangle, which is a different picture.
+    fn connectorXml:string (shape:PptxShape) {
+        def id:int (this.idFor(shape))
+        def name:string shape.name
+        if ((strlen name) == 0) {
+            name = ("Connector " + (to_string id))
+        }
+        def out:string ("<p:cxnSp><p:nvCxnSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>")
+        out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
+        def preset:string shape.preset
+        if ((strlen preset) == 0) {
+            preset = "line"
+        }
+        out = (out + "<a:prstGeom prst=\"" + (PptxWriter.esc(preset)) + "\"><a:avLst/></a:prstGeom>")
+        def ln:string "<a:ln"
+        if (shape.lineWidthPt > 0.0) {
+            ln = (ln + " w=\"" + (PptxWriter.emu(shape.lineWidthPt)) + "\"")
+        }
+        ln = (ln + ">")
+        if shape.line.isSet {
+            ln = (ln + "<a:solidFill>" + (PptxWriter.colorXml(shape.line)) + "</a:solidFill>")
+        }
+        if ((strlen shape.headEnd) > 0) {
+            ln = (ln + "<a:headEnd type=\"" + (PptxWriter.esc(shape.headEnd)) + "\"/>")
+        }
+        if ((strlen shape.tailEnd) > 0) {
+            ln = (ln + "<a:tailEnd type=\"" + (PptxWriter.esc(shape.tailEnd)) + "\"/>")
+        }
+        out = (out + ln + "</a:ln>")
+        return (out + "</p:spPr></p:cxnSp>")
+    }
+
     fn spXml:string (shape:PptxShape) {
-        def id:int (this.nextId())
+        def id:int (this.idFor(shape))
         def name:string shape.name
         if ((strlen name) == 0) {
             name = ("Shape " + (to_string id))
@@ -597,7 +696,7 @@ class PptxWriter {
             ghost.lineWidthPt = 1.0
             return (this.spXml(ghost))
         }
-        def id:int (this.nextId())
+        def id:int (this.idFor(shape))
         def name:string shape.name
         if ((strlen name) == 0) {
             name = ("Picture " + (to_string id))
@@ -617,7 +716,7 @@ class PptxWriter {
 
 
     fn groupXml:string (shape:PptxShape) {
-        def id:int (this.nextId())
+        def id:int (this.idFor(shape))
         def name:string shape.name
         if ((strlen name) == 0) {
             name = ("Group " + (to_string id))
@@ -633,8 +732,18 @@ class PptxWriter {
         return (out + "</p:grpSp>")
     }
 
+    sfn cellLineXml:string (name:string line:PptxTableLine) {
+        if (line.isSet == false) {
+            return ""
+        }
+        if (line.color.isSet == false) {
+            return ""
+        }
+        return ("<" + name + " w=\"" + (PptxWriter.emu(line.widthPt)) + "\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\"><a:solidFill>" + (PptxWriter.colorXml(line.color)) + "</a:solidFill><a:prstDash val=\"solid\"/></" + name + ">")
+    }
+
     fn tableXml:string (shape:PptxShape) {
-        def id:int (this.nextId())
+        def id:int (this.idFor(shape))
         def rows:int shape.tableRows
         def cols:int shape.tableCols
         if (rows < 1) {
@@ -650,13 +759,27 @@ class PptxWriter {
         out = (out + "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/table\"><a:tbl><a:tblPr/><a:tblGrid>")
         def c:int 0
         while (c < cols) {
-            out = (out + "<a:gridCol w=\"" + (PptxWriter.emu(colW)) + "\"/>")
+            def cw:double colW
+            if (c < (array_length shape.tableColW)) {
+                def stated:double (itemAt shape.tableColW c)
+                if (stated > 0.0) {
+                    cw = stated
+                }
+            }
+            out = (out + "<a:gridCol w=\"" + (PptxWriter.emu(cw)) + "\"/>")
             c = (c + 1)
         }
         out = (out + "</a:tblGrid>")
         def r:int 0
         while (r < rows) {
-            out = (out + "<a:tr h=\"" + (PptxWriter.emu(rowH)) + "\">")
+            def rh:double rowH
+            if (r < (array_length shape.tableRowH)) {
+                def statedH:double (itemAt shape.tableRowH r)
+                if (statedH > 0.0) {
+                    rh = statedH
+                }
+            }
+            out = (out + "<a:tr h=\"" + (PptxWriter.emu(rh)) + "\">")
             def cc:int 0
             while (cc < cols) {
                 def idx:int ((r * cols) + cc)
@@ -664,16 +787,54 @@ class PptxWriter {
                 if (idx < (array_length shape.tableCells)) {
                     cell = (itemAt shape.tableCells idx)
                 }
-                def run (new PptxTextRun())
-                run.text = cell.text
-                run.bold = cell.bold
-                run.fontSizePt = cell.fontSizePt
-                run.sizeSet = true
+                ; The cell's own paragraphs when it has them — a cell is a
+                ; text body, and flattening it to one run would lose every
+                ; colour, size and line the deck stated.
+                def bodyXml:string ""
+                if ((array_length cell.body.paragraphs) > 0) {
+                    ; A table cell's body is `a:txBody`, not `p:txBody` — the
+                    ; same content in the drawing namespace.
+                    bodyXml = (PptxWriter.bodyXml(cell.body))
+                    def cut:int (indexOf bodyXml "<p:txBody")
+                    if (cut == 0) {
+                        bodyXml = ("<a:txBody" + (substring bodyXml (strlen "<p:txBody") (strlen bodyXml)))
+                    }
+                    def close:int (indexOf bodyXml "</p:txBody>")
+                    if (close > 0) {
+                        bodyXml = ((substring bodyXml 0 close) + "</a:txBody>")
+                    }
+                } {
+                    def run (new PptxTextRun())
+                    run.text = cell.text
+                    run.bold = cell.bold
+                    run.fontSizePt = cell.fontSizePt
+                    run.sizeSet = true
+                    bodyXml = ("<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"" + cell.align + "\"/>" + (PptxWriter.runXml(run)) + "</a:p></a:txBody>")
+                }
                 def cellFill:string "<a:noFill/>"
                 if cell.fill.isSet {
                     cellFill = ("<a:solidFill>" + (PptxWriter.colorXml(cell.fill)) + "</a:solidFill>")
                 }
-                out = (out + "<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"" + cell.align + "\"/>" + (PptxWriter.runXml(run)) + "</a:p></a:txBody><a:tcPr>" + cellFill + "</a:tcPr></a:tc>")
+                def prAttrs:string (" marL=\"" + (PptxWriter.emu(cell.marLPt)) + "\" marR=\"" + (PptxWriter.emu(cell.marRPt)) + "\" marT=\"" + (PptxWriter.emu(cell.marTPt)) + "\" marB=\"" + (PptxWriter.emu(cell.marBPt)) + "\"")
+                if (cell.anchor != "t") {
+                    prAttrs = (prAttrs + " anchor=\"" + cell.anchor + "\"")
+                }
+                def edges:string ""
+                edges = (edges + (PptxWriter.cellLineXml("a:lnL" cell.lnL)))
+                edges = (edges + (PptxWriter.cellLineXml("a:lnR" cell.lnR)))
+                edges = (edges + (PptxWriter.cellLineXml("a:lnT" cell.lnT)))
+                edges = (edges + (PptxWriter.cellLineXml("a:lnB" cell.lnB)))
+                def spanAttr:string ""
+                if (cell.gridSpan > 1) {
+                    spanAttr = (spanAttr + " gridSpan=\"" + (to_string cell.gridSpan) + "\"")
+                }
+                if (cell.rowSpan > 1) {
+                    spanAttr = (spanAttr + " rowSpan=\"" + (to_string cell.rowSpan) + "\"")
+                }
+                if cell.merged {
+                    spanAttr = (spanAttr + " hMerge=\"1\"")
+                }
+                out = (out + "<a:tc" + spanAttr + ">" + bodyXml + "<a:tcPr" + prAttrs + ">" + edges + cellFill + "</a:tcPr></a:tc>")
                 cc = (cc + 1)
             }
             out = (out + "</a:tr>")
@@ -746,9 +907,66 @@ class PptxWriter {
 
     ; --- parts ---------------------------------------------------------------
 
+    ; Which shape each build step is about, resolved BEFORE the shape tree is
+    ; written — the tree renumbers as it goes, so the answer has to be a shape
+    ; and not a number. A step whose shape is not on the slide resolves to
+    ; nothing and is left out of the timing.
+    sfn stepTargets:[PptxShape] (slide:PptxSlide) {
+        def out:[PptxShape]
+        def i:int 0
+        while (i < (array_length slide.build)) {
+            def step:PptxBuildStep (itemAt slide.build i)
+            def hit@(optional):PptxShape (PptxWriter.findTarget(slide.shapes step))
+            if (null? hit) {
+                def missing (new PptxShape())
+                missing.shapeId = 0
+                push out missing
+            } {
+                push out (unwrap hit)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn findTarget@(optional):PptxShape (shapes:[PptxShape] step:PptxBuildStep) {
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            def match:boolean false
+            if (step.editId > 0) {
+                if (sh.editId == step.editId) {
+                    match = true
+                }
+            } {
+                if (sh.shapeId == step.shapeId) {
+                    match = true
+                }
+            }
+            if match {
+                def hit@(optional):PptxShape sh
+                return hit
+            }
+            def deeper@(optional):PptxShape (PptxWriter.findTarget(sh.children step))
+            if (!null? deeper) {
+                return deeper
+            }
+            i = (i + 1)
+        }
+        def __none@(optional):PptxShape
+        return __none
+    }
+
     fn slideXml:string (slide:PptxSlide) {
         shapeId = 1
         this.resetSlideUse()
+        def targets:[PptxShape] (PptxWriter.stepTargets(slide))
+        def ti:int 0
+        while (ti < (array_length targets)) {
+            def zeroed:PptxShape (itemAt targets ti)
+            zeroed.shapeId = 0
+            ti = (ti + 1)
+        }
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld>"
         if slide.bg.isSet {
             out = (out + "<p:bg><p:bgPr><a:solidFill>" + (PptxWriter.colorXml(slide.bg)) + "</a:solidFill><a:effectLst/></p:bgPr></p:bg>")
@@ -768,7 +986,122 @@ class PptxWriter {
             }
             i = (i + 1)
         }
-        return (out + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>")
+        out = (out + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
+        def tk:int 0
+        while (tk < (array_length targets)) {
+            def step:PptxBuildStep (itemAt slide.build tk)
+            def sh2:PptxShape (itemAt targets tk)
+            step.shapeId = sh2.shapeId
+            tk = (tk + 1)
+        }
+        out = (out + (PptxWriter.transitionXml(slide)))
+        out = (out + (PptxWriter.timingXml(slide)))
+        return (out + "</p:sld>")
+    }
+
+    ; --- how a slide arrives, and what is built on it -------------------------
+
+    sfn transitionXml:string (slide:PptxSlide) {
+        def tr:PptxTransition (slide.transition)
+        if (tr.isSet == false) {
+            return ""
+        }
+        if ((strlen tr.kind) == 0) {
+            return ""
+        }
+        def attrs:string ""
+        def ms:int (PptxWriter.msOf(tr.seconds))
+        if (ms >= 1200) {
+            attrs = " spd=\"slow\""
+        } {
+            if (ms <= 500) {
+                attrs = " spd=\"fast\""
+            } {
+                attrs = " spd=\"med\""
+            }
+        }
+        if (tr.onClick == false) {
+            attrs = (attrs + " advClick=\"0\"")
+        }
+        if (tr.afterSeconds > 0.0) {
+            attrs = (attrs + " advTm=\"" + (to_string (PptxWriter.msOf(tr.afterSeconds))) + "\"")
+        }
+        def eff:string ("<p:" + tr.kind)
+        if ((strlen tr.dir) > 0) {
+            eff = (eff + " dir=\"" + (PptxWriter.esc(tr.dir)) + "\"")
+        }
+        eff = (eff + "/>")
+        return ("<p:transition" + attrs + ">" + eff + "</p:transition>")
+    }
+
+    sfn msOf:int (seconds:double) {
+        if (seconds <= 0.0) {
+            return 0
+        }
+        def v:double ((seconds * 1000.0) + 0.5)
+        return (to_int v)
+    }
+
+    ; The timing tree PowerPoint writes for a click-through build: one sequence
+    ; on the slide, a click group per step that waits for one, and the step
+    ; itself as a visibility change plus the effect that plays over it. It is
+    ; verbose because the format is — the shape of it is what a reader expects
+    ; to find, so this writes that shape rather than a shorter one that only we
+    ; would understand.
+    sfn timingXml:string (slide:PptxSlide) {
+        if ((array_length slide.build) == 0) {
+            return ""
+        }
+        def out:string "<p:timing><p:tnLst><p:par><p:cTn id=\"1\" dur=\"indefinite\" restart=\"never\" nodeType=\"tmRoot\"><p:childTnLst><p:seq concurrent=\"1\" nextAc=\"seek\"><p:cTn id=\"2\" dur=\"indefinite\" nodeType=\"mainSeq\"><p:childTnLst>"
+        def id:int 3
+        def i:int 0
+        while (i < (array_length slide.build)) {
+            def step:PptxBuildStep (itemAt slide.build i)
+            if (step.shapeId <= 0) {
+                i = (i + 1)
+                continue
+            }
+            def delay:string "indefinite"
+            def nodeType:string "clickEffect"
+            if (step.start == "with") {
+                delay = "0"
+                nodeType = "withEffect"
+            }
+            if (step.start == "after") {
+                delay = "0"
+                nodeType = "afterEffect"
+            }
+            ; click group
+            out = (out + "<p:par><p:cTn id=\"" + (to_string id) + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"" + delay + "\"/></p:stCondLst><p:childTnLst>")
+            id = (id + 1)
+            out = (out + "<p:par><p:cTn id=\"" + (to_string id) + "\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>")
+            id = (id + 1)
+            out = (out + "<p:par><p:cTn id=\"" + (to_string id) + "\" presetID=\"1\" presetClass=\"entr\" fill=\"hold\" nodeType=\"" + nodeType + "\" dur=\"" + (to_string (PptxWriter.msOf(step.seconds))) + "\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst><p:childTnLst>")
+            id = (id + 1)
+            def tgt:string (PptxWriter.targetXml(step))
+            out = (out + "<p:set><p:cBhvr><p:cTn id=\"" + (to_string id) + "\" dur=\"1\" fill=\"hold\"><p:stCondLst><p:cond delay=\"0\"/></p:stCondLst></p:cTn>" + tgt + "<p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val=\"visible\"/></p:to></p:set>")
+            id = (id + 1)
+            def filter:string step.kind
+            if ((strlen filter) == 0) {
+                filter = "appear"
+            }
+            out = (out + "<p:animEffect transition=\"in\" filter=\"" + (PptxWriter.esc(filter)) + "\"><p:cBhvr><p:cTn id=\"" + (to_string id) + "\" dur=\"" + (to_string (PptxWriter.msOf(step.seconds))) + "\"/>" + tgt + "</p:cBhvr></p:animEffect>")
+            id = (id + 1)
+            out = (out + "</p:childTnLst></p:cTn></p:par>")
+            out = (out + "</p:childTnLst></p:cTn></p:par>")
+            out = (out + "</p:childTnLst></p:cTn></p:par>")
+            i = (i + 1)
+        }
+        out = (out + "</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt=\"onPrev\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst><p:nextCondLst><p:cond evt=\"onNext\" delay=\"0\"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst></p:seq>")
+        return (out + "</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>")
+    }
+
+    sfn targetXml:string (step:PptxBuildStep) {
+        def inner:string ""
+        if (step.paragraph >= 0) {
+            inner = ("<p:txEl><p:pRg st=\"" + (to_string step.paragraph) + "\" end=\"" + (to_string step.paragraph) + "\"/></p:txEl>")
+        }
+        return ("<p:tgtEl><p:spTgt spid=\"" + (to_string step.shapeId) + "\">" + inner + "</p:spTgt></p:tgtEl>")
     }
 
     ; A slide names the layout it follows, whatever the package already said
@@ -827,7 +1160,7 @@ class PptxWriter {
         push chartPaths path
         push slideChartUse ((array_length charts) - 1)
         def rid:string ("rIdChart" + (to_string (array_length charts)))
-        def id:int (this.nextId())
+        def id:int (this.idFor(shape))
         def name:string shape.name
         if ((strlen name) == 0) {
             name = ("Chart " + (to_string id))

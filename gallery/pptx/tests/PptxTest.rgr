@@ -38,6 +38,12 @@ class PptxTest {
         this.testPackageAndSlides()
         this.testThemeResolve()
         this.testEvgTree()
+        this.testThemeStyles()
+        this.testTableGrid()
+        this.testSpacedRuns()
+        this.testConnectors()
+        this.testAdjustments()
+        this.testInheritedText()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -216,4 +222,354 @@ class PptxTest {
         this.check("display list cmds" ((dl.count()) >= 3))
         parser.close()
     }
+    ; --- the theme doing the work ---------------------------------------------
+    ;
+    ; A shape that carries only a `<p:style>` — no fill, no outline of its own —
+    ; is the commonest shape in a real deck, and this reader used to draw it as
+    ; nothing at all. Reported from two decks in the wild, along with the two
+    ; defects beside it: a line with an arrow on it drawn as an empty box, and
+    ; a run that is a single space thrown away as whitespace.
+
+    fn testThemeStyles:void () {
+        print "--- shapes styled by the theme ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "29-theme-styles.pptx")) == false) {
+            this.check("open 29-theme-styles" false)
+            return
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        def theme:PptxTheme raw.theme
+        this.check("the theme's fill styles were read" ((array_length theme.fillStyles) == 3))
+        this.check("and its line styles" ((array_length theme.lineStyles) == 3))
+        def st2@(optional):PptxFillStyle (theme.fillStyleAt(2))
+        this.check("fill style 2 is a gradient" (!null? st2))
+        if (!null? st2) {
+            def g:PptxFillStyle (unwrap st2)
+            this.check("as the theme says" (g.kind == 1))
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation(raw))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def solid@(optional):PptxShape (PptxTest.byName(slide "Solid from theme"))
+        this.check("the solid-styled shape is there" (!null? solid))
+        if (!null? solid) {
+            def sh:PptxShape (unwrap solid)
+            this.check("it has a fill it never stated" sh.fill.isSet)
+            this.check("which is the accent it named" (sh.fill.srgb == "4472C4"))
+            this.check("and an outline from the theme" sh.line.isSet)
+            this.check("with the theme's width" (sh.lineWidthPt > 1.0))
+        }
+        def grad@(optional):PptxShape (PptxTest.byName(slide "Gradient from theme"))
+        this.check("the gradient-styled shape is there" (!null? grad))
+        if (!null? grad) {
+            def gs:PptxShape (unwrap grad)
+            this.check("it came out a gradient" gs.fillGrad.isSet)
+            ; `tint 50000` on 4472C4 mixes it half way to white.
+            this.check("whose first stop is the tinted accent" (gs.fillGrad.c1.srgb == "A2B9E2"))
+            this.check("and whose second is tinted further" (gs.fillGrad.c2.srgb == "DAE3F3"))
+            this.check("the tinted colour is not resolved back to the flat accent" (gs.fillGrad.c1.srgb != "4472C4"))
+        }
+        def dark@(optional):PptxShape (PptxTest.byName(slide "Dark gradient"))
+        if (!null? dark) {
+            def ds:PptxShape (unwrap dark)
+            ; `shade 80000` on 44546A darkens it.
+            this.check("a shaded stop is darker than what it came from" (ds.fillGrad.c1.srgb == "364355"))
+        }
+        parser.close()
+    }
+
+    sfn byName@(optional):PptxShape (slide:PptxSlide name:string) {
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (sh.name == name) {
+                def hit@(optional):PptxShape sh
+                return hit
+            }
+            i = (i + 1)
+        }
+        def __none@(optional):PptxShape
+        return __none
+    }
+
+    fn testTableGrid:void () {
+        print "--- a table's own grid ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "30-table-grid.pptx")) == false) {
+            this.check("open 30-table-grid" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def table@(optional):PptxShape (PptxTest.byName(slide "Styled table"))
+        this.check("the table is there" (!null? table))
+        if (null? table) {
+            parser.close()
+            return
+        }
+        def tb:PptxShape (unwrap table)
+        this.check("three columns" (tb.tableCols == 3))
+        this.check("three rows" (tb.tableRows == 3))
+        this.check("their widths were read" ((array_length tb.tableColW) == 3))
+        this.check("and they are not equal" ((itemAt tb.tableColW 0) != (itemAt tb.tableColW 1)))
+        ; The frame says 3000000 EMU; the grid says 7200000. The grid wins.
+        this.check("the table is as wide as its grid, not its frame" (tb.width > 500.0))
+        this.check("and at least as tall as its rows" (tb.height >= 90.0))
+        def cell:PptxTableCell (itemAt tb.tableCells 1)
+        this.check("a cell keeps its words" (cell.text == "JavaScript"))
+        this.check("as a text body, not a string" ((array_length cell.body.paragraphs) > 0))
+        def para:PptxParagraph (itemAt cell.body.paragraphs 0)
+        def run:PptxTextRun (itemAt para.runs 0)
+        this.check("with the colour it stated" (run.color.srgb == "CCCCCC"))
+        this.check("and its size" (run.fontSizePt == 14.0))
+        ; Only the edges the file names, and an edge at zero alpha is not one.
+        this.check("the header cell has a rule under it" cell.lnB.isSet)
+        this.check("in the colour it named" (cell.lnB.color.srgb == "C0504D"))
+        this.check("its left edge is stated" cell.lnL.isSet)
+        this.check("but invisible" (cell.lnL.color.alpha < 0.01))
+        parser.close()
+    }
+
+    fn testSpacedRuns:void () {
+        print "--- a run that is one space ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "29-theme-styles.pptx")) == false) {
+            this.check("open 29-theme-styles for runs" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def hit@(optional):PptxShape (PptxTest.byName(slide "Spaced runs"))
+        this.check("the shape with spaced runs is there" (!null? hit))
+        if (null? hit) {
+            parser.close()
+            return
+        }
+        def sh:PptxShape (unwrap hit)
+        this.check("the words are not run together" ((sh.text.plainText()) == "The Ultimate Diary"))
+        parser.close()
+    }
+
+    fn testConnectors:void () {
+        print "--- lines with arrows on them ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "29-theme-styles.pptx")) == false) {
+            this.check("open 29-theme-styles for arrows" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def arrows:int 0
+        def tails:int 0
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (sh.kind == 3) {
+                arrows = (arrows + 1)
+                if (sh.tailEnd == "arrow") {
+                    tails = (tails + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("three connectors came through" (arrows == 3))
+        this.check("each with an arrow at its tail" (tails == 3))
+        ; A connector draws as a LINE: a filled quad plus a triangle, and no
+        ; rectangle at all — drawn as a box it was invisible.
+        def conv (new PptxToEvg())
+        def dl:EVGDisplayList (conv.slideToDisplayList(slide))
+        def polys:int 0
+        def k:int 0
+        while (k < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds k)
+            if (c.kind == 6) {
+                polys = (polys + 1)
+            }
+            k = (k + 1)
+        }
+        this.check("and each is drawn as polygons" (polys >= 6))
+        parser.close()
+    }
+
+    fn testAdjustments:void () {
+        print "--- a shape's own adjustment, and paths that are strokes ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "29-theme-styles.pptx")) == false) {
+            this.check("open 29-theme-styles for adjustments" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def tight@(optional):PptxShape (PptxTest.byName(slide "Tight corners"))
+        def round@(optional):PptxShape (PptxTest.byName(slide "Round corners"))
+        this.check("both rounded boxes are there" ((!null? tight) && (!null? round)))
+        if ((null? tight) || (null? round)) {
+            parser.close()
+            return
+        }
+        def t:PptxShape (unwrap tight)
+        def r:PptxShape (unwrap round)
+        this.check("the tight one states its adjustment" (t.adj > 0.05))
+        this.check("and it is small" (t.adj < 0.06))
+        this.check("the round one states a bigger one" (r.adj > 0.39))
+        ; The radius follows the adjustment and the shorter side, so the two
+        ; boxes cannot come out with the same corners.
+        def rt:double (PptxToEvg.cornerRadius(t 200.0 90.0))
+        def rr:double (PptxToEvg.cornerRadius(r 200.0 90.0))
+        this.check("so their corners differ" (rr > (rt * 4.0)))
+        this.check("and neither is the old fixed twelve" (rt != 12.0))
+        ; A shape that states no adjustment falls back to DrawingML's default
+        ; rather than to a pixel count.
+        def plain (new PptxShape())
+        def rp:double (PptxToEvg.cornerRadius(plain 200.0 90.0))
+        this.check("an unstated adjustment is a sixth of the short side" ((rp > 14.0) && (rp < 16.0)))
+
+        def bracket@(optional):PptxShape (PptxTest.byName(slide "Bracket rule"))
+        this.check("the bracket is there" (!null? bracket))
+        this.check("a bracket is an open path" (PptxGeom.isOpenPath("leftBracket")))
+        this.check("a rounded box is not" ((PptxGeom.isOpenPath("roundRect")) == false))
+        if (!null? bracket) {
+            ; It has no fill at all, so if it is drawn as an area it is not
+            ; drawn: what has to come out is a stroke.
+            def b:PptxShape (unwrap bracket)
+            this.check("and it has no fill of its own" (b.fill.isSet == false))
+            def conv (new PptxToEvg())
+            def one (new PptxSlide())
+            one.width = slide.width
+            one.height = slide.height
+            push one.shapes b
+            def dl:EVGDisplayList (conv.slideToDisplayList(one))
+            def polys:int 0
+            def borders:int 0
+            def k:int 0
+            while (k < (array_length dl.cmds)) {
+                def c:EVGDrawCmd (itemAt dl.cmds k)
+                if (c.kind == 6) {
+                    polys = (polys + 1)
+                }
+                if (c.kind == 1) {
+                    borders = (borders + 1)
+                }
+                k = (k + 1)
+            }
+            this.check("it is drawn as a stroke" (polys > 0))
+            this.check("and not as a box round it" (borders == 0))
+        }
+        parser.close()
+    }
+
+    ; --- typography a deck inherits -------------------------------------------
+    ;
+    ; Most placeholders in most decks state almost nothing: the size, the
+    ; colour, the indent and the bullet come from nine levels of list style,
+    ; down a chain from the master. This reader used to read the FIRST level
+    ; only, and only from the shape itself, so every sub-bullet in every real
+    ; deck came out in the top level's size and colour.
+
+    fn testInheritedText:void () {
+        print "--- nine levels, inherited ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "31-inherited-text.pptx")) == false) {
+            this.check("open 31-inherited-text" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def body@(optional):PptxShape (PptxTest.byName(slide "Levelled body"))
+        this.check("the body placeholder is there" (!null? body))
+        if (null? body) {
+            parser.close()
+            return
+        }
+        def sh:PptxShape (unwrap body)
+        this.check("it has its paragraphs" ((array_length sh.text.paragraphs) == 6))
+        def p0:PptxParagraph (itemAt sh.text.paragraphs 0)
+        def p1:PptxParagraph (itemAt sh.text.paragraphs 1)
+        def p3:PptxParagraph (itemAt sh.text.paragraphs 3)
+        def r0:PptxTextRun (itemAt p0.runs 0)
+        def r1:PptxTextRun (itemAt p1.runs 0)
+        def r3:PptxTextRun (itemAt p3.runs 0)
+        ; The master's own placeholder says 28pt at level 1 and two points less
+        ; per level; its `p:txStyles` says 14pt, which is the trap.
+        this.check("the first level took the master's size" (r0.fontSizePt == 28.0))
+        this.check("not the size p:txStyles states" (r0.fontSizePt != 14.0))
+        this.check("the second level is smaller" (r1.fontSizePt == 26.0))
+        this.check("the fourth smaller still" (r3.fontSizePt == 22.0))
+        this.check("and each level has its own colour" (r0.color.srgb != r1.color.srgb))
+        this.check("the first level's colour is the master's" (r0.color.srgb == "1F4E79"))
+        ; Indents and bullets, per level.
+        this.check("the first level is indented" (p0.marginLeftPt > 30.0))
+        this.check("the second more" (p1.marginLeftPt > p0.marginLeftPt))
+        this.check("each level has a bullet" p0.hasBullet)
+        this.check("and they differ" (p0.bulletChar != p1.bulletChar))
+        this.check("the bullet has the level's colour" (p0.bulletColor.isSet))
+        this.check("and its own size" (p0.bulletSizePt > 0.0))
+        ; A paragraph that says it has no bullet keeps none, whatever the level
+        ; style says — and a stated zero indent is a decision, not a silence.
+        def last:PptxParagraph (itemAt sh.text.paragraphs 5)
+        this.check("a paragraph can turn its bullet off" (last.hasBullet == false))
+        this.check("and cancel the level's indent" (last.marginLeftPt == 0.0))
+        this.check("while keeping the level's size" (((itemAt last.runs 0).fontSizePt) == 28.0))
+
+        ; The title takes the title style, which is a different chain.
+        def title@(optional):PptxShape (PptxTest.byName(slide "Title Placeholder"))
+        if (!null? title) {
+            def t:PptxShape (unwrap title)
+            if ((array_length t.text.paragraphs) > 0) {
+                def tp:PptxParagraph (itemAt t.text.paragraphs 0)
+                this.check("a title has no bullet" (tp.hasBullet == false))
+            }
+        }
+
+        ; Highlight.
+        def hl@(optional):PptxShape (PptxTest.byName(slide "Highlighted"))
+        this.check("the highlighted shape is there" (!null? hl))
+        if (!null? hl) {
+            def hs:PptxShape (unwrap hl)
+            def hp:PptxParagraph (itemAt hs.text.paragraphs 0)
+            this.check("it has three runs" ((array_length hp.runs) == 3))
+            def m:PptxTextRun (itemAt hp.runs 1)
+            this.check("the middle one is marked" m.highlight.isSet)
+            this.check("in the colour it named" (m.highlight.srgb == "FFFF00"))
+            def plain:PptxTextRun (itemAt hp.runs 0)
+            this.check("and the others are not" (plain.highlight.isSet == false))
+            ; It is drawn: a rectangle behind the text that is not there for
+            ; the unmarked runs.
+            def conv (new PptxToEvg())
+            def one (new PptxSlide())
+            one.width = slide.width
+            one.height = slide.height
+            push one.shapes hs
+            def dl:EVGDisplayList (conv.slideToDisplayList(one))
+            def yellow:int 0
+            def k:int 0
+            while (k < (array_length dl.cmds)) {
+                def c:EVGDrawCmd (itemAt dl.cmds k)
+                if (c.kind == 0) {
+                    if ((c.r > 200) && (c.g > 200)) {
+                        if (c.b < 60) {
+                            yellow = (yellow + 1)
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            this.check("and it reaches the picture" (yellow > 0))
+        }
+
+        ; Autofit: the writer already worked out how much to shrink by.
+        def s2:PptxSlide (itemAt pres.slides 1)
+        def fit@(optional):PptxShape (PptxTest.byName(s2 "Levelled body"))
+        this.check("the shrunken slide is there" (!null? fit))
+        if (!null? fit) {
+            def fs:PptxShape (unwrap fit)
+            def fp:PptxParagraph (itemAt fs.text.paragraphs 0)
+            def fr:PptxTextRun (itemAt fp.runs 0)
+            ; 28pt at 62% is 17.36 — the size the box was actually laid out for.
+            this.check("its text is shrunk to fit" (fr.fontSizePt < 20.0))
+            this.check("by the amount the file states" ((fabs (fr.fontSizePt - 17.36)) < 0.1))
+            this.check("and the lines are drawn closer" (fp.lineSpacingPct < 100.0))
+        }
+        parser.close()
+    }
+
 }

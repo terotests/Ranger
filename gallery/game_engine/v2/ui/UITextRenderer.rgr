@@ -63,9 +63,28 @@ class UITextRenderer {
             fontFamily = family
             def ttf:TrueTypeFont (fm.getFont(family))
             rt.setFont(ttf)
+            ; The manager knows every face that has been loaded, and it is the
+            ; only thing that can answer "who has THIS codepoint". Without it
+            ; the rasterizer draws `.notdef` from the primary face — a filled
+            ; box or a circle — for anything the text face does not carry,
+            ; which is every emoji in every document.
+            rt.setFallbackManager(fm)
             def tm:TTFTextMeasurer (new TTFTextMeasurer(fm))
             measurer = tm
             hasFont = true
+            this.clearCache()
+        }
+        return ok
+    }
+
+    ; A face loaded for FALLBACK only: it joins the pool the manager searches
+    ; per codepoint, and it does not become the family this renderer draws
+    ; with. An emoji font loaded through `loadFont` would make emoji the
+    ; default face for the whole document.
+    fn addFace:boolean (relativePath:string) {
+        def ok:boolean (fm.loadFont(relativePath))
+        if ok {
+            rt.setFallbackManager(fm)
             this.clearCache()
         }
         return ok

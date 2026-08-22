@@ -653,7 +653,15 @@ class RasterText {
             ; behaves exactly as it did before and draws .notdef.
             def face:TrueTypeFont font
             if hasFallbackManager {
-                face = (fallbackManager.faceForClusterFrom((unwrap font) cps i end))
+                def found:TrueTypeFont (fallbackManager.faceForClusterFrom((unwrap font) cps i end))
+                ; Nothing loaded has this codepoint: the manager says so by
+                ; handing back an UNLOADED face, and switching to it reads
+                ; glyph tables out of an empty buffer. Drawing `.notdef` from
+                ; the primary is the answer — it is what this did before there
+                ; was a fallback at all.
+                if (found.isLoaded()) {
+                    face = found
+                }
             }
             def isPrimary:boolean (face.fontPath == font.fontPath)
 

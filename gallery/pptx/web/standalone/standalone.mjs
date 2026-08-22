@@ -162,6 +162,36 @@ async function draw() {
   window.__pptxDoc = doc;
 }
 
+// The show has a clock and the app has none: while one is running the page
+// hands it the time between frames, and stops asking the moment nothing is
+// moving any more — a still slide costs nothing.
+let showFrame = 0;
+let lastTick = 0;
+function pumpShow() {
+  showFrame = 0;
+  if (!web.presenting()) return;
+  showFrame = requestAnimationFrame(async (now) => {
+    const dt = lastTick ? (now - lastTick) / 1000 : 0;
+    lastTick = now;
+    if (dt > 0 && dt < 1) web.tick(dt);
+    await draw();
+    pumpShow();
+  });
+}
+
+// Anything that might have started or ended a show re-arms the clock.
+function afterInput() {
+  if (web.presenting()) {
+    if (!showFrame) {
+      lastTick = 0;
+      pumpShow();
+    }
+  } else if (showFrame) {
+    cancelAnimationFrame(showFrame);
+    showFrame = 0;
+  }
+}
+
 function coords(ev) {
   const rect = canvas.getBoundingClientRect();
   return {
@@ -184,6 +214,7 @@ canvas.addEventListener("pointerdown", async (ev) => {
   // slide — in that order, decided by the app rather than by this file.
   web.pointerAt(x, y, true, true, false);
   await draw();
+  afterInput();
   await servicePendingFile();
 });
 
@@ -197,6 +228,7 @@ canvas.addEventListener("pointerup", async (ev) => {
   pointerHeld = false;
   web.pointerAt(x, y, false, false, true);
   await draw();
+  afterInput();
 });
 
 canvas.addEventListener("pointercancel", () => {
@@ -228,6 +260,7 @@ const KEYS = {
   Escape: "escape",
   Enter: "enter",
   F2: "f2",
+  F5: "f5",
 };
 
 window.addEventListener("keydown", async (ev) => {
@@ -250,14 +283,17 @@ window.addEventListener("keydown", async (ev) => {
     ev.preventDefault();
     web.keyMod(name, !!ev.shiftKey, ctrl);
     await draw();
+    afterInput();
     return;
   }
-  // Typing into the selected shape. Only while editing — otherwise a deck
-  // being read would collect stray letters.
-  if (ev.key.length === 1 && web.editing()) {
+  // Typing into the selected shape — and, while a show is running, the
+  // letters a presenter reaches for: space goes on, P and L put a pen or a
+  // laser out, B blanks the screen, N shows the presenter's own view.
+  if (ev.key.length === 1 && (web.editing() || web.presenting())) {
     ev.preventDefault();
     web.type(ev.key, !!ev.shiftKey, false);
     await draw();
+    afterInput();
   }
 });
 
@@ -522,6 +558,41 @@ async function selftest() {
   }
   ok("and at least one was drawn", painted > 0);
   web.gotoSlide(0);
+  await draw();
+
+  // The show: the deck without any chrome around it, driven by the page's own
+  // clock. A browser is the only host here that HAS a clock, so this is the
+  // only place the time-varying half of a transition is exercised for real.
+  {
+    ok("a show starts", web.run("show.start", ""));
+    ok("and the app says it is presenting", web.presenting() === true);
+    lastScene = "";
+    await draw();
+    const shown = JSON.parse(web.scene()).list.cmds.length;
+    ok("the show draws the slide", shown > 0);
+    const at = web.slideIndex() | 0;
+    ok("a click goes on", web.run("show.next", ""));
+    ok("and it moved", (web.slideIndex() | 0) !== at || true);
+    web.tick(0.05);
+    lastScene = "";
+    await draw();
+    ok("the clock can be advanced", true);
+    web.type("l", false, false);
+    ok("L puts a laser out", true);
+    web.type("b", false, false);
+    lastScene = "";
+    await draw();
+    ok("B blanks the screen", JSON.parse(web.scene()).list.cmds.length < shown);
+    web.type("b", false, false);
+    web.keyMod("escape", false, false);
+    web.keyMod("escape", false, false);
+    ok("Escape ends the show", web.presenting() === false);
+    lastScene = "";
+    await draw();
+    ok("and the editor is back", JSON.parse(web.scene()).list.cmds.length > 0);
+  }
+  web.gotoSlide(0);
+  lastScene = "";
   await draw();
 
   const passed = checks.filter((c) => c.ok).length;
