@@ -779,6 +779,42 @@ class PptxEditHostTest {
             c.ok("a timed slide turns on its own" (maker.index != wasAt))
         }
 
+        print "-- the panel builds what is on screen, and keeps it --"
+        def big:PptxApp (PptxEditHostTest.buildDeck("20-business-deck.pptx"))
+        ; A deck long enough that the panel cannot be drawing all of it: the
+        ; deck is duplicated until it is well past a screenful.
+        while ((big.slideCount()) < 60) {
+            big.runCommand("slide.duplicate" "")
+        }
+        big.gotoSlide(0)
+        def f1:EVGDisplayList (big.buildFrame())
+        def built1:int (big.panelBuiltLastFrame())
+        c.ok("the deck is long" ((big.slideCount()) >= 60))
+        c.ok("but the panel builds only what fits" (built1 < 20))
+        c.ok("and it built something" (built1 > 0))
+        ; The same frame again: nothing changed, so nothing is built again.
+        def f2:EVGDisplayList (big.buildFrame())
+        c.ok("an idle frame builds no thumbnail at all" ((big.panelBuiltLastFrame()) == 0))
+        c.ok("it keeps the ones it had" ((big.panelKeptLastFrame()) == built1))
+        ; Change a slide and its thumbnail — and only its thumbnail — is built
+        ; again, because a kept picture is tagged with the revision it was
+        ; taken at.
+        def sel:[PptxShape] (big.editor.editableShapes())
+        if ((array_length sel) > 0) {
+            def s1:PptxShape (itemAt sel 0)
+            big.editor.select(s1.editId)
+            big.editor.moveSelection(12.0 0.0)
+            def f3:EVGDisplayList (big.buildFrame())
+            c.ok("an edited slide is drawn again" ((big.panelBuiltLastFrame()) == 1))
+            c.ok("and the rest are kept" ((big.panelKeptLastFrame()) == (built1 - 1)))
+        }
+        ; Scrolling moves them, so they are built where they now are.
+        big.scrollPanel(-3)
+        def f4:EVGDisplayList (big.buildFrame())
+        c.ok("scrolling builds them where they moved to" ((big.panelBuiltLastFrame()) > 0))
+        def f5:EVGDisplayList (big.buildFrame())
+        c.ok("and stopping keeps them again" ((big.panelBuiltLastFrame()) == 0))
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

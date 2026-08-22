@@ -100,6 +100,8 @@ class PptxEditorTest {
         this.testHistoryLimit()
         this.testRealDeck()
         this.testShow()
+        this.testSharedHistory()
+        this.testDeckWideUndo()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -1163,5 +1165,192 @@ class PptxEditorTest {
         parser.close()
     }
 
+
+    ; --- history that does not copy the deck ----------------------------------
+    ;
+    ; A step shares its copies of the slides that did not change, which is the
+    ; whole of phase E7's history work and the one place where being wrong is
+    ; silent: a shared copy that goes stale gives an undo that restores the
+    ; wrong thing, and nothing else notices. The rule it rests on is that a
+    ; slide's revision changes whenever its content does, so these are the
+    ; checks that the rule holds — including for the two operations that
+    ; rewrite EVERY slide rather than the one in front of you.
+
+    fn testSharedHistory:void () {
+        print "--- a step copies only what changed ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open the business deck" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        this.check("the deck has several slides" ((ed.slideCount()) > 2))
+        this.check("every slide got a key" (PptxEditorTest.allKeyed(pres)))
+        this.check("and the keys are all different" (PptxEditorTest.keysUnique(pres)))
+
+        ; A step on slide two shares slide one's copy with the step before it.
+        ed.gotoSlide(1)
+        def shapes:[PptxShape] (ed.editableShapes())
+        this.check("slide two has a shape" ((array_length shapes) > 0))
+        if ((array_length shapes) == 0) {
+            parser.close()
+            return
+        }
+        def sh:PptxShape (itemAt shapes 0)
+        ed.select(sh.editId)
+        ed.moveSelection(10.0 0.0)
+        def a:PptxEditSnapshot (itemAt ed.history ((array_length ed.history) - 2))
+        def b:PptxEditSnapshot (itemAt ed.history ((array_length ed.history) - 1))
+        def shared:PptxSlide (itemAt a.slides 0)
+        def shared2:PptxSlide (itemAt b.slides 0)
+        this.check("the slide that did not change is the same copy" (shared.revision == shared2.revision))
+        def moved:PptxSlide (itemAt a.slides 1)
+        def moved2:PptxSlide (itemAt b.slides 1)
+        this.check("and the one that did is a different one" (moved.revision != moved2.revision))
+
+        ; The copy the history holds must not be reachable from the deck: move
+        ; the shape again and the earlier copy has to stay where it was.
+        def kept0:PptxShape (itemAt moved.shapes 0)
+        def before:double kept0.x
+        ed.moveSelection(25.0 0.0)
+        def kept1:PptxShape (itemAt moved.shapes 0)
+        def after:double kept1.x
+        this.check("a copy in the history is not the live slide" (before == after))
+
+        ; And the undo it is all for.
+        def liveNow@(optional):PptxShape (ed.findShape(sh.editId))
+        def x1:double 0.0
+        if (!null? liveNow) {
+            def ln:PptxShape (unwrap liveNow)
+            x1 = ln.x
+        }
+        ed.undo()
+        ed.undo()
+        def liveBack@(optional):PptxShape (ed.findShape(sh.editId))
+        this.check("the shape survives two undos" (!null? liveBack))
+        if (!null? liveBack) {
+            def back:PptxShape (unwrap liveBack)
+            this.check("and is back where it started" (back.x < (x1 - 30.0)))
+        }
+        ed.redo()
+        ed.redo()
+        def liveFwd@(optional):PptxShape (ed.findShape(sh.editId))
+        if (!null? liveFwd) {
+            def lf:PptxShape (unwrap liveFwd)
+            this.check("redo puts it back again" (PptxEditorTest.near2(lf.x x1)))
+        }
+        parser.close()
+    }
+
+    fn testDeckWideUndo:void () {
+        print "--- the operations that rewrite every slide ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open the business deck for palettes" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ; Re-theming touches every slide, and a history that shares its copies
+        ; would give back the old colours on the slides it thought unchanged.
+        ; The deck's own fills are hand-picked and deliberately do not move, so
+        ; a scheme colour is put on each slide first — that is what a palette
+        ; is about, and what has to come back.
+        def si:int 0
+        while (si < (array_length pres.slides)) {
+            ed.gotoSlide(si)
+            ed.setSlideBackgroundScheme("accent1")
+            si = (si + 1)
+        }
+        def sig0:string (PptxEditorTest.colourSignature(pres))
+        this.check("the deck has colours to change" ((strlen sig0) > 0))
+        this.check("a palette can be applied" (ed.applyPalette("forest")))
+        def sig1:string (PptxEditorTest.colourSignature(pres))
+        this.check("and every slide changed" (sig1 != sig0))
+        ed.undo()
+        def sig2:string (PptxEditorTest.colourSignature(pres))
+        this.check("undo puts every slide back" (sig2 == sig0))
+        ed.redo()
+        this.check("and redo takes them all forward" ((PptxEditorTest.colourSignature(pres)) == sig1))
+
+        ; A footer goes on the master and re-merges the chrome onto every
+        ; slide — the other deck-wide operation.
+        def count0:int (PptxEditorTest.shapeTotal(pres))
+        this.check("a footer can be set" (ed.setFooter("Internal only")))
+        def count1:int (PptxEditorTest.shapeTotal(pres))
+        this.check("which reaches every slide" (count1 > count0))
+        ed.undo()
+        this.check("and undo takes it off all of them" ((PptxEditorTest.shapeTotal(pres)) == count0))
+        parser.close()
+    }
+
+    sfn allKeyed:boolean (pres:PptxPresentation) {
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def sl:PptxSlide (itemAt pres.slides i)
+            if (sl.key == 0) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn keysUnique:boolean (pres:PptxPresentation) {
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def a:PptxSlide (itemAt pres.slides i)
+            def k:int (i + 1)
+            while (k < (array_length pres.slides)) {
+                def b:PptxSlide (itemAt pres.slides k)
+                if (a.key == b.key) {
+                    return false
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Every fill on every slide, run together — one string that changes if any
+    ; colour anywhere in the deck does.
+    sfn colourSignature:string (pres:PptxPresentation) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def slide:PptxSlide (itemAt pres.slides i)
+            out = (out + slide.bg.srgb + "|")
+            def k:int 0
+            while (k < (array_length slide.shapes)) {
+                def sh:PptxShape (itemAt slide.shapes k)
+                if sh.fill.isSet {
+                    out = (out + sh.fill.srgb + ",")
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn shapeTotal:int (pres:PptxPresentation) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def sl2:PptxSlide (itemAt pres.slides i)
+            n = (n + (array_length sl2.shapes))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn near2:boolean (a:double b:double) {
+        def d:double (fabs (a - b))
+        return (d < 0.5)
+    }
 
 }

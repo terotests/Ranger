@@ -154,6 +154,27 @@ class PptxApp {
     def panelScroll:int 0
     def panelDrag:int -1
     def panelDropAt:int -1
+    def panelBuilt:int 0
+    ; --- the panel's thumbnails, kept ----------------------------------------
+    ;
+    ; A thumbnail is the slide's own scene at a small scale, which is what made
+    ; the panel cost nothing to invent and everything to draw: at a hundred
+    ; slides the panel was seven eighths of every frame, because the dozen
+    ; thumbnails on screen were converted again for each one.
+    ;
+    ; They are kept now, keyed by the slide and tagged with the revision, the
+    ; place and the width they were built at — a slide that has not changed and
+    ; has not moved is the same picture, and that is the whole test. Nothing
+    ; here is ever mutated after it is stored: the frame borrows the commands
+    ; and is thrown away, and a thumbnail that has moved is built again rather
+    ; than shifted, since shifting one would write into what the cache holds.
+    def thumbRev:[int:int]
+    def thumbX:[int:int]
+    def thumbY:[int:int]
+    def thumbW:[int:int]
+    def thumbList:[int:EVGDisplayList]
+    def thumbKept:int 0
+    def thumbCount:int 0
     ; The slide picker. Ids: 1601.. the slides, 1691 Close.
     def slideDialog:EVGWindow (new EVGWindow)
     def dialogsReady:boolean false
@@ -508,6 +529,19 @@ class PptxApp {
         commands.add("slide.delete" "Delete slide" "Slides" "")
         commands.add("slide.moveup" "Move slide earlier" "Slides" "")
         commands.add("slide.movedown" "Move slide later" "Slides" "")
+    }
+
+    ; A deck the caller already has, rather than one read from a file. The
+    ; bench builds one in memory, and so does anything that wants to drive this
+    ; app without a package behind it.
+    fn attachPresentation:boolean (pres:PptxPresentation name:string) {
+        presentation = pres
+        view.deckName = name
+        index = 0
+        loaded = true
+        editor.attach(presentation)
+        view.status = ((to_string (presentation.slideCount())) + " slides")
+        return true
     }
 
     fn load:boolean (fullPath:string) {
@@ -1534,6 +1568,11 @@ class PptxApp {
             }
             i = (i + 1)
         }
+    }
+
+    sfn intAt:int (m:[int:int] key:int) {
+        def hit@(optional):int (get m key)
+        return (?? hit (0 - 999999))
     }
 
     sfn appendList:void (into:EVGDisplayList src:EVGDisplayList) {
@@ -3491,7 +3530,78 @@ class PptxApp {
         return false
     }
 
+    ; How many thumbnails the last frame actually built. The panel only builds
+    ; the ones on screen — that is what E7 means by virtualizing it — and this
+    ; is the number that proves it, since a deck ten times longer must not cost
+    ; ten times more to draw.
+    fn panelBuiltLastFrame:int () {
+        return panelBuilt
+    }
+
+    fn panelKeptLastFrame:int () {
+        return thumbKept
+    }
+
+    ; The thumbnail for this slide, at this place and this width — from the
+    ; cache when the slide has not changed and has not moved, and built when it
+    ; has. A slide with no key (a deck never attached to the editor) is never
+    ; cached, because there is nothing to key it by.
+    fn thumbnailFor:EVGDisplayList (slide:PptxSlide i:int tx:int ty:int tw:int) {
+        def key:int slide.key
+        if (key > 0) {
+            def rev@(optional):int (get thumbRev key)
+            if (!null? rev) {
+                if ((unwrap rev) == slide.revision) {
+                    if ((PptxApp.intAt(thumbX key) == tx) && (PptxApp.intAt(thumbY key) == ty)) {
+                        if (PptxApp.intAt(thumbW key) == tw) {
+                            def hit@(optional):EVGDisplayList (get thumbList key)
+                            if (!null? hit) {
+                                thumbKept = (thumbKept + 1)
+                                return (unwrap hit)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        def scale:double ((to_double tw) / (slide.width * (96.0 / 72.0)))
+        view.converter.setScale(scale)
+        view.converter.slideNumber = (i + 1)
+        def sub:EVGDisplayList (view.converter.slideToDisplayList(slide))
+        panelBuilt = (panelBuilt + 1)
+        PptxApp.offsetList(sub tx ty)
+        if (key > 0) {
+            ; Bounded rather than clever: a deck scrolled end to end would
+            ; otherwise keep a picture of every slide it passed.
+            if (thumbCount > 64) {
+                thumbCount = 0
+                def r2:[int:int]
+                thumbRev = r2
+                def x2:[int:int]
+                thumbX = x2
+                def y2:[int:int]
+                thumbY = y2
+                def w2:[int:int]
+                thumbW = w2
+                def l2:[int:EVGDisplayList]
+                thumbList = l2
+            }
+            def known@(optional):int (get thumbRev key)
+            if (null? known) {
+                thumbCount = (thumbCount + 1)
+            }
+            set thumbRev key slide.revision
+            set thumbX key tx
+            set thumbY key ty
+            set thumbW key tw
+            set thumbList key sub
+        }
+        return sub
+    }
+
     fn paintPanel:void (dl:EVGDisplayList) {
+        panelBuilt = 0
+        thumbKept = 0
         if (panelVisible == false) {
             return
         }
@@ -3519,11 +3629,7 @@ class PptxApp {
             if visible {
                 def slide:PptxSlide (itemAt presentation.slides i)
                 dl.addRect((to_double tx) (to_double ty) (to_double tw) (to_double th) (EVGColor.rgb(255 255 255)))
-                def scale:double ((to_double tw) / (slide.width * (96.0 / 72.0)))
-                view.converter.setScale(scale)
-                view.converter.slideNumber = (i + 1)
-                def sub:EVGDisplayList (view.converter.slideToDisplayList(slide))
-                PptxApp.offsetList(sub tx ty)
+                def sub:EVGDisplayList (this.thumbnailFor(slide i tx ty tw))
                 dl.addClip((to_double tx) (to_double ty) (to_double tw) (to_double th))
                 PptxApp.appendList(dl sub)
                 dl.addClipEnd()

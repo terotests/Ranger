@@ -1,0 +1,222 @@
+; ==============================================================================
+; pptx_bench — what a hundred-slide deck costs to edit
+; ==============================================================================
+;
+; Phase E7 in `PLAN_EDITOR.md` is the one phase written entirely about cost,
+; and cost is the one thing that cannot be argued about: this builds a deck big
+; enough for the difference to show and times the six things an editor does
+; between one frame and the next.
+;
+; What each number means, and why it is the one measured:
+;
+;   frame            one whole frame — the slide, the panel's thumbnails, the
+;                    chrome. This is what a host pays sixty times a second.
+;   drag frame       the same, with a shape being moved: the slide changed, so
+;                    nothing about it can be reused.
+;   idle frame       the same, with nothing changed at all. A frame that costs
+;                    as much as a drag frame is a renderer that rebuilds the
+;                    world to draw the same picture.
+;   keystroke        a character typed into a shape, through the editor.
+;   undo             one step back.
+;   save             the whole deck written out.
+;
+;   npm run pptx:bench
+;   npm run pptx:bench -- 200
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+
+class PptxBench {
+    sfn report:void (name:string ms:double) {
+        def whole:int (to_int ms)
+        def frac:int (to_int ((ms - (to_double whole)) * 100.0))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def f:string (to_string frac)
+        while ((strlen f) < 2) {
+            f = ("0" + f)
+        }
+        print (("  " + name + ": " + (to_string whole) + "." + f + " ms"))
+    }
+
+    sfn per:void (name:string ms:double n:int) {
+        if (n <= 0) {
+            return
+        }
+        PptxBench.report(name (ms / (to_double n)))
+    }
+
+    ; A deck of `n` slides, each with a title, a paragraph and three shapes —
+    ; about what a real deck carries, and enough of them that a per-frame walk
+    ; over the whole document is visible in the number.
+    sfn buildDeck:PptxPresentation (n:int) {
+        def pres (new PptxPresentation())
+        pres.slideWidth = 720.0
+        pres.slideHeight = 405.0
+        def i:int 0
+        while (i < n) {
+            def slide (new PptxSlide())
+            slide.width = pres.slideWidth
+            slide.height = pres.slideHeight
+            slide.partPath = ("ppt/slides/slide" + (to_string (i + 1)) + ".xml")
+            def title (new PptxShape())
+            title.name = ("Title " + (to_string (i + 1)))
+            title.hasXfrm = true
+            title.x = 40.0
+            title.y = 30.0
+            title.width = 640.0
+            title.height = 60.0
+            title.hasText = true
+            PptxEditor.setBodyText(title.text ("Slide " + (to_string (i + 1)) + " of " + (to_string n)))
+            push slide.shapes title
+            def body (new PptxShape())
+            body.name = "Body"
+            body.hasXfrm = true
+            body.x = 40.0
+            body.y = 110.0
+            body.width = 380.0
+            body.height = 240.0
+            body.hasText = true
+            PptxEditor.setBodyText(body.text "A paragraph of the kind a deck actually carries, long enough to wrap over several lines when it is laid out at the size a slide is drawn at.")
+            push slide.shapes body
+            def k:int 0
+            while (k < 3) {
+                def box (new PptxShape())
+                box.name = ("Box " + (to_string k))
+                box.hasXfrm = true
+                box.x = (450.0 + ((to_double k) * 10.0))
+                box.y = (120.0 + ((to_double k) * 70.0))
+                box.width = 200.0
+                box.height = 55.0
+                box.preset = "roundRect"
+                box.fill = (PptxColor.srgbOf("4472C4"))
+                box.hasText = true
+                PptxEditor.setBodyText(box.text ("Point " + (to_string (k + 1))))
+                push slide.shapes box
+                k = (k + 1)
+            }
+            push pres.slides slide
+            push pres.slideParts slide.partPath
+            i = (i + 1)
+        }
+        return pres
+    }
+
+    sfn main:void () {
+        def n:int 100
+        def argCount:int (shell_arg_cnt)
+        if (argCount > 0) {
+            def parsed@(optional):int (to_int (shell_arg 0))
+            if (!null? parsed) {
+                n = (unwrap parsed)
+            }
+        }
+        print ("== pptx_bench slides=" + (to_string n) + " ==")
+
+        def app:PptxApp (new PptxApp)
+        def t0:double (wall_clock_ms)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(1280 820)
+        def t1:double (wall_clock_ms)
+        PptxBench.report("init + fonts" (t1 - t0))
+
+        def t2:double (wall_clock_ms)
+        def pres:PptxPresentation (PptxBench.buildDeck(n))
+        def t3:double (wall_clock_ms)
+        PptxBench.report("build the deck" (t3 - t2))
+
+        def t4:double (wall_clock_ms)
+        app.attachPresentation(pres "bench.pptx")
+        def t5:double (wall_clock_ms)
+        PptxBench.report("attach (ids + first snapshot)" (t5 - t4))
+        print ("  slides=" + (to_string (app.slideCount())) + " shapes/slide=5")
+
+        ; --- frames ------------------------------------------------------------
+        def frames:int 40
+        def t6:double (wall_clock_ms)
+        def f:int 0
+        while (f < frames) {
+            def dl:EVGDisplayList (app.buildFrame())
+            f = (f + 1)
+        }
+        def t7:double (wall_clock_ms)
+        PptxBench.per("idle frame" (t7 - t6) frames)
+
+        ; The same frame with the panel folded away, so the split between the
+        ; slide and the strip of thumbnails beside it is visible rather than
+        ; guessed at.
+        app.runCommand("view.panel" "")
+        def t6b:double (wall_clock_ms)
+        def fb:int 0
+        while (fb < frames) {
+            def dlb:EVGDisplayList (app.buildFrame())
+            fb = (fb + 1)
+        }
+        def t7b:double (wall_clock_ms)
+        PptxBench.per("idle frame, no panel" (t7b - t6b) frames)
+        app.runCommand("view.panel" "")
+        ; How many thumbnails the panel actually builds — the whole of what
+        ; "virtualized" means, and a number that must not follow the deck.
+        def one:EVGDisplayList (app.buildFrame())
+        print (("  thumbnails per frame: built " + (to_string (app.panelBuiltLastFrame()))) + ", kept " + (to_string (app.panelKeptLastFrame())))
+
+        ; A drag: the slide changes every frame, so nothing about it is reusable.
+        def shapes:[PptxShape] (app.editor.editableShapes())
+        if ((array_length shapes) > 0) {
+            def sh:PptxShape (itemAt shapes 0)
+            app.editor.select(sh.editId)
+            def t8:double (wall_clock_ms)
+            def d:int 0
+            while (d < frames) {
+                app.editor.moveSelection(1.0 0.0)
+                def dl2:EVGDisplayList (app.buildFrame())
+                d = (d + 1)
+            }
+            def t9:double (wall_clock_ms)
+            PptxBench.per("drag frame" (t9 - t8) frames)
+        }
+
+        ; --- editing -----------------------------------------------------------
+        def keys:int 60
+        def tA:double (wall_clock_ms)
+        def kk:int 0
+        while (kk < keys) {
+            app.editor.appendText("x")
+            kk = (kk + 1)
+        }
+        def tB:double (wall_clock_ms)
+        PptxBench.per("keystroke" (tB - tA) keys)
+
+        def undos:int 20
+        def tC:double (wall_clock_ms)
+        def u:int 0
+        while (u < undos) {
+            app.editor.undo()
+            u = (u + 1)
+        }
+        def tD:double (wall_clock_ms)
+        PptxBench.per("undo" (tD - tC) undos)
+        print ("  history steps=" + (to_string (array_length app.editor.history)))
+
+        ; --- paging ------------------------------------------------------------
+        def pages:int 40
+        def tE:double (wall_clock_ms)
+        def p:int 0
+        while (p < pages) {
+            app.gotoSlide((p % (app.slideCount())))
+            def dl3:EVGDisplayList (app.buildFrame())
+            p = (p + 1)
+        }
+        def tF:double (wall_clock_ms)
+        PptxBench.per("turn the page + frame" (tF - tE) pages)
+
+        ; --- saving ------------------------------------------------------------
+        def tG:double (wall_clock_ms)
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "bench-out.pptx")
+        def tH:double (wall_clock_ms)
+        PptxBench.report("save the deck" (tH - tG))
+        print "done"
+    }
+}

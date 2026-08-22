@@ -390,6 +390,12 @@ class PptxSlide {
     def dirty:boolean false
     ; The id `p:sldIdLst` gave it, which is how sections name their slides.
     def slideId:int 0
+    ; The editor's own name for this slide, handed out on attach and never
+    ; reused — the same idea as a shape's `editId`, and for the same reason: an
+    ; index stops naming the same slide the moment the deck is reordered. The
+    ; history uses it to tell whether the slide in front of it is the one it
+    ; already has a copy of.
+    def key:int 0
     ; Bumped by every edit on this slide, and never reused, so anything that
     ; caches a picture of a slide can tell whether it is looking at the same
     ; slide it drew.

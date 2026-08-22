@@ -297,6 +297,7 @@ class PptxClone {
         sl.notes = (PptxClone.shape(src.notes))
         sl.notesPart = src.notesPart
         sl.slideId = src.slideId
+        sl.key = src.key
         def tr (new PptxTransition())
         tr.isSet = src.transition.isSet
         tr.kind = src.transition.kind
@@ -415,6 +416,27 @@ class PptxEditor {
     ; Never reused, so a revision names one state of one slide even after an
     ; undo has thrown a later one away.
     def nextRevision:int 0
+    ; --- history, shared ------------------------------------------------------
+    ;
+    ; A step used to copy the WHOLE deck, which is right while the operation
+    ; set is still moving and wrong once it has stopped: at five hundred slides
+    ; a keystroke cost thirty milliseconds, three frames, because four hundred
+    ; and ninety-nine slides were copied to record a change to one.
+    ;
+    ; So a step copies only the slides that CHANGED, and every step shares the
+    ; rest. The cache below holds one clone per slide, tagged with the revision
+    ; it was taken at; a capture asks it for each slide and only pays for the
+    ; ones whose revision has moved on. Nothing in it is ever a live object —
+    ; it stores copies — and `restoreSnapshot` copies out of it again, so a
+    ; shared clone can never be reached by an edit.
+    ;
+    ; The invariant the whole thing rests on: **a slide's revision changes
+    ; whenever its content does.** `pushSnapshot` and `pushCoalesced` bump the
+    ; slide the step is on before capturing, and the two operations that
+    ; rewrite EVERY slide — `remergeChrome` and `retheme` — bump all of them.
+    def nextSlideKey:int 1
+    def cloneRev:[int:int]
+    def cloneVal:[int:PptxSlide]
     ; For re-resolving a palette colour; the same mapping the loader used.
     def resolver:PptxResolver (new PptxResolver())
     ; Editing a master or a layout: the sheet stands in for the slide, so
@@ -454,6 +476,10 @@ class PptxEditor {
             }
             this.assignIdTo(slide.notes)
             this.linkBuild(slide)
+            if (slide.key == 0) {
+                slide.key = nextSlideKey
+                nextSlideKey = (nextSlideKey + 1)
+            }
             si = (si + 1)
         }
     }
@@ -801,6 +827,56 @@ class PptxEditor {
 
     ; --- history -------------------------------------------------------------
 
+    ; A copy of this slide that the history may share. The cache answers with
+    ; the copy it already has when the slide has not moved on since; otherwise
+    ; it makes one and remembers it.
+    ; A name of its own for a slide that has just come into the deck.
+    fn freshKey:void (slide:PptxSlide) {
+        slide.key = nextSlideKey
+        nextSlideKey = (nextSlideKey + 1)
+    }
+
+    fn sharedClone:PptxSlide (slide:PptxSlide) {
+        if (slide.key == 0) {
+            slide.key = nextSlideKey
+            nextSlideKey = (nextSlideKey + 1)
+        }
+        def have@(optional):int (get cloneRev slide.key)
+        if (!null? have) {
+            if ((unwrap have) == slide.revision) {
+                def cached@(optional):PptxSlide (get cloneVal slide.key)
+                if (!null? cached) {
+                    return (unwrap cached)
+                }
+            }
+        }
+        def copy:PptxSlide (PptxClone.slide(slide))
+        set cloneRev slide.key slide.revision
+        set cloneVal slide.key copy
+        return copy
+    }
+
+    ; The slide a step is about has changed, so the copy the history holds of
+    ; it is out of date. Called BEFORE the capture, which is what makes the
+    ; sharing sound.
+    fn touchSlide:void (slide:PptxSlide) {
+        nextRevision = (nextRevision + 1)
+        slide.revision = nextRevision
+        slide.dirty = true
+    }
+
+    ; Two operations rewrite every slide in the deck rather than the one in
+    ; front of you — re-merging the chrome and re-theming the colours — and
+    ; both have to say so, or the history shares copies of slides that have
+    ; quietly changed underneath it.
+    fn touchAllSlides:void () {
+        def i:int 0
+        while (i < (array_length doc.slides)) {
+            this.touchSlide((itemAt doc.slides i))
+            i = (i + 1)
+        }
+    }
+
     fn captureSnapshot:PptxEditSnapshot (label:string) {
         def snap (new PptxEditSnapshot())
         snap.label = label
@@ -808,7 +884,7 @@ class PptxEditor {
         def i:int 0
         while (i < (array_length doc.slides)) {
             def sl:PptxSlide (itemAt doc.slides i)
-            push snap.slides (PptxClone.slide(sl))
+            push snap.slides (this.sharedClone(sl))
             i = (i + 1)
         }
         def j:int 0
@@ -850,6 +926,15 @@ class PptxEditor {
     }
 
     fn pushSnapshot:void (label:string) {
+        ; The slide this step is about has changed, and it has to say so BEFORE
+        ; the capture: the history shares the copies of the slides that did
+        ; not, and it tells them apart by revision.
+        if (label != "open") {
+            def cur0@(optional):PptxSlide (this.currentSlide())
+            if (!null? cur0) {
+                this.touchSlide((unwrap cur0))
+            }
+        }
         def kept:[PptxEditSnapshot]
         def i:int 0
         while (i <= historyPos) {
@@ -886,24 +971,42 @@ class PptxEditor {
                 ls2.dirty = true
             }
         }
-        ; Which slide the step was on, so a save can leave the others alone.
-        if (label != "open") {
-            def cur@(optional):PptxSlide (this.currentSlide())
-            if (!null? cur) {
-                def sl:PptxSlide (unwrap cur)
-                sl.dirty = true
-                nextRevision = (nextRevision + 1)
-                sl.revision = nextRevision
-            }
-        }
     }
 
     fn restoreSnapshot:void (snap:PptxEditSnapshot) {
+        ; The other half of the sharing. A snapshot's copy of a slide and the
+        ; live slide with the same key and the same revision are the same
+        ; state, so the live one is already what the undo wants and is kept
+        ; where it stands. Only the slides that actually differ are copied out
+        ; — and copied they must be, because what the snapshot holds is shared
+        ; with every other step that did not change them.
+        def liveByKey:[int:PptxSlide]
+        def li:int 0
+        while (li < (array_length doc.slides)) {
+            def live:PptxSlide (itemAt doc.slides li)
+            if (live.key > 0) {
+                set liveByKey live.key live
+            }
+            li = (li + 1)
+        }
         def slides:[PptxSlide]
         def i:int 0
         while (i < (array_length snap.slides)) {
             def sl:PptxSlide (itemAt snap.slides i)
-            push slides (PptxClone.slide(sl))
+            def same:boolean false
+            if (sl.key > 0) {
+                def hit@(optional):PptxSlide (get liveByKey sl.key)
+                if (!null? hit) {
+                    def lv:PptxSlide (unwrap hit)
+                    if (lv.revision == sl.revision) {
+                        push slides lv
+                        same = true
+                    }
+                }
+            }
+            if (same == false) {
+                push slides (PptxClone.slide(sl))
+            }
             i = (i + 1)
         }
         doc.slides = slides
@@ -2198,6 +2301,7 @@ class PptxEditor {
     fn addSlide:boolean () {
         def slide (new PptxSlide())
         slide.dirty = true
+        this.freshKey(slide)
         slide.width = doc.slideWidth
         slide.height = doc.slideHeight
         slide.bg = (PptxColor.srgbOf("FFFFFF"))
@@ -2229,9 +2333,13 @@ class PptxEditor {
         def src:PptxSlide (unwrap cur)
         def copy:PptxSlide (PptxClone.slide(src))
         ; A copy is a new slide, not the one it was copied from: it cannot
-        ; claim the part its original lives in.
+        ; claim the part its original lives in, and it cannot keep its key
+        ; either — two slides answering to the same name is a history that
+        ; shares the wrong copy and a panel that draws the wrong thumbnail.
         copy.partPath = ""
         copy.dirty = true
+        this.freshKey(copy)
+        copy.revision = 0
         def j:int 0
         while (j < (array_length copy.shapes)) {
             def sh:PptxShape (itemAt copy.shapes j)
@@ -2342,6 +2450,14 @@ class PptxEditor {
             if (historyPos < (array_length history)) {
                 def top:PptxEditSnapshot (itemAt history historyPos)
                 if (top.label == label) {
+                    ; A coalesced step replaces the one on top rather than
+                    ; adding another, and it still changed a slide — so the
+                    ; slide is marked before the capture, exactly as it is for
+                    ; a step of its own.
+                    def cur@(optional):PptxSlide (this.currentSlide())
+                    if (!null? cur) {
+                        this.touchSlide((unwrap cur))
+                    }
                     def snap:PptxEditSnapshot (this.captureSnapshot(label))
                     set_at history historyPos snap
                     dirty = true
@@ -3024,6 +3140,8 @@ class PptxEditor {
     ; including the master and layout sheets, so a layout applied afterwards
     ; arrives in the new colours too.
     fn retheme:void () {
+        ; As with `remergeChrome`: every slide changes, so every slide says so.
+        this.touchAllSlides()
         def si:int 0
         while (si < (array_length doc.slides)) {
             def slide:PptxSlide (itemAt doc.slides si)
@@ -3387,6 +3505,10 @@ class PptxEditor {
     ; The resolver's merge, run again for every slide: master chrome, then
     ; layout chrome, then whatever the slide itself declares.
     fn remergeChrome:void () {
+        ; Every slide is rewritten here, not just the one in front of you, and
+        ; the history has to be told — it shares its copies of the slides that
+        ; did not change, and tells them apart by revision.
+        this.touchAllSlides()
         def si:int 0
         while (si < (array_length doc.slides)) {
             def slide:PptxSlide (itemAt doc.slides si)

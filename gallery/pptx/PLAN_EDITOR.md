@@ -457,13 +457,45 @@ is the only host here with a real clock. `artifacts/13_present_transition.png`
 is a push caught a third of the way through; `14_presenter_view.png` is the
 presenter's screen with a line drawn on the slide by hand.
 
-## Phase E7 — scale
+## Phase E7 — scale (done)
 
-Operation-log history with inverses instead of deck snapshots · dirty-rectangle
-painting rather than rebuilding the display list per frame · **virtualizing**
-the slide panel of E4b, so a hundred-slide deck renders the dozen thumbnails
-that are on screen · a document big enough to make the difference measurable,
-in `bench/`, the way the text editor and the grid are benched.
+The one phase written entirely about cost, and the only one where the answer
+could not be argued about: `bench/pptx_bench.rgr` builds a deck big enough for
+the difference to show and times the six things an editor does between one
+frame and the next. `docs/EDITOR_BENCH.md` has the numbers.
+
+What it found was not what the phase was written expecting. **Frames were
+already flat** in the size of the deck — the slide panel has only ever built
+the thumbnails that are on screen, which is what E4b meant by virtualizing it,
+and the rule was there before the decks were long enough to notice. What was
+linear was **every edit**: `pushSnapshot` copied all five hundred slides to
+record a change to one, so a keystroke cost 30 ms and a drag frame 25 ms.
+
+- **The history shares the slides that did not change.** The phase was written
+  asking for an operation log with inverses, and the argument against writing
+  one is still the one recorded in E1: a shape is a tree, one operation touches
+  several levels of it, and an op log is a rewrite of every operation. There is
+  a cheaper way to the same number. A step copies only the slides whose
+  **revision** moved on and shares the rest — in both directions, since a
+  restore keeps the live slide where it stands when it already holds the state
+  the snapshot does. The invariant it rests on is that **a slide's revision
+  changes whenever its content does**, so the bump happens *before* the capture
+  rather than after it, and the two operations that rewrite every slide rather
+  than the one in front of you (`remergeChrome`, `retheme`) say so explicitly.
+  A slide gets a `key` of its own for this, the same idea as a shape's
+  `editId`: an index stops naming the same slide the moment the deck is
+  reordered.
+- **The panel keeps its thumbnails**, tagged with the revision, the place and
+  the width they were built at. It was seven eighths of every frame; an idle
+  frame now builds none of them, editing a slide builds one, and scrolling
+  builds the ones that moved.
+
+At a thousand slides a keystroke is 0.04 ms, an undo 0.22 ms and a frame 1.0 ms
+— nothing between frames follows the deck any more. The checks that keep it
+honest are in `pptx:editor:test` (`testSharedHistory`, `testDeckWideUndo`: a
+shared copy that goes stale is a silent bug) and in the host suite (a
+sixty-slide deck builds under twenty thumbnails, an idle frame builds none, an
+edited slide builds exactly one).
 
 ## Non-goals
 
@@ -479,4 +511,5 @@ npm run pptx:editor:test        # the editing core, on a deck built in memory
 npm run pptx:editor:host:test   # pointer, keys, overlay, commands
 npm run pptx:web:test           # the browser build, including a real drag
 npm run pptx:window             # the hosted window
+npm run pptx:bench              # what a deck costs to edit, by size
 ```
