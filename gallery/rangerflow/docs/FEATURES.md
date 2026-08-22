@@ -116,12 +116,18 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Autofit (shrink to fit) | ✓ | the size comes down in steps to 68% of the base before anything is cut |
 | Truncation with an ellipsis | ✓ | last resort only, after wrap and autofit have run out |
 | Edit a label in place | ✓ | double-click puts the caret in the text under the pointer: a table's name, a column, a step, a branch label, a lane |
+| Edit a column's **type** in place | ✓ | the right-hand half of a row is its own field — point at the name to edit the name, at the type to edit the type (probe `schemaEditing`) |
+| **Add a column** to a table | ✓ | `FlowEditor.addRow`: the row, a port each side of it, the table widened to fit, and the caret already in the new name |
+| **Drop a column** | ✓ | and every relation that landed on it — an edge pointing at a port that is gone is drawn from the middle of the table |
+| One undo per column | ✓ | undo restores the row, its ports and its edges — the same objects, not copies |
 | One undo per edit | ✓ | the model is untouched until commit, so Escape is free and Ctrl+Z takes the whole name |
 | Dead keys / ä ö / phone keyboards | ✓ | an offscreen `<input>` takes focus and is mirrored into the editor; the core still owns the model |
 | Handles on a shape node | ✓ | the four side handles React Flow gives a node that declares none, placed on the outline (`FlowNode.addSideHandles`); a table keeps its port-per-row instead |
 | Toolbar: add a node | ✓ | eleven shapes, one undo step each (`FlowEditor.addNode`) |
 | Toolbar: click to connect | ✓ | React Flow's `connectOnClick` (probe `connectOnClick`) |
 | Toolbar: rename the selection | ✓ | renames as you type, no dialog over the canvas |
+| Toolbar: **+ column** / **− column** | ✓ | greyed out unless the selection is a table; checked on every `rangerflow:web:test` run |
+| Right-click a column | ✓ | add one below it, drop it, or change its type |
 | Drag an edge's corner by hand | ✓ | grab any interior segment; it slides across itself only, and a hand-placed route is left alone by every later pass |
 | MiniMap / zoom / pan | ✓ | from the core |
 | Keys-only view for big schemas | ✓ | `SchemaToGraph.keysOnly` |

@@ -140,6 +140,36 @@ class RangerFlowWeb {
         editor.pinchEnd()
     }
 
+    ; --- columns on a table ---------------------------------------------------
+    ; A schema you can look at and not change is a picture of a schema. Both
+    ; of these put the caret where the reader is going to type next, because a
+    ; column called `uusi_sarake` that you then have to hunt for is a column
+    ; nobody renames.
+    fn addRow:int () {
+        def at:int (editor.addRowToSelected())
+        if (at >= 0) { userMoved = true }
+        return at
+    }
+
+    fn removeRow:boolean () {
+        def ok:boolean (editor.removeRowFromSelected())
+        if ok { userMoved = true }
+        return ok
+    }
+
+    ; How many columns the selected table has — what a button greys itself out
+    ; on, and what a test asserts.
+    fn selectedRowCount:int () {
+        def n:FlowNode (editor.selectedNode())
+        if ((strlen n.id) == 0) {
+            return -1
+        }
+        if ((n.sectionCount()) == 0) {
+            return -1
+        }
+        return (n.rowTotal())
+    }
+
     ; --- what the toolbar can now ask for ------------------------------------
     fn rotateSelected:int () {
         def n:int (editor.rotateSelected(90.0))
@@ -1022,6 +1052,48 @@ class RangerFlowWeb {
             return "FAIL undo left the added edge behind"
         }
         report = (report + "toolbar ok; ")
+        graph.clearSelection()
+
+        ; Columns, on whichever scenario has a table in it. A schema you can
+        ; look at and not change is a picture of a schema, so the test adds a
+        ; column, checks the table grew, and takes it back — and skips itself
+        ; on the diagrams that have no compartments to put a column in.
+        n.selected = true
+        def rows0:int (this.selectedRowCount())
+        if (rows0 >= 0) {
+            def at:int (this.addRow())
+            if (at < 0) {
+                simRunning = wasRunning
+                return "FAIL adding a column did nothing"
+            }
+            if ((this.selectedRowCount()) != (rows0 + 1)) {
+                simRunning = wasRunning
+                return "FAIL the table did not grow a column"
+            }
+            ; The caret lands in the new column's name, so the reader types
+            ; over the placeholder instead of hunting for it.
+            if ((this.editing()) == false) {
+                simRunning = wasRunning
+                return "FAIL the new column has no caret in it"
+            }
+            this.setEditText("asiakas_id" 10)
+            this.commitEdit()
+            def newTag:string ((("row:" + n.id) + ":") + (to_string at))
+            if ((FlowUndo.readText(graph newTag)) != "asiakas_id") {
+                simRunning = wasRunning
+                return "FAIL the new column kept the placeholder name"
+            }
+            ; Two undos: the name, then the column itself.
+            this.undo()
+            this.undo()
+            if ((this.selectedRowCount()) != rows0) {
+                simRunning = wasRunning
+                return "FAIL undo left the column behind"
+            }
+            report = (report + "columns ok; ")
+        } {
+            report = (report + "columns n/a; ")
+        }
         graph.clearSelection()
 
         ; Typing into a label, the way a double-click starts it. What is under

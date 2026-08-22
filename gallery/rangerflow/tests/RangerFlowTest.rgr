@@ -89,6 +89,7 @@ class RangerFlowTest {
         RangerFlowTest.testTextFitting(c)
         RangerFlowTest.testInPlaceEditing(c)
         RangerFlowTest.testSideHandles(c)
+        RangerFlowTest.testColumns(c)
         RangerFlowTest.testRotation(c)
         RangerFlowTest.testAnnotations(c)
         RangerFlowTest.testMenuAndTooltip(c)
@@ -105,6 +106,144 @@ class RangerFlowTest {
         if (code != 0) {
             exit 1
         }
+    }
+
+    ; ------------------------------------------------- columns on a table ---
+    ; A schema you can look at and not change is a picture of a schema. Column
+    ; NAMES have been editable since in-place editing landed — which is enough
+    ; to fix a typo and no help at all when a table is missing a column.
+    sfn testColumns:void (c:Checker) {
+        c.section("adding and dropping columns")
+        def g:FlowGraph (RangerFlowTest.twoTables())
+        def customers:FlowNode (g.nodeById("customers"))
+        def orders:FlowNode (g.nodeById("orders"))
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1200.0 800.0)
+        def rows0:int (customers.rowTotal())
+        def h0:double customers.height
+        def ports0:int (array_length customers.ports)
+
+        ; --- add ---------------------------------------------------------
+        def at:int (ed.addRow("customers" -1))
+        c.eqInt("the new column is at the end" at rows0)
+        c.eqInt("the table has one more" (customers.rowTotal()) (rows0 + 1))
+        c.ok("and got taller for it" (customers.height > h0))
+        ; A column is a row PLUS the two ports opposite it, one per side, or
+        ; there is nothing on the table to connect a foreign key to.
+        c.eqInt("two more ports" (array_length customers.ports) (ports0 + 2))
+        def fresh:FlowRow (FlowUndo.rowOf(customers at))
+        c.eqStr("named from the placeholder" fresh.text "uusi_sarake")
+        c.ok("with a port of its own" ((strlen fresh.portId) > 0))
+        def pr:int (customers.portIndex((fresh.portId + ":r")))
+        c.ok("the right-hand one exists" (pr >= 0))
+        def prp:FlowPort (itemAt customers.ports pr)
+        c.near("and sits opposite the row" (customers.portY(prp)) (customers.y + (customers.rowCenterY(0 at))) 0.001)
+
+        ; The table has to be wide enough for what is now in it. A column
+        ; added to a box sized once, by whoever built it, would otherwise run
+        ; out of its own edge.
+        def wide:double customers.width
+        def long:FlowRow (FlowUndo.rowOf(customers at))
+        long.text = "asiakkaan_laskutusosoitteen_postinumero"
+        ed.fitToRows(customers)
+        c.ok("the table widened for a long column name" (customers.width > wide))
+
+        ; --- one undo takes it back --------------------------------------
+        ed.undo.undo(g)
+        c.eqInt("undo drops the column" (customers.rowTotal()) rows0)
+        c.eqInt("and its ports with it" (array_length customers.ports) ports0)
+        ed.undo.redo(g)
+        c.eqInt("redo puts it back" (customers.rowTotal()) (rows0 + 1))
+        ed.undo.undo(g)
+
+        ; --- insert in the middle ------------------------------------------
+        def mid:int (ed.addRow("customers" 0))
+        c.eqInt("after row 0 means row 1" mid 1)
+        def first:FlowRow (FlowUndo.rowOf(customers 0))
+        c.eqStr("and row 0 is untouched" first.text "id")
+        ed.undo.undo(g)
+
+        ; --- drop, and take the foreign keys with it -----------------------
+        ; `orders.customer_id` points at `customers.id`. Dropping the column
+        ; the arrow lands on has to take the arrow too — an edge pointing at a
+        ; port that is gone is drawn from the middle of the table, which looks
+        ; like a bug and is one.
+        def edges0:int (g.edgeCount())
+        c.eqInt("the schema starts with one relation" edges0 1)
+        c.ok("dropping the primary key works" (ed.removeRow("customers" 0)))
+        c.eqInt("the column is gone" (customers.rowTotal()) (rows0 - 1))
+        c.eqInt("and so is the relation to it" (g.edgeCount()) 0)
+        ; …and one undo brings both back.
+        ed.undo.undo(g)
+        c.eqInt("undo restores the column" (customers.rowTotal()) rows0)
+        c.eqInt("and the relation" (g.edgeCount()) 1)
+        def restored:FlowRow (FlowUndo.rowOf(customers 0))
+        c.eqStr("the same column, not a copy of it" restored.text "id")
+        def again:int (customers.portIndex("customers.id:r"))
+        c.ok("with its port back" (again >= 0))
+
+        ; --- the type is editable too, not only the name --------------------
+        ; Two pieces of text in one row, edited for different reasons. Which
+        ; one you get is which one you pointed at.
+        def rowY:double (customers.y + (customers.rowCenterY(0 1)))
+        def nameX:double (customers.x + 40.0)
+        def typeX:double ((customers.x + customers.width) - 30.0)
+        c.eqStr("pointing at the left of a row edits the name" (ed.textAt((ed.view.sx(nameX)) (ed.view.sy(rowY)))) "row:customers:1")
+        c.eqStr("pointing at the right of it edits the type" (ed.textAt((ed.view.sx(typeX)) (ed.view.sy(rowY)))) "row:customers:1:type")
+        def email:FlowRow (FlowUndo.rowOf(customers 1))
+        c.eqStr("the type reads back through the tag" (FlowUndo.readText(g "row:customers:1:type")) email.detail)
+        ed.beginEdit("row:customers:1:type")
+        c.ok("editing it starts from what it says" (ed.editText == email.detail))
+        ed.setEditText("TEXT" 4)
+        ed.commitEdit()
+        c.eqStr("and writes only the type" email.detail "TEXT")
+        c.eqStr("leaving the name alone" email.text "email")
+        ed.undo.undo(g)
+        c.eqStr("one undo takes the type back" email.detail "VARCHAR")
+
+        ; --- a step is not a table -----------------------------------------
+        def plain:FlowNode (g.node("step" "Vaihe" 900.0 0.0))
+        g.reindex()
+        c.eqInt("a node with no compartments has no column to add" (ed.addRow("step" -1)) -1)
+        c.ok("and none to drop" ((ed.removeRow("step" 0)) == false))
+    }
+
+    ; `customers` and `orders`, joined by one foreign key. Two tables is the
+    ; smallest schema in which dropping a column can strand a relation.
+    sfn twoTables:FlowGraph () {
+        def g (new FlowGraph)
+        def customers:FlowNode (FlowNode.create("customers" "customers" 0.0 0.0))
+        customers.width = 220.0
+        def sec:FlowSection (customers.addSection(""))
+        def id:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        id.portId = "customers.id"
+        id.emphasis = 1
+        sec.addRow(id)
+        def email:FlowRow (FlowRow.create("" "email" "VARCHAR" ""))
+        email.portId = "customers.email"
+        sec.addRow(email)
+        customers.layoutCompartments()
+        g.addNode(customers)
+
+        def orders:FlowNode (FlowNode.create("orders" "orders" 500.0 0.0))
+        orders.width = 220.0
+        def sec2:FlowSection (orders.addSection(""))
+        def oid:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        oid.portId = "orders.id"
+        sec2.addRow(oid)
+        def fk:FlowRow (FlowRow.create("fk" "customer_id" "INTEGER" "FK"))
+        fk.portId = "orders.customer_id"
+        sec2.addRow(fk)
+        orders.layoutCompartments()
+        g.addNode(orders)
+
+        def e:FlowEdge (FlowEdge.create("fk1" "orders" "customers"))
+        e.sourcePort = "orders.customer_id:l"
+        e.targetPort = "customers.id:r"
+        e.edgeType = "smoothstep"
+        g.addEdge(e)
+        g.reindex()
+        return g
     }
 
     ; ------------------------------------------------------------ rotation --
@@ -1838,7 +1977,11 @@ class RangerFlowTest {
         def sec:FlowSection (t.addSection(""))
         def row:FlowRow (FlowRow.create("pk" "id" "INTEGER" "PK"))
         row.portId = "customers.id"
+        row.emphasis = 1
         sec.addRow(row)
+        def added:FlowRow (FlowRow.create("" "kanta_asiakas" "BOOLEAN" ""))
+        added.portId = "customers.col1"
+        sec.addRow(added)
         t.layoutCompartments()
         def d:FlowNode (g.node("check" "Luotto ok?" 400.0 80.0))
         d.width = 160.0
@@ -1857,10 +2000,19 @@ class RangerFlowTest {
         c.eqStr("with its label" bt.label "customers")
         c.near("its position" bt.x 40.0 0.001)
         c.near("and its size" bt.width 210.0 0.001)
-        c.eqInt("its compartments" (bt.totalRowCount()) 1)
+        c.eqInt("its compartments" (bt.totalRowCount()) 2)
         def brow:FlowRow (FlowUndo.rowOf(bt 0))
         c.eqStr("row and all" brow.text "id")
         c.eqStr("with the port the row owns" brow.portId "customers.id")
+        ; Emphasis is why a primary key reads as one at a glance, and it was
+        ; not being written — the same silent loss the missing edge label was.
+        c.eqInt("and its emphasis" brow.emphasis 1)
+        ; A column added in the editor has to survive being saved, or adding
+        ; one is a change you cannot keep.
+        def bnew:FlowRow (FlowUndo.rowOf(bt 1))
+        c.eqStr("a column added by hand comes back too" bnew.text "kanta_asiakas")
+        c.eqStr("with its type" bnew.detail "BOOLEAN")
+        c.ok("and a port to connect to" ((bt.portIndex("customers.col1:r")) >= 0))
         def bd:FlowNode (back.nodeById("check"))
         c.eqStr("a shape survives being saved" bd.shape "diamond")
         def be:FlowEdge (back.edgeAt(0))

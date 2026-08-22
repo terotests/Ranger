@@ -273,6 +273,20 @@ document.getElementById("del").addEventListener("click", () => {
   app.deleteSelection();
   syncSelection();
 });
+// Adding a column puts the caret in its name, so the hidden input has to take
+// focus the same way a double-click makes it.
+document.getElementById("addrow").addEventListener("click", () => {
+  if (app.addRow() < 0) return;
+  typing.value = app.editValue();
+  typing.focus({ preventScroll: true });
+  typing.setSelectionRange(0, typing.value.length);
+  syncSelection();
+});
+document.getElementById("delrow").addEventListener("click", () => {
+  app.removeRow();
+  typing.blur();
+  syncSelection();
+});
 document.getElementById("rotate").addEventListener("click", () => {
   app.rotateSelected();
   syncSelection();
@@ -301,6 +315,9 @@ renameEl.addEventListener("input", () => {
 function syncSelection() {
   const id = app.selectedId();
   const has = id.length > 0;
+  const rows = app.selectedRowCount();
+  document.getElementById("addrow").disabled = rows < 0;
+  document.getElementById("delrow").disabled = rows < 1;
   renameEl.disabled = !has;
   if (document.activeElement === renameEl) return;
   renameEl.value = has ? app.selectedLabel() : "";

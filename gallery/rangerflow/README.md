@@ -76,6 +76,7 @@ the same authoring runs in the SDL window and in a headless test.
 | --- | --- |
 | the shape buttons | add a node of that shape at the middle of the view, selected and ready to be named — the ISO 5807 set, and the UML activity one |
 | **connect** | React Flow's `connectOnClick`: click the source, click the target. Clicking the pane cancels |
+| **+ column** / **− column** | on a schema table: add a column, or drop one. Greyed out on anything that is not a table |
 | **rotate** / **duplicate** | a quarter turn, and a copy offset far enough to be visibly a copy |
 | **delete** / **undo** / **redo** | the same three the keyboard does, for a reader who is holding a mouse |
 | the **name** field | renames the selected node as you type — or double-click the label itself and type where it is |
@@ -243,8 +244,14 @@ A field in a toolbar edits one label at a time and you stop using it. So
 **double-click puts the caret in whatever text is under the pointer** — a
 table's name if you hit the header, a column if you hit a row, a step's label,
 a branch's `kyllä`, a lane's name. `FlowEditor.textAt` resolves the point to a
-tag (`node:<id>`, `row:<id>:<n>`, `edge:<id>`) and everything downstream —
-drawing, undo — speaks the same vocabulary.
+tag (`node:<id>`, `row:<id>:<n>`, `row:<id>:<n>:type`, `edge:<id>`) and
+everything downstream — drawing, undo — speaks the same vocabulary.
+
+A column is two pieces of text, and they are edited for different reasons: the
+name on the left, the type on the right. Which one you get is **which one you
+pointed at**, worked out from where the renderer actually put the type rather
+than from a guess — the alternative is a modifier key nobody discovers, or the
+type not being editable at all, which is what it was.
 
 The model is not touched until the edit is committed. That buys two things:
 Escape is free, and one Ctrl+Z takes back the whole name rather than one
@@ -263,6 +270,40 @@ offscreen, takes focus while a label is being edited, and has its value mirrored
 into the editor on every input event — the input is a keyboard, not a source of
 truth. A host without one (the SDL window, the test suite) types through
 `typeText` / `backspace` / `moveCaret` and gets the same result.
+
+### A schema you can change
+
+Editable names are enough to fix a typo and no help at all when a table is
+missing a column. So a table's columns can be **added and dropped**:
+
+```
+right-click a column  →  Lisää sarake tähän alle / Poista sarake / Muuta tyyppiä…
+toolbar               →  + column  /  − column     (greyed out on anything that is not a table)
+```
+
+Three things have to happen together, and the seam is what makes them cheap:
+
+- **The ports.** A column is a row *plus* a connection point on each side, so a
+  foreign key can arrive from whichever side the other table is on. Those are
+  not created by `addRow` — `layoutCompartments` already places a port opposite
+  every row that names one, and it is the only code in the program that knows
+  where row seven is. Inserting the row and asking for a relayout is the whole
+  of it.
+- **The width.** `layoutCompartments` sets the *height* from the rows; the
+  width was decided once, by whoever built the node. A column added afterwards
+  would run out of its own box, so `fitToRows` measures every row with the same
+  arithmetic `paintRow` lays one out with.
+- **The relations.** Dropping a column takes every edge that landed on it. An
+  edge left pointing at a port that is gone is drawn from the middle of the
+  table, which looks like a bug and is one.
+
+One undo takes back the row, its ports *and* its edges — and because a
+`FlowUndoEntry` holds the objects rather than a description of them, what comes
+back is the same row, not a copy that looks like it.
+
+The new column arrives with the caret already in its name. A placeholder called
+`uusi_sarake` that you then have to find and double-click is a placeholder
+nobody replaces.
 
 ## The layers
 

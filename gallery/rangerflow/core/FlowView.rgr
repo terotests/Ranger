@@ -1659,17 +1659,30 @@ class FlowView {
             tr.tag = tag
         }
         def detailW:double 0.0
-        if ((strlen row.detail) > 0) {
-            detailW = (this.textWidth(row.detail size))
+        def typeTag:string (rowTag + ":type")
+        ; The type is a piece of text a reader edits as often as the name — a
+        ; column added to a table starts as `uusi_sarake TEXT` and both halves
+        ; of that are wrong — so it goes through the same editing path: the
+        ; committed value comes from `textFor`, and the caret is drawn in it.
+        def shownType:string (this.textFor(typeTag row.detail))
+        if ((strlen shownType) > 0) {
+            detailW = (this.textWidth(shownType size))
             def gapAfter:double 0.0
             if (trailW > 0.0) {
                 gapAfter = (this.sl(9.0))
             }
+            ; Right-aligned, so it grows leftwards as it is typed — and
+            ; clamped at half the row, so a long type cannot eat the name it
+            ; belongs to.
+            def cap:double (w * 0.5)
+            if (detailW > cap) { detailW = cap }
             def dx:double (((right - trailW) - gapAfter) - detailW)
-            def dt:SceneItem (sc.text(row.detail dx ty detailW size theme.typeColor))
+            this.paintEditRow(sc typeTag (dx - (this.sl(2.0))) y (detailW + (this.sl(4.0))) rowH)
+            def dt:SceneItem (sc.text(shownType dx ty detailW size theme.typeColor))
             dt.fontFamily = theme.fontFamily
             dt.align = "right"
-            dt.tag = tag
+            dt.tag = typeTag
+            this.paintCaretAt(sc typeTag shownType size dx ty false)
             detailW = (detailW + gapAfter)
         }
         def nameX:double ((x + pad) + badgeW)

@@ -593,6 +593,140 @@ class FlowNode {
         }
     }
 
+    ; ------------------------------------------------------- editing rows ---
+    ; A schema you can look at and not change is a picture of a schema. These
+    ; are the model half of adding and dropping a column: the editor owns undo
+    ; and the ports, the node owns where a row sits.
+    ;
+    ; Rows are numbered ACROSS the whole node — the same numbering the renderer
+    ; uses and the same one an edit tag carries — so everything above works in
+    ; one index and only these three translate it into (section, row).
+    fn sectionOfRow:int (idx:int) {
+        if (idx < 0) { return -1 }
+        def seen:int 0
+        def si:int 0
+        while (si < (array_length sections)) {
+            def sec:FlowSection (itemAt sections si)
+            if (sec.collapsed == false) {
+                def n:int (array_length sec.rows)
+                if (idx < (seen + n)) {
+                    return si
+                }
+                seen = (seen + n)
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn rowInSection:int (idx:int) {
+        if (idx < 0) { return -1 }
+        def seen:int 0
+        def si:int 0
+        while (si < (array_length sections)) {
+            def sec:FlowSection (itemAt sections si)
+            if (sec.collapsed == false) {
+                def n:int (array_length sec.rows)
+                if (idx < (seen + n)) {
+                    return (idx - seen)
+                }
+                seen = (seen + n)
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn rowTotal:int () {
+        def n:int 0
+        def si:int 0
+        while (si < (array_length sections)) {
+            def sec:FlowSection (itemAt sections si)
+            if (sec.collapsed == false) {
+                n = (n + (array_length sec.rows))
+            }
+            si = (si + 1)
+        }
+        return n
+    }
+
+    ; Put a row into a section at a place. There is no `insert` in the
+    ; language, so the array is rebuilt — a table has tens of columns, not
+    ; thousands, and a rebuild that is obviously right beats a shuffle that is
+    ; nearly right.
+    fn insertRowAt:boolean (sectionIdx:int rowIdx:int row:FlowRow) {
+        if (sectionIdx < 0) { return false }
+        if (sectionIdx >= (array_length sections)) { return false }
+        def sec:FlowSection (itemAt sections sectionIdx)
+        def at:int rowIdx
+        if (at < 0) { at = 0 }
+        if (at > (array_length sec.rows)) { at = (array_length sec.rows) }
+        def rebuilt:[FlowRow]
+        def i:int 0
+        while (i < (array_length sec.rows)) {
+            if (i == at) {
+                push rebuilt row
+            }
+            push rebuilt (itemAt sec.rows i)
+            i = (i + 1)
+        }
+        if (at >= (array_length sec.rows)) {
+            push rebuilt row
+        }
+        sec.rows = rebuilt
+        this.layoutCompartments()
+        return true
+    }
+
+    ; Take a row out and hand it back, so an undo entry can hold the row
+    ; itself rather than a copy of what it said.
+    fn takeRowAt:FlowRow (sectionIdx:int rowIdx:int) {
+        def gone (new FlowRow)
+        if (sectionIdx < 0) { return gone }
+        if (sectionIdx >= (array_length sections)) { return gone }
+        def sec:FlowSection (itemAt sections sectionIdx)
+        if (rowIdx < 0) { return gone }
+        if (rowIdx >= (array_length sec.rows)) { return gone }
+        def rebuilt:[FlowRow]
+        def i:int 0
+        while (i < (array_length sec.rows)) {
+            if (i == rowIdx) {
+                gone = (itemAt sec.rows i)
+            } {
+                push rebuilt (itemAt sec.rows i)
+            }
+            i = (i + 1)
+        }
+        sec.rows = rebuilt
+        ; The ports the row owned go with it. Leaving them behind would leave
+        ; a connectable point opposite a row that is no longer there.
+        if ((strlen gone.portId) > 0) {
+            this.dropPort((gone.portId + ":l"))
+            this.dropPort((gone.portId + ":r"))
+        }
+        this.layoutCompartments()
+        return gone
+    }
+
+    fn dropPort:boolean (portId:string) {
+        def rebuilt:[FlowPort]
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length ports)) {
+            def p:FlowPort (itemAt ports i)
+            if (p.id == portId) {
+                found = true
+            } {
+                push rebuilt p
+            }
+            i = (i + 1)
+        }
+        if found {
+            ports = rebuilt
+        }
+        return found
+    }
+
     ; --- ports --------------------------------------------------------------
     fn addPort:FlowPort (p:FlowPort) {
         p.nodeId = id

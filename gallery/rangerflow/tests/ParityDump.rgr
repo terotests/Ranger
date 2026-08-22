@@ -543,6 +543,68 @@ class ParityDump {
         }
         this.probe("obstacleRouting" routed "a connector goes round a node standing in its way")
 
+        ; --- editing the schema itself ---------------------------------------
+        ; A schema you can look at and not change is a picture of a schema.
+        ; Column names have been editable for a while; a column you can ADD is
+        ; what makes it an editor.
+        def sg (new FlowGraph)
+        def cust:FlowNode (FlowNode.create("customers" "customers" 0.0 0.0))
+        cust.width = 220.0
+        def csec:FlowSection (cust.addSection(""))
+        def cid:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        cid.portId = "customers.id"
+        csec.addRow(cid)
+        cust.layoutCompartments()
+        sg.addNode(cust)
+        def ord:FlowNode (FlowNode.create("orders" "orders" 520.0 0.0))
+        ord.width = 220.0
+        def osec:FlowSection (ord.addSection(""))
+        def ofk:FlowRow (FlowRow.create("fk" "customer_id" "INTEGER" "FK"))
+        ofk.portId = "orders.customer_id"
+        osec.addRow(ofk)
+        ord.layoutCompartments()
+        sg.addNode(ord)
+        def rel:FlowEdge (FlowEdge.create("fk1" "orders" "customers"))
+        rel.sourcePort = "orders.customer_id:l"
+        rel.targetPort = "customers.id:r"
+        rel.edgeType = "smoothstep"
+        sg.addEdge(rel)
+        sg.reindex()
+        def sed:FlowEditor (FlowEditor.of(sg))
+        sed.setSize(1100.0 700.0)
+        sed.view.showControls = false
+        sed.view.showMinimap = false
+
+        def wasRows:int (cust.rowTotal())
+        def wasPorts:int (array_length cust.ports)
+        def newRow:int (sed.addRow("customers" -1))
+        def schema:boolean (newRow == wasRows)
+        if ((cust.rowTotal()) != (wasRows + 1)) { schema = false }
+        ; A column is a row PLUS a port each side, or there is nothing on the
+        ; table for a foreign key to land on.
+        if ((array_length cust.ports) != (wasPorts + 2)) { schema = false }
+        ; It reaches the picture, not just the model.
+        def schemaSc:FlowScene (sed.view.build())
+        if ((ParityDump.textIndex(schemaSc "uusi_sarake")) < 0) { schema = false }
+        ; Dropping the column an arrow lands on takes the arrow with it.
+        if ((sed.removeRow("customers" 0)) == false) { schema = false }
+        if ((sg.edgeCount()) != 0) { schema = false }
+        ; …and one undo brings both back, the same row rather than a copy.
+        sed.undo.undo(sg)
+        if ((sg.edgeCount()) != 1) { schema = false }
+        def backAgain:FlowRow (FlowUndo.rowOf(cust 0))
+        if (backAgain.text != "id") { schema = false }
+        ; The type is its own piece of text, edited by pointing at it.
+        def rowMidY:double (cust.y + (cust.rowCenterY(0 0)))
+        def typeAt:string (sed.textAt((sed.view.sx(((cust.x + cust.width) - 30.0))) (sed.view.sy(rowMidY))))
+        if (typeAt != "row:customers:0:type") { schema = false }
+        sed.beginEdit(typeAt)
+        sed.setEditText("BIGINT" 6)
+        sed.commitEdit()
+        if (backAgain.detail != "BIGINT") { schema = false }
+        if (backAgain.text != "id") { schema = false }
+        this.probe("schemaEditing" schema "a column can be added to a table and dropped from it, with its port, its relations and its type")
+
         ; --- the other three router families --------------------------------
         ; Each has to be its OWN shape, not a renamed bezier. So each is
         ; measured by the property that makes it that family: a curve passes

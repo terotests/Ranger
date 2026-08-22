@@ -181,6 +181,7 @@ class FlowGraphJson {
                     def jr:VlJson (rows.at(ri))
                     def row:FlowRow (FlowRow.create((jr.stringOr("badge" "")) (jr.stringOr("text" "")) (jr.stringOr("detail" "")) (jr.stringOr("trailing" ""))))
                     row.portId = (jr.stringOr("port" ""))
+                    row.emphasis = (jr.intOr("emphasis" 0))
                     sec.addRow(row)
                     ri = (ri + 1)
                 }
@@ -313,7 +314,12 @@ class FlowGraphJson {
                     out = (out + ",\"text\":" + (EVGDisplayList.jsonString(row.text)))
                     out = (out + ",\"detail\":" + (EVGDisplayList.jsonString(row.detail)))
                     out = (out + ",\"trailing\":" + (EVGDisplayList.jsonString(row.trailing)))
-                    out = (out + ",\"port\":" + (EVGDisplayList.jsonString(row.portId)) + "}")
+                    out = (out + ",\"port\":" + (EVGDisplayList.jsonString(row.portId)))
+                    ; Emphasis is why a primary key reads as one at a glance.
+                    ; It was not written, so a saved schema came back with
+                    ; every key row in the same weight as the rest — the same
+                    ; class of silent loss the missing edge label was.
+                    out = (out + ",\"emphasis\":" + (to_string row.emphasis) + "}")
                     ri = (ri + 1)
                 }
                 out = (out + "]}")
