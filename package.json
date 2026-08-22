@@ -217,6 +217,7 @@
     "pptx:android:ranger": "bash gallery/pptx/android/scripts/build-ranger.sh",
     "pptx:android:assets": "bash gallery/pptx/android/scripts/prepare-assets.sh",
     "pptx:android:verify": "bash gallery/pptx/android/scripts/verify-desktop.sh",
+    "pptx:android:run": "bash gallery/pptx/android/scripts/run-emulator.sh",
     "pptx:android:typecheck": "bash gallery/pptx/android/scripts/typecheck-host.sh",
     "rangerflow:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerflow/tests/RangerFlowTest.rgr -d=./gallery/rangerflow/bin -o=RangerFlowTest.js -nodecli && node ./gallery/rangerflow/bin/RangerFlowTest.js",
     "rangerflow:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerflow/demo/rangerflow_demo.rgr -d=./gallery/rangerflow/bin -o=rangerflow_demo.js -nodecli",

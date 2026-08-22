@@ -39,7 +39,7 @@ this port does not fork a line of any of them.
 | `desktop/…/AwtEvgSurface.kt` | The same surface on Java2D, so the port is testable |
 | `desktop/…/RenderDeck.kt` | Deck → PNGs, off-device |
 | `desktop/androidstubs/` | Platform declarations so the host type-checks without an SDK |
-| `scripts/` | Ranger→Kotlin, assets, APK, and the desktop check |
+| `scripts/` | Ranger→Kotlin, assets, APK, emulator, and the two off-device checks |
 
 ## Build and run
 
@@ -54,15 +54,31 @@ bash gallery/pptx/android/scripts/prepare-assets.sh
 bash gallery/pptx/android/scripts/build-app.sh debug
 ```
 
-…or all three at once: `npm run pptx:android`. Then, on an emulator or a tablet:
+…or all three at once: `npm run pptx:android`.
+
+To build it, put it on an emulator and open it — starting the emulator if none
+is running:
+
+```bash
+npm run pptx:android:run
+npm run pptx:android:run -- --avd Pixel_Tablet_API_34   # pick the image
+npm run pptx:android:run -- --deck gallery/pptx/fixtures/09-kitchen.pptx
+npm run pptx:android:run -- --logcat                    # …and tail the app's log
+npm run pptx:android:run -- --no-build                  # reinstall what is built
+```
+
+It finds the SDK through `ANDROID_HOME` / `ANDROID_SDK_ROOT`, falling back to
+the usual Android Studio locations, and uses a device that is already online in
+preference to booting one — so a plugged-in tablet needs no flag. An emulator
+image with a tablet profile (`Pixel Tablet`, API 34) is what this was designed
+against: the app is a document viewer and wants the room.
+
+By hand, the same two steps are:
 
 ```bash
 adb install -r gallery/pptx/android/app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n fi.ranger.pptx/.MainActivity
 ```
-
-An emulator image with a tablet profile (`Pixel Tablet`, API 34) is what this
-was designed against — the app is a document viewer and wants the room.
 
 ### Checking the port without Android
 
@@ -171,14 +187,37 @@ dotted id the desktop toolbar and the browser use. Transitions and builds run
 off the host's clock: `SlideView` ticks and re-posts only while
 `app.animating()` is true, so a still slide costs nothing on a battery.
 
-### A software layer, on purpose
+### On the GPU, and staying there
 
-`MainActivity` puts the view on `LAYER_TYPE_SOFTWARE`. A `BlurMaskFilter` — what
-gives a slide's drop shadows a soft edge — is ignored on a hardware-accelerated
-canvas, and a hard grey silhouette is worse than no shadow. A document viewer
-redraws when something changed rather than every frame, so this costs nothing
-here. `AndroidEvgSurface` asks the canvas rather than trusting the activity, so
-removing the line degrades the shadows instead of breaking the app.
+The view is hardware-accelerated — the default, left alone deliberately. On
+Android the accelerated `Canvas` **is** the GPU path: Skia draws it through
+Ganesh (Vulkan on current devices), and it brings glyph rasterisation, path
+filling and antialiasing with it. That is why this port draws through `Canvas`
+rather than through a `GLSurfaceView` and a hand-written GLES backend the way
+[`gallery/datagrid/platform/sdl`](../../datagrid/platform/sdl/README.md) has to
+— that host has no Skia under it and must build its own text atlas and shaders.
+Here the atlas already exists and is better than one we would write.
+
+The one thing an accelerated canvas will not do is a `BlurMaskFilter`, and it
+does not fail: it draws a hard-edged grey shape, which is worse than no shadow.
+Forcing the whole view onto `LAYER_TYPE_SOFTWARE` to get the blur back would
+trade the GPU for one effect on a page whose other few hundred commands want
+it. So `AndroidEvgSurface` **draws** the falloff instead of filtering it: the
+silhouette a few times, each pass grown by a stroke and drawn fainter. Ordinary
+draw calls, batched like any other geometry, and at the blur radii a deck
+actually asks for (`outerShdw` is usually a few points) the difference from a
+true Gaussian is not visible on a slide. `RenderEffect.createBlurEffect` is the
+exact upgrade, at API 31+ and a `RenderNode` per shape.
+
+The surface asks the canvas, not the view, so a software canvas — a screenshot,
+a bitmap-backed one, a host that does set a software layer — still gets the real
+blur.
+
+**The Java2D twin is not accelerated, and is not meant to be.** `RenderDeck`
+renders into a `BufferedImage` on a headless JVM; Java2D's OpenGL and Metal
+pipelines only apply to on-screen surfaces and `VolatileImage`, so that path is
+software rasterisation by construction. It is a test harness that writes PNGs,
+not the app.
 
 ### No dependencies
 

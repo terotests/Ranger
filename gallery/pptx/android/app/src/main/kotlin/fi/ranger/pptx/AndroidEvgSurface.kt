@@ -46,10 +46,14 @@ class AndroidEvgSurface(
     private val path = Path()
 
     /**
-     * A blur mask filter is ignored on a hardware-accelerated canvas, so a
-     * shadow there would be a hard-edged silhouette — worse than none. The
-     * canvas knows which it is; `SlideView` asks for a software layer precisely
-     * so this comes out true.
+     * A `BlurMaskFilter` is exact and cheap — and is **ignored** on a
+     * hardware-accelerated canvas, which is the canvas this app wants. So it is
+     * used only when the canvas is a software one (a `LAYER_TYPE_SOFTWARE`
+     * view, a bitmap-backed canvas, a screenshot); on the GPU the falloff is
+     * built out of ordinary draw calls instead. See [drawShadow].
+     *
+     * The canvas is asked rather than the view, so this is right whichever one
+     * we are handed.
      */
     private val canBlur = !canvas.isHardwareAccelerated
 
@@ -199,30 +203,87 @@ class AndroidEvgSurface(
     }
 
     private fun drawShadowRect(box: RectF, radius: Float, shadow: EvgShadow) {
-        prepareShadow(shadow)
         val moved = RectF(box)
         moved.offset(shadow.dx, shadow.dy)
-        if (radius > 0.5f) {
-            canvas.drawRoundRect(moved, radius, radius, shadowPaint)
-        } else {
-            canvas.drawRect(moved, shadowPaint)
+        drawShadow(shadow) {
+            if (radius > 0.5f) {
+                canvas.drawRoundRect(moved, radius, radius, shadowPaint)
+            } else {
+                canvas.drawRect(moved, shadowPaint)
+            }
         }
-        shadowPaint.maskFilter = null
     }
 
     private fun drawShadowPath(shadow: EvgShadow) {
-        prepareShadow(shadow)
         val saved = canvas.save()
         canvas.translate(shadow.dx, shadow.dy)
-        canvas.drawPath(path, shadowPaint)
+        drawShadow(shadow) { canvas.drawPath(path, shadowPaint) }
         canvas.restoreToCount(saved)
-        shadowPaint.maskFilter = null
     }
 
-    private fun prepareShadow(shadow: EvgShadow) {
-        shadowPaint.color = shadow.color
-        shadowPaint.maskFilter =
-            if (canBlur && shadow.blur > 0.5f) BlurMaskFilter(shadow.blur, BlurMaskFilter.Blur.NORMAL) else null
+    /**
+     * The silhouette, softened, without asking the GPU for something it will
+     * quietly refuse.
+     *
+     * `BlurMaskFilter` is the right answer and Skia ignores it on a
+     * hardware-accelerated canvas — it does not fail, it draws a hard-edged
+     * grey shape, which is worse than no shadow at all. Forcing the whole view
+     * onto a software layer to get it back would trade the GPU for one effect,
+     * on a page whose other few hundred commands want the GPU.
+     *
+     * So on the GPU the falloff is drawn instead of filtered: the silhouette a
+     * few times, each pass grown by a stroke of increasing width and drawn at a
+     * decreasing alpha. It is a handful of ordinary draw calls, it batches like
+     * any other geometry, and at the blur radii a deck actually asks for
+     * (`outerShdw` is usually a few points) the difference from a true Gaussian
+     * is not something you can see on a slide.
+     *
+     * `RenderEffect.createBlurEffect` would be exact and is API 31+ and needs
+     * its own `RenderNode` per shape; that is the upgrade path if a deck ever
+     * turns up whose design depends on the exact falloff.
+     */
+    private inline fun drawShadow(shadow: EvgShadow, silhouette: () -> Unit) {
+        shadowPaint.style = Paint.Style.FILL
+        shadowPaint.maskFilter = null
+        if (canBlur && shadow.blur > 0.5f) {
+            shadowPaint.color = shadow.color
+            shadowPaint.maskFilter = BlurMaskFilter(shadow.blur, BlurMaskFilter.Blur.NORMAL)
+            silhouette()
+            shadowPaint.maskFilter = null
+            return
+        }
+        if (shadow.blur <= 0.5f) {
+            shadowPaint.color = shadow.color
+            silhouette()
+            return
+        }
+        val alpha = Color.alpha(shadow.color)
+        val rgb = shadow.color and 0x00FFFFFF
+        var pass = SHADOW_PASSES - 1
+        while (pass >= 0) {
+            // Outermost pass first and faintest, so the passes accumulate
+            // towards the middle the way a blur does.
+            val t = (pass + 1).toFloat() / SHADOW_PASSES
+            val grow = shadow.blur * t
+            val a = (alpha * (1f - t) / SHADOW_PASSES * 2f).toInt().coerceIn(0, 255)
+            shadowPaint.color = (a shl 24) or rgb
+            if (grow > 0.01f) {
+                shadowPaint.style = Paint.Style.FILL_AND_STROKE
+                shadowPaint.strokeWidth = grow * 2f
+                shadowPaint.strokeJoin = Paint.Join.ROUND
+                shadowPaint.strokeCap = Paint.Cap.ROUND
+            } else {
+                shadowPaint.style = Paint.Style.FILL
+            }
+            silhouette()
+            pass--
+        }
+        shadowPaint.style = Paint.Style.FILL
+    }
+
+    private companion object {
+        /** Enough for a slide's shadow to read as soft; more is not visible. */
+        const val SHADOW_PASSES = 4
     }
 }
 

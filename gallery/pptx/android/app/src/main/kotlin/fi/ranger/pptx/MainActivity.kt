@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
-import android.view.View
 import android.widget.Toast
 import java.io.File
 import java.io.FileOutputStream
@@ -39,13 +38,13 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         view = SlideView(this)
-        // A blur mask filter — which is what gives a slide's drop shadows a
-        // soft edge — is ignored on a hardware-accelerated canvas. A document
-        // viewer redraws only when something changed, so the software layer
-        // costs nothing here and is the difference between a real shadow and a
-        // hard grey silhouette. `AndroidEvgSurface` checks the canvas rather
-        // than trusting this, so removing the line degrades rather than breaks.
-        view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        // Hardware-accelerated, which is the default and is deliberately left
+        // alone: on Android the accelerated `Canvas` IS the GPU path — Skia
+        // draws it through Ganesh/Vulkan — and it brings glyph rasterisation,
+        // path filling and antialiasing with it. The one thing it will not do
+        // is a `BlurMaskFilter`, and `AndroidEvgSurface` draws its shadows'
+        // falloff rather than filtering it precisely so that this line does not
+        // have to become `setLayerType(LAYER_TYPE_SOFTWARE, null)`.
         setContentView(view)
 
         view.install(loadFaces())
