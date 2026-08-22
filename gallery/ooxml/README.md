@@ -204,13 +204,32 @@ set that autosave, collaboration and scripting can all read, and `PptxEdit`'s
 snapshot history brought under the same rules (it is whole-deck snapshots
 rather than an op log, which is a different shape with the same questions).
 
-### 6. `AssetStore` — one place for bytes
+### 6. `AssetStore` — **built, and it was a live bug**
 
-`PptxWriteMedia` handles media for decks; `RichDocument` imports the PDF
-writer's JPEG `ImageBuffer` directly. An `Asset { id, mimeType, bytes, width,
-height, hash }` store, with documents holding `ImageRef { assetId, crop,
-transform }`, gives deduplication (one logo, forty slides, one asset) and makes
-copy/paste between a deck and a document a matter of copying an id.
+`OfficeAssetStore` is in [`gallery/office/assets/`](../office/README.md). It was
+not a tidiness exercise: all three editors identified a picture by its package
+path, which is wrong in both directions at once, and in `.pptx` a user reached
+it in one click — insert `logo.png` from one folder and a different `logo.png`
+from another, and the second was silently shown and saved as the first. A file
+called `image1.png`, the name every OOXML package gives its own media, was
+worse: the writer decided it was "already in the package" and the inserted
+bytes were never written at all.
+
+Identity comes from the content now. The digest is CRC-32 plus the length and
+every hit is confirmed with a full byte comparison, so the store cannot merge
+two different images however weak the digest is. `OfficeImageRef` carries the
+crop and transform, off the asset, so nothing about how a picture is displayed
+can leak into whether two pictures are the same picture.
+
+The spreadsheet's decode cache is on it too, for a bug of its own: `GridImages`
+outlives the workbook, so a second `.xlsx` used to show the first one's
+pictures.
+
+**Still open:** `.xlsx` has no image *writer* and neither `.docx` nor `.xlsx`
+has a host insert path, so the naming half is only used by `.pptx`. And
+`RichDocument` still imports the PDF writer's `ImageBuffer` directly — that is
+a *decode* dependency rather than an identity one, and lifting it needs a
+shared decode surface that does not exist yet.
 
 ### 7. Stable identity — the primitive exists; nothing is wired to it yet
 
@@ -273,9 +292,12 @@ document model → resolved layout → EVG
                                  → PDF
 ```
 
-Accessibility built from the renderer afterwards is always a step behind. Built
-from the scene, it serves the document, the sheet, the deck and PDF export at
-once. The DataGrid's a11y work is the starting point.
+The trees themselves exist now — see **14** below, all three apps publish one.
+What is still open is this diagram: each app builds its tree from its own
+model, not from a shared resolved scene, so the three walks have the same shape
+without being the same code. That only becomes worth merging once **10**
+(`OfficeScene`) exists; building the abstraction first would be guessing at
+what the three have in common from two examples.
 
 ### 12. Format adapters and capabilities
 
