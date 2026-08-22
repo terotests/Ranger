@@ -35,6 +35,10 @@ class FlowInput {
     def shift:boolean false
     def ctrl:boolean false
     def alt:boolean false
+    ; The right-hand button, or a long press on a touch screen. It is a
+    ; separate flag rather than a button number because the only thing above
+    ; this layer that cares is "was this a request for the menu".
+    def secondary:boolean false
 
     Constructor () {
     }
@@ -46,8 +50,20 @@ class FlowInput {
 class FlowUndoEntry {
     ; 0 move, 1 add nodes, 2 remove nodes, 3 add edges, 4 remove edges,
     ; 5 reroute (hand-dragged edge corners; the before/after corner lists live
-    ; in oldX / newX, x and y interleaved, and `edges` holds the one edge)
+    ; in oldX / newX, x and y interleaved, and `edges` holds the one edge),
+    ; 6 text (a label typed in place; `target` says which piece of text),
+    ; 7 rotate (degrees before and after, per node, in oldX / newX),
+    ; 8 add a row to a compartment node, 9 remove one — `rows` holds the row
+    ;   itself, `nodeIds` the node it belongs to, oldX the section and the
+    ;   place within it, and `edges` whatever was attached to the row's port
+    ;   and had to come away with it
     def kind:int 0
+    ; The edited item, in the view's tag vocabulary — "node:<id>",
+    ; "row:<id>:<n>", "edge:<id>" — so undo puts the text back where it came
+    ; from without a second set of fields per kind of label.
+    def target:string ""
+    def oldText:string ""
+    def newText:string ""
     def nodeIds:[string]
     def oldX:[double]
     def oldY:[double]
@@ -55,6 +71,7 @@ class FlowUndoEntry {
     def newY:[double]
     def nodes:[FlowNode]
     def edges:[FlowEdge]
+    def rows:[FlowRow]
     def label:string ""
 
     Constructor () {
@@ -127,6 +144,47 @@ class FlowUndo {
             }
             return
         }
+        ; A row added to a table, or dropped from it. `adding` below cannot
+        ; carry these, because putting a row back is not putting a NODE back:
+        ; it goes into one section at one place, and its edges come with it.
+        if (e.kind == 8) {
+            def wantThere:boolean (reverse == false)
+            FlowUndo.applyRow(g e wantThere)
+            return
+        }
+        if (e.kind == 9) {
+            def wantThere2:boolean reverse
+            FlowUndo.applyRow(g e wantThere2)
+            return
+        }
+        ; A rotation. It looks like a move — a list of node ids and a before
+        ; and after per node — but the numbers are degrees, and putting them
+        ; back through the move branch would teleport every turned node to the
+        ; origin.
+        if (e.kind == 7) {
+            def i7:int 0
+            while (i7 < (array_length e.nodeIds)) {
+                def id7:string (itemAt e.nodeIds i7)
+                if (g.hasNode(id7)) {
+                    def n7:FlowNode (g.nodeById(id7))
+                    if reverse {
+                        n7.rotation = (itemAt e.oldX i7)
+                    } {
+                        n7.rotation = (itemAt e.newX i7)
+                    }
+                }
+                i7 = (i7 + 1)
+            }
+            return
+        }
+        if (e.kind == 6) {
+            def want:string e.newText
+            if reverse {
+                want = e.oldText
+            }
+            FlowUndo.writeText(g e.target want)
+            return
+        }
         if (e.kind == 5) {
             if ((array_length e.edges) > 0) {
                 def ed:FlowEdge (itemAt e.edges 0)
@@ -159,6 +217,126 @@ class FlowUndo {
         }
     }
 
+    ; Put a string back where the tag says it came from. One function, so undo
+    ; and the editor cannot disagree about what "row:customers:2" means.
+    sfn writeText:void (g:FlowGraph target:string text:string) {
+        def parts:[string] (strsplit target ":")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def kind:string (itemAt parts 0)
+        def id:string (itemAt parts 1)
+        if (kind == "node") {
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                n.label = text
+            }
+            return
+        }
+        if (kind == "edge") {
+            def k:int 0
+            while (k < (g.edgeCount())) {
+                def ed:FlowEdge (g.edgeAt(k))
+                if (ed.id == id) {
+                    ed.label = text
+                    return
+                }
+                k = (k + 1)
+            }
+            return
+        }
+        if (kind == "row") {
+            if ((array_length parts) < 3) {
+                return
+            }
+            if ((g.hasNode(id)) == false) {
+                return
+            }
+            def owner:FlowNode (g.nodeById(id))
+            def idx:int (?? (str2int (itemAt parts 2)) -1)
+            def row:FlowRow (FlowUndo.rowOf(owner idx))
+            if ((array_length parts) > 3) {
+                if ((itemAt parts 3) == "type") {
+                    row.detail = text
+                    return
+                }
+            }
+            row.text = text
+            return
+        }
+    }
+
+    ; The nth row of a node, counted across its sections the way the renderer
+    ; numbers them. An out-of-range index gives a throwaway row rather than a
+    ; crash: an undo entry can outlive the row it named.
+    sfn rowOf:FlowRow (n:FlowNode idx:int) {
+        if (idx < 0) {
+            return (new FlowRow)
+        }
+        def seen:int 0
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            if (sec.collapsed == false) {
+                def ri:int 0
+                while (ri < (array_length sec.rows)) {
+                    if (seen == idx) {
+                        return (itemAt sec.rows ri)
+                    }
+                    seen = (seen + 1)
+                    ri = (ri + 1)
+                }
+            }
+            si = (si + 1)
+        }
+        return (new FlowRow)
+    }
+
+    sfn readText:string (g:FlowGraph target:string) {
+        def parts:[string] (strsplit target ":")
+        if ((array_length parts) < 2) {
+            return ""
+        }
+        def kind:string (itemAt parts 0)
+        def id:string (itemAt parts 1)
+        if (kind == "node") {
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                return n.label
+            }
+            return ""
+        }
+        if (kind == "edge") {
+            def k:int 0
+            while (k < (g.edgeCount())) {
+                def ed:FlowEdge (g.edgeAt(k))
+                if (ed.id == id) {
+                    return ed.label
+                }
+                k = (k + 1)
+            }
+            return ""
+        }
+        if (kind == "row") {
+            if ((array_length parts) < 3) {
+                return ""
+            }
+            if ((g.hasNode(id)) == false) {
+                return ""
+            }
+            def owner:FlowNode (g.nodeById(id))
+            def idx:int (?? (str2int (itemAt parts 2)) -1)
+            def row:FlowRow (FlowUndo.rowOf(owner idx))
+            if ((array_length parts) > 3) {
+                if ((itemAt parts 3) == "type") {
+                    return row.detail
+                }
+            }
+            return row.text
+        }
+        return ""
+    }
+
     sfn restore:void (g:FlowGraph e:FlowUndoEntry) {
         def i:int 0
         while (i < (array_length e.nodes)) {
@@ -188,6 +366,33 @@ class FlowUndo {
         g.reindex()
     }
 
+    ; Put the entry's row into its node, or take it out again. One function
+    ; for both directions and both kinds, because "add, undone" and "remove,
+    ; done" are the same operation and two copies of it would drift.
+    sfn applyRow:void (g:FlowGraph e:FlowUndoEntry present:boolean) {
+        if ((array_length e.rows) == 0) { return }
+        if ((array_length e.nodeIds) == 0) { return }
+        def id:string (itemAt e.nodeIds 0)
+        if ((g.hasNode(id)) == false) { return }
+        def n:FlowNode (g.nodeById(id))
+        def sectionIdx:int (to_int (itemAt e.oldX 0))
+        def rowIdx:int (to_int (itemAt e.oldX 1))
+        def row:FlowRow (itemAt e.rows 0)
+        if present {
+            n.insertRowAt(sectionIdx rowIdx row)
+            FlowUndo.restore(g e)
+        } {
+            n.takeRowAt(sectionIdx rowIdx)
+            def k:int 0
+            while (k < (array_length e.edges)) {
+                def ed:FlowEdge (itemAt e.edges k)
+                g.removeEdge(ed.id)
+                k = (k + 1)
+            }
+            g.reindex()
+        }
+    }
+
     sfn strip:void (g:FlowGraph e:FlowUndoEntry) {
         def k:int 0
         while (k < (array_length e.edges)) {
@@ -211,7 +416,7 @@ class FlowEditor {
     def undo:FlowUndo (new FlowUndo)
 
     ; 0 idle, 1 panning, 2 dragging, 3 box select, 4 connecting, 5 resizing,
-    ; 6 dragging one segment of an edge
+    ; 6 dragging one segment of an edge, 7 typing into a label
     def mode:int 0
     def pressX:double 0.0
     def pressY:double 0.0
@@ -228,6 +433,16 @@ class FlowEditor {
     def resizeW:double 0.0
     def resizeH:double 0.0
 
+    ; --- typing into a label --------------------------------------------------
+    ; The target in the view's tag vocabulary, the buffer, and where the caret
+    ; is in it. The MODEL is not touched until the edit is committed, so
+    ; Escape is free and one undo step covers the whole thing rather than one
+    ; per keystroke.
+    def editTarget:string ""
+    def editText:string ""
+    def editCaret:int 0
+    def editBefore:string ""
+
     ; --- dragging a segment of an edge ---------------------------------------
     def segEdge:int -1
     def segIndex:int -1
@@ -240,10 +455,33 @@ class FlowEditor {
     def connectOnClick:boolean false
     def clickConnectFrom:string ""
 
+    ; What a newly added column is called before anybody types over it, and
+    ; what type it is given. Both are placeholders and both are meant to be
+    ; replaced immediately — which is why `addRowToSelected` puts the caret in
+    ; the name rather than leaving the reader to find it.
+    def newRowName:string "uusi_sarake"
+    def newRowType:string "TEXT"
+    def rowSeq:int 0
+    ; Which row the open context menu was raised on, or -1. It cannot be read
+    ; back off the menu's target when the menu closes first, and the menu does
+    ; close first.
+    def menuRow:int -1
+
     def snapToGrid:boolean false
     def snapSize:double 16.0
     def panOnDrag:boolean true
     def zoomOnScroll:boolean true
+    ; React Flow's `zoomOnPinch`, and the touch half of JointJS's paper.scale.
+    def zoomOnPinch:boolean true
+    ; The gesture in progress: the span the fingers started at, the zoom then,
+    ; and the flow point they are holding.
+    def pinching:boolean false
+    def pinchSpan:double 1.0
+    def pinchZoom:double 1.0
+    def pinchMidX:double 0.0
+    def pinchMidY:double 0.0
+    def pinchFlowX:double 0.0
+    def pinchFlowY:double 0.0
     def selectionOnDrag:boolean true
     ; How near an edge the pointer has to be, in screen pixels, to select it.
     def edgeHitSlop:double 6.0
@@ -296,6 +534,20 @@ class FlowEditor {
             def n:FlowNode (graph.nodeAt(i))
             if (n.hidden == false) {
                 if n.connectable {
+                    ; Eight screen pixels is the right grab radius for a node
+                    ; you can see. Zoomed out far enough, eight screen pixels
+                    ; is the whole node, and its own handles swallow every
+                    ; click on it — so the radius is also capped at a quarter
+                    ; of the node's shorter side. A node too small to aim at
+                    ; is selected, not connected.
+                    def cap:double (n.width * 0.25)
+                    if ((n.height * 0.25) < cap) {
+                        cap = (n.height * 0.25)
+                    }
+                    def reach:double slop
+                    if (cap < reach) {
+                        reach = cap
+                    }
                     def k:int 0
                     while (k < (array_length n.ports)) {
                         def p:FlowPort (itemAt n.ports k)
@@ -304,8 +556,8 @@ class FlowEditor {
                             def dy:double ((n.portY(p)) - fy)
                             def adx:double (fabs dx)
                             def ady:double (fabs dy)
-                            if (adx <= slop) {
-                                if (ady <= slop) {
+                            if (adx <= reach) {
+                                if (ady <= reach) {
                                     return p.id
                                 }
                             }
@@ -444,7 +696,24 @@ class FlowEditor {
     }
 
     ; ------------------------------------------------------------- pointer ---
+    ; Double-click puts the caret in the text under the pointer. That is the
+    ; gesture every diagram tool uses for this, and it is the one a reader
+    ; tries before looking for a field in a toolbar.
+    fn doubleClick:boolean (inp:FlowInput) {
+        return (this.beginEditAt(inp.x inp.y))
+    }
+
     fn pointerDown:void (inp:FlowInput) {
+        ; Pressing anywhere but the text being edited finishes the edit. That
+        ; includes pressing on a different label, which then starts its own —
+        ; so a reader can walk a diagram naming things without reaching for a
+        ; key between them.
+        if (this.editing()) {
+            def here:string (this.textAt(inp.x inp.y))
+            if (here != editTarget) {
+                this.commitEdit()
+            }
+        }
         pressX = inp.x
         pressY = inp.y
         lastX = inp.x
@@ -453,6 +722,36 @@ class FlowEditor {
         pressFlowY = (this.flowY(inp.y))
         movedSincePress = false
 
+        ; The menu is on top of everything, so it gets first refusal on the
+        ; press — including a press that lands outside it, which is how a menu
+        ; is dismissed everywhere else.
+        if view.menu.open {
+            def row:int (view.menuRowAt(inp.x inp.y))
+            if (row >= 0) {
+                def picked:string (view.menu.idAt(row))
+                this.closeMenu()
+                this.runMenu(picked)
+                mode = 0
+                return
+            }
+            if (view.menuHolds(inp.x inp.y)) {
+                mode = 0
+                return
+            }
+            this.closeMenu()
+        }
+        if inp.secondary {
+            this.openMenuAt(inp.x inp.y)
+            mode = 0
+            return
+        }
+        ; The element tools sit outside the node, so they get asked before the
+        ; grips and before anything hit-tests the node itself.
+        def tool:string (view.toolAt(inp.x inp.y))
+        if ((strlen tool) > 0) {
+            this.pressTool(tool)
+            return
+        }
         def btn:int (view.controlAt(inp.x inp.y))
         if (btn >= 0) {
             this.pressControl(btn)
@@ -773,6 +1072,10 @@ class FlowEditor {
         if (ady > 2.0) { movedSincePress = true }
 
         if (mode == 0) {
+            if view.menu.open {
+                view.menu.highlight = (view.menuRowAt(inp.x inp.y))
+                return
+            }
             this.updateHover(inp.x inp.y)
             return
         }
@@ -811,6 +1114,238 @@ class FlowEditor {
         def fy:double (this.flowY(sy))
         view.hoverNode = (graph.nodeAtPoint(fx fy))
         view.hoverPort = (this.portAt(sx sy))
+        this.updateTooltip(sx sy fx fy)
+    }
+
+    ; ------------------------------------------------------------ tooltips ---
+    ; What the thing under the pointer has to say for itself. A node first,
+    ; then an edge, and nothing at all if neither was given anything to say —
+    ; a tooltip that repeats the label is a tooltip that teaches the reader to
+    ; ignore tooltips.
+    fn updateTooltip:void (sx:double sy:double fx:double fy:double) {
+        view.tooltipText = ""
+        view.tooltipX = sx
+        view.tooltipY = sy
+        if (view.showTooltips == false) { return }
+        if (view.hoverNode >= 0) {
+            def n:FlowNode (graph.nodeAt(view.hoverNode))
+            if ((strlen n.tooltip) > 0) {
+                view.tooltipText = n.tooltip
+                return
+            }
+        }
+        def ei:int (this.edgeAt(sx sy))
+        if (ei >= 0) {
+            def e:FlowEdge (graph.edgeAt(ei))
+            if ((strlen e.tooltip) > 0) {
+                view.tooltipText = e.tooltip
+            }
+        }
+    }
+
+    ; -------------------------------------------------------- context menu ---
+    ; What you can do, built from what is under the pointer. Three menus, not
+    ; one with everything greyed out: a menu whose rows are mostly disabled is
+    ; a menu the reader has to scan every time to find the two that are not.
+    fn openMenuAt:void (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni >= 0) {
+            def n:FlowNode (graph.nodeAt(ni))
+            ; Right-clicking something that is not in the selection selects it
+            ; first, because a menu that acted on a different node from the one
+            ; you pointed at would be worse than no menu.
+            if (n.selected == false) {
+                graph.clearSelection()
+                n.selected = true
+            }
+            ; A table is two things at once — a node, and the column you
+            ; happened to point at — so the menu says which row it is about
+            ; and offers the column operations first. On a step or a diamond
+            ; there is no row and those three simply are not there.
+            def row:int (this.rowAtPoint(n fy))
+            def target:string ("node:" + n.id)
+            if (row >= 0) {
+                target = ((("row:" + n.id) + ":") + (to_string row))
+            }
+            view.menu.reset(sx sy target)
+            menuRow = row
+            if (row >= 0) {
+                view.menu.add("addrow" "Lisää sarake tähän alle")
+                view.menu.add("removerow" "Poista sarake")
+                view.menu.add("renametype" "Muuta tyyppiä…")
+                view.menu.addRule()
+            } {
+                if ((n.sectionCount()) > 0) {
+                    view.menu.add("addrow" "Lisää sarake")
+                    view.menu.addRule()
+                }
+            }
+            view.menu.add("rename" "Nimeä…")
+            view.menu.add("duplicate" "Monista")
+            view.menu.addRule()
+            view.menu.add("rotate" "Käännä 90°")
+            view.menu.add("reroute" "Reititä uudelleen")
+            view.menu.addRule()
+            view.menu.add("delete" "Poista")
+            return
+        }
+        def ei:int (this.edgeAt(sx sy))
+        if (ei >= 0) {
+            def e:FlowEdge (graph.edgeAt(ei))
+            graph.clearSelection()
+            e.selected = true
+                menuRow = -1
+            view.menu.reset(sx sy ("edge:" + e.id))
+            view.menu.add("rename" "Nimeä…")
+            view.menu.add("straighten" "Suorista")
+            view.menu.addRule()
+            view.menu.add("delete" "Poista")
+            return
+        }
+        menuRow = -1
+        view.menu.reset(sx sy "")
+        view.menu.add("addnode" "Lisää laatikko")
+        view.menu.addRule()
+        view.menu.add("selectall" "Valitse kaikki")
+        view.menu.add("fit" "Sovita näkymään")
+    }
+
+    fn closeMenu:void () {
+        view.menu.close()
+    }
+
+    fn menuOpen:boolean () {
+        return view.menu.open
+    }
+
+    ; The menu's ids, acted on. Each is something the editor could already do;
+    ; the menu is a second way in rather than a second implementation.
+    fn runMenu:void (id:string) {
+        if (id == "delete") {
+            this.deleteSelection()
+            return
+        }
+        if (id == "selectall") {
+            this.selectAll()
+            return
+        }
+        if (id == "fit") {
+            this.fitView()
+            return
+        }
+        if (id == "addnode") {
+            this.addNode("Uusi" "rect" pressFlowX pressFlowY)
+            return
+        }
+        if (id == "rotate") {
+            this.rotateSelected(90.0)
+            return
+        }
+        if (id == "duplicate") {
+            this.duplicateSelection()
+            return
+        }
+        if (id == "reroute") {
+            this.rerouteSelection()
+            return
+        }
+        if (id == "straighten") {
+            this.straightenSelection()
+            return
+        }
+        if (id == "rename") {
+            ; On a table row the menu's target IS the row, and "rename" means
+            ; the column — which is what the reader pointed at.
+            this.beginEdit(view.menu.target)
+            return
+        }
+        if (id == "renametype") {
+            this.beginEdit((view.menu.target + ":type"))
+            return
+        }
+        if (id == "addrow") {
+            this.addRowAndEdit((this.menuNodeId()) menuRow)
+            return
+        }
+        if (id == "removerow") {
+            if (menuRow >= 0) {
+                this.removeRow((this.menuNodeId()) menuRow)
+            }
+            return
+        }
+    }
+
+    ; The node the open menu is about, whether its target names the node or
+    ; one of its rows.
+    fn menuNodeId:string () {
+        def parts:[string] (strsplit view.menu.target ":")
+        if ((array_length parts) < 2) {
+            return ""
+        }
+        return (itemAt parts 1)
+    }
+
+    ; Add a column and put the caret straight in its name. A new column called
+    ; `uusi_sarake` that you then have to find and double-click is a column
+    ; nobody renames — so the placeholder is never the thing you are left
+    ; looking at.
+    fn addRowAndEdit:int (nodeId:string afterRow:int) {
+        def at:int (this.addRow(nodeId afterRow))
+        if (at < 0) {
+            return -1
+        }
+        def tag:string ((("row:" + nodeId) + ":") + (to_string at))
+        this.beginEdit(tag)
+        return at
+    }
+
+    ; The same for whatever is selected, which is what a toolbar button has to
+    ; work from: it has no pointer position to read a row out of.
+    fn addRowToSelected:int () {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return -1
+        }
+        return (this.addRowAndEdit(n.id -1))
+    }
+
+    ; And the row that is being edited, or the last one, for a "remove
+    ; column" button.
+    fn removeRowFromSelected:boolean () {
+        def n:FlowNode (this.selectedNode())
+        if ((strlen n.id) == 0) {
+            return false
+        }
+        def at:int (this.editingRowOf(n.id))
+        if (at < 0) {
+            at = ((n.rowTotal()) - 1)
+        }
+        if (at < 0) {
+            return false
+        }
+        return (this.removeRow(n.id at))
+    }
+
+    ; Which row of this node the caret is in, or -1. The tag is the source of
+    ; truth for what is being edited, so it is the thing that is parsed rather
+    ; than a second field that could disagree with it.
+    fn editingRowOf:int (nodeId:string) {
+        if ((this.editing()) == false) {
+            return -1
+        }
+        def parts:[string] (strsplit editTarget ":")
+        if ((array_length parts) < 3) {
+            return -1
+        }
+        if ((itemAt parts 0) != "row") {
+            return -1
+        }
+        if ((itemAt parts 1) != nodeId) {
+            return -1
+        }
+        return (?? (str2int (itemAt parts 2)) -1)
     }
 
     fn dragTo:void (sx:double sy:double) {
@@ -957,6 +1492,261 @@ class FlowEditor {
         onGraphChanged = true
     }
 
+    ; ---------------------------------------------------- editing in place --
+    ; A diagram is mostly text — a table's name, its columns, a step's label,
+    ; the "kyllä" on a branch — and a toolbar field that edits one of them at a
+    ; time is a toolbar you stop using. Double-click puts the caret in the text
+    ; that is under the pointer, whichever of those it is.
+    fn editing:boolean () {
+        return ((strlen editTarget) > 0)
+    }
+
+    ; What piece of text is at this point, as a tag, or "" for none. The order
+    ; is the order a reader would expect: the row you clicked before the table
+    ; it is in, and a node before an edge that passes behind it.
+    fn textAt:string (sx:double sy:double) {
+        def fx:double (this.flowX(sx))
+        def fy:double (this.flowY(sy))
+        def ni:int (graph.nodeAtPoint(fx fy))
+        if (ni >= 0) {
+            def n:FlowNode (graph.nodeAt(ni))
+            def row:int (this.rowAtPoint(n fy))
+            if (row >= 0) {
+                def tag:string ((("row:" + n.id) + ":") + (to_string row))
+                ; A column has two pieces of text and they are edited for
+                ; different reasons: the name, on the left, and the type, on
+                ; the right. Which one you get is which one you pointed at —
+                ; the alternative is a modifier key nobody discovers, or the
+                ; type not being editable at all, which is what it was.
+                if (this.pointerOnType(n row fx)) {
+                    return (tag + ":type")
+                }
+                return tag
+            }
+            return ("node:" + n.id)
+        }
+        def ei:int (this.edgeAt(sx sy))
+        if (ei >= 0) {
+            def e:FlowEdge (graph.edgeAt(ei))
+            return ("edge:" + e.id)
+        }
+        return ""
+    }
+
+    ; Is this x over the type column rather than the name? The type is drawn
+    ; right-aligned before the trailing "FK", so its left edge is where the
+    ; renderer put it — and this asks the view rather than guessing, because a
+    ; hit test that disagreed with the drawing by four pixels is a hit test
+    ; that edits the wrong thing one time in ten.
+    fn pointerOnType:boolean (n:FlowNode row:int fx:double) {
+        def r:FlowRow (FlowUndo.rowOf(n row))
+        if ((strlen r.detail) == 0) {
+            return false
+        }
+        def size:double view.theme.rowFontSize
+        def pad:double 10.0
+        def right:double ((n.x + n.width) - pad)
+        def trailW:double 0.0
+        if ((strlen r.trailing) > 0) {
+            trailW = ((view.textWidthBold(r.trailing size true)) + 9.0)
+        }
+        def detailW:double (view.textWidth(r.detail size))
+        def left:double ((right - trailW) - detailW)
+        ; Half the gap either side, so the boundary between the two fields is
+        ; not a pixel-wide no-man's-land.
+        return (fx >= (left - 6.0))
+    }
+
+    ; Which row of a compartment node a flow-space y falls on, numbered across
+    ; the whole node the way the renderer numbers them. -1 for the header, for
+    ; a section title, and for a node with no compartments at all.
+    fn rowAtPoint:int (n:FlowNode fy:double) {
+        if ((n.sectionCount()) == 0) {
+            return -1
+        }
+        def cursor:double (n.y + n.headerHeight)
+        def rowNo:int 0
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            if (si > 0) {
+                cursor = (cursor + n.sectionGap)
+            }
+            if ((strlen sec.title) > 0) {
+                cursor = (cursor + n.rowHeight)
+            }
+            if (sec.collapsed == false) {
+                def ri:int 0
+                while (ri < (array_length sec.rows)) {
+                    if (fy >= cursor) {
+                        if (fy < (cursor + n.rowHeight)) {
+                            return rowNo
+                        }
+                    }
+                    cursor = (cursor + n.rowHeight)
+                    rowNo = (rowNo + 1)
+                    ri = (ri + 1)
+                }
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn beginEditAt:boolean (sx:double sy:double) {
+        def target:string (this.textAt(sx sy))
+        if ((strlen target) == 0) {
+            return false
+        }
+        return (this.beginEdit(target))
+    }
+
+    fn beginEdit:boolean (target:string) {
+        if (this.editing()) {
+            this.commitEdit()
+        }
+        editTarget = target
+        editText = (FlowUndo.readText(graph target))
+        editBefore = editText
+        editCaret = (strlen editText)
+        mode = 7
+        this.pushEditToView()
+        return true
+    }
+
+    ; Everything the view needs to draw the buffer instead of the model.
+    fn pushEditToView:void () {
+        view.editTag = editTarget
+        view.editText = editText
+        view.editCaret = editCaret
+    }
+
+    ; A host with a real text input — a browser — hands the whole value over on
+    ; every keystroke, because that is the only way dead keys, ä, ö and a phone
+    ; keyboard come out right. A host without one uses `typeText` below.
+    fn setEditText:void (text:string caret:int) {
+        if ((this.editing()) == false) {
+            return
+        }
+        editText = text
+        editCaret = caret
+        if (editCaret < 0) { editCaret = 0 }
+        if (editCaret > (strlen editText)) { editCaret = (strlen editText) }
+        this.pushEditToView()
+    }
+
+    fn typeText:void (s:string) {
+        if ((this.editing()) == false) {
+            return
+        }
+        def head:string (substring editText 0 editCaret)
+        def tail:string (substring editText editCaret (strlen editText))
+        editText = ((head + s) + tail)
+        editCaret = (editCaret + (strlen s))
+        this.pushEditToView()
+    }
+
+    fn backspace:void () {
+        if ((this.editing()) == false) {
+            return
+        }
+        if (editCaret <= 0) {
+            return
+        }
+        def head:string (substring editText 0 (editCaret - 1))
+        def tail:string (substring editText editCaret (strlen editText))
+        editText = (head + tail)
+        editCaret = (editCaret - 1)
+        this.pushEditToView()
+    }
+
+    fn deleteForward:void () {
+        if ((this.editing()) == false) {
+            return
+        }
+        if (editCaret >= (strlen editText)) {
+            return
+        }
+        def head:string (substring editText 0 editCaret)
+        def tail:string (substring editText (editCaret + 1) (strlen editText))
+        editText = (head + tail)
+        this.pushEditToView()
+    }
+
+    fn moveCaret:void (delta:int) {
+        if ((this.editing()) == false) {
+            return
+        }
+        editCaret = (editCaret + delta)
+        if (editCaret < 0) { editCaret = 0 }
+        if (editCaret > (strlen editText)) { editCaret = (strlen editText) }
+        this.pushEditToView()
+    }
+
+    fn caretToStart:void () {
+        this.moveCaret((0 - (strlen editText)))
+    }
+
+    fn caretToEnd:void () {
+        this.moveCaret((strlen editText))
+    }
+
+    ; Writes the buffer to the model as ONE undo step. Nothing is recorded when
+    ; the text came out the same, so a double-click that changed nothing does
+    ; not fill the undo stack with entries that do nothing.
+    fn commitEdit:boolean () {
+        if ((this.editing()) == false) {
+            return false
+        }
+        def target:string editTarget
+        def before:string editBefore
+        def after:string editText
+        this.clearEdit()
+        if (after == before) {
+            return false
+        }
+        FlowUndo.writeText(graph target after)
+        def entry (new FlowUndoEntry)
+        entry.kind = 6
+        entry.label = "text"
+        entry.target = target
+        entry.oldText = before
+        entry.newText = after
+        undo.record(entry)
+        ; A longer name needs a bigger box, and the node is the only thing that
+        ; knows how much of itself the shape leaves to write in.
+        def parts:[string] (strsplit target ":")
+        if ((array_length parts) >= 2) {
+            if ((itemAt parts 0) == "node") {
+                def id:string (itemAt parts 1)
+                if (graph.hasNode(id)) {
+                    def n:FlowNode (graph.nodeById(id))
+                    this.fitToLabel(n)
+                    n.syncFromModel()
+                }
+            }
+        }
+        onGraphChanged = true
+        return true
+    }
+
+    fn cancelEdit:void () {
+        this.clearEdit()
+    }
+
+    fn clearEdit:void () {
+        editTarget = ""
+        editText = ""
+        editCaret = 0
+        editBefore = ""
+        view.editTag = ""
+        view.editText = ""
+        view.editCaret = 0
+        if (mode == 7) {
+            mode = 0
+        }
+    }
+
     ; --------------------------------------------------------- authoring ----
     ; What a toolbar needs, and nothing a toolbar does not: the palette adds a
     ; node, the connect button joins two of them, the name field renames the
@@ -968,6 +1758,173 @@ class FlowEditor {
     def newNodeWidth:double 150.0
     def newNodeHeight:double 52.0
     def newNodeSeq:int 0
+
+    ; --------------------------------------------------- rotate, duplicate ---
+    ; A node turned about its own centre. Everything geometric already goes
+    ; through four functions on FlowNode, so the outline, the hit test and the
+    ; ports all come along; what stays upright is the text, which is what a
+    ; reader wants anyway — a diagram whose labels have to be read sideways is
+    ; a diagram nobody reads twice.
+    fn rotateSelected:int (degrees:double) {
+        def moved:int 0
+        def entry (new FlowUndoEntry)
+        entry.kind = 0
+        entry.label = "rotate"
+        def i:int 0
+        while (i < (graph.nodeCount())) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.selected {
+                push entry.nodeIds n.id
+                push entry.oldX n.rotation
+                n.rotation = (FlowEditor.wrapAngle((n.rotation + degrees)))
+                push entry.newX n.rotation
+                moved = (moved + 1)
+            }
+            i = (i + 1)
+        }
+        if (moved > 0) {
+            ; The move entry carries positions, not angles, so a rotation is
+            ; recorded as its own kind rather than pretending to be one.
+            entry.kind = 7
+            undo.record(entry)
+            onGraphChanged = true
+        }
+        return moved
+    }
+
+    sfn wrapAngle:double (a:double) {
+        def v:double a
+        while (v >= 360.0) { v = (v - 360.0) }
+        while (v < 0.0) { v = (v + 360.0) }
+        return v
+    }
+
+    ; A copy of everything selected, offset so it is visibly a copy, and
+    ; selected in place of the original — which is what every editor does and
+    ; what makes "duplicate, drag, duplicate, drag" one gesture instead of
+    ; three.
+    fn duplicateSelection:int () {
+        def made:[FlowNode]
+        def i:int 0
+        def n0:int (graph.nodeCount())
+        while (i < n0) {
+            def n:FlowNode (graph.nodeAt(i))
+            if n.selected {
+                newNodeSeq = (newNodeSeq + 1)
+                def id:string ("n" + (to_string newNodeSeq))
+                while (graph.hasNode(id)) {
+                    newNodeSeq = (newNodeSeq + 1)
+                    id = ("n" + (to_string newNodeSeq))
+                }
+                def c (new FlowNode)
+                c.id = id
+                c.label = n.label
+                c.shape = n.shape
+                c.nodeType = n.nodeType
+                c.width = n.width
+                c.height = n.height
+                c.rotation = n.rotation
+                c.bgColor = n.bgColor
+                c.borderColor = n.borderColor
+                c.tooltip = n.tooltip
+                c.x = (n.x + 24.0)
+                c.y = (n.y + 24.0)
+                def sp:int 0
+                while (sp < (array_length n.shapePoints)) {
+                    push c.shapePoints (itemAt n.shapePoints sp)
+                    sp = (sp + 1)
+                }
+                def an:int 0
+                while (an < (n.annotationCount())) {
+                    def src:FlowAnnotation (n.annotationAt(an))
+                    def cp:FlowAnnotation (c.addAnnotation(src.text src.offsetX src.offsetY))
+                    cp.fontSize = src.fontSize
+                    cp.color = src.color
+                    cp.bold = src.bold
+                    an = (an + 1)
+                }
+                c.addSideHandles()
+                c.syncFromModel()
+                push made c
+            }
+            i = (i + 1)
+        }
+        if ((array_length made) == 0) {
+            return 0
+        }
+        graph.clearSelection()
+        def k:int 0
+        while (k < (array_length made)) {
+            def m:FlowNode (itemAt made k)
+            graph.addNode(m)
+            m.selected = true
+            k = (k + 1)
+        }
+        graph.reindex()
+        def entry (new FlowUndoEntry)
+        entry.kind = 1
+        entry.label = "duplicate"
+        def d:int 0
+        while (d < (array_length made)) {
+            push entry.nodes (itemAt made d)
+            d = (d + 1)
+        }
+        undo.record(entry)
+        onGraphChanged = true
+        return (array_length made)
+    }
+
+    ; Throw away a hand-placed route and let the router have the edge back.
+    fn rerouteSelection:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(i))
+            def touched:boolean e.selected
+            if (e.sourceIndex >= 0) {
+                def a:FlowNode (graph.nodeAt(e.sourceIndex))
+                if a.selected { touched = true }
+            }
+            if (e.targetIndex >= 0) {
+                def b:FlowNode (graph.nodeAt(e.targetIndex))
+                if b.selected { touched = true }
+            }
+            if touched {
+                if (e.pinnedRoute || ((array_length e.waypoints) > 0)) {
+                    e.pinnedRoute = false
+                    clear e.waypoints
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (n > 0) {
+            onGraphChanged = true
+        }
+        return n
+    }
+
+    ; The same for one edge, which is what the menu offers on a line: drop the
+    ; corners somebody dragged and draw it the short way again.
+    fn straightenSelection:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(i))
+            if e.selected {
+                e.pinnedRoute = false
+                clear e.waypoints
+                e.hasLaneX = false
+                e.hasLaneY = false
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        if (n > 0) {
+            onGraphChanged = true
+        }
+        return n
+    }
 
     fn addNode:FlowNode (label:string shape:string flowX:double flowY:double) {
         newNodeSeq = (newNodeSeq + 1)
@@ -990,6 +1947,7 @@ class FlowEditor {
             n.width = 64.0
             n.height = 64.0
         }
+        this.fitToLabel(n)
         ; Dropped centred on the point that was asked for, and snapped if the
         ; grid is on, so a new box lands on the same lattice as the old ones.
         def px:double (flowX - (n.width * 0.5))
@@ -1000,6 +1958,9 @@ class FlowEditor {
         }
         n.x = px
         n.y = py
+        ; Without handles the node is drawn, selectable, and impossible to
+        ; connect to anything — which is what a reader notices first.
+        n.addSideHandles()
         n.syncFromModel()
         graph.addNode(n)
         graph.reindex()
@@ -1081,8 +2042,246 @@ class FlowEditor {
             return false
         }
         n.label = label
+        ; A name that does not fit is drawn with its tail cut off, which is a
+        ; silent lie about what the box says. The box grows instead. It never
+        ; shrinks: a reader who widened a node by hand did it on purpose.
+        this.fitToLabel(n)
+        n.syncFromModel()
         onGraphChanged = true
         return true
+    }
+
+    ; Wide enough for the label, given how much of the box the shape leaves to
+    ; write in. A diamond has only its middle; a parallelogram loses both
+    ; slanted ends. The estimate is deliberately generous, because a box with
+    ; air in it reads fine and one with a cut-off name does not.
+    ; ------------------------------------------------- columns on a table ---
+    ; A schema you can look at and not change is a picture of a schema. The
+    ; ERD has had editable column NAMES since in-place editing landed, which
+    ; is enough to correct a typo and no help at all when the table is missing
+    ; a column — so this is the other half: put one in, and take one out.
+    ;
+    ; A column is a `FlowRow` plus the two ports opposite it, one per side, so
+    ; a foreign key can arrive from whichever side the other table is on. The
+    ; ports are not created here: `layoutCompartments` places a port for every
+    ; row that names one, and that is the only place in the program that knows
+    ; where row seven is. Adding a row and asking for a relayout is therefore
+    ; the whole of it — which is what the seam was for.
+
+    ; Insert a column after `afterRow` (-1 for the top), and return the index
+    ; the new one landed on so the caller can put the caret in it. -1 if the
+    ; node has no compartments to put a column in.
+    fn addRow:int (nodeId:string afterRow:int) {
+        if ((graph.hasNode(nodeId)) == false) {
+            return -1
+        }
+        def n:FlowNode (graph.nodeById(nodeId))
+        if ((n.sectionCount()) == 0) {
+            return -1
+        }
+        ; Where it goes. A click on row 3 means "after row 3"; nothing under
+        ; the pointer means the end of the first section, which is where a new
+        ; column belongs when nobody said otherwise.
+        def sectionIdx:int 0
+        def rowIdx:int 0
+        if (afterRow >= 0) {
+            def si:int (n.sectionOfRow(afterRow))
+            if (si >= 0) {
+                sectionIdx = si
+                rowIdx = ((n.rowInSection(afterRow)) + 1)
+            }
+        } {
+            def sec0:FlowSection (n.sectionAt(0))
+            rowIdx = (array_length sec0.rows)
+        }
+        def row (new FlowRow)
+        row.text = newRowName
+        row.detail = newRowType
+        ; A port id has to be unique across the node, and a column named the
+        ; same as one that was dropped a minute ago would otherwise inherit
+        ; its edges. The counter is per editor, and the loop is the belt to
+        ; its braces.
+        rowSeq = (rowSeq + 1)
+        def base:string (((nodeId + ".col") + (to_string rowSeq)))
+        while (((n.portIndex((base + ":l"))) >= 0) || ((n.portIndex((base + ":r"))) >= 0)) {
+            rowSeq = (rowSeq + 1)
+            base = ((nodeId + ".col") + (to_string rowSeq))
+        }
+        row.portId = base
+        if ((n.insertRowAt(sectionIdx rowIdx row)) == false) {
+            return -1
+        }
+        this.fitToRows(n)
+        def entry (new FlowUndoEntry)
+        entry.kind = 8
+        entry.label = "add row"
+        push entry.nodeIds nodeId
+        push entry.rows row
+        push entry.oldX (to_double sectionIdx)
+        push entry.oldX (to_double rowIdx)
+        undo.record(entry)
+        onGraphChanged = true
+        return (this.globalRowIndex(n sectionIdx rowIdx))
+    }
+
+    ; Drop a column, and every connection that was made to it. An edge left
+    ; pointing at a port that is gone is an edge drawn from the middle of the
+    ; table, which looks like a bug and is one.
+    fn removeRow:boolean (nodeId:string rowIdx:int) {
+        if ((graph.hasNode(nodeId)) == false) {
+            return false
+        }
+        def n:FlowNode (graph.nodeById(nodeId))
+        def sectionIdx:int (n.sectionOfRow(rowIdx))
+        if (sectionIdx < 0) {
+            return false
+        }
+        def within:int (n.rowInSection(rowIdx))
+        def sec:FlowSection (n.sectionAt(sectionIdx))
+        def row:FlowRow (itemAt sec.rows within)
+        def base:string row.portId
+        ; Collect before removing: `edgesOnPort` reads the graph, and the
+        ; graph is about to change under it.
+        def doomed:[FlowEdge] (this.edgesOnPort(base))
+        ; The text being edited may be in this very row, and a caret in a row
+        ; that no longer exists would write itself back on the next commit.
+        if (this.editing()) {
+            this.cancelEdit()
+        }
+        n.takeRowAt(sectionIdx within)
+        def k:int 0
+        while (k < (array_length doomed)) {
+            def ed:FlowEdge (itemAt doomed k)
+            graph.removeEdge(ed.id)
+            k = (k + 1)
+        }
+        graph.reindex()
+        def entry (new FlowUndoEntry)
+        entry.kind = 9
+        entry.label = "remove row"
+        push entry.nodeIds nodeId
+        push entry.rows row
+        push entry.oldX (to_double sectionIdx)
+        push entry.oldX (to_double within)
+        def d:int 0
+        while (d < (array_length doomed)) {
+            push entry.edges (itemAt doomed d)
+            d = (d + 1)
+        }
+        undo.record(entry)
+        onGraphChanged = true
+        return true
+    }
+
+    ; Every edge that ends on either side of one row's port pair.
+    fn edgesOnPort:[FlowEdge] (base:string) {
+        def out:[FlowEdge]
+        if ((strlen base) == 0) {
+            return out
+        }
+        def left:string (base + ":l")
+        def right:string (base + ":r")
+        def i:int 0
+        while (i < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(i))
+            def hit:boolean false
+            if (e.sourcePort == left) { hit = true }
+            if (e.sourcePort == right) { hit = true }
+            if (e.targetPort == left) { hit = true }
+            if (e.targetPort == right) { hit = true }
+            if hit {
+                push out e
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn globalRowIndex:int (n:FlowNode sectionIdx:int rowIdx:int) {
+        def seen:int 0
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            if (sec.collapsed == false) {
+                if (si == sectionIdx) {
+                    return (seen + rowIdx)
+                }
+                seen = (seen + (array_length sec.rows))
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    ; The table has to be wide enough for its widest row. `layoutCompartments`
+    ; sets the HEIGHT from the rows — the width was decided once, by whoever
+    ; built the node, and a column added afterwards would run out of the box.
+    fn fitToRows:void (n:FlowNode) {
+        def want:double 0.0
+        def si:int 0
+        while (si < (n.sectionCount())) {
+            def sec:FlowSection (n.sectionAt(si))
+            def ri:int 0
+            while (ri < (array_length sec.rows)) {
+                def row:FlowRow (itemAt sec.rows ri)
+                def w:double (this.rowWidth(row))
+                if (w > want) { want = w }
+                ri = (ri + 1)
+            }
+            si = (si + 1)
+        }
+        def head:double ((view.textWidthBold(n.label view.theme.headerFontSize true)) + 28.0)
+        if (head > want) { want = head }
+        if (want > n.width) {
+            n.width = want
+        }
+    }
+
+    ; The same arithmetic `paintRow` lays a row out with: badge, name, type,
+    ; trailing, and the padding either end.
+    fn rowWidth:double (row:FlowRow) {
+        def size:double view.theme.rowFontSize
+        def w:double 26.0
+        if ((strlen row.badge) > 0) {
+            w = (w + 14.0)
+        }
+        w = (w + (view.textWidthBold(row.text size (row.emphasis == 1))))
+        if ((strlen row.detail) > 0) {
+            w = ((w + 12.0) + (view.textWidth(row.detail size)))
+        }
+        if ((strlen row.trailing) > 0) {
+            w = ((w + 9.0) + (view.textWidthBold(row.trailing size true)))
+        }
+        return w
+    }
+
+    fn fitToLabel:void (n:FlowNode) {
+        if ((n.sectionCount()) > 0) {
+            return
+        }
+        def text:double ((FlowEditor.labelWidth(n.label)) + 22.0)
+        if (n.shape == "diamond") {
+            text = (text * 1.7)
+        }
+        if (n.shape == "parallelogram") {
+            text = (text + (FlowShapes.slantOf(n.width n.height)))
+        }
+        if (n.shape == "trapezoid") {
+            text = (text + ((FlowShapes.slantOf(n.width n.height)) * 2.0))
+        }
+        if (n.shape == "circle") {
+            return
+        }
+        if (text > n.width) {
+            n.width = text
+        }
+    }
+
+    ; The same rough metric the domains size their boxes with: the view
+    ; measures for real when it draws, and this only has to keep a label off
+    ; the edge.
+    sfn labelWidth:double (label:string) {
+        return ((to_double (strlen label)) * 8.2)
     }
 
     fn setSelectedShape:boolean (shape:string) {
@@ -1096,6 +2295,85 @@ class FlowEditor {
     }
 
     ; ---------------------------------------------------------------- wheel --
+    ; ---------------------------------------------------------- the tools ---
+    ; What the buttons beside a selected node do. `remove` is the delete that
+    ; was already there; `connect` puts the editor into click-to-connect with
+    ; this node as the source, which is the touch-friendly way to draw a line
+    ; and the one JointJS calls HoverConnect.
+    fn pressTool:void (id:string) {
+        def idx:int (view.toolNode(graph))
+        if (idx < 0) {
+            mode = 0
+            return
+        }
+        def n:FlowNode (graph.nodeAt(idx))
+        if (id == "remove") {
+            this.deleteSelection()
+            mode = 0
+            return
+        }
+        if (id == "connect") {
+            connectOnClick = true
+            clickConnectFrom = n.id
+            mode = 0
+            return
+        }
+        mode = 0
+    }
+
+    ; ----------------------------------------------------------- the pinch --
+    ; Two fingers, and the flow point between them stays between them. That is
+    ; the whole contract, and it is the same one `zoomAt` keeps for the wheel —
+    ; which is why this is arithmetic on the viewport rather than a second
+    ; zoom implementation with its own rounding.
+    ;
+    ; The scale comes from the ratio of the spans, so a pinch that opens to
+    ; twice its width doubles the zoom no matter how fast it got there, and a
+    ; gesture interrupted halfway leaves the viewport where the fingers left
+    ; it rather than snapping.
+    fn pinchBegin:void (x1:double y1:double x2:double y2:double) {
+        pinching = true
+        pinchSpan = (FlowEditor.spanBetween(x1 y1 x2 y2))
+        if (pinchSpan < 1.0) { pinchSpan = 1.0 }
+        pinchZoom = view.viewport.zoom
+        pinchMidX = ((x1 + x2) * 0.5)
+        pinchMidY = ((y1 + y2) * 0.5)
+        ; The flow point the fingers are holding. Everything else follows from
+        ; keeping this one still.
+        pinchFlowX = (this.flowX(pinchMidX))
+        pinchFlowY = (this.flowY(pinchMidY))
+    }
+
+    fn pinchTo:void (x1:double y1:double x2:double y2:double) {
+        if (pinching == false) {
+            this.pinchBegin(x1 y1 x2 y2)
+            return
+        }
+        if (zoomOnPinch == false) { return }
+        def span:double (FlowEditor.spanBetween(x1 y1 x2 y2))
+        if (span < 1.0) { span = 1.0 }
+        def want:double (pinchZoom * (span / pinchSpan))
+        if (want < view.viewport.minZoom) { want = view.viewport.minZoom }
+        if (want > view.viewport.maxZoom) { want = view.viewport.maxZoom }
+        def midX:double ((x1 + x2) * 0.5)
+        def midY:double ((y1 + y2) * 0.5)
+        view.viewport.zoom = want
+        ; Put the held point back under the fingers — which have moved, so
+        ; this is the pan half of the gesture as well as the zoom half.
+        view.viewport.x = (midX - (pinchFlowX * want))
+        view.viewport.y = (midY - (pinchFlowY * want))
+    }
+
+    fn pinchEnd:void () {
+        pinching = false
+    }
+
+    sfn spanBetween:double (x1:double y1:double x2:double y2:double) {
+        def dx:double (x2 - x1)
+        def dy:double (y2 - y1)
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
     fn wheel:void (inp:FlowInput delta:double) {
         if (zoomOnScroll == false) {
             view.viewport.panBy(0.0 (0.0 - delta))
@@ -1112,6 +2390,56 @@ class FlowEditor {
     ; Key names rather than codes, because a code table is a platform detail
     ; and the tests would end up asserting on one.
     fn keyDown:boolean (key:string shift:boolean ctrl:boolean) {
+        ; While a label is being typed the keyboard belongs to it: Delete means
+        ; a character, not the selected node, and Ctrl+Z would undo the edit
+        ; that has not been recorded yet.
+        if (this.editing()) {
+            if (key == "Escape") {
+                this.cancelEdit()
+                return true
+            }
+            if (key == "Enter") {
+                this.commitEdit()
+                return true
+            }
+            if (key == "Tab") {
+                this.commitEdit()
+                return true
+            }
+            if (key == "Backspace") {
+                this.backspace()
+                return true
+            }
+            if (key == "Delete") {
+                this.deleteForward()
+                return true
+            }
+            if (key == "ArrowLeft") {
+                this.moveCaret(-1)
+                return true
+            }
+            if (key == "ArrowRight") {
+                this.moveCaret(1)
+                return true
+            }
+            if (key == "Home") {
+                this.caretToStart()
+                return true
+            }
+            if (key == "End") {
+                this.caretToEnd()
+                return true
+            }
+            ; One printable character. A host with a real text input sends the
+            ; whole value through `setEditText` instead and never reaches here.
+            if ((strlen key) == 1) {
+                if (ctrl == false) {
+                    this.typeText(key)
+                    return true
+                }
+            }
+            return false
+        }
         if (key == "Delete") {
             return (this.deleteSelection())
         }

@@ -1,0 +1,566 @@
+; ============================================================================
+; TreeLayouts.rgr — the radial tree and the mind map.
+; ============================================================================
+;
+; Two of the layouts both Syncfusion and every mind-mapping tool put on their
+; front page, and neither is a layered layout with different parameters. They
+; answer a different question: a layered layout draws a *flow*, top to bottom,
+; and these two draw a *hierarchy seen from its root*.
+;
+;   radial                              mind map
+;            ┌───┐                        ┌───┐        ┌────┐
+;        ┌───┤ c ├───┐                    │ b ├──┐  ┌──┤ d  │
+;        │   └───┘   │                    └───┘  │  │  └────┘
+;    ┌───┴─┐  ▲   ┌──┴──┐                     ┌──┴──┴──┐
+;    │  b  │  │   │  d  │                     │  root  │
+;    └─────┘ root └─────┘                     └──┬──┬──┘
+;                                        ┌───┐   │  │   ┌────┐
+;                                        │ c ├───┘  └───┤ e  │
+;                                        └───┘          └────┘
+;
+; Both are the same two passes. First **measure**: how much room does each
+; subtree need — a count of leaves for the radial one, a sum of heights for the
+; mind map. Then **place**: give each child the share of the parent's span its
+; own measurement earned. That is the whole of it, and it is why a subtree with
+; twenty leaves does not get the same wedge as one with two.
+;
+; The tree itself is found rather than declared. A graph has edges, not parents,
+; so the root is the node nothing points at (or, failing that, the busiest one),
+; and the tree is a breadth-first walk from there — which also means a graph
+; with a cycle in it lays out rather than hanging.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+
+class FlowTree {
+    ; Parallel arrays indexed by node index: who each node's parent is, in what
+    ; order the children come, and how much room the subtree needs.
+    def parent:[int]
+    def order:[int]
+    def depth:[int]
+    def measure:[double]
+    def root:int -1
+
+    Constructor () {
+    }
+
+    fn childCount:int (idx:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length parent)) {
+            if ((itemAt parent i) == idx) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Breadth-first, so `order` is a list every pass can walk parents-first.
+    sfn of:FlowTree (g:FlowGraph rootId:string) {
+        def t (new FlowTree)
+        def n:int (g.nodeCount())
+        def i:int 0
+        while (i < n) {
+            push t.parent -1
+            push t.depth 0
+            push t.measure 0.0
+            i = (i + 1)
+        }
+        if (n == 0) {
+            return t
+        }
+        t.root = (FlowTree.pickRoot(g rootId))
+        def seen:[boolean]
+        def s:int 0
+        while (s < n) {
+            push seen false
+            s = (s + 1)
+        }
+        push t.order t.root
+        set_at seen t.root true
+        def head:int 0
+        while (head < (array_length t.order)) {
+            def cur:int (itemAt t.order head)
+            def node:FlowNode (g.nodeAt(cur))
+            def k:int 0
+            while (k < (g.edgeCount())) {
+                def e:FlowEdge (g.edgeAt(k))
+                def other:int -1
+                if (e.sourceIndex == cur) { other = e.targetIndex }
+                if (e.targetIndex == cur) { other = e.sourceIndex }
+                if (other >= 0) {
+                    if ((itemAt seen other) == false) {
+                        set_at seen other true
+                        set_at t.parent other cur
+                        set_at t.depth other ((itemAt t.depth cur) + 1)
+                        push t.order other
+                    }
+                }
+                k = (k + 1)
+            }
+            head = (head + 1)
+        }
+        ; A graph in two pieces still has to be laid out. Anything the walk
+        ; never reached is hung off the root so it lands somewhere rather than
+        ; on top of it.
+        def r:int 0
+        while (r < n) {
+            if ((itemAt seen r) == false) {
+                set_at seen r true
+                set_at t.parent r t.root
+                set_at t.depth r 1
+                push t.order r
+            }
+            r = (r + 1)
+        }
+        return t
+    }
+
+    ; The node nothing points at. Failing that — every node has a parent, so
+    ; the graph has a cycle — the busiest one, which is what a reader would
+    ; call the middle of it anyway.
+    sfn pickRoot:int (g:FlowGraph rootId:string) {
+        if ((strlen rootId) > 0) {
+            def named:int (g.indexOfNode(rootId))
+            if (named >= 0) {
+                return named
+            }
+        }
+        def n:int (g.nodeCount())
+        def incoming:[int]
+        def total:[int]
+        def i:int 0
+        while (i < n) {
+            push incoming 0
+            push total 0
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.targetIndex >= 0) {
+                set_at incoming e.targetIndex ((itemAt incoming e.targetIndex) + 1)
+                set_at total e.targetIndex ((itemAt total e.targetIndex) + 1)
+            }
+            if (e.sourceIndex >= 0) {
+                set_at total e.sourceIndex ((itemAt total e.sourceIndex) + 1)
+            }
+            k = (k + 1)
+        }
+        def r:int 0
+        while (r < n) {
+            if ((itemAt incoming r) == 0) {
+                return r
+            }
+            r = (r + 1)
+        }
+        def best:int 0
+        def bestDeg:int -1
+        def b:int 0
+        while (b < n) {
+            if ((itemAt total b) > bestDeg) {
+                bestDeg = (itemAt total b)
+                best = b
+            }
+            b = (b + 1)
+        }
+        return best
+    }
+}
+
+; --------------------------------------------------------------- radial -----
+class RadialLayout {
+    def graph:FlowGraph (new FlowGraph)
+    ; The clear space between one ring and the next, edge to edge. The radius
+    ; itself is worked out from what is on the ring: a ring has a circumference
+    ; to share out, and thirteen boxes a hundred and sixty wide do not fit on a
+    ; circle of radius a hundred and seventy however tidy the number looks.
+    def ringGap:double 60.0
+    def centreX:double 0.0
+    def centreY:double 0.0
+    def rootId:string ""
+    ; The radius of each ring, measured out from the root.
+    def ringR:[double]
+
+    Constructor () {
+    }
+
+    sfn of:RadialLayout (g:FlowGraph) {
+        def l (new RadialLayout)
+        l.graph = g
+        return l
+    }
+
+    fn run:int () {
+        def n:int (graph.nodeCount())
+        if (n == 0) {
+            return 0
+        }
+        def t:FlowTree (FlowTree.of(graph rootId))
+        ; Measure: a leaf is worth one, a branch is worth exactly the sum of
+        ; its children — not that plus one for itself. A parent that counted
+        ; itself would hand out more wedge than its children add up to, and the
+        ; leftover would be a gap nothing was drawn in.
+        ;
+        ; Walking the breadth-first order backwards is a post-order walk: every
+        ; child comes after its parent in it, so by the time a parent is
+        ; reached every child has already been counted.
+        def i:int ((array_length t.order) - 1)
+        while (i >= 0) {
+            def idx:int (itemAt t.order i)
+            if ((t.childCount(idx)) == 0) {
+                set_at t.measure idx 1.0
+            }
+            def p:int (itemAt t.parent idx)
+            if (p >= 0) {
+                set_at t.measure p ((itemAt t.measure p) + (itemAt t.measure idx))
+            }
+            i = (i - 1)
+        }
+
+        ; Ring radii, measured. Each ring has to clear the one inside it AND be
+        ; long enough round for everything standing on it.
+        def deepest:int 0
+        def dd:int 0
+        while (dd < n) {
+            if ((itemAt t.depth dd) > deepest) {
+                deepest = (itemAt t.depth dd)
+            }
+            dd = (dd + 1)
+        }
+        def widest:[double]
+        def needed:[double]
+        def ri:int 0
+        while (ri <= deepest) {
+            push widest 0.0
+            push needed 0.0
+            ri = (ri + 1)
+        }
+        def mi:int 0
+        while (mi < n) {
+            def mn:FlowNode (graph.nodeAt(mi))
+            def lvl:int (itemAt t.depth mi)
+            if (mn.width > (itemAt widest lvl)) {
+                set_at widest lvl mn.width
+            }
+            set_at needed lvl ((itemAt needed lvl) + (mn.width + 24.0))
+            mi = (mi + 1)
+        }
+        clear ringR
+        push ringR 0.0
+        def rl:int 1
+        while (rl <= deepest) {
+            ; Clear of the ring inside it…
+            def byGap:double (((itemAt ringR (rl - 1)) + (((itemAt widest (rl - 1)) + (itemAt widest rl)) * 0.5)) + ringGap)
+            ; …and long enough round to hold what is on it.
+            def byArc:double ((itemAt needed rl) / 6.283185307179586)
+            def r:double byGap
+            if (byArc > r) { r = byArc }
+            push ringR r
+            rl = (rl + 1)
+        }
+
+        def from:[double]
+        def span:[double]
+        def k:int 0
+        while (k < n) {
+            push from 0.0
+            push span 0.0
+            k = (k + 1)
+        }
+        set_at from t.root 0.0
+        set_at span t.root 6.283185307179586
+        def rootNode:FlowNode (graph.nodeAt(t.root))
+        rootNode.setCenter(centreX centreY)
+        rootNode.syncFromModel()
+
+        def moved:int 0
+        def o:int 0
+        while (o < (array_length t.order)) {
+            def parentIdx:int (itemAt t.order o)
+            ; The divisor is what the children add up to, asked for again here
+            ; rather than taken from the parent: two numbers that are supposed
+            ; to be equal are two numbers that can drift apart.
+            def total:double 0.0
+            def sum:int 0
+            while (sum < n) {
+                if ((itemAt t.parent sum) == parentIdx) {
+                    total = (total + (itemAt t.measure sum))
+                }
+                sum = (sum + 1)
+            }
+            if (total > 0.0) {
+                def cursor:double (itemAt from parentIdx)
+                def c:int 0
+                while (c < n) {
+                    if ((itemAt t.parent c) == parentIdx) {
+                        def share:double (((itemAt t.measure c) / total) * (itemAt span parentIdx))
+                        set_at from c cursor
+                        set_at span c share
+                        def angle:double (cursor + (share * 0.5))
+                        def radius:double (itemAt ringR (itemAt t.depth c))
+                        def cn:FlowNode (graph.nodeAt(c))
+                        cn.setCenter((centreX + (radius * (cos angle))) (centreY + (radius * (sin angle))))
+                        cn.syncFromModel()
+                        moved = (moved + 1)
+                        cursor = (cursor + share)
+                    }
+                    c = (c + 1)
+                }
+            }
+            o = (o + 1)
+        }
+        ; Every edge points outwards from the middle, which is the one thing
+        ; that stops a radial diagram from looking like a spider's web.
+        RadialLayout.faceEdges(graph centreX centreY)
+        return moved
+    }
+
+    ; Handles chosen by where the two nodes are relative to each other, which
+    ; for a radial tree is the direction the branch grows in.
+    sfn faceEdges:void (g:FlowGraph cx:double cy:double) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.sourceIndex >= 0) {
+                if (e.targetIndex >= 0) {
+                    def a:FlowNode (g.nodeAt(e.sourceIndex))
+                    def b:FlowNode (g.nodeAt(e.targetIndex))
+                    def dx:double ((b.centerX()) - (a.centerX()))
+                    def dy:double ((b.centerY()) - (a.centerY()))
+                    if ((fabs dx) >= (fabs dy)) {
+                        if (dx >= 0.0) {
+                            e.sourceHandle = 1
+                            e.targetHandle = 3
+                        } {
+                            e.sourceHandle = 3
+                            e.targetHandle = 1
+                        }
+                    } {
+                        if (dy >= 0.0) {
+                            e.sourceHandle = 2
+                            e.targetHandle = 0
+                        } {
+                            e.sourceHandle = 0
+                            e.targetHandle = 2
+                        }
+                    }
+                    ; A radial tree's branches curve; straight lines through the
+                    ; middle would all pile onto the root.
+                    e.edgeType = "default"
+                }
+            }
+            k = (k + 1)
+        }
+    }
+}
+
+; ------------------------------------------------------------- mind map -----
+class MindMapLayout {
+    def graph:FlowGraph (new FlowGraph)
+    ; The gap BETWEEN levels, edge to edge. The distance from the centre of one
+    ; level to the next is that plus half of each level's widest node, worked
+    ; out below — a fixed centre-to-centre gap draws a mind map whose boxes sit
+    ; on top of each other the moment a label is long.
+    def levelGap:double 70.0
+    def rowGap:double 18.0
+    def centreX:double 0.0
+    def centreY:double 0.0
+    def rootId:string ""
+    ; The centre line of each level, measured out from the root.
+    def levelX:[double]
+
+    Constructor () {
+    }
+
+    sfn of:MindMapLayout (g:FlowGraph) {
+        def l (new MindMapLayout)
+        l.graph = g
+        return l
+    }
+
+    fn run:int () {
+        def n:int (graph.nodeCount())
+        if (n == 0) {
+            return 0
+        }
+        def t:FlowTree (FlowTree.of(graph rootId))
+        ; Measure in pixels rather than in leaves: a mind map stacks its
+        ; branches vertically, so what a subtree needs is a HEIGHT. A branch
+        ; needs whatever its children need — or its own height, if that is
+        ; more, because a tall box with one short child still has to fit.
+        def i:int ((array_length t.order) - 1)
+        while (i >= 0) {
+            def idx:int (itemAt t.order i)
+            def node:FlowNode (graph.nodeAt(idx))
+            def own:double (node.height + rowGap)
+            if ((itemAt t.measure idx) < own) {
+                set_at t.measure idx own
+            }
+            def p:int (itemAt t.parent idx)
+            if (p >= 0) {
+                set_at t.measure p ((itemAt t.measure p) + (itemAt t.measure idx))
+            }
+            i = (i - 1)
+        }
+
+        ; The root's children alternate sides, balanced by the room each needs
+        ; rather than by count: two heavy branches on the same side would leave
+        ; the map lopsided however evenly the children were dealt.
+        def side:[double]
+        def k:int 0
+        while (k < n) {
+            push side 0.0
+            k = (k + 1)
+        }
+        def leftLoad:double 0.0
+        def rightLoad:double 0.0
+        def c:int 0
+        while (c < n) {
+            if ((itemAt t.parent c) == t.root) {
+                if (rightLoad <= leftLoad) {
+                    set_at side c 1.0
+                    rightLoad = (rightLoad + (itemAt t.measure c))
+                } {
+                    set_at side c -1.0
+                    leftLoad = (leftLoad + (itemAt t.measure c))
+                }
+            }
+            c = (c + 1)
+        }
+        ; Everything below a branch stays on the branch's side.
+        def o:int 0
+        while (o < (array_length t.order)) {
+            def idx3:int (itemAt t.order o)
+            def p3:int (itemAt t.parent idx3)
+            if (p3 >= 0) {
+                if (p3 != t.root) {
+                    set_at side idx3 (itemAt side p3)
+                }
+            }
+            o = (o + 1)
+        }
+
+        ; Where each level's centre line goes: half of this level's widest box,
+        ; plus half of the previous one's, plus the gap. Measured rather than
+        ; assumed, so a long label pushes the level after it out instead of
+        ; being drawn over it.
+        def deepest:int 0
+        def d:int 0
+        while (d < n) {
+            if ((itemAt t.depth d) > deepest) {
+                deepest = (itemAt t.depth d)
+            }
+            d = (d + 1)
+        }
+        def widest:[double]
+        def w:int 0
+        while (w <= deepest) {
+            push widest 0.0
+            w = (w + 1)
+        }
+        def m:int 0
+        while (m < n) {
+            def mn:FlowNode (graph.nodeAt(m))
+            def lvl:int (itemAt t.depth m)
+            if (mn.width > (itemAt widest lvl)) {
+                set_at widest lvl mn.width
+            }
+            m = (m + 1)
+        }
+        clear levelX
+        def acc:double 0.0
+        def l:int 0
+        while (l <= deepest) {
+            if (l > 0) {
+                acc = ((acc + (((itemAt widest (l - 1)) + (itemAt widest l)) * 0.5)) + levelGap)
+            }
+            push levelX acc
+            l = (l + 1)
+        }
+
+        def rootNode:FlowNode (graph.nodeAt(t.root))
+        rootNode.setCenter(centreX centreY)
+        rootNode.syncFromModel()
+        def moved:int 0
+        moved = (moved + (this.placeSide(t side 1.0 rightLoad)))
+        moved = (moved + (this.placeSide(t side -1.0 leftLoad)))
+        MindMapLayout.faceEdges(graph centreX)
+        return moved
+    }
+
+    ; One half of the map: stack the root's children on this side, then each of
+    ; their subtrees inside the band its measurement earned.
+    fn placeSide:int (t:FlowTree side:[double] want:double load:double) {
+        def n:int (graph.nodeCount())
+        def top:[double]
+        def i:int 0
+        while (i < n) {
+            push top 0.0
+            i = (i + 1)
+        }
+        def cursor:double (centreY - (load * 0.5))
+        def moved:int 0
+        def c:int 0
+        while (c < n) {
+            if ((itemAt t.parent c) == t.root) {
+                if ((itemAt side c) == want) {
+                    set_at top c cursor
+                    cursor = (cursor + (itemAt t.measure c))
+                }
+            }
+            c = (c + 1)
+        }
+        def o:int 0
+        while (o < (array_length t.order)) {
+            def idx:int (itemAt t.order o)
+            if (idx != t.root) {
+                if ((itemAt side idx) == want) {
+                    def node:FlowNode (graph.nodeAt(idx))
+                    def depth:int (itemAt t.depth idx)
+                    def x:double (centreX + (want * (itemAt levelX depth)))
+                    node.setCenter(x ((itemAt top idx) + ((itemAt t.measure idx) * 0.5)))
+                    node.syncFromModel()
+                    moved = (moved + 1)
+                    ; Deal this node's own band out to its children.
+                    def inner:double (itemAt top idx)
+                    def k:int 0
+                    while (k < n) {
+                        if ((itemAt t.parent k) == idx) {
+                            set_at top k inner
+                            inner = (inner + (itemAt t.measure k))
+                        }
+                        k = (k + 1)
+                    }
+                }
+            }
+            o = (o + 1)
+        }
+        return moved
+    }
+
+    ; Everything on the right leaves the root's right side; everything on the
+    ; left leaves its left. That is what makes a mind map readable outwards.
+    sfn faceEdges:void (g:FlowGraph cx:double) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.sourceIndex >= 0) {
+                if (e.targetIndex >= 0) {
+                    def a:FlowNode (g.nodeAt(e.sourceIndex))
+                    def b:FlowNode (g.nodeAt(e.targetIndex))
+                    if ((b.centerX()) >= (a.centerX())) {
+                        e.sourceHandle = 1
+                        e.targetHandle = 3
+                    } {
+                        e.sourceHandle = 3
+                        e.targetHandle = 1
+                    }
+                    e.edgeType = "default"
+                }
+            }
+            k = (k + 1)
+        }
+    }
+}

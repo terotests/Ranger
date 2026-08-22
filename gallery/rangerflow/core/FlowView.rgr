@@ -26,6 +26,7 @@ Import "GraphModel.rgr"
 Import "EdgeRouter.rgr"
 Import "FlowScene.rgr"
 Import "FlowTheme.rgr"
+Import "FlowText.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
 
 class FlowView {
@@ -40,8 +41,34 @@ class FlowView {
     def showBackground:boolean true
     def showMinimap:boolean true
     def showControls:boolean true
+    ; A horizontal and a vertical scale down the edges of the surface, in flow
+    ; units. What they are for is not decoration: a diagram that will be
+    ; printed has a size, and a reader placing a box 40 units from another one
+    ; needs to see the 40.
+    def showRulers:boolean false
+    def rulerSize:double 18.0
+    ; What the pointer is resting on, said in words. The editor fills these in
+    ; from whatever is under the pointer; the view only decides where the
+    ; panel goes.
+    ; The buttons that appear beside a selected node — JointJS's
+    ; `elementTools`. Two of them: take this away, and start a connection from
+    ; it. They are chrome rather than model, so they live here.
+    def showNodeTools:boolean true
+    def showTooltips:boolean true
+    def tooltipText:string ""
+    def tooltipX:double 0.0
+    def tooltipY:double 0.0
+    ; The right-click menu. It lives on the view because its rows have to be
+    ; drawn and hit-tested by the same arithmetic.
+    def menu:FlowMenu (new FlowMenu)
     def showPorts:boolean true
     def culling:boolean true
+    ; Where two lines cross, one hops over the other. Off for a diagram with
+    ; no crossings to speak of costs nothing; on, it is the only honest answer
+    ; to a crossing the router could not remove — two lines meeting at a point
+    ; are ambiguous about whether they join, and a hop says they do not.
+    def bridgeEdges:boolean true
+    def bridgeRadius:double 4.5
     ; "crowfoot" | "uml" | "plain" — how a relationship's cardinality is drawn.
     def notation:string "crowfoot"
 
@@ -53,6 +80,23 @@ class FlowView {
     def connectToY:double 0.0
     def connecting:boolean false
     def boxSelect:FlowRect (new FlowRect)
+
+    ; --- in-place editing -----------------------------------------------------
+    ; Which piece of text is being edited, in the same tag vocabulary the hit
+    ; tester uses — "node:<id>", "row:<id>:<n>", "edge:<id>". The view draws the
+    ; BUFFER rather than the model for that one item, so what a reader sees
+    ; while typing is the same layout, the same wrap and the same autofit the
+    ; committed text will get. An editor that types into a plain box and then
+    ; reflows on commit is an editor that surprises you at the last moment.
+    def editTag:string ""
+    def editText:string ""
+    def editCaret:int 0
+    def editCaretOn:boolean true
+
+    ; Screen-space segments of every edge, and where each edge's run ends, so
+    ; a line can be told what it is allowed to hop over.
+    def bridgeSegs:[double]
+    def bridgeEnds:[int]
 
     ; what the last build did, for the benchmark harness
     def drawnNodes:int 0
@@ -141,6 +185,262 @@ class FlowView {
         return out
     }
 
+    ; --------------------------------------------------------- edit state ---
+    ; The text to draw for an item: the buffer while it is being edited, the
+    ; model otherwise.
+    fn textFor:string (tag:string fallback:string) {
+        if ((strlen editTag) == 0) {
+            return fallback
+        }
+        if (tag == editTag) {
+            return editText
+        }
+        return fallback
+    }
+
+    fn isEditing:boolean (tag:string) {
+        if ((strlen editTag) == 0) {
+            return false
+        }
+        return (tag == editTag)
+    }
+
+    ; A pale field behind the text being edited, so it is obvious which of the
+    ; twenty labels on the diagram the keyboard is going to.
+    fn paintEditField:void (sc:FlowScene tag:string cx:double cy:double lay:FlowTextLayout room:double) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        def pad:double (this.sl(5.0))
+        def w:double (lay.width + (pad * 2.0))
+        def minW:double (this.sl(24.0))
+        if (w < minW) { w = minW }
+        if (w > (room + (pad * 2.0))) { w = (room + (pad * 2.0)) }
+        def h:double (lay.height + pad)
+        def box:SceneItem (sc.rect((cx - (w * 0.5)) (cy - (h * 0.5)) w h theme.editFill))
+        box.radius = (this.sl(3.0))
+        box.stroke = theme.editBorder
+        box.strokeWidth = (this.sl(1.0))
+        box.tag = tag
+    }
+
+    ; The caret, at the character it is actually in front of — which needs the
+    ; layout, because on a wrapped label the same index is on the second line.
+    fn paintCaret:void (sc:FlowScene tag:string lay:FlowTextLayout cx:double top:double bold:boolean) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        if (editCaretOn == false) {
+            return
+        }
+        def line:int (lay.lineOfIndex(editCaret))
+        def off:int (lay.offsetInLine(editCaret line))
+        def text:string (lay.lineAt(line))
+        def before:string (substring text 0 off)
+        def lw:double (this.textWidthBold(text lay.size bold))
+        def ahead:double (this.textWidthBold(before lay.size bold))
+        def x:double ((cx - (lw * 0.5)) + ahead)
+        def y:double (top + ((to_double line) * lay.lineHeight))
+        def bar:SceneItem (sc.rect(x (y + (lay.lineHeight * 0.1)) (this.sl(1.4)) (lay.lineHeight * 0.8) theme.editCaret))
+        bar.tag = tag
+    }
+
+    ; The same caret, for a line of text set from a left edge rather than
+    ; centred — a table row, a lane name.
+    fn paintCaretAt:void (sc:FlowScene tag:string text:string size:double x:double y:double bold:boolean) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        if (editCaretOn == false) {
+            return
+        }
+        def off:int editCaret
+        if (off > (strlen text)) {
+            off = (strlen text)
+        }
+        if (off < 0) { off = 0 }
+        def before:string (substring text 0 off)
+        def ahead:double (this.textWidthBold(before size bold))
+        def bar:SceneItem (sc.rect((x + ahead) y (this.sl(1.4)) (size * 1.15) theme.editCaret))
+        bar.tag = tag
+    }
+
+    fn paintEditRow:void (sc:FlowScene tag:string x:double y:double w:double h:double) {
+        if ((this.isEditing(tag)) == false) {
+            return
+        }
+        def box:SceneItem (sc.rect(x y w h theme.editFill))
+        box.stroke = theme.editBorder
+        box.strokeWidth = (this.sl(1.0))
+        box.tag = tag
+    }
+
+    ; ------------------------------------------------------------- fitting --
+    ; Wrap, then shrink, then cut — see FlowText for why in that order. The
+    ; caller says how much room there is and how many lines it is willing to
+    ; give up; everything else is measurement.
+    ;
+    ; `maxLines` of 1 means "no wrapping", which is right for a table's column
+    ; names: a name broken over two lines in a list of twenty is a name you
+    ; cannot scan past.
+    fn layoutText:FlowTextLayout (t:string baseSize:double maxWidth:double maxHeight:double maxLines:int) {
+        return (this.layoutTextBold(t baseSize maxWidth maxHeight maxLines false))
+    }
+
+    fn layoutTextBold:FlowTextLayout (t:string baseSize:double maxWidth:double maxHeight:double maxLines:int bold:boolean) {
+        def scale:double 1.0
+        def floor:double (FlowText.minScale())
+        def best:FlowTextLayout (new FlowTextLayout)
+        def settled:boolean false
+        while (settled == false) {
+            def size:double (baseSize * scale)
+            def cand:FlowTextLayout (this.wrapAt(t size maxWidth maxLines bold))
+            def fits:boolean true
+            if (cand.width > (maxWidth + 0.5)) {
+                fits = false
+            }
+            if (maxHeight > 0.0) {
+                if (cand.height > (maxHeight + 0.5)) {
+                    fits = false
+                }
+            }
+            if fits {
+                best = cand
+                settled = true
+            } {
+                if (scale <= (floor + 0.0001)) {
+                    ; Out of room and out of sizes: set it at the smallest size
+                    ; allowed and cut what is left over.
+                    best = (this.wrapAt(t size maxWidth maxLines bold))
+                    this.truncateInto(best maxWidth maxHeight maxLines size bold)
+                    settled = true
+                } {
+                    scale = (scale - (FlowText.scaleStep()))
+                    if (scale < floor) {
+                        scale = floor
+                    }
+                }
+            }
+        }
+        return best
+    }
+
+    ; Greedy wrap at one size: take words while they fit, break when they do
+    ; not. The lines are cut out of the SOURCE by position rather than rebuilt
+    ; from word copies, so what is drawn is exactly what was typed and the
+    ; caret's index means the same thing on both sides.
+    fn wrapAt:FlowTextLayout (t:string size:double maxWidth:double maxLines:int bold:boolean) {
+        def out (new FlowTextLayout)
+        out.size = size
+        out.lineHeight = (size * 1.25)
+        def sp:[int] (FlowText.spans(t))
+        def wordCount:int (idiv (array_length sp) 2)
+        if (wordCount == 0) {
+            push out.lines ""
+            push out.starts 0
+            push out.ends (strlen t)
+            out.width = 0.0
+            out.height = out.lineHeight
+            return out
+        }
+        def lineStart:int (itemAt sp 0)
+        def lineEnd:int (itemAt sp 1)
+        def i:int 1
+        while (i < wordCount) {
+            def wEnd:int (itemAt sp ((i * 2) + 1))
+            def cand:string (substring t lineStart wEnd)
+            def width:double (this.textWidthBold(cand size bold))
+            def roomLeft:boolean ((array_length out.lines) < (maxLines - 1))
+            if (width <= maxWidth) {
+                lineEnd = wEnd
+            } {
+                if roomLeft {
+                    push out.lines (substring t lineStart lineEnd)
+                    push out.starts lineStart
+                    push out.ends lineEnd
+                    lineStart = (itemAt sp (i * 2))
+                    lineEnd = wEnd
+                } {
+                    ; No line left to break onto, so the rest joins this one
+                    ; and comes out over-wide — which is the signal the caller
+                    ; shrinks or cuts on.
+                    lineEnd = wEnd
+                }
+            }
+            i = (i + 1)
+        }
+        push out.lines (substring t lineStart lineEnd)
+        push out.starts lineStart
+        push out.ends lineEnd
+        out.width = 0.0
+        def k:int 0
+        while (k < (array_length out.lines)) {
+            def lw:double (this.textWidthBold((itemAt out.lines k) size bold))
+            if (lw > out.width) {
+                out.width = lw
+            }
+            k = (k + 1)
+        }
+        out.height = ((to_double (array_length out.lines)) * out.lineHeight)
+        return out
+    }
+
+    ; Last resort: drop lines that do not fit the height, and cut the last one
+    ; to the width with an ellipsis.
+    fn truncateInto:void (lay:FlowTextLayout maxWidth:double maxHeight:double maxLines:int size:double bold:boolean) {
+        def allowed:int maxLines
+        if (maxHeight > 0.0) {
+            def byHeight:int (to_int (maxHeight / lay.lineHeight))
+            if (byHeight < allowed) {
+                allowed = byHeight
+            }
+        }
+        if (allowed < 1) {
+            allowed = 1
+        }
+        while ((array_length lay.lines) > allowed) {
+            removeLast lay.lines
+            lay.truncated = true
+        }
+        def last:int ((array_length lay.lines) - 1)
+        if (last >= 0) {
+            def line:string (itemAt lay.lines last)
+            if ((this.textWidthBold(line size bold)) > maxWidth) {
+                def cut:string (this.fitText(line size maxWidth))
+                set_at lay.lines last cut
+                lay.truncated = true
+            }
+        }
+        lay.width = 0.0
+        def k:int 0
+        while (k < (array_length lay.lines)) {
+            def lw:double (this.textWidthBold((itemAt lay.lines k) size bold))
+            if (lw > lay.width) {
+                lay.width = lw
+            }
+            k = (k + 1)
+        }
+        lay.height = ((to_double (array_length lay.lines)) * lay.lineHeight)
+    }
+
+    ; Draw a laid-out block centred in a box. Returns the y the first line was
+    ; put at, which is what the caret needs.
+    fn paintBlock:double (sc:FlowScene lay:FlowTextLayout cx:double cy:double color:string tag:string bold:boolean) {
+        def top:double (cy - (lay.height * 0.5))
+        def i:int 0
+        while (i < (array_length lay.lines)) {
+            def line:string (itemAt lay.lines i)
+            def lw:double (this.textWidthBold(line lay.size bold))
+            def ly:double ((top + ((to_double i) * lay.lineHeight)) + ((lay.lineHeight - (lay.size * 1.2)) * 0.5))
+            def t:SceneItem (sc.text(line (cx - (lw * 0.5)) ly lw lay.size color))
+            t.fontFamily = theme.fontFamily
+            t.bold = bold
+            t.tag = tag
+            i = (i + 1)
+        }
+        return top
+    }
+
     ; ---------------------------------------------------------------- build --
     fn build:FlowScene () {
         def sc (new FlowScene)
@@ -171,10 +471,301 @@ class FlowView {
         if showMinimap {
             this.paintMinimap(sc)
         }
+        if showRulers {
+            this.paintRulers(sc)
+        }
         if showControls {
             this.paintControls(sc)
         }
+        ; Both of these are on TOP of the diagram by definition: a tooltip
+        ; under a node is a tooltip nobody reads, and a menu the diagram draws
+        ; over is a menu you cannot click.
+        if showNodeTools {
+            this.paintNodeTools(sc)
+        }
+        this.paintTooltip(sc)
+        this.paintMenu(sc)
         return sc
+    }
+
+    ; ---------------------------------------------------------- node tools ---
+    ; A column of small round buttons beside whatever is selected: × to take
+    ; it away, + to start a connection from it. Beside rather than on: a
+    ; button drawn inside the node is a button that covers the label, and one
+    ; at the bottom-right corner is a button fighting the resize grip.
+    ;
+    ; The geometry lives in `toolCX` / `toolCY` and both the drawing and the
+    ; hit test read it, because a button you can see and cannot press is worse
+    ; than no button.
+    sfn toolCount:int () {
+        return 2
+    }
+
+    sfn toolGlyph:string (i:int) {
+        if (i == 0) { return "×" }
+        return "+"
+    }
+
+    sfn toolId:string (i:int) {
+        if (i == 0) { return "remove" }
+        return "connect"
+    }
+
+    fn toolRadius:double () {
+        return 9.0
+    }
+
+    fn toolCX:double (n:FlowNode i:int) {
+        return ((this.sx((n.x + n.width))) + 15.0)
+    }
+
+    fn toolCY:double (n:FlowNode i:int) {
+        return (((this.sy(n.y)) + 11.0) + ((to_double i) * 23.0))
+    }
+
+    ; The one node the tools belong to: the selected one, and only when a
+    ; single node is selected. A column of buttons beside every member of a
+    ; nine-node selection is nine columns of buttons.
+    fn toolNode:int (g:FlowGraph) {
+        if (showNodeTools == false) { return -1 }
+        def found:int -1
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if n.selected {
+                if (n.hidden == false) {
+                    if (found >= 0) {
+                        return -1
+                    }
+                    found = i
+                }
+            }
+            i = (i + 1)
+        }
+        if (found < 0) { return -1 }
+        ; Too small on screen and the buttons would be bigger than the thing
+        ; they act on, which reads as a bug rather than as a tool.
+        def n2:FlowNode (g.nodeAt(found))
+        if ((this.sl(n2.width)) < 30.0) { return -1 }
+        if ((this.sl(n2.height)) < 22.0) { return -1 }
+        return found
+    }
+
+    fn paintNodeTools:void (sc:FlowScene) {
+        def idx:int (this.toolNode(graph))
+        if (idx < 0) { return }
+        def n:FlowNode (graph.nodeAt(idx))
+        def r:double (this.toolRadius())
+        def i:int 0
+        while (i < (FlowView.toolCount())) {
+            def cx:double (this.toolCX(n i))
+            def cy:double (this.toolCY(n i))
+            def disc:SceneItem (sc.rect((cx - r) (cy - r) (r * 2.0) (r * 2.0) theme.panelFill))
+            disc.radius = r
+            disc.stroke = theme.panelBorder
+            disc.strokeWidth = 1.0
+            disc.tag = ("tool:" + (FlowView.toolId(i)))
+            def g:string (FlowView.toolGlyph(i))
+            def gw:double (this.textWidth(g 12.0))
+            def t:SceneItem (sc.text(g (cx - (gw * 0.5)) (cy - 6.5) gw 12.0 theme.nodeText))
+            t.tag = ("tool:" + (FlowView.toolId(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; Which tool the pointer is on, as its id, or empty.
+    fn toolAt:string (sx:double sy:double) {
+        def idx:int (this.toolNode(graph))
+        if (idx < 0) { return "" }
+        def n:FlowNode (graph.nodeAt(idx))
+        def r:double ((this.toolRadius()) + 2.0)
+        def i:int 0
+        while (i < (FlowView.toolCount())) {
+            def dx:double (sx - (this.toolCX(n i)))
+            def dy:double (sy - (this.toolCY(n i)))
+            if ((sqrt ((dx * dx) + (dy * dy))) <= r) {
+                return (FlowView.toolId(i))
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; ------------------------------------------------------------- tooltip ---
+    ; What the object under the pointer has to say for itself. It is the view
+    ; that decides where it goes — flipped to the other side when it would run
+    ; off the edge — and the model that decides whether there is anything to
+    ; say. A node with no `tooltip` shows nothing at all rather than repeating
+    ; its own label back.
+    fn paintTooltip:void (sc:FlowScene) {
+        if (showTooltips == false) { return }
+        if ((strlen tooltipText) == 0) { return }
+        def size:double 11.5
+        def lay:FlowTextLayout (this.layoutText(tooltipText size 240.0 0.0 3))
+        def padX:double 8.0
+        def padY:double 5.0
+        def bw:double (lay.width + (padX * 2.0))
+        def bh:double (lay.height + (padY * 2.0))
+        def bx:double (tooltipX + 14.0)
+        def by:double (tooltipY + 18.0)
+        if ((bx + bw) > (width - 4.0)) {
+            bx = ((tooltipX - bw) - 10.0)
+        }
+        if (bx < 4.0) { bx = 4.0 }
+        if ((by + bh) > (height - 4.0)) {
+            by = ((tooltipY - bh) - 10.0)
+        }
+        if (by < 4.0) { by = 4.0 }
+        def box:SceneItem (sc.rect(bx by bw bh theme.tooltipFill))
+        box.radius = 4.0
+        box.stroke = theme.tooltipBorder
+        box.strokeWidth = 1.0
+        box.tag = "chrome"
+        def cx:double (bx + (bw * 0.5))
+        def cy:double (by + (bh * 0.5))
+        this.paintBlock(sc lay cx cy theme.tooltipText "chrome" false)
+    }
+
+    ; -------------------------------------------------------- context menu ---
+    ; A panel of rows, drawn where the pointer asked for it and nudged back on
+    ; screen if that would have hung it off the edge. The editor owns what is
+    ; in it and what a row does; the view owns where each row IS, because the
+    ; same arithmetic has to answer "draw it here" and "the pointer is on row
+    ; three" or the two drift apart the first time the padding changes.
+    fn paintMenu:void (sc:FlowScene) {
+        if (menu.open == false) { return }
+        def w:double (this.menuWidth())
+        def h:double (this.menuHeight())
+        def bx:double (this.menuX())
+        def by:double (this.menuY())
+        def shadow:SceneItem (sc.rect((bx + 2.0) (by + 3.0) w h theme.menuShadow))
+        shadow.radius = 6.0
+        shadow.tag = "chrome"
+        def box:SceneItem (sc.rect(bx by w h theme.menuFill))
+        box.radius = 6.0
+        box.stroke = theme.menuBorder
+        box.strokeWidth = 1.0
+        box.tag = "chrome"
+        def i:int 0
+        while (i < (menu.count())) {
+            def it:FlowMenuItem (menu.at(i))
+            def ry:double (by + (this.menuRowTop(i)))
+            def rh:double (FlowView.menuRowHeight(it))
+            if it.separator {
+                def rule:[double]
+                push rule (bx + 6.0)
+                push rule (ry + (rh * 0.5))
+                push rule ((bx + w) - 6.0)
+                push rule (ry + (rh * 0.5))
+                def line:SceneItem (sc.path(rule (this.screenPathD(rule)) theme.menuBorder 1.0))
+                line.tag = "chrome"
+            } {
+                def col:string theme.menuText
+                if (it.enabled == false) {
+                    col = theme.menuDisabledText
+                }
+                if (i == menu.highlight) {
+                    if it.enabled {
+                        def hi:SceneItem (sc.rect((bx + 3.0) ry (w - 6.0) rh theme.menuHighlight))
+                        hi.radius = 4.0
+                        hi.tag = "chrome"
+                    }
+                }
+                def t:SceneItem (sc.text(it.label (bx + 12.0) (ry + ((rh - 13.0) * 0.5)) (w - 24.0) 12.0 col))
+                t.tag = "chrome"
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The menu's geometry, in one place so the hit test and the drawing agree.
+    sfn menuRowHeight:double (it:FlowMenuItem) {
+        if it.separator { return 7.0 }
+        return 24.0
+    }
+
+    fn menuRowTop:double (i:int) {
+        def top:double 5.0
+        def k:int 0
+        while (k < i) {
+            top = (top + (FlowView.menuRowHeight((menu.at(k)))))
+            k = (k + 1)
+        }
+        return top
+    }
+
+    fn menuHeight:double () {
+        return ((this.menuRowTop((menu.count()))) + 5.0)
+    }
+
+    fn menuWidth:double () {
+        def w:double 132.0
+        def i:int 0
+        while (i < (menu.count())) {
+            def it:FlowMenuItem (menu.at(i))
+            def want:double ((this.textWidth(it.label 12.0)) + 34.0)
+            if (want > w) { w = want }
+            i = (i + 1)
+        }
+        if (w > 260.0) { w = 260.0 }
+        return w
+    }
+
+    fn menuX:double () {
+        def w:double (this.menuWidth())
+        def bx:double menu.x
+        if ((bx + w) > (width - 4.0)) {
+            bx = ((width - w) - 4.0)
+        }
+        if (bx < 4.0) { bx = 4.0 }
+        return bx
+    }
+
+    fn menuY:double () {
+        def h:double (this.menuHeight())
+        def by:double menu.y
+        if ((by + h) > (height - 4.0)) {
+            by = ((height - h) - 4.0)
+        }
+        if (by < 4.0) { by = 4.0 }
+        return by
+    }
+
+    ; Which row the pointer is on, or -1. Separators are never a row you can
+    ; land on, and neither is a disabled one.
+    fn menuRowAt:int (sx:double sy:double) {
+        if (menu.open == false) { return -1 }
+        def bx:double (this.menuX())
+        def by:double (this.menuY())
+        def w:double (this.menuWidth())
+        if (sx < bx) { return -1 }
+        if (sx > (bx + w)) { return -1 }
+        def i:int 0
+        while (i < (menu.count())) {
+            def top:double (by + (this.menuRowTop(i)))
+            def rh:double (FlowView.menuRowHeight((menu.at(i))))
+            if (sy >= top) {
+                if (sy < (top + rh)) {
+                    def it:FlowMenuItem (menu.at(i))
+                    if it.separator { return -1 }
+                    if (it.enabled == false) { return -1 }
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn menuHolds:boolean (sx:double sy:double) {
+        if (menu.open == false) { return false }
+        def bx:double (this.menuX())
+        def by:double (this.menuY())
+        if (sx < bx) { return false }
+        if (sy < by) { return false }
+        if (sx > (bx + (this.menuWidth()))) { return false }
+        if (sy > (by + (this.menuHeight()))) { return false }
+        return true
     }
 
     ; A page rather than a screen: identity zoom over the graph's own bounds,
@@ -339,18 +930,71 @@ class FlowView {
     }
 
     ; --------------------------------------------------------------- edges ---
+    ; Every line is turned into screen points BEFORE any of them is drawn,
+    ; because a line cannot hop over another one it has not seen yet. Each
+    ; edge is then allowed to hop only over the ones before it in the list, so
+    ; a crossing gets exactly one bridge rather than two lines both jumping and
+    ; the crossing reading as a knot.
     fn paintEdges:void (sc:FlowScene) {
+        clear bridgeSegs
+        clear bridgeEnds
+        if bridgeEdges {
+            def b:int 0
+            while (b < (graph.edgeCount())) {
+                def be:FlowEdge (graph.edgeAt(b))
+                if (be.hidden == false) {
+                    this.collectEdgeSegments(be)
+                }
+                push bridgeEnds (array_length bridgeSegs)
+                b = (b + 1)
+            }
+        }
         def k:int 0
         while (k < (graph.edgeCount())) {
             def e:FlowEdge (graph.edgeAt(k))
             if (e.hidden == false) {
-                this.paintEdge(sc e)
+                this.paintEdge(sc e k)
             }
             k = (k + 1)
         }
     }
 
-    fn paintEdge:void (sc:FlowScene e:FlowEdge) {
+    ; The screen-space segments of one edge, appended to the store.
+    fn collectEdgeSegments:void (e:FlowEdge) {
+        if (e.sourceIndex < 0) { return }
+        if (e.targetIndex < 0) { return }
+        def path:EdgePath (EdgeRouter.route(graph e))
+        path.flatten(8)
+        def n:int (path.pointCount())
+        def i:int 1
+        while (i < n) {
+            push bridgeSegs (this.sx((path.px((i - 1)))))
+            push bridgeSegs (this.sy((path.py((i - 1)))))
+            push bridgeSegs (this.sx((path.px(i))))
+            push bridgeSegs (this.sy((path.py(i))))
+            i = (i + 1)
+        }
+    }
+
+    ; Everything drawn before this edge, which is what it may hop over.
+    fn segmentsBefore:[double] (index:int) {
+        def out:[double]
+        if (index <= 0) {
+            return out
+        }
+        if (index > (array_length bridgeEnds)) {
+            return out
+        }
+        def upto:int (itemAt bridgeEnds (index - 1))
+        def i:int 0
+        while (i < upto) {
+            push out (itemAt bridgeSegs i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn paintEdge:void (sc:FlowScene e:FlowEdge index:int) {
         if (e.sourceIndex < 0) { return }
         if (e.targetIndex < 0) { return }
         def path:EdgePath (EdgeRouter.route(graph e))
@@ -367,6 +1011,12 @@ class FlowView {
             push pts (this.sx((path.px(i))))
             push pts (this.sy((path.py(i))))
             i = (i + 1)
+        }
+        if bridgeEdges {
+            def before:[double] (this.segmentsBefore(index))
+            if ((array_length before) >= 4) {
+                pts = (EdgeRouter.bridgePolyline(pts before (this.sl(bridgeRadius))))
+            }
         }
         def col:string theme.edgeColor
         if ((strlen e.strokeColor) > 0) { col = e.strokeColor }
@@ -401,6 +1051,9 @@ class FlowView {
         if ((strlen e.label) > 0) {
             this.paintEdgeLabel(sc e path)
         }
+        ; Annotations are not the label and must not depend on it: an edge
+        ; that carries "SLA 24 h" and nothing else has to draw the SLA.
+        this.paintEdgeAnnotations(sc e path)
     }
 
     ; The notation layer: the model says "many", the theme's notation says how.
@@ -449,20 +1102,30 @@ class FlowView {
         if (size < 5.0) {
             return
         }
+        def tag:string ("edge:" + e.id)
+        def raw:string (this.textFor(tag e.label))
+        ; An edge label has no box to fill, so it is given a generous line and
+        ; allowed a second one — "changes requested" reads better stacked than
+        ; strung across three nodes.
+        def lay:FlowTextLayout (this.layoutText(raw size (this.sl(160.0)) 0.0 2))
         def mx:double (this.sx((path.midX())))
         def my:double (this.sy((path.midY())))
-        def tw:double (this.textWidth(e.label size))
         def pad:double 4.0
-        def bx:double (mx - ((tw * 0.5) + pad))
-        def by:double (my - ((size * 0.75) + pad))
-        def bw:double (tw + (pad * 2.0))
-        def bh:double ((size * 1.4) + pad)
-        def box:SceneItem (sc.rect(bx by bw bh theme.edgeLabelFill))
+        def bw:double (lay.width + (pad * 2.0))
+        def bh:double (lay.height + pad)
+        def fill:string theme.edgeLabelFill
+        if (this.isEditing(tag)) {
+            fill = theme.editFill
+        }
+        def box:SceneItem (sc.rect((mx - (bw * 0.5)) (my - (bh * 0.5)) bw bh fill))
         box.radius = 3.0
-        box.tag = ("edge:" + e.id)
-        def t:SceneItem (sc.text(e.label (bx + pad) (by + (pad * 0.5)) tw size theme.edgeLabelText))
-        t.fontFamily = theme.fontFamily
-        t.tag = ("edge:" + e.id)
+        if (this.isEditing(tag)) {
+            box.stroke = theme.editBorder
+            box.strokeWidth = (this.sl(1.0))
+        }
+        box.tag = tag
+        def top:double (this.paintBlock(sc lay mx my theme.edgeLabelText tag false))
+        this.paintCaret(sc tag lay mx top false)
     }
 
     ; The `d` for the SVG/PDF side of the same polyline the GPU gets.
@@ -506,8 +1169,40 @@ class FlowView {
         return true
     }
 
+    ; ------------------------------------------------------- highlighters ---
+    ; A ring drawn OUTSIDE the node's own outline, following whatever shape it
+    ; is: the halo on a search hit. Outside rather than on, so it does not
+    ; move the border a reader is using to judge alignment.
+    fn paintHighlight:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
+        if ((strlen n.highlight) == 0) { return }
+        if (n.highlight == "opacity") { return }
+        def grow:double (this.sl(5.0))
+        def thick:double (this.sl(2.0))
+        if (n.highlight == "mask") {
+            grow = (this.sl(8.0))
+            thick = (this.sl(5.0))
+        }
+        def ring:[double] (FlowShapes.outlineCustom(n.shape (x - grow) (y - grow) (w + (grow * 2.0)) (h + (grow * 2.0)) n.shapePoints))
+        def halo:SceneItem (sc.polygon(ring ""))
+        halo.stroke = theme.highlightColor
+        halo.strokeWidth = thick
+        halo.opacity = 0.75
+        halo.tag = tag
+    }
+
+    ; The `opacity` highlighter, which is the one that works by taking
+    ; attention AWAY: everything that is not the answer is faded, and the
+    ; answer is the only thing at full strength.
+    sfn highlightOpacity:double (n:FlowNode) {
+        if (n.highlight == "opacity") {
+            return 0.32
+        }
+        return 1.0
+    }
+
     fn paintNode:void (sc:FlowScene n:FlowNode idx:int x:double y:double w:double h:double) {
         def tag:string ("node:" + n.id)
+        this.paintHighlight(sc n x y w h tag)
         def fill:string (theme.nodeFillFor(n.bgColor n.selected))
         def border:string (theme.nodeBorderFor(n.borderColor n.selected))
         if (idx == hoverNode) {
@@ -527,29 +1222,46 @@ class FlowView {
             this.paintLane(sc n x y w h tag fill border bw)
             return
         }
+        ; A turned node has no axis-aligned rectangle to hand the renderer, so
+        ; it takes the outline road even when its shape is a plain box. The
+        ; ring already comes back rotated — see FlowNode.outline.
+        def faded:double (FlowView.highlightOpacity(n))
+        if (n.spun()) {
+            def spunRing:[double] (this.screenRing(n))
+            def spunPoly:SceneItem (sc.polygon(spunRing fill))
+            spunPoly.stroke = border
+            spunPoly.strokeWidth = bw
+            spunPoly.opacity = faded
+            spunPoly.tag = tag
+            this.paintShapeLabel(sc n x y w h tag)
+            this.paintAnnotations(sc n x y w h)
+            return
+        }
         if ((FlowShapes.isPlain(n.shape)) == false) {
             if ((FlowShapes.isDecorated(n.shape)) == false) {
-                def ring:[double] (FlowShapes.outline(n.shape x y w h))
+                def ring:[double] (FlowShapes.outlineCustom(n.shape x y w h n.shapePoints))
                 def poly:SceneItem (sc.polygon(ring fill))
                 poly.stroke = border
                 poly.strokeWidth = bw
+                poly.opacity = faded
                 poly.tag = tag
-                if (n.shape == "cylinder") {
-                    ; The lid: the near half of the top ellipse, drawn as a
-                    ; line across the body so the drum reads as a drum.
-                    def lid:[double] (FlowShapes.drumLid(x y w h))
-                    def lidItem:SceneItem (sc.path(lid (this.screenPathD(lid)) border bw))
-                    lidItem.tag = tag
-                }
+                this.paintOrnaments(sc n x y w h tag border bw)
                 this.paintShapeLabel(sc n x y w h tag)
+                this.paintAnnotations(sc n x y w h)
                 return
             }
         }
         def body:SceneItem (sc.rect(x y w h fill))
+        body.opacity = faded
+        def want:double (FlowShapes.radiusFor(n.shape w h))
+        if (want >= 0.0) {
+            radius = (this.sl(want))
+        }
         body.radius = radius
         body.stroke = border
         body.strokeWidth = bw
         body.tag = tag
+        this.paintOrnaments(sc n x y w h tag border bw)
         if (n.shape == "predefined") {
             ; Two bars: "this step is a whole procedure of its own".
             def inset:double (this.sl(9.0))
@@ -581,11 +1293,141 @@ class FlowView {
             def fi:SceneItem (sc.path(f (this.screenPathD(f)) border bw))
             fi.tag = tag
         }
+        this.paintAnnotations(sc n x y w h)
         if ((n.sectionCount()) == 0) {
             this.paintPlainLabel(sc n x y w h tag)
             return
         }
         this.paintCompartments(sc n x y w h tag)
+    }
+
+    ; The node's own outline in screen space. `FlowNode.outline` works in flow
+    ; coordinates because that is where rotation is defined; this is the same
+    ; ring, mapped.
+    fn screenRing:[double] (n:FlowNode) {
+        def ring:[double] (n.outline())
+        def out:[double]
+        def i:int 0
+        while (i < (array_length ring)) {
+            push out (this.sx((itemAt ring i)))
+            push out (this.sy((itemAt ring (i + 1))))
+            i = (i + 2)
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------- annotations --
+    ; The second, third and fourth pieces of text on a node. The offset is a
+    ; fraction of the box, so an annotation put under a step stays under it
+    ; when the step is resized; the width it may use is measured to the
+    ; nearest edge, so one pinned at the right does not run off it.
+    fn paintAnnotations:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double) {
+        def count:int (n.annotationCount())
+        if (count == 0) { return }
+        def i:int 0
+        while (i < count) {
+            def a:FlowAnnotation (n.annotationAt(i))
+            if ((strlen a.text) > 0) {
+                def size:double (this.sl(a.fontSize))
+                if (size >= 5.0) {
+                    def cx:double (x + (w * a.offsetX))
+                    def cy:double (y + (h * a.offsetY))
+                    def room:double (this.annotationRoom(x w cx))
+                    if (a.width > 0.0) {
+                        room = (this.sl(a.width))
+                    }
+                    def lay:FlowTextLayout (this.layoutText(a.text size room 0.0 2))
+                    def col:string a.color
+                    if ((strlen col) == 0) {
+                        col = theme.nodeMutedText
+                    }
+                    this.paintBlock(sc lay cx cy col ("ann:" + a.id) a.bold)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; How wide an annotation may be where it was pinned: twice the distance to
+    ; the nearer edge of the node, so a centred one gets the whole box and one
+    ; pinned at 0.9 gets a fifth of it rather than running out over the
+    ; neighbours.
+    fn annotationRoom:double (x:double w:double cx:double) {
+        def left:double (cx - x)
+        def right:double ((x + w) - cx)
+        def near:double left
+        if (right < near) { near = right }
+        def room:double (near * 2.0)
+        if (room < (this.sl(28.0))) {
+            room = (this.sl(28.0))
+        }
+        return room
+    }
+
+    ; The same on an edge, where "where" is how far ALONG the path rather than
+    ; how far across a box, and `away` is how far off it.
+    fn paintEdgeAnnotations:void (sc:FlowScene e:FlowEdge path:EdgePath) {
+        def count:int (e.annotationCount())
+        if (count == 0) { return }
+        def flat:[double] (path.flatten(24))
+        def n:int (idiv (array_length flat) 2)
+        if (n < 2) { return }
+        def i:int 0
+        while (i < count) {
+            def a:FlowAnnotation (e.annotationAt(i))
+            if ((strlen a.text) > 0) {
+                def size:double (this.sl(a.fontSize))
+                if (size >= 5.0) {
+                    def at:int (FlowView.indexAlong(n a.offsetX))
+                    def px:double (itemAt flat (at * 2))
+                    def py:double (itemAt flat ((at * 2) + 1))
+                    def lay:FlowTextLayout (this.layoutText(a.text size (this.sl(140.0)) 0.0 2))
+                    def col:string a.color
+                    if ((strlen col) == 0) {
+                        col = theme.edgeLabelText
+                    }
+                    this.paintBlock(sc lay (this.sx(px)) ((this.sy(py)) + (this.sl(a.away))) col ("ann:" + a.id) a.bold)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn indexAlong:int (n:int t:double) {
+        def raw:int (to_int ((to_double (n - 1)) * t))
+        if (raw < 0) { raw = 0 }
+        if (raw > (n - 1)) { raw = (n - 1) }
+        return raw
+    }
+
+    ; The lines drawn ON a shape rather than round it: the lid of a drum, the
+    ; bar across a sort, the cross in an OR junction, the sheets behind the
+    ; front page of a stack. They are strokes, they carry the node's tag so a
+    ; click on one is a click on the node, and every backend already has the
+    ; primitive — which is the whole reason the shape system emits points and
+    ; never asks a renderer to know what a "sort" is.
+    fn paintOrnaments:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string border:string bw:double) {
+        def count:int (FlowShapes.ornamentCount(n.shape))
+        def i:int 0
+        while (i < count) {
+            def pts:[double] (FlowShapes.ornamentAt(n.shape x y w h i))
+            if ((array_length pts) >= 4) {
+                if (FlowShapes.ornamentClosed(n.shape i)) {
+                    ; Filled, because the one shape that uses a closed
+                    ; ornament is UML's final node and the bullseye in the
+                    ; middle of it is solid.
+                    def ring:SceneItem (sc.polygon(pts border))
+                    ring.stroke = border
+                    ring.strokeWidth = bw
+                    ring.tag = tag
+                } {
+                    def d:string (this.screenPathD(pts))
+                    def line:SceneItem (sc.path(pts d border bw))
+                    line.tag = tag
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     ; A swimlane: a pale band with its name written down the left-hand edge,
@@ -607,12 +1449,19 @@ class FlowView {
         ; No rotated text in the display list, so the name is set across the
         ; top of its own band instead of down the side of it — one line of
         ; type either way, and the same in the PDF as on the screen.
-        def label:string (this.fitText(n.label size (w - (barW * 2.0))))
-        def tw:double (this.textWidthBold(label size true))
-        def t:SceneItem (sc.text(label (x + barW + (this.sl(8.0))) (y + (this.sl(6.0))) tw size theme.nodeMutedText))
+        def raw:string (this.textFor(tag n.label))
+        def room:double (w - (barW * 2.0))
+        def lay:FlowTextLayout (this.layoutTextBold(raw size room 0.0 1 true))
+        def label:string (lay.lineAt(0))
+        def tw:double (this.textWidthBold(label lay.size true))
+        def lx:double (x + barW + (this.sl(8.0)))
+        def ly:double (y + (this.sl(6.0)))
+        this.paintEditRow(sc tag (lx - (this.sl(3.0))) (ly - (this.sl(2.0))) (tw + (this.sl(10.0))) (lay.size * 1.5))
+        def t:SceneItem (sc.text(label lx ly tw lay.size theme.nodeMutedText))
         t.fontFamily = theme.fontFamily
         t.bold = true
         t.tag = tag
+        this.paintCaretAt(sc tag label lay.size lx ly true)
     }
 
     ; A label centred in a shape rather than in its bounding box: the middle of
@@ -623,9 +1472,22 @@ class FlowView {
         if (size < 5.0) {
             return
         }
-        def room:double (w - (this.sl(16.0)))
+        ; How much of the box the shape actually leaves to write in, and where
+        ; in it the room is. A diamond has only its middle; a right triangle's
+        ; middle is on the hypotenuse, so its text sits lower and to the left.
+        def room:double (FlowShapes.labelRoom(n.shape w h))
+        def tall:double (h - (this.sl(10.0)))
         if (n.shape == "diamond") {
-            room = (w * 0.62)
+            tall = (h * 0.55)
+        }
+        if (n.shape == "triangle") {
+            tall = (h * 0.4)
+        }
+        if (n.shape == "triangledown") {
+            tall = (h * 0.4)
+        }
+        if (n.shape == "righttriangle") {
+            tall = (h * 0.4)
         }
         if (n.shape == "parallelogram") {
             room = (w - ((FlowShapes.slantOf(w h)) * 2.0))
@@ -633,16 +1495,35 @@ class FlowView {
         if (n.shape == "trapezoid") {
             room = (w - ((FlowShapes.slantOf(w h)) * 2.0))
         }
+        if (n.shape == "cylinder") {
+            tall = (h - ((FlowShapes.drumRadius(h)) * 3.0))
+        }
+        if (n.shape == "document") {
+            tall = (h - ((FlowShapes.waveDepth(h)) * 2.0))
+        }
         if (room < (this.sl(20.0))) {
             room = (this.sl(20.0))
         }
-        def label:string (this.fitText(n.label size room))
-        def tw:double (this.textWidth(label size))
-        def tx:double (x + ((w - tw) * 0.5))
-        def ty:double (y + ((h - (size * 1.2)) * 0.5))
-        def t:SceneItem (sc.text(label tx ty tw size theme.nodeText))
-        t.fontFamily = theme.fontFamily
-        t.tag = tag
+        if (tall < (size * 1.25)) {
+            tall = (size * 1.25)
+        }
+        def text:string (this.textFor(tag n.label))
+        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesFor(tall size))))
+        def cx:double (FlowShapes.labelCX(n.shape x y w h))
+        def cy:double (FlowShapes.labelCY(n.shape x y w h))
+        this.paintEditField(sc tag cx cy lay room)
+        def top:double (this.paintBlock(sc lay cx cy theme.nodeText tag false))
+        this.paintCaret(sc tag lay cx top false)
+    }
+
+    ; Two lines when there is room for two, one when there is not. Asking for
+    ; more lines than fit would only make the autofit shrink to reach a line it
+    ; cannot use.
+    fn linesFor:int (room:double size:double) {
+        def n:int (to_int (room / (size * 1.25)))
+        if (n < 1) { return 1 }
+        if (n > 3) { return 3 }
+        return n
     }
 
     fn paintPlainLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
@@ -650,13 +1531,18 @@ class FlowView {
         if (size < 5.0) {
             return
         }
-        def label:string (this.fitText(n.label size (w - 12.0)))
-        def tw:double (this.textWidth(label size))
-        def tx:double (x + ((w - tw) * 0.5))
-        def ty:double (y + ((h - (size * 1.2)) * 0.5))
-        def t:SceneItem (sc.text(label tx ty tw size theme.nodeText))
-        t.fontFamily = theme.fontFamily
-        t.tag = tag
+        def room:double (w - (this.sl(14.0)))
+        def tall:double (h - (this.sl(8.0)))
+        if (tall < (size * 1.25)) {
+            tall = (size * 1.25)
+        }
+        def text:string (this.textFor(tag n.label))
+        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesFor(tall size))))
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        this.paintEditField(sc tag cx cy lay room)
+        def top:double (this.paintBlock(sc lay cx cy theme.nodeText tag false))
+        this.paintCaret(sc tag lay cx top false)
     }
 
     ; The compartment node: header, then sections of rows. Geometry comes from
@@ -687,13 +1573,25 @@ class FlowView {
         def accent:SceneItem (sc.rect(x y (this.sl(3.0)) headerH theme.headerAccent))
         accent.tag = tag
         if (headSize >= 5.0) {
-            def title:string (this.fitText(n.label headSize (w - (pad * 2.0))))
-            def t:SceneItem (sc.text(title (x + pad) (y + ((headerH - (headSize * 1.2)) * 0.5)) (w - (pad * 2.0)) headSize theme.headerText))
+            def room:double (w - (pad * 2.0))
+            def raw:string (this.textFor(tag n.label))
+            ; One line: a table's name broken over two lines in a list of nine
+            ; tables is a name you cannot scan past. Autofit instead.
+            def lay:FlowTextLayout (this.layoutTextBold(raw headSize room 0.0 1 true))
+            def title:string (lay.lineAt(0))
+            def ty0:double (y + ((headerH - (lay.size * 1.2)) * 0.5))
+            this.paintEditRow(sc tag (x + pad) (y + (headerH * 0.12)) room (headerH * 0.76))
+            def t:SceneItem (sc.text(title (x + pad) ty0 room lay.size theme.headerText))
             t.fontFamily = theme.fontFamily
             t.bold = true
             t.tag = tag
+            this.paintCaretAt(sc tag title lay.size (x + pad) ty0 true)
         }
         def cursor:double (y + headerH)
+        ; Rows are numbered across the whole node rather than within a section,
+        ; because that is what an editing target has to be: "the third row of
+        ; customers", not "the first row of its second section".
+        def rowNo:int 0
         def si:int 0
         while (si < (n.sectionCount())) {
             def sec:FlowSection (n.sectionAt(si))
@@ -715,7 +1613,9 @@ class FlowView {
                 def ri:int 0
                 while (ri < (array_length sec.rows)) {
                     def row:FlowRow (itemAt sec.rows ri)
-                    this.paintRow(sc n row x cursor w rowH rowSize pad tag ri)
+                    def rowTag:string ((("row:" + n.id) + ":") + (to_string rowNo))
+                    this.paintRow(sc n row x cursor w rowH rowSize pad tag ri rowTag)
+                    rowNo = (rowNo + 1)
                     cursor = (cursor + rowH)
                     ri = (ri + 1)
                 }
@@ -724,7 +1624,7 @@ class FlowView {
         }
     }
 
-    fn paintRow:void (sc:FlowScene n:FlowNode row:FlowRow x:double y:double w:double rowH:double size:double pad:double tag:string idx:int) {
+    fn paintRow:void (sc:FlowScene n:FlowNode row:FlowRow x:double y:double w:double rowH:double size:double pad:double tag:string idx:int rowTag:string) {
         if (row.selected) {
             def sel:SceneItem (sc.rect(x y w rowH theme.selectedFill))
             sel.tag = tag
@@ -759,17 +1659,30 @@ class FlowView {
             tr.tag = tag
         }
         def detailW:double 0.0
-        if ((strlen row.detail) > 0) {
-            detailW = (this.textWidth(row.detail size))
+        def typeTag:string (rowTag + ":type")
+        ; The type is a piece of text a reader edits as often as the name — a
+        ; column added to a table starts as `uusi_sarake TEXT` and both halves
+        ; of that are wrong — so it goes through the same editing path: the
+        ; committed value comes from `textFor`, and the caret is drawn in it.
+        def shownType:string (this.textFor(typeTag row.detail))
+        if ((strlen shownType) > 0) {
+            detailW = (this.textWidth(shownType size))
             def gapAfter:double 0.0
             if (trailW > 0.0) {
                 gapAfter = (this.sl(9.0))
             }
+            ; Right-aligned, so it grows leftwards as it is typed — and
+            ; clamped at half the row, so a long type cannot eat the name it
+            ; belongs to.
+            def cap:double (w * 0.5)
+            if (detailW > cap) { detailW = cap }
             def dx:double (((right - trailW) - gapAfter) - detailW)
-            def dt:SceneItem (sc.text(row.detail dx ty detailW size theme.typeColor))
+            this.paintEditRow(sc typeTag (dx - (this.sl(2.0))) y (detailW + (this.sl(4.0))) rowH)
+            def dt:SceneItem (sc.text(shownType dx ty detailW size theme.typeColor))
             dt.fontFamily = theme.fontFamily
             dt.align = "right"
-            dt.tag = tag
+            dt.tag = typeTag
+            this.paintCaretAt(sc typeTag shownType size dx ty false)
             detailW = (detailW + gapAfter)
         }
         def nameX:double ((x + pad) + badgeW)
@@ -779,13 +1692,19 @@ class FlowView {
         }
         def nameCol:string theme.nodeText
         if (row.emphasis == 2) { nameCol = theme.nodeMutedText }
-        def label:string (this.fitText(row.text size avail))
-        def nt:SceneItem (sc.text(label nameX ty avail size nameCol))
+        def bold:boolean (row.emphasis == 1)
+        def raw:string (this.textFor(rowTag row.text))
+        def lay:FlowTextLayout (this.layoutTextBold(raw size avail 0.0 1 bold))
+        def label:string (lay.lineAt(0))
+        def ty2:double (y + ((rowH - (lay.size * 1.2)) * 0.5))
+        this.paintEditRow(sc rowTag (nameX - (this.sl(2.0))) y (avail + (this.sl(4.0))) rowH)
+        def nt:SceneItem (sc.text(label nameX ty2 avail lay.size nameCol))
         nt.fontFamily = theme.fontFamily
-        if (row.emphasis == 1) {
+        if bold {
             nt.bold = true
         }
-        nt.tag = tag
+        nt.tag = rowTag
+        this.paintCaretAt(sc rowTag label lay.size nameX ty2 bold)
     }
 
     sfn badgeGlyph:string (badge:string) {
@@ -793,6 +1712,80 @@ class FlowView {
         if (badge == "fk")  { return "FK" }
         if (badge == "idx") { return "IX" }
         return badge
+    }
+
+    ; -------------------------------------------------------------- rulers --
+    ; Ticks at a round number of flow units, chosen so they never crowd: the
+    ; step goes 10, 20, 50, 100, 200 … as the zoom drops, which is the same
+    ; 1-2-5 progression a chart axis uses and for the same reason.
+    fn paintRulers:void (sc:FlowScene) {
+        def band:double rulerSize
+        def step:double (FlowView.tickStep(viewport.zoom))
+        def size:double 9.0
+        ; The two bands themselves, and the little square where they meet.
+        def top:SceneItem (sc.rect(0.0 0.0 width band theme.panelFill))
+        top.tag = "chrome"
+        def left:SceneItem (sc.rect(0.0 0.0 band height theme.panelFill))
+        left.tag = "chrome"
+        def edgeA:SceneItem (sc.rect(0.0 (band - 1.0) width 1.0 theme.panelBorder))
+        edgeA.tag = "chrome"
+        def edgeB:SceneItem (sc.rect((band - 1.0) 0.0 1.0 height theme.panelBorder))
+        edgeB.tag = "chrome"
+
+        ; Horizontal: walk flow units, not screen pixels, so the numbers are
+        ; the model's and the spacing is whatever the zoom makes it.
+        def fromX:double (viewport.toFlowX(band))
+        def toX:double (viewport.toFlowX(width))
+        def x:double (FlowView.floorTo(fromX step))
+        while (x < toX) {
+            def sxv:double (this.sx(x))
+            if (sxv >= band) {
+                def tick:SceneItem (sc.rect(sxv (band - 6.0) 1.0 5.0 theme.minimapNode))
+                tick.tag = "chrome"
+                if (size >= 5.0) {
+                    def lbl:string (to_string (to_int x))
+                    def t:SceneItem (sc.text(lbl (sxv + 3.0) 3.0 40.0 size theme.nodeMutedText))
+                    t.fontFamily = theme.fontFamily
+                    t.tag = "chrome"
+                }
+            }
+            x = (x + step)
+        }
+        def fromY:double (viewport.toFlowY(band))
+        def toY:double (viewport.toFlowY(height))
+        def y:double (FlowView.floorTo(fromY step))
+        while (y < toY) {
+            def syv:double (this.sy(y))
+            if (syv >= band) {
+                def tick2:SceneItem (sc.rect((band - 6.0) syv 5.0 1.0 theme.minimapNode))
+                tick2.tag = "chrome"
+                if (size >= 5.0) {
+                    def lbl2:string (to_string (to_int y))
+                    def t2:SceneItem (sc.text(lbl2 2.0 (syv + 2.0) (band - 4.0) size theme.nodeMutedText))
+                    t2.fontFamily = theme.fontFamily
+                    t2.tag = "chrome"
+                }
+            }
+            y = (y + step)
+        }
+    }
+
+    ; 1-2-5, the progression that keeps a tick label round at any zoom.
+    sfn tickStep:double (zoom:double) {
+        def want:double 80.0
+        def unit:double (want / zoom)
+        def step:double 1.0
+        while (step < unit) {
+            if ((step * 2.0) >= unit) { return (step * 2.0) }
+            if ((step * 5.0) >= unit) { return (step * 5.0) }
+            step = (step * 10.0)
+        }
+        return step
+    }
+
+    sfn floorTo:double (v:double step:double) {
+        def q:int (floor (v / step))
+        return ((to_double q) * step)
     }
 
     ; --------------------------------------------------------------- ports ---
@@ -820,6 +1813,16 @@ class FlowView {
         def r:double (this.sl(theme.portRadius))
         if (r < 2.0) {
             r = 2.0
+        }
+        ; A node drawn twenty pixels across has no room for handles on it, and
+        ; drawing them anyway turns it into a row of dots. The hit test caps
+        ; its grab radius the same way, so what you can aim at and what you can
+        ; see agree.
+        if ((this.sl(n.width)) < 34.0) {
+            return
+        }
+        if ((this.sl(n.height)) < 24.0) {
+            return
         }
         def i:int 0
         while (i < (array_length n.ports)) {

@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 285 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 399 assertions: model, forces, router, editor, SQL, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -38,8 +38,9 @@ npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
 npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
-npm run rangerflow:web:test    # …or run all seven demos in headless Chrome
+npm run rangerflow:web:test    # …or run all nine demos in headless Chrome
 npm run rangerflow:parity      # score it against React Flow — see below
+npm run rangerflow:rivals      # …and against JointJS and Syncfusion
 npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
 ```
 
@@ -58,10 +59,14 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
+| [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
+| [`?scenario=radial`](http://localhost:8080/?scenario=radial) | the same graph as a radial tree, a generation per ring |
+| [`?scenario=activity`](http://localhost:8080/?scenario=activity) | a UML **activity** diagram — actions, a fork and a join, signals sent and received, a wait |
 
-Drag to pan, wheel to zoom, shift-drag to box select, drag a handle to connect,
-`Delete`, `Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen,
-and **open .sql** reads a schema in the tab without uploading it anywhere.
+Drag to pan, wheel to zoom, pinch to zoom on a touch screen, shift-drag to box
+select, drag a handle to connect, **right-click for a menu**, `Delete`,
+`Ctrl+Z`, `f` to fit. **Download SVG** exports whatever is on screen, and
+**open .sql** reads a schema in the tab without uploading it anywhere.
 
 The second row is a **toolbar**, and it is not a demo of a toolbar: every
 button calls one method on the app, which calls one method on `FlowEditor`, so
@@ -69,10 +74,12 @@ the same authoring runs in the SDL window and in a headless test.
 
 | | |
 | --- | --- |
-| the eleven shape buttons | add a node of that shape at the middle of the view, selected and ready to be named |
+| the shape buttons | add a node of that shape at the middle of the view, selected and ready to be named — the ISO 5807 set, and the UML activity one |
 | **connect** | React Flow's `connectOnClick`: click the source, click the target. Clicking the pane cancels |
+| **+ column** / **− column** | on a schema table: add a column, or drop one. Greyed out on anything that is not a table |
+| **rotate** / **duplicate** | a quarter turn, and a copy offset far enough to be visibly a copy |
 | **delete** / **undo** / **redo** | the same three the keyboard does, for a reader who is holding a mouse |
-| the **name** field | renames the selected node as you type — no dialog over the canvas showing you the thing you are naming |
+| the **name** field | renames the selected node as you type — or double-click the label itself and type where it is |
 
 Every scenario is checked on every `npm run rangerflow:web:test`: the page
 drives itself through select → drag → undo → select-all → **add two nodes,
@@ -141,6 +148,15 @@ of points out. The ring does three jobs, which is why there is only one of it:
   node's middle, so an arrow into a parallelogram ends on the slope rather than
   in the air beside it.
 
+A table carries a port per row and needs no others. A shape has no rows at all,
+so it gets the four side handles React Flow gives a node that declares none —
+without them a box is drawn, selected, and impossible to connect to anything,
+which is the first thing a reader tries. They are placed on the outline, so the
+left handle of a diamond is its left-hand point and stays there when the node is
+resized. The grab radius is eight screen pixels **or a quarter of the node's
+shorter side, whichever is smaller**: zoomed far enough out, eight screen pixels
+is the whole node, and a node that is all handle is a node you cannot select.
+
 Curves are cut into segments rather than emitted as arcs, because the display
 list has polygons and polylines and no beziers. A rounded end drawn as sixteen
 segments is indistinguishable at any zoom a reader uses; a second code path
@@ -190,19 +206,120 @@ A frame is also not an obstacle. `EdgeOverlap.blocks` skips group nodes, so a
 line crossing a lane is not counted as a line drawn through a box: it is what a
 lane is for, and counting it would drown the number that matters in noise.
 
+## The text, which is most of the diagram
+
+A diagram is mostly words — a table's name, its columns, a step's label, the
+`kyllä` on a branch — and until now every one of them was cut off with an
+ellipsis the moment it did not fit. That is the worst of the three possible
+answers, and it was the only one implemented.
+
+`core/FlowText.rgr` and `FlowView.layoutText` do them in the order a typesetter
+would:
+
+1. **Wrap.** Break at a space and take a second line. Free, and what the reader
+   expects: "Merkitse jälkitoimitukseen" is two lines, not a shrunken one.
+2. **Autofit.** Take the size down a step at a time until the block fits.
+   Bounded at 68% of the base size — below that a label does not read as "this
+   one is long", it reads as a bug.
+3. **Cut.** Only when the first two have run out.
+
+```text
+   before                    wrap                     autofit
+ ┌────────────┐        ┌────────────┐          ┌────────────┐
+ │Tarkista as…│        │  Tarkista  │          │  Tarkista  │
+ └────────────┘        │ asiakkaan  │          │ asiakkaan  │
+                       └────────────┘          │luottotiedot│
+                                               └────────────┘
+```
+
+The lines are cut out of the source **by position** rather than rebuilt from
+copies of the words. That looks like a detail and it is the reason the caret
+works: the layout can say which line a given character index landed on and how
+far into it, so `"kaksi  väliä"` keeps both spaces and the caret does not drift
+a character every time it passes one.
+
+## Typing where the text is
+
+A field in a toolbar edits one label at a time and you stop using it. So
+**double-click puts the caret in whatever text is under the pointer** — a
+table's name if you hit the header, a column if you hit a row, a step's label,
+a branch's `kyllä`, a lane's name. `FlowEditor.textAt` resolves the point to a
+tag (`node:<id>`, `row:<id>:<n>`, `row:<id>:<n>:type`, `edge:<id>`) and
+everything downstream — drawing, undo — speaks the same vocabulary.
+
+A column is two pieces of text, and they are edited for different reasons: the
+name on the left, the type on the right. Which one you get is **which one you
+pointed at**, worked out from where the renderer actually put the type rather
+than from a guess — the alternative is a modifier key nobody discovers, or the
+type not being editable at all, which is what it was.
+
+The model is not touched until the edit is committed. That buys two things:
+Escape is free, and one Ctrl+Z takes back the whole name rather than one
+keystroke. Pressing on a different label commits the current one and starts
+that one, so a reader can walk a diagram naming things without reaching for a
+key in between.
+
+While you type, the buffer is drawn **through the same wrap and the same
+autofit** the committed text will get, in the same place, at the same size. An
+editor that types into a plain box and reflows on commit is an editor that
+surprises you at the last moment.
+
+The browser needs one more piece. A canvas cannot receive a composed character,
+a dead key, or anything a phone's keyboard produces, so a real `<input>` sits
+offscreen, takes focus while a label is being edited, and has its value mirrored
+into the editor on every input event — the input is a keyboard, not a source of
+truth. A host without one (the SDL window, the test suite) types through
+`typeText` / `backspace` / `moveCaret` and gets the same result.
+
+### A schema you can change
+
+Editable names are enough to fix a typo and no help at all when a table is
+missing a column. So a table's columns can be **added and dropped**:
+
+```
+right-click a column  →  Lisää sarake tähän alle / Poista sarake / Muuta tyyppiä…
+toolbar               →  + column  /  − column     (greyed out on anything that is not a table)
+```
+
+Three things have to happen together, and the seam is what makes them cheap:
+
+- **The ports.** A column is a row *plus* a connection point on each side, so a
+  foreign key can arrive from whichever side the other table is on. Those are
+  not created by `addRow` — `layoutCompartments` already places a port opposite
+  every row that names one, and it is the only code in the program that knows
+  where row seven is. Inserting the row and asking for a relayout is the whole
+  of it.
+- **The width.** `layoutCompartments` sets the *height* from the rows; the
+  width was decided once, by whoever built the node. A column added afterwards
+  would run out of its own box, so `fitToRows` measures every row with the same
+  arithmetic `paintRow` lays one out with.
+- **The relations.** Dropping a column takes every edge that landed on it. An
+  edge left pointing at a port that is gone is drawn from the middle of the
+  table, which looks like a bug and is one.
+
+One undo takes back the row, its ports *and* its edges — and because a
+`FlowUndoEntry` holds the objects rather than a description of them, what comes
+back is the same row, not a copy that looks like it.
+
+The new column arrives with the caret already in its name. A placeholder called
+`uusi_sarake` that you then have to find and double-click is a placeholder
+nobody replaces.
+
 ## The layers
 
 | Layer | Files | What it is |
 | --- | --- | --- |
 | Model | `core/GraphModel.rgr` | nodes, ports, edges, compartments, viewport, selection, hit tests |
 | | `core/FlowShapes.rgr` | what a node is, as an outline: the twelve shapes, their handles, and point-in-shape |
+| | `core/FlowText.rgr` | wrap, autofit, and the source positions that let a caret land on the right character |
 | Routing | `core/EdgeRouter.rgr` | bezier / step / smoothstep paths, arrow and crow's-foot decoration |
-| Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo, dragging an edge's corners by hand |
+| Interaction | `core/FlowEditor.rgr` | pan, zoom, drag, box select, connect, resize, snap, undo/redo, dragging an edge's corners by hand, typing into a label in place |
 | Scene | `core/FlowView.rgr`, `core/FlowScene.rgr` | the picture, once, for four backends |
 | Layout | `layout/ForceLayout.rgr`, `layout/LayeredLayout.rgr` | d3-force and a Sugiyama-style layered layout |
 | Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |
 | | `layout/LayeredLayout.rgr` | dummy-vertex chains, so long edges are ordered, given room, and drawn round what is between their ends |
 | | `layout/OrthoRouter.rgr` | an orthogonal visibility grid and a bend-charging Dijkstra, run as a repair pass for whatever the layout never saw |
+| | `layout/TreeLayouts.rgr` | the radial tree and the mind map: measure a subtree, then hand it the share it earned |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |
 | | `domains/flowchart/*` | the ATK chart: kinds, branch labels, and which shape each kind is |
@@ -477,6 +594,130 @@ A hand-placed route sets `FlowEdge.pinnedRoute`, and after that the lane pass,
 the repair pass and the layout all leave it alone: overruling the reader is
 worse than a crossing. Undo puts the routing back in the router's hands.
 
+## The other two, measured differently
+
+React Flow can be an oracle: it is MIT, it is on npm, and the harness asks
+**its own functions** the questions RangerFlow is asked. Neither JointJS nor
+Syncfusion works that way, and `npm run rangerflow:rivals` says so at the top of
+its own output rather than quietly scoring them the same way:
+
+| | Licence | Oracle | What is scored |
+| --- | --- | --- | --- |
+| React Flow | MIT | **yes** | pixels of difference, and behaviour |
+| JointJS 4 | MPL-2.0 | possible, not built | its published feature list |
+| Syncfusion EJ2 | commercial | **no** — not installed, not run | its published feature list |
+
+Syncfusion's npm package says `SEE LICENSE IN license`. It is not installed
+here and not used to compute anything; its rows are quoted from its own **Key
+features** list and the enumerations in its public source, because the
+denominator has to be their claim about themselves. For JointJS an oracle
+*would* be possible — it is not built because the families worth comparing that
+way are already measured against React Flow to two thousandths of a pixel.
+
+|  | first pass | honest statuses | now |
+| --- | ---: | ---: | ---: |
+| JointJS 4 | 29/48 (60%) | 39.5/48 (82%) | **45/48 (94%)** |
+| Syncfusion EJ2 | 38.5/62 (62%) | 53.5/63 (85%) | **59/63 (94%)** |
+
+The middle column is not a jump in capability; it is a correction. The meter
+used to **guess** a row's status from whether it had a note — a probe plus a
+note scored half a feature, a probe alone scored a whole one — and that was
+wrong in both directions. Half the notes say what our version is *called*
+rather than what it *lacks* ("smoothstep", "layered (Sugiyama)"), and those
+were being scored as half a feature; meanwhile a row carrying a real
+limitation would have read as whole the moment somebody tidied the note away.
+The status is a written-down field now, sitting next to the evidence for it,
+and the meter fails loudly on a row that claims one without naming a probe —
+or that still says `todo` beside a probe that passes.
+
+Five layout rows were also leaning on the `fitView` probe, which proves the
+viewport algebra and nothing whatever about the layout under it. Each has its
+own probe now, asserting what its layout is *for*: parents above children,
+linked nodes nearer than unlinked ones, a long edge carried through a chain of
+corners, and no two boxes sharing a pixel.
+
+The meter is what drove the work, and what it found was worth having:
+
+- **Nine more shapes** — triangle, right triangle, plus, star, and the regular
+  polygons from pentagon to decagon, plus an outline the caller supplies
+  (`shapePoints`, unit coordinates across the box). The probe checks that
+  **the point a label is drawn at is inside the shape**, which caught the right
+  triangle: the centre of its box sits exactly on the hypotenuse, so its text
+  was half outside itself.
+- **The rest of ISO 5807** — paper tape, direct data, magnetic tape, sort,
+  multi-document, collate, OR, internal storage. Several of these are an
+  outline *plus a rule drawn on it* — the bar across a sort, the cross in an OR
+  junction, the corners of the sheets behind the front page of a stack — which
+  the shape system had no way to express. It does now, as points, so they reach
+  the PDF and the GPU by the road the rectangles took. The same mechanism
+  replaced the one hand-written special case that was already there, the
+  cylinder's lid.
+- **The UML activity vocabulary** — a different language from the class diagram
+  next door. An action is a rounded box, a fork is a bar, a signal sent is a
+  box with a point pushed out and one received is a box with a bite taken out,
+  a wait is an hourglass, and the diagram starts and ends on filled circles.
+  The hourglass has almost no room *in* it, so its wait is written underneath
+  it as an annotation — which is what UML does and what the annotation
+  mechanism below is for.
+- **Three more router families** — a curve (a spline that passes **through**
+  the link's vertices, with a tension, as against a bezier whose shape is fixed
+  by the two port normals), a metro line (orthogonal with every corner cut to
+  45°, chamfered by no more than half the shorter leg so a short run cannot be
+  eaten), and a one-side route (out, along and back, all on one face).
+- **Several annotations per object.** A node had a label — the name of the
+  thing, in the middle — and that was the whole of the text it could carry. A
+  real diagram wants a step number in one corner, a cost in the other, an SLA
+  above the arrow. The offset is a **fraction** of the object rather than a
+  distance, so an annotation pinned under a box stays under it when somebody
+  makes the box taller.
+- **Rotation**, done at the four functions on `FlowNode` that every piece of
+  geometry already went through. The outline turns; the hit test turns the
+  **question** back into the node's own frame instead, which is one point to
+  rotate rather than thirty; the ports come along for free, and so does every
+  shape and every custom polygon. The text stays upright — which is why that
+  row is scored `partial` and not `done`.
+- **A context menu and tooltips.** The menu is built from what is under the
+  pointer rather than being one menu with most of it greyed out, and its
+  geometry lives on the view so that the row you can *see* and the row you can
+  *press* are computed by the same arithmetic. A tooltip says nothing when
+  there is nothing to say: one that repeats the label teaches the reader to
+  ignore tooltips.
+- **Walking the graph** — neighbours, predecessors, successors, breadth first,
+  depth first, connected component. The graph already knew how connected each
+  node was; what it could not tell you was *what to*.
+- **Pinch to zoom**, keeping the contract the wheel keeps: the flow point
+  between the fingers stays between them — while they spread, and while they
+  travel.
+- **Element tools and highlighters** — a remove button and a connect button
+  beside the selected node, and a halo, a mask or a fade on top of selection.
+- **Line jumps** — where two lines cross, one hops over the other. JointJS
+  calls it the `jumpover` connector, Syncfusion calls it connector bridging,
+  and it is the only honest answer to a crossing you cannot route away: two
+  lines meeting at a point are ambiguous about whether they join, and a hop
+  says they do not. Done on the flattened polyline in the coordinates it is
+  drawn in, so every backend gets it.
+- **A radial tree and a mind map** — `layout/TreeLayouts.rgr`. Both are the
+  same two passes: measure what each subtree needs, then hand each child the
+  share it earned. The ring radii and the level gaps are *measured* from the
+  boxes rather than picked, because thirteen boxes a hundred and sixty wide do
+  not fit on a circle of radius a hundred and seventy however tidy the number.
+- **A JSON reader** — a diagram you can save and not open is a diagram you have
+  lost. Writing it exposed the defect the writer had all along: `toJson` never
+  wrote an edge's **label**, so a saved flowchart came back with every `kyllä`
+  gone, silently.
+- **Data binding** — a flat array of records each naming its own parent, which
+  is what `dataSourceSettings` means and what a REST call gives you.
+- **Rulers** — a scale in flow units down two edges of the surface, ticked on
+  the 1-2-5 progression a chart axis uses.
+
+What is still missing is listed in [`docs/RIVALS.md`](docs/RIVALS.md) as `todo`
+rather than left out: BPMN (a whole notation of its own), image elements,
+PNG/JPEG encoders, a link whose endpoint is another link, and drag-and-drop out
+of the palette. Three rows are `partial` and say what is narrower: rotation
+leaves the text upright, the palette adds rather than being dragged from, and
+page size reaches the export but is not drawn on the surface. A `todo` row
+means we do not have it — there is no row there that means "probably fine".
+
 ## Parity is measured, not claimed
 
 A scorecard we wrote from imagination would only measure our imagination. So
@@ -495,8 +736,8 @@ force layout vs d3-force
   tick   0  max   0.000 px   rms  0.000 px   shape error 0.00%
   tick 300  max   1.414 px   rms  0.480 px   shape error 0.06%
 
-behaviour  ████████████████████···· 42/50 capabilities, every one proved by a probe
-overall 97.7%
+behaviour  ██████████████████████·· 46/51 capabilities, every one proved by a probe
+overall 98.6%
 ```
 
 Edge paths are compared by **resampling both curves by arc length**, not by

@@ -25,6 +25,14 @@
 Import "../core/FlowEditor.rgr"
 Import "../core/EdgeRouter.rgr"
 Import "../layout/ForceLayout.rgr"
+Import "../layout/EdgeLanes.rgr"
+Import "../layout/OrthoRouter.rgr"
+Import "../layout/TreeLayouts.rgr"
+Import "../export/FlowExport.rgr"
+Import "../layout/LayeredLayout.rgr"
+Import "../domains/business/BusinessCharts.rgr"
+Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/uml/UMLActivity.rgr"
 
 class ParityOut {
     def parts:[string]
@@ -400,6 +408,12 @@ class ParityDump {
         probes.add(("{\"id\": \"" + id + "\", \"ok\": " + flag + ", \"note\": \"" + note + "\"}"))
     }
 
+    sfn dist:double (a:FlowNode b:FlowNode) {
+        def dx:double ((a.centerX()) - (b.centerX()))
+        def dy:double ((a.centerY()) - (b.centerY()))
+        return (sqrt ((dx * dx) + (dy * dy)))
+    }
+
     sfn near:boolean (a:double b:double tol:double) {
         def d:double (fabs (a - b))
         return (d <= tol)
@@ -427,6 +441,8 @@ class ParityDump {
     }
 
     fn probeAll:void () {
+        this.probeRivals()
+        this.probeLayouts()
         this.probeAuthoring()
         this.probeViewportBehaviour()
         this.probeSelection()
@@ -434,6 +450,1246 @@ class ParityDump {
         this.probeConnecting()
         this.probeResizeAndSnap()
         this.probeEdgesAndChrome()
+    }
+
+    ; Capabilities the OTHER two libraries document about themselves — JointJS
+    ; in its README and its `routers/`, `connectors/` and `linkTools/`
+    ; directories, Syncfusion in its published Key features and its shape
+    ; enumerations. Same rule as everywhere else: a row is only `done` if a
+    ; probe here drove the real editor and passed.
+    fn probeRivals:void () {
+        ; --- link tools: vertices and segments (JointJS linkTools) ----------
+        ; Offset, so the route actually has a corner to grab: two boxes at the
+        ; same height are joined by a straight line and there is nothing in the
+        ; middle of it to drag.
+        def lg (new FlowGraph)
+        def la:FlowNode (lg.node("a" "A" 0.0 0.0))
+        def lb:FlowNode (lg.node("b" "B" 420.0 220.0))
+        la.width = 150.0
+        la.height = 50.0
+        lb.width = 150.0
+        lb.height = 50.0
+        def e:FlowEdge (lg.connect("a" "b"))
+        e.edgeType = "smoothstep"
+        lg.reindex()
+        def ed:FlowEditor (FlowEditor.of(lg))
+        ed.setSize(1200.0 800.0)
+        ed.view.showControls = false
+        ed.view.showMinimap = false
+        def corners:[double] (EdgeRouter.cornersFor(lg e))
+        def n:int (idiv (array_length corners) 2)
+        def moved:boolean false
+        if (n >= 4) {
+            def mx:double (((itemAt corners 2) + (itemAt corners 4)) * 0.5)
+            def myA:int 3
+            def myB:int 5
+            def my:double (((itemAt corners myA) + (itemAt corners myB)) * 0.5)
+            def sx:double (ed.view.viewport.toScreenX(mx))
+            def sy:double (ed.view.viewport.toScreenY(my))
+            def inp (new FlowInput)
+            inp.x = sx
+            inp.y = sy
+            ed.pointerDown(inp)
+            inp.x = (sx + 30.0)
+            inp.y = (sy + 30.0)
+            ed.pointerMove(inp)
+            ed.pointerUp(inp)
+            moved = ((array_length e.waypoints) >= 4)
+        }
+        this.probe("linkSegments" moved "an edge segment can be dragged to a new place")
+
+        ; --- the four routers/connectors both libraries name ----------------
+        def kinds:[string]
+        push kinds "default"
+        push kinds "straight"
+        push kinds "step"
+        push kinds "smoothstep"
+        def allDrawn:boolean true
+        def k:int 0
+        while (k < (array_length kinds)) {
+            e.edgeType = (itemAt kinds k)
+            clear e.waypoints
+            def p:EdgePath (EdgeRouter.route(ed.graph e))
+            p.flatten(2)
+            if ((p.pointCount()) < 2) {
+                allDrawn = false
+            }
+            k = (k + 1)
+        }
+        this.probe("connectorKinds" allDrawn "bezier, straight, step and smoothstep all produce a path")
+
+        ; --- obstacle-avoiding orthogonal routing (JointJS `manhattan`) -----
+        def g2 (new FlowGraph)
+        def s:FlowNode (g2.node("s" "s" 0.0 0.0))
+        def t:FlowNode (g2.node("t" "t" 600.0 0.0))
+        s.width = 120.0
+        s.height = 60.0
+        t.width = 120.0
+        t.height = 60.0
+        def wall:FlowNode (g2.node("wall" "wall" 300.0 -30.0))
+        wall.width = 120.0
+        wall.height = 120.0
+        def e2:FlowEdge (g2.connect("s" "t"))
+        e2.edgeType = "smoothstep"
+        g2.reindex()
+        def broke:int (EdgeOverlap.nodeCrossings(g2))
+        def fixed:int (OrthoRouter.repairAll(g2))
+        def clear2:boolean ((EdgeOverlap.nodeCrossings(g2)) == 0)
+        def routed:boolean false
+        if (broke > 0) {
+            if (fixed > 0) {
+                routed = clear2
+            }
+        }
+        this.probe("obstacleRouting" routed "a connector goes round a node standing in its way")
+
+        ; --- editing the schema itself ---------------------------------------
+        ; A schema you can look at and not change is a picture of a schema.
+        ; Column names have been editable for a while; a column you can ADD is
+        ; what makes it an editor.
+        def sg (new FlowGraph)
+        def cust:FlowNode (FlowNode.create("customers" "customers" 0.0 0.0))
+        cust.width = 220.0
+        def csec:FlowSection (cust.addSection(""))
+        def cid:FlowRow (FlowRow.create("pk" "id" "INTEGER" ""))
+        cid.portId = "customers.id"
+        csec.addRow(cid)
+        cust.layoutCompartments()
+        sg.addNode(cust)
+        def ord:FlowNode (FlowNode.create("orders" "orders" 520.0 0.0))
+        ord.width = 220.0
+        def osec:FlowSection (ord.addSection(""))
+        def ofk:FlowRow (FlowRow.create("fk" "customer_id" "INTEGER" "FK"))
+        ofk.portId = "orders.customer_id"
+        osec.addRow(ofk)
+        ord.layoutCompartments()
+        sg.addNode(ord)
+        def rel:FlowEdge (FlowEdge.create("fk1" "orders" "customers"))
+        rel.sourcePort = "orders.customer_id:l"
+        rel.targetPort = "customers.id:r"
+        rel.edgeType = "smoothstep"
+        sg.addEdge(rel)
+        sg.reindex()
+        def sed:FlowEditor (FlowEditor.of(sg))
+        sed.setSize(1100.0 700.0)
+        sed.view.showControls = false
+        sed.view.showMinimap = false
+
+        def wasRows:int (cust.rowTotal())
+        def wasPorts:int (array_length cust.ports)
+        def newRow:int (sed.addRow("customers" -1))
+        def schema:boolean (newRow == wasRows)
+        if ((cust.rowTotal()) != (wasRows + 1)) { schema = false }
+        ; A column is a row PLUS a port each side, or there is nothing on the
+        ; table for a foreign key to land on.
+        if ((array_length cust.ports) != (wasPorts + 2)) { schema = false }
+        ; It reaches the picture, not just the model.
+        def schemaSc:FlowScene (sed.view.build())
+        if ((ParityDump.textIndex(schemaSc "uusi_sarake")) < 0) { schema = false }
+        ; Dropping the column an arrow lands on takes the arrow with it.
+        if ((sed.removeRow("customers" 0)) == false) { schema = false }
+        if ((sg.edgeCount()) != 0) { schema = false }
+        ; …and one undo brings both back, the same row rather than a copy.
+        sed.undo.undo(sg)
+        if ((sg.edgeCount()) != 1) { schema = false }
+        def backAgain:FlowRow (FlowUndo.rowOf(cust 0))
+        if (backAgain.text != "id") { schema = false }
+        ; The type is its own piece of text, edited by pointing at it.
+        def rowMidY:double (cust.y + (cust.rowCenterY(0 0)))
+        def typeAt:string (sed.textAt((sed.view.sx(((cust.x + cust.width) - 30.0))) (sed.view.sy(rowMidY))))
+        if (typeAt != "row:customers:0:type") { schema = false }
+        sed.beginEdit(typeAt)
+        sed.setEditText("BIGINT" 6)
+        sed.commitEdit()
+        if (backAgain.detail != "BIGINT") { schema = false }
+        if (backAgain.text != "id") { schema = false }
+        this.probe("schemaEditing" schema "a column can be added to a table and dropped from it, with its port, its relations and its type")
+
+        ; --- the other three router families --------------------------------
+        ; Each has to be its OWN shape, not a renamed bezier. So each is
+        ; measured by the property that makes it that family: a curve passes
+        ; through the vertices it was given, a metro line has diagonals in it
+        ; and a one-side route keeps both ends on the same face.
+        def rg (new FlowGraph)
+        def ra:FlowNode (rg.node("a" "A" 0.0 0.0))
+        def rb:FlowNode (rg.node("b" "B" 380.0 240.0))
+        ra.width = 140.0
+        ra.height = 50.0
+        rb.width = 140.0
+        rb.height = 50.0
+        rg.reindex()
+
+        ; Curve: a spline told to go through two vertices has to actually pass
+        ; near them. A bezier handed the same points would sail past.
+        def ce:FlowEdge (rg.connect("a" "b"))
+        ce.edgeType = "curve"
+        push ce.waypoints 210.0
+        push ce.waypoints 25.0
+        push ce.waypoints 210.0
+        push ce.waypoints 130.0
+        push ce.waypoints 300.0
+        push ce.waypoints 200.0
+        push ce.waypoints 380.0
+        push ce.waypoints 265.0
+        def cpath:EdgePath (EdgeRouter.route(rg ce))
+        def cflat:[double] (cpath.flatten(24))
+        def through:boolean (ParityDump.passesNear(cflat 210.0 130.0 6.0))
+        if ((ParityDump.passesNear(cflat 300.0 200.0 6.0)) == false) { through = false }
+        ; …and it has to be a CURVE: a polyline through the same points would
+        ; also pass through them, so the path must carry cubic segments.
+        def curved:boolean false
+        def csi:int 0
+        while (csi < (cpath.segCount())) {
+            def cseg:EdgeSeg (itemAt cpath.segs csi)
+            if (cseg.kind == 2) { curved = true }
+            csi = (csi + 1)
+        }
+        if (curved == false) { through = false }
+        this.probe("curveConnector" through "a curve connector is a spline that passes through the vertices it was given")
+
+        ; Metro: corners cut at 45°, which means segments that are neither
+        ; horizontal nor vertical — and none of them anywhere near diagonal in
+        ; the stepped route it is cut from.
+        def me:FlowEdge (FlowEdge.create("m" "a" "b"))
+        me.edgeType = "metro"
+        me.sourceHandle = 2
+        me.targetHandle = 0
+        rg.addEdge(me)
+        rg.reindex()
+        def mpath:EdgePath (EdgeRouter.route(rg me))
+        def mflat:[double] (mpath.flatten(2))
+        def diagonals:int (ParityDump.diagonalRuns(mflat))
+        def se:FlowEdge (FlowEdge.create("s" "a" "b"))
+        se.edgeType = "step"
+        se.sourceHandle = 2
+        se.targetHandle = 0
+        rg.addEdge(se)
+        rg.reindex()
+        def spath:EdgePath (EdgeRouter.route(rg se))
+        def sflat:[double] (spath.flatten(2))
+        def metroOk:boolean (diagonals > 0)
+        if ((ParityDump.diagonalRuns(sflat)) != 0) { metroOk = false }
+        this.probe("metroRouter" metroOk "a metro line is the orthogonal route with its corners cut to 45°")
+
+        ; One side: both ends leave by the same face, and the run between them
+        ; clears both. Two boxes stacked, joined round the right.
+        def side:[double] (EdgeRouter.oneSidePoints(70.0 25.0 70.0 265.0 1 30.0))
+        def oneOk:boolean ((idiv (array_length side) 2) == 4)
+        if oneOk {
+            def outX:double (itemAt side 2)
+            def backX:double (itemAt side 4)
+            if ((fabs (outX - backX)) > 0.001) { oneOk = false }
+            if (outX <= 70.0) { oneOk = false }
+        }
+        this.probe("oneSideRouter" oneOk "a one-side route leaves and arrives by the same face, clear of both ends")
+
+        ; --- shapes (both libraries publish a list) -------------------------
+        def shapes:[string]
+        push shapes "rect"
+        push shapes "ellipse"
+        push shapes "circle"
+        push shapes "diamond"
+        push shapes "hexagon"
+        push shapes "parallelogram"
+        push shapes "trapezoid"
+        push shapes "cylinder"
+        push shapes "document"
+        push shapes "stadium"
+        push shapes "note"
+        push shapes "predefined"
+        push shapes "triangle"
+        push shapes "triangledown"
+        push shapes "righttriangle"
+        push shapes "pentagon"
+        push shapes "pentagondown"
+        push shapes "heptagon"
+        push shapes "octagon"
+        push shapes "decagon"
+        push shapes "plus"
+        push shapes "star"
+        ; The rest of ISO 5807, which the first pass skipped.
+        push shapes "papertape"
+        push shapes "directdata"
+        push shapes "sequentialdata"
+        push shapes "sequentialaccess"
+        push shapes "sort"
+        push shapes "multidocument"
+        push shapes "collate"
+        push shapes "or"
+        push shapes "internalstorage"
+        ; The UML activity vocabulary.
+        push shapes "action"
+        push shapes "structurednode"
+        push shapes "initialnode"
+        push shapes "finalnode"
+        push shapes "forknode"
+        push shapes "sendsignal"
+        push shapes "receivesignal"
+        push shapes "acceptevent"
+        push shapes "timeevent"
+        def allShapes:boolean true
+        def si:int 0
+        while (si < (array_length shapes)) {
+            def name:string (itemAt shapes si)
+            def ring:[double] (FlowShapes.outline(name 0.0 0.0 100.0 60.0))
+            if ((idiv (array_length ring) 2) < 3) {
+                if ((FlowShapes.isDecorated(name)) == false) {
+                    if ((FlowShapes.isPlain(name)) == false) {
+                        allShapes = false
+                    }
+                }
+            }
+            ; The point the label is drawn at has to be INSIDE the shape. The
+            ; centre of the box is not that point for a triangle, and a label
+            ; half outside its own shape is the failure this catches.
+            def lx:double (FlowShapes.labelCX(name 0.0 0.0 100.0 60.0))
+            def ly:double (FlowShapes.labelCY(name 0.0 0.0 100.0 60.0))
+            if ((FlowShapes.holdsShape(name 0.0 0.0 100.0 60.0 lx ly)) == false) {
+                allShapes = false
+            }
+            si = (si + 1)
+        }
+        this.probe("shapeLibrary" allShapes "every named shape has an outline, and its label sits inside it")
+
+        ; The nine ISO 5807 shapes the first pass left out, checked as shapes
+        ; rather than as strings: each has to differ from a plain rectangle,
+        ; hold its own centre, and stay inside the box it was given. A name
+        ; that quietly fell through to the rectangle branch would pass a
+        ; "does it have an outline" test and fail this one.
+        def iso:[string]
+        push iso "papertape"
+        push iso "directdata"
+        push iso "sequentialdata"
+        push iso "sequentialaccess"
+        push iso "sort"
+        push iso "multidocument"
+        push iso "collate"
+        push iso "or"
+        push iso "internalstorage"
+        def isoOk:boolean ((array_length iso) == 9)
+        def rect9:[double] (FlowShapes.outline("rect" 0.0 0.0 120.0 80.0))
+        def ii:int 0
+        while (ii < (array_length iso)) {
+            def nm:string (itemAt iso ii)
+            def ring9:[double] (FlowShapes.outline(nm 0.0 0.0 120.0 80.0))
+            if ((ParityDump.sameRing(ring9 rect9)) && ((FlowShapes.isDecorated(nm)) == false)) {
+                isoOk = false
+            }
+            if ((ParityDump.inRing(ring9 0.0 0.0 120.0 80.0)) == false) {
+                isoOk = false
+            }
+            def lx9:double (FlowShapes.labelCX(nm 0.0 0.0 120.0 80.0))
+            def ly9:double (FlowShapes.labelCY(nm 0.0 0.0 120.0 80.0))
+            if ((FlowShapes.holdsShape(nm 0.0 0.0 120.0 80.0 lx9 ly9)) == false) {
+                isoOk = false
+            }
+            ii = (ii + 1)
+        }
+        ; The ones that are an outline plus a rule drawn on it have to say so,
+        ; or a sort is a decision and an OR junction is a circle.
+        if ((FlowShapes.ornamentCount("sort")) < 1) { isoOk = false }
+        if ((FlowShapes.ornamentCount("or")) < 2) { isoOk = false }
+        if ((FlowShapes.ornamentCount("internalstorage")) < 2) { isoOk = false }
+        if ((FlowShapes.ornamentCount("multidocument")) < 2) { isoOk = false }
+        this.probe("isoFlowShapes" isoOk "the nine remaining ISO 5807 shapes draw as themselves, ornaments and all")
+
+        ; --- UML activity diagram -------------------------------------------
+        def act (new ActivityDiagram)
+        act.node("start" "" (ActivityKind.initial()))
+        act.action("vastaanota" "Vastaanota tilaus")
+        act.node("fork" "" (ActivityKind.fork()))
+        act.action("tarkista" "Tarkista luotto")
+        act.action("varaa" "Varaa tuotteet")
+        act.node("join" "" (ActivityKind.joining()))
+        act.node("kelpaa" "Kelpaako?" (ActivityKind.decision()))
+        act.node("laskuta" "Lähetä lasku" (ActivityKind.send()))
+        act.node("odota" "Odota maksua" (ActivityKind.waiting()))
+        act.node("kuittaus" "Maksukuittaus" (ActivityKind.receive()))
+        act.node("end" "" (ActivityKind.final()))
+        act.flow("start" "vastaanota")
+        act.flow("vastaanota" "fork")
+        act.flow("fork" "tarkista")
+        act.flow("fork" "varaa")
+        act.flow("tarkista" "join")
+        act.flow("varaa" "join")
+        act.flow("join" "kelpaa")
+        act.guarded("kelpaa" "laskuta" "kyllä")
+        act.guarded("kelpaa" "end" "ei")
+        act.flow("laskuta" "odota")
+        act.flow("odota" "kuittaus")
+        act.flow("kuittaus" "end")
+        def ag:FlowGraph (act.build())
+        def alay:LayeredLayout (LayeredLayout.of(ag))
+        alay.direction = "TB"
+        alay.layerGap = 66.0
+        alay.nodeGap = 40.0
+        alay.run()
+        ActivityDiagram.faceEdges(ag)
+        def uml:boolean ((ag.nodeCount()) == 11)
+        ; Every kind has to have kept its own shape through the build.
+        def wantShapes:[string]
+        push wantShapes "start"
+        push wantShapes "initialnode"
+        push wantShapes "fork"
+        push wantShapes "forknode"
+        push wantShapes "laskuta"
+        push wantShapes "sendsignal"
+        push wantShapes "kuittaus"
+        push wantShapes "receivesignal"
+        push wantShapes "odota"
+        push wantShapes "timeevent"
+        push wantShapes "end"
+        push wantShapes "finalnode"
+        push wantShapes "vastaanota"
+        push wantShapes "action"
+        def wi:int 0
+        while (wi < (array_length wantShapes)) {
+            def wid:string (itemAt wantShapes wi)
+            def wsh:string (itemAt wantShapes (wi + 1))
+            def wn:FlowNode (ag.nodeById(wid))
+            if (wn.shape != wsh) { uml = false }
+            wi = (wi + 2)
+        }
+        ; A fork bar carries no name — it is punctuation — and the diagram
+        ; still has to run downwards from its start to its end.
+        def forkNode:FlowNode (ag.nodeById("fork"))
+        if ((strlen forkNode.label) != 0) { uml = false }
+        def startN:FlowNode (ag.nodeById("start"))
+        def endN:FlowNode (ag.nodeById("end"))
+        if ((startN.centerY()) >= (endN.centerY())) { uml = false }
+        if ((ParityDump.anyOverlap(ag)) > 0) { uml = false }
+        this.probe("umlActivity" uml "an activity diagram builds in its own vocabulary: actions, a fork and join, signals and a timer")
+
+        ; --- an outline the caller supplies (Polygon) -----------------------
+        def gp (new FlowGraph)
+        def poly:FlowNode (gp.node("p" "poly" 0.0 0.0))
+        poly.width = 120.0
+        poly.height = 80.0
+        poly.shape = (FlowShape.polygon())
+        push poly.shapePoints 0.5
+        push poly.shapePoints 0.0
+        push poly.shapePoints 1.0
+        push poly.shapePoints 0.4
+        push poly.shapePoints 0.8
+        push poly.shapePoints 1.0
+        push poly.shapePoints 0.2
+        push poly.shapePoints 1.0
+        push poly.shapePoints 0.0
+        push poly.shapePoints 0.4
+        gp.reindex()
+        def ring:[double] (poly.outline())
+        def custom:boolean ((idiv (array_length ring) 2) == 5)
+        if ((poly.holdsPoint(60.0 40.0)) == false) { custom = false }
+        if (poly.holdsPoint(2.0 78.0)) { custom = false }
+        this.probe("customPolygon" custom "a node can be given its own outline, and the pointer respects it")
+
+        ; --- line jumps where two links cross -------------------------------
+        def line:[double]
+        push line 0.0
+        push line 50.0
+        push line 200.0
+        push line 50.0
+        def cross:[double]
+        push cross 100.0
+        push cross 0.0
+        push cross 100.0
+        push cross 100.0
+        def hopped:[double] (EdgeRouter.bridgePolyline(line cross 5.0))
+        def bridged:boolean ((idiv (array_length hopped) 2) > 2)
+        ; The hop has to leave the line it is on: a "bridge" of collinear
+        ; points is no bridge at all.
+        def away:double 0.0
+        def hi:int 0
+        while (hi < (idiv (array_length hopped) 2)) {
+            def hyAt:int ((hi * 2) + 1)
+            def off:double (fabs ((itemAt hopped hyAt) - 50.0))
+            if (off > away) { away = off }
+            hi = (hi + 1)
+        }
+        if (away < 3.0) { bridged = false }
+        ; …and it has to come back: the ends are where they were.
+        def lastAt:int ((array_length hopped) - 2)
+        if ((fabs ((itemAt hopped lastAt) - 200.0)) > 0.001) { bridged = false }
+        this.probe("lineJumps" bridged "a line hops over one it crosses, and comes back")
+
+        ; --- radial and mind map layouts ------------------------------------
+        def gt (new FlowGraph)
+        def rootN:FlowNode (gt.node("root" "root" 0.0 0.0))
+        rootN.width = 120.0
+        rootN.height = 50.0
+        def bi:int 0
+        while (bi < 4) {
+            def bid:string ("b" + (to_string bi))
+            def bn:FlowNode (gt.node(bid bid 0.0 0.0))
+            bn.width = 110.0
+            bn.height = 44.0
+            gt.connect("root" bid)
+            def li:int 0
+            while (li < 3) {
+                def lid:string ((bid + "l") + (to_string li))
+                def ln:FlowNode (gt.node(lid lid 0.0 0.0))
+                ln.width = 100.0
+                ln.height = 40.0
+                gt.connect(bid lid)
+                li = (li + 1)
+            }
+            bi = (bi + 1)
+        }
+        gt.reindex()
+        def rad:RadialLayout (RadialLayout.of(gt))
+        rad.rootId = "root"
+        def radMoved:int (rad.run())
+        def radOk:boolean (radMoved == 16)
+        def rootAt:FlowNode (gt.nodeById("root"))
+        if ((fabs (rootAt.centerX())) > 0.001) { radOk = false }
+        ; Every ring is further out than the one inside it, which is the whole
+        ; claim a radial layout makes.
+        def r1:FlowNode (gt.nodeById("b0"))
+        def r2:FlowNode (gt.nodeById("b0l0"))
+        def d1:double (ParityDump.dist(r1 rootAt))
+        def d2:double (ParityDump.dist(r2 rootAt))
+        if (d2 <= d1) { radOk = false }
+        if ((EdgeOverlap.nodeCrossings(gt)) > 0) { radOk = false }
+        this.probe("radialLayout" radOk "a radial tree puts the root in the middle and each generation on its own ring")
+
+        def mind:MindMapLayout (MindMapLayout.of(gt))
+        mind.rootId = "root"
+        def mindMoved:int (mind.run())
+        def left:int 0
+        def right:int 0
+        def mroot:FlowNode (gt.nodeById("root"))
+        def mi:int 0
+        while (mi < (gt.nodeCount())) {
+            def mn:FlowNode (gt.nodeAt(mi))
+            if (mn.id != "root") {
+                if ((mn.centerX()) > (mroot.centerX())) { right = (right + 1) }
+                if ((mn.centerX()) < (mroot.centerX())) { left = (left + 1) }
+            }
+            mi = (mi + 1)
+        }
+        def mindOk:boolean (mindMoved == 16)
+        if (left < 4) { mindOk = false }
+        if (right < 4) { mindOk = false }
+        if ((EdgeOverlap.pairs(gt 2.0)) > 0) { mindOk = false }
+        this.probe("mindMap" mindOk "a mind map balances its branches either side of the root")
+
+        ; --- labels on both nodes and links (JointJS annotations) -----------
+        def g3 (new FlowGraph)
+        def na:FlowNode (g3.node("a" "A" 0.0 0.0))
+        def nb:FlowNode (g3.node("b" "B" 300.0 0.0))
+        na.width = 120.0
+        na.height = 50.0
+        nb.width = 120.0
+        nb.height = 50.0
+        def e3:FlowEdge (g3.connect("a" "b"))
+        e3.label = "labelled"
+        g3.reindex()
+        def v3:FlowView (FlowView.of(g3))
+        v3.width = 800.0
+        v3.height = 600.0
+        v3.showControls = false
+        v3.showMinimap = false
+        def sc3:FlowScene (v3.build())
+        def sawNode:boolean false
+        def sawEdge:boolean false
+        def q:int 0
+        while (q < (sc3.count())) {
+            def it:SceneItem (sc3.at(q))
+            if (it.kind == 1) {
+                if (it.text == "A") { sawNode = true }
+                if (it.text == "labelled") { sawEdge = true }
+            }
+            q = (q + 1)
+        }
+        def both:boolean sawNode
+        if (sawEdge == false) { both = false }
+        this.probe("annotations" both "a node and a link both carry a label that is drawn")
+
+        ; --- wrapping and autofit (JointJS TextBlock, Syncfusion TextWrap) --
+        def wide:double (v3.textWidth("Tarkista asiakkaan luottotiedot" 13.0))
+        def wrapped:FlowTextLayout (v3.layoutText("Tarkista asiakkaan luottotiedot" 13.0 (wide * 0.7) 60.0 2))
+        def shrunk:FlowTextLayout (v3.layoutText("Tarkista asiakkaan luottotiedot" 13.0 (wide * 0.85) 0.0 1))
+        def fitted:boolean ((wrapped.lineCount()) == 2)
+        if ((shrunk.size) >= 13.0) { fitted = false }
+        if (shrunk.truncated) { fitted = false }
+        this.probe("textWrap" fitted "a long label wraps, and shrinks rather than being cut")
+
+        ; --- in-place editing (both libraries have it) ----------------------
+        def ed4:FlowEditor (this.twoNodeEditor())
+        def a4:FlowNode (ed4.graph.nodeById("a"))
+        def was:string a4.label
+        def started:boolean (ed4.beginEdit("node:a"))
+        ed4.caretToEnd()
+        ed4.typeText("!")
+        def clean:boolean (a4.label == was)
+        ed4.commitEdit()
+        def wrote:boolean (a4.label == (was + "!"))
+        def undone:boolean (ed4.undo.undo(ed4.graph))
+        def back:boolean (a4.label == was)
+        def editOk:boolean started
+        if (clean == false) { editOk = false }
+        if (wrote == false) { editOk = false }
+        if (undone == false) { editOk = false }
+        if (back == false) { editOk = false }
+        this.probe("inPlaceEdit" editOk "a label is typed in place and one undo takes it back")
+
+
+        ; --- hierarchical / embedded elements -------------------------------
+        def ed5:FlowEditor (this.twoNodeEditor())
+        def frame:FlowNode (ed5.graph.nodeById("a"))
+        frame.nodeType = "group"
+        frame.width = 400.0
+        frame.height = 300.0
+        def child:FlowNode (ed5.graph.nodeById("b"))
+        child.parentId = "a"
+        child.x = 60.0
+        child.y = 60.0
+        child.syncFromModel()
+        def before5:double child.x
+        frame.selected = true
+        ed5.beginDrag()
+        ed5.mode = 2
+        ed5.pressX = 0.0
+        ed5.pressY = 0.0
+        ed5.lastX = 0.0
+        ed5.lastY = 0.0
+        def inp5 (new FlowInput)
+        inp5.x = 50.0
+        inp5.y = 0.0
+        ed5.pointerMove(inp5)
+        ed5.pointerUp(inp5)
+        this.probe("embedding" (ParityDump.near((child.x - before5) 50.0 0.001)) "a container carries the elements embedded in it")
+
+        ; --- serialization: a diagram you can save AND open -----------------
+        def json:string (FlowGraphJson.toJson(g3))
+        def reread:FlowGraph (FlowGraphJson.fromJson(json))
+        def round:boolean ((reread.nodeCount()) == (g3.nodeCount()))
+        if ((reread.edgeCount()) != (g3.edgeCount())) { round = false }
+        if (round) {
+            def ra:FlowNode (reread.nodeById("a"))
+            if (ra.label != "A") { round = false }
+            if ((fabs (ra.width - 120.0)) > 0.001) { round = false }
+            def re:FlowEdge (reread.edgeAt(0))
+            if (re.label != "labelled") { round = false }
+        }
+        this.probe("serialization" round "a diagram survives a round trip through JSON, labels and all")
+
+        ; --- data binding from a flat id/parentId array ---------------------
+        def src:string "[{\"id\":\"1\",\"parentId\":\"\",\"name\":\"Aino\"},{\"id\":\"2\",\"parentId\":\"1\",\"name\":\"Markus\"},{\"id\":\"3\",\"parentId\":\"1\",\"name\":\"Riikka\"},{\"id\":\"4\",\"parentId\":\"2\",\"name\":\"Sanna\"}]"
+        def bound:FlowGraph (FlowGraphJson.fromDataSource(src "id" "parentId" "name"))
+        def dataOk:boolean ((bound.nodeCount()) == 4)
+        if ((bound.edgeCount()) != 3) { dataOk = false }
+        if (dataOk) {
+            def bn:FlowNode (bound.nodeById("2"))
+            if (bn.label != "Markus") { dataOk = false }
+        }
+        this.probe("dataBinding" dataOk "a graph is built from a flat array of records naming their own parents")
+
+        ; --- rulers ----------------------------------------------------------
+        def gr (new FlowGraph)
+        def rn:FlowNode (gr.node("a" "A" 0.0 0.0))
+        rn.width = 120.0
+        rn.height = 50.0
+        gr.reindex()
+        def vr:FlowView (FlowView.of(gr))
+        vr.width = 800.0
+        vr.height = 600.0
+        vr.showControls = false
+        vr.showMinimap = false
+        vr.showRulers = true
+        def scr:FlowScene (vr.build())
+        def ticks:int 0
+        def numbers:int 0
+        def ri2:int 0
+        while (ri2 < (scr.count())) {
+            def it2:SceneItem (scr.at(ri2))
+            if (it2.tag == "chrome") {
+                if (it2.kind == 0) { ticks = (ticks + 1) }
+                if (it2.kind == 1) { numbers = (numbers + 1) }
+            }
+            ri2 = (ri2 + 1)
+        }
+        def rulerOk:boolean (ticks > 8)
+        if (numbers < 4) { rulerOk = false }
+        this.probe("rulers" rulerOk "the surface carries a scale in flow units, with numbered ticks")
+
+        ; --- several annotations on one object -------------------------------
+        ; The row is "annotations: [...]", so one label is not enough: a node
+        ; has to carry a step number in one corner and a cost in the other,
+        ; and both have to reach the scene at the places they were pinned to.
+        def ag2 (new FlowGraph)
+        def an1:FlowNode (ag2.node("a" "Tarkista tilaus" 60.0 60.0))
+        an1.width = 180.0
+        an1.height = 70.0
+        def an2:FlowNode (ag2.node("b" "Lähetä" 60.0 260.0))
+        an2.width = 180.0
+        an2.height = 70.0
+        def top:FlowAnnotation (an1.addAnnotation("3" 0.12 0.16))
+        top.bold = true
+        an1.addAnnotation("2 min" 0.82 0.84)
+        def ae:FlowEdge (ag2.connect("a" "b"))
+        ae.edgeType = "smoothstep"
+        ae.label = "kyllä"
+        ae.addAnnotation("SLA 24 h" 0.5 -14.0)
+        ag2.reindex()
+        def aed:FlowEditor (FlowEditor.of(ag2))
+        aed.setSize(700.0 500.0)
+        aed.view.showControls = false
+        aed.view.showMinimap = false
+        def asc:FlowScene (aed.view.build())
+        def three:boolean ((an1.annotationCount()) == 2)
+        if ((ae.annotationCount()) != 1) { three = false }
+        ; Drawn, and drawn WHERE they were pinned: the "3" above and left of
+        ; the middle, the "2 min" below and right of it.
+        def hi:int (ParityDump.textIndex(asc "3"))
+        def lo:int (ParityDump.textIndex(asc "2 min"))
+        def sla:int (ParityDump.textIndex(asc "SLA 24 h"))
+        if (hi < 0) { three = false }
+        if (lo < 0) { three = false }
+        if (sla < 0) { three = false }
+        if three {
+            def hiItem:SceneItem (asc.at(hi))
+            def loItem:SceneItem (asc.at(lo))
+            if (hiItem.y >= loItem.y) { three = false }
+            if (hiItem.x >= loItem.x) { three = false }
+        }
+        ; …and the label is still the label. An annotation that replaced it
+        ; would pass every count above.
+        if ((ParityDump.textIndex(asc "Tarkista tilaus")) < 0) { three = false }
+        if ((ParityDump.textIndex(asc "kyllä")) < 0) { three = false }
+        this.probe("multipleAnnotations" three "a node carries several annotations besides its label, each where it was pinned")
+
+        ; --- tooltips ---------------------------------------------------------
+        an2.tooltip = "Lähettää vahvistuksen asiakkaalle"
+        def tinp (new FlowInput)
+        tinp.x = (aed.view.sx(150.0))
+        tinp.y = (aed.view.sy(295.0))
+        aed.pointerMove(tinp)
+        def tipSc:FlowScene (aed.view.build())
+        def tipped:boolean ((ParityDump.textIndex(tipSc "Lähettää vahvistuksen asiakkaalle")) >= 0)
+        ; Nothing to say means nothing said, rather than the label repeated.
+        def qinp (new FlowInput)
+        qinp.x = (aed.view.sx(150.0))
+        qinp.y = (aed.view.sy(95.0))
+        aed.pointerMove(qinp)
+        def quietSc:FlowScene (aed.view.build())
+        if ((strlen aed.view.tooltipText) != 0) { tipped = false }
+        this.probe("tooltips" tipped "resting on a node shows what it has to say, and nothing when it has nothing")
+
+        ; --- the context menu -------------------------------------------------
+        def minp (new FlowInput)
+        minp.x = (aed.view.sx(150.0))
+        minp.y = (aed.view.sy(95.0))
+        minp.secondary = true
+        aed.pointerDown(minp)
+        def opened:boolean (aed.menuOpen())
+        def menuSc:FlowScene (aed.view.build())
+        if ((ParityDump.textIndex(menuSc "Poista")) < 0) { opened = false }
+        ; Right-clicking a node selects it, so the menu acts on what was
+        ; pointed at rather than on whatever happened to be selected before.
+        if (an1.selected == false) { opened = false }
+        ; And picking a row does the thing. "Käännä 90°" is on the node menu,
+        ; so find it, click it, and the node is turned.
+        def row:int (ParityDump.menuRow(aed.view "Käännä 90°"))
+        def picked:boolean (row >= 0)
+        if picked {
+            def pinp (new FlowInput)
+            pinp.x = ((aed.view.menuX()) + 20.0)
+            pinp.y = (((aed.view.menuY()) + (aed.view.menuRowTop(row))) + 8.0)
+            aed.pointerDown(pinp)
+            if ((fabs (an1.rotation - 90.0)) > 0.001) { picked = false }
+            if (aed.menuOpen()) { picked = false }
+        }
+        if (picked == false) { opened = false }
+        ; A press on the surface with the menu open dismisses it and does
+        ; nothing else.
+        aed.openMenuAt(300.0 300.0)
+        def away (new FlowInput)
+        away.x = 20.0
+        away.y = 20.0
+        aed.pointerDown(away)
+        if (aed.menuOpen()) { opened = false }
+        this.probe("contextMenu" opened "right-clicking opens a menu for what is under the pointer, and picking a row does it")
+
+        ; --- rotation ---------------------------------------------------------
+        ; The node was turned a quarter turn by the menu, above. What that has
+        ; to mean is that its geometry turned with it: the outline, the hit
+        ; test and the ports.
+        def turned:boolean ((fabs (an1.rotation - 90.0)) < 0.001)
+        def ring2:[double] (an1.outline())
+        ; A 180x70 box turned 90° is 70 wide and 180 tall, about the same
+        ; centre.
+        def ringW:double (ParityDump.spanOf(ring2 true))
+        def ringH:double (ParityDump.spanOf(ring2 false))
+        if ((fabs (ringW - 70.0)) > 0.5) { turned = false }
+        if ((fabs (ringH - 180.0)) > 0.5) { turned = false }
+        ; A point that was inside the upright box and is outside the turned
+        ; one has to be reported as outside — which is the whole reason the
+        ; hit test spins the question rather than the shape.
+        def cx9:double (an1.centerX())
+        def cy9:double (an1.centerY())
+        if (an1.holdsPoint((cx9 + 80.0) cy9)) { turned = false }
+        if ((an1.holdsPoint(cx9 (cy9 + 80.0))) == false) { turned = false }
+        ; The right-hand port went with it: it is now at the BOTTOM.
+        def rightSide:double (an1.handleY(1))
+        if ((rightSide - cy9) < 60.0) { turned = false }
+        ; And one undo puts it back upright.
+        aed.undo.undo(ag2)
+        if ((fabs an1.rotation) > 0.001) { turned = false }
+        this.probe("rotation" turned "a node turns about its centre, and its outline, hit test and ports turn with it")
+
+        ; --- graph API: elements at a point, how connected a node is --------
+        def hit:int (g3.nodeAtPoint(60.0 25.0))
+        def degs:[int] (g3.degrees())
+        def api:boolean (hit >= 0)
+        if ((array_length degs) != (g3.nodeCount())) { api = false }
+        if ((itemAt degs 0) != 1) { api = false }
+        this.probe("graphApi" api "the graph answers what is at a point and how connected each node is")
+
+        ; --- walking the graph ----------------------------------------------
+        ; a → b → d, a → c → d, and e off on its own. Direction has to matter:
+        ; d's successors are nobody and its predecessors are two, and a walk
+        ; downstream from a must not wander back up into c's other parent.
+        def wg (new FlowGraph)
+        wg.node("a" "A" 0.0 0.0)
+        wg.node("b" "B" 0.0 100.0)
+        wg.node("c" "C" 200.0 100.0)
+        wg.node("d" "D" 100.0 200.0)
+        wg.node("e" "E" 400.0 400.0)
+        wg.connect("a" "b")
+        wg.connect("a" "c")
+        wg.connect("b" "d")
+        wg.connect("c" "d")
+        wg.reindex()
+        def ai:int (ParityDump.nodeIndex(wg "a"))
+        def di:int (ParityDump.nodeIndex(wg "d"))
+        def ei2:int (ParityDump.nodeIndex(wg "e"))
+        def walk:boolean ((array_length (wg.successors(ai))) == 2)
+        if ((array_length (wg.predecessors(ai))) != 0) { walk = false }
+        if ((array_length (wg.successors(di))) != 0) { walk = false }
+        if ((array_length (wg.predecessors(di))) != 2) { walk = false }
+        if ((array_length (wg.neighbours(di))) != 2) { walk = false }
+        ; Downstream of a is all four, and each of them once.
+        def down:[int] (wg.bfsFrom(ai true false))
+        if ((array_length down) != 4) { walk = false }
+        if ((itemAt down 0) != ai) { walk = false }
+        ; Depth first reaches the same four, in a different order — and the
+        ; order is the point: b's child before a's second child.
+        def deep:[int] (wg.dfsFrom(ai true false))
+        if ((array_length deep) != 4) { walk = false }
+        if ((itemAt deep 1) != (ParityDump.nodeIndex(wg "b"))) { walk = false }
+        if ((itemAt deep 2) != di) { walk = false }
+        ; e is its own component, and nothing reaches it.
+        if ((array_length (wg.componentOf(ei2))) != 1) { walk = false }
+        if ((array_length (wg.componentOf(ai))) != 4) { walk = false }
+        this.probe("graphWalk" walk "the graph walks itself: neighbours, predecessors, successors, breadth first and depth first")
+
+        ; --- pinch ------------------------------------------------------------
+        ; Two fingers, and the flow point between them does not move. The same
+        ; contract the wheel keeps, which is why this is the same arithmetic.
+        def ped:FlowEditor (this.twoNodeEditor())
+        ped.view.viewport.zoom = 1.0
+        ped.view.viewport.x = 0.0
+        ped.view.viewport.y = 0.0
+        def heldX:double (ped.flowX(400.0))
+        def heldY:double (ped.flowY(300.0))
+        ped.pinchBegin(340.0 300.0 460.0 300.0)
+        ; Opened to twice the span, about the same middle: the zoom doubles.
+        ped.pinchTo(280.0 300.0 520.0 300.0)
+        def pinched:boolean ((fabs (ped.view.viewport.zoom - 2.0)) < 0.001)
+        if ((fabs ((ped.flowX(400.0)) - heldX)) > 0.001) { pinched = false }
+        if ((fabs ((ped.flowY(300.0)) - heldY)) > 0.001) { pinched = false }
+        ; …and the fingers may travel while they spread. Whatever is between
+        ; them stays between them.
+        ped.pinchTo(380.0 340.0 620.0 340.0)
+        if ((fabs ((ped.flowX(500.0)) - heldX)) > 0.001) { pinched = false }
+        if ((fabs ((ped.flowY(340.0)) - heldY)) > 0.001) { pinched = false }
+        ; A pinch closed past the minimum clamps rather than inverting.
+        ped.pinchTo(499.0 340.0 501.0 340.0)
+        if (ped.view.viewport.zoom < ped.view.viewport.minZoom) { pinched = false }
+        ped.pinchEnd()
+        this.probe("pinchZoom" pinched "two fingers zoom about the point between them, and it stays between them")
+
+        ; --- element tools ----------------------------------------------------
+        ; The buttons beside a selected node: × takes it away, + starts a
+        ; connection from it.
+        def ted:FlowEditor (this.twoNodeEditor())
+        def ta:FlowNode (ted.graph.nodeById("a"))
+        ta.selected = true
+        def toolsSc:FlowScene (ted.view.build())
+        def tools:boolean ((ParityDump.tagCount(toolsSc "tool:remove")) > 0)
+        if ((ParityDump.tagCount(toolsSc "tool:connect")) < 1) { tools = false }
+        ; Pressing + puts the editor into click-to-connect from this node, so
+        ; the next click on another node joins the two.
+        def cinp (new FlowInput)
+        cinp.x = (ted.view.toolCX(ta 1))
+        cinp.y = (ted.view.toolCY(ta 1))
+        ted.pointerDown(cinp)
+        ted.pointerUp(cinp)
+        def before:int (ted.graph.edgeCount())
+        def binp (new FlowInput)
+        binp.x = 340.0
+        binp.y = 20.0
+        ted.pointerDown(binp)
+        ted.pointerUp(binp)
+        if ((ted.graph.edgeCount()) != (before + 1)) { tools = false }
+        ; And × is the delete. Select the node again — connecting moved the
+        ; selection — then press it.
+        ted.graph.clearSelection()
+        ta.selected = true
+        def n0t:int (ted.graph.nodeCount())
+        def rinp (new FlowInput)
+        rinp.x = (ted.view.toolCX(ta 0))
+        rinp.y = (ted.view.toolCY(ta 0))
+        ted.pointerDown(rinp)
+        if ((ted.graph.nodeCount()) != (n0t - 1)) { tools = false }
+        ; Nothing selected, no buttons: a column beside every node would be a
+        ; diagram made of buttons.
+        def emptySc:FlowScene (ted.view.build())
+        if ((ParityDump.tagCount(emptySc "tool:remove")) != 0) { tools = false }
+        this.probe("elementTools" tools "a selected node carries a remove button and a connect button")
+
+        ; --- highlighters ------------------------------------------------------
+        def hed:FlowEditor (this.twoNodeEditor())
+        def ha:FlowNode (hed.graph.nodeById("a"))
+        def hb:FlowNode (hed.graph.nodeById("b"))
+        def plainSc:FlowScene (hed.view.build())
+        def plainQuads:int (plainSc.count())
+        ha.highlight = "stroke"
+        def strokeSc:FlowScene (hed.view.build())
+        def lit:boolean ((strokeSc.count()) > plainQuads)
+        ; A mask is the same halo, thicker: the ring it adds has to be wider
+        ; than the stroke one, or the two are the same highlighter twice.
+        def strokeRing:int (ParityDump.widestRing(strokeSc "node:a"))
+        ha.highlight = "mask"
+        def maskSc:FlowScene (hed.view.build())
+        def maskRing:int (ParityDump.widestRing(maskSc "node:a"))
+        if (maskRing <= strokeRing) { lit = false }
+        ; And the opacity highlighter works the other way round: it fades
+        ; everything it is put on, rather than adding to it.
+        hb.highlight = "opacity"
+        def fadeSc:FlowScene (hed.view.build())
+        def faded:boolean false
+        def fi:int 0
+        while (fi < (fadeSc.count())) {
+            def fit:SceneItem (fadeSc.at(fi))
+            if (fit.tag == "node:b") {
+                if (fit.opacity < 0.9) { faded = true }
+            }
+            fi = (fi + 1)
+        }
+        if (faded == false) { lit = false }
+        this.probe("highlighters" lit "a node can be haloed, masked or faded, on top of being selected")
+    }
+
+    ; The automatic layouts, each measured by what it is FOR rather than by
+    ; "it ran". A layered layout that put a child above its parent ran fine and
+    ; is still wrong, so the assertions are about the arrangement: parents
+    ; above children, boxes clear of each other, a long edge given a chain of
+    ; corners to follow.
+    ;
+    ; These used to lean on the `fitView` probe, which proves the viewport
+    ; algebra and nothing about the layout under it. Four probes, one per
+    ; layout family, is the honest version.
+    fn probeLayouts:void () {
+        ; --- layered (Sugiyama): a DAG with an edge spanning three layers ---
+        def g (new FlowGraph)
+        def ids:[string]
+        push ids "a"
+        push ids "b"
+        push ids "c"
+        push ids "d"
+        push ids "e"
+        def i:int 0
+        while (i < (array_length ids)) {
+            def nid:string (itemAt ids i)
+            def n:FlowNode (g.node(nid nid 0.0 0.0))
+            n.width = 120.0
+            n.height = 44.0
+            i = (i + 1)
+        }
+        g.connect("a" "b")
+        g.connect("b" "c")
+        g.connect("c" "d")
+        g.connect("a" "d")
+        g.connect("b" "e")
+        g.reindex()
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 80.0
+        lay.nodeGap = 40.0
+        lay.run()
+        def na:FlowNode (g.nodeById("a"))
+        def nb:FlowNode (g.nodeById("b"))
+        def nc:FlowNode (g.nodeById("c"))
+        def nd:FlowNode (g.nodeById("d"))
+        def layered:boolean ((na.centerY()) < (nb.centerY()))
+        if ((nb.centerY()) >= (nc.centerY())) { layered = false }
+        if ((nc.centerY()) >= (nd.centerY())) { layered = false }
+        if ((ParityDump.anyOverlap(g)) > 0) { layered = false }
+        this.probe("layeredLayout" layered "a layered layout puts every parent above its children, and no two boxes share a pixel")
+
+        ; The long edge a→d skips two layers, so it is the one that needs a
+        ; chain of dummy vertices; `routeLongEdges` turns that chain into the
+        ; corners the edge is drawn through.
+        def routed:int (lay.routeLongEdges())
+        def long:FlowEdge (g.edgeAt(3))
+        def chained:boolean ((array_length long.waypoints) >= 2)
+        if (routed < 1) { chained = false }
+        this.probe("longEdgeChain" chained "an edge that skips a layer is carried through a chain of corners rather than drawn over what is between")
+
+        ; --- force / symmetric ----------------------------------------------
+        def fg (new FlowGraph)
+        def k:int 0
+        while (k < 8) {
+            def fid:string ("n" + (to_string k))
+            def fn2:FlowNode (fg.node(fid "n" 0.0 0.0))
+            fn2.width = 60.0
+            fn2.height = 40.0
+            k = (k + 1)
+        }
+        fg.connect("n0" "n1")
+        fg.connect("n0" "n2")
+        fg.connect("n0" "n3")
+        fg.connect("n4" "n5")
+        fg.connect("n4" "n6")
+        fg.connect("n4" "n7")
+        fg.reindex()
+        def sim:FlowSimulation (FlowSimulation.of(fg))
+        sim.chargeStrength = -260.0
+        sim.linkDistance = 90.0
+        sim.initialize()
+        sim.run(400)
+        ; A symmetric layout is one where the edge tells you the distance: two
+        ; nodes joined by a link end up nearer each other than two nodes in
+        ; different clusters.
+        def joined:double (ParityDump.dist((fg.nodeById("n0")) (fg.nodeById("n1"))))
+        def apart:double (ParityDump.dist((fg.nodeById("n1")) (fg.nodeById("n5"))))
+        def forced:boolean (joined < apart)
+        if (joined < 1.0) { forced = false }
+        this.probe("forceLayout" forced "a force layout pulls linked nodes together and pushes unlinked clusters apart")
+
+        ; --- organizational chart -------------------------------------------
+        def o (new OrgChart)
+        o.person("tj" "A" "johtaja" "Johto" "")
+        o.person("cto" "B" "teknologia" "Johto" "tj")
+        o.person("cfo" "C" "talous" "Talous" "tj")
+        o.person("dev" "D" "kehitys" "Tuotanto" "cto")
+        o.person("acc" "E" "kirjanpito" "Talous" "cfo")
+        def og:FlowGraph (o.build())
+        def olay:LayeredLayout (LayeredLayout.of(og))
+        olay.direction = "TB"
+        olay.layerGap = 70.0
+        olay.nodeGap = 34.0
+        olay.run()
+        def boss:FlowNode (og.nodeById("tj"))
+        def rep:FlowNode (og.nodeById("cto"))
+        def deep:FlowNode (og.nodeById("dev"))
+        def org:boolean ((boss.centerY()) < (rep.centerY()))
+        if ((rep.centerY()) >= (deep.centerY())) { org = false }
+        if ((ParityDump.anyOverlap(og)) > 0) { org = false }
+        this.probe("orgChartLayout" org "an org chart puts each person one level under the one they report to")
+
+        ; --- flowchart --------------------------------------------------------
+        def c (new Flowchart)
+        c.start("alku" "Alku")
+        c.step("syota" "Syötä tiedot" (FlowKind.io()))
+        c.step("tarkista" "Kelpaako?" (FlowKind.decision()))
+        c.step("tallenna" "Tallenna" (FlowKind.process()))
+        c.step("loppu" "Loppu" (FlowKind.terminator()))
+        c.link("alku" "syota")
+        c.link("syota" "tarkista")
+        c.branch("tarkista" "tallenna" "kyllä")
+        c.branch("tarkista" "syota" "ei")
+        c.link("tallenna" "loppu")
+        def cg:FlowGraph (c.build())
+        def clay:LayeredLayout (LayeredLayout.of(cg))
+        clay.direction = "TB"
+        clay.layerGap = 70.0
+        clay.nodeGap = 46.0
+        clay.run()
+        Flowchart.faceEdges(cg)
+        def top:FlowNode (cg.nodeById("alku"))
+        def bottom:FlowNode (cg.nodeById("loppu"))
+        def chart:boolean ((top.centerY()) < (bottom.centerY()))
+        if ((ParityDump.anyOverlap(cg)) > 0) { chart = false }
+        ; The shapes have to survive the trip: a flowchart laid out as plain
+        ; rectangles is not a flowchart.
+        def dia:FlowNode (cg.nodeById("tarkista"))
+        if (dia.shape != "diamond") { chart = false }
+        this.probe("flowchartLayout" chart "a flowchart runs from its terminator down to its end, in the shapes the kinds asked for")
+    }
+
+    ; A node's index by id, which the graph keeps but does not publish.
+    sfn nodeIndex:int (g:FlowGraph id:string) {
+        def n:FlowNode (g.nodeById(id))
+        return n.index
+    }
+
+    ; How many scene items carry a tag.
+    sfn tagCount:int (sc:FlowScene tag:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.tag == tag) { n = (n + 1) }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The widest ring drawn under a tag, as tenths of a pixel — an int, so a
+    ; comparison between two builds cannot come down to a rounding bit.
+    sfn widestRing:int (sc:FlowScene tag:string) {
+        def best:double 0.0
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.tag == tag) {
+                if (it.strokeWidth > best) {
+                    best = it.strokeWidth
+                }
+            }
+            i = (i + 1)
+        }
+        return (to_int (best * 10.0))
+    }
+
+    ; Where in the scene a given string was drawn, or -1.
+    sfn textIndex:int (sc:FlowScene text:string) {
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if (it.kind == 1) {
+                if (it.text == text) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Which row of the open menu carries a label.
+    sfn menuRow:int (v:FlowView label:string) {
+        def i:int 0
+        while (i < (v.menu.count())) {
+            def it:FlowMenuItem (v.menu.at(i))
+            if (it.label == label) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; How wide or how tall a ring is.
+    sfn spanOf:double (pts:[double] wantX:boolean) {
+        def lo:double 0.0
+        def hi:double 0.0
+        def first:boolean true
+        def i:int 0
+        while (i < (array_length pts)) {
+            def v:double (itemAt pts i)
+            if (wantX == false) {
+                v = (itemAt pts (i + 1))
+            }
+            if first {
+                lo = v
+                hi = v
+                first = false
+            } {
+                if (v < lo) { lo = v }
+                if (v > hi) { hi = v }
+            }
+            i = (i + 2)
+        }
+        return (hi - lo)
+    }
+
+    ; Does a flattened path go within `tol` of a point?
+    sfn passesNear:boolean (flat:[double] px:double py:double tol:double) {
+        def i:int 0
+        while (i < (array_length flat)) {
+            def dx:double ((itemAt flat i) - px)
+            def dy:double ((itemAt flat (i + 1)) - py)
+            if ((sqrt ((dx * dx) + (dy * dy))) <= tol) {
+                return true
+            }
+            i = (i + 2)
+        }
+        return false
+    }
+
+    ; Runs that are neither horizontal nor vertical — which is what a metro
+    ; line has and an orthogonal one does not. A tenth of a pixel of slack, so
+    ; a corner rounded by the flattener does not read as a diagonal.
+    sfn diagonalRuns:int (flat:[double]) {
+        def hits:int 0
+        def i:int 0
+        while (i < ((array_length flat) - 3)) {
+            def dx:double (fabs ((itemAt flat (i + 2)) - (itemAt flat i)))
+            def dy:double (fabs ((itemAt flat (i + 3)) - (itemAt flat (i + 1))))
+            if (dx > 0.1) {
+                if (dy > 0.1) {
+                    hits = (hits + 1)
+                }
+            }
+            i = (i + 2)
+        }
+        return hits
+    }
+
+    ; Two rings with the same points in the same order.
+    sfn sameRing:boolean (a:[double] b:[double]) {
+        if ((array_length a) != (array_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length a)) {
+            if ((fabs ((itemAt a i) - (itemAt b i))) > 0.001) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Every point of a ring inside the box it was asked for, give or take the
+    ; width of a hair. A shape that ballooned out of its own bounds would be
+    ; drawn over its neighbours and hit-tested outside itself.
+    sfn inRing:boolean (pts:[double] x:double y:double w:double h:double) {
+        def i:int 0
+        while (i < (array_length pts)) {
+            def px:double (itemAt pts i)
+            def py:double (itemAt pts (i + 1))
+            if (px < (x - 0.01)) { return false }
+            if (py < (y - 0.01)) { return false }
+            if (px > ((x + w) + 0.01)) { return false }
+            if (py > ((y + h) + 0.01)) { return false }
+            i = (i + 2)
+        }
+        return true
+    }
+
+    ; How many pairs of boxes share any area at all.
+    sfn anyOverlap:int (g:FlowGraph) {
+        def hits:int 0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def a:FlowNode (g.nodeAt(i))
+            def j:int (i + 1)
+            while (j < (g.nodeCount())) {
+                def b:FlowNode (g.nodeAt(j))
+                def sep:boolean false
+                if (((a.x + a.width) <= b.x) || ((b.x + b.width) <= a.x)) { sep = true }
+                if (((a.y + a.height) <= b.y) || ((b.y + b.height) <= a.y)) { sep = true }
+                if (sep == false) { hits = (hits + 1) }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
     }
 
     ; What a toolbar does. React Flow documents `connectOnClick` and

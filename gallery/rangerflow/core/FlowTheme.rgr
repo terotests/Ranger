@@ -68,6 +68,26 @@ class FlowTheme {
     def minimapNode:string "#9aa3b2"
     def minimapView:string "#2563eb"
 
+    ; the halo a highlighted node gets
+    def highlightColor:string "#f59e0b"
+
+    ; the two panels that sit ON the diagram rather than in it: what an object
+    ; has to say for itself, and what you can do to it
+    def tooltipFill:string "#1f2430"
+    def tooltipBorder:string "#1f2430"
+    def tooltipText:string "#f4f6f9"
+    def menuFill:string "#ffffff"
+    def menuBorder:string "#d5dae2"
+    def menuShadow:string "#e4e7ec"
+    def menuText:string "#1f2430"
+    def menuDisabledText:string "#a6adba"
+    def menuHighlight:string "#eef2f8"
+
+    ; in-place editing
+    def editFill:string "#fffbe8"
+    def editBorder:string "#e0a800"
+    def editCaret:string "#1f2430"
+
     ; text
     def fontFamily:string "Noto Sans"
     def monoFamily:string "Noto Sans"
@@ -101,6 +121,9 @@ class FlowTheme {
         t.rowAltFill = "#1f2530"
         t.selectedBorder = "#60a5fa"
         t.selectedFill = "#1d2735"
+        t.editFill = "#3a3016"
+        t.editBorder = "#d9a441"
+        t.editCaret = "#e6e9ef"
         t.selectionBox = "#60a5fa"
         t.hoverBorder = "#93c5fd"
         t.portFill = "#1b202a"
@@ -117,6 +140,16 @@ class FlowTheme {
         t.panelBorder = "#39414f"
         t.minimapNode = "#5b6577"
         t.minimapView = "#60a5fa"
+        t.tooltipFill = "#e6e9ef"
+        t.tooltipBorder = "#e6e9ef"
+        t.tooltipText = "#12151c"
+        t.menuFill = "#1b202a"
+        t.menuBorder = "#39414f"
+        t.menuShadow = "#0d1016"
+        t.menuText = "#e6e9ef"
+        t.menuDisabledText = "#5b6577"
+        t.menuHighlight = "#232a36"
+        t.highlightColor = "#fbbf24"
         return t
     }
 

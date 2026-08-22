@@ -221,6 +221,7 @@
     "rangerflow:parity:oracles": "cd gallery/rangerflow/harness && { [ -d node_modules ] || npm install --silent --no-audit --no-fund; } && cd ../../.. && node gallery/rangerflow/harness/oracles/reactflow_oracle.mjs && node gallery/rangerflow/harness/oracles/d3_force_oracle.mjs",
     "rangerflow:parity:dump": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerflow/tests/ParityDump.rgr -d=./gallery/rangerflow/bin -o=ParityDump.js -nodecli && node ./gallery/rangerflow/bin/ParityDump.js",
     "rangerflow:parity": "npm run --silent rangerflow:parity:oracles || echo '  (no registry: the geometry oracles could not be built — scoring what is measurable)'; npm run --silent rangerflow:parity:dump && node gallery/rangerflow/tools/parity.mjs",
+    "rangerflow:rivals": "npm run --silent rangerflow:parity:dump && node gallery/rangerflow/tools/rivals.mjs",
     "rangerflow:web": "bash gallery/rangerflow/web/standalone/build.sh",
     "rangerflow:web:serve": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs",
     "rangerflow:demo:web": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs --open",

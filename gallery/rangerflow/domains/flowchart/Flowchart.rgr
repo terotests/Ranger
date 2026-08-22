@@ -49,8 +49,20 @@ class FlowKind {
     sfn preparation:string () { return "preparation" }
     sfn connector:string ()   { return "connector" }
     sfn note:string ()        { return "note" }
+    ; Three more from ISO 5807 that the shape library can now draw.
+    sfn merge:string ()       { return "merge" }
+    sfn extract:string ()     { return "extract" }
+    sfn summing:string ()     { return "summing" }
+    sfn offPage:string ()     { return "offpage" }
 
     sfn shapeFor:string (kind:string) {
+        ; A merge is a triangle pointing down, an extract one pointing up —
+        ; the two halves of the same idea, and the reason both are in the
+        ; standard.
+        if (kind == "merge")       { return "triangledown" }
+        if (kind == "extract")     { return "triangle" }
+        if (kind == "summing")     { return "circle" }
+        if (kind == "offpage")     { return "pentagondown" }
         if (kind == "terminator")  { return "stadium" }
         if (kind == "decision")    { return "diamond" }
         if (kind == "io")          { return "parallelogram" }
@@ -98,7 +110,11 @@ class Flowchart {
     ; wide.
     def fontSize:double 13.0
     def minWidth:double 120.0
-    def maxWidth:double 260.0
+    ; Narrow on purpose. A flowchart of boxes all the same width reads as a
+    ; sequence; one where every box is as wide as its longest word reads as a
+    ; ransom note. Past this the label wraps onto a second line, and the box
+    ; gets the height for it.
+    def maxWidth:double 185.0
 
     Constructor () {
     }
@@ -170,15 +186,24 @@ class Flowchart {
         def n:FlowNode (FlowNode.create(s.id s.label 0.0 0.0))
         n.nodeType = "step"
         n.shape = (FlowKind.shapeFor(s.kind))
-        def w:double ((this.textWidth(s.label fontSize)) + 34.0)
+        def want:double ((this.textWidth(s.label fontSize)) + 34.0)
+        def w:double want
         if (w < minWidth) { w = minWidth }
         if (w > maxWidth) { w = maxWidth }
         def h:double 52.0
+        ; Room for the second line the renderer is going to need.
+        def wrapped:boolean (want > maxWidth)
+        if wrapped {
+            h = 68.0
+        }
         ; A diamond only has room in the middle of itself, so it is given the
         ; slack a rectangle does not need.
         if (s.kind == "decision") {
             w = (w * 1.45)
             h = 84.0
+            if wrapped {
+                h = 96.0
+            }
         }
         if (s.kind == "terminator") {
             h = 46.0
@@ -208,6 +233,7 @@ class Flowchart {
         ; discovers for itself once the edges are faced.
         n.sourcePosition = 2
         n.targetPosition = 0
+        n.addSideHandles()
         n.syncFromModel()
         return n
     }

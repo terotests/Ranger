@@ -252,6 +252,11 @@ class FlowPort {
     ; How many edges may attach; -1 = unlimited (React Flow's connection limit).
     def connectionLimit:int -1
     def hidden:boolean false
+    ; A handle at the middle of its side rather than at `offset` along it, and
+    ; placed on the node's OUTLINE. A field port on a table is a row and knows
+    ; its offset; a handle on a diamond is "the left-hand point of the diamond"
+    ; and has to move when the shape does.
+    def centred:boolean false
 
     Constructor () {
     }
@@ -290,6 +295,54 @@ class FlowPort {
 ; does in d3-force: the force layout writes velocities here and the view reads
 ; positions, with no third structure to keep in step. `hasFx`/`hasFy` stand in
 ; for d3's `fx == null` test, because a Ranger double is never null.
+; ---------------------------------------------------------------------------
+; A second piece of text on an object, and a third, and a fourth.
+;
+; A node has a label. That is the name of the thing, and it goes in the middle,
+; and for most diagrams it is all the text there is. But a real diagram often
+; wants more than one: a step number in the corner, a cost under the box, an
+; owner's initials on the right, "[kyllä]" beside an arrow and "3 päivää" above
+; the same arrow. Syncfusion calls these annotations and lets an object carry a
+; list of them; JointJS gets there with several labels on a link.
+;
+; The offset is a FRACTION of the object rather than a distance, so an
+; annotation stays where it was put when the node is resized — a "cost" pinned
+; 8 px below the box would end up inside it the moment somebody made the box
+; taller. On an edge, `offsetX` is how far along the path and `offsetY` is how
+; far off it, in pixels, because a path has no width to be a fraction of.
+; ---------------------------------------------------------------------------
+class FlowAnnotation {
+    def id:string ""
+    def text:string ""
+    ; Node: 0..1 across the box, 0.5 0.5 being the middle. Edge: 0..1 along
+    ; the path.
+    def offsetX:double 0.5
+    def offsetY:double 0.5
+    ; Edge only: pixels perpendicular to the path, negative being above it.
+    def away:double 0.0
+    def fontSize:double 11.0
+    def color:string ""
+    def bold:boolean false
+    ; "left" | "center" | "right"
+    def align:string "center"
+    ; How wide the text may run before it wraps. Zero means "work it out from
+    ; where I was pinned", which is right for an annotation inside the box and
+    ; wrong for one hung underneath it — a caption under a 60 px symbol is not
+    ; limited to 60 px.
+    def width:double 0.0
+
+    Constructor () {
+    }
+
+    sfn create:FlowAnnotation (text:string ox:double oy:double) {
+        def a (new FlowAnnotation)
+        a.text = text
+        a.offsetX = ox
+        a.offsetY = oy
+        return a
+    }
+}
+
 class FlowNode {
     def id:string ""
     def label:string ""
@@ -304,6 +357,9 @@ class FlowNode {
     ; rectangle every table and class has always been; a flowchart's meaning
     ; lives here, because a decision that is not a diamond is not a decision.
     def shape:string "rect"
+    ; For `shape = "polygon"`: the ring, in unit coordinates across the box.
+    ; Empty for every other shape, which knows its own.
+    def shapePoints:[double]
     def sourcePosition:int 1
     def targetPosition:int 3
 
@@ -328,6 +384,32 @@ class FlowNode {
     def textColor:string ""
     def accentColor:string ""
     def borderRadius:double -1.0
+
+    ; The angle the node is turned through, clockwise, in degrees. Zero for
+    ; everything that was ever drawn before this existed, so nothing has to
+    ; opt out of it.
+    def rotation:double 0.0
+
+    ; Text on the node besides its name — see FlowAnnotation.
+    def annotations:[FlowAnnotation]
+
+    ; What to say when the pointer rests on this node. Empty means nothing is
+    ; said, which is the right default: a tooltip that repeats the label is a
+    ; tooltip that trains the reader to ignore tooltips.
+    def tooltip:string ""
+
+    ; How to call attention to this node, over and above being selected —
+    ; JointJS's highlighters. Empty is none.
+    ;
+    ;   "stroke"   a second outline OUTSIDE the shape's own, following it
+    ;   "mask"     the same, thicker and softer: the halo a search result gets
+    ;   "opacity"  faded, which is how you mark everything that is NOT the
+    ;              answer without hiding it
+    ;
+    ; They are a property of the node rather than of the view because "these
+    ; eleven tables are the ones your query touches" is a fact about the
+    ; diagram, and it has to survive a rebuild of the scene.
+    def highlight:string ""
 
     ; --- compartments and ports ---------------------------------------------
     def sections:[FlowSection]
@@ -511,6 +593,140 @@ class FlowNode {
         }
     }
 
+    ; ------------------------------------------------------- editing rows ---
+    ; A schema you can look at and not change is a picture of a schema. These
+    ; are the model half of adding and dropping a column: the editor owns undo
+    ; and the ports, the node owns where a row sits.
+    ;
+    ; Rows are numbered ACROSS the whole node — the same numbering the renderer
+    ; uses and the same one an edit tag carries — so everything above works in
+    ; one index and only these three translate it into (section, row).
+    fn sectionOfRow:int (idx:int) {
+        if (idx < 0) { return -1 }
+        def seen:int 0
+        def si:int 0
+        while (si < (array_length sections)) {
+            def sec:FlowSection (itemAt sections si)
+            if (sec.collapsed == false) {
+                def n:int (array_length sec.rows)
+                if (idx < (seen + n)) {
+                    return si
+                }
+                seen = (seen + n)
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn rowInSection:int (idx:int) {
+        if (idx < 0) { return -1 }
+        def seen:int 0
+        def si:int 0
+        while (si < (array_length sections)) {
+            def sec:FlowSection (itemAt sections si)
+            if (sec.collapsed == false) {
+                def n:int (array_length sec.rows)
+                if (idx < (seen + n)) {
+                    return (idx - seen)
+                }
+                seen = (seen + n)
+            }
+            si = (si + 1)
+        }
+        return -1
+    }
+
+    fn rowTotal:int () {
+        def n:int 0
+        def si:int 0
+        while (si < (array_length sections)) {
+            def sec:FlowSection (itemAt sections si)
+            if (sec.collapsed == false) {
+                n = (n + (array_length sec.rows))
+            }
+            si = (si + 1)
+        }
+        return n
+    }
+
+    ; Put a row into a section at a place. There is no `insert` in the
+    ; language, so the array is rebuilt — a table has tens of columns, not
+    ; thousands, and a rebuild that is obviously right beats a shuffle that is
+    ; nearly right.
+    fn insertRowAt:boolean (sectionIdx:int rowIdx:int row:FlowRow) {
+        if (sectionIdx < 0) { return false }
+        if (sectionIdx >= (array_length sections)) { return false }
+        def sec:FlowSection (itemAt sections sectionIdx)
+        def at:int rowIdx
+        if (at < 0) { at = 0 }
+        if (at > (array_length sec.rows)) { at = (array_length sec.rows) }
+        def rebuilt:[FlowRow]
+        def i:int 0
+        while (i < (array_length sec.rows)) {
+            if (i == at) {
+                push rebuilt row
+            }
+            push rebuilt (itemAt sec.rows i)
+            i = (i + 1)
+        }
+        if (at >= (array_length sec.rows)) {
+            push rebuilt row
+        }
+        sec.rows = rebuilt
+        this.layoutCompartments()
+        return true
+    }
+
+    ; Take a row out and hand it back, so an undo entry can hold the row
+    ; itself rather than a copy of what it said.
+    fn takeRowAt:FlowRow (sectionIdx:int rowIdx:int) {
+        def gone (new FlowRow)
+        if (sectionIdx < 0) { return gone }
+        if (sectionIdx >= (array_length sections)) { return gone }
+        def sec:FlowSection (itemAt sections sectionIdx)
+        if (rowIdx < 0) { return gone }
+        if (rowIdx >= (array_length sec.rows)) { return gone }
+        def rebuilt:[FlowRow]
+        def i:int 0
+        while (i < (array_length sec.rows)) {
+            if (i == rowIdx) {
+                gone = (itemAt sec.rows i)
+            } {
+                push rebuilt (itemAt sec.rows i)
+            }
+            i = (i + 1)
+        }
+        sec.rows = rebuilt
+        ; The ports the row owned go with it. Leaving them behind would leave
+        ; a connectable point opposite a row that is no longer there.
+        if ((strlen gone.portId) > 0) {
+            this.dropPort((gone.portId + ":l"))
+            this.dropPort((gone.portId + ":r"))
+        }
+        this.layoutCompartments()
+        return gone
+    }
+
+    fn dropPort:boolean (portId:string) {
+        def rebuilt:[FlowPort]
+        def found:boolean false
+        def i:int 0
+        while (i < (array_length ports)) {
+            def p:FlowPort (itemAt ports i)
+            if (p.id == portId) {
+                found = true
+            } {
+                push rebuilt p
+            }
+            i = (i + 1)
+        }
+        if found {
+            ports = rebuilt
+        }
+        return found
+    }
+
     ; --- ports --------------------------------------------------------------
     fn addPort:FlowPort (p:FlowPort) {
         p.nodeId = id
@@ -545,33 +761,175 @@ class FlowNode {
         return -1
     }
 
+    ; ------------------------------------------------------------ rotation --
+    ; A turned node is a node whose geometry is computed the way it always was
+    ; and then spun about its own centre on the way out — and whose hit tests
+    ; spin the QUESTION the other way on the way in. Doing it at these four
+    ; functions rather than in the shape system means every shape, every
+    ; custom polygon and every port comes along for free, and a node at zero
+    ; degrees runs exactly the code it ran before rotation existed.
+    fn spun:boolean () {
+        return ((fabs rotation) > 0.0001)
+    }
+
+    fn spinX:double (px:double py:double) {
+        if ((this.spun()) == false) { return px }
+        def a:double (rotation * 0.017453292519943295)
+        def cxv:double (x + (width * 0.5))
+        def cyv:double (y + (height * 0.5))
+        return ((cxv + (((px - cxv) * (cos a)) - ((py - cyv) * (sin a)))))
+    }
+
+    fn spinY:double (px:double py:double) {
+        if ((this.spun()) == false) { return py }
+        def a:double (rotation * 0.017453292519943295)
+        def cxv:double (x + (width * 0.5))
+        def cyv:double (y + (height * 0.5))
+        return ((cyv + (((px - cxv) * (sin a)) + ((py - cyv) * (cos a)))))
+    }
+
+    fn unspinX:double (px:double py:double) {
+        if ((this.spun()) == false) { return px }
+        def a:double ((0.0 - rotation) * 0.017453292519943295)
+        def cxv:double (x + (width * 0.5))
+        def cyv:double (y + (height * 0.5))
+        return ((cxv + (((px - cxv) * (cos a)) - ((py - cyv) * (sin a)))))
+    }
+
+    fn unspinY:double (px:double py:double) {
+        if ((this.spun()) == false) { return py }
+        def a:double ((0.0 - rotation) * 0.017453292519943295)
+        def cxv:double (x + (width * 0.5))
+        def cyv:double (y + (height * 0.5))
+        return ((cyv + (((px - cxv) * (sin a)) + ((py - cyv) * (cos a)))))
+    }
+
     ; A port's absolute position in flow space.
     fn portX:double (p:FlowPort) {
+        def rx:double (this.rawPortX(p))
+        if ((this.spun()) == false) { return rx }
+        def ry:double (this.rawPortY(p))
+        return (this.spinX(rx ry))
+    }
+
+    fn portY:double (p:FlowPort) {
+        def ry:double (this.rawPortY(p))
+        if ((this.spun()) == false) { return ry }
+        def rx:double (this.rawPortX(p))
+        return (this.spinY(rx ry))
+    }
+
+    fn rawPortX:double (p:FlowPort) {
+        if (p.centred) {
+            return (FlowShapes.anchorX(shape x y width height p.side))
+        }
         if (p.side == 1) { return (x + width) }
         if (p.side == 3) { return x }
         return (x + p.offset)
     }
 
-    fn portY:double (p:FlowPort) {
+    fn rawPortY:double (p:FlowPort) {
+        if (p.centred) {
+            return (FlowShapes.anchorY(shape x y width height p.side))
+        }
         if (p.side == 0) { return y }
         if (p.side == 2) { return (y + height) }
         return (y + p.offset)
     }
 
+    ; The four handles React Flow gives a node that declares none of its own.
+    ; A table has a port per row and needs no others; a flowchart step has no
+    ; rows at all, and without these there is nothing on it to drag a
+    ; connection from — the node is drawn, selected, and unconnectable.
+    ;
+    ; They are `centred`, so they follow the outline: the left handle of a
+    ; diamond is its left-hand point, and it stays there when the node is
+    ; resized.
+    fn addSideHandles:void () {
+        if ((array_length ports) > 0) {
+            return
+        }
+        this.addSideHandle(0 "t")
+        this.addSideHandle(1 "r")
+        this.addSideHandle(2 "b")
+        this.addSideHandle(3 "l")
+    }
+
+    fn addSideHandle:FlowPort (side:int suffix:string) {
+        def p (new FlowPort)
+        p.id = ((id + ":") + suffix)
+        p.nodeId = id
+        p.side = side
+        p.centred = true
+        push ports p
+        return p
+    }
+
     ; Where an edge leaves or arrives. React Flow puts a handle at the middle
     ; of the named side; so does this.
     fn handleX:double (side:int) {
-        return (FlowShapes.anchorX(shape x y width height side))
+        def hx:double (FlowShapes.anchorX(shape x y width height side))
+        if ((this.spun()) == false) { return hx }
+        def hy:double (FlowShapes.anchorY(shape x y width height side))
+        return (this.spinX(hx hy))
     }
 
     fn handleY:double (side:int) {
-        return (FlowShapes.anchorY(shape x y width height side))
+        def hy:double (FlowShapes.anchorY(shape x y width height side))
+        if ((this.spun()) == false) { return hy }
+        def hx:double (FlowShapes.anchorX(shape x y width height side))
+        return (this.spinY(hx hy))
     }
 
     ; Inside the SHAPE, not inside the bounding box: the corner beside a
     ; diamond looks like empty canvas and has to behave like it.
     fn holdsPoint:boolean (px:double py:double) {
-        return (FlowShapes.holdsShape(shape x y width height px py))
+        ; Turn the question back into the node's own frame rather than turning
+        ; the node into the pointer's: one point to rotate instead of thirty.
+        def qx:double (this.unspinX(px py))
+        def qy:double (this.unspinY(px py))
+        if (shape == "polygon") {
+            def ring:[double] (FlowShapes.outlineCustom(shape x y width height shapePoints))
+            return (FlowShapes.holds(ring qx qy))
+        }
+        return (FlowShapes.holdsShape(shape x y width height qx qy))
+    }
+
+    fn outline:[double] () {
+        def ring:[double] (FlowShapes.outlineCustom(shape x y width height shapePoints))
+        if ((this.spun()) == false) {
+            return ring
+        }
+        return (this.spinRing(ring))
+    }
+
+    fn spinRing:[double] (ring:[double]) {
+        def out:[double]
+        def i:int 0
+        while (i < (array_length ring)) {
+            def px:double (itemAt ring i)
+            def py:double (itemAt ring (i + 1))
+            push out (this.spinX(px py))
+            push out (this.spinY(px py))
+            i = (i + 2)
+        }
+        return out
+    }
+
+    ; ---------------------------------------------------------- annotations --
+    fn addAnnotation:FlowAnnotation (text:string ox:double oy:double) {
+        def a:FlowAnnotation (FlowAnnotation.create(text ox oy))
+        a.id = ((id + "#") + (to_string (array_length annotations)))
+        push annotations a
+        return a
+    }
+
+    fn annotationCount:int () {
+        return (array_length annotations)
+    }
+
+    fn annotationAt:FlowAnnotation (i:int) {
+        return (itemAt annotations i)
     }
 
     fn syncFromModel:void () {
@@ -617,9 +975,20 @@ class FlowEdge {
     def id:string ""
     def source:string ""
     def target:string ""
-    ; "default" (bezier) | "straight" | "step" | "smoothstep" | "simplebezier"
+    ; React Flow's four — "default" (bezier), "straight", "step",
+    ; "smoothstep" — plus "simplebezier", and the three JointJS publishes that
+    ; are their own families rather than variations: "curve" (a spline with a
+    ; tension, which will pass through the link's vertices), "metro"
+    ; (orthogonal with the corners cut at 45°) and "oneside" (out, along and
+    ; back, all on one face). "orthogonal" is the wider-cornered step.
     def edgeType:string "default"
     def label:string ""
+    ; Text on the edge besides its label — a duration above the line, a
+    ; condition below it. `offsetX` is how far along the path, `away` how far
+    ; off it. See FlowAnnotation.
+    def annotations:[FlowAnnotation]
+    ; What to say when the pointer rests on the line.
+    def tooltip:string ""
     def animated:boolean false
     def selected:boolean false
     def hidden:boolean false
@@ -680,6 +1049,22 @@ class FlowEdge {
     def targetIndex:int -1
 
     Constructor () {
+    }
+
+    fn addAnnotation:FlowAnnotation (text:string along:double away:double) {
+        def a:FlowAnnotation (FlowAnnotation.create(text along 0.5))
+        a.away = away
+        a.id = ((id + "#") + (to_string (array_length annotations)))
+        push annotations a
+        return a
+    }
+
+    fn annotationCount:int () {
+        return (array_length annotations)
+    }
+
+    fn annotationAt:FlowAnnotation (i:int) {
+        return (itemAt annotations i)
     }
 
     sfn create:FlowEdge (id:string source:string target:string) {
@@ -1347,5 +1732,138 @@ class FlowGraph {
             k = (k + 1)
         }
         return out
+    }
+
+    ; --------------------------------------------------------- traversal ----
+    ; What JointJS calls `getNeighbors`, `getPredecessors`, `getSuccessors`,
+    ; `dfs` and `bfs`. The graph already knew how connected each node was; what
+    ; it could not do was tell you WHAT it was connected to, which is the
+    ; question every "select everything downstream of this" answers.
+    ;
+    ; Indices out, not nodes: the caller has the graph, and an array of ints is
+    ; a thing you can sort, deduplicate and intersect without writing a
+    ; comparison for a class.
+
+    ; Nodes an edge leads TO from here.
+    fn successors:[int] (idx:int) {
+        return (this.adjacent(idx true false))
+    }
+
+    ; Nodes an edge comes FROM to here.
+    fn predecessors:[int] (idx:int) {
+        return (this.adjacent(idx false true))
+    }
+
+    ; Both, which is what "neighbours" means on an undirected reading.
+    fn neighbours:[int] (idx:int) {
+        return (this.adjacent(idx true true))
+    }
+
+    fn adjacent:[int] (idx:int forward:boolean backward:boolean) {
+        def out:[int]
+        def k:int 0
+        while (k < (array_length edges)) {
+            def e:FlowEdge (itemAt edges k)
+            if forward {
+                if (e.sourceIndex == idx) {
+                    if (e.targetIndex >= 0) {
+                        if ((FlowGraph.hasInt(out e.targetIndex)) == false) {
+                            push out e.targetIndex
+                        }
+                    }
+                }
+            }
+            if backward {
+                if (e.targetIndex == idx) {
+                    if (e.sourceIndex >= 0) {
+                        if ((FlowGraph.hasInt(out e.sourceIndex)) == false) {
+                            push out e.sourceIndex
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn hasInt:boolean (arr:[int] v:int) {
+        def i:int 0
+        while (i < (array_length arr)) {
+            if ((itemAt arr i) == v) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Breadth first from a node, in the order the search reached them, the
+    ; start included. `forward` and `backward` pick which way the edges are
+    ; allowed to be walked, so the same routine answers "everything downstream"
+    ; and "everything that can reach this".
+    fn bfsFrom:[int] (start:int forward:boolean backward:boolean) {
+        def order:[int]
+        if (start < 0) { return order }
+        if (start >= (array_length nodes)) { return order }
+        push order start
+        def head:int 0
+        while (head < (array_length order)) {
+            def at:int (itemAt order head)
+            def near:[int] (this.adjacent(at forward backward))
+            def i:int 0
+            while (i < (array_length near)) {
+                def n:int (itemAt near i)
+                if ((FlowGraph.hasInt(order n)) == false) {
+                    push order n
+                }
+                i = (i + 1)
+            }
+            head = (head + 1)
+        }
+        return order
+    }
+
+    ; Depth first, iteratively — a diagram deep enough to matter is a diagram
+    ; deep enough to blow a recursion stack, and this has to work on the graph
+    ; somebody imported rather than on the one in the test.
+    fn dfsFrom:[int] (start:int forward:boolean backward:boolean) {
+        def order:[int]
+        if (start < 0) { return order }
+        if (start >= (array_length nodes)) { return order }
+        ; A stack with a top index rather than a shrinking array: the language
+        ; has `push` and no `pop`, and an array that only ever grows is a
+        ; stack you can still read afterwards.
+        def stack:[int]
+        push stack start
+        def top:int 1
+        while (top > 0) {
+            top = (top - 1)
+            def at:int (itemAt stack top)
+            if ((FlowGraph.hasInt(order at)) == false) {
+                push order at
+                def near:[int] (this.adjacent(at forward backward))
+                ; Pushed in reverse so the first neighbour is the first one
+                ; taken off again — a depth-first walk that visited its
+                ; children right to left would be a walk nobody could predict.
+                def i:int ((array_length near) - 1)
+                while (i >= 0) {
+                    if (top < (array_length stack)) {
+                        set_at stack top (itemAt near i)
+                    } {
+                        push stack (itemAt near i)
+                    }
+                    top = (top + 1)
+                    i = (i - 1)
+                }
+            }
+        }
+        return order
+    }
+
+    ; Everything reachable from a node, ignoring direction: the connected
+    ; component it belongs to.
+    fn componentOf:[int] (idx:int) {
+        return (this.bfsFrom(idx true true))
     }
 }

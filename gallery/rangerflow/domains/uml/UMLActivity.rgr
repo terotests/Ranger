@@ -1,0 +1,292 @@
+; ============================================================================
+; UMLActivity.rgr — the other UML diagram, the one that is a flowchart.
+; ============================================================================
+;
+; `UMLModel.rgr` next door draws classes: boxes with compartments, joined by
+; associations that mean "has one of these". An activity diagram is a
+; different language entirely — it is about what happens and in what order —
+; and it has its own vocabulary of shapes, which is why it needs its own
+; builder rather than a flag on the class one.
+;
+;                 ●                      ← initial node
+;                 │
+;        ╭────────────────╮
+;        │  vastaanota    │              ← action: a rounded box
+;        ╰────────────────╯
+;                 │
+;        ━━━━━━━━━━━━━━━━━━              ← fork: a bar, and now two things
+;         │              │                 happen at the same time
+;    ╭─────────╮   ╭──────────╮
+;    │ tarkista│   │  varaa   │
+;    ╰─────────╯   ╰──────────╯
+;         │              │
+;        ━━━━━━━━━━━━━━━━━━              ← join: and now they have both
+;                 │                        finished
+;                ◉                       ← final node
+;
+; The shapes are the ones an activity diagram has: a rounded box for an
+; action, a diamond for a decision and another for a merge, a bar for a fork
+; and another for a join, a box with a point for a signal sent and a box with
+; a bite out of it for one received, an hourglass for a wait, a filled circle
+; to start and a ringed one to stop.
+;
+; A fork bar is not a box with a label in it — it is a rule across the page —
+; so it is sized by the layout rather than by its text, and it carries no
+; label at all. That is the one place this builder overrides what the shape
+; system would do on its own.
+; ============================================================================
+
+Import "../../core/GraphModel.rgr"
+Import "../../core/FlowShapes.rgr"
+
+class ActivityKind {
+    sfn initial:string ()  { return "initial" }
+    sfn final:string ()    { return "final" }
+    sfn action:string ()   { return "action" }
+    sfn decision:string () { return "decision" }
+    sfn merge:string ()    { return "merge" }
+    sfn fork:string ()     { return "fork" }
+    ; `join` and `timer` are taken by the compiler, so the two accessors are
+    ; named for what the reader sees rather than for the UML word.
+    sfn joining:string ()  { return "join" }
+    sfn send:string ()     { return "send" }
+    sfn receive:string ()  { return "receive" }
+    sfn accept:string ()   { return "accept" }
+    sfn waiting:string ()  { return "timer" }
+    sfn structured:string () { return "structured" }
+
+    sfn shapeFor:string (kind:string) {
+        if (kind == "initial")    { return (FlowShape.initialNode()) }
+        if (kind == "final")      { return (FlowShape.finalNode()) }
+        if (kind == "decision")   { return (FlowShape.diamond()) }
+        if (kind == "merge")      { return (FlowShape.diamond()) }
+        if (kind == "fork")       { return (FlowShape.forkNode()) }
+        if (kind == "join")       { return (FlowShape.forkNode()) }
+        if (kind == "send")       { return (FlowShape.sendSignal()) }
+        if (kind == "receive")    { return (FlowShape.receiveSignal()) }
+        if (kind == "accept")     { return (FlowShape.acceptEvent()) }
+        if (kind == "timer")      { return (FlowShape.timeEvent()) }
+        if (kind == "structured") { return (FlowShape.structuredNode()) }
+        return (FlowShape.action())
+    }
+
+    ; A node the reader is meant to see as punctuation rather than as a step:
+    ; it has no name written in it and is drawn solid.
+    sfn isSolid:boolean (kind:string) {
+        if (kind == "initial") { return true }
+        if (kind == "fork")    { return true }
+        if (kind == "join")    { return true }
+        return false
+    }
+}
+
+class ActivityNode {
+    def id:string ""
+    def label:string ""
+    def kind:string "action"
+
+    Constructor () {
+    }
+}
+
+class ActivityFlow {
+    def source:string ""
+    def target:string ""
+    ; The guard, written in brackets on the arrow: "[kyllä]", "[ei]".
+    def guard:string ""
+
+    Constructor () {
+    }
+}
+
+class ActivityDiagram {
+    def title:string ""
+    def nodes:[ActivityNode]
+    def flows:[ActivityFlow]
+    def fontSize:double 13.0
+    def minWidth:double 120.0
+    def maxWidth:double 190.0
+
+    Constructor () {
+    }
+
+    fn node:ActivityNode (id:string label:string kind:string) {
+        def n (new ActivityNode)
+        n.id = id
+        n.label = label
+        n.kind = kind
+        push nodes n
+        return n
+    }
+
+    fn action:ActivityNode (id:string label:string) {
+        return (this.node(id label (ActivityKind.action())))
+    }
+
+    fn flow:ActivityFlow (source:string target:string) {
+        def f (new ActivityFlow)
+        f.source = source
+        f.target = target
+        push flows f
+        return f
+    }
+
+    fn guarded:ActivityFlow (source:string target:string guard:string) {
+        def f:ActivityFlow (this.flow(source target))
+        f.guard = guard
+        return f
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn build:FlowGraph () {
+        def g (new FlowGraph)
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def a:ActivityNode (itemAt nodes i)
+            def n:FlowNode (this.activityNode(a))
+            g.addNode(n)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length flows)) {
+            def f:ActivityFlow (itemAt flows k)
+            if (g.hasNode(f.source)) {
+                if (g.hasNode(f.target)) {
+                    def e:FlowEdge (FlowEdge.create("" f.source f.target))
+                    e.edgeType = "smoothstep"
+                    e.markerEnd = "arrowclosed"
+                    if ((strlen f.guard) > 0) {
+                        e.label = ("[" + f.guard + "]")
+                    }
+                    g.addEdge(e)
+                }
+            }
+            k = (k + 1)
+        }
+        g.reindex()
+        return g
+    }
+
+    fn activityNode:FlowNode (a:ActivityNode) {
+        def label:string a.label
+        if (ActivityKind.isSolid(a.kind)) {
+            label = ""
+        }
+        def n:FlowNode (FlowNode.create(a.id label 0.0 0.0))
+        n.nodeType = "activity"
+        n.shape = (ActivityKind.shapeFor(a.kind))
+        def want:double ((this.textWidth(a.label fontSize)) + 34.0)
+        def w:double want
+        if (w < minWidth) { w = minWidth }
+        if (w > maxWidth) { w = maxWidth }
+        def h:double 50.0
+        if (want > maxWidth) { h = 66.0 }
+        if (a.kind == "decision") {
+            w = (w * 1.4)
+            h = 82.0
+        }
+        if (a.kind == "merge") {
+            w = (w * 1.4)
+            h = 82.0
+        }
+        ; The punctuation. A start is a small disc, an end a slightly larger
+        ; one so the ring reads, and a bar is a bar.
+        if (a.kind == "initial") {
+            w = 26.0
+            h = 26.0
+            n.bgColor = "#2f3542"
+            n.borderColor = "#2f3542"
+        }
+        if (a.kind == "final") {
+            w = 34.0
+            h = 34.0
+        }
+        if (a.kind == "fork") {
+            w = 220.0
+            h = 8.0
+            n.bgColor = "#2f3542"
+            n.borderColor = "#2f3542"
+        }
+        if (a.kind == "join") {
+            w = 220.0
+            h = 8.0
+            n.bgColor = "#2f3542"
+            n.borderColor = "#2f3542"
+        }
+        ; An hourglass has almost no room in it — its widest part is its top,
+        ; and its middle is a point. UML writes the wait beside the symbol
+        ; rather than inside it, so that is where this puts it: the shape
+        ; carries no label at all and an annotation sits under it.
+        if (a.kind == "timer") {
+            w = 62.0
+            h = 62.0
+            label = ""
+        }
+        n.width = w
+        n.height = h
+        if (a.kind == "timer") {
+            if ((strlen a.label) > 0) {
+                def under:FlowAnnotation (n.addAnnotation(a.label 0.5 1.38))
+                under.fontSize = 12.0
+                under.width = 130.0
+            }
+        }
+        if ((strlen n.bgColor) == 0) {
+            n.bgColor = (ActivityDiagram.fillFor(a.kind))
+        }
+        ; Activity diagrams read downwards, like the flowchart they are.
+        n.sourcePosition = 2
+        n.targetPosition = 0
+        n.addSideHandles()
+        n.syncFromModel()
+        return n
+    }
+
+    sfn fillFor:string (kind:string) {
+        if (kind == "action")     { return "#eef2ff" }
+        if (kind == "structured") { return "#f4f1fb" }
+        if (kind == "decision")   { return "#fff6e5" }
+        if (kind == "merge")      { return "#fff6e5" }
+        if (kind == "send")       { return "#eef7ee" }
+        if (kind == "receive")    { return "#eef7ee" }
+        if (kind == "accept")     { return "#eef7ee" }
+        if (kind == "timer")      { return "#f6f6f9" }
+        return ""
+    }
+
+    fn textWidth:double (t:string size:double) {
+        return ((to_double (strlen t)) * (size * 0.58))
+    }
+
+    ; A fork sends its outgoing flows straight down and a join takes its
+    ; incoming ones straight in, because a bar with an arrow leaving its end
+    ; is a bar nobody reads as a fork.
+    sfn faceEdges:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.sourceIndex >= 0) {
+                if (e.targetIndex >= 0) {
+                    def a:FlowNode (g.nodeAt(e.sourceIndex))
+                    def b:FlowNode (g.nodeAt(e.targetIndex))
+                    if ((b.centerY()) > (a.centerY())) {
+                        e.sourceHandle = 2
+                        e.targetHandle = 0
+                    } {
+                        if ((b.centerX()) < (a.centerX())) {
+                            e.sourceHandle = 3
+                            e.targetHandle = 3
+                        } {
+                            e.sourceHandle = 1
+                            e.targetHandle = 1
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+}

@@ -21,6 +21,8 @@
   #rename { padding: 3px 6px; border: 1px solid #ccd3dd; border-radius: 5px; }
   #wrap { flex: 1; position: relative; min-height: 0; }
   #screen { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #typing { position: absolute; left: -9999px; top: 0; width: 1px; height: 1px;
+            opacity: 0; border: 0; padding: 0; }
   footer { display: flex; gap: 16px; padding: 6px 12px; border-top: 1px solid #d5dae2;
            background: #fff; color: #6b7280; font-variant-numeric: tabular-nums; }
   #selftest { white-space: pre-wrap; padding: 6px 12px; color: #111; background: #ffd; }
@@ -45,6 +47,9 @@
       <option value="atk">ATK-kaavio (ISO 5807)</option>
       <option value="org">organisaatiokaavio</option>
       <option value="process">uimaratakaavio</option>
+      <option value="mindmap">mind map</option>
+      <option value="radial">säteittäinen puu</option>
+      <option value="activity">UML-aktiviteettikaavio</option>
     </select>
   </label>
   <label>layout
@@ -67,6 +72,9 @@
       <option value="step">step</option>
       <option value="default">bezier</option>
       <option value="straight">straight</option>
+      <option value="curve">curve</option>
+      <option value="metro">metro</option>
+      <option value="oneside">one side</option>
     </select>
   </label>
   <label>background
@@ -84,6 +92,8 @@
     </select>
   </label>
   <label><input type="checkbox" id="snap"> snap</label>
+  <label><input type="checkbox" id="rulers"> rulers</label>
+  <label><input type="checkbox" id="bridges" checked> jumps</label>
   <button id="fit">fit</button>
   <button id="svg">download SVG</button>
   <label>open .sql <input type="file" id="file" accept=".sql,.txt"></label>
@@ -103,10 +113,25 @@
     <button class="shape" data-shape="predefined"    title="Predefined process">▤</button>
     <button class="shape" data-shape="circle"        title="Connector">◯</button>
     <button class="shape" data-shape="note"          title="Note">🗅</button>
+    <button class="shape" data-shape="sort"          title="Sort">⧫</button>
+    <button class="shape" data-shape="collate"       title="Collate">⧗</button>
+    <button class="shape" data-shape="or"            title="OR junction">⊕</button>
+    <button class="shape" data-shape="papertape"     title="Paper tape">⌇</button>
+    <button class="shape" data-shape="directdata"    title="Direct data">⬭</button>
+    <button class="shape" data-shape="sequentialdata" title="Magnetic tape">⊙</button>
+    <button class="shape" data-shape="multidocument" title="Multi-document">🗏</button>
+    <button class="shape" data-shape="internalstorage" title="Internal storage">▦</button>
+    <button class="shape" data-shape="action"        title="UML action">▢</button>
+    <button class="shape" data-shape="sendsignal"    title="Send signal">▷</button>
+    <button class="shape" data-shape="receivesignal" title="Receive signal">◁</button>
   </span>
   <span class="group">
     <button id="connect" title="Click a source node, then a target">connect</button>
     <button id="del" title="Delete the selection">delete</button>
+    <button id="addrow" title="Add a column to the selected table">+ column</button>
+    <button id="delrow" title="Drop a column from the selected table">− column</button>
+    <button id="rotate" title="Turn the selection a quarter turn">rotate</button>
+    <button id="dup" title="Duplicate the selection">duplicate</button>
     <button id="undo" title="Undo">undo</button>
     <button id="redo" title="Redo">redo</button>
   </span>
@@ -116,7 +141,15 @@
   </span>
 </div>
 
-<div id="wrap"><canvas id="screen"></canvas></div>
+<div id="wrap">
+  <canvas id="screen"></canvas>
+  <!-- A real text field, invisible and one pixel wide, that takes focus while
+       a label is being typed. The canvas cannot receive composed characters,
+       dead keys or a phone's keyboard; this can, and its value is mirrored
+       into the editor on every input event. -->
+  <input id="typing" type="text" autocomplete="off" autocorrect="off"
+         autocapitalize="off" spellcheck="false" aria-label="edit label">
+</div>
 
 <footer>
   <span id="status">loading…</span>
