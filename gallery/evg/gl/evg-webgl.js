@@ -463,9 +463,17 @@ function atlasFor(gl, cmds, dpr) {
 }
 
 /**
- * One GL texture per image source, for the life of the context. An image at a
- * given source never changes, so uploading it again is pure cost — and the old
- * code both re-uploaded and leaked every frame.
+ * One GL texture per image source, for the life of the context. Uploading the
+ * same picture again every frame is pure cost — the code before this cache
+ * both re-uploaded and leaked one texture per image per frame.
+ *
+ * The entry remembers WHICH image it was made from, and that is not a detail.
+ * A src here is a name inside a document — `ppt/media/image1.png` — and a
+ * second document names its own first picture exactly the same. Keying on the
+ * name alone, the cache answered a newly opened file with the previous file's
+ * textures: open one deck, open another, and slide 1 still showed the logo of
+ * the deck before it. So a changed image object re-uploads, and the texture it
+ * replaces is deleted rather than left on the card.
  */
 function textureCacheFor(gl, images) {
   let cache = IMAGE_TEXTURES.get(gl);
@@ -476,12 +484,34 @@ function textureCacheFor(gl, images) {
   let uploaded = 0;
   for (const [src, img] of images) {
     if (!img) continue;
-    if (cache.has(src)) continue;
-    cache.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight });
+    const have = cache.get(src);
+    if (have && have.img === img) continue;
+    if (have && have.tex) gl.deleteTexture(have.tex);
+    cache.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight, img });
     uploaded += 1;
   }
   cache.uploaded = uploaded;
   return cache;
+}
+
+/**
+ * Forget every image texture on this context. A host that closes a document
+ * does not have to call this — a changed image re-uploads on its own — but a
+ * host that unloads one without opening another can hand the card's memory
+ * back instead of holding it until the context dies.
+ */
+export function dropImageTextures(gl) {
+  const cache = IMAGE_TEXTURES.get(gl);
+  if (!cache) return 0;
+  let dropped = 0;
+  for (const entry of cache.values()) {
+    if (entry && entry.tex) {
+      gl.deleteTexture(entry.tex);
+      dropped += 1;
+    }
+  }
+  cache.clear();
+  return dropped;
 }
 
 function programsFor(gl) {
