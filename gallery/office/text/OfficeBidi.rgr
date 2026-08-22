@@ -1,0 +1,764 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeBidi — the Unicode bidirectional algorithm, enough of it
+; ==============================================================================
+;
+; Arabic and Hebrew are stored in LOGICAL order — the order they are typed and
+; spoken — and displayed in VISUAL order, right to left. Nothing in this
+; gallery did that conversion, so every Arabic word in every one of the three
+; editors was drawn backwards. Not degraded: reversed, which is unreadable.
+;
+; This is UAX #9, the practical subset:
+;
+;   P2, P3   the paragraph's own direction, from its first strong character
+;   W1–W7    numbers and the marks around them
+;   N1, N2   neutrals — spaces, punctuation — take the direction around them
+;   I1, I2   the implicit levels
+;   L1, L2   trailing whitespace, and the reordering itself
+;
+; What is deliberately NOT here: the explicit embedding codes (LRE, RLE, PDF)
+; and the isolates (LRI, RLI, FSI). They are rare in office documents, they
+; need a directional status stack, and the property that ACTUALLY carries
+; direction in OOXML is on the paragraph — `w:bidi` in Word, `rtl` in
+; PowerPoint, `readingOrder` in Excel. That is `paragraphLevel`'s override
+; argument, and it is what a document really uses.
+;
+; The algorithm works on levels, not on scripts. An even level is left to
+; right, an odd level is right to left, and the reordering at the end reverses
+; the runs from the highest level down. That is the whole of L2, and it is why
+; nested direction works without anything here knowing what Arabic is.
+;
+;   npm run office:bidi:test
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; The bidirectional character types this needs. UAX #9 §3.1 names more; these
+; are the ones that change an outcome in running text.
+; ------------------------------------------------------------------------------
+class BidiClass {
+    sfn L:int ()   { return 0 }   ; left to right — Latin, Cyrillic, CJK
+    sfn R:int ()   { return 1 }   ; right to left — Hebrew
+    sfn AL:int ()  { return 2 }   ; right to left Arabic
+    sfn EN:int ()  { return 3 }   ; European number — 0-9
+    sfn ES:int ()  { return 4 }   ; European separator — + -
+    sfn ET:int ()  { return 5 }   ; European terminator — % $ °
+    sfn AN:int ()  { return 6 }   ; Arabic number — Arabic-Indic digits
+    sfn CS:int ()  { return 7 }   ; common separator — , . : / and NBSP
+    sfn NSM:int () { return 8 }   ; non-spacing mark — harakat, niqqud
+    sfn BN:int ()  { return 9 }   ; boundary neutral — zero width, controls
+    sfn B:int ()   { return 10 }  ; paragraph separator
+    sfn S:int ()   { return 11 }  ; segment separator — tab
+    sfn WS:int ()  { return 12 }  ; whitespace
+    sfn ON:int ()  { return 13 }  ; other neutral — most punctuation
+
+    ; Is this class right-to-left? R and AL both are; they differ only in how
+    ; the numbers beside them behave (W2).
+    sfn isRtl:boolean (c:int) {
+        if (c == 1) {
+            return true
+        }
+        return (c == 2)
+    }
+
+    ; The neutrals N1/N2 resolve, plus the separators that have been reduced
+    ; to neutrals by then.
+    sfn isNeutral:boolean (c:int) {
+        if (c == 10) {
+            return true
+        }
+        if (c == 11) {
+            return true
+        }
+        if (c == 12) {
+            return true
+        }
+        return (c == 13)
+    }
+}
+
+class OfficeBidi {
+
+    ; --- the character table --------------------------------------------------
+    ;
+    ; By range rather than by codepoint. The full Unicode database is a
+    ; megabyte and almost all of it is L; what matters here is every range
+    ; that is NOT, plus the handful of neutrals that behave specially around
+    ; numbers.
+    sfn classOf:int (cp:int) {
+        ; --- the ASCII fast path, which is most of most documents
+        if (cp < 128) {
+            return (OfficeBidi.asciiClass(cp))
+        }
+        ; --- non-spacing marks that sit inside RTL text
+        if (cp >= 1425) {
+            if (cp <= 1479) {
+                return (BidiClass.NSM())     ; Hebrew points
+            }
+        }
+        if (cp >= 1552) {
+            if (cp <= 1562) {
+                return (BidiClass.NSM())     ; Arabic honorifics
+            }
+        }
+        if (cp >= 1611) {
+            if (cp <= 1631) {
+                return (BidiClass.NSM())     ; Arabic harakat
+            }
+        }
+        if (cp >= 1750) {
+            if (cp <= 1756) {
+                return (BidiClass.NSM())
+            }
+        }
+        if (cp >= 1759) {
+            if (cp <= 1764) {
+                return (BidiClass.NSM())
+            }
+        }
+        if (cp >= 1767) {
+            if (cp <= 1768) {
+                return (BidiClass.NSM())
+            }
+        }
+        if (cp >= 1770) {
+            if (cp <= 1773) {
+                return (BidiClass.NSM())
+            }
+        }
+        ; --- Arabic-Indic digits are AN, not EN: they take the direction of
+        ; --- the Arabic around them rather than of the paragraph.
+        if (cp >= 1632) {
+            if (cp <= 1641) {
+                return (BidiClass.AN())
+            }
+        }
+        if (cp >= 1776) {
+            if (cp <= 1785) {
+                return (BidiClass.AN())      ; extended Arabic-Indic
+            }
+        }
+        if (cp == 1548) {
+            return (BidiClass.CS())          ; Arabic comma
+        }
+        if (cp >= 1642) {
+            if (cp <= 1645) {
+                return (BidiClass.AN())      ; percent sign, decimal separators
+            }
+        }
+        ; --- Hebrew
+        if (cp >= 1424) {
+            if (cp <= 1535) {
+                return (BidiClass.R())
+            }
+        }
+        ; --- Arabic, Syriac, Thaana, N'Ko and the rest of the RTL blocks
+        if (cp >= 1536) {
+            if (cp <= 1791) {
+                return (BidiClass.AL())
+            }
+        }
+        if (cp >= 1792) {
+            if (cp <= 1871) {
+                return (BidiClass.AL())      ; Syriac
+            }
+        }
+        if (cp >= 1872) {
+            if (cp <= 1919) {
+                return (BidiClass.AL())      ; Arabic supplement
+            }
+        }
+        if (cp >= 1920) {
+            if (cp <= 1983) {
+                return (BidiClass.R())       ; Thaana
+            }
+        }
+        if (cp >= 1984) {
+            if (cp <= 2047) {
+                return (BidiClass.R())       ; N'Ko
+            }
+        }
+        if (cp >= 2048) {
+            if (cp <= 2111) {
+                return (BidiClass.AL())      ; Samaritan / Mandaic
+            }
+        }
+        if (cp >= 2112) {
+            if (cp <= 2303) {
+                return (BidiClass.AL())      ; Arabic extended
+            }
+        }
+        ; --- the presentation forms, which is what a shaper produces
+        if (cp >= 64336) {
+            if (cp <= 65023) {
+                return (BidiClass.AL())      ; Arabic Presentation Forms-A
+            }
+        }
+        if (cp >= 65136) {
+            if (cp <= 65279) {
+                return (BidiClass.AL())      ; Arabic Presentation Forms-B
+            }
+        }
+        if (cp >= 64285) {
+            if (cp <= 64335) {
+                return (BidiClass.R())       ; Hebrew presentation forms
+            }
+        }
+        ; --- the marks and controls that must not disturb anything
+        if (cp == 8206) {
+            return (BidiClass.L())           ; LEFT-TO-RIGHT MARK
+        }
+        if (cp == 8207) {
+            return (BidiClass.R())           ; RIGHT-TO-LEFT MARK
+        }
+        if (cp == 8203) {
+            return (BidiClass.BN())          ; zero width space
+        }
+        if (cp >= 8204) {
+            if (cp <= 8205) {
+                return (BidiClass.BN())      ; ZWNJ, ZWJ
+            }
+        }
+        if (cp == 8232) {
+            return (BidiClass.WS())
+        }
+        if (cp == 8233) {
+            return (BidiClass.B())
+        }
+        ; --- combining marks anywhere else
+        if (cp >= 768) {
+            if (cp <= 879) {
+                return (BidiClass.NSM())
+            }
+        }
+        ; --- currency and terminators outside ASCII
+        if (cp >= 8352) {
+            if (cp <= 8399) {
+                return (BidiClass.ET())      ; currency symbols
+            }
+        }
+        if (cp == 176) {
+            return (BidiClass.ET())          ; degree
+        }
+        if (cp == 160) {
+            return (BidiClass.CS())          ; no-break space
+        }
+        ; --- general punctuation reads as neutral
+        if (cp >= 8192) {
+            if (cp <= 8202) {
+                return (BidiClass.WS())
+            }
+        }
+        if (cp >= 8208) {
+            if (cp <= 8231) {
+                return (BidiClass.ON())
+            }
+        }
+        return (BidiClass.L())
+    }
+
+    sfn asciiClass:int (cp:int) {
+        if (cp >= 48) {
+            if (cp <= 57) {
+                return (BidiClass.EN())
+            }
+        }
+        if (cp >= 65) {
+            if (cp <= 90) {
+                return (BidiClass.L())
+            }
+        }
+        if (cp >= 97) {
+            if (cp <= 122) {
+                return (BidiClass.L())
+            }
+        }
+        if (cp == 10) {
+            return (BidiClass.B())
+        }
+        if (cp == 13) {
+            return (BidiClass.B())
+        }
+        if (cp == 9) {
+            return (BidiClass.S())
+        }
+        if (cp == 32) {
+            return (BidiClass.WS())
+        }
+        if (cp == 43) {
+            return (BidiClass.ES())          ; +
+        }
+        if (cp == 45) {
+            return (BidiClass.ES())          ; -
+        }
+        if (cp == 35) {
+            return (BidiClass.ET())          ; #
+        }
+        if (cp == 36) {
+            return (BidiClass.ET())          ; $
+        }
+        if (cp == 37) {
+            return (BidiClass.ET())          ; %
+        }
+        if (cp == 44) {
+            return (BidiClass.CS())          ; ,
+        }
+        if (cp == 46) {
+            return (BidiClass.CS())          ; .
+        }
+        if (cp == 58) {
+            return (BidiClass.CS())          ; :
+        }
+        if (cp == 47) {
+            return (BidiClass.CS())          ; /
+        }
+        return (BidiClass.ON())
+    }
+
+    ; --- P2, P3: which way does this paragraph run? ---------------------------
+    ;
+    ; The first strong character decides, and everything before it is ignored.
+    ; `override` is what the DOCUMENT said — `w:bidi`, `rtl`, `readingOrder` —
+    ; and it wins, because an author who marked a paragraph RTL meant it even
+    ; if the paragraph happens to open with a Latin brand name.
+    ;
+    ;   -1  no override: work it out from the text
+    ;    0  force left to right
+    ;    1  force right to left
+    sfn paragraphLevel:int (cps:[int] override:int) {
+        if (override == 0) {
+            return 0
+        }
+        if (override == 1) {
+            return 1
+        }
+        def i:int 0
+        while (i < (array_length cps)) {
+            def c:int (OfficeBidi.classOf((itemAt cps i)))
+            if (c == (BidiClass.L())) {
+                return 0
+            }
+            if (BidiClass.isRtl(c)) {
+                return 1
+            }
+            i = (i + 1)
+        }
+        ; No strong character at all — a line of digits, or of punctuation.
+        return 0
+    }
+
+    ; For N1: which direction a resolved class counts as. Both kinds of
+    ; number count as right-to-left, per the rule's own wording.
+    sfn dirOf:int (c:int) {
+        if (c == (BidiClass.L())) {
+            return (BidiClass.L())
+        }
+        return (BidiClass.R())
+    }
+
+    ; --- W1..W7, N1..N2, I1..I2: the level of every character -----------------
+    ;
+    ; One pass per rule, in order, over a working copy of the classes. Written
+    ; as separate loops rather than one clever pass because the rules ARE
+    ; separate and each one's comment is the rule it implements — a single
+    ; fused loop is where a bidi implementation stops being checkable against
+    ; the spec.
+    sfn resolveLevels:[int] (cps:[int] paraLevel:int) {
+        def n:int (array_length cps)
+        def cls:[int]
+        def levels:[int]
+        def i:int 0
+        while (i < n) {
+            push cls (OfficeBidi.classOf((itemAt cps i)))
+            push levels paraLevel
+            i = (i + 1)
+        }
+        if (n == 0) {
+            return levels
+        }
+
+        ; W1: a non-spacing mark takes the class of what it sits on. At the
+        ; start of the text it takes the paragraph's direction.
+        def prev:int (BidiClass.L())
+        if (paraLevel == 1) {
+            prev = (BidiClass.R())
+        }
+        i = 0
+        while (i < n) {
+            if ((itemAt cls i) == (BidiClass.NSM())) {
+                set_at cls i prev
+            } {
+                prev = (itemAt cls i)
+            }
+            i = (i + 1)
+        }
+
+        ; W2: a European number becomes an Arabic number when the last strong
+        ; character before it was Arabic. This is why "42" beside Arabic text
+        ; travels with the Arabic instead of with the paragraph.
+        def lastStrong:int (BidiClass.L())
+        if (paraLevel == 1) {
+            lastStrong = (BidiClass.R())
+        }
+        i = 0
+        while (i < n) {
+            def c2:int (itemAt cls i)
+            if (c2 == (BidiClass.L())) {
+                lastStrong = c2
+            }
+            if (c2 == (BidiClass.R())) {
+                lastStrong = c2
+            }
+            if (c2 == (BidiClass.AL())) {
+                lastStrong = c2
+            }
+            if (c2 == (BidiClass.EN())) {
+                if (lastStrong == (BidiClass.AL())) {
+                    set_at cls i (BidiClass.AN())
+                }
+            }
+            i = (i + 1)
+        }
+
+        ; W3: Arabic letters are just R from here on. The distinction existed
+        ; only for W2.
+        i = 0
+        while (i < n) {
+            if ((itemAt cls i) == (BidiClass.AL())) {
+                set_at cls i (BidiClass.R())
+            }
+            i = (i + 1)
+        }
+
+        ; W4: a single separator BETWEEN two numbers of the same kind joins
+        ; them — the dot in 3.14, the comma in 1,000, the colon in 10:30.
+        i = 1
+        while ((i + 1) < n) {
+            def c4:int (itemAt cls i)
+            def before:int (itemAt cls (i - 1))
+            def after:int (itemAt cls (i + 1))
+            if (c4 == (BidiClass.ES())) {
+                if (before == (BidiClass.EN())) {
+                    if (after == (BidiClass.EN())) {
+                        set_at cls i (BidiClass.EN())
+                    }
+                }
+            }
+            if (c4 == (BidiClass.CS())) {
+                if (before == (BidiClass.EN())) {
+                    if (after == (BidiClass.EN())) {
+                        set_at cls i (BidiClass.EN())
+                    }
+                }
+                if (before == (BidiClass.AN())) {
+                    if (after == (BidiClass.AN())) {
+                        set_at cls i (BidiClass.AN())
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+
+        ; W5: a run of terminators adjacent to a European number joins it —
+        ; the per cent in "40%", the dollar in "$40". Either side counts.
+        i = 0
+        while (i < n) {
+            if ((itemAt cls i) != (BidiClass.ET())) {
+                i = (i + 1)
+            } {
+                ; [i, j) is the maximal run of terminators.
+                def j:int i
+                while (j < n) {
+                    if ((itemAt cls j) == (BidiClass.ET())) {
+                        j = (j + 1)
+                    } {
+                        break
+                    }
+                }
+                def joins:boolean false
+                if (i > 0) {
+                    if ((itemAt cls (i - 1)) == (BidiClass.EN())) {
+                        joins = true
+                    }
+                }
+                if (j < n) {
+                    if ((itemAt cls j) == (BidiClass.EN())) {
+                        joins = true
+                    }
+                }
+                if joins {
+                    def k:int i
+                    while (k < j) {
+                        set_at cls k (BidiClass.EN())
+                        k = (k + 1)
+                    }
+                }
+                i = j
+            }
+        }
+        ; W6: whatever separators and terminators are left become neutral.
+        i = 0
+        while (i < n) {
+            def c6:int (itemAt cls i)
+            if (c6 == (BidiClass.ES())) {
+                set_at cls i (BidiClass.ON())
+            }
+            if (c6 == (BidiClass.ET())) {
+                set_at cls i (BidiClass.ON())
+            }
+            if (c6 == (BidiClass.CS())) {
+                set_at cls i (BidiClass.ON())
+            }
+            if (c6 == (BidiClass.BN())) {
+                set_at cls i (BidiClass.ON())
+            }
+            i = (i + 1)
+        }
+
+        ; W7: a European number becomes L when the last strong before it was L
+        ; — so "42" in an English sentence is part of the English.
+        def strong7:int (BidiClass.L())
+        if (paraLevel == 1) {
+            strong7 = (BidiClass.R())
+        }
+        i = 0
+        while (i < n) {
+            def c7:int (itemAt cls i)
+            if (c7 == (BidiClass.L())) {
+                strong7 = c7
+            }
+            if (c7 == (BidiClass.R())) {
+                strong7 = c7
+            }
+            if (c7 == (BidiClass.EN())) {
+                if (strong7 == (BidiClass.L())) {
+                    set_at cls i (BidiClass.L())
+                }
+            }
+            i = (i + 1)
+        }
+
+        ; N1, N2: a run of neutrals takes the direction found on BOTH sides
+        ; when they agree, and the paragraph's direction otherwise. A number
+        ; counts as right-to-left here — which is what puts the space in
+        ; "42 مرحبا" on the Arabic's side rather than stranding it.
+        def paraDir:int (BidiClass.L())
+        if (paraLevel == 1) {
+            paraDir = (BidiClass.R())
+        }
+        i = 0
+        while (i < n) {
+            if ((BidiClass.isNeutral((itemAt cls i))) == false) {
+                i = (i + 1)
+            } {
+                def j2:int i
+                while (j2 < n) {
+                    if (BidiClass.isNeutral((itemAt cls j2))) {
+                        j2 = (j2 + 1)
+                    } {
+                        break
+                    }
+                }
+                def before:int paraDir
+                if (i > 0) {
+                    before = (OfficeBidi.dirOf((itemAt cls (i - 1))))
+                }
+                def after:int paraDir
+                if (j2 < n) {
+                    after = (OfficeBidi.dirOf((itemAt cls j2)))
+                }
+                def take:int paraDir
+                if (before == after) {
+                    take = before
+                }
+                def k2:int i
+                while (k2 < j2) {
+                    set_at cls k2 take
+                    k2 = (k2 + 1)
+                }
+                i = j2
+            }
+        }
+
+        ; I1, I2: the levels themselves.
+        i = 0
+        while (i < n) {
+            def c:int (itemAt cls i)
+            def lvl:int paraLevel
+            if (paraLevel == 0) {
+                ; Even: R goes one deeper, numbers two.
+                if (c == (BidiClass.R())) {
+                    lvl = 1
+                }
+                if (c == (BidiClass.AN())) {
+                    lvl = 2
+                }
+                if (c == (BidiClass.EN())) {
+                    lvl = 2
+                }
+            } {
+                ; Odd: L and both kinds of number go one deeper.
+                if (c == (BidiClass.L())) {
+                    lvl = 2
+                }
+                if (c == (BidiClass.AN())) {
+                    lvl = 2
+                }
+                if (c == (BidiClass.EN())) {
+                    lvl = 2
+                }
+            }
+            set_at levels i lvl
+            i = (i + 1)
+        }
+        return levels
+    }
+
+    ; --- L1: trailing whitespace goes back to the paragraph's direction -------
+    ;
+    ; Without this, a right-to-left line that ends in a space has that space
+    ; reordered to the LEFT of the line, and the caret at the end of the line
+    ; lands on the wrong side of the text.
+    sfn applyL1:void (cps:[int] levels:[int] paraLevel:int) {
+        def n:int (array_length cps)
+        ; Trailing whitespace and segment separators, walking back from the end.
+        def i:int (n - 1)
+        while (i >= 0) {
+            def c:int (OfficeBidi.classOf((itemAt cps i)))
+            if (c == (BidiClass.WS())) {
+                set_at levels i paraLevel
+                i = (i - 1)
+            } {
+                if (c == (BidiClass.S())) {
+                    set_at levels i paraLevel
+                    i = (i - 1)
+                } {
+                    if (c == (BidiClass.B())) {
+                        set_at levels i paraLevel
+                        i = (i - 1)
+                    } {
+                        i = (0 - 1)
+                    }
+                }
+            }
+        }
+        ; A tab or a paragraph separator resets to the paragraph level, and so
+        ; does the whitespace before it.
+        def j:int 0
+        while (j < n) {
+            def c2:int (OfficeBidi.classOf((itemAt cps j)))
+            if (c2 == (BidiClass.S())) {
+                set_at levels j paraLevel
+                def k:int (j - 1)
+                while (k >= 0) {
+                    if ((OfficeBidi.classOf((itemAt cps k))) == (BidiClass.WS())) {
+                        set_at levels k paraLevel
+                        k = (k - 1)
+                    } {
+                        k = (0 - 1)
+                    }
+                }
+            }
+            if (c2 == (BidiClass.B())) {
+                set_at levels j paraLevel
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; --- L2: the reordering ---------------------------------------------------
+    ;
+    ; From the highest level down to the lowest odd one, reverse every
+    ; contiguous run at or above that level. Four lines, and it is the whole of
+    ; bidirectional display: nothing here knows what Arabic is, only that some
+    ; characters sit at an odd level.
+    ;
+    ; Returns, for each VISUAL position, the LOGICAL index that belongs there.
+    ; A caller draws `text[order[0]]`, `text[order[1]]` … left to right.
+    sfn reorder:[int] (levels:[int]) {
+        def n:int (array_length levels)
+        def order:[int]
+        def i:int 0
+        while (i < n) {
+            push order i
+            i = (i + 1)
+        }
+        if (n == 0) {
+            return order
+        }
+        def highest:int 0
+        def lowestOdd:int 99
+        i = 0
+        while (i < n) {
+            def lv:int (itemAt levels i)
+            if (lv > highest) {
+                highest = lv
+            }
+            if ((lv % 2) == 1) {
+                if (lv < lowestOdd) {
+                    lowestOdd = lv
+                }
+            }
+            i = (i + 1)
+        }
+        if (lowestOdd > highest) {
+            return order
+        }
+        def lvl:int highest
+        while (lvl >= lowestOdd) {
+            def a:int 0
+            while (a < n) {
+                if ((itemAt levels (itemAt order a)) >= lvl) {
+                    def b:int a
+                    while (b < n) {
+                        if ((itemAt levels (itemAt order b)) >= lvl) {
+                            b = (b + 1)
+                        } {
+                            break
+                        }
+                    }
+                    ; reverse order[a .. b)
+                    def lo:int a
+                    def hi:int (b - 1)
+                    while (lo < hi) {
+                        def t:int (itemAt order lo)
+                        set_at order lo (itemAt order hi)
+                        set_at order hi t
+                        lo = (lo + 1)
+                        hi = (hi - 1)
+                    }
+                    a = b
+                } {
+                    a = (a + 1)
+                }
+            }
+            lvl = (lvl - 1)
+        }
+        return order
+    }
+
+    ; --- the whole thing, for a caller that just wants display order ----------
+    ;
+    ; `override` is the document's own direction property: -1 none, 0 LTR,
+    ; 1 RTL. Returns the logical index to draw at each visual position.
+    sfn visualOrder:[int] (cps:[int] override:int) {
+        def para:int (OfficeBidi.paragraphLevel(cps override))
+        def levels:[int] (OfficeBidi.resolveLevels(cps para))
+        OfficeBidi.applyL1(cps levels para)
+        return (OfficeBidi.reorder(levels))
+    }
+
+    ; Does this text need any of the above? Almost all text in almost every
+    ; document is left-to-right only, and a caller that can skip the whole
+    ; algorithm for it should.
+    sfn hasRtl:boolean (cps:[int]) {
+        def i:int 0
+        while (i < (array_length cps)) {
+            if (BidiClass.isRtl((OfficeBidi.classOf((itemAt cps i))))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

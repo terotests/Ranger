@@ -1,0 +1,244 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeBidiTest — the cases where a plausible implementation is wrong
+; ==============================================================================
+;
+; Bidi is the kind of algorithm that looks right on the case you thought of and
+; is wrong on the next one. So the tests here are the cases that separate a
+; real implementation from a plausible one:
+;
+;   * a number beside Arabic travels with the ARABIC (W2), and the same number
+;     beside English travels with the ENGLISH (W7)
+;   * the space between two Arabic words stays with them; the space between
+;     Arabic and English goes to the paragraph (N1, N2)
+;   * "3.14" is one number and does not come apart at the dot (W4)
+;   * a right-to-left line ending in a space does not move the space to the
+;     left of the line (L1)
+;   * the document's own direction beats the first strong character, because
+;     an author who marked a paragraph RTL meant it
+;
+; Compiled twice. A codepoint is an int on both targets, but the text these
+; run on is UTF-16 on JavaScript and bytes in C++, so the decoding the callers
+; do around this has to be checked on both — and the cheapest way to keep that
+; honest is for the core to be checked on both too.
+;
+;   npm run office:bidi:test
+; ==============================================================================
+
+Import "../OfficeBidi.rgr"
+
+class BidiCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class OfficeBidiTest {
+    def c:BidiCheck (new BidiCheck)
+
+    sfn main:void () {
+        def t (new OfficeBidiTest())
+        t.run()
+    }
+
+    ; Codepoints written out, so a test reads as what it tests rather than as
+    ; a string literal nobody can see the direction of.
+    sfn cps:[int] (spec:string) {
+        def out:[int]
+        def cur:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (strlen spec)) {
+            def ch:int (charAt spec i)
+            if (ch == 32) {
+                if any {
+                    push out cur
+                }
+                cur = 0
+                any = false
+            } {
+                cur = ((cur * 10) + (ch - 48))
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            push out cur
+        }
+        return out
+    }
+
+    ; The visual order as a readable string of logical indices.
+    sfn orderText:string (order:[int]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length order)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (to_string (itemAt order i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn run:void () {
+        print "=== OfficeBidiTest ==="
+        this.testClasses()
+        this.testParagraphLevel()
+        this.testPlainRuns()
+        this.testNumbers()
+        this.testNeutrals()
+        this.testTrailingSpace()
+        this.testOverride()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testClasses:void () {
+        print "--- what each character is ---"
+        c.eqInt("A is left-to-right" (OfficeBidi.classOf(65)) (BidiClass.L()))
+        c.eqInt("a digit is a European number" (OfficeBidi.classOf(52)) (BidiClass.EN()))
+        ; U+0645 ARABIC LETTER MEEM
+        c.eqInt("an Arabic letter is AL" (OfficeBidi.classOf(1605)) (BidiClass.AL()))
+        ; U+05D0 HEBREW LETTER ALEF
+        c.eqInt("a Hebrew letter is R" (OfficeBidi.classOf(1488)) (BidiClass.R()))
+        ; U+0660 ARABIC-INDIC DIGIT ZERO — a number, but not a European one
+        c.eqInt("an Arabic-Indic digit is AN" (OfficeBidi.classOf(1632)) (BidiClass.AN()))
+        ; U+064E ARABIC FATHA — a mark, which must not break a run
+        c.eqInt("a harakat is a non-spacing mark" (OfficeBidi.classOf(1614)) (BidiClass.NSM()))
+        c.eqInt("a space is whitespace" (OfficeBidi.classOf(32)) (BidiClass.WS()))
+        c.eqInt("a comma separates" (OfficeBidi.classOf(44)) (BidiClass.CS()))
+        c.eqInt("a per cent terminates" (OfficeBidi.classOf(37)) (BidiClass.ET()))
+        ; U+FE8D is a shaped Arabic form — what a shaper produces, and it has
+        ; to classify the same as the letter it came from.
+        c.eqInt("a shaped Arabic form is still AL" (OfficeBidi.classOf(65165)) (BidiClass.AL()))
+        c.ok("R counts as right-to-left" (BidiClass.isRtl((BidiClass.R()))))
+        c.ok("and so does AL" (BidiClass.isRtl((BidiClass.AL()))))
+        c.ok("L does not" ((BidiClass.isRtl((BidiClass.L()))) == false))
+    }
+
+    fn testParagraphLevel:void () {
+        print "--- which way the paragraph runs ---"
+        ; "AB" — Latin
+        c.eqInt("Latin text runs left to right" (OfficeBidi.paragraphLevel((OfficeBidiTest.cps("65 66")) -1)) 0)
+        ; two Arabic letters
+        c.eqInt("Arabic text runs right to left" (OfficeBidi.paragraphLevel((OfficeBidiTest.cps("1605 1585")) -1)) 1)
+        ; "42" then Arabic — the digits are not strong, so the Arabic decides
+        c.eqInt("digits before the first letter do not decide" (OfficeBidi.paragraphLevel((OfficeBidiTest.cps("52 50 32 1605")) -1)) 1)
+        ; "(" then Arabic — punctuation is not strong either
+        c.eqInt("nor does an opening bracket" (OfficeBidi.paragraphLevel((OfficeBidiTest.cps("40 1605")) -1)) 1)
+        c.eqInt("a line with no letters at all runs left to right" (OfficeBidi.paragraphLevel((OfficeBidiTest.cps("52 50")) -1)) 0)
+    }
+
+    fn testPlainRuns:void () {
+        print "--- a run in one direction ---"
+        ; "AB" stays as it is.
+        def latin:[int] (OfficeBidiTest.cps("65 66 67"))
+        c.eqStr("Latin is not reordered" (OfficeBidiTest.orderText((OfficeBidi.visualOrder(latin -1)))) "0 1 2")
+        ; Three Arabic letters come out reversed — which is the whole point.
+        def arabic:[int] (OfficeBidiTest.cps("1605 1585 1581"))
+        c.eqStr("Arabic is drawn right to left" (OfficeBidiTest.orderText((OfficeBidi.visualOrder(arabic -1)))) "2 1 0")
+        ; Arabic sentence with an English word inside it: the English keeps its
+        ; own order while sitting in a reversed line.
+        ; م ر SPACE A B SPACE ح
+        def mixed:[int] (OfficeBidiTest.cps("1605 1585 32 65 66 32 1581"))
+        c.eqStr("an English word inside Arabic keeps its own order"
+            (OfficeBidiTest.orderText((OfficeBidi.visualOrder(mixed -1)))) "6 5 3 4 2 1 0")
+    }
+
+    fn testNumbers:void () {
+        print "--- numbers go with what is beside them ---"
+        ; Arabic then "42": W2 makes the digits Arabic numbers, so they sit
+        ; inside the Arabic run rather than being pulled out of it — and the
+        ; digits themselves are still read left to right.
+        def arNum:[int] (OfficeBidiTest.cps("1605 1585 32 52 50"))
+        c.eqStr("digits after Arabic stay in the Arabic run, left to right"
+            (OfficeBidiTest.orderText((OfficeBidi.visualOrder(arNum -1)))) "3 4 2 1 0")
+        ; "AB 42" — W7 makes them part of the English.
+        def enNum:[int] (OfficeBidiTest.cps("65 66 32 52 50"))
+        c.eqStr("digits after English are English" (OfficeBidiTest.orderText((OfficeBidi.visualOrder(enNum -1)))) "0 1 2 3 4")
+        ; "3.14" must not come apart at the dot (W4).
+        def pi:[int] (OfficeBidiTest.cps("51 46 49 52"))
+        c.eqStr("a decimal point does not split a number" (OfficeBidiTest.orderText((OfficeBidi.visualOrder(pi -1)))) "0 1 2 3")
+        ; The same number inside an Arabic line: still left to right in itself.
+        def piAr:[int] (OfficeBidiTest.cps("1605 32 51 46 49 52"))
+        c.eqStr("and it stays intact inside Arabic" (OfficeBidiTest.orderText((OfficeBidi.visualOrder(piAr -1)))) "2 3 4 5 1 0")
+    }
+
+    fn testNeutrals:void () {
+        print "--- spaces and punctuation take a side ---"
+        ; Arabic SPACE Arabic — the space is surrounded by RTL and joins it.
+        def sp:[int] (OfficeBidiTest.cps("1605 32 1585"))
+        c.eqStr("a space between two Arabic words is Arabic" (OfficeBidiTest.orderText((OfficeBidi.visualOrder(sp -1)))) "2 1 0")
+        ; An exclamation mark at the end of an Arabic line belongs to the line.
+        def bang:[int] (OfficeBidiTest.cps("1605 1585 33"))
+        c.eqStr("and so is the punctuation at the end of the line" (OfficeBidiTest.orderText((OfficeBidi.visualOrder(bang -1)))) "2 1 0")
+    }
+
+    fn testTrailingSpace:void () {
+        print "--- the space at the end of a line ---"
+        ; A right-to-left line runs from the right, so its END is the LEFT of
+        ; the box. A trailing space belongs there — visual position 0.
+        ;
+        ; (My first version of this test asserted the opposite, out of reading
+        ; "the end of the line" as "the right". It is not, in a language that
+        ; starts on the right.)
+        def plain:[int] (OfficeBidiTest.cps("1605 1585 32"))
+        def order:[int] (OfficeBidi.visualOrder(plain -1))
+        c.eqInt("a trailing space is at the visual end of an RTL line" (itemAt order 0) 2)
+
+        ; The case L1 actually exists for: an RTL paragraph whose line ends
+        ; with an English word and then a space. Without L1 that space keeps
+        ; the English run's level and is reordered INSIDE the English — so the
+        ; line ends "…BA" with the space stranded between the English and the
+        ; Arabic, and the caret at the end of the line lands mid-sentence.
+        ; م SPACE A B SPACE
+        def tail:[int] (OfficeBidiTest.cps("1605 32 65 66 32"))
+        def ord2:[int] (OfficeBidi.visualOrder(tail 1))
+        c.eqInt("the trailing space left the English run" (itemAt ord2 0) 4)
+        c.eqInt("the English is still in its own order: A" (itemAt ord2 1) 2)
+        c.eqInt("then B" (itemAt ord2 2) 3)
+        c.eqInt("and the Arabic is at the right-hand start" (itemAt ord2 4) 0)
+    }
+
+    fn testOverride:void () {
+        print "--- what the document said ---"
+        ; A paragraph Word marked `w:bidi` that happens to start with a Latin
+        ; brand name is still a right-to-left paragraph.
+        def latinFirst:[int] (OfficeBidiTest.cps("65 66 32 1605 1585"))
+        c.eqInt("the text alone would say left to right" (OfficeBidi.paragraphLevel(latinFirst -1)) 0)
+        c.eqInt("the document's RTL wins" (OfficeBidi.paragraphLevel(latinFirst 1)) 1)
+        c.eqInt("and its LTR wins over Arabic" (OfficeBidi.paragraphLevel((OfficeBidiTest.cps("1605 1585")) 0)) 0)
+        ; And the reordering follows the override.
+        c.eqStr("an overridden paragraph reorders as RTL"
+            (OfficeBidiTest.orderText((OfficeBidi.visualOrder(latinFirst 1)))) "4 3 2 0 1")
+
+        print "--- and the shortcut for the 99% ---"
+        c.ok("plain English needs no algorithm" ((OfficeBidi.hasRtl((OfficeBidiTest.cps("65 66 32 52")))) == false))
+        c.ok("one Arabic letter is enough to need it" (OfficeBidi.hasRtl((OfficeBidiTest.cps("65 32 1605")))))
+    }
+}
