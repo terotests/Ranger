@@ -75,8 +75,32 @@ The **family alias map** is here too — `Calibri → Open Sans`,
 `Times New Roman → Droid Serif`, and unknown names to distinct families rather
 than all to one, because sending every unknown name to the same face makes
 choosing a font in a toolbar look like a no-op. It began in the spreadsheet,
-the only one of the three that had one. One map means a document opened in two
-of these editors looks the same in both.
+the only one of the three that had one.
+
+This section used to claim that one map means a document opened in two of these
+editors looks the same in both. **It did not, and a review caught it.** The
+document reader kept its own three-case map — Cinzel, Josefin, everything else
+is Open Sans — so a Times New Roman paragraph was sans-serif here and serif in
+the grid, and it was not loading Droid Serif or Noto Sans at all. Both halves
+are fixed: `WordStyleResolver.mapFont` is now one line calling `aliasFamily`,
+and `DocxView` loads the families the map sends documents to. Nothing in the
+fixtures changed, because every one of them names Calibri and both maps
+answered Open Sans for it — which is exactly why nobody noticed.
+
+**The face NAME is one layer down, in `UITextRenderer.faceName`.** Five callers
+had their own copy of it and three spelled the bold italic cut
+`"Family-BoldItalic"` — the spreadsheet's software painter, its GL painter, and
+the shared toolbar. FontManager splits on the first dash and matches the TTF's
+own subfamily, which is `"Bold Italic"` **with a space**; the misspelt name
+misses, falls through to the family's regular cut, and hands back a font with a
+real `unitsPerEm` — so every "did I get a face?" check passes and bold italic
+text draws upright and light. Silently. That is the bug `OfficeFont` was
+written to end, still live in the painters underneath it.
+
+It lives in `UITextRenderer` rather than here because it is a fact about how
+this repository's FontManager names a face, not about OOXML — and because
+`gallery/evg` cannot reach into `gallery/office`. `OfficeFont.faceName`
+delegates to it.
 
 ## What goes here next
 

@@ -65,17 +65,10 @@ class EVGFace {
     ; setting the font directly is undone by the next call.
     sfn apply:void (ctx:UIContext name:string bold:boolean italic:boolean) {
         def base:string (EVGFace.family(name))
-        def want:string base
-        if bold {
-            want = (base + "-Bold")
-            if italic {
-                want = (base + "-BoldItalic")
-            }
-        } {
-            if italic {
-                want = (base + "-Italic")
-            }
-        }
+        ; See `UITextRenderer.faceName`: spelled by hand here, the bold
+        ; italic cut was asked for as "-BoldItalic" and silently resolved to
+        ; the family's regular face.
+        def want:string (UITextRenderer.faceName(base bold italic))
         if (ctx.tr.fontFamily == want) {
             return
         }

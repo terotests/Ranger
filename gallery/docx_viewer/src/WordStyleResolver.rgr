@@ -11,6 +11,7 @@
 ; ==============================================================================
 
 Import "RichDocument.rgr"
+Import "../../office/text/OfficeFont.rgr"
 Import "WordXml.rgr"
 Import "../../office/text/OfficeStyle.rgr"
 
@@ -108,17 +109,19 @@ class WordStyleResolver {
         defaults.colorHex = "000000"
     }
 
+    ; Which family this reader draws a named one with.
+    ;
+    ; This used to be three hardcoded cases — Cinzel, Josefin, everything else
+    ; is Open Sans — beside a shared alias map the spreadsheet was already
+    ; using. So a Times New Roman paragraph was Open Sans here and Droid Serif
+    ; in the grid, and `gallery/office/README.md` claimed the opposite: "one
+    ; map means a document opened in two of these editors looks the same in
+    ; both". It does now.
+    ;
+    ; The shared map already knew Cinzel and Josefin Sans, so nothing this
+    ; reader could already do was lost.
     sfn mapFont:string (name:string) {
-        if ((strlen name) == 0) {
-            return "Open Sans"
-        }
-        if ((indexOf name "Cinzel") >= 0) {
-            return "Cinzel"
-        }
-        if ((indexOf name "Josefin") >= 0) {
-            return "Josefin Sans"
-        }
-        return "Open Sans"
+        return (OfficeFont.aliasFamily(name))
     }
 
     sfn halfPointsToPt:double (sz:string) {

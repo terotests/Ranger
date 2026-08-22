@@ -65,6 +65,18 @@ class DocxView {
         ctx.tr.addFace("Open_Sans/OpenSans-BoldItalic.ttf")
         ctx.tr.addFace("Cinzel/Cinzel-Regular.ttf")
         ctx.tr.addFace("Josefin_Sans/JosefinSans-Regular.ttf")
+        ; The families the shared alias map sends documents to. Without them
+        ; `OfficeFont` walks back to Open Sans and a Times New Roman paragraph
+        ; draws sans-serif — which is what this viewer did while the
+        ; spreadsheet, loading the same map AND these faces, drew it serif.
+        ; Sharing the map is only half the claim; the faces are the other half.
+        ctx.tr.addFace("Noto_Sans/NotoSans-Regular.ttf")
+        ctx.tr.addFace("Noto_Sans/NotoSans-Bold.ttf")
+        ctx.tr.addFace("Noto_Sans/NotoSans-Italic.ttf")
+        ctx.tr.addFace("Noto_Sans/NotoSans-BoldItalic.ttf")
+        ctx.tr.addFace("Droid_Serif/DroidSerif.ttf")
+        ctx.tr.addFace("Droid_Serif/DroidSerif-Bold.ttf")
+        ctx.tr.addFace("Droid_Serif/DroidSerif-Italic.ttf")
         ; The glyphs a document reaches for that a text face does not carry.
         ; Word writes its bullet levels as ● ○ ▪ — geometric shapes, not
         ; letters — so every list drew a column of empty boxes; and an emoji in

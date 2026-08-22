@@ -73,16 +73,7 @@ class EVGContextMeasurer {
     }
 
     fn faceFor:string (b:boolean i:boolean) {
-        if b {
-            if i {
-                return (family + "-Bold Italic")
-            }
-            return (family + "-Bold")
-        }
-        if i {
-            return (family + "-Italic")
-        }
-        return family
+        return (UITextRenderer.faceName(family b i))
     }
 
     ; True once a context is attached: from then on these are real metrics from
@@ -116,16 +107,7 @@ class EVGContextMeasurer {
         if (this.hasFace(fontFamily)) {
             base = fontFamily
         }
-        if b {
-            if i {
-                return (base + "-Bold Italic")
-            }
-            return (base + "-Bold")
-        }
-        if i {
-            return (base + "-Italic")
-        }
-        return base
+        return (UITextRenderer.faceName(base b i))
     }
 
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {

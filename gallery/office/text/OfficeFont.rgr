@@ -62,14 +62,14 @@ class OfficeFont {
 
     ; The name a renderer is asked for. The regular face is the bare family:
     ; "Open Sans-Regular" is not what the loader registered it as.
+    ;
+    ; The rule itself lives in `UITextRenderer`, one layer down, because it is
+    ; about how this repository's FontManager names a face rather than about
+    ; anything OOXML — and because the painters that need it cannot reach into
+    ; `gallery/office`. This is the same answer, spelled where the office code
+    ; already looks for it.
     sfn faceName:string (family:string bold:boolean italic:boolean) {
-        if ((strlen family) == 0) {
-            return ""
-        }
-        if ((bold == false) && (italic == false)) {
-            return family
-        }
-        return (family + "-" + (OfficeFont.styleName(bold italic)))
+        return (UITextRenderer.faceName(family bold italic))
     }
 
     ; The name, but only if that exact face is loaded. `hasFont` cannot answer
