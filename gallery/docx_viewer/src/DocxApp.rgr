@@ -29,6 +29,7 @@
 ; ==============================================================================
 
 Import "DocxViewer.rgr"
+Import "DocxA11y.rgr"
 Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "../../evg/EVGCommands.rgr"
@@ -628,5 +629,56 @@ class DocxApp {
         def dl:EVGDisplayList (this.buildDisplayList())
         def body:string (dl.toJson())
         return ("{\"width\":" + (EVGDisplayList.num((to_double W))) + ",\"height\":" + (EVGDisplayList.num((to_double H))) + ",\"list\":" + body + "}")
+    }
+
+    ; --- accessibility --------------------------------------------------------
+    ;
+    ; What the document MEANS, beside what it looks like. A screen reader
+    ; cannot read a canvas — before this, the whole document was simply not
+    ; there for anyone using one. The spreadsheet in this gallery has published
+    ; this for a while; the tree type lives in `gallery/evg` because it is not
+    ; the spreadsheet's.
+    fn a11yTree:EVGA11yTree () {
+        def sel:DocumentRange viewer.edit.sel
+        def pid:int 0
+        def off:int 0
+        def s0:int 0
+        def s1:int 0
+        ; Wherever there IS a caret, not only where the document is editable.
+        ; A reader wants to know where the reading position is in a read-only
+        ; view too; when nothing has been clicked, the paragraph id is 0 and
+        ; nothing is focused, which is the honest answer rather than a guess.
+        if (sel.focus.paragraphId > 0) {
+            pid = sel.focus.paragraphId
+            off = sel.focus.textOffset
+            s0 = sel.anchor.textOffset
+            s1 = sel.focus.textOffset
+            if (s0 > s1) {
+                def swap:int s0
+                s0 = s1
+                s1 = swap
+            }
+            if ((sel.sameParagraph()) == false) {
+                ; A selection across paragraphs has no offsets inside one of
+                ; them. Reporting the caret alone is honest; reporting a range
+                ; that does not exist would make a reader read the wrong text.
+                s0 = off
+                s1 = off
+            }
+        }
+        return (DocxA11y.build(viewer.doc pid off s0 s1 ((viewer.edit.isActive()) == false)))
+    }
+
+    fn a11yJson:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.toJson())
+    }
+
+    ; The same tree as indented text. A refactor that silently drops a name
+    ; then shows up as a diff rather than as a bug report from the one person
+    ; who noticed.
+    fn a11yDump:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.dump())
     }
 }

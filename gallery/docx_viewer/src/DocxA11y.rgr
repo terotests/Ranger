@@ -1,0 +1,442 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; DocxA11y — what the page MEANS, beside what it looks like
+; ==============================================================================
+;
+; A screen reader cannot read a WebGL canvas. It cannot read a software canvas
+; either. Whatever this viewer draws, the document is simply not there for
+; anyone using one — and that is not a degraded experience, it is a blank
+; window.
+;
+; The spreadsheet in this gallery already publishes an `EVGA11yTree` beside its
+; frame, and `EVGA11yTree` lives in `gallery/evg` precisely so it is not the
+; spreadsheet's. This is the document's half of it. The deck's is next.
+;
+; Where the tree comes from, and why.
+;
+;   The BLOCKS, not the laid-out lines. A paragraph broken across four visual
+;   lines is one thing to read, and it is one thing on the page it is one thing
+;   on the next page too. Building this from `LaidLine` would make the reading
+;   order depend on the page width, and a reader's position would move when the
+;   window was resized.
+;
+;   Stable ids from identity. `doc/para:12`, `doc/table:3/row:2/cell:1` — every
+;   one of those numbers is a model id that survives an edit, not a position in
+;   an array. `EVGA11yNode` says this is the most common way a first
+;   implementation fails, and it is right: an id that changes each frame makes
+;   the reader lose its cursor and reset focus, and everything still looks
+;   correct on screen.
+;
+;   Headings from the style, because that is what they are. Word does not store
+;   "this is a heading"; it stores `Heading2`, and every navigate-by-heading
+;   command in every reader is built on that. A document whose author used the
+;   heading styles becomes navigable here for free; one that faked headings with
+;   bold 18pt text does not, which is the honest answer.
+;
+;   Alt text is the author's or it is absent. `wp:docPr/@descr` is the only
+;   thing anyone can say about a picture. Where a document has none, this says
+;   "Image" rather than inventing a description — a picture with no alt text is
+;   a documented failure of the document, and covering it up makes it harder to
+;   find, not easier to live with.
+;
+; Headers and footers are published, and deliberately outside the body: they
+; repeat on every page, and a reader that met them in the reading flow would
+; read the page furniture between every two paragraphs.
+; ==============================================================================
+
+Import "RichDocument.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class DocxA11y {
+
+    ; --- headings -------------------------------------------------------------
+
+    ; The outline level of a paragraph style, 1..9, or 0 for body text.
+    ;
+    ; Word writes the style id without spaces — `Heading1`, `heading 1` in some
+    ; producers' files — so the comparison is made on a lowercased id with the
+    ; spaces taken out. `Title` is level 1: it is the document's own heading and
+    ; a reader should be able to jump to it.
+    sfn headingLevel:int (styleId:string) {
+        def id:string (DocxA11y.squash(styleId))
+        if (id == "title") {
+            return 1
+        }
+        if (id == "subtitle") {
+            return 2
+        }
+        if ((indexOf id "heading") != 0) {
+            return 0
+        }
+        def rest:string (substring id 7 (strlen id))
+        if ((strlen rest) == 0) {
+            return 0
+        }
+        def lvl@(optional):int (to_int rest)
+        if (null? lvl) {
+            return 0
+        }
+        def v:int (unwrap lvl)
+        if (v < 1) {
+            return 0
+        }
+        if (v > 9) {
+            return 0
+        }
+        return v
+    }
+
+    ; Lowercased with the spaces removed, so `Heading 1` and `heading1` are the
+    ; same style to this file. They are the same style to Word too.
+    sfn squash:string (s:string) {
+        def lower:string (to_lowercase s)
+        def out:string ""
+        def i:int 0
+        while (i < (strlen lower)) {
+            def ch:int (charAt lower i)
+            if (ch != 32) {
+                out = (out + (substring lower i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- names ----------------------------------------------------------------
+
+    ; What a reader says for a paragraph with no text of its own. An empty
+    ; paragraph IS meaningful — it is the blank line the author left — so it is
+    ; published rather than skipped, named as what it is.
+    sfn paragraphName:string (p:Paragraph) {
+        if ((strlen p.text) > 0) {
+            return p.text
+        }
+        return "Blank line"
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    ; `caretParagraphId` is the paragraph the caret is in, 0 when the document
+    ; is not being edited. `caretOffset` and the selection are offsets into that
+    ; paragraph's text.
+    sfn build:EVGA11yTree (doc:RichDocument caretParagraphId:int caretOffset:int selStart:int selEnd:int readOnly:boolean) {
+        def t:EVGA11yTree (new EVGA11yTree)
+        def name:string "Document"
+        if ((strlen doc.title) > 0) {
+            name = ("Document, " + doc.title)
+        }
+        def root:EVGA11yNode (t.group("doc" "" name))
+        def body:EVGA11yNode (t.group("doc/body" "doc" "Document body"))
+
+        ; Lists nest, and flattening them is not a cosmetic loss. A reader
+        ; announces "3 of 5" from `posInSet`/`setSize`, so an item that is
+        ; really the second of two in a sub-list gets announced as the third of
+        ; five in its parent — a position that does not exist. The fixture
+        ; `lists_demo.docx` has a three-level outline and caught exactly that.
+        ;
+        ; The open lists are held as parallel stacks because Ranger has no
+        ; tuples: level, node id, how many items that list has, how many have
+        ; been emitted, and the last item emitted — which is the PARENT of any
+        ; list that opens below it.
+        def lvlStack:[int]
+        def idStack:[string]
+        def sizeStack:[int]
+        def seenStack:[int]
+        def lastStack:[string]
+
+        def bi:int 0
+        while (bi < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(bi))
+            if (b.kind == (DocBlockKind.para())) {
+                def p:Paragraph b.paragraph
+                def pid:string ("doc/para:" + (to_string p.id))
+                if (p.listKind > 0) {
+                    ; Close every list deeper than this item.
+                    def depth:int (array_length lvlStack)
+                    while (depth > 0) {
+                        def top:int (itemAt lvlStack (depth - 1))
+                        if (top > p.listLevel) {
+                            removeLast lvlStack
+                            removeLast idStack
+                            removeLast sizeStack
+                            removeLast seenStack
+                            removeLast lastStack
+                            depth = (depth - 1)
+                        } {
+                            depth = 0
+                        }
+                    }
+                    ; Open one if this item is deeper than anything open.
+                    def n2:int (array_length lvlStack)
+                    def needOpen:boolean (n2 == 0)
+                    if (needOpen == false) {
+                        def cur:int (itemAt lvlStack (n2 - 1))
+                        needOpen = (cur < p.listLevel)
+                    }
+                    if needOpen {
+                        def parent:string "doc/body"
+                        if (n2 > 0) {
+                            ; A nested list belongs to the item above it, not
+                            ; to the body: that is what makes "list of 2" come
+                            ; after the item it hangs off.
+                            parent = (itemAt lastStack (n2 - 1))
+                        }
+                        def newId:string ("doc/list:" + (to_string p.id))
+                        def size:int (DocxA11y.itemsAtLevel(doc bi p.listLevel))
+                        def lst:EVGA11yNode (t.node(newId parent (EVGA11yRole.list())))
+                        lst.name = "List"
+                        lst.setSize = size
+                        push lvlStack p.listLevel
+                        push idStack newId
+                        push sizeStack size
+                        push seenStack 0
+                        push lastStack ""
+                    }
+                    def at:int ((array_length lvlStack) - 1)
+                    def seen:int ((itemAt seenStack at) + 1)
+                    set_at seenStack at seen
+                    def item:EVGA11yNode (t.node(pid (itemAt idStack at) (EVGA11yRole.listItem())))
+                    item.name = (DocxA11y.paragraphName(p))
+                    item.posInSet = seen
+                    item.setSize = (itemAt sizeStack at)
+                    if ((strlen p.listText) > 0) {
+                        item.description = p.listText
+                    }
+                    set_at lastStack at pid
+                    DocxA11y.addImages(t p pid)
+                } {
+                    DocxA11y.closeLists(lvlStack idStack sizeStack seenStack lastStack)
+                    def lvl:int (DocxA11y.headingLevel(p.styleId))
+                    if (lvl > 0) {
+                        def h:EVGA11yNode (t.node(pid "doc/body" (EVGA11yRole.heading())))
+                        h.name = (DocxA11y.paragraphName(p))
+                        ; The level is what every navigate-by-heading command
+                        ; reads, and there is no dedicated field for it, so it
+                        ; rides in the one place a reader will speak: "Heading
+                        ; level 2".
+                        h.description = ("Heading level " + (to_string lvl))
+                        h.posInSet = lvl
+                    } {
+                        def n:EVGA11yNode (t.node(pid "doc/body" (EVGA11yRole.text())))
+                        n.name = (DocxA11y.paragraphName(p))
+                    }
+                    DocxA11y.addImages(t p pid)
+                }
+            } {
+                ; Anything that is not a paragraph ends every open list.
+                DocxA11y.closeLists(lvlStack idStack sizeStack seenStack lastStack)
+                if (b.kind == (DocBlockKind.table())) {
+                    DocxA11y.addTable(t b.table)
+                }
+                if (b.kind == (DocBlockKind.chart())) {
+                    DocxA11y.addChart(t b.chart)
+                }
+            }
+            bi = (bi + 1)
+        }
+
+        DocxA11y.addChrome(t doc)
+
+        ; --- where the caret is
+        if (caretParagraphId > 0) {
+            def cid:string ("doc/para:" + (to_string caretParagraphId))
+            def cn:EVGA11yNode (t.find(cid))
+            if ((strlen cn.id) > 0) {
+                cn.focusable = true
+                ; A viewer that is not in edit mode still has a caret to
+                ; report; what it does not have is a place to type. Saying so
+                ; is the difference between "read this" and "type here".
+                cn.readOnly = readOnly
+                cn.actSetValue = (readOnly == false)
+                cn.value = cn.name
+                cn.caret = caretOffset
+                cn.selStart = selStart
+                cn.selEnd = selEnd
+                t.setFocus(cid)
+            }
+        }
+        return t
+    }
+
+    ; How many items a list has at `level`, counting from block `from`.
+    ;
+    ; Deeper items are stepped over rather than counted — they belong to a
+    ; sub-list — and anything shallower, or not a list at all, ends it. A
+    ; reader announces "1 of 6" from this and nothing else, so a number that is
+    ; merely close is worse than no number: the position is the only sense of
+    ; place a list gives.
+    sfn itemsAtLevel:int (doc:RichDocument from:int level:int) {
+        def n:int 0
+        def i:int from
+        while (i < (doc.blockCount())) {
+            def b:DocBlock (doc.blockAt(i))
+            if (b.kind != (DocBlockKind.para())) {
+                return n
+            }
+            def p:Paragraph b.paragraph
+            if (p.listKind == 0) {
+                return n
+            }
+            if (p.listLevel < level) {
+                return n
+            }
+            if (p.listLevel == level) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn closeLists:void (lvlStack:[int] idStack:[string] sizeStack:[int] seenStack:[int] lastStack:[string]) {
+        while ((array_length lvlStack) > 0) {
+            removeLast lvlStack
+            removeLast idStack
+            removeLast sizeStack
+            removeLast seenStack
+            removeLast lastStack
+        }
+    }
+
+    sfn addImages:void (t:EVGA11yTree p:Paragraph parentId:string) {
+        def i:int 0
+        while (i < (array_length p.images)) {
+            def img:DocImage (itemAt p.images i)
+            def n:EVGA11yNode (t.node(((parentId + "/img:") + (to_string i)) parentId (EVGA11yRole.image())))
+            n.name = (img.accessibleName())
+            if ((img.hasAltText()) == false) {
+                ; Said out loud rather than hidden: a reader's user can then
+                ; tell "the author wrote nothing" from "the viewer lost it".
+                n.description = "No alt text"
+            }
+            t.place(n 0 0 img.widthPx img.heightPx)
+            i = (i + 1)
+        }
+    }
+
+    ; A table is a grid, and its first row is its header row unless the document
+    ; says otherwise. Word marks a repeating header with `tblHeader`, which this
+    ; reader does not carry yet — so the first row is announced as data, which
+    ; is wrong less often than announcing every table's first row as headers
+    ; would be.
+    sfn addTable:void (t:EVGA11yTree tbl:DocumentTable) {
+        def tid:string ("doc/table:" + (to_string tbl.id))
+        def g:EVGA11yNode (t.node(tid "doc/body" (EVGA11yRole.grid())))
+        def rows:int (array_length tbl.rows)
+        def cols:int (DocxA11y.widestRow(tbl))
+        g.name = ((("Table, " + (to_string rows)) + " rows by ") + ((to_string cols) + " columns"))
+        g.rowCount = rows
+        g.colCount = cols
+        def r:int 0
+        while (r < rows) {
+            def row:DocTableRow (itemAt tbl.rows r)
+            def rid:string ((tid + "/row:") + (to_string r))
+            def rn:EVGA11yNode (t.node(rid tid (EVGA11yRole.row())))
+            rn.name = ("Row " + (to_string (r + 1)))
+            rn.rowIndex = r
+            rn.colCount = cols
+            def c:int 0
+            while (c < (array_length row.cells)) {
+                def cell:DocTableCell (itemAt row.cells c)
+                def cn:EVGA11yNode (t.node(((rid + "/cell:") + (to_string c)) rid (EVGA11yRole.cell())))
+                cn.name = (DocxA11y.cellText(cell))
+                cn.rowIndex = r
+                cn.colIndex = c
+                if (cell.gridSpan > 1) {
+                    cn.colCount = cell.gridSpan
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; The widest row decides the column count. A table whose rows disagree is
+    ; ordinary in Word — merged cells do it — and claiming fewer columns than
+    ; some row has would make a reader announce positions past the end.
+    sfn widestRow:int (tbl:DocumentTable) {
+        def w:int 0
+        def r:int 0
+        while (r < (array_length tbl.rows)) {
+            def row:DocTableRow (itemAt tbl.rows r)
+            def n:int 0
+            def c:int 0
+            while (c < (array_length row.cells)) {
+                def cell:DocTableCell (itemAt row.cells c)
+                n = (n + cell.gridSpan)
+                c = (c + 1)
+            }
+            if (n > w) {
+                w = n
+            }
+            r = (r + 1)
+        }
+        return w
+    }
+
+    ; A cell's paragraphs, joined. A reader says a cell as one utterance, and
+    ; the paragraph breaks inside it are layout rather than meaning.
+    sfn cellText:string (cell:DocTableCell) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length cell.paragraphs)) {
+            def p:Paragraph (itemAt cell.paragraphs i)
+            if ((strlen p.text) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + " ")
+                }
+                out = (out + p.text)
+            }
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return "Empty"
+        }
+        return out
+    }
+
+    ; A chart is a picture to a reader, and the honest name for it is what the
+    ; chart itself says it is. `DocChart.note` carries the reason when it could
+    ; not be drawn, which is exactly what a reader should hear instead.
+    sfn addChart:void (t:EVGA11yTree ch:DocChart) {
+        def n:EVGA11yNode (t.node(("doc/chart:" + (to_string ch.id)) "doc/body" (EVGA11yRole.image())))
+        n.name = "Chart"
+        if ((strlen ch.note) > 0) {
+            n.description = ch.note
+        }
+        t.place(n 0 0 ch.widthPx ch.heightPx)
+    }
+
+    ; Headers and footers, outside the body. They repeat on every page; met in
+    ; the reading flow they would be read between every two paragraphs.
+    sfn addChrome:void (t:EVGA11yTree doc:RichDocument) {
+        def si:int 0
+        while (si < (doc.sectionCount())) {
+            def sec:DocSection (doc.sectionAt(si))
+            if ((array_length sec.headerParas) > 0) {
+                def hid:string ("doc/header:" + (to_string si))
+                def hg:EVGA11yNode (t.group(hid "doc" "Page header"))
+                DocxA11y.addChromeParas(t sec.headerParas hid)
+            }
+            if ((array_length sec.footerParas) > 0) {
+                def fid:string ("doc/footer:" + (to_string si))
+                def fg:EVGA11yNode (t.group(fid "doc" "Page footer"))
+                DocxA11y.addChromeParas(t sec.footerParas fid)
+            }
+            si = (si + 1)
+        }
+    }
+
+    sfn addChromeParas:void (t:EVGA11yTree paras:[Paragraph] parentId:string) {
+        def i:int 0
+        while (i < (array_length paras)) {
+            def p:Paragraph (itemAt paras i)
+            if ((strlen p.text) > 0) {
+                def n:EVGA11yNode (t.node(((parentId + "/para:") + (to_string i)) parentId (EVGA11yRole.text())))
+                n.name = p.text
+            }
+            i = (i + 1)
+        }
+    }
+}

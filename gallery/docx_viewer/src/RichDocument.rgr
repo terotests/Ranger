@@ -128,6 +128,13 @@ class DocImage {
     def heightEmu:int 0
     def widthPx:int 0
     def heightPx:int 0
+    ; Word's alt text, from `wp:docPr/@descr`, and the shape's name from
+    ; `@name`. This is the ONLY thing a screen reader has to go on for a
+    ; picture — the pixels tell it nothing — and it used to be dropped on the
+    ; floor by the reader, so a document whose author had written proper alt
+    ; text arrived here with none.
+    def altText:string ""
+    def title:string ""
     def pixels:ImageBuffer (new ImageBuffer)
     def ok:boolean false
     def format:string ""
@@ -144,6 +151,29 @@ class DocImage {
             return (0 - (to_int ((0.0 - v) + 0.5)))
         }
         return (to_int (v + 0.5))
+    }
+
+    ; What a reader should say about this picture. The author's alt text if
+    ; there is any, the shape's name if that is all there is, and an honest
+    ; "Image" if the document says nothing — which is itself information: a
+    ; picture with no alt text is a documented accessibility failure of the
+    ; DOCUMENT, and hiding it behind an invented description would only make
+    ; it harder to find.
+    fn accessibleName:string () {
+        if ((strlen altText) > 0) {
+            return altText
+        }
+        if ((strlen title) > 0) {
+            return title
+        }
+        return "Image"
+    }
+
+    fn hasAltText:boolean () {
+        if ((strlen altText) > 0) {
+            return true
+        }
+        return ((strlen title) > 0)
     }
 
     fn syncPx:void () {

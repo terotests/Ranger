@@ -311,7 +311,39 @@ These cases carry genuinely different state, so the further move is separate
 node types rather than one class with a tag; the value is in the state they
 stop sharing.
 
-### 14. Conformance as an architecture component
+### 14. Accessibility — **the document has a tree now**
+
+`EVGA11yTree` has been in `gallery/evg` for a while, and the spreadsheet has
+published one beside every frame. The document viewer and the deck viewer
+published nothing — and a screen reader cannot read a canvas, so that is not a
+degraded experience, it is **a blank window**. Two of the three apps in this
+gallery were unusable with one.
+
+`DocxA11y` builds the document's tree from the BLOCKS, not the laid-out lines: a
+paragraph broken across four visual lines is one thing to read, and building
+from `LaidLine` would make the reading order and a reader's position depend on
+the window width.
+
+What it says, and why each of those is the thing that matters:
+
+| | |
+| --- | --- |
+| headings | from the style id, because that is the only place Word records one, and every navigate-by-heading command in every reader is built on it |
+| lists | **nested**. A reader announces "3 of 5" from `posInSet`/`setSize`, so flattening an outline makes it announce positions that do not exist. `lists_demo.docx` has a three-level list and caught exactly that in the first draft of this |
+| tables | as a grid with its real row and column counts, the widest row deciding — a merged table that claimed fewer would have a reader reading past the end |
+| pictures | the author's alt text from `wp:docPr/@descr`, **which the reader was dropping entirely**, and an explicit "No alt text" where the document has none: that is a documented failure of the document, and hiding it makes it harder to find |
+| header/footer | published, and deliberately outside the body — they repeat on every page, and met in the reading flow a reader would read them between every two paragraphs |
+| the caret | wherever there is one, editable or not, with `readOnly` saying which |
+
+Ids come from model identity — `doc/para:12`, `doc/table:3/row:2/cell:1` — never
+from position. `EVGA11yNode` warns that an id which changes each frame is the
+most common way a first implementation fails, and the test asserts the tree is
+identical when built twice.
+
+Still to do: the deck's own tree, `tblHeader` so a repeating header row is
+announced as headers, and hyperlinks as links.
+
+### 15. Conformance as an architecture component
 
 `docx_oracle_dump`, `pptx_oracle_dump` and `xlsx_oracle_dump` already exist. A
 standing corpus — `corpus/`, `oracle/`, `semantic/`, `visual/`, `roundtrip/` —

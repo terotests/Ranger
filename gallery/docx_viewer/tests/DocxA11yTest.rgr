@@ -1,0 +1,300 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; DocxA11yTest — the document, checked without a screen reader
+; ==============================================================================
+;
+; Before this tree existed, a document opened in this viewer was a blank window
+; to anyone using a reader. Not a degraded one: a canvas has nothing in it to
+; read. So the first thing checked here is that there is a tree at all, and the
+; rest is whether it says true things — every failure below is invisible to
+; someone looking at the screen and total for someone who is not:
+;
+;   * a heading that is announced as body text, so nothing can be navigated to
+;   * a nested list flattened into its parent, so "3 of 5" names a position
+;     that does not exist
+;   * a table that does not say how many rows and columns it has
+;   * a picture whose alt text the reader dropped, indistinguishable from a
+;     picture whose author never wrote any
+;   * an id that changes between frames, which makes a reader lose its place
+;   * the page header met between every two paragraphs of the body
+;
+;   npm run docx_viewer:a11y:test
+; ==============================================================================
+
+Import "../src/DocxApp.rgr"
+
+class A11yCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class DocxA11yTest {
+    def c:A11yCheck (new A11yCheck)
+
+    sfn main:void () {
+        def t (new DocxA11yTest())
+        t.run()
+    }
+
+    sfn open:DocxApp (file:string) {
+        def app:DocxApp (new DocxApp)
+        app.init()
+        app.resize(900 700)
+        if ((app.viewer.openFile("gallery/docx_viewer/fixtures" file)) == false) {
+            print ("  could not open " + file)
+        }
+        app.viewer.renderPage(0)
+        return app
+    }
+
+    fn run:void () {
+        print "=== DocxA11yTest ==="
+        this.testHeadings()
+        this.testNestedLists()
+        this.testTable()
+        this.testAltText()
+        this.testChrome()
+        this.testCaret()
+        this.testWellFormed()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --------------------------------------------------------------------------
+
+    fn testHeadings:void () {
+        print "--- headings are what a reader navigates by ---"
+        ; The style id is the only place Word records that something is a
+        ; heading, and every navigate-by-heading command in every reader is
+        ; built on it.
+        c.eqInt("Heading1" (DocxA11y.headingLevel("Heading1")) 1)
+        c.eqInt("Heading3" (DocxA11y.headingLevel("Heading3")) 3)
+        c.eqInt("a producer that writes 'heading 2' means the same thing" (DocxA11y.headingLevel("heading 2")) 2)
+        c.eqInt("Title is the document's own heading" (DocxA11y.headingLevel("Title")) 1)
+        c.eqInt("Subtitle sits under it" (DocxA11y.headingLevel("Subtitle")) 2)
+        c.eqInt("Normal is not a heading" (DocxA11y.headingLevel("Normal")) 0)
+        c.eqInt("nor is a style that merely starts with the word" (DocxA11y.headingLevel("HeadingChar")) 0)
+        c.eqInt("nor Heading0" (DocxA11y.headingLevel("Heading0")) 0)
+        c.eqInt("nor a level past 9" (DocxA11y.headingLevel("Heading12")) 0)
+
+        def app:DocxApp (DocxA11yTest.open("20-business-report.docx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def h1:EVGA11yNode (t.find("doc/para:1"))
+        c.eqInt("the report's title is a heading" h1.role (EVGA11yRole.heading()))
+        c.eqStr("named by its text" h1.name "Northwind Quarterly Business Report")
+        c.eqStr("and it says which level" h1.description "Heading level 1")
+        def h2:EVGA11yNode (t.find("doc/para:6"))
+        c.eqStr("a second-level heading says so too" h2.description "Heading level 2")
+        c.eqStr("and it is the sub-heading, not the section above it" h2.name "2.1 Product")
+        def body:EVGA11yNode (t.find("doc/para:4"))
+        c.eqInt("and the paragraph under it is text" body.role (EVGA11yRole.text()))
+    }
+
+    fn testNestedLists:void () {
+        print "--- a nested list is not its parent ---"
+        ; A reader announces "3 of 5" from posInSet/setSize. Flattening an
+        ; outline makes it announce positions that do not exist — the fixture
+        ; below has a three-level list and caught exactly that.
+        def app:DocxApp (DocxA11yTest.open("lists_demo.docx"))
+        def t:EVGA11yTree (app.a11yTree())
+
+        def flat:EVGA11yNode (t.find("doc/list:3"))
+        c.eqInt("a flat bullet list is a list" flat.role (EVGA11yRole.list()))
+        c.eqInt("of three items" flat.setSize 3)
+        def i1:EVGA11yNode (t.find("doc/para:3"))
+        c.eqInt("its first item is item one" i1.posInSet 1)
+        c.eqInt("of three" i1.setSize 3)
+
+        def outer:EVGA11yNode (t.find("doc/list:11"))
+        c.eqInt("the outline's top level has two items, not five" outer.setSize 2)
+        def top1:EVGA11yNode (t.find("doc/para:11"))
+        c.eqInt("'Install fonts' is 1" top1.posInSet 1)
+        c.eqInt("of 2" top1.setSize 2)
+        def top2:EVGA11yNode (t.find("doc/para:15"))
+        c.eqInt("'Parse numbering.xml' is 2 of 2" top2.posInSet 2)
+
+        def sub:EVGA11yNode (t.find("doc/list:12"))
+        c.eqInt("the sub-list is a list" sub.role (EVGA11yRole.list()))
+        c.eqStr("hanging off the item above it, not off the body" sub.parentId "doc/para:11")
+        c.eqInt("with two items of its own" sub.setSize 2)
+        def s2:EVGA11yNode (t.find("doc/para:13"))
+        c.eqInt("'Open Sans Bold' is 2 of 2 there" s2.posInSet 2)
+        c.eqInt("not 3 of 5" s2.setSize 2)
+
+        def deep:EVGA11yNode (t.find("doc/list:14"))
+        c.eqStr("and the third level hangs off the second" deep.parentId "doc/para:13")
+        def after:EVGA11yNode (t.find("doc/para:16"))
+        c.eqStr("a paragraph after the list is back in the body" after.parentId "doc/body")
+    }
+
+    fn testTable:void () {
+        print "--- a table says how big it is ---"
+        def app:DocxApp (DocxA11yTest.open("05-table-basic.docx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def g:EVGA11yNode (t.find("doc/table:1"))
+        c.eqInt("it is a grid" g.role (EVGA11yRole.grid()))
+        c.eqInt("four rows" g.rowCount 4)
+        c.eqInt("three columns" g.colCount 3)
+        c.eqStr("and the name says both, because that is what is announced on entry" g.name "Table, 4 rows by 3 columns")
+        def cell:EVGA11yNode (t.find("doc/table:1/row:1/cell:2"))
+        c.eqInt("a cell is a cell" cell.role (EVGA11yRole.cell()))
+        c.eqStr("carrying its text" cell.name "first")
+        c.eqInt("and knowing where it is: row" cell.rowIndex 1)
+        c.eqInt("and column" cell.colIndex 2)
+        def row:EVGA11yNode (t.find("doc/table:1/row:1"))
+        c.eqStr("a cell's parent is its row" cell.parentId row.id)
+        c.eqStr("and a row's is the table" row.parentId "doc/table:1")
+
+        ; A merged table: the widest row decides, or a reader announces
+        ; positions past the end.
+        def m:DocxApp (DocxA11yTest.open("07-table-merged.docx"))
+        def mt:EVGA11yTree (m.a11yTree())
+        def mg:EVGA11yNode (mt.find("doc/table:1"))
+        c.ok("a merged table claims at least as many columns as its widest row" (mg.colCount >= 3))
+    }
+
+    fn testAltText:void () {
+        print "--- the only thing anyone can say about a picture ---"
+        def app:DocxApp (DocxA11yTest.open("23-image-alt-text.docx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def described:EVGA11yNode (t.find("doc/para:2/img:0"))
+        c.eqInt("the picture is published" described.role (EVGA11yRole.image()))
+        c.eqStr("named by the author's alt text" described.name "Quarterly revenue by region, rising from 8.1 to 13.9 million")
+        c.eqStr("and it is not flagged as missing one" described.description "")
+
+        def undescribed:EVGA11yNode (t.find("doc/para:4/img:0"))
+        c.eqStr("a picture with no alt text is still published" undescribed.name "Image")
+        ; Said out loud rather than hidden: a reader's user can then tell "the
+        ; author wrote nothing" from "the viewer lost it".
+        c.eqStr("and says the document has none" undescribed.description "No alt text")
+
+        ; The fixtures that predate alt text must not claim to have any.
+        def old:DocxApp (DocxA11yTest.open("images_demo.docx"))
+        def ot:EVGA11yTree (old.a11yTree())
+        def oi:EVGA11yNode (ot.find("doc/para:3/img:0"))
+        c.eqStr("an older document's picture reports honestly" oi.description "No alt text")
+    }
+
+    fn testChrome:void () {
+        print "--- the header is not part of the reading flow ---"
+        def app:DocxApp (DocxA11yTest.open("12-header-footer.docx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def h:EVGA11yNode (t.find("doc/header:0"))
+        c.eqStr("the header is published" h.name "Page header")
+        ; It repeats on every page. Met in the body, a reader would read it
+        ; between every two paragraphs.
+        c.eqStr("outside the body" h.parentId "doc")
+        def f:EVGA11yNode (t.find("doc/footer:0"))
+        c.eqStr("and so is the footer" f.parentId "doc")
+        def hp:EVGA11yNode (t.find("doc/header:0/para:0"))
+        c.eqStr("with its text under it" hp.name "Acme Corp -- Confidential")
+    }
+
+    fn testCaret:void () {
+        print "--- where the caret is ---"
+        def app:DocxApp (DocxA11yTest.open("20-business-report.docx"))
+        def t0:EVGA11yTree (app.a11yTree())
+        c.eqStr("a document nobody is editing has no focus" t0.focusId "")
+        app.viewer.edit.setCaret(4 7)
+        def t:EVGA11yTree (app.a11yTree())
+        c.eqStr("the caret's paragraph is focused" t.focusId "doc/para:4")
+        def n:EVGA11yNode (t.find("doc/para:4"))
+        c.ok("and is focusable" n.focusable)
+        c.eqInt("with the caret where it is" n.caret 7)
+        c.ok("and its value is the text it stands in" ((strlen n.value) > 0))
+        def other:EVGA11yNode (t.find("doc/para:5"))
+        c.ok("nothing else is focused" (other.focused == false))
+    }
+
+    ; The rules that hold for every document, checked over several of them.
+    ; A tree can be perfectly detailed and still unusable if it breaks one.
+    fn testWellFormed:void () {
+        print "--- the rules that hold for any document ---"
+        def files:[string]
+        push files "20-business-report.docx"
+        push files "lists_demo.docx"
+        push files "05-table-basic.docx"
+        push files "12-header-footer.docx"
+        push files "23-image-alt-text.docx"
+        def fi:int 0
+        while (fi < (array_length files)) {
+            def file:string (itemAt files fi)
+            def app:DocxApp (DocxA11yTest.open(file))
+            def t:EVGA11yTree (app.a11yTree())
+            c.ok((file + ": has a tree at all") ((t.count()) > 0))
+            c.eqStr((file + ": rooted at the document") t.rootId "doc")
+
+            def orphan:string ""
+            def unnamed:string ""
+            def dup:string ""
+            def i:int 0
+            while (i < (t.count())) {
+                def n:EVGA11yNode (t.at(i))
+                if ((strlen n.parentId) > 0) {
+                    if ((t.has(n.parentId)) == false) {
+                        orphan = n.id
+                    }
+                }
+                ; Anything a reader can land on has to have something to say.
+                if n.focusable {
+                    if ((strlen n.name) == 0) {
+                        unnamed = n.id
+                    }
+                }
+                def j:int (i + 1)
+                while (j < (t.count())) {
+                    def m:EVGA11yNode (t.at(j))
+                    if (m.id == n.id) {
+                        dup = n.id
+                    }
+                    j = (j + 1)
+                }
+                i = (i + 1)
+            }
+            c.eqStr((file + ": every node's parent exists") orphan "")
+            c.eqStr((file + ": every focusable node has a name") unnamed "")
+            c.eqStr((file + ": no id is used twice") dup "")
+
+            ; An id that changes between frames makes a reader lose its cursor
+            ; and reset focus, and everything still looks right on screen.
+            def again:EVGA11yTree (app.a11yTree())
+            c.eqInt((file + ": building it twice gives the same count") (again.count()) (t.count()))
+            def drift:string ""
+            def k:int 0
+            while (k < (t.count())) {
+                def a:EVGA11yNode (t.at(k))
+                def b:EVGA11yNode (again.at(k))
+                if (a.id != b.id) {
+                    drift = a.id
+                }
+                k = (k + 1)
+            }
+            c.eqStr((file + ": and the same ids in the same order") drift "")
+            fi = (fi + 1)
+        }
+    }
+}

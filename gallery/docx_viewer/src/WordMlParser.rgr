@@ -553,6 +553,29 @@ class WordMlParser {
                 def img:DocImage (new DocImage)
                 img.relId = rid
                 img.partPath = (pkg.resolveRel(rid))
+                ; `wp:docPr` carries the author's alt text. It is the only
+                ; thing a screen reader can say about the picture, and it was
+                ; being read past.
+                def docPrAt:int (indexOf rEl "<wp:docPr")
+                if (docPrAt < 0) {
+                    docPrAt = (indexOf rEl "<pic:cNvPr")
+                }
+                if (docPrAt >= 0) {
+                    def dg:int docPrAt
+                    while (dg < n) {
+                        if ((charAt rEl dg) == 62) {
+                            def dTag:string (substring rEl docPrAt (dg + 1))
+                            img.altText = (WordXml.attr(dTag "descr"))
+                            img.title = (WordXml.attr(dTag "title"))
+                            if ((strlen img.title) == 0) {
+                                img.title = (WordXml.attr(dTag "name"))
+                            }
+                            dg = n
+                        } {
+                            dg = (dg + 1)
+                        }
+                    }
+                }
                 def extAt:int (indexOf rEl "<wp:extent")
                 if (extAt < 0) {
                     extAt = (indexOf rEl "<a:ext")
