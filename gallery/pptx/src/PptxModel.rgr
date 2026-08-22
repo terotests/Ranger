@@ -632,6 +632,15 @@ class PptxSlide {
     ; embedded objects, ink, vendor extensions — kept as source spans so that
     ; editing the slide around them does not delete them.
     def opaque:[PptxOpaque]
+    ; And the same one level up: children of `<p:sld>` itself that this model
+    ; does not describe. `sldHead` is what stood before the transition and the
+    ; timing — the colour map override among them, which the writer used to
+    ; replace with a plain one whatever the slide said — and `sldTail` what
+    ; stood after, which is where a tool's own extension list lives. Both are
+    ; positions in the schema's order, so putting them back where they were is
+    ; what keeps the part valid.
+    def sldHead:[PptxOpaque]
+    def sldTail:[PptxOpaque]
     def bg:PptxColor (new PptxColor())
     def layoutPart:string ""
     def masterPart:string ""

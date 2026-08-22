@@ -492,7 +492,8 @@ def pic_shape(sid: int, name: str, rid: str, x: int, y: int, cx: int, cy: int) -
       </p:pic>"""
 
 
-def slide_rels(layout: bool = True, images: dict[str, str] | None = None) -> str:
+def slide_rels(layout: bool = True, images: dict[str, str] | None = None,
+               extra: list[str] | None = None) -> str:
     rels = []
     if layout:
         rels.append(
@@ -503,6 +504,12 @@ def slide_rels(layout: bool = True, images: dict[str, str] | None = None) -> str
             rels.append(
                 f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{target}"/>'
             )
+    # Relationships named by content this reader does not model — a diagram's
+    # four parts, a piece of ink. They belong to the slide as much as a
+    # picture's does, and a rewrite that dropped them would leave the preserved
+    # XML pointing at nothing.
+    if extra:
+        rels.extend(extra)
     body = "\n  ".join(rels)
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -849,6 +856,7 @@ def write_pptx(
     theme_xml: str | None = None,
     sld_sz: tuple[int, int] | None = None,
     extra_layouts: dict[str, tuple[str, str]] | None = None,
+    extra_parts: dict[str, str] | None = None,
 ) -> None:
     """slides: list of (slide_xml, optional slide_rels_xml)."""
     media = media or {}
@@ -923,6 +931,10 @@ def write_pptx(
                 zf.writestr(f"ppt/slides/_rels/slide{i + 1}.xml.rels", srels)
         for mname, data in media.items():
             zf.writestr(f"ppt/media/{mname}", data)
+        # Parts nothing here models, named by relationships from the slide.
+        if extra_parts:
+            for pname, ptext in extra_parts.items():
+                zf.writestr(pname, ptext)
     print(f"wrote {path}")
 
 
@@ -2753,7 +2765,40 @@ def main() -> None:
         content_part(),
         tree_ext_lst(),
     )
-    write_pptx("32-unmodelled-content.pptx", [(slide_xml(unmodelled), slide_rels())])
+    # ...and at slide level too. CT_Slide orders its children
+    # `cSld, clrMapOvr, transition, timing, extLst`, so a transition sits
+    # between the two unmodelled ones and they have to go back on the sides of
+    # it they came from: an extLst written before the transition is a part
+    # PowerPoint rejects. The clrMapOvr is the other half of this — the writer
+    # used to state a plain `masterClrMapping` whatever the slide said, which
+    # throws away a palette swap.
+    unmodelled_tail = """  <p:transition spd="med"><p:fade/></p:transition>
+  <p:extLst>
+    <p:ext uri="{DEADBEEF-0000-4000-8000-000000000001}">
+      <p14:creationId xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" val="7654321"/>
+    </p:ext>
+  </p:extLst>"""
+    # The relationships the preserved content names. A diagram points at four
+    # parts of its own and the ink at one; none is modelled here, and all five
+    # have to come through a save with the XML that names them.
+    dgm = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagram"
+    unmodelled_rels = [
+        f'<Relationship Id="rId10" Type="{dgm}Data" Target="../diagrams/data1.xml"/>',
+        f'<Relationship Id="rId11" Type="{dgm}Layout" Target="../diagrams/layout1.xml"/>',
+        f'<Relationship Id="rId12" Type="{dgm}QuickStyle" Target="../diagrams/quickStyle1.xml"/>',
+        f'<Relationship Id="rId13" Type="{dgm}Colors" Target="../diagrams/colors1.xml"/>',
+        '<Relationship Id="rId20" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml" Target="../ink/ink1.xml"/>',
+    ]
+    write_pptx("32-unmodelled-content.pptx",
+               [(slide_xml(unmodelled, tail=unmodelled_tail),
+                 slide_rels(extra=unmodelled_rels))],
+               extra_parts={
+                   "ppt/diagrams/data1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:ptLst/></dgm:dataModel>\n',
+                   "ppt/diagrams/layout1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:layoutDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>\n',
+                   "ppt/diagrams/quickStyle1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:styleDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>\n',
+                   "ppt/diagrams/colors1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:colorsDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>\n',
+                   "ppt/ink/ink1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<inkml:ink xmlns:inkml="http://www.w3.org/2003/InkML"/>\n',
+               })
 
     print("fixtures ready")
 

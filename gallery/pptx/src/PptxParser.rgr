@@ -1701,6 +1701,59 @@ class PptxParser {
         }
     }
 
+    ; Children of `<p:sld>` this model has no room for, split at the point
+    ; where the transition and the timing go. The schema orders them
+    ; `cSld, clrMapOvr, transition, timing, extLst`, so an element kept from
+    ; before that point has to go back before it and one from after has to go
+    ; back after — putting them all at one end writes a part PowerPoint
+    ; rejects.
+    fn parseSlideLevel:void (slide:PptxSlide partPath:string doc:PptxXmlNode) {
+        ; Where the modelled middle is. Anything at or after it is "tail".
+        def pivot:int (doc.childCount())
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def c:PptxXmlNode (doc.childAt(i))
+            if (c.isText == false) {
+                if ((c.name == "transition") || (c.name == "timing")) {
+                    if (i < pivot) {
+                        pivot = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (doc.childCount())) {
+            def ch:PptxXmlNode (doc.childAt(j))
+            if (ch.isText == false) {
+                def modelled:boolean false
+                if (ch.name == "cSld") {
+                    modelled = true
+                }
+                if (ch.name == "transition") {
+                    modelled = true
+                }
+                if (ch.name == "timing") {
+                    modelled = true
+                }
+                if (modelled == false) {
+                    def keep (new PptxOpaque())
+                    keep.name = ch.name
+                    keep.afterShapes = j
+                    keep.source.set(partPath ch.srcStart ch.srcEnd)
+                    if (keep.source.known) {
+                        if (j < pivot) {
+                            push slide.sldHead keep
+                        } {
+                            push slide.sldTail keep
+                        }
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+    }
+
     fn parseSlide:PptxSlide (partPath:string width:double height:double) {
         def slide (new PptxSlide())
         slide.partPath = partPath
@@ -1735,6 +1788,12 @@ class PptxParser {
                 this.parseSpTreeInto((unwrap spTree) partPath slide.shapes slide.opaque)
             }
         }
+        ; Everything else `<p:sld>` holds. `cSld`, the transition and the
+        ; timing are modelled; a colour map override, an extension list, a
+        ; custom data list or an `mc:AlternateContent` block are not, and a
+        ; rewrite used to drop all of them — including replacing a real colour
+        ; map override with a plain one.
+        this.parseSlideLevel(slide partPath doc)
         ; How the slide arrives, and what is built on it once it has.
         this.parseTransition(slide doc)
         def timing@(optional):PptxXmlNode (doc.find("timing"))

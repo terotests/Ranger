@@ -927,6 +927,36 @@ class PptxWriter {
         return out
     }
 
+    ; Every span in a list, in the order they were read.
+    fn opaqueAll:string (list:[PptxOpaque]) {
+        def out:string ""
+        if (keepOpaque == false) {
+            return out
+        }
+        def i:int 0
+        while (i < (array_length list)) {
+            def op:PptxOpaque (itemAt list i)
+            str_append out (this.opaqueText(op.source))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn opaqueHas:boolean (list:[PptxOpaque] name:string) {
+        if (keepOpaque == false) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length list)) {
+            def op:PptxOpaque (itemAt list i)
+            if (op.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     ; The tree's own opening and its properties. The writer states its own
     ; rather than keeping the original's, because a group transform that no
     ; longer matches the shapes under it is worse than a neutral one.
@@ -1083,7 +1113,15 @@ class PptxWriter {
         ; exactly when the shapes being written are the ones the slide part
         ; itself declared, which is what the parser counted.
         out = (out + (this.treeChildren(slide.shapes slide.opaque skipInherited)))
-        out = (out + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
+        out = (out + "</p:spTree></p:cSld>")
+        ; What stood between `</p:cSld>` and the transition. A slide that
+        ; states its own colour map override keeps it: writing a plain
+        ; `masterClrMapping` over the top of one is how a deck loses the
+        ; palette swap a layout gave it.
+        if ((this.opaqueHas(slide.sldHead "clrMapOvr")) == false) {
+            out = (out + "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
+        }
+        out = (out + (this.opaqueAll(slide.sldHead)))
         def tk:int 0
         while (tk < (array_length targets)) {
             def step:PptxBuildStep (itemAt slide.build tk)
@@ -1093,6 +1131,9 @@ class PptxWriter {
         }
         out = (out + (PptxWriter.transitionXml(slide)))
         out = (out + (PptxWriter.timingXml(slide)))
+        ; And what stood after them — a tool's own extension list, which the
+        ; schema puts last and which nothing here understands.
+        out = (out + (this.opaqueAll(slide.sldTail)))
         return (out + "</p:sld>")
     }
 

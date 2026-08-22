@@ -1131,6 +1131,21 @@ class PptxWriterTest {
             this.check("the self-closing one has a span too" ink.source.known)
         }
 
+        ; And one level up: `<p:sld>` also holds a colour map override before
+        ; the transition and an extension list after it. CT_Slide orders its
+        ; children, so each has to go back on the side of the transition it
+        ; came from.
+        this.check("the colour map override was kept" ((array_length slideRaw.sldHead) == 1))
+        this.check("and the extension list after the transition" ((array_length slideRaw.sldTail) == 1))
+        if ((array_length slideRaw.sldHead) == 1) {
+            def head0:PptxOpaque (itemAt slideRaw.sldHead 0)
+            this.check("the head one is the colour map" (head0.name == "clrMapOvr"))
+        }
+        if ((array_length slideRaw.sldTail) == 1) {
+            def tail0:PptxOpaque (itemAt slideRaw.sldTail 0)
+            this.check("the tail one is the extension list" (tail0.name == "extLst"))
+        }
+
         def pres:PptxPresentation ((new PptxResolver()).resolvePresentation(raw))
         def ed (new PptxEditor())
         ed.attach(pres)
@@ -1166,11 +1181,14 @@ class PptxWriterTest {
             ((indexOf after "drawingml/2006/diagram") >= 0))
         this.check("and its fallback picture" ((indexOf after "Diagram fallback") >= 0))
         this.check("the ink is still there" ((indexOf after "<p:contentPart") >= 0))
-        this.check("the extension list is still there" ((indexOf after "creationId") >= 0))
+        ; The tree's own extension list, told apart from the slide's by its uri
+        ; — both hold a `creationId`, which is why counting that would not say
+        ; which one came back.
+        this.check("the extension list is still there" ((indexOf after "BB962C8B") >= 0))
         this.check("each of them exactly once"
             (((PptxWriterTest.countOf(after "<mc:AlternateContent")) == 1)
                 && ((PptxWriterTest.countOf(after "<p:contentPart")) == 1)
-                && ((PptxWriterTest.countOf(after "creationId")) == 1)))
+                && ((PptxWriterTest.countOf(after "BB962C8B")) == 1)))
         ; Order, not just presence: an element put back in the wrong slot is a
         ; diagram that has moved behind the text.
         def diagramAt:int (indexOf after "<mc:AlternateContent")
@@ -1181,6 +1199,31 @@ class PptxWriterTest {
         this.check("and still before the footer" (diagramAt < footerAt))
         this.check("and the ink after both" (inkAt > footerAt))
 
+        ; Slide level: kept, once, and on the right side of the transition.
+        this.check("the slide's extension list is still there" ((indexOf after "DEADBEEF") >= 0))
+        this.check("exactly once" ((PptxWriterTest.countOf(after "DEADBEEF")) == 1))
+        this.check("the colour map override is still there, once"
+            ((PptxWriterTest.countOf(after "<p:clrMapOvr")) == 1))
+        def mapAt:int (indexOf after "<p:clrMapOvr")
+        def transAt:int (indexOf after "<p:transition")
+        def extAt:int (indexOf after "DEADBEEF")
+        this.check("the colour map comes before the transition" ((mapAt >= 0) && (mapAt < transAt)))
+        this.check("and the extension list after it" (extAt > transAt))
+
+        ; The relationships the preserved XML names. A diagram points at four
+        ; parts of its own and the ink at one; a rewrite that rebuilt the
+        ; relationship part from the shapes alone would leave every one of them
+        ; pointing at nothing, and the preserved markup would be a reference to
+        ; a part that is not there.
+        def outRels:string (out.readXml("ppt/slides/_rels/slide1.xml.rels"))
+        this.check("the diagram's own relationships came through"
+            (((indexOf outRels "rId10") >= 0) && ((indexOf outRels "rId13") >= 0)))
+        this.check("and the ink's" ((indexOf outRels "rId20") >= 0))
+        this.check("and the parts they name are still in the package"
+            ((out.hasPart("ppt/diagrams/data1.xml")) && (out.hasPart("ppt/ink/ink1.xml"))))
+        this.check("with their content types"
+            ((strlen (out.contentTypeFor("ppt/diagrams/data1.xml"))) > 0))
+
         ; And the deck still reads back as a deck.
         def again (new PptxParser())
         if (again.openParts("gallery/pptx/bin" "over-unmodelled.pptx")) {
@@ -1188,6 +1231,9 @@ class PptxWriterTest {
             def backSlide:PptxSlide (itemAt back.slides 0)
             this.check("reopening finds the shapes" ((array_length backSlide.shapes) == 2))
             this.check("and the three unmodelled children again" ((array_length backSlide.opaque) == 3))
+            this.check("and the slide-level pair again"
+                (((array_length backSlide.sldHead) == 1) && ((array_length backSlide.sldTail) == 1)))
+            this.check("with the transition still on it" backSlide.transition.isSet)
             again.close()
         }
         out.close()

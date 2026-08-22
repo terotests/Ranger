@@ -296,6 +296,19 @@ class PptxClone {
         return out
     }
 
+    sfn opaqueInto:void (src:[PptxOpaque] dst:[PptxOpaque]) {
+        def i:int 0
+        while (i < (array_length src)) {
+            def so:PptxOpaque (itemAt src i)
+            def op (new PptxOpaque())
+            op.name = so.name
+            op.afterShapes = so.afterShapes
+            op.source.copyFrom(so.source)
+            push dst op
+            i = (i + 1)
+        }
+    }
+
     sfn slide:PptxSlide (src:PptxSlide) {
         def sl (new PptxSlide())
         sl.partPath = src.partPath
@@ -341,16 +354,9 @@ class PptxClone {
         ; What the slide carries and this model does not describe. A snapshot
         ; that dropped these would delete a deck's SmartArt on the first undo,
         ; which is exactly the failure the source spans exist to prevent.
-        def oi:int 0
-        while (oi < (array_length src.opaque)) {
-            def so:PptxOpaque (itemAt src.opaque oi)
-            def op (new PptxOpaque())
-            op.name = so.name
-            op.afterShapes = so.afterShapes
-            op.source.copyFrom(so.source)
-            push sl.opaque op
-            oi = (oi + 1)
-        }
+        PptxClone.opaqueInto(src.opaque sl.opaque)
+        PptxClone.opaqueInto(src.sldHead sl.sldHead)
+        PptxClone.opaqueInto(src.sldTail sl.sldTail)
         return sl
     }
 }
