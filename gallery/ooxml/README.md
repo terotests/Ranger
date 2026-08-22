@@ -212,13 +212,30 @@ height, hash }` store, with documents holding `ImageRef { assetId, crop,
 transform }`, gives deduplication (one logo, forty slides, one asset) and makes
 copy/paste between a deck and a document a matter of copying an id.
 
-### 7. Stable identity — `EntityId` and `RevisionId`
+### 7. Stable identity — the primitive exists; nothing is wired to it yet
 
-`PptxModel` already has this right: `editId` is stable because an array index
-stops meaning the same shape the moment z-order changes, and slides carry their
-own key and revision. Selection, undo, scripting and collaboration all want to
-say `move entity #456`, never `slides[3].shapes[7]`. Make it a shared
-primitive — Ranger's own id, not OOXML's.
+`PptxModel` already had the idea right: `editId` is stable because an array
+index stops meaning the same shape the moment z-order changes. Selection, undo,
+scripting and collaboration all want to say `move entity #456`, never
+`slides[3].shapes[7]`.
+
+[`OfficeId`](../office/COLLABORATION.md) is that primitive, in the shape Yjs
+uses and for Yjs's reason: `(client, clock)` is unique **with no coordination**,
+which a counter is not — two sessions minting `nextParaId` both produce 7.
+`OfficeStateVector` is the other half, so a sync is a delta rather than a
+document.
+
+**Nothing in the editors uses it yet, deliberately.** All three mint their ids
+correctly for the single-session editing they do today — every entry point
+re-mints and there is no collision to find. What they lack is *durable*
+identity: `editId` is re-minted on every attach, so "shape #5" means nothing
+after a reopen, and a merge needs it to mean the same shape tomorrow. That is
+the next step, and it can ride in the `p:extLst` the source-preserving work
+already carries through a save.
+
+[COLLABORATION.md](../office/COLLABORATION.md) has the rest: the four ideas
+worth taking from Yjs, what this codebase already has that fits, and where
+copying a text CRDT stops being enough for a slide.
 
 ### 8. Document / view / editor / derived state
 

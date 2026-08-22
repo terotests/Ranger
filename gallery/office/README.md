@@ -18,6 +18,8 @@ one OPC package reader, and the XML text rules.
 
 ```text
 gallery/office/
+    core/
+        OfficeId.rgr           a name two sessions can mint at once
     editor/
         OfficeHistory.rgr      what "one undo" means
     drawing/
@@ -36,6 +38,7 @@ npm run office:metrics:test    # likewise
 npm run office:style:test      # likewise
 npm run office:color:test      # likewise
 npm run office:history:test    # likewise
+npm run office:id:test         # likewise
 ```
 
 ### `OfficeFont`
@@ -234,7 +237,25 @@ stacks cannot come apart.
 The guard is a property test rather than a case list: every action goes through
 do → undo → redo → undo, and the text has to match at each point it should.
 
-### `core/` — identity, revisions, assets
+### `OfficeId` — and [COLLABORATION.md](COLLABORATION.md)
+
+Every editor here names things with a counter — `nextParaId`, `nextId`, a style
+index. A counter is fine while one person edits one file and is exactly wrong
+the moment two do, because both mint 7 and 7 stops meaning one paragraph.
+
+`OfficeId` is the shape Yjs uses, for the reason Yjs uses it: `(client, clock)`
+is unique **with no coordination**, so ids can be minted offline and merged
+later. `OfficeStateVector` is the other half — who has seen how far — which is
+what makes a sync a delta rather than a document.
+
+**Nothing is wired to this yet, and that is deliberate.** The three editors mint
+their ids correctly for the single-session editing they do today; there is no
+collision to fix. It is the foundation the next step needs, tested on its own.
+[COLLABORATION.md](COLLABORATION.md) is the design: what to take from Yjs, what
+this codebase already has, and where copying a text CRDT stops being enough for
+a slide.
+
+### The rest of `core/` — revisions, assets
 
 Stable `EntityId` (PPTX's `editId` is already this, done right), `Revision`, an
 `AssetStore` so one logo on forty slides is one asset, and one transaction and
