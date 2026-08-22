@@ -20,8 +20,6 @@ one OPC package reader, and the XML text rules.
 gallery/office/
     assets/
         OfficeAsset.rgr        a picture is its bytes, not its file name
-    core/
-        OfficeId.rgr           a name two sessions can mint at once
     editor/
         OfficeHistory.rgr      what "one undo" means
     drawing/
@@ -40,7 +38,6 @@ npm run office:metrics:test    # likewise
 npm run office:style:test      # likewise
 npm run office:color:test      # likewise
 npm run office:history:test    # likewise
-npm run office:id:test         # likewise
 npm run office:asset:test      # likewise
 ```
 
@@ -264,82 +261,34 @@ stacks cannot come apart.
 The guard is a property test rather than a case list: every action goes through
 do → undo → redo → undo, and the text has to match at each point it should.
 
-### `OfficeId` — and [COLLABORATION.md](COLLABORATION.md)
+### Collaboration — the design, without the code: [COLLABORATION.md](COLLABORATION.md)
 
 Every editor here names things with a counter — `nextParaId`, `nextId`, a style
 index. A counter is fine while one person edits one file and is exactly wrong
 the moment two do, because both mint 7 and 7 stops meaning one paragraph.
 
-`OfficeId` is the shape Yjs uses, for the reason Yjs uses it: `(client, clock)`
-is unique **with no coordination**, so ids can be minted offline and merged
-later. `OfficeStateVector` is the other half — who has seen how far — which is
-what makes a sync a delta rather than a document.
+`OfficeId` — `(client, clock)` in the shape Yjs uses, plus a state vector —
+**was built, tested on both targets, and then removed from this branch.** It
+had zero callers. A review put it plainly: an unused API is not a foundation,
+it is surface nobody keeps alive, and this repository had just spent a lot of
+effort proving that a shared module with no second caller is how the old copy
+survives underneath it.
 
-**Nothing is wired to this yet, and that is deliberate.** The three editors mint
-their ids correctly for the single-session editing they do today; there is no
-collision to fix. It is the foundation the next step needs, tested on its own.
-[COLLABORATION.md](COLLABORATION.md) is the design: what to take from Yjs, what
-this codebase already has, and where copying a text CRDT stops being enough for
-a slide.
+What is kept is the part that was actually hard: [COLLABORATION.md](COLLABORATION.md)
+— which four ideas from Yjs are worth taking, what this codebase already has
+that fits them, and where copying a text CRDT stops being enough for a slide.
+The primitive is a couple of hundred lines and will be better written against a
+real requirement than against a guessed one.
 
-### `OfficeAsset` — a picture is its bytes
+The requirement to write it against is named there and is real: **durable**
+identity. `editId` is re-minted on every attach, so "shape #5" means nothing
+after a reopen — and a merge needs it to mean the same shape tomorrow. It can
+ride in the `p:extLst` the source-preserving work already carries through a
+save. That is the point at which minting deserves a shared type.
 
-All three editors identified an image by its **package path**. That is the name
-the picture happens to be filed under, and it was wrong in both directions at
-once:
+### Still to come — revisions, and one history framework
 
-| | what happened |
-| --- | --- |
-| two pictures, one name | a user inserts `logo.png` from one folder and a different `logo.png` from another. The viewer's decode cache and the writer's media table both already hold that key, so **the second picture is silently replaced by the first** — on screen and in the saved file |
-| a name the package already uses | insert a file called `image1.png`, the name every OOXML package gives its own media, and the writer decides it is "already in the package" and references the deck's old picture instead. **The inserted bytes are never written at all** |
-| one picture, two names | the same logo arriving under two part names is written twice |
-
-The regression test in `PptxWriterTest` states all three at once, and on the
-old writer it fails on exactly the two claims it should: the second picture
-came back as the first, and the repeat was duplicated.
-
-`OfficeAssetStore` hands out an id computed from the content, keeps one copy per
-distinct picture, and remembers which package parts are aliases of it. A part is
-an **attribute** of an asset, never its identity.
-
-On the hash: it is CRC-32 plus the byte length, and every hit is confirmed with
-a full byte comparison before two pictures are called the same. So the store
-cannot merge two different images no matter how weak the digest is — a stronger
-one would buy fewer comparisons, not more correctness. CRC-32 is what the zip
-writer already runs on both targets, using shifts and xor so it cannot overflow
-differently on JavaScript and C++.
-
-Two things fall out of asking the bytes rather than the name:
-
-- **The type.** A JPEG saved as `photo.png` is not unusual, and a content type
-  written from the extension is then a lie the package carries. `sniff` reads
-  the magic number instead.
-- **The size.** `insertPicture` forced every inserted image to 3:5 whatever it
-  actually was, so every photograph came in squashed. The header says how big
-  the picture is — `measure` reads it out of PNG, JPEG (walking the segments,
-  because SOF is not at a fixed offset), GIF and BMP, and leaves the size at
-  zero rather than guessing for the formats it does not know.
-
-`OfficeImageRef` is the other half: which asset, and how *this* use of it is
-framed — crop, flip, rotation. Keeping the framing off the asset is what makes
-the deduplication safe: nothing about how a picture is displayed can leak into
-the question of whether two pictures are the same picture.
-
-The spreadsheet's decode cache is on it too, and for a bug of its own. `GridImages`
-keyed its decoded pixels on the package part name and **outlives the workbook**,
-so opening a second `.xlsx` showed the first one's pictures — every `.xlsx` calls
-its first picture `xl/media/image1.png`, and the cache already had that key. It is
-the same bug that was reported in the deck viewer, in the spreadsheet. The cache
-is keyed on the content now; a part name is an alias the next document is free to
-point somewhere else. Its `kind` came from the file extension too, so a JPEG saved
-as `.png` was reported as an "unreadable png" — the sniffed type wins now.
-
-`.xlsx` has no image *writer* and neither `.docx` nor `.xlsx` has a host insert
-path, so the naming half of the store is only used by `.pptx`. Wiring the rest
-before there is something to wire would be churn; what is worth doing when they
-grow one is already decided by this file.
-
-### The rest of `core/` — revisions
-
-Stable `EntityId` (PPTX's `editId` is already this, done right), `Revision`, and
-one transaction and history framework instead of the three there are now.
+Durable `EntityId` (PPTX's `editId` is already the right idea, minted too
+often), `Revision`, and one transaction and history framework instead of the
+three there are now — `OfficeHistory` is the rules, not yet the framework, and
+PPTX's whole-deck snapshot undo is still outside it.

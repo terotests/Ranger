@@ -5,11 +5,19 @@ constraint on how the document is *named* — and the naming has to be right
 before anything else can be. This is where that stands, what was built, and
 what the shape of the rest is.
 
-> **Status.** The identity layer is built and tested
-> ([`core/OfficeId.rgr`](core/OfficeId.rgr)). Nothing merges yet, and nothing
-> in the three editors is wired to it. That is deliberate and is said plainly
-> below: the editors' own ids are correct for the single-session editing they
-> do today, so wiring this in now would be churn without a user.
+> **Status: this is a design, not an implementation.**
+>
+> The identity layer was built here and tested on both targets — `OfficeId`,
+> `OfficeIdSource`, `OfficeStateVector` — and then **removed again**, because it
+> had no callers. A review of the branch made the argument that settled it: an
+> unused API is not a foundation, it is surface nobody keeps alive. The same
+> branch had just spent a great deal of effort demonstrating that a shared
+> module without a second caller is exactly how the old copy survives
+> underneath it.
+>
+> So what is kept is this document, which was the hard part. The primitive is a
+> couple of hundred lines and will be better written against the requirement
+> below than against a guess at it.
 
 ## Why Yjs is the thing to copy
 
@@ -53,7 +61,8 @@ document, `nextId` in a deck, a style index in a workbook — and all three are
 correct today because every entry point re-mints and only one session ever
 edits. They are the wrong shape for two.
 
-Built: `OfficeId`, `OfficeIdSource`.
+What that needs is `(client, clock)` and a source that mints it — sketched
+here, deliberately not committed. See the status note at the top.
 
 ### 2. A state vector, so a sync is a delta
 
@@ -64,7 +73,8 @@ Peers trade vectors, each works out what the other is missing, and only that is
 sent. Without it a peer that reconnects after one keystroke has to be sent the
 document.
 
-Built: `OfficeStateVector`, with `missingIn` — the ranges one peer has that
+What that needs is a per-client high-water mark and a `missingIn` over two of
+them — sketched here, deliberately not committed.
 another does not.
 
 ### 3. Deletions are a flag, not an operation
