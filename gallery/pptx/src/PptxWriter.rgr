@@ -372,10 +372,25 @@ class PptxWriter {
 
     ; --- text bodies ---------------------------------------------------------
 
-    sfn runXml:string (run:PptxTextRun) {
+    ; Is this still exactly what the resolver put here for a run that stated
+    ; nothing? Then the file said nothing, and saying it now would freeze it —
+    ; the run would stop following the list style, the placeholder and the
+    ; theme's font scheme. Comparing the VALUE rather than trusting a flag is
+    ; what makes a later edit come out as an edit; see `PptxShape.styleFillSig`.
+    sfn stillInherited:boolean (sig:string now:string keepInherited:boolean) {
+        if (keepInherited == false) {
+            return false
+        }
+        if ((strlen sig) == 0) {
+            return false
+        }
+        return (sig == now)
+    }
+
+    sfn runXml:string (run:PptxTextRun keepInherited:boolean) {
         def attrs:string " lang=\"en-US\" dirty=\"0\""
-        if run.sizeSet {
-            attrs = (attrs + " sz=\"" + (PptxWriter.hundredths(run.fontSizePt)) + "\"")
+        def sizeNow:string (to_string (to_int ((run.fontSizePt * 100.0) + 0.5)))
+        if (PptxWriter.stillInherited(run.resolvedSizeSig sizeNow keepInherited)) {
         } {
             attrs = (attrs + " sz=\"" + (PptxWriter.hundredths(run.fontSizePt)) + "\"")
         }
@@ -406,10 +421,16 @@ class PptxWriter {
         }
         def inner:string ""
         if run.color.isSet {
-            inner = ("<a:solidFill>" + (PptxWriter.colorXml(run.color)) + "</a:solidFill>")
+            if (PptxWriter.stillInherited(run.resolvedColorSig (run.color.signature()) keepInherited)) {
+            } {
+                inner = ("<a:solidFill>" + (PptxWriter.colorXml(run.color)) + "</a:solidFill>")
+            }
         }
         if ((strlen run.fontFamily) > 0) {
-            inner = (inner + "<a:latin typeface=\"" + (PptxWriter.esc(run.fontFamily)) + "\"/>")
+            if (PptxWriter.stillInherited(run.resolvedFontSig run.fontFamily keepInherited)) {
+            } {
+                inner = (inner + "<a:latin typeface=\"" + (PptxWriter.esc(run.fontFamily)) + "\"/>")
+            }
         }
         if run.highlight.isSet {
             inner = (inner + "<a:highlight>" + (PptxWriter.colorXml(run.highlight)) + "</a:highlight>")
@@ -427,7 +448,7 @@ class PptxWriter {
         return ("<a:r>" + rPr + "<a:t xml:space=\"preserve\">" + (PptxWriter.esc(run.text)) + "</a:t></a:r>")
     }
 
-    sfn paraXml:string (para:PptxParagraph) {
+    sfn paraXml:string (para:PptxParagraph keepInherited:boolean) {
         def attrs:string ""
         if (para.level > 0) {
             attrs = (attrs + " lvl=\"" + (to_string para.level) + "\"")
@@ -455,6 +476,18 @@ class PptxWriter {
         if (para.lineSpacingPct != 100.0) {
             inner = (inner + "<a:lnSpc><a:spcPct val=\"" + (to_string (to_int ((para.lineSpacingPct * 1000.0) + 0.5))) + "\"/></a:lnSpc>")
         }
+        ; A paragraph that said nothing about its bullet inherits one from the
+        ; list style. Writing either the resolved `buChar` or a flat `buNone`
+        ; here decides for it — the first bakes the level's bullet onto the
+        ; paragraph, the second turns it off — and both stop it following the
+        ; placeholder. `bulletSet` is the paragraph's own answer, and
+        ; `<a:buNone/>` IS an answer.
+        def saysBullet:boolean true
+        if keepInherited {
+            saysBullet = para.bulletSet
+        }
+        if (saysBullet == false) {
+        } {
         if para.hasBullet {
             if para.bulletColor.isSet {
                 inner = (inner + "<a:buClr>" + (PptxWriter.colorXml(para.bulletColor)) + "</a:buClr>")
@@ -484,7 +517,15 @@ class PptxWriter {
         } {
             inner = (inner + "<a:buNone/>")
         }
+        }
+        ; An empty `<a:pPr></a:pPr>` states nothing, and a paragraph that
+        ; stated nothing should not grow one on the way out.
         def pPr:string ("<a:pPr" + attrs + ">" + inner + "</a:pPr>")
+        if ((strlen attrs) == 0) {
+            if ((strlen inner) == 0) {
+                pPr = ""
+            }
+        }
         def out:string ("<a:p>" + pPr)
         def i:int 0
         while (i < (array_length para.runs)) {
@@ -495,7 +536,7 @@ class PptxWriter {
             if (run.text == "\n") {
                 out = (out + "<a:br/>")
             } {
-                out = (out + (PptxWriter.runXml(run)))
+                out = (out + (PptxWriter.runXml(run keepInherited)))
             }
             i = (i + 1)
         }
@@ -505,7 +546,7 @@ class PptxWriter {
         return (out + "</a:p>")
     }
 
-    sfn bodyXml:string (body:PptxTextBody) {
+    sfn bodyXml:string (body:PptxTextBody keepInherited:boolean) {
         def attrs:string (" lIns=\"" + (PptxWriter.emu(body.insetL)) + "\" tIns=\"" + (PptxWriter.emu(body.insetT)) + "\" rIns=\"" + (PptxWriter.emu(body.insetR)) + "\" bIns=\"" + (PptxWriter.emu(body.insetB)) + "\"")
         attrs = (attrs + " anchor=\"" + body.anchor + "\"")
         if body.wrap {
@@ -517,7 +558,7 @@ class PptxWriter {
         def i:int 0
         while (i < (array_length body.paragraphs)) {
             def para:PptxParagraph (itemAt body.paragraphs i)
-            out = (out + (PptxWriter.paraXml(para)))
+            out = (out + (PptxWriter.paraXml(para keepInherited)))
             i = (i + 1)
         }
         if ((array_length body.paragraphs) == 0) {
@@ -775,6 +816,118 @@ class PptxWriter {
         return (out + "</p:spPr></p:cxnSp>")
     }
 
+    ; Did the style reference put this here rather than the file? Only asked
+    ; in save-over mode: a fresh package has no original style block to defer
+    ; to, so the resolved value IS what it has to state.
+    fn derivedFill:boolean (shape:PptxShape) {
+        if (overMode == false) {
+            return false
+        }
+        if (shape.hasStyle == false) {
+            return false
+        }
+        if ((strlen shape.styleFillSig) == 0) {
+            return false
+        }
+        ; Still exactly what the style produced, so the style reference says
+        ; it better. Anything the user changed answers no here.
+        return ((shape.fillSignature()) == shape.styleFillSig)
+    }
+
+    fn derivedLine:boolean (shape:PptxShape) {
+        if (overMode == false) {
+            return false
+        }
+        if (shape.hasStyle == false) {
+            return false
+        }
+        if ((strlen shape.styleLineSig) == 0) {
+            return false
+        }
+        return ((shape.lineSignature()) == shape.styleLineSig)
+    }
+
+    ; The `<p:style>` block, put back.
+    ;
+    ; It says the shape follows the theme's format matrix, and the resolver
+    ; turns that into a concrete gradient and a concrete font so the shape can
+    ; be drawn. Writing the concrete values back and dropping the block LOOKS
+    ; identical and is not the same file: the shape has stopped following the
+    ; theme, so changing the theme in PowerPoint no longer changes the shape.
+    ; Editing one shape on a slide did that to every shape on it.
+    ;
+    ; Only in save-over mode. A fresh package carries a theme this writer made
+    ; up, whose format matrix is three identical solids — a `fillRef` into THAT
+    ; would resolve to a flat colour, which is a different bug rather than the
+    ; same one avoided.
+    fn styleXml:string (shape:PptxShape) {
+        if (overMode == false) {
+            return ""
+        }
+        if (shape.hasStyle == false) {
+            return ""
+        }
+        def out:string "<p:style>"
+        out = (out + (PptxWriter.styleRef("a:lnRef" shape.lineRef shape.lineRefColor "")))
+        out = (out + (PptxWriter.styleRef("a:fillRef" shape.fillRef shape.fillRefColor "")))
+        out = (out + (PptxWriter.styleRef("a:effectRef" shape.effectRef (new PptxColor()) "")))
+        def fontIdx:string shape.fontRef
+        if ((strlen fontIdx) == 0) {
+            fontIdx = "minor"
+        }
+        out = (out + (PptxWriter.styleRefNamed("a:fontRef" fontIdx shape.fontRefColor)))
+        return (out + "</p:style>")
+    }
+
+    sfn styleRef:string (name:string idx:int color:PptxColor extra:string) {
+        def out:string ("<" + name + " idx=\"" + (to_string idx) + "\">")
+        out = (out + (PptxWriter.refColorXml(color)))
+        return (out + ("</" + (name + ">")))
+    }
+
+    ; `a:fontRef` numbers its index with a word rather than a number.
+    sfn styleRefNamed:string (name:string idx:string color:PptxColor) {
+        def out:string ("<" + name + " idx=\"" + (PptxWriter.esc(idx)) + "\">")
+        out = (out + (PptxWriter.refColorXml(color)))
+        return (out + ("</" + (name + ">")))
+    }
+
+    ; The colour INSIDE a style reference, which is a bare colour element with
+    ; no `a:solidFill` around it — the reference is already the fill.
+    sfn refColorXml:string (color:PptxColor) {
+        if (color.isSet == false) {
+            ; `<a:schemeClr val="phClr"/>` is what a style reference means by
+            ; "whatever the theme says": it is the placeholder colour the
+            ; format matrix substitutes into. A reference with no colour at
+            ; all is not what the file said.
+            return "<a:schemeClr val=\"phClr\"/>"
+        }
+        return (PptxWriter.colorXml(color))
+    }
+
+    ; `<p:nvPr>`, which is where a shape says it IS a placeholder.
+    ;
+    ; The writer used to emit a bare `<p:nvPr/>` for everything, so a title
+    ; placeholder came back as an ordinary text box: out of the outline view,
+    ; no longer inheriting from the layout, and "Reset Slide" with nothing to
+    ; reset to. It also stops being a title to anything that reads the deck —
+    ; including this repository's own accessibility tree, which finds a slide's
+    ; title by `p:ph type="title"` and would have started announcing every
+    ; saved deck as "Slide 1, Slide 2, Slide 3".
+    fn nvPrXml:string (shape:PptxShape) {
+        if (shape.isPlaceholder == false) {
+            return "<p:nvPr/>"
+        }
+        def out:string "<p:nvPr><p:ph"
+        if ((strlen shape.phType) > 0) {
+            out = (out + (" type=\"" + (PptxWriter.esc(shape.phType)) + "\""))
+        }
+        if (shape.phIdx >= 0) {
+            out = (out + (" idx=\"" + (to_string shape.phIdx) + "\""))
+        }
+        return (out + "/></p:nvPr>")
+    }
+
     fn spXml:string (shape:PptxShape) {
         def id:int (this.idFor(shape))
         def name:string shape.name
@@ -785,18 +938,43 @@ class PptxWriter {
         if shape.locked {
             locks = "<p:cNvSpPr><a:spLocks noMove=\"1\" noResize=\"1\" noRot=\"1\"/></p:cNvSpPr>"
         }
-        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/>" + locks + "<p:nvPr/></p:nvSpPr><p:spPr>")
-        out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
+        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/>" + locks + (this.nvPrXml(shape)) + "</p:nvSpPr><p:spPr>")
+        ; Geometry the placeholder in the LAYOUT supplied is not the slide's.
+        ; Written here it pins the shape, so moving the title on the layout no
+        ; longer moves it on the slides.
+        def statedXfrm:boolean true
+        if overMode {
+            if ((strlen shape.sheetXfrmSig) > 0) {
+                ; Unmoved since it was inherited. A move — or a resize, or a
+                ; rotation — changes the signature and is written.
+                if ((shape.xfrmSignature()) == shape.sheetXfrmSig) {
+                    statedXfrm = false
+                }
+            }
+        }
+        if statedXfrm {
+            out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
+        }
         out = (out + (PptxWriter.geomXml(shape)))
-        out = (out + (PptxWriter.fillXml(shape)))
-        out = (out + (PptxWriter.lineXml(shape)))
+        ; A fill or a line the RESOLVER worked out from the style reference is
+        ; not the shape's own, and stating it here would override the very
+        ; reference this writer is about to put back.
+        if (this.derivedFill(shape)) {
+        } {
+            out = (out + (PptxWriter.fillXml(shape)))
+        }
+        if (this.derivedLine(shape)) {
+        } {
+            out = (out + (PptxWriter.lineXml(shape)))
+        }
         out = (out + (PptxWriter.effectXml(shape)))
         out = (out + "</p:spPr>")
+        out = (out + (this.styleXml(shape)))
         ; `txBody` is optional on a shape, and writing an empty one turns a
         ; shape that has no text into one that has an empty paragraph — which
         ; is a different thing to everything that reads the file afterwards.
         if shape.hasText {
-            out = (out + (PptxWriter.bodyXml(shape.text)))
+            out = (out + (PptxWriter.bodyXml(shape.text overMode)))
         }
         return (out + "</p:sp>")
     }
@@ -916,7 +1094,7 @@ class PptxWriter {
                 if ((array_length cell.body.paragraphs) > 0) {
                     ; A table cell's body is `a:txBody`, not `p:txBody` — the
                     ; same content in the drawing namespace.
-                    bodyXml = (PptxWriter.bodyXml(cell.body))
+                    bodyXml = (PptxWriter.bodyXml(cell.body overMode))
                     def cut:int (indexOf bodyXml "<p:txBody")
                     if (cut == 0) {
                         bodyXml = ("<a:txBody" + (substring bodyXml (strlen "<p:txBody") (strlen bodyXml)))
@@ -931,7 +1109,7 @@ class PptxWriter {
                     run.bold = cell.bold
                     run.fontSizePt = cell.fontSizePt
                     run.sizeSet = true
-                    bodyXml = ("<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"" + cell.align + "\"/>" + (PptxWriter.runXml(run)) + "</a:p></a:txBody>")
+                    bodyXml = ("<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"" + cell.align + "\"/>" + (PptxWriter.runXml(run false)) + "</a:p></a:txBody>")
                 }
                 def cellFill:string "<a:noFill/>"
                 if cell.fill.isSet {
@@ -1115,7 +1293,7 @@ class PptxWriter {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notes xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree>"
         out = (out + "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>")
         out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes Placeholder\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/>")
-        out = (out + (PptxWriter.bodyXml(notes.text)))
+        out = (out + (PptxWriter.bodyXml(notes.text false)))
         return (out + "</p:sp></p:spTree></p:cSld></p:notes>")
     }
 
@@ -1196,7 +1374,17 @@ class PptxWriter {
             ti = (ti + 1)
         }
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld>"
-        if slide.bg.isSet {
+        ; A background the slide did not state is the master's or the layout's,
+        ; and writing it here would freeze it onto this slide. In a fresh
+        ; package there is no master to defer to, so the resolved colour IS
+        ; what has to be stated.
+        def ownBg:boolean slide.bg.isSet
+        if overMode {
+            if slide.bgFromSheet {
+                ownBg = false
+            }
+        }
+        if ownBg {
             out = (out + "<p:bg><p:bgPr><a:solidFill>" + (PptxWriter.colorXml(slide.bg)) + "</a:solidFill><a:effectLst/></p:bgPr></p:bg>")
         }
         out = (out + (PptxWriter.spTreeOpen()))

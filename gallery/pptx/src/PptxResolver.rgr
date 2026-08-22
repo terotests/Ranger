@@ -84,6 +84,9 @@ class PptxResolver {
         out.text = run.text
         out.fontFamily = run.fontFamily
         out.fontSizePt = run.fontSizePt
+        out.resolvedFontSig = run.resolvedFontSig
+        out.resolvedColorSig = run.resolvedColorSig
+        out.resolvedSizeSig = run.resolvedSizeSig
         out.sizeSet = run.sizeSet
         out.bold = run.bold
         out.italic = run.italic
@@ -179,6 +182,11 @@ class PptxResolver {
         out.imageBytes = shape.imageBytes
         out.imageOk = shape.imageOk
         out.altText = shape.altText
+        out.hasStyle = shape.hasStyle
+        out.fontRef = shape.fontRef
+        out.styleFillSig = shape.styleFillSig
+        out.styleLineSig = shape.styleLineSig
+        out.sheetXfrmSig = shape.sheetXfrmSig
         out.isPlaceholder = shape.isPlaceholder
         out.phType = shape.phType
         out.phIdx = shape.phIdx
@@ -451,6 +459,9 @@ class PptxResolver {
             dst.height = src.height
             dst.rotation = src.rotation
             dst.hasXfrm = true
+            ; Inherited, not stated — recorded as it stands now, so a later
+            ; move stops matching and IS written. See `sheetXfrmSig`.
+            dst.sheetXfrmSig = (dst.xfrmSignature())
         }
         if ((strlen dst.preset) == 0) {
             dst.preset = src.preset
@@ -540,6 +551,10 @@ class PptxResolver {
             def j:int 0
             while (j < (array_length para.runs)) {
                 def run:PptxTextRun (itemAt para.runs j)
+                ; What the run itself said, before anything is filled in.
+                def statedFont:boolean ((strlen run.fontFamily) > 0)
+                def statedColor:boolean run.color.isSet
+                def statedSize:boolean run.sizeSet
                 this.applyDefRPrToRun(run body)
                 run.fontFamily = (this.resolveFont(run.fontFamily theme))
                 if (run.highlight.isSet) {
@@ -553,6 +568,17 @@ class PptxResolver {
                     } {
                         run.color = (this.resolveColor((PptxColor.schemeOf("dk1")) theme))
                     }
+                }
+                ; Recorded as it stands now. Anything the user changes later
+                ; stops matching, and the writer states the change.
+                if (statedFont == false) {
+                    run.resolvedFontSig = run.fontFamily
+                }
+                if (statedColor == false) {
+                    run.resolvedColorSig = (run.color.signature())
+                }
+                if (statedSize == false) {
+                    run.resolvedSizeSig = (to_string (to_int ((run.fontSizePt * 100.0) + 0.5)))
                 }
                 j = (j + 1)
             }
@@ -669,11 +695,18 @@ class PptxResolver {
                                 shape.fillGrad.dir = style.dir
                                 shape.fillGrad.c1 = (this.styleColor(style.c1 shape.fillRefColor theme))
                                 shape.fillGrad.c2 = (this.styleColor(style.c2 shape.fillRefColor theme))
+                                ; Worked out here, not read from the file. A
+                                ; save that writes it back as the shape's own
+                                ; fill would bake the theme into the deck.
                             } {
                                 if (style.kind == 0) {
                                     shape.fill = (this.styleColor(style.solid shape.fillRefColor theme))
                                 }
                             }
+                            ; Recorded as it stands NOW. If the user changes
+                            ; the fill later it stops matching, and the writer
+                            ; states the change rather than the inheritance.
+                            shape.styleFillSig = (shape.fillSignature())
                         }
                     }
                 }
@@ -688,6 +721,7 @@ class PptxResolver {
                     if (shape.lineWidthPt <= 0.0) {
                         shape.lineWidthPt = lstyle.widthPt
                     }
+                    shape.styleLineSig = (shape.lineSignature())
                 }
             }
         }
@@ -781,7 +815,11 @@ class PptxResolver {
         def layout@(optional):PptxSheet (this.sheetOf(layouts slide.layoutPart))
         def master@(optional):PptxSheet (this.sheetOf(masters slide.masterPart))
 
-        ; Background: slide → layout → master → lt1
+        ; Background: slide → layout → master → lt1.
+        ;
+        ; Everything past the first line is INHERITED, and a save that wrote it
+        ; back as the slide's own would freeze it — see `bgFromSheet`.
+        slide.bgFromSheet = (slide.bg.isSet == false)
         if (slide.bg.isSet == false) {
             if (!null? layout) {
                 def lay:PptxSheet (unwrap layout)

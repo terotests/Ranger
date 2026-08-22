@@ -101,6 +101,9 @@ class PptxClone {
         r.text = src.text
         r.field = src.field
         r.fontFamily = src.fontFamily
+        r.resolvedFontSig = src.resolvedFontSig
+        r.resolvedColorSig = src.resolvedColorSig
+        r.resolvedSizeSig = src.resolvedSizeSig
         r.fontSizePt = src.fontSizePt
         r.sizeSet = src.sizeSet
         r.boldSet = src.boldSet
@@ -242,6 +245,11 @@ class PptxClone {
         s.imageOk = src.imageOk
         s.locked = src.locked
         s.altText = src.altText
+        s.hasStyle = src.hasStyle
+        s.fontRef = src.fontRef
+        s.styleFillSig = src.styleFillSig
+        s.styleLineSig = src.styleLineSig
+        s.sheetXfrmSig = src.sheetXfrmSig
         s.isPlaceholder = src.isPlaceholder
         s.phType = src.phType
         s.phIdx = src.phIdx

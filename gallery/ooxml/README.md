@@ -116,11 +116,38 @@ package.
 
 What is still open:
 
-- **Shape-level provenance.** A rewritten slide still regenerates each shape
-  from the model, so anything inside a `<p:sp>` that the model does not
-  describe — a shape's own `extLst`, an effect nobody reads — is lost. Doing
-  this safely needs a per-shape "has this changed?" that cannot silently answer
-  wrong, because answering wrong the other way discards the user's edit.
+- **An edit no longer bakes the slide.** A rewritten slide regenerates each
+  shape from the RESOLVED model, and resolution is lossy in one direction: it
+  turns *follows the theme* into a concrete gradient, *follows the master* into
+  a concrete background, and *is the title placeholder* into a text box at
+  fixed coordinates. Written back, all of that looks identical and is a
+  different file — the deck has stopped being a themed deck. Moving one shape
+  did that to the whole slide.
+
+  Measured on the fixtures, editing one shape used to delete `<p:style>` from
+  every shape on the slide (3 → 0), add a baked `<a:gradFill>`, add a `<p:bg>`
+  the slide never had, state `<a:latin>` eight times, turn every inherited
+  bullet into `<a:buNone/>`, and drop `<p:ph>` so the title placeholder came
+  back an ordinary text box — which also broke this repository's own
+  accessibility tree, since it finds a slide's title by `p:ph type="title"`.
+
+  Four of five fixtures now round-trip an edit with **identical element
+  counts**; the fifth differs by exactly the `<a:xfrm>` of the shape that was
+  moved.
+
+  **The mechanism is a signature, not a flag,** and that distinction is the
+  whole design. A flag saying "this fill was inherited" stays true after the
+  user changes the fill, so the save discards the edit — worse than the bug it
+  fixes, and the existing suite caught exactly that on the first attempt
+  ("the move that was made is in the file" went red). The resolver records
+  what it worked out *as a value*; the writer asks "does this still look
+  exactly like what was inherited?" Any change answers no, and there is no
+  mutation site anyone has to remember to update.
+
+- **Still open: what is inside a `<p:sp>` that the model has no field for** —
+  a shape's own `extLst`, an effect nobody reads. That needs the source span
+  per shape rather than per slide, and a way to know the shape is untouched
+  that is as safe as the signatures above.
 
 ### 1b. `.xlsx` save-over — **both saves exist now**
 

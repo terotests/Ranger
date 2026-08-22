@@ -63,6 +63,8 @@ class PptxWriterTest {
         this.testFooterRoundTrip()
         this.testShowRoundTrip()
         this.testUnmodelledContentSurvives()
+        this.testEditKeepsInheritance()
+        this.testPlaceholdersSurviveAnEdit()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -383,6 +385,124 @@ class PptxWriterTest {
         }
         this.check("the inserted shape is in the file" found)
         p2.close()
+    }
+
+    ; Editing one shape on a slide should not bake the whole slide.
+    ;
+    ; The writer regenerates every shape on a slide it touches, from the
+    ; RESOLVED model — and resolution is lossy in one direction: it turns
+    ; "follows the theme" into a concrete gradient, "follows the master" into a
+    ; concrete background, and "is the title placeholder" into a text box at
+    ; fixed coordinates. Written back, all of that LOOKS identical and is a
+    ; different file: the deck has stopped being a themed deck.
+    ;
+    ; What makes this safe is that the resolver records what it worked out as a
+    ; SIGNATURE rather than a flag. A flag stays set after the user changes the
+    ; thing, and the save then discards the edit — which is worse than the bug
+    ; it fixes. A signature stops matching the moment anything moves, so the
+    ; check below has two halves and needs both.
+    fn testEditKeepsInheritance:void () {
+        print "--- an edit does not bake the slide ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "29-theme-styles.pptx")) == false) {
+            this.check("open 29-theme-styles" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        ; The smallest real edit there is: move one shape.
+        def moved:PptxShape (itemAt slide.shapes 0)
+        moved.x = (moved.x + 12.0)
+        slide.dirty = true
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "inherit-29.pptx")
+        parser.close()
+
+        def pkg (new OpcPackage())
+        if ((pkg.openParts("gallery/pptx/bin" "inherit-29.pptx")) == false) {
+            this.check("the edited deck reopens" false)
+            return
+        }
+        def xml:string (pkg.readXml("ppt/slides/slide1.xml"))
+        this.check("the deck was written" ((strlen xml) > 0))
+
+        ; --- what must still be there
+        this.check("the shapes still link to the theme's format matrix" ((indexOf xml "<p:style>") >= 0))
+        this.check("with their fill reference" ((indexOf xml "a:fillRef") >= 0))
+        this.check("and their font reference" ((indexOf xml "a:fontRef") >= 0))
+
+        ; --- what must NOT have appeared
+        ; The gradient the theme's fill style produces. Written here, the shape
+        ; keeps its look and stops following the theme.
+        this.check("the resolved gradient was not baked in" ((indexOf xml "<a:gradFill") < 0))
+        ; The background comes from the master. Stated here it freezes.
+        this.check("the master's background was not baked in" ((indexOf xml "<p:bg>") < 0))
+        ; The font comes from the theme's font scheme through fontRef.
+        this.check("the theme's font was not baked onto the runs" ((indexOf xml "<a:latin") < 0))
+        ; A paragraph that said nothing about its bullet inherits one.
+        this.check("no bullet was decided for a paragraph that said nothing" ((indexOf xml "<a:buNone/>") < 0))
+        pkg.close()
+
+        ; --- and the edit itself survived, which is the half that matters more
+        def p2 (new PptxParser())
+        if ((p2.openParts("gallery/pptx/bin" "inherit-29.pptx")) == false) {
+            this.check("it reopens as a deck" false)
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt after.slides 0)
+        def back:PptxShape (itemAt s2.shapes 0)
+        this.check("the move that was made is still in the file" (this.near(back.x moved.x)))
+        this.check("and the shape still draws with a fill" (back.fill.isSet || back.fillGrad.isSet))
+        p2.close()
+    }
+
+    ; A placeholder has to come back a placeholder. It is what puts a slide in
+    ; the outline, what "Reset Slide" resets to, and — in this repository —
+    ; what the accessibility tree finds a slide's title by, so a deck saved
+    ; without them would start announcing every slide as "Slide 1, Slide 2".
+    fn testPlaceholdersSurviveAnEdit:void () {
+        print "--- and a placeholder is still a placeholder ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open 20-business-deck" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def before:int (PptxWriterTest.placeholders(slide))
+        this.check("the fixture has placeholders to lose" (before > 0))
+        def moved:PptxShape (itemAt slide.shapes 0)
+        moved.x = (moved.x + 8.0)
+        slide.dirty = true
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "inherit-20.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        if ((p2.openParts("gallery/pptx/bin" "inherit-20.pptx")) == false) {
+            this.check("the edited deck reopens" false)
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt after.slides 0)
+        this.check("they all came back" ((PptxWriterTest.placeholders(s2)) == before))
+        p2.close()
+    }
+
+    sfn placeholders:int (slide:PptxSlide) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (sh.inherited == false) {
+                if sh.isPlaceholder {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     ; Two different pictures that arrived under the same name.

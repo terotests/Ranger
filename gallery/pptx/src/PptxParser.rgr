@@ -2125,6 +2125,9 @@ class PptxParser {
             return
         }
         def sn:PptxXmlNode (unwrap st)
+        ; That the block EXISTS is the thing the writer needs: a shape with a
+        ; style reference follows the theme, and one without it does not.
+        shape.hasStyle = true
         def fill@(optional):PptxXmlNode (sn.firstChild("fillRef"))
         if (!null? fill) {
             def fr:PptxXmlNode (unwrap fill)
@@ -2152,7 +2155,9 @@ class PptxParser {
         }
         def font@(optional):PptxXmlNode (sn.firstChild("fontRef"))
         if (!null? font) {
-            def col3@(optional):PptxColor (this.colorIn((unwrap font)))
+            def fn:PptxXmlNode (unwrap font)
+            shape.fontRef = (fn.attr("idx"))
+            def col3@(optional):PptxColor (this.colorIn(fn))
             if (!null? col3) {
                 shape.fontRefColor = (unwrap col3)
             }
