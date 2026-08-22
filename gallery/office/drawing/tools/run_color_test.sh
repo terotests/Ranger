@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# A theme colour, and the two different functions called tint.
+#
+# The trap in sharing this code is that DrawingML and SpreadsheetML both have a
+# `tint` and they are NOT the same function: one keeps a fraction of each RGB
+# channel and adds white, the other scales HLS luminance and leaves hue and
+# saturation alone. Using either where the other belongs gives a colour that is
+# plausible and wrong, which is the kind of bug nobody reports.
+#
+# Compiled twice, like everything else here: the maths is doubles in and bytes
+# out, and a rounding rule that holds on one target and not the other is a
+# rule that holds nowhere.
+#
+#   npm run office:color:test
+set -euo pipefail
+cd "$(cd "$(dirname "$0")/../../../.." && pwd)"
+
+export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
+SRC=gallery/office/drawing/tests/OfficeColorTest.rgr
+OUT=tmp/office-color
+mkdir -p "$OUT" tmp gallery/office/drawing/bin
+
+echo "==> JavaScript"
+node bin/output.js -es6 "$SRC" -d=gallery/office/drawing/bin -o=OfficeColorTest.js -nodecli > "$OUT/js.log" 2>&1 || {
+  tail -20 "$OUT/js.log"; echo "Ranger -> JS failed" >&2; exit 1; }
+# The compiler can report [FAIL] and still exit 0, and the stale build from the
+# last run would then be what gets tested.
+if grep -q '\[FAIL\]' "$OUT/js.log"; then
+  grep -A2 '\[FAIL\]' "$OUT/js.log" | head -20
+  echo "Ranger -> JS failed" >&2
+  exit 1
+fi
+node gallery/office/drawing/bin/OfficeColorTest.js | tee "$OUT/js.out"
+grep -q "ALL PASS" "$OUT/js.out" || { echo "JavaScript run failed" >&2; exit 1; }
+
+CXX=""
+for cc in g++ clang++; do
+  if command -v "$cc" >/dev/null 2>&1; then CXX="$cc"; break; fi
+done
+if [ -z "$CXX" ]; then
+  echo
+  echo "==> C++  SKIPPED — no g++ or clang++ on PATH."
+  exit 0
+fi
+
+echo
+echo "==> C++ ($CXX)"
+node bin/output.js -l=cpp "$SRC" -nodecli -d="$OUT" -o=OfficeColorTest.cpp > "$OUT/cpp.log" 2>&1 || {
+  tail -20 "$OUT/cpp.log"; echo "Ranger -> C++ failed" >&2; exit 1; }
+if grep -q '\[FAIL\]' "$OUT/cpp.log"; then
+  grep -A2 '\[FAIL\]' "$OUT/cpp.log" | head -20
+  echo "Ranger -> C++ failed" >&2
+  exit 1
+fi
+cp gallery/invaders/variant.hpp "$OUT/variant.hpp"
+"$CXX" -std=c++17 -I "$OUT" -o "$OUT/officecolor" "$OUT/OfficeColorTest.cpp"
+"$OUT/officecolor" | tee "$OUT/cpp.out"
+grep -q "ALL PASS" "$OUT/cpp.out" || { echo "C++ run failed" >&2; exit 1; }
+
+echo
+echo "one theme palette and two tints that stay two, on both targets"

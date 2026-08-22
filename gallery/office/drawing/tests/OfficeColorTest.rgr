@@ -1,0 +1,186 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeColorTest — a theme colour, and the two different functions called tint.
+; ==============================================================================
+;
+; The trap in sharing this code is that DrawingML and SpreadsheetML both have a
+; `tint` and they are not the same function. One keeps a fraction of each RGB
+; channel and adds white; the other scales HLS luminance and leaves hue and
+; saturation alone. Using either where the other belongs gives a colour that is
+; plausible and wrong, which is the kind of bug nobody reports.
+;
+;   npm run office:color:test
+; ==============================================================================
+
+Import "../OfficeColor.rgr"
+
+class ColorCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    ; Colours are compared with a tolerance per channel: the maths is in
+    ; doubles and the answer is bytes, so an exact string match would be a test
+    ; of the rounding rather than of the colour.
+    fn near:void (name:string got:string want:string tol:int) {
+        def ok:boolean true
+        if ((strlen got) != 6) {
+            ok = false
+        } {
+            def i:int 0
+            while (i < 6) {
+                def a:int (OfficeColorMath.byteAt(got i))
+                def b:int (OfficeColorMath.byteAt(want i))
+                def d:int (a - b)
+                if (d < 0) {
+                    d = (0 - d)
+                }
+                if (d > tol) {
+                    ok = false
+                }
+                i = (i + 2)
+            }
+        }
+        this.ok((name + " (got '" + got + "' want '" + want + "' ±" + (to_string tol) + ")") ok)
+    }
+}
+
+class OfficeColorTest {
+    sfn main:void () {
+        def c:ColorCheck (new ColorCheck)
+        print "== OfficeColorTest =="
+
+        print "-- hex in, hex out --"
+        c.eqStr("a byte reads back" (OfficeColorMath.hexOf((OfficeColorMath.byteAt("4472C4" 0)))) "44")
+        c.eqStr("and the last one" (OfficeColorMath.hexOf((OfficeColorMath.byteAt("4472C4" 4)))) "C4")
+        c.eqStr("lower case reads the same" (OfficeColorMath.hexOf((OfficeColorMath.byteAt("4472c4" 4)))) "C4")
+        c.eqStr("packing round-trips" (OfficeColorMath.packHex(1.0 1.0 1.0)) "FFFFFF")
+        c.eqStr("and black" (OfficeColorMath.packHex(0.0 0.0 0.0)) "000000")
+
+        print "-- the theme palette --"
+        def th (new OfficeTheme)
+        th.set("dk1" "000000")
+        th.set("lt1" "FFFFFF")
+        th.set("accent1" "4472C4")
+        c.eqStr("a name resolves" (th.colorOf("accent1")) "4472C4")
+        c.eqStr("an unknown name is black rather than nothing" (th.colorOf("accent9")) "000000")
+        ; A slide calls the first four by other names.
+        c.eqStr("tx1 is dk1" (OfficeTheme.mapSchemeName("tx1")) "dk1")
+        c.eqStr("bg1 is lt1" (OfficeTheme.mapSchemeName("bg1")) "lt1")
+        c.eqStr("and an accent is itself" (OfficeTheme.mapSchemeName("accent3")) "accent3")
+
+        print "-- Excel's theme indices, which are not the theme file's order --"
+        ; The single most likely thing to get backwards: Excel swaps the first
+        ; two pairs. `theme="0"` is the light BACKGROUND, `theme="1"` the dark
+        ; TEXT, and a reader that maps them in file order paints white on white.
+        c.eqStr("0 is the light background" (OfficeTheme.schemeForExcelIndex(0)) "lt1")
+        c.eqStr("1 is the dark text" (OfficeTheme.schemeForExcelIndex(1)) "dk1")
+        c.eqStr("2 is the second light" (OfficeTheme.schemeForExcelIndex(2)) "lt2")
+        c.eqStr("3 is the second dark" (OfficeTheme.schemeForExcelIndex(3)) "dk2")
+        c.eqStr("4 is the first accent" (OfficeTheme.schemeForExcelIndex(4)) "accent1")
+        c.eqStr("9 is the last accent" (OfficeTheme.schemeForExcelIndex(9)) "accent6")
+        c.eqStr("10 is the hyperlink" (OfficeTheme.schemeForExcelIndex(10)) "hlink")
+        c.eqStr("and past the end names nothing" (OfficeTheme.schemeForExcelIndex(12)) "")
+
+        print "-- DrawingML's modifiers --"
+        def plain (new OfficeColor)
+        c.ok("a fresh colour has no modifiers" ((plain.hasMods()) == false))
+        c.eqStr("so it passes through untouched"
+            (OfficeColorMath.applyDrawingMods("4472C4" plain)) "4472C4")
+
+        def lum (new OfficeColor)
+        lum.lumMod = 0.5
+        c.ok("lumMod is a modifier" (lum.hasMods()))
+        c.near("half the luminance halves each channel"
+            (OfficeColorMath.applyDrawingMods("4472C4" lum)) "223962" 1)
+
+        def dmTint (new OfficeColor)
+        dmTint.tint = 0.6
+        ; DrawingML: keep 60% of the channel, the rest arrives as white.
+        c.near("a DrawingML tint keeps a fraction and adds white"
+            (OfficeColorMath.applyDrawingMods("000000" dmTint)) "666666" 1)
+        c.eqStr("and leaves white alone"
+            (OfficeColorMath.applyDrawingMods("FFFFFF" dmTint)) "FFFFFF")
+
+        def shade (new OfficeColor)
+        shade.shade = 0.75
+        c.near("a shade scales towards black"
+            (OfficeColorMath.applyDrawingMods("FFFFFF" shade)) "BFBFBF" 1)
+
+        def sat (new OfficeColor)
+        sat.satMod = 0.0
+        ; Saturation to nothing puts every channel at their average.
+        c.near("no saturation is the channel average"
+            (OfficeColorMath.applyDrawingMods("FF0000" sat)) "555555" 1)
+
+        print "-- Excel's tint, which is a different function --"
+        ; It scales HLS luminance, so the hue survives. That is the property to
+        ; test: a lighter blue is still blue.
+        def lighter:string (OfficeColorMath.applyExcelTint("4472C4" 0.4))
+        def darker:string (OfficeColorMath.applyExcelTint("4472C4" (0.0 - 0.25)))
+        c.ok("a zero tint changes nothing"
+            ((OfficeColorMath.applyExcelTint("4472C4" 0.0)) == "4472C4"))
+        c.ok("lighter is lighter"
+            ((OfficeColorMath.byteAt(lighter 0)) > (OfficeColorMath.byteAt("4472C4" 0))))
+        c.ok("darker is darker"
+            ((OfficeColorMath.byteAt(darker 4)) < (OfficeColorMath.byteAt("4472C4" 4))))
+        ; Blue stays the dominant channel both ways — which is what "keeps the
+        ; hue" means, and what scaling RGB would not do.
+        c.ok("and both are still blue"
+            (((OfficeColorMath.byteAt(lighter 4)) > (OfficeColorMath.byteAt(lighter 0)))
+                && ((OfficeColorMath.byteAt(darker 4)) > (OfficeColorMath.byteAt(darker 0)))))
+        ; The two ends.
+        c.eqStr("a full positive tint is white" (OfficeColorMath.applyExcelTint("4472C4" 1.0)) "FFFFFF")
+        c.eqStr("a full negative tint is black" (OfficeColorMath.applyExcelTint("4472C4" (0.0 - 1.0)))
+            "000000")
+        ; Grey has no hue to keep, and must not gain one.
+        def greyer:string (OfficeColorMath.applyExcelTint("808080" 0.5))
+        c.ok("grey lightens to grey"
+            (((OfficeColorMath.byteAt(greyer 0)) == (OfficeColorMath.byteAt(greyer 2)))
+                && ((OfficeColorMath.byteAt(greyer 2)) == (OfficeColorMath.byteAt(greyer 4)))))
+
+        print "-- and the two are NOT the same function --"
+        ; If they ever agree by accident the tests above stop meaning anything,
+        ; so this says out loud that they differ.
+        def asDrawing (new OfficeColor)
+        asDrawing.tint = 0.4
+        def viaDrawing:string (OfficeColorMath.applyDrawingMods("4472C4" asDrawing))
+        def viaExcel:string (OfficeColorMath.applyExcelTint("4472C4" 0.4))
+        c.ok("the same 0.4 means different colours" (viaDrawing != viaExcel))
+
+        print "-- the legacy indexed palette --"
+        c.eqStr("index 0 is black" (OfficeColorMath.indexedColor(0)) "000000")
+        c.eqStr("index 1 is white" (OfficeColorMath.indexedColor(1)) "FFFFFF")
+        ; 8..15 repeat 0..7, which is the palette's own quirk rather than a
+        ; typo: 10 is red a second time, and green is 11.
+        c.eqStr("index 10 is red again" (OfficeColorMath.indexedColor(10)) "FF0000")
+        c.eqStr("and 11 is green" (OfficeColorMath.indexedColor(11)) "00FF00")
+        c.eqStr("index 22 is the light grey" (OfficeColorMath.indexedColor(22)) "C0C0C0")
+        ; 64 and 65 are the system colours, which have no fixed value — better
+        ; to answer nothing than to answer wrongly.
+        c.eqStr("the system foreground names nothing" (OfficeColorMath.indexedColor(64)) "")
+        c.eqStr("and a negative index nothing either" (OfficeColorMath.indexedColor(-1)) "")
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

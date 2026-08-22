@@ -92,6 +92,13 @@ class XlsxLoader {
             sst.parse((pkg.entryText("xl/sharedStrings.xml")))
         }
         def sty:XlsxStyles (new XlsxStyles)
+        ; The theme first: a `<color theme="4"/>` in the styles has nothing to
+        ; resolve to without it, and that is most of the colour in a workbook
+        ; Excel styled from its own palette.
+        def themePart:string (pkg.findRelByType((pkg.workbookPart()) "/theme"))
+        if ((strlen themePart) > 0) {
+            sty.parseTheme((pkg.entryText(themePart)))
+        }
         if (pkg.hasEntry("xl/styles.xml")) {
             sty.parse((pkg.entryText("xl/styles.xml")))
         } {

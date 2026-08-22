@@ -12,6 +12,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
+Import "../../office/drawing/OfficeColor.rgr"
 
 class PptxResolver {
     Constructor () {
@@ -20,12 +21,7 @@ class PptxResolver {
     ; Map placeholder / mapped scheme names used on slides (bg1, tx1, …) onto
     ; the theme's clrScheme keys. Masters can remap these; MVP uses defaults.
     fn mapSchemeName:string (name:string) {
-        if (name == "bg1") { return "lt1" }
-        if (name == "tx1") { return "dk1" }
-        if (name == "bg2") { return "lt2" }
-        if (name == "tx2") { return "dk2" }
-        if (name == "phClr") { return "accent1" }
-        return name
+        return (OfficeTheme.mapSchemeName(name))
     }
 
     fn resolveColor:PptxColor (c:PptxColor theme:PptxTheme) {
@@ -589,80 +585,45 @@ class PptxResolver {
         return 0
     }
 
+    ; Hex in, hex out, and the clamp between them — `OfficeColor`'s, shared
+    ; with the spreadsheet. They were the same three functions written twice.
     sfn byteAt:int (hex:string at:int) {
-        if ((strlen hex) < (at + 2)) {
-            return 0
-        }
-        def hi:int (PptxResolver.hexNibble((substring hex at (at + 1))))
-        def lo:int (PptxResolver.hexNibble((substring hex (at + 1) (at + 2))))
-        return ((hi * 16) + lo)
+        return (OfficeColorMath.byteAt(hex at))
     }
 
     sfn hexOf:string (v:int) {
-        def digits:string "0123456789ABCDEF"
-        def n:int v
-        if (n < 0) {
-            n = 0
-        }
-        if (n > 255) {
-            n = 255
-        }
-        def hi:int (idiv n 16)
-        def lo:int (n % 16)
-        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+        return (OfficeColorMath.hexOf(v))
     }
 
     sfn clamp01:double (v:double) {
-        if (v < 0.0) {
-            return 0.0
-        }
-        if (v > 1.0) {
-            return 1.0
-        }
-        return v
+        return (OfficeColorMath.clamp01(v))
     }
 
-    ; The adjustments, in the order DrawingML applies them. `satMod` is done on
-    ; the distance from the channel average, which is what pushing saturation
-    ; is when there is no colour model to hand.
+    ; A `PptxColor` as the shared carrier wants it. Only the modifiers matter
+    ; here — this is handed straight to `applyDrawingMods` and thrown away.
+    sfn asOfficeColor:OfficeColor (col:PptxColor) {
+        def out (new OfficeColor())
+        out.isSet = col.isSet
+        out.isScheme = col.isScheme
+        out.scheme = col.scheme
+        out.srgb = col.srgb
+        out.alpha = col.alpha
+        out.lumMod = col.lumMod
+        out.lumOff = col.lumOff
+        out.tint = col.tint
+        out.shade = col.shade
+        out.satMod = col.satMod
+        out.baked = col.baked
+        return out
+    }
+
+    ; The adjustments, in the order DrawingML applies them. The maths is
+    ; `OfficeColorMath.applyDrawingMods`, shared with the spreadsheet's
+    ; drawings and charts — and deliberately NOT shared with Excel's cell
+    ; `tint`, which scales HLS luminance rather than the RGB channels and is a
+    ; different function with the same name.
     sfn applyMods:string (hex:string col:PptxColor) {
-        if ((strlen hex) != 6) {
-            return hex
-        }
-        def r:double ((to_double (PptxResolver.byteAt(hex 0))) / 255.0)
-        def g:double ((to_double (PptxResolver.byteAt(hex 2))) / 255.0)
-        def b:double ((to_double (PptxResolver.byteAt(hex 4))) / 255.0)
-        if (col.satMod != 1.0) {
-            def avg:double (((r + g) + b) / 3.0)
-            r = (PptxResolver.clamp01((avg + ((r - avg) * col.satMod))))
-            g = (PptxResolver.clamp01((avg + ((g - avg) * col.satMod))))
-            b = (PptxResolver.clamp01((avg + ((b - avg) * col.satMod))))
-        }
-        if (col.lumMod != 1.0) {
-            r = (PptxResolver.clamp01((r * col.lumMod)))
-            g = (PptxResolver.clamp01((g * col.lumMod)))
-            b = (PptxResolver.clamp01((b * col.lumMod)))
-        }
-        if (col.lumOff != 0.0) {
-            r = (PptxResolver.clamp01((r + col.lumOff)))
-            g = (PptxResolver.clamp01((g + col.lumOff)))
-            b = (PptxResolver.clamp01((b + col.lumOff)))
-        }
-        if (col.tint != 0.0) {
-            ; Towards white by however much of the colour is kept.
-            r = (PptxResolver.clamp01(((r * col.tint) + (1.0 - col.tint))))
-            g = (PptxResolver.clamp01(((g * col.tint) + (1.0 - col.tint))))
-            b = (PptxResolver.clamp01(((b * col.tint) + (1.0 - col.tint))))
-        }
-        if (col.shade != 0.0) {
-            r = (PptxResolver.clamp01((r * col.shade)))
-            g = (PptxResolver.clamp01((g * col.shade)))
-            b = (PptxResolver.clamp01((b * col.shade)))
-        }
-        def ri:int (to_int ((r * 255.0) + 0.5))
-        def gi:int (to_int ((g * 255.0) + 0.5))
-        def bi:int (to_int ((b * 255.0) + 0.5))
-        return ((PptxResolver.hexOf(ri)) + (PptxResolver.hexOf(gi)) + (PptxResolver.hexOf(bi)))
+        return (OfficeColorMath.applyDrawingMods(hex (PptxResolver.asOfficeColor(col))))
     }
 
     ; A theme fill style, with the placeholder colour filled in from the

@@ -9,6 +9,7 @@ Import "../src/XlsxNumberFormat.rgr"
 Import "../src/xlsx/XlsxLoader.rgr"
 Import "../src/xlsx/XlsxWorksheet.rgr"
 Import "../src/CellStyle.rgr"
+Import "../../office/drawing/OfficeColor.rgr"
 Import "../../pdf_writer/src/core/Utf8.rgr"
 
 class Checker {
@@ -546,11 +547,74 @@ class XlsxTest {
         c.eqInt("300KB decode length" (strlen bigText) bigN)
         c.ok("300KB decode is ASCII A" ((charAt bigText 0) == 65))
 
+        ; --- colours a workbook names without spelling them out ----------------
+        ;
+        ; A `<color>` says which colour one of four ways and only one of them is
+        ; a hex string. The reader read that one and dropped the rest — so a
+        ; workbook coloured the way Excel colours things by default, from the
+        ; theme palette, came out with no colours at all. `xl/theme/theme1.xml`
+        ; was in the package the whole time, unread.
+        print "== a colour named by theme, tint or index =="
+        def thApp:GridApp (new GridApp)
+        thApp.init("gallery/pdf_writer/assets/fonts")
+        def thOk:boolean (thApp.loadXlsx("gallery/datagrid/fixtures/theme-colors.xlsx"))
+        c.ok("the theme fixture loaded" thOk)
+        if thOk {
+            def m:SpreadsheetModel (thApp.model)
+            def accent:string ((m.getCellStyle(0 0)).textRgb)
+            c.eqStr("theme=4 is the first accent, out of the theme part" accent "#4472C4")
+
+            ; Excel's tint scales HLS luminance, so a lighter accent is still
+            ; BLUE. Scaling RGB channels instead — DrawingML's tint, the other
+            ; function with the same name — would wash the hue out.
+            def lighter:string ((m.getCellStyle(1 0)).textRgb)
+            def darker:string ((m.getCellStyle(2 0)).textRgb)
+            c.ok("a tinted colour is not the flat one" ((lighter != accent) && (darker != accent)))
+            c.ok("lighter really is lighter"
+                ((XlsxTest.chanOf(lighter 0)) > (XlsxTest.chanOf(accent 0))))
+            c.ok("darker really is darker"
+                ((XlsxTest.chanOf(darker 4)) < (XlsxTest.chanOf(accent 4))))
+            c.ok("and both are still blue"
+                (((XlsxTest.chanOf(lighter 4)) > (XlsxTest.chanOf(lighter 0)))
+                    && ((XlsxTest.chanOf(darker 4)) > (XlsxTest.chanOf(darker 0)))))
+
+            ; The swap. Excel's theme INDICES are not the theme file's order:
+            ; 0 is the light background and 1 the dark text. A reader that maps
+            ; them in file order paints white on white.
+            def t0:string ((m.getCellStyle(3 0)).textRgb)
+            def t1:string ((m.getCellStyle(4 0)).textRgb)
+            c.eqStr("theme=0 is the LIGHT one" t0 "#FDFDFD")
+            c.eqStr("and theme=1 the DARK one" t1 "#1A1A1A")
+
+            ; A system colour has no value of its own; the file carries the one
+            ; it had when it was written, which is the only answer available.
+            c.ok("a sysClr slot was read from its lastClr" ((strlen t0) == 7))
+
+            def idx:string ((m.getCellStyle(5 0)).textRgb)
+            c.eqStr("indexed=10 is the legacy palette's red" idx "#FF0000")
+
+            ; And a FILL named the same ways, not just a font.
+            def fill:string ((m.getCellStyle(6 0)).fillRgb)
+            c.eqStr("a fill can be a theme colour too" fill "#70AD47")
+            def fillTint:string ((m.getCellStyle(7 0)).fillRgb)
+            c.ok("and can carry a tint" ((fillTint != fill) && ((strlen fillTint) == 7)))
+        }
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"
         }
+    }
+
+    ; One channel of a "#RRGGBB" as a number, so a test can say "lighter" and
+    ; "still blue" rather than pinning an exact byte the maths may round
+    ; either way.
+    sfn chanOf:int (css:string at:int) {
+        if ((strlen css) != 7) {
+            return -1
+        }
+        return (OfficeColorMath.byteAt((substring css 1 7) at))
     }
 }

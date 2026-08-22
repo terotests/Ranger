@@ -5,13 +5,35 @@
 ; ==============================================================================
 ;
 ; FortuneSheet "Formatting" parity slice: fill, font color/bold, horizontal
-; align, number format. Theme colors / indexed palette are approximated.
+; align, number format.
+;
+; COLOURS. A `<color>` in a workbook says which colour one of four ways, and
+; this used to read exactly one of them:
+;
+;     rgb="FFCC0000"                 read
+;     theme="4" tint="-0.25"         "" — dropped
+;     indexed="10"                   "" — dropped
+;     auto="1"                       "" — dropped
+;
+; The second is not exotic. It is what Excel writes for every cell styled from
+; the palette: "Blue, Accent 1, Lighter 40%" IS a theme index and a tint. The
+; theme part was sitting in the package unread, so any workbook coloured the
+; way Excel colours things by default came out with no colours at all.
+;
+; The palette and the maths are `gallery/office/drawing/OfficeColor.rgr`, which
+; the .pptx reader shares — but Excel's `tint` is NOT DrawingML's `tint`, and
+; the shared file keeps them as two functions for that reason.
 ; ==============================================================================
 
 Import "XmlLite.rgr"
 Import "../CellStyle.rgr"
+Import "../../../office/drawing/OfficeColor.rgr"
 
 class XlsxStyles {
+    ; The workbook's theme palette, out of `xl/theme/theme1.xml`. Empty when a
+    ; workbook has no theme part, in which case a `theme=` colour has nothing
+    ; to resolve to and is left alone rather than guessed at.
+    def theme:OfficeTheme (new OfficeTheme)
     def styles:[CellStyle]
     def fontsBold:[boolean]
     def fontsItalic:[boolean]
@@ -109,18 +131,127 @@ class XlsxStyles {
         set numFmtMap "49" "@"
     }
 
+    ; All four ways a workbook names a colour, and the tint that may be on any
+    ; of them.
     fn parseColorAttr:string (t:XmlTag) {
+        def base:string ""
         if (t.has("rgb")) {
             def rgb:string (t.attr("rgb"))
+            ; ARGB in the file; the alpha is dropped because a cell colour has
+            ; nowhere to put it.
             if ((strlen rgb) == 8) {
-                return ("#" + (substring rgb 2 8))
+                base = (substring rgb 2 8)
+            } {
+                base = rgb
             }
-            if ((strlen rgb) == 6) {
-                return ("#" + rgb)
-            }
-            return ("#" + rgb)
         }
-        return ""
+        if ((strlen base) == 0) {
+            if (t.has("theme")) {
+                def ti@(optional):int (to_int (t.attr("theme")))
+                if (!null? ti) {
+                    def name:string (OfficeTheme.schemeForExcelIndex((unwrap ti)))
+                    if ((strlen name) > 0) {
+                        if (theme.has(name)) {
+                            base = (theme.colorOf(name))
+                        }
+                    }
+                }
+            }
+        }
+        if ((strlen base) == 0) {
+            if (t.has("indexed")) {
+                def ii@(optional):int (to_int (t.attr("indexed")))
+                if (!null? ii) {
+                    base = (OfficeColorMath.indexedColor((unwrap ii)))
+                }
+            }
+        }
+        if ((strlen base) != 6) {
+            return ""
+        }
+        ; `tint` rides on whichever of the three named the colour. Excel's
+        ; tint scales HLS luminance — it is not DrawingML's, which keeps a
+        ; fraction of each RGB channel, and using one for the other gives a
+        ; colour that is plausible and wrong.
+        if (t.has("tint")) {
+            def tv@(optional):double (to_double (t.attr("tint")))
+            if (!null? tv) {
+                base = (OfficeColorMath.applyExcelTint(base (unwrap tv)))
+            }
+        }
+        return ("#" + base)
+    }
+
+    ; `xl/theme/theme1.xml` — the same `<a:clrScheme>` a deck carries, so the
+    ; twelve names mean the same twelve things. Read before the styles, because
+    ; a `theme=` colour cannot be resolved without it.
+    fn parseTheme:void (xml:string) {
+        if ((strlen xml) == 0) {
+            return
+        }
+        def p:XmlLite (new XmlLite)
+        p.reset(xml)
+        def inScheme:boolean false
+        def slot:string ""
+        while (p.pos < p.len) {
+            def t:XmlTag (p.nextTag())
+            if (t.valid == false) {
+                break
+            }
+            def local:string (p.localName(t.name))
+            if (local == "clrScheme") {
+                inScheme = (t.isEnd == false)
+                if (t.isEnd) {
+                    return
+                }
+            }
+            if inScheme {
+                if (t.isEnd == false) {
+                    ; A slot element — `dk1`, `accent1` … — wraps the colour
+                    ; that fills it.
+                    if ((local == "srgbClr") || (local == "sysClr")) {
+                        if ((strlen slot) > 0) {
+                            def hex:string ""
+                            if (local == "srgbClr") {
+                                hex = (t.attr("val"))
+                            } {
+                                ; A system colour carries the value it had when
+                                ; the file was written, which is the only
+                                ; answer available here.
+                                hex = (t.attr("lastClr"))
+                            }
+                            if ((strlen hex) == 6) {
+                                theme.set(slot hex)
+                            }
+                            slot = ""
+                        }
+                    } {
+                        if ((strlen (OfficeTheme.schemeForExcelIndex(0))) > 0) {
+                            ; Any of the twelve names opens a slot.
+                            if (XlsxStyles.isSchemeSlot(local)) {
+                                slot = local
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    sfn isSchemeSlot:boolean (name:string) {
+        if (name == "dk1") { return true }
+        if (name == "lt1") { return true }
+        if (name == "dk2") { return true }
+        if (name == "lt2") { return true }
+        if (name == "accent1") { return true }
+        if (name == "accent2") { return true }
+        if (name == "accent3") { return true }
+        if (name == "accent4") { return true }
+        if (name == "accent5") { return true }
+        if (name == "accent6") { return true }
+        if (name == "hlink") { return true }
+        if (name == "folHlink") { return true }
+        return false
     }
 
     fn parse:void (xml:string) {
