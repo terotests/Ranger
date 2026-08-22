@@ -510,6 +510,7 @@
     "zip": "npm run zip:compile && npm run zip:run",
     "evg:a11y:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGA11yTest.rgr -d=./gallery/evg/bin -o=EVGA11yTest.js -nodecli && node ./gallery/evg/bin/EVGA11yTest.js",
     "evg:toolbar:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGToolbarTest.rgr -d=./gallery/evg/bin -o=EVGToolbarTest.js -nodecli && node ./gallery/evg/bin/EVGToolbarTest.js",
+    "icons:sheet": "mkdir -p tmp/icons && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/src/dump_icons.rgr -d=./gallery/datagrid/bin -o=dump_icons.js -nodecli && node ./gallery/datagrid/bin/dump_icons.js",
     "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
     "evg:run": "node ./gallery/evg/bin/evg_test.js",
     "evg:json:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGJsonTest.rgr -d=./gallery/evg/bin -o=EVGJsonTest.js -nodecli && node ./gallery/evg/bin/EVGJsonTest.js",

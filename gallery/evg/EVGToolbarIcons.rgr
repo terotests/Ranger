@@ -1,0 +1,260 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGToolbarIcons.rgr — the icon shapes, as outlines on a 24-grid
+; ==============================================================================
+;
+; The icons on these strips used to be stacks of axis-aligned rectangles, and
+; that technique has a ceiling you can see: a shape you can only build from
+; bars comes out as an arrangement of bars. The filter looked like the align
+; buttons. "No border" looked like a rendering failure. A magnifier was a
+; square with a tail.
+;
+; EVG already parses and fills SVG paths — it is what draws a `custGeom` shape
+; on a slide — so an icon can be the silhouette everyone already recognises
+; instead of the nearest thing five rectangles can make.
+;
+; TWO RULES, and both come from what the renderer can actually do.
+;
+;   Every path is ONE ring. The software painter fills each ring of a shape
+;   independently and drops the even-odd flag the display list carries, so an
+;   outline drawn as outer-then-inner comes out solid. A hole is punched by
+;   drawing a second path over the first in the strip's background colour —
+;   which is `holeFor` below. Silhouette-plus-punch is also simply how icon
+;   sets of this size are drawn: at 20 pixels a hairline outline is mush.
+;
+;   Everything is authored on a 24x24 grid with the shape filling about 20 of
+;   it, which is what LibreOffice, Breeze and the system trays use. The caller
+;   scales; nothing here knows how big it will be drawn.
+;
+; A letter is still the best icon there is where one exists — B, I, U, $, % —
+; and those stay as text in `EVGToolbarView`. This file is for the ones that
+; have to be a picture.
+; ==============================================================================
+
+Import "EVGToolbar.rgr"
+
+class ToolIconPath {
+
+    ; The silhouette for an icon, or "" when it is drawn some other way.
+    sfn dataFor:string (k:int) {
+        ; --- files and history
+        if (k == (ToolIcon.newFile())) {
+            return "M5 2 h9 l5 5 v15 h-14 z"
+        }
+        if (k == (ToolIcon.openFile())) {
+            return "M1 4 h8 l2 3 h12 v14 h-22 z"
+        }
+        if (k == (ToolIcon.save())) {
+            return "M2 2 h15 l5 5 v15 h-20 z"
+        }
+        if (k == (ToolIcon.report())) {
+            return "M5 2 h9 l5 5 v15 h-14 z"
+        }
+
+        ; --- navigation
+        if (k == (ToolIcon.navFirst())) {
+            return "M4 4 h3 v16 h-3 z M21 4 v16 l-12 -8 z"
+        }
+        if (k == (ToolIcon.navPrev())) {
+            return "M18 4 v16 l-12 -8 z"
+        }
+        if (k == (ToolIcon.navNext())) {
+            return "M6 4 v16 l12 -8 z"
+        }
+        if (k == (ToolIcon.navLast())) {
+            return "M17 4 h3 v16 h-3 z M3 4 v16 l12 -8 z"
+        }
+        if (k == (ToolIcon.play())) {
+            return "M5 3 v18 l15 -9 z"
+        }
+
+        ; --- the object verbs
+        if (k == (ToolIcon.editMode())) {
+            ; A pointer.
+            return "M5 2 l14 9 l-6 1 l3 7 l-3 2 l-4 -7 l-4 4 z"
+        }
+        if (k == (ToolIcon.copy())) {
+            return "M3 1 h12 v3 h-9 v13 h-3 z M7 5 h14 v18 h-14 z"
+        }
+        if (k == (ToolIcon.paste())) {
+            return "M9 1 h6 v2 h4 v20 h-14 v-20 h4 z"
+        }
+        if (k == (ToolIcon.trash())) {
+            return "M9 1 h6 v2 h6 v3 h-18 v-3 h6 z M4 8 h16 l-2 15 h-12 z"
+        }
+        if (k == (ToolIcon.duplicate())) {
+            return "M2 2 h13 v13 h-13 z M9 9 h13 v13 h-13 z"
+        }
+        if (k == (ToolIcon.lock())) {
+            return "M12 1 a6 6 0 0 1 6 6 v3 h-3 v-3 a3 3 0 0 0 -6 0 v3 h-3 v-3 a6 6 0 0 1 6 -6 z M4 11 h16 v12 h-16 z"
+        }
+        if (k == (ToolIcon.shapeRect())) {
+            return "M2 5 h20 v14 h-20 z"
+        }
+        if (k == (ToolIcon.shapeEllipse())) {
+            return "M12 4 a10 8 0 0 1 0 16 a10 8 0 0 1 0 -16 z"
+        }
+        if (k == (ToolIcon.textBox())) {
+            return "M2 3 h20 v18 h-20 z"
+        }
+        if (k == (ToolIcon.picture())) {
+            return "M2 4 h20 v16 h-20 z"
+        }
+        if (k == (ToolIcon.chart())) {
+            return "M3 21 h18 v2 h-20 v-22 h2 z M6 12 h3 v8 h-3 z M11 7 h3 v13 h-3 z M16 10 h3 v10 h-3 z"
+        }
+        if (k == (ToolIcon.search())) {
+            return "M15 16 l2 -2 l6 6 l-2 2 z"
+        }
+        if (k == (ToolIcon.funnel())) {
+            return "M2 3 h20 l-8 9 v9 l-4 2 v-11 z"
+        }
+        if (k == (ToolIcon.comment())) {
+            return "M2 3 h20 v14 h-12 l-5 5 v-5 h-3 z"
+        }
+        if (k == (ToolIcon.palette())) {
+            return "M2 2 h9 v9 h-9 z M13 2 h9 v9 h-9 z M2 13 h9 v9 h-9 z M13 13 h9 v9 h-9 z"
+        }
+        if (k == (ToolIcon.formatPaste())) {
+            ; A roller with the paint coming off it.
+            return "M3 2 h14 v6 h-14 z M9 8 h2 v4 h6 v10 h-10 v-10 h2 z"
+        }
+
+        ; --- arranging what is selected
+        ; Flip: two wedges facing each other across a dashed axis. The axis is
+        ; punched, so the two halves read as a mirror rather than as an arrow.
+        if (k == (ToolIcon.flipH())) {
+            return "M2 4 h8 v16 h-8 z M14 4 h8 v16 h-8 z"
+        }
+        if (k == (ToolIcon.flipV())) {
+            return "M4 2 h16 v8 h-16 z M4 14 h16 v8 h-16 z"
+        }
+        ; Order: two overlapping squares, and which one is solid says which
+        ; one is in front.
+        if (k == (ToolIcon.bringFront())) {
+            return "M2 2 h13 v13 h-13 z"
+        }
+        if (k == (ToolIcon.sendBack())) {
+            return "M2 2 h13 v13 h-13 z"
+        }
+        ; Group: two shapes inside one frame. Ungroup: the frame gone and the
+        ; two apart.
+        if (k == (ToolIcon.group())) {
+            return "M1 1 h22 v22 h-22 z"
+        }
+        if (k == (ToolIcon.ungroup())) {
+            return "M1 1 h11 v11 h-11 z M12 12 h11 v11 h-11 z"
+        }
+        ; A slide, with what is happening to it.
+        if (k == (ToolIcon.slideAdd())) {
+            return "M1 3 h17 v13 h-17 z"
+        }
+        if (k == (ToolIcon.slideCopy())) {
+            return "M1 2 h14 v11 h-14 z"
+        }
+        if (k == (ToolIcon.slideDel())) {
+            return "M1 3 h17 v13 h-17 z"
+        }
+        if (k == (ToolIcon.database())) {
+            return "M12 1 a9 4 0 0 1 0 8 a9 4 0 0 1 0 -8 z M3 8 a9 4 0 0 0 18 0 v4 a9 4 0 0 1 -18 0 z M3 15 a9 4 0 0 0 18 0 v4 a9 4 0 0 1 -18 0 z"
+        }
+        return ""
+    }
+
+    ; The part of a silhouette that has to be knocked back out of it, drawn on
+    ; top in the strip's background colour. "" when the shape has no hole.
+    ;
+    ; This is what stands in for an even-odd fill. It is not a workaround for
+    ; its own sake — punching a hole in a solid shape is how a 20-pixel icon
+    ; is drawn anyway, because a hairline ring at that size disappears.
+    sfn holeFor:string (k:int) {
+        if (k == (ToolIcon.newFile())) {
+            ; The folded corner, and the sheet hollowed out so it reads as
+            ; paper rather than as a black block.
+            return "M14 2 v5 h5 z M7 4 h6 v5 h6 v11 h-12 z"
+        }
+        if (k == (ToolIcon.report())) {
+            return "M14 2 v5 h5 z M8 11 h8 v2 h-8 z M8 15 h8 v2 h-8 z"
+        }
+        if (k == (ToolIcon.openFile())) {
+            ; The inside of the folder, so it is a folder and not a lump.
+            return "M3 9 h18 v10 h-18 z"
+        }
+        if (k == (ToolIcon.save())) {
+            ; The shutter at the top and the label at the bottom. Without both
+            ; a floppy is a square with a bitten corner; with only the shutter
+            ; it is an H, which is what the first attempt drew.
+            return "M7 4 h7 v5 h-7 z M6 13 h12 v9 h-12 z"
+        }
+        if (k == (ToolIcon.copy())) {
+            return "M9 7 h10 v14 h-10 z"
+        }
+        if (k == (ToolIcon.paste())) {
+            return "M11 2 h2 v2 h-2 z M9 7 h6 v2 h-6 z M9 11 h6 v2 h-6 z"
+        }
+        if (k == (ToolIcon.trash())) {
+            return "M9 11 h2 v9 h-2 z M13 11 h2 v9 h-2 z"
+        }
+        if (k == (ToolIcon.duplicate())) {
+            return "M4 4 h9 v9 h-9 z M11 11 h9 v9 h-9 z"
+        }
+        if (k == (ToolIcon.lock())) {
+            return "M11 14 h2 v6 h-2 z"
+        }
+        if (k == (ToolIcon.shapeRect())) {
+            return "M4 7 h16 v10 h-16 z"
+        }
+        if (k == (ToolIcon.shapeEllipse())) {
+            return "M12 6 a8 6 0 0 1 0 12 a8 6 0 0 1 0 -12 z"
+        }
+        if (k == (ToolIcon.textBox())) {
+            ; A box with an A in it. The bar and the two legs are the letter.
+            return "M4 5 h16 v14 h-16 z"
+        }
+        if (k == (ToolIcon.picture())) {
+            return "M4 6 h16 v12 h-16 z"
+        }
+        if (k == (ToolIcon.formatPaste())) {
+            return "M5 4 h10 v2 h-10 z M11 14 h4 v6 h-4 z"
+        }
+        if (k == (ToolIcon.flipH())) {
+            ; The narrow face of each wedge, so they taper away from the axis.
+            return "M2 4 l0 16 l6 -4 v-8 z M22 4 l0 16 l-6 -4 v-8 z"
+        }
+        if (k == (ToolIcon.flipV())) {
+            return "M4 2 h16 l-4 6 h-8 z M4 22 h16 l-4 -6 h-8 z"
+        }
+        if (k == (ToolIcon.bringFront())) {
+            return "M4 4 h9 v9 h-9 z"
+        }
+        if (k == (ToolIcon.sendBack())) {
+            return "M4 4 h9 v9 h-9 z"
+        }
+        if (k == (ToolIcon.group())) {
+            return "M2 2 h20 v20 h-20 z"
+        }
+        if (k == (ToolIcon.ungroup())) {
+            return "M2 2 h9 v9 h-9 z M13 13 h9 v9 h-9 z"
+        }
+        if (k == (ToolIcon.slideAdd())) {
+            return "M3 5 h13 v9 h-13 z"
+        }
+        if (k == (ToolIcon.slideCopy())) {
+            return "M3 4 h10 v7 h-10 z"
+        }
+        if (k == (ToolIcon.slideDel())) {
+            return "M3 5 h13 v9 h-13 z"
+        }
+        if (k == (ToolIcon.search())) {
+            return ""
+        }
+        if (k == (ToolIcon.comment())) {
+            return "M4 5 h16 v10 h-16 z"
+        }
+        if (k == (ToolIcon.database())) {
+            return ""
+        }
+        return ""
+    }
+}

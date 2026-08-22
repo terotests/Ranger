@@ -203,6 +203,11 @@ class PptxEditHostTest {
         }
         c.ok("every editing button is on the strip" (missing == 0))
         c.ok("and the command table has heard of them all" (unknown == 0))
+        ; Two buttons with one picture is a strip nobody can read. The deck's
+        ; had five such pairs, every one of them an icon borrowed from the
+        ; spreadsheet for a command that has nothing to do with it.
+        def dup:int (app.toolbar.duplicateIcon())
+        c.ok(("no two commands share an icon (found " + ((to_string dup) + ")")) (dup == 0))
 
         print "-- edit mode is a mode, and the deck opens in it --"
         c.ok("a deck opens ready to edit" app.editMode)

@@ -22,6 +22,8 @@ Import "EVGToolbar.rgr"
 Import "EVGDisplayList.rgr"
 Import "EVGColor.rgr"
 Import "../game_engine/ui/UIContext.rgr"
+Import "SVGPathParser.rgr"
+Import "EVGToolbarIcons.rgr"
 
 ; Which of the faces we ship a document's font name should be drawn with.
 ;
@@ -124,7 +126,77 @@ class EVGToolbarView {
         }
     }
 
+    ; --- icons as outlines ----------------------------------------------------
+    ;
+    ; The older icons here are stacks of `pushRect`, and that technique has a
+    ; ceiling: a shape you can only build from axis-aligned bars comes out as
+    ; an arrangement of bars. Which is why the filter looked like the align
+    ; buttons and the "no border" box looked like a rendering failure — they
+    ; were drawn with the only vocabulary available.
+    ;
+    ; EVG already parses and fills SVG paths (`SVGPathParser` → flattened rings
+    ; → `addPolygon`), which is what draws a `custGeom` shape on a slide. The
+    ; same pipeline draws an icon, and then an icon can be the shape everyone
+    ; already recognises rather than the nearest thing five rectangles can make.
+    ;
+    ; `d` is authored on a 24x24 grid, the size every desktop icon set uses, and
+    ; scaled into the box asked for here.
+    fn pushIconPath:void (dl:EVGDisplayList d:string cx:int cy:int size:int col:EVGColor) {
+        def parser (new SVGPathParser())
+        parser.parse(d)
+        def b:PathBounds (parser.getBounds())
+        if (b.width <= 0.0) {
+            return
+        }
+        if (b.height <= 0.0) {
+            return
+        }
+        ; Scaled from the 24-grid rather than from the path's own bounds, so a
+        ; glyph that does not fill its box — a comma, a stem — keeps its
+        ; proportion and its position instead of being blown up to fit.
+        def k:double ((to_double size) / 24.0)
+        def e:double ((to_double cx) - (12.0 * k))
+        def f:double ((to_double cy) - (12.0 * k))
+        def rings:[PathRing] (parser.flattenRings(16 k 0.0 0.0 k e f))
+        ; One command, every ring, even-odd — so an outline drawn as
+        ; outer-then-inner comes out with its hole. Filling ring by ring is
+        ; what turned the magnifier into a black disc.
+        dl.addPolyRings(rings col true)
+    }
+
     ; --- the primitives the icons are made of ---------------------------------
+
+    ; A 2x2 cell grid, faint, as the thing a row/column/alignment icon acts
+    ; ON. Several icons used to draw a bar with nothing around it, which left
+    ; the bar meaning "a bar".
+    fn pushCellFrame:void (dl:EVGDisplayList cx:int cy:int) {
+        this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 8)) 16.0 16.0 1.0 theme.line)
+    }
+
+    ; A plus of a stated arm length, centred. Drawn rather than typed, because
+    ; a `+` glyph sits on the text baseline and a drawn one sits where it is
+    ; put — which matters when it has to line up with a bar beside it.
+    fn pushPlus:void (dl:EVGDisplayList cx:int cy:int arm:int col:EVGColor) {
+        def n:double (to_double ((arm * 2) + 1))
+        this.pushRect(dl (to_double (cx - arm)) (to_double cy) n 2.0 col)
+        this.pushRect(dl (to_double cx) (to_double (cy - arm)) 2.0 n col)
+    }
+
+    ; Vertical alignment: a cell, and the text parked at the top, the middle or
+    ; the bottom of it. `where` is 0 top, 1 middle, 2 bottom.
+    fn pushValignIcon:void (dl:EVGDisplayList cx:int cy:int where:int col:EVGColor) {
+        this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 8)) 16.0 16.0 1.0 theme.glyph)
+        def ty:int (cy - 5)
+        if (where == 1) {
+            ty = (cy - 2)
+        }
+        if (where == 2) {
+            ty = (cy + 1)
+        }
+        this.pushRect(dl (to_double (cx - 5)) (to_double ty) 10.0 2.0 col)
+        this.pushRect(dl (to_double (cx - 5)) (to_double (ty + 3)) 7.0 2.0 col)
+    }
+
     fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
         dl.addRect(x y w h col)
     }
@@ -222,12 +294,136 @@ class EVGToolbarView {
         this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 3.0 1.0 theme.dim)
     }
 
+    ; The side of the square an icon is drawn in. Twenty of a thirty-pixel
+    ; button, which is the desktop proportion; the old drawing used sixteen of
+    ; twenty-six and read small because it WAS small.
+    def glyphSize:int 20
+
+    ; What goes on top of a silhouette: the letter in a text box, the coloured
+    ; scale in a picture. Kept apart from the shape so the shape stays one
+    ; ring and one colour.
+    ; A plus drawn on the 24-grid, offset from the icon's centre.
+    fn pushIconDetailPlus:void (dl:EVGDisplayList cx:int cy:int dx:int dy:int col:EVGColor) {
+        def s:double ((to_double glyphSize) / 24.0)
+        def px:double ((to_double cx) + ((to_double dx) * s))
+        def py:double ((to_double cy) + ((to_double dy) * s))
+        this.pushRect(dl (px - (4.0 * s)) (py - (1.25 * s)) (8.0 * s) (2.5 * s) col)
+        this.pushRect(dl (px - (1.25 * s)) (py - (4.0 * s)) (2.5 * s) (8.0 * s) col)
+    }
+
+    fn paintIconDetail:void (dl:EVGDisplayList t:ToolItem k:int cx:int cy:int ink:EVGColor) {
+        if (k == (ToolIcon.textBox())) {
+            this.pushToolText(dl "A" cx cy 11.0 ink true)
+            return
+        }
+        if (k == (ToolIcon.picture())) {
+            ; A sun and a hill inside the frame — the shape everything else in
+            ; the world uses for a picture. Drawn as paths on the same 24-grid
+            ; as the frame, so they land inside it at any size.
+            this.pushIconPath(dl "M7 7 a2 2 0 0 1 0 4 a2 2 0 0 1 0 -4 z" cx cy glyphSize (EVGColor.rgb(240 180 40)))
+            this.pushIconPath(dl "M5 17 l5 -6 l3 3 l4 -5 l4 8 z" cx cy glyphSize (EVGColor.rgb(60 150 90)))
+            return
+        }
+        if (k == (ToolIcon.palette())) {
+            def s2:double ((to_double glyphSize) / 24.0)
+            this.pushRect(dl ((to_double cx) - (10.0 * s2)) ((to_double cy) - (10.0 * s2)) (9.0 * s2) (9.0 * s2) (EVGColor.rgb(214 69 65)))
+            this.pushRect(dl ((to_double cx) + (1.0 * s2)) ((to_double cy) - (10.0 * s2)) (9.0 * s2) (9.0 * s2) (EVGColor.rgb(240 180 40)))
+            this.pushRect(dl ((to_double cx) - (10.0 * s2)) ((to_double cy) + (1.0 * s2)) (9.0 * s2) (9.0 * s2) (EVGColor.rgb(60 150 90)))
+            this.pushRect(dl ((to_double cx) + (1.0 * s2)) ((to_double cy) + (1.0 * s2)) (9.0 * s2) (9.0 * s2) (EVGColor.rgb(40 100 210)))
+            return
+        }
+        ; A slide frame with the thing happening to it beside it.
+        if (k == (ToolIcon.slideAdd())) {
+            this.pushIconDetailPlus(dl cx cy 6 5 theme.accent)
+            return
+        }
+        if (k == (ToolIcon.slideDel())) {
+            def sd:double ((to_double glyphSize) / 24.0)
+            this.pushRect(dl ((to_double cx) + (2.0 * sd)) ((to_double cy) + (4.0 * sd)) (8.0 * sd) (2.5 * sd) theme.warn)
+            return
+        }
+        if (k == (ToolIcon.slideCopy())) {
+            ; The second slide, in front and to the right.
+            def sc:double ((to_double glyphSize) / 24.0)
+            this.pushIconPath(dl "M7 8 h16 v13 h-16 z" cx cy glyphSize ink)
+            def under2:EVGColor theme.bg
+            if t.pressed {
+                under2 = (EVGColor.rgb(214 226 245))
+            }
+            this.pushIconPath(dl "M9 10 h12 v9 h-12 z" cx cy glyphSize under2)
+            return
+        }
+        ; Two overlapping shapes, and which is solid says which is in front.
+        if (k == (ToolIcon.bringFront())) {
+            this.pushIconPath(dl "M9 9 h13 v13 h-13 z" cx cy glyphSize theme.accent)
+            return
+        }
+        if (k == (ToolIcon.sendBack())) {
+            def ub:EVGColor theme.bg
+            if t.pressed {
+                ub = (EVGColor.rgb(214 226 245))
+            }
+            this.pushIconPath(dl "M9 9 h13 v13 h-13 z" cx cy glyphSize ub)
+            this.pushIconPath(dl "M9 9 h13 v13 h-13 z M11 11 h9 v9 h-9 z" cx cy glyphSize theme.glyph)
+            return
+        }
+        ; Group: two shapes inside the frame. Ungroup has no frame, so nothing
+        ; is drawn on top of it.
+        if (k == (ToolIcon.group())) {
+            this.pushIconPath(dl "M5 5 h6 v6 h-6 z" cx cy glyphSize theme.accent)
+            this.pushIconPath(dl "M13 13 h6 v6 h-6 z" cx cy glyphSize theme.accent)
+            return
+        }
+        if (k == (ToolIcon.search())) {
+            ; The glass: a ring drawn as a disc with the middle punched out.
+            def s3:double ((to_double glyphSize) / 24.0)
+            this.pushIconPath(dl "M10 1 a9 9 0 0 1 0 18 a9 9 0 0 1 0 -18 z" cx cy glyphSize ink)
+            def under:EVGColor theme.bg
+            if t.pressed {
+                under = (EVGColor.rgb(214 226 245))
+            }
+            this.pushIconPath(dl "M10 4 a6 6 0 0 1 0 12 a6 6 0 0 1 0 -12 z" cx cy glyphSize under)
+            return
+        }
+    }
+
     fn paintToolIcon:void (dl:EVGDisplayList t:ToolItem) {
         def cx:int (t.x + (idiv t.w 2))
         def cy:int (t.y + (idiv t.h 2))
         def ink:EVGColor theme.ink
         def dim:EVGColor theme.dim
         def k:int t.icon
+
+        ; An outline from the catalogue, if this icon has one. Asked FIRST, so
+        ; converting an icon is a matter of giving it a path rather than of
+        ; deleting the rectangles that used to draw it.
+        def d:string (ToolIconPath.dataFor(k))
+        if ((strlen d) > 0) {
+            def tone:EVGColor ink
+            if (k == (ToolIcon.link())) {
+                tone = theme.link
+            }
+            if (k == (ToolIcon.shapeRect())) {
+                tone = theme.accent
+            }
+            if (k == (ToolIcon.shapeEllipse())) {
+                tone = theme.accent
+            }
+            this.pushIconPath(dl d cx cy glyphSize tone)
+            ; The hole, knocked back out in the strip's own background. A
+            ; pressed or hot button paints its own fill first, so the punch has
+            ; to use THAT colour or it leaves a pale scar on the highlight.
+            def hole:string (ToolIconPath.holeFor(k))
+            if ((strlen hole) > 0) {
+                def under:EVGColor theme.bg
+                if t.pressed {
+                    under = (EVGColor.rgb(214 226 245))
+                }
+                this.pushIconPath(dl hole cx cy glyphSize under)
+            }
+            this.paintIconDetail(dl t k cx cy ink)
+            return
+        }
 
         ; Letters, where a letter is the clearest icon there is.
         if (k == (ToolIcon.bold())) {
@@ -329,8 +525,16 @@ class EVGToolbarView {
             return
         }
         if (k == (ToolIcon.search())) {
-            this.pushBorder(dl (to_double (cx - 6)) (to_double (cy - 7)) 10.0 10.0 1.0 ink)
-            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 3)) 4.0 2.0 ink)
+            ; A magnifier, built from bars. It would be one clean outline as a
+            ; path — but the software painter fills every ring of a path
+            ; independently, so a ring comes out a solid disc. See the note on
+            ; `pushIconPath`.
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 8)) 8.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 1)) 8.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 6)) 2.0 5.0 ink)
+            this.pushRect(dl (to_double (cx + 2)) (to_double (cy - 6)) 2.0 5.0 ink)
+            this.pushRect(dl (to_double (cx + 3)) (to_double (cy + 2)) 2.0 2.0 ink)
+            this.pushRect(dl (to_double (cx + 5)) (to_double (cy + 4)) 3.0 4.0 ink)
             return
         }
         if (k == (ToolIcon.chart())) {
@@ -346,8 +550,12 @@ class EVGToolbarView {
             return
         }
         if (k == (ToolIcon.cond())) {
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 4.0 theme.warn)
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy + 1)) 12.0 4.0 (EVGColor.rgb(120 190 120)))
+            ; A cell with a colour scale down it — which is what conditional
+            ; formatting DOES. Two coloured bars alone read as a flag.
+            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 8)) 14.0 16.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 6)) 10.0 4.0 (EVGColor.rgb(214 69 65)))
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 2)) 10.0 4.0 (EVGColor.rgb(240 190 60)))
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy + 2)) 10.0 4.0 (EVGColor.rgb(60 150 90)))
             return
         }
         if (k == (ToolIcon.validate())) {
@@ -433,29 +641,39 @@ class EVGToolbarView {
             return
         }
         if (k == (ToolIcon.funnel())) {
-            this.pushRect(dl (to_double (cx - 6)) (to_double (cy - 5)) 12.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 6.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 2.0 2.0 ink)
+            ; A funnel with a stem, as a single outline.
+            this.pushIconPath(dl "M3 4 h18 l-7 8 v7 l-4 2 v-9 z" cx cy 18 ink)
             return
         }
         if (k == (ToolIcon.insertRow())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 2)) 14.0 5.0 theme.line)
-            this.pushToolText(dl "+" cx (cy - 4) 12.0 ink false)
+            this.pushCellFrame(dl cx cy)
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy + 2)) 16.0 4.0 theme.glyph)
+            this.pushPlus(dl cx (cy - 4) 4 theme.accent)
             return
         }
         if (k == (ToolIcon.insertCol())) {
-            this.pushRect(dl (to_double (cx + 2)) (to_double (cy - 7)) 5.0 14.0 theme.line)
-            this.pushToolText(dl "+" (cx - 4) cy 12.0 ink false)
+            this.pushCellFrame(dl cx cy)
+            this.pushRect(dl (to_double (cx + 2)) (to_double (cy - 8)) 4.0 16.0 theme.glyph)
+            this.pushPlus(dl (cx - 4) cy 4 theme.accent)
             return
         }
         if (k == (ToolIcon.deleteRow())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 2)) 14.0 5.0 theme.line)
-            this.pushToolText(dl "-" cx (cy + 4) 12.0 theme.warn false)
+            this.pushCellFrame(dl cx cy)
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy + 2)) 16.0 4.0 theme.glyph)
+            ; A minus in the warning colour: the same shape as the insert,
+            ; and the one difference is the one that matters.
+            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 5)) 8.0 2.0 theme.warn)
             return
         }
         if (k == (ToolIcon.merge())) {
-            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 5)) 16.0 10.0 1.0 ink)
-            this.pushRect(dl (to_double (cx - 1)) (to_double (cy - 4)) 2.0 8.0 theme.bg)
+            ; A box with a gap in the middle was a box with a gap in the
+            ; middle. The arrows pointing INTO the gap are what say that two
+            ; cells are being made one.
+            this.pushBorder(dl (to_double (cx - 8)) (to_double (cy - 6)) 16.0 12.0 1.0 ink)
+            this.pushRect(dl (to_double (cx - 5)) (to_double (cy - 1)) 4.0 2.0 theme.accent)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 1)) 4.0 2.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 2)) (to_double (cy - 3)) 1.0 6.0 theme.accent)
+            this.pushRect(dl (to_double (cx + 1)) (to_double (cy - 3)) 1.0 6.0 theme.accent)
             return
         }
         if (k == (ToolIcon.fill())) {
@@ -493,7 +711,20 @@ class EVGToolbarView {
             return
         }
         if (k == (ToolIcon.borderNone())) {
-            this.pushBorder(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 14.0 1.0 theme.line)
+            ; A DASHED box. Drawn as a solid hairline it was a box you could
+            ; barely see, which reads as "the icon failed to draw" rather than
+            ; as "no border" — and it was indistinguishable from the outline
+            ; button two along.
+            def bx:int (cx - 7)
+            def by:int (cy - 7)
+            def d:int 0
+            while (d < 14) {
+                this.pushRect(dl (to_double (bx + d)) (to_double by) 2.0 1.0 theme.glyph)
+                this.pushRect(dl (to_double (bx + d)) (to_double (by + 13)) 2.0 1.0 theme.glyph)
+                this.pushRect(dl (to_double bx) (to_double (by + d)) 1.0 2.0 theme.glyph)
+                this.pushRect(dl (to_double (bx + 13)) (to_double (by + d)) 1.0 2.0 theme.glyph)
+                d = (d + 4)
+            }
             return
         }
         if (k == (ToolIcon.alignLeft())) {
@@ -508,26 +739,39 @@ class EVGToolbarView {
             this.paintAlignIcon(dl cx cy 2 ink)
             return
         }
+        ; --- vertical alignment
+        ;
+        ; These were three pairs of floating bars that differed by four pixels
+        ; of vertical offset, and they sat next to the three HORIZONTAL align
+        ; buttons which are also bars. Nothing said which axis you were
+        ; looking at. A cell outline fixes both: the box is the thing being
+        ; aligned in, and where the text sits inside it is then obvious.
         if (k == (ToolIcon.valignTop())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 7)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 3)) 8.0 2.0 dim)
+            this.pushValignIcon(dl cx cy 0 ink)
             return
         }
         if (k == (ToolIcon.valignMid())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 1)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy - 6)) 8.0 2.0 dim)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 4)) 8.0 2.0 dim)
+            this.pushValignIcon(dl cx cy 1 ink)
             return
         }
         if (k == (ToolIcon.valignBot())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 5)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 4)) (to_double (cy + 1)) 8.0 2.0 dim)
+            this.pushValignIcon(dl cx cy 2 ink)
             return
         }
         if (k == (ToolIcon.wrapCell())) {
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy - 5)) 14.0 2.0 ink)
-            this.pushRect(dl (to_double (cx - 7)) (to_double (cy + 1)) 9.0 2.0 ink)
-            this.pushRect(dl (to_double (cx + 4)) (to_double (cy + 1)) 3.0 2.0 dim)
+            ; Two lines with a bit on the end was just "align left, ragged".
+            ; What says WRAP is the arrow that turns back under the first
+            ; line, which is the shape every other spreadsheet uses.
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 6)) 16.0 2.0 ink)
+            this.pushRect(dl (to_double (cx - 8)) (to_double (cy - 1)) 11.0 2.0 ink)
+            ; the hook: down the right, then back to the left
+            this.pushRect(dl (to_double (cx + 6)) (to_double (cy - 1)) 2.0 6.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 3)) 11.0 2.0 theme.accent)
+            ; and its head
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 1)) 2.0 2.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 2)) 2.0 1.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 3)) (to_double (cy + 5)) 2.0 2.0 theme.accent)
+            this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 5)) 2.0 1.0 theme.accent)
             return
         }
         ; Anything without a picture falls back to its own first letter, which

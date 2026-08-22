@@ -250,6 +250,45 @@ class EVGDisplayList {
         push cmds c
     }
 
+    ; A filled shape made of SEVERAL rings, with holes.
+    ;
+    ; `addPolygon` takes one ring, so a caller with an outline — a magnifier's
+    ; glass, a letter O, any shape drawn as outer-boundary-then-inner — had to
+    ; call it once per ring, and each call fills independently. The hole comes
+    ; out solid. `EVGDrawCmd` has carried `ringEnds` and `evenOdd` all along
+    ; for the SVG walk to use; this is the same thing for anyone who computes
+    ; rings themselves.
+    ;
+    ; `rings` is a list of flattened point arrays, already in page coordinates.
+    fn addPolyRings:void (rings:[PathRing] col:EVGColor evenOddFill:boolean) {
+        if ((array_length rings) == 0) {
+            return
+        }
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.evenOdd = evenOddFill
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        def i:int 0
+        while (i < (array_length rings)) {
+            def ring:PathRing (itemAt rings i)
+            def j:int 0
+            while (j < (array_length ring.pts)) {
+                push c.pts (itemAt ring.pts j)
+                j = (j + 1)
+            }
+            push c.ringEnds (array_length c.pts)
+            i = (i + 1)
+        }
+        if ((array_length c.pts) < 6) {
+            return
+        }
+        this.setPolyBounds(c)
+        push cmds c
+    }
+
     fn addPolygon:void (pts:[double] col:EVGColor) {
         if ((array_length pts) < 6) {
             return

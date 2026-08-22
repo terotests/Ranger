@@ -82,6 +82,10 @@ class DocxAppTest {
 
         print "-- the strip is the shared one --"
         c.ok("it has buttons" ((app.toolbar.count()) > 10))
+        ; `page.prev` and `page.next` used to draw the undo and redo arrows,
+        ; on a strip that also has undo and redo.
+        def dup:int (app.toolbar.duplicateIcon())
+        c.ok(("no two commands share an icon (found " + ((to_string dup) + ")")) (dup == 0))
         c.ok("Bold is one of them" ((DocxAppTest.indexOfCommand(app "format.bold")) >= 0))
         c.ok("so is the font" ((DocxAppTest.indexOfCommand(app "format.font")) >= 0))
         c.ok("and the colour" ((DocxAppTest.indexOfCommand(app "format.color")) >= 0))

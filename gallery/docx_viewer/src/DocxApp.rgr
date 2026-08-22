@@ -56,9 +56,9 @@ class DocxToolbar extends EVGToolbar {
         this.add("format.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
         this.add("format.color" "" "Text colour" (ToolIcon.textColor()))
         this.addSeparator()
-        this.add("edit.mode" "" "Edit the document" (ToolIcon.paint()))
-        this.add("page.prev" "" "Previous page" (ToolIcon.undo()))
-        this.add("page.next" "" "Next page" (ToolIcon.redo()))
+        this.add("edit.mode" "" "Edit the document" (ToolIcon.editMode()))
+        this.add("page.prev" "" "Previous page" (ToolIcon.navPrev()))
+        this.add("page.next" "" "Next page" (ToolIcon.navNext()))
     }
 
     ; What the strip is about to draw. The strip cannot work this out: "is

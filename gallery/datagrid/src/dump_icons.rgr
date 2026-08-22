@@ -1,0 +1,29 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; A contact sheet of every toolbar icon, so they can be judged as a set
+; rather than one screenshot at a time.  npm run icons:sheet
+Import "GridApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class DumpIcons {
+    sfn main:void () {
+        def app:GridApp (new GridApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(1000 420)
+        clear app.view.toolbar.items
+        def k:int 1
+        while (k < 78) {
+            app.view.toolbar.add("x" "" (to_string k) k)
+            k = (k + 1)
+        }
+        app.grid.toolbarH = (app.view.toolbar.heightFor(1000))
+        app.render()
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = app.W
+        rb.height = app.H
+        rb.pixels = (app.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "tmp/icons" "sheet.png")
+        print "wrote tmp/icons/sheet.png"
+    }
+}
