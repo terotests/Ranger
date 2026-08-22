@@ -133,9 +133,15 @@ ended three bugs, one per editor — the document reader never drew italic at
 all, the spreadsheet drew every bold italic cell upright and light, and the
 deck reader measured against fallbacks it never named.
 
-Still per-format above it: measurement over styled runs, per-span size and
-family (which needs wrapping to learn about runs first), shaping and line
-breaking. Share the pipeline, not the layout:
+`OfficeTextMetrics` is the second: offset → x and x → offset over a neutral run
+description, which the document reader now uses. Its nine rendered pages are
+byte-identical across that change, which is the point — it moved a walk rather
+than changing what anyone sees.
+
+Still per-format above them: the slide layout's own walk (its measurer
+estimates when no renderer is attached, which the shared one has no concept
+of), per-span size and family (which needs wrapping to learn about runs first),
+shaping and line breaking. Share the pipeline, not the layout:
 
 ```text
 unicode text → font resolution → shaping → glyph runs → measurement → line breaking

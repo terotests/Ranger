@@ -19,12 +19,15 @@ one OPC package reader, and the XML text rules.
 ```text
 gallery/office/
     text/
-        OfficeFont.rgr     which face draws this run
+        OfficeFont.rgr         which face draws this run
+        OfficeTextRun.rgr      a stretch of text drawn in one face
+        OfficeTextMetrics.rgr  offset → x, and x → offset
         tests/ tools/
 ```
 
 ```bash
-npm run office:font:test    # JavaScript and C++
+npm run office:font:test       # JavaScript and C++
+npm run office:metrics:test    # likewise
 ```
 
 ### `OfficeFont`
@@ -66,19 +69,35 @@ of these editors looks the same in both.
 The order below is by leverage. See [`gallery/ooxml/README.md`](../ooxml/README.md)
 for the full roadmap and what each item is worth.
 
+### `OfficeTextMetrics`
+
+The other half: offset → x and x → offset, over an `OfficeTextRun` — start,
+end, family, size, bold, italic and nothing else. A **view**, not a model: a
+format turns its own runs into a list of them for one measurement and throws it
+away. The two questions must be each other's inverse, and two copies of one
+walk is exactly how they stop being.
+
+Two differences between the copies it replaced were not accidents:
+
+- **Per-run rounding.** Word's ink advances x by an *integer* per run, so its
+  measurement truncates the same way — summing in full precision and rounding
+  once gives a different answer, and the difference is where the caret ends up.
+  PowerPoint's painter carries doubles throughout, so rounding per run there
+  would be the error instead. The caller says which.
+- **Per-run size.** A slide's runs each state a point size; a Word line is laid
+  out at one, because `tr.wrap` broke it at one. A run with no size of its own
+  takes the caller's.
+
 ### The rest of the typography core
 
-`OfficeFont` answers *which face*. The pieces above it are still per-format:
-
-- **Measurement over styled runs.** `DocxTextMetrics.measureRange` /
-  `offsetAtX` walk a paragraph's spans, switch face at each change and invert
-  x back to an offset. `PptxTextLayout` and the spreadsheet's cell layout each
-  solve the same problem again. One run-walker over a neutral run description
-  would serve all three.
-- **Per-span size and family.** Neither is honoured in the document reader,
-  and for one reason: `tr.wrap` breaks a paragraph in a single face at a single
-  size, so measuring the pieces in another would put the line ends somewhere
-  the breaks are not. Wrapping has to learn about runs before measuring can.
+- **The `.pptx` layout still keeps its own walk.** Its measurer answers with an
+  estimate (0.52em) when no renderer is attached at all — a headless export, a
+  test — and giving the shared walk that concept is a design question rather
+  than a move. The face decision underneath it is already shared.
+- **Per-span size and family in the document reader.** Neither is honoured, for
+  one reason: `tr.wrap` breaks a paragraph in a single face at a single size,
+  so measuring the pieces in another would put the line ends somewhere the
+  breaks are not. Wrapping has to learn about runs before measuring can.
 - **Shaping and line breaking.** One pipeline — unicode text → font resolution
   → shaping → glyph runs → measurement → line breaking — with Word's,
   PowerPoint's and Excel's own layout rules on top of it, not merged into it.
