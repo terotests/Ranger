@@ -387,6 +387,26 @@ class PptxTest {
             k = (k + 1)
         }
         this.check("and each is drawn as polygons" (polys >= 6))
+        ; …and the polygons SURVIVE being written down. This test used to stop
+        ; one line above, and everything above it kept passing for as long as
+        ; the serializer dropped every path on the floor: the model had the
+        ; arrows, the display list had the arrows, and the browser drew a deck
+        ; with no arrows in it. The software canvas reads the objects; every
+        ; other backend reads this string.
+        def json:string (dl.toJson())
+        def heads:int 0
+        def at:int (indexOf json "\"pts\":")
+        while (at >= 0) {
+            heads = (heads + 1)
+            def rest:string (substring json (at + 6) (strlen json))
+            def more:int (indexOf rest "\"pts\":")
+            if (more < 0) {
+                at = -1
+            } {
+                at = ((at + 6) + more)
+            }
+        }
+        this.check("and every one of them reaches the JSON" (heads == polys))
         parser.close()
     }
 
