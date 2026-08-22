@@ -24,12 +24,22 @@ Import "CellStyle.rgr"
 
 class CellRun {
     def text:string ""
+    ; What the run SAID, alongside what it said. `<b val="0"/>` takes a word
+    ; out of a bold cell; no `<b>` at all lets the cell decide. `bold == false`
+    ; is true of both, and `styleOver` below used to test exactly that — so a
+    ; run that un-bolded itself came back bold.
+    ;
+    ; The size has always had this, spelled as a sentinel: 0 means "whatever
+    ; the cell's own style says". A boolean has no spare value to spend that
+    ; way, which is why these need a companion each.
+    def boldSet:boolean false
     def bold:boolean false
+    def italicSet:boolean false
     def italic:boolean false
+    def underlineSet:boolean false
     def underline:boolean false
+    def strikeSet:boolean false
     def strike:boolean false
-    ; 0 means "whatever the cell's own style says", which is how OOXML leaves
-    ; a run that only overrides the weight.
     def sizePt:double 0.0
     def rgb:string ""
 
@@ -38,28 +48,57 @@ class CellRun {
 
     fn copyFrom:void (o:CellRun) {
         text = o.text
+        boldSet = o.boldSet
         bold = o.bold
+        italicSet = o.italicSet
         italic = o.italic
+        underlineSet = o.underlineSet
         underline = o.underline
+        strikeSet = o.strikeSet
         strike = o.strike
         sizePt = o.sizePt
         rgb = o.rgb
+    }
+
+    ; Set a flag AND record that it was set. Every reader and every editor goes
+    ; through these, so a caller cannot set the value and forget the companion.
+    fn setBold:void (v:boolean) {
+        bold = v
+        boldSet = true
+    }
+
+    fn setItalic:void (v:boolean) {
+        italic = v
+        italicSet = true
+    }
+
+    fn setUnderline:void (v:boolean) {
+        underline = v
+        underlineSet = true
+    }
+
+    fn setStrike:void (v:boolean) {
+        strike = v
+        strikeSet = true
     }
 
     ; Does this run ask for anything the cell's own style would not give it?
     ; A string whose runs all answer false is not rich text — it is text that
     ; happened to be written in pieces, and it is stored as one.
     fn isStyled:boolean () {
-        if bold {
+        ; STATED, not true: a run that says "not bold" inside a bold cell is
+        ; asking for something the cell would not give it, and a string holding
+        ; one is rich text.
+        if boldSet {
             return true
         }
-        if italic {
+        if italicSet {
             return true
         }
-        if underline {
+        if underlineSet {
             return true
         }
-        if strike {
+        if strikeSet {
             return true
         }
         if (sizePt > 0.0) {
@@ -73,17 +112,20 @@ class CellRun {
     ; special path — it draws a run exactly as it draws a cell.
     fn styleOver:CellStyle (base:CellStyle) {
         def st:CellStyle (base.copy())
-        if bold {
-            st.bold = true
+        ; What the run STATED replaces the cell's; what it did not state leaves
+        ; the cell's alone. This used to only ever turn things on, so a run
+        ; that said `b val="0"` in a bold cell drew bold.
+        if boldSet {
+            st.bold = bold
         }
-        if italic {
-            st.italic = true
+        if italicSet {
+            st.italic = italic
         }
-        if underline {
-            st.underline = true
+        if underlineSet {
+            st.underline = underline
         }
-        if strike {
-            st.strike = true
+        if strikeSet {
+            st.strike = strike
         }
         if (sizePt > 0.0) {
             st.fontSizePt = sizePt

@@ -15,6 +15,8 @@ Import "PptxView.rgr"
 Import "PptxEdit.rgr"
 Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
+Import "../../office/assets/OfficeAsset.rgr"
+Import "PptxA11y.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -135,6 +137,10 @@ class PptxApp {
     ; Editing. The viewer is the default and the editor is a mode on top of
     ; it — a deck you opened to read cannot be changed by a stray click.
     def editor:PptxEditor (new PptxEditor())
+    ; Pictures the host handed in, identified by their content. Nothing here
+    ; is used for drawing — it is what stops one inserted file from being
+    ; mistaken for another because they were called the same thing.
+    def assets:OfficeAssetStore (new OfficeAssetStore())
     ; The deck opens ready to be edited. It used to open read-only, with the
     ; editor behind a toolbar toggle, which meant the first thing anyone did —
     ; click the slide — turned the page instead of picking a shape up.
@@ -675,7 +681,7 @@ class PptxApp {
     }
 
     sfn collectImageParts:void (shape:PptxShape names:[string]) {
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             if ((strlen shape.imagePart) > 0) {
                 if ((buffer_length shape.imageBytes) > 0) {
                     def seen:boolean false
@@ -717,7 +723,7 @@ class PptxApp {
     }
 
     sfn findImageBytes:buffer (shape:PptxShape part:string) {
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             if (shape.imagePart == part) {
                 return shape.imageBytes
             }
@@ -1767,7 +1773,7 @@ class PptxApp {
             out = (out + ",\"runs\":" + (to_string runCount))
             out = (out + ",\"paragraphs\":" + (to_string (array_length shape.text.paragraphs)))
         }
-        if (shape.kind == 4) {
+        if (shape.kind == (PptxShapeKind.table())) {
             def blob:string ""
             def ti:int 0
             while (ti < (array_length shape.tableCells)) {
@@ -1784,7 +1790,7 @@ class PptxApp {
             out = (out + ",\"tableRows\":" + (to_string shape.tableRows))
             out = (out + ",\"tableCols\":" + (to_string shape.tableCols))
         }
-        if (shape.kind == 5) {
+        if (shape.kind == (PptxShapeKind.chart())) {
             out = (out + ",\"chartType\":" + (this.jsonEscape(shape.chart.chartType)))
             if ((strlen shape.chart.title) > 0) {
                 out = (out + ",\"text\":" + (this.jsonEscape(shape.chart.title)))
@@ -1794,11 +1800,11 @@ class PptxApp {
             out = (out + ",\"fill\":" + (this.jsonEscape(shape.fill.srgb)))
             out = (out + ",\"fillScheme\":" + (to_string shape.fill.isScheme))
         }
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             out = (out + ",\"imagePart\":" + (this.jsonEscape(shape.imagePart)))
             out = (out + ",\"imageBytes\":" + (to_string (buffer_length shape.imageBytes)))
         }
-        if (shape.kind == 2) {
+        if (shape.kind == (PptxShapeKind.group())) {
             out = (out + ",\"children\":" + (to_string (array_length shape.children)))
         }
         out = (out + ",\"inherited\":" + (to_string shape.inherited))
@@ -2417,17 +2423,50 @@ class PptxApp {
         return r.italic
     }
 
-    ; A picture from the host: the bytes go into the viewer's decode cache
-    ; under a package-shaped name, which is all the painter ever asks for.
+    ; A picture from the host.
+    ;
+    ; The name the file arrived under is not used to identify it. It used to
+    ; be — the part was `ppt/media/` plus whatever the user's file was called —
+    ; and two consequences followed. A second file also called `logo.png` was
+    ; silently shown and saved as the first one, because the decode cache and
+    ; the writer's media table both already had that key. And a file called
+    ; `image1.png`, the name every OOXML package gives its own media, collided
+    ; with the deck's own picture, so the inserted bytes were dropped
+    ; altogether. The part is derived from the content instead, which cannot
+    ; do either.
+    ;
+    ; The picture is also given its own shape. It used to be forced to 3:5
+    ; whatever it actually was, so every inserted photograph came in squashed
+    ; or stretched; the size in its header decides now, and the old guess is
+    ; kept only for the formats whose header we do not read.
     fn insertPicture:boolean (name:string bytes:buffer) {
         if (loaded == false) {
             return false
         }
+        if ((buffer_length bytes) == 0) {
+            return false
+        }
         this.syncEditor()
-        def part:string ("ppt/media/" + name)
+        def assetId:string (assets.intern(bytes (OfficeAssetStore.mimeForPath(name)) ""))
+        def asset:OfficeAsset (assets.assetOf(assetId))
+        def ext:string (OfficeAssetStore.extensionForMime(asset.mimeType))
+        def part:string (("ppt/media/" + asset.hash) + ext)
         view.cacheImage(part bytes)
         def w:double ((this.slideW()) * 0.35)
         def h:double (w * 0.6)
+        if (asset.width > 0) {
+            if (asset.height > 0) {
+                h = (w * ((to_double asset.height) / (to_double asset.width)))
+                ; A very tall picture is fitted to the slide's height rather
+                ; than run off the bottom of it.
+                def maxH:double ((this.slideH()) * 0.8)
+                if (h > maxH) {
+                    def shrink:double (maxH / h)
+                    h = maxH
+                    w = (w * shrink)
+                }
+            }
+        }
         def x:double (((this.slideW()) - w) * 0.5)
         def y:double (((this.slideH()) - h) * 0.5)
         def id:int (editor.addPicture(part bytes x y w h))
@@ -2438,6 +2477,36 @@ class PptxApp {
         }
         this.setEditMode(true)
         return (id > 0)
+    }
+
+    ; --- accessibility --------------------------------------------------------
+    ;
+    ; What the deck MEANS, beside what it looks like. A screen reader cannot
+    ; read a canvas — before this, a presentation opened here was a blank
+    ; window to anyone using one. The spreadsheet and the document viewer both
+    ; publish this already; `EVGA11yTree` lives in `gallery/evg` because it is
+    ; none of theirs.
+    fn a11yTree:EVGA11yTree () {
+        def selected:int 0
+        def hit@(optional):PptxShape (editor.firstSelected())
+        if (!null? hit) {
+            def sh:PptxShape (unwrap hit)
+            selected = sh.editId
+        }
+        return (PptxA11y.build(presentation index selected))
+    }
+
+    fn a11yJson:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.toJson())
+    }
+
+    ; The same tree as indented text, so a refactor that silently drops a name
+    ; shows up as a diff rather than as a bug report from the one person who
+    ; noticed.
+    fn a11yDump:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.dump())
     }
 
     fn slideW:double () {

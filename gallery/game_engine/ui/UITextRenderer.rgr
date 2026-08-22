@@ -293,8 +293,38 @@ class UITextRenderer {
         return miss
     }
 
+    ; What FontManager calls one cut of a family.
+    ;
+    ; It splits on the first dash and matches the rest against the TTF's own
+    ; subfamily name, and a bold italic face calls itself **"Bold Italic"** —
+    ; with a space. Spelled `"Family-BoldItalic"` the lookup misses, falls
+    ; through to the family's REGULAR face, and hands back a font with a real
+    ; `unitsPerEm` — so every "did I get a face?" check passes and the text
+    ; draws upright and light. It is silent, and it is wrong on screen.
+    ;
+    ; This lives here rather than in any one editor because five callers had
+    ; their own copy of the rule and three of them spelled it that way: the
+    ; spreadsheet's software painter, its GL painter, and the shared toolbar.
+    ; The rule is about how THIS repository's FontManager names a face, which
+    ; is this layer's business and nobody else's.
+    sfn faceName:string (family:string bold:boolean italic:boolean) {
+        if ((strlen family) == 0) {
+            return ""
+        }
+        if bold {
+            if italic {
+                return (family + "-Bold Italic")
+            }
+            return (family + "-Bold")
+        }
+        if italic {
+            return (family + "-Italic")
+        }
+        return family
+    }
+
     ; Switch the active TrueType face to match `fontFamily` (supports
-    ; FontManager style forms like "Open Sans-Bold" / "Open Sans-Italic").
+    ; FontManager style forms like "Open Sans-Bold" / "Open Sans-Bold Italic").
     fn applyFace:void () {
         if (hasFont == false) {
             return

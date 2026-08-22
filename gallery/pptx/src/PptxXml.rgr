@@ -23,6 +23,13 @@ class PptxXmlNode {
     def children:[PptxXmlNode]
     def text:string ""
     def isText:boolean false
+    ; Where this element was in the part it was parsed from: the index of its
+    ; opening '<', and the index just past the '>' that closes it. What lets a
+    ; writer copy an element it does not understand through unchanged instead
+    ; of dropping it — see `gallery/ooxml/SourceRef.rgr`. Both are 0 on a text
+    ; node and on anything built rather than read.
+    def srcStart:int 0
+    def srcEnd:int 0
 
     Constructor () {
         def a:[PptxXmlAttr]
@@ -417,6 +424,10 @@ class PptxXmlParser {
             def __missing@(optional):PptxXmlNode
             return __missing
         }
+        ; Where this element starts, taken BEFORE the tag is read: everything
+        ; between here and the matching end tag is what a writer can copy
+        ; through verbatim.
+        def elemStart:int pos
         def tag:PptxXmlTag (this.readTag())
         if (tag.valid == false) {
             def __missing@(optional):PptxXmlNode
@@ -430,7 +441,9 @@ class PptxXmlParser {
         def node (new PptxXmlNode())
         node.name = tag.name
         node.attrs = tag.attrs
+        node.srcStart = elemStart
         if tag.selfClose {
+            node.srcEnd = pos
             def selfCloseHit@(optional):PptxXmlNode node
             return selfCloseHit
         }
@@ -446,7 +459,8 @@ class PptxXmlParser {
                 ; Peek end tag
                 if (((pos + 1) < len) && ((charAt src (pos + 1)) == 47)) {
                     def endTag:PptxXmlTag (this.readTag())
-                    ; End of this element
+                    ; End of this element — and the end of what it spans.
+                    node.srcEnd = pos
                     def endHit@(optional):PptxXmlNode node
                     return endHit
                 }
@@ -504,6 +518,9 @@ class PptxXmlParser {
                 }
             }
         }
+        ; Ran off the end without a closing tag: the element spans whatever
+        ; is left, which is the honest answer for a truncated part.
+        node.srcEnd = pos
         def fallthrough@(optional):PptxXmlNode node
         return fallthrough
     }

@@ -63,73 +63,27 @@ class XlsxLoader {
         return ok
     }
 
-    ; "xl/worksheets/sheet1.xml" → "xl/worksheets/_rels/sheet1.xml.rels".
+    ; Where a part's relationships live, and what a relationship target means
+    ; — both `OpcPackage`'s, so the spreadsheet resolves paths the same way the
+    ; .docx and .pptx readers do. This file used to carry its own pair, and the
+    ; second said out loud that it handled "only the two forms a spreadsheet
+    ; actually writes"; a chart's own relationships write a third.
     sfn relsPathFor:string (partPath:string) {
-        def cut:int -1
-        def i:int 0
-        while (i < (strlen partPath)) {
-            if ((charAt partPath i) == 47) {
-                cut = i
-            }
-            i = (i + 1)
-        }
-        if (cut < 0) {
-            return ("_rels/" + partPath + ".rels")
-        }
-        def dir:string (substring partPath 0 (cut + 1))
-        def file:string (substring partPath (cut + 1) (strlen partPath))
-        return ((dir + "_rels/") + file + ".rels")
+        return (OpcPackage.relsPathFor(partPath))
     }
 
-    ; A relationship target is relative to the part that names it. Only the
-    ; two forms a spreadsheet actually writes are handled: "../comments1.xml"
-    ; and a plain name beside the sheet.
     sfn resolveRelPath:string (partPath:string target:string) {
         if ((strlen target) == 0) {
             return ""
         }
-        if ((charAt target 0) == 47) {
-            return (substring target 1 (strlen target))
-        }
-        def cut:int -1
-        def i:int 0
-        while (i < (strlen partPath)) {
-            if ((charAt partPath i) == 47) {
-                cut = i
-            }
-            i = (i + 1)
-        }
-        def dir:string ""
-        if (cut >= 0) {
-            dir = (substring partPath 0 (cut + 1))
-        }
-        def rest:string target
-        while ((strlen rest) > 3) {
-            if ((substring rest 0 3) == "../") {
-                rest = (substring rest 3 (strlen rest))
-                ; step one directory up
-                def up:int -1
-                def k:int 0
-                while (k < ((strlen dir) - 1)) {
-                    if ((charAt dir k) == 47) {
-                        up = k
-                    }
-                    k = (k + 1)
-                }
-                if (up >= 0) {
-                    dir = (substring dir 0 (up + 1))
-                } {
-                    dir = ""
-                }
-            } {
-                break
-            }
-        }
-        return (dir + rest)
+        return (OpcPackage.joinPartPath(partPath target))
     }
 
     fn loadPackage:boolean (pkg:XlsxPackage book:WorkbookModel) {
         book.clear()
+        ; Kept so a later save can preserve the parts nothing here models —
+        ; see `WorkbookModel.sourceBytes` and `XlsxWriter.writeOver`.
+        book.sourceBytes = pkg.plainBytes
         def wb:XlsxWorkbook (new XlsxWorkbook)
         wb.load(pkg)
         if ((wb.sheetCount()) == 0) {
@@ -141,6 +95,13 @@ class XlsxLoader {
             sst.parse((pkg.entryText("xl/sharedStrings.xml")))
         }
         def sty:XlsxStyles (new XlsxStyles)
+        ; The theme first: a `<color theme="4"/>` in the styles has nothing to
+        ; resolve to without it, and that is most of the colour in a workbook
+        ; Excel styled from its own palette.
+        def themePart:string (pkg.findRelByType((pkg.workbookPart()) "/theme"))
+        if ((strlen themePart) > 0) {
+            sty.parseTheme((pkg.entryText(themePart)))
+        }
         if (pkg.hasEntry("xl/styles.xml")) {
             sty.parse((pkg.entryText("xl/styles.xml")))
         } {
@@ -155,6 +116,8 @@ class XlsxLoader {
             def sheet:SpreadsheetModel (new SpreadsheetModel)
             sheet.name = info.name
             sheet.sheetHidden = info.hidden
+            ; Where it came from, so a save-over can put it back there.
+            sheet.partPath = info.path
             sheet.quietWrites = true
             def xml:string (pkg.entryText(info.path))
             if ((strlen xml) == 0) {
@@ -181,6 +144,9 @@ class XlsxLoader {
                 def drawingXml:string (pkg.entryText(drawingPath))
                 if ((strlen drawingXml) > 0) {
                     def drawing:XlsxDrawing (new XlsxDrawing)
+                    ; The drawing has to know its own path: its relationship
+                    ; targets are written relative to it, not to the sheet.
+                    drawing.partPath = drawingPath
                     drawing.parse(drawingXml (pkg.entryText((XlsxLoader.relsPathFor(drawingPath)))))
                     def di:int 0
                     while (di < (array_length drawing.images)) {

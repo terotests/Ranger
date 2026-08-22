@@ -101,9 +101,14 @@ class PptxClone {
         r.text = src.text
         r.field = src.field
         r.fontFamily = src.fontFamily
+        r.resolvedFontSig = src.resolvedFontSig
+        r.resolvedColorSig = src.resolvedColorSig
+        r.resolvedSizeSig = src.resolvedSizeSig
         r.fontSizePt = src.fontSizePt
         r.sizeSet = src.sizeSet
+        r.boldSet = src.boldSet
         r.bold = src.bold
+        r.italicSet = src.italicSet
         r.italic = src.italic
         r.color = (PptxClone.color(src.color))
         r.highlight = (PptxClone.color(src.highlight))
@@ -239,6 +244,12 @@ class PptxClone {
         s.imageBytes = src.imageBytes
         s.imageOk = src.imageOk
         s.locked = src.locked
+        s.altText = src.altText
+        s.hasStyle = src.hasStyle
+        s.fontRef = src.fontRef
+        s.styleFillSig = src.styleFillSig
+        s.styleLineSig = src.styleLineSig
+        s.sheetXfrmSig = src.sheetXfrmSig
         s.isPlaceholder = src.isPlaceholder
         s.phType = src.phType
         s.phIdx = src.phIdx
@@ -296,6 +307,19 @@ class PptxClone {
         return out
     }
 
+    sfn opaqueInto:void (src:[PptxOpaque] dst:[PptxOpaque]) {
+        def i:int 0
+        while (i < (array_length src)) {
+            def so:PptxOpaque (itemAt src i)
+            def op (new PptxOpaque())
+            op.name = so.name
+            op.afterShapes = so.afterShapes
+            op.source.copyFrom(so.source)
+            push dst op
+            i = (i + 1)
+        }
+    }
+
     sfn slide:PptxSlide (src:PptxSlide) {
         def sl (new PptxSlide())
         sl.partPath = src.partPath
@@ -338,6 +362,12 @@ class PptxClone {
             push sl.shapes (PptxClone.shape(sh))
             i = (i + 1)
         }
+        ; What the slide carries and this model does not describe. A snapshot
+        ; that dropped these would delete a deck's SmartArt on the first undo,
+        ; which is exactly the failure the source spans exist to prevent.
+        PptxClone.opaqueInto(src.opaque sl.opaque)
+        PptxClone.opaqueInto(src.sldHead sl.sldHead)
+        PptxClone.opaqueInto(src.sldTail sl.sldTail)
         return sl
     }
 }
@@ -1622,7 +1652,7 @@ class PptxEditor {
         }
         def s:PptxSlide (unwrap slide)
         def sh (new PptxShape())
-        sh.kind = 0
+        sh.kind = (PptxShapeKind.shape())
         sh.editId = nextId
         nextId = (nextId + 1)
         sh.name = ("Shape " + (to_string sh.editId))
@@ -1646,7 +1676,7 @@ class PptxEditor {
         }
         def s:PptxSlide (unwrap slide)
         def sh (new PptxShape())
-        sh.kind = 0
+        sh.kind = (PptxShapeKind.shape())
         sh.editId = nextId
         nextId = (nextId + 1)
         sh.name = ("TextBox " + (to_string sh.editId))
@@ -1671,7 +1701,7 @@ class PptxEditor {
         }
         def s:PptxSlide (unwrap slide)
         def sh (new PptxShape())
-        sh.kind = 1
+        sh.kind = (PptxShapeKind.picture())
         sh.editId = nextId
         nextId = (nextId + 1)
         sh.name = ("Picture " + (to_string sh.editId))
@@ -1917,7 +1947,7 @@ class PptxEditor {
         def s:PptxSlide (unwrap slide)
         def b:PptxEditRect (this.selectionBounds())
         def grp (new PptxShape())
-        grp.kind = 2
+        grp.kind = (PptxShapeKind.group())
         grp.editId = nextId
         nextId = (nextId + 1)
         grp.name = ("Group " + (to_string grp.editId))
@@ -1972,7 +2002,7 @@ class PptxEditor {
         while (i < (array_length s.shapes)) {
             def sh:PptxShape (itemAt s.shapes i)
             def open:boolean false
-            if (sh.kind == 2) {
+            if (sh.kind == (PptxShapeKind.group())) {
                 if (sh.inherited == false) {
                     if (this.isSelected(sh.editId)) {
                         open = true
@@ -2196,7 +2226,7 @@ class PptxEditor {
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
-            if (sh.kind == 0) {
+            if (sh.kind == (PptxShapeKind.shape())) {
                 sh.preset = preset
                 sh.hasPath = false
             }
@@ -2232,7 +2262,9 @@ class PptxEditor {
             proto.fontFamily = e.fontFamily
             proto.fontSizePt = e.fontSizePt
             proto.sizeSet = e.sizeSet
+            proto.boldSet = e.boldSet
             proto.bold = e.bold
+            proto.italicSet = e.italicSet
             proto.italic = e.italic
             proto.color = (PptxClone.color(e.color))
         }
@@ -2266,7 +2298,9 @@ class PptxEditor {
                 run.fontSizePt = proto.fontSizePt
                 run.sizeSet = proto.sizeSet
                 run.bold = proto.bold
+                run.boldSet = proto.boldSet
                 run.italic = proto.italic
+                run.italicSet = proto.italicSet
                 run.color = (PptxClone.color(proto.color))
                 push para.runs run
                 push paras para
@@ -2348,9 +2382,11 @@ class PptxEditor {
                         def run:PptxTextRun (itemAt para.runs ri)
                         if (what == "bold") {
                             run.bold = flag
+                            run.boldSet = true
                         }
                         if (what == "italic") {
                             run.italic = flag
+                            run.italicSet = true
                         }
                         if (what == "size") {
                             run.fontSizePt = size
@@ -2573,18 +2609,35 @@ class PptxEditor {
         this.pushSnapshot(label)
     }
 
+    ; --- typing into a SELECTED shape, with no caret in it yet ----------------
+    ;
+    ; These two edit the end of the shape's text, and they used to do it by
+    ; taking the whole body out as one plain string, changing that string, and
+    ; building the body again from it. Which flattened the shape:
+    ; `setBodyText` gives every paragraph ONE run in the style of the FIRST
+    ; one, so a box holding an orange link and white prose came back entirely
+    ; orange, a bold word came back plain, and the empty paragraphs between
+    ; items were gone — on the FIRST backspace, before a single character had
+    ; been typed.
+    ;
+    ; The caret machinery next door has always inserted and deleted by run.
+    ; So these do the same thing, at the end of the text rather than at a
+    ; caret: `insertAt` and `deleteRange` split and rejoin runs and leave every
+    ; other run, and every paragraph's own bullet, level and spacing, alone.
+    ;
+    ; `setBodyText` is still right where it is used — a new shape's text, a
+    ; whole body replaced on purpose — because there the flattening IS the
+    ; intent. It is only wrong as a way of editing what is already there.
+
     fn appendText:boolean (s:string) {
         def hit@(optional):PptxShape (this.firstSelected())
         if (null? hit) {
             return false
         }
         def sh:PptxShape (unwrap hit)
-        def current:string ""
-        if sh.hasText {
-            current = (sh.text.plainText())
-        }
         sh.hasText = true
-        PptxEditor.setBodyText(sh.text (current + s))
+        def end:PptxTextPos (PptxTextEdit.docEnd(sh.text))
+        PptxTextEdit.insertAt(sh.text end s)
         this.pushCoalesced("typing")
         return true
     }
@@ -2598,13 +2651,15 @@ class PptxEditor {
         if (sh.hasText == false) {
             return false
         }
-        def current:string (sh.text.plainText())
-        def n:int (strlen current)
-        if (n == 0) {
+        def end:PptxTextPos (PptxTextEdit.docEnd(sh.text))
+        ; One character back, not one string unit back: `moveLeft` steps over a
+        ; surrogate pair, and chopping the last unit off a plain string cut an
+        ; emoji in half.
+        def from:PptxTextPos (PptxTextEdit.moveLeft(sh.text end))
+        if (from.isSame(end)) {
             return false
         }
-        def cut:string (substring current 0 (n - 1))
-        PptxEditor.setBodyText(sh.text cut)
+        PptxTextEdit.deleteRange(sh.text from end)
         this.pushCoalesced("typing")
         return true
     }
@@ -2630,20 +2685,20 @@ class PptxEditor {
             return false
         }
         def sh:PptxShape (unwrap hit)
-        if (sh.kind == 1) {
+        if (sh.kind == (PptxShapeKind.picture())) {
             return false
         }
-        if (sh.kind == 2) {
+        if (sh.kind == (PptxShapeKind.group())) {
             return false
         }
         ; A table and a chart carry their own content. Setting `hasText` on
         ; one would give it a second, empty text body that the writer would
         ; then have to explain — and a click can now reach this, where before
         ; only a deliberate F2 could.
-        if (sh.kind == 4) {
+        if (sh.kind == (PptxShapeKind.table())) {
             return false
         }
-        if (sh.kind == 5) {
+        if (sh.kind == (PptxShapeKind.chart())) {
             return false
         }
         sh.hasText = true
@@ -3294,7 +3349,7 @@ class PptxEditor {
         def i:int 0
         while (i < (array_length shapes)) {
             def sh:PptxShape (itemAt shapes i)
-            if (sh.kind != 1) {
+            if (sh.kind != (PptxShapeKind.picture())) {
                 sh.fill = (PptxClone.color(format.fill))
                 sh.fillGrad = (PptxClone.gradient(format.grad))
             }
@@ -3314,7 +3369,9 @@ class PptxEditor {
                         while (ri < (array_length para.runs)) {
                             def run:PptxTextRun (itemAt para.runs ri)
                             run.bold = format.bold
+                            run.boldSet = true
                             run.italic = format.italic
+                            run.italicSet = true
                             run.fontSizePt = format.sizePt
                             run.sizeSet = format.sizeSet
                             run.fontFamily = format.family
@@ -3878,7 +3935,7 @@ class PptxEditor {
         if on {
             def sh (new PptxShape())
             sh.name = "Slide Number Placeholder"
-            sh.kind = 0
+            sh.kind = (PptxShapeKind.shape())
             sh.hasXfrm = true
             sh.width = 60.0
             sh.height = 20.0
@@ -3924,7 +3981,7 @@ class PptxEditor {
         if ((strlen text) > 0) {
             def sh (new PptxShape())
             sh.name = "Footer Placeholder"
-            sh.kind = 0
+            sh.kind = (PptxShapeKind.shape())
             sh.hasXfrm = true
             sh.width = (doc.slideWidth * 0.5)
             sh.height = 20.0

@@ -1,0 +1,157 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeHistory.rgr — what "one undo" means, in one place.
+; ==============================================================================
+;
+; Three editors here keep an undo history and each wrote its own rules. The
+; spreadsheet's are right; the document's were missing, and every one of the
+; three things it was missing was a bug a user could hit:
+;
+;   * NO TRANSACTIONS. Pasting three lines pushed five ops, so getting back
+;     took five undos — and did not get back at all: twenty presses later the
+;     document still did not match what it had been.
+;   * UNDO AND REDO AS TWO SWITCHES. `undo` handled five op kinds and `redo`
+;     handled one, and redo pushed the op onto the undo stack anyway. So
+;     redoing a multi-paragraph delete did nothing, and the NEXT undo ran that
+;     op a second time and invented text that had never been in the document.
+;   * AN UNNAMED KIND. `pasteChart` recorded `kind = 5`, which is the
+;     multi-paragraph delete, because 5 was one more than the table paste's 4.
+;     Undoing a chart paste therefore ran the delete's restore path and left
+;     the chart where it was.
+;
+; None of those is a hard problem. They are what happens when the rules live
+; in three places and only one of them is complete.
+;
+; WHAT IS SHARED AND WHAT IS NOT.
+;
+; Not the operations. `SheetSetCell` is not `SlideMoveShape` is not
+; `DocInsertText`, and a base class over them would be a place to put nothing.
+; Ranger has no generics either, so this deliberately does not try to hold the
+; ops themselves — each editor keeps its own array.
+;
+; What IS shared is every rule about that array:
+;
+;   begin / end     what counts as one action, nested safely
+;   stamp           the transaction an op belongs to
+;   noteEdit        a new edit makes the redo stack meaningless
+;   dropCount       how many ops fall off the bottom at the limit — always
+;                   whole transactions, so a surviving op can never be half
+;                   of an action
+;   spanAt          how many ops off the top are one undo
+;
+; And one discipline, which is not code but is the reason two of the three
+; bugs above existed: UNDO AND REDO ARE ONE FUNCTION WITH A DIRECTION. Written
+; as two switches over the same kind they drift, and the drift is silent until
+; a user presses redo.
+; ==============================================================================
+
+class OfficeHistory {
+    ; How many ops to keep. Whole transactions are dropped, so the real length
+    ; can sit under this rather than exactly on it.
+    def limit:int 200
+    ; Nesting depth of `begin` … `end`. An editor that composes actions out of
+    ; other actions — a paste that is an insert and a split and another insert
+    ; — nests, and only the outermost pair closes the transaction.
+    def txDepth:int 0
+    def txCounter:int 0
+    def curTx:int 0
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        txDepth = 0
+        curTx = 0
+    }
+
+    ; --- one action -----------------------------------------------------------
+
+    fn begin:void () {
+        if (txDepth == 0) {
+            txCounter = (txCounter + 1)
+            curTx = txCounter
+        }
+        txDepth = (txDepth + 1)
+    }
+
+    fn end:void () {
+        if (txDepth > 0) {
+            txDepth = (txDepth - 1)
+        }
+        if (txDepth == 0) {
+            curTx = 0
+        }
+    }
+
+    fn inTransaction:boolean () {
+        return (txDepth > 0)
+    }
+
+    ; The transaction id an op pushed right now belongs to. Zero means "on its
+    ; own" — a single keystroke outside any `begin`.
+    fn stamp:int () {
+        return curTx
+    }
+
+    ; Trimming mid-transaction would drop the first half of an action and keep
+    ; the second, so it waits for the action to finish.
+    fn mayTrim:boolean () {
+        return (txDepth == 0)
+    }
+
+    ; --- the limit ------------------------------------------------------------
+    ;
+    ; How many ops to drop from the BOTTOM so the stack fits. Always whole
+    ; transactions: dropping half of one leaves an undo that can only put a
+    ; document into a state it was never in.
+    sfn dropCount:int (txIds:[int] limit:int) {
+        def n:int (array_length txIds)
+        if (n <= limit) {
+            return 0
+        }
+        def drop:int (n - limit)
+        ; Walk forward past the rest of whichever transaction the cut lands in.
+        if (drop < n) {
+            def tx:int (itemAt txIds (drop - 1))
+            if (tx > 0) {
+                while (drop < n) {
+                    if ((itemAt txIds drop) == tx) {
+                        drop = (drop + 1)
+                    } {
+                        break
+                    }
+                }
+            }
+        }
+        return drop
+    }
+
+    ; --- one undo -------------------------------------------------------------
+    ;
+    ; How many ops off the TOP are one press of undo: the topmost op, plus
+    ; every op below it in the same transaction. An op stamped 0 is alone.
+    sfn spanAt:int (txIds:[int] top:int) {
+        if (top < 0) {
+            return 0
+        }
+        if (top >= (array_length txIds)) {
+            return 0
+        }
+        def tx:int (itemAt txIds top)
+        if (tx <= 0) {
+            return 1
+        }
+        def count:int 1
+        def i:int (top - 1)
+        while (i >= 0) {
+            if ((itemAt txIds i) == tx) {
+                count = (count + 1)
+                i = (i - 1)
+            } {
+                return count
+            }
+        }
+        return count
+    }
+}

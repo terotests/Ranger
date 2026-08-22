@@ -15,6 +15,7 @@
 ; ==============================================================================
 
 Import "../../game_engine/ui/UIContext.rgr"
+Import "../../office/text/OfficeFont.rgr"
 
 class PptxTextMeasure {
     def hasCtx:boolean false
@@ -35,17 +36,21 @@ class PptxTextMeasure {
     ; the renderer's family by weight, so measuring has to switch the same way
     ; — a bold string is wider than the regular one, and a caret that measured
     ; the regular face lands short of the text it belongs to.
+    ;
+    ; The naming is `OfficeFont`'s, shared with the .docx reader, and so is the
+    ; walk when the face is not loaded: this used to name "Family-Bold Italic"
+    ; without ever asking whether such a face existed, so a deck whose family
+    ; had no italic measured against whatever the renderer fell back to and
+    ; never said which one that was.
     fn faceFor:string (bold:boolean italic:boolean) {
-        if bold {
-            if italic {
-                return (family + "-Bold Italic")
-            }
-            return (family + "-Bold")
+        if (hasCtx == false) {
+            return (OfficeFont.faceName(family bold italic))
         }
-        if italic {
-            return (family + "-Italic")
+        def hit:string (OfficeFont.resolve(ctx.tr.fm family bold italic family))
+        if ((strlen hit) > 0) {
+            return hit
         }
-        return family
+        return (OfficeFont.faceName(family bold italic))
     }
 
     ; Whether the face a deck NAMED is one we can actually draw with. When it
@@ -60,7 +65,7 @@ class PptxTextMeasure {
         if (hasCtx == false) {
             return true
         }
-        return (ctx.tr.fm.hasFont(fam))
+        return ((OfficeFont.substituted(ctx.tr.fm fam)) == false)
     }
 
     fn widthOf:double (text:string sizePx:double bold:boolean italic:boolean) {

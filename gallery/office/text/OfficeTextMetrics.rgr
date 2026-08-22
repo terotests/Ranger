@@ -1,0 +1,217 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeTextMetrics.rgr — how far along a line an offset is, and the inverse.
+; ==============================================================================
+;
+; Two questions, asked by everything that puts a caret somewhere or reads a
+; click: "how wide is text[from,to)?" and "which offset is under this x?". They
+; have to be each other's inverse, and both have to agree with what the PAINTER
+; did, or the caret sits beside the glyphs rather than between them.
+;
+; The walk is the same in every format: break at each change of face, measure
+; each piece with that face active, accumulate. It had been written twice —
+; `DocxTextMetrics.measureRange` / `offsetAtX` over Word's spans, and
+; `PptxTextLayout.measureSlice` over a slide's runs — and the two differed in
+; ways that were not accidents:
+;
+; PER-RUN ROUNDING. Word's painter advances x by an INTEGER per run, because
+; that is what its ink takes. So its measurement has to truncate each run the
+; same way: summing in full precision and rounding once gives a different
+; answer, and the difference is where the caret ends up. PowerPoint's painter
+; carries doubles all the way, so rounding per run there would be the error
+; instead. `roundPerRun` is that difference, stated rather than averaged away.
+;
+; PER-RUN SIZE. A slide's runs each carry their own point size; a Word line is
+; laid out at one size because `tr.wrap` broke it at one size, and measuring
+; the pieces at another would put the line ends somewhere the breaks are not.
+; A run whose `sizePt` is <= 0 takes the default the caller passes, which is
+; how Word asks for the second behaviour without a flag.
+; ==============================================================================
+
+Import "OfficeFont.rgr"
+Import "OfficeTextRun.rgr"
+
+class OfficeTextMetrics {
+    ; The run covering `off`, or the last one before it. An offset past the end
+    ; belongs to the last run, which is what puts a caret at the end of a line
+    ; in the style of the text in front of it.
+    sfn runAt@(optional):OfficeTextRun (runs:[OfficeTextRun] off:int) {
+        def n:int (array_length runs)
+        def i:int 0
+        while (i < n) {
+            def r:OfficeTextRun (itemAt runs i)
+            if (r.covers(off)) {
+                def hit@(optional):OfficeTextRun r
+                return hit
+            }
+            i = (i + 1)
+        }
+        if (n > 0) {
+            def last:OfficeTextRun (itemAt runs (n - 1))
+            if (off >= last.end) {
+                def lastHit@(optional):OfficeTextRun last
+                return lastHit
+            }
+            def firstHit@(optional):OfficeTextRun (itemAt runs 0)
+            return firstHit
+        }
+        def none@(optional):OfficeTextRun
+        return none
+    }
+
+    ; Put the renderer on the face for the run covering `off`, and answer the
+    ; size to measure at.
+    sfn applyAt:double (tr:UITextRenderer runs:[OfficeTextRun] off:int defFamily:string defSize:double) {
+        def hit@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs off))
+        if (null? hit) {
+            OfficeFont.apply(tr defFamily false false defFamily)
+            return defSize
+        }
+        def r:OfficeTextRun (unwrap hit)
+        def fam:string defFamily
+        if ((strlen r.family) > 0) {
+            fam = r.family
+        }
+        OfficeFont.apply(tr fam r.bold r.italic defFamily)
+        if (r.sizePt > 0.0) {
+            return r.sizePt
+        }
+        return defSize
+    }
+
+    ; Does the face change between two offsets? Compared by what actually
+    ; selects a face and a size, so a run split that changes neither — a colour
+    ; change, a hyperlink — does not break the measurement into two pieces and
+    ; round twice.
+    sfn sameFace:boolean (runs:[OfficeTextRun] a:int b:int) {
+        def ha@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs a))
+        def hb@(optional):OfficeTextRun (OfficeTextMetrics.runAt(runs b))
+        if ((null? ha) && (null? hb)) {
+            return true
+        }
+        if (null? ha) {
+            return false
+        }
+        if (null? hb) {
+            return false
+        }
+        def ra:OfficeTextRun (unwrap ha)
+        def rb:OfficeTextRun (unwrap hb)
+        if (ra.bold != rb.bold) {
+            return false
+        }
+        if (ra.italic != rb.italic) {
+            return false
+        }
+        if (ra.family != rb.family) {
+            return false
+        }
+        if ((fabs (ra.sizePt - rb.sizePt)) > 0.001) {
+            return false
+        }
+        return true
+    }
+
+    ; The width of text[from,to), each stretch measured with its own face.
+    sfn measureRange:double (tr:UITextRenderer text:string runs:[OfficeTextRun]
+                             from:int to:int defFamily:string defSize:double roundPerRun:boolean) {
+        def len:int (strlen text)
+        def a:int from
+        def b:int to
+        if (a < 0) {
+            a = 0
+        }
+        if (b > len) {
+            b = len
+        }
+        if (a >= b) {
+            return 0.0
+        }
+        def total:double 0.0
+        def runStart:int a
+        def i:int (a + 1)
+        while (i <= b) {
+            def atEnd:boolean (i == b)
+            def changed:boolean false
+            if (atEnd == false) {
+                changed = ((OfficeTextMetrics.sameFace(runs runStart i)) == false)
+            }
+            if (atEnd || changed) {
+                def size:double (OfficeTextMetrics.applyAt(tr runs runStart defFamily defSize))
+                def w:double (tr.measureWidth((substring text runStart i) size))
+                if roundPerRun {
+                    total = (total + (to_double (to_int w)))
+                } {
+                    total = (total + w)
+                }
+                runStart = i
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; The inverse: the offset in [from,to] whose painted position is nearest
+    ; `targetX`, measured from the start of `from`. Splits on glyph midpoints,
+    ; so a click lands on the closer side of a character rather than always the
+    ; left of it.
+    sfn offsetAtX:int (tr:UITextRenderer text:string runs:[OfficeTextRun]
+                       from:int to:int targetX:double defFamily:string defSize:double roundPerRun:boolean) {
+        def len:int (strlen text)
+        def a:int from
+        def b:int to
+        if (a < 0) {
+            a = 0
+        }
+        if (b > len) {
+            b = len
+        }
+        if (a >= b) {
+            return a
+        }
+        if (targetX <= 0.0) {
+            return a
+        }
+        def acc:double 0.0
+        def runStart:int a
+        def i:int (a + 1)
+        while (i <= b) {
+            def atEnd:boolean (i == b)
+            def changed:boolean false
+            if (atEnd == false) {
+                changed = ((OfficeTextMetrics.sameFace(runs runStart i)) == false)
+            }
+            if (atEnd || changed) {
+                def size:double (OfficeTextMetrics.applyAt(tr runs runStart defFamily defSize))
+                def runW:double (tr.measureWidth((substring text runStart i) size))
+                if roundPerRun {
+                    runW = (to_double (to_int runW))
+                }
+                if (targetX < (acc + runW)) {
+                    ; Inside this stretch — walk it with the face it is drawn
+                    ; in, one character at a time.
+                    def k:int runStart
+                    while (k < i) {
+                        def w0:double (tr.measureWidth((substring text runStart k) size))
+                        def w1:double (tr.measureWidth((substring text runStart (k + 1)) size))
+                        if roundPerRun {
+                            w0 = (to_double (to_int w0))
+                            w1 = (to_double (to_int w1))
+                        }
+                        def mid:double (((acc + w0) + (acc + w1)) * 0.5)
+                        if (targetX < mid) {
+                            return k
+                        }
+                        k = (k + 1)
+                    }
+                    return i
+                }
+                acc = (acc + runW)
+                runStart = i
+            }
+            i = (i + 1)
+        }
+        return b
+    }
+}

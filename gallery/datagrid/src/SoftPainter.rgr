@@ -260,17 +260,11 @@ class SoftPainter {
         if ((strlen family) > 0) {
             base = family
         }
-        def want:string base
-        if bold {
-            want = (base + "-Bold")
-            if italic {
-                want = (base + "-BoldItalic")
-            }
-        } {
-            if italic {
-                want = (base + "-Italic")
-            }
-        }
+        ; `"-BoldItalic"` — no space — is not what FontManager registered the
+        ; face as, and the miss falls through to the family's REGULAR cut with
+        ; a real unitsPerEm, so the check below passes and bold italic text
+        ; drew upright and light. One rule, one place.
+        def want:string (UITextRenderer.faceName(base bold italic))
         if (ctx.tr.fontFamily == want) {
             return
         }

@@ -16,7 +16,7 @@ Import "../src/PptxWriter.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"
 Import "../src/PptxEdit.rgr"
-Import "../src/OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 
 class PptxWriterTest {
     def passed:int 0
@@ -49,6 +49,7 @@ class PptxWriterTest {
         this.testRoundTripFixtures()
         this.testFlattening()
         this.testPictures()
+        this.testTwoPicturesOneName()
         this.testEditedDeck()
         this.testLockRoundTrip()
         this.testFlipRoundTrip()
@@ -61,6 +62,9 @@ class PptxWriterTest {
         this.testSheetEditRoundTrip()
         this.testFooterRoundTrip()
         this.testShowRoundTrip()
+        this.testUnmodelledContentSurvives()
+        this.testEditKeepsInheritance()
+        this.testPlaceholdersSurviveAnEdit()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -381,6 +385,239 @@ class PptxWriterTest {
         }
         this.check("the inserted shape is in the file" found)
         p2.close()
+    }
+
+    ; Editing one shape on a slide should not bake the whole slide.
+    ;
+    ; The writer regenerates every shape on a slide it touches, from the
+    ; RESOLVED model — and resolution is lossy in one direction: it turns
+    ; "follows the theme" into a concrete gradient, "follows the master" into a
+    ; concrete background, and "is the title placeholder" into a text box at
+    ; fixed coordinates. Written back, all of that LOOKS identical and is a
+    ; different file: the deck has stopped being a themed deck.
+    ;
+    ; What makes this safe is that the resolver records what it worked out as a
+    ; SIGNATURE rather than a flag. A flag stays set after the user changes the
+    ; thing, and the save then discards the edit — which is worse than the bug
+    ; it fixes. A signature stops matching the moment anything moves, so the
+    ; check below has two halves and needs both.
+    fn testEditKeepsInheritance:void () {
+        print "--- an edit does not bake the slide ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "29-theme-styles.pptx")) == false) {
+            this.check("open 29-theme-styles" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        ; The smallest real edit there is: move one shape.
+        def moved:PptxShape (itemAt slide.shapes 0)
+        moved.x = (moved.x + 12.0)
+        slide.dirty = true
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "inherit-29.pptx")
+        parser.close()
+
+        def pkg (new OpcPackage())
+        if ((pkg.openParts("gallery/pptx/bin" "inherit-29.pptx")) == false) {
+            this.check("the edited deck reopens" false)
+            return
+        }
+        def xml:string (pkg.readXml("ppt/slides/slide1.xml"))
+        this.check("the deck was written" ((strlen xml) > 0))
+
+        ; --- what must still be there
+        this.check("the shapes still link to the theme's format matrix" ((indexOf xml "<p:style>") >= 0))
+        this.check("with their fill reference" ((indexOf xml "a:fillRef") >= 0))
+        this.check("and their font reference" ((indexOf xml "a:fontRef") >= 0))
+
+        ; --- what must NOT have appeared
+        ; The gradient the theme's fill style produces. Written here, the shape
+        ; keeps its look and stops following the theme.
+        this.check("the resolved gradient was not baked in" ((indexOf xml "<a:gradFill") < 0))
+        ; The background comes from the master. Stated here it freezes.
+        this.check("the master's background was not baked in" ((indexOf xml "<p:bg>") < 0))
+        ; The font comes from the theme's font scheme through fontRef.
+        this.check("the theme's font was not baked onto the runs" ((indexOf xml "<a:latin") < 0))
+        ; A paragraph that said nothing about its bullet inherits one.
+        this.check("no bullet was decided for a paragraph that said nothing" ((indexOf xml "<a:buNone/>") < 0))
+        pkg.close()
+
+        ; --- and the edit itself survived, which is the half that matters more
+        def p2 (new PptxParser())
+        if ((p2.openParts("gallery/pptx/bin" "inherit-29.pptx")) == false) {
+            this.check("it reopens as a deck" false)
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt after.slides 0)
+        def back:PptxShape (itemAt s2.shapes 0)
+        this.check("the move that was made is still in the file" (this.near(back.x moved.x)))
+        this.check("and the shape still draws with a fill" (back.fill.isSet || back.fillGrad.isSet))
+        p2.close()
+    }
+
+    ; A placeholder has to come back a placeholder. It is what puts a slide in
+    ; the outline, what "Reset Slide" resets to, and — in this repository —
+    ; what the accessibility tree finds a slide's title by, so a deck saved
+    ; without them would start announcing every slide as "Slide 1, Slide 2".
+    fn testPlaceholdersSurviveAnEdit:void () {
+        print "--- and a placeholder is still a placeholder ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "20-business-deck.pptx")) == false) {
+            this.check("open 20-business-deck" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+        def before:int (PptxWriterTest.placeholders(slide))
+        this.check("the fixture has placeholders to lose" (before > 0))
+        def moved:PptxShape (itemAt slide.shapes 0)
+        moved.x = (moved.x + 8.0)
+        slide.dirty = true
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "inherit-20.pptx")
+        parser.close()
+
+        def p2 (new PptxParser())
+        if ((p2.openParts("gallery/pptx/bin" "inherit-20.pptx")) == false) {
+            this.check("the edited deck reopens" false)
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt after.slides 0)
+        this.check("they all came back" ((PptxWriterTest.placeholders(s2)) == before))
+        p2.close()
+    }
+
+    sfn placeholders:int (slide:PptxSlide) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def sh:PptxShape (itemAt slide.shapes i)
+            if (sh.inherited == false) {
+                if sh.isPlaceholder {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Two different pictures that arrived under the same name.
+    ;
+    ; This is what a user does when they insert `logo.png` from one folder and
+    ; a different `logo.png` from another, and it used to produce a deck with
+    ; the first picture in both places: the writer's media table was keyed on
+    ; the package path, so the second picture was never written at all. The
+    ; deck below states the collision directly, because that is the only way
+    ; to be sure the identity really comes from the content.
+    fn testTwoPicturesOneName:void () {
+        print "--- two pictures, one name ---"
+        def pres (new PptxPresentation())
+        pres.slideWidth = 960.0
+        pres.slideHeight = 540.0
+        def slide (new PptxSlide())
+        slide.width = 960.0
+        slide.height = 540.0
+        def a (new PptxShape())
+        a.kind = 1
+        a.name = "A"
+        a.x = 10.0
+        a.y = 10.0
+        a.width = 100.0
+        a.height = 100.0
+        a.hasXfrm = true
+        a.imagePart = "ppt/media/logo.png"
+        a.imageBytes = (this.markedPng(11))
+        push slide.shapes a
+        def b (new PptxShape())
+        b.kind = 1
+        b.name = "B"
+        b.x = 200.0
+        b.y = 10.0
+        b.width = 100.0
+        b.height = 100.0
+        b.hasXfrm = true
+        b.imagePart = "ppt/media/logo.png"
+        b.imageBytes = (this.markedPng(22))
+        push slide.shapes b
+        ; And a third shape showing the first picture again, under a name of
+        ; its own. That one must NOT produce a second copy in the file.
+        def c (new PptxShape())
+        c.kind = 1
+        c.name = "C"
+        c.x = 400.0
+        c.y = 10.0
+        c.width = 100.0
+        c.height = 100.0
+        c.hasXfrm = true
+        c.imagePart = "ppt/media/other.png"
+        c.imageBytes = (this.markedPng(11))
+        push slide.shapes c
+        push pres.slides slide
+
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "two-logos.pptx")
+        this.check("the two different pictures are two entries" ((array_length writer.media) == 2))
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "two-logos.pptx"))
+        this.check("the deck reopens" ok)
+        if (ok == false) {
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt after.slides 0)
+        this.check("all three shapes came back" ((array_length s2.shapes) == 3))
+        if ((array_length s2.shapes) < 3) {
+            p2.close()
+            return
+        }
+        def sa:PptxShape (itemAt s2.shapes 0)
+        def sb:PptxShape (itemAt s2.shapes 1)
+        def sc:PptxShape (itemAt s2.shapes 2)
+        this.check("the first picture is its own" ((this.pngMark(sa.imageBytes)) == 11))
+        this.check("the second is not the first" ((this.pngMark(sb.imageBytes)) == 22))
+        this.check("and the third is the first again" ((this.pngMark(sc.imageBytes)) == 11))
+        this.check("they landed at two different parts" (sa.imagePart != sb.imagePart))
+        this.check("and the repeat shares the first one's part" (sa.imagePart == sc.imagePart))
+        p2.close()
+    }
+
+    ; A PNG header that parses, with one byte saying which picture it is.
+    fn markedPng:buffer (mark:int) {
+        def out:buffer (buffer_alloc 32)
+        def i:int 0
+        while (i < 32) {
+            buffer_set out i 0
+            i = (i + 1)
+        }
+        buffer_set out 0 137
+        buffer_set out 1 80
+        buffer_set out 2 78
+        buffer_set out 3 71
+        buffer_set out 4 13
+        buffer_set out 5 10
+        buffer_set out 6 26
+        buffer_set out 7 10
+        buffer_set out 11 13
+        buffer_set out 12 73
+        buffer_set out 13 72
+        buffer_set out 14 68
+        buffer_set out 15 82
+        buffer_set out 19 8
+        buffer_set out 23 8
+        buffer_set out 31 mark
+        return out
+    }
+
+    fn pngMark:int (bytes:buffer) {
+        if ((buffer_length bytes) < 32) {
+            return 0 - 1
+        }
+        return (buffer_get bytes 31)
     }
 
     ; A picture is bytes in the package, not a reference to one that was in
@@ -1092,6 +1329,165 @@ class PptxWriterTest {
             i = (i + 1)
         }
         return true
+    }
+
+
+    ; --- what this writer does not understand has to survive it ---------------
+    ;
+    ; A shape tree carries more than shapes: SmartArt and newer chart types
+    ; arrive wrapped in `mc:AlternateContent`, ink as `p:contentPart`, and
+    ; `p:extLst` holds whatever the writing tool wanted to say to itself.
+    ; `PptxModel` has no room for any of it, so before the parser recorded
+    ; WHERE each one was, editing the slide around them deleted them: a save
+    ; regenerated the tree out of the shapes, and the shapes were all it had.
+    ;
+    ; This edits the slide those three sit on, which is the case that has to
+    ; work — an UNtouched slide is copied through byte for byte and proves
+    ; nothing.
+    fn testUnmodelledContentSurvives:void () {
+        print "--- what the model does not describe survives a save ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "32-unmodelled-content.pptx")) == false) {
+            this.check("open the deck with unmodelled content" false)
+            return
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        def slideRaw:PptxSlide (itemAt raw.slides 0)
+        this.check("the three unmodelled children were noticed" ((array_length slideRaw.opaque) == 3))
+        if ((array_length slideRaw.opaque) == 3) {
+            def diagram:PptxOpaque (itemAt slideRaw.opaque 0)
+            def ink:PptxOpaque (itemAt slideRaw.opaque 1)
+            def exts:PptxOpaque (itemAt slideRaw.opaque 2)
+            this.check("the diagram sits between the two shapes"
+                ((diagram.name == "AlternateContent") && (diagram.afterShapes == 1)))
+            this.check("the ink comes after both" (ink.afterShapes == 2))
+            this.check("and so does the extension list" (exts.name == "extLst"))
+            ; A self-closing element is the case a span recorded only at an end
+            ; tag would get wrong.
+            this.check("the self-closing one has a span too" ink.source.known)
+        }
+
+        ; And one level up: `<p:sld>` also holds a colour map override before
+        ; the transition and an extension list after it. CT_Slide orders its
+        ; children, so each has to go back on the side of the transition it
+        ; came from.
+        this.check("the colour map override was kept" ((array_length slideRaw.sldHead) == 1))
+        this.check("and the extension list after the transition" ((array_length slideRaw.sldTail) == 1))
+        if ((array_length slideRaw.sldHead) == 1) {
+            def head0:PptxOpaque (itemAt slideRaw.sldHead 0)
+            this.check("the head one is the colour map" (head0.name == "clrMapOvr"))
+        }
+        if ((array_length slideRaw.sldTail) == 1) {
+            def tail0:PptxOpaque (itemAt slideRaw.sldTail 0)
+            this.check("the tail one is the extension list" (tail0.name == "extLst"))
+        }
+
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation(raw))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(0)
+        def shapes:[PptxShape] (ed.editableShapes())
+        this.check("the slide has shapes to edit" ((array_length shapes) > 0))
+        if ((array_length shapes) == 0) {
+            return
+        }
+        ; Undo and redo go through the snapshot clone, which is the other place
+        ; the spans can be dropped.
+        def target:PptxShape (itemAt shapes 0)
+        ed.select(target.editId)
+        ed.moveSelection(12.0 4.0)
+        ed.undo()
+        ed.redo()
+        def slide:PptxSlide (itemAt pres.slides 0)
+        this.check("the edit marked the slide" slide.dirty)
+        this.check("and history kept the unmodelled children" ((array_length slide.opaque) == 3))
+
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-unmodelled.pptx")
+        def out (new OpcPackage())
+        if ((out.openParts("gallery/pptx/bin" "over-unmodelled.pptx")) == false) {
+            this.check("the written deck opens" false)
+            return
+        }
+        def before:string (parser.pkg.readXml("ppt/slides/slide1.xml"))
+        def after:string (out.readXml("ppt/slides/slide1.xml"))
+        this.check("the slide really was rewritten" (after != before))
+        this.check("the diagram is still there" ((indexOf after "<mc:AlternateContent") >= 0))
+        this.check("with the part of it nothing here can read"
+            ((indexOf after "drawingml/2006/diagram") >= 0))
+        this.check("and its fallback picture" ((indexOf after "Diagram fallback") >= 0))
+        this.check("the ink is still there" ((indexOf after "<p:contentPart") >= 0))
+        ; The tree's own extension list, told apart from the slide's by its uri
+        ; — both hold a `creationId`, which is why counting that would not say
+        ; which one came back.
+        this.check("the extension list is still there" ((indexOf after "BB962C8B") >= 0))
+        this.check("each of them exactly once"
+            (((PptxWriterTest.countOf(after "<mc:AlternateContent")) == 1)
+                && ((PptxWriterTest.countOf(after "<p:contentPart")) == 1)
+                && ((PptxWriterTest.countOf(after "BB962C8B")) == 1)))
+        ; Order, not just presence: an element put back in the wrong slot is a
+        ; diagram that has moved behind the text.
+        def diagramAt:int (indexOf after "<mc:AlternateContent")
+        def headingAt:int (indexOf after "Before the diagram")
+        def footerAt:int (indexOf after "After the diagram")
+        def inkAt:int (indexOf after "<p:contentPart")
+        this.check("the diagram is still after the heading" (diagramAt > headingAt))
+        this.check("and still before the footer" (diagramAt < footerAt))
+        this.check("and the ink after both" (inkAt > footerAt))
+
+        ; Slide level: kept, once, and on the right side of the transition.
+        this.check("the slide's extension list is still there" ((indexOf after "DEADBEEF") >= 0))
+        this.check("exactly once" ((PptxWriterTest.countOf(after "DEADBEEF")) == 1))
+        this.check("the colour map override is still there, once"
+            ((PptxWriterTest.countOf(after "<p:clrMapOvr")) == 1))
+        def mapAt:int (indexOf after "<p:clrMapOvr")
+        def transAt:int (indexOf after "<p:transition")
+        def extAt:int (indexOf after "DEADBEEF")
+        this.check("the colour map comes before the transition" ((mapAt >= 0) && (mapAt < transAt)))
+        this.check("and the extension list after it" (extAt > transAt))
+
+        ; The relationships the preserved XML names. A diagram points at four
+        ; parts of its own and the ink at one; a rewrite that rebuilt the
+        ; relationship part from the shapes alone would leave every one of them
+        ; pointing at nothing, and the preserved markup would be a reference to
+        ; a part that is not there.
+        def outRels:string (out.readXml("ppt/slides/_rels/slide1.xml.rels"))
+        this.check("the diagram's own relationships came through"
+            (((indexOf outRels "rId10") >= 0) && ((indexOf outRels "rId13") >= 0)))
+        this.check("and the ink's" ((indexOf outRels "rId20") >= 0))
+        this.check("and the parts they name are still in the package"
+            ((out.hasPart("ppt/diagrams/data1.xml")) && (out.hasPart("ppt/ink/ink1.xml"))))
+        this.check("with their content types"
+            ((strlen (out.contentTypeFor("ppt/diagrams/data1.xml"))) > 0))
+
+        ; And the deck still reads back as a deck.
+        def again (new PptxParser())
+        if (again.openParts("gallery/pptx/bin" "over-unmodelled.pptx")) {
+            def back:PptxPresentation (again.parsePresentation())
+            def backSlide:PptxSlide (itemAt back.slides 0)
+            this.check("reopening finds the shapes" ((array_length backSlide.shapes) == 2))
+            this.check("and the three unmodelled children again" ((array_length backSlide.opaque) == 3))
+            this.check("and the slide-level pair again"
+                (((array_length backSlide.sldHead) == 1) && ((array_length backSlide.sldTail) == 1)))
+            this.check("with the transition still on it" backSlide.transition.isSet)
+            again.close()
+        }
+        out.close()
+        parser.close()
+    }
+
+    sfn countOf:int (haystack:string needle:string) {
+        def n:int 0
+        def at:int 0
+        while (true) {
+            def hit:int (indexOfFrom haystack needle at)
+            if (hit < 0) {
+                return n
+            }
+            n = (n + 1)
+            at = (hit + (strlen needle))
+        }
+        return n
     }
 
 }

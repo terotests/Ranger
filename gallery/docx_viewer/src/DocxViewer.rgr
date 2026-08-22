@@ -242,11 +242,14 @@ class DocxViewer {
         }
         if extendSelection {
             if (edit.isActive()) {
-                if (edit.sel.anchor.paragraphId == pos.paragraphId) {
-                    edit.sel.focus = (pos.copy())
-                } {
-                    edit.setCaret(pos.paragraphId pos.textOffset)
-                }
+                ; Move the FOCUS and keep the anchor, whichever paragraph the
+                ; point landed in. This used to give up when the two ends were
+                ; in different paragraphs and collapse to a caret instead —
+                ; which is a selection you cannot make across a paragraph
+                ; break, by shift-clicking or by dragging, even though
+                ; `orderedEnds` and every edit below it handle a multi-
+                ; paragraph range perfectly well.
+                edit.extendTo(pos.paragraphId pos.textOffset)
             } {
                 edit.setCaret(pos.paragraphId pos.textOffset)
             }
@@ -256,6 +259,30 @@ class DocxViewer {
         ; The toolbar describes the run the caret is in, so the caret has to
         ; pick that up when it moves somewhere new.
         edit.adoptRunAtCaret()
+        this.renderPage(currentPage)
+    }
+
+    ; The pointer moving with the button held: the same thing as a shift-click,
+    ; and the reason a drag paints a selection rather than only ever moving the
+    ; caret. Nothing used to call this, because the host never said the button
+    ; was still down and the app never asked.
+    fn dragTo:void (x:int y:int) {
+        if ((edit.isEnabled()) == false) {
+            return
+        }
+        if ((edit.isActive()) == false) {
+            return
+        }
+        this.renderPage(currentPage)
+        def pos:DocumentPosition (edit.hitTest(view.layout currentPage x y))
+        if (pos.paragraphId <= 0) {
+            return
+        }
+        def before:DocumentPosition (edit.caret())
+        if ((before.paragraphId == pos.paragraphId) && (before.textOffset == pos.textOffset)) {
+            return
+        }
+        edit.extendTo(pos.paragraphId pos.textOffset)
         this.renderPage(currentPage)
     }
 
@@ -587,7 +614,7 @@ class DocxViewer {
         def i:int 0
         while (i < (array_length pg.lines)) {
             def line:LaidLine (itemAt pg.lines i)
-            if (line.kind == 6) {
+            if (line.kind == (LaidLineKind.chart())) {
                 if (x >= line.x) {
                     if (x <= (line.x + line.width)) {
                         if (y >= line.y) {

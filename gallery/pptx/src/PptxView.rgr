@@ -108,7 +108,7 @@ class PptxView {
     }
 
     fn cacheShapeImages:void (shape:PptxShape) {
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             if ((buffer_length shape.imageBytes) > 0) {
                 this.cacheImage(shape.imagePart shape.imageBytes)
                 def hit@(optional):ImageBuffer (get imageCache shape.imagePart)

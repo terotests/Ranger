@@ -17,6 +17,7 @@ Import "DocxTextMetrics.rgr"
 Import "DocxLayout.rgr"
 Import "../../text_editor/src/TextEditCore.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
+Import "../../office/editor/OfficeHistory.rgr"
 
 class DocxEditController {
     def adapter:RichDocumentEdit (new RichDocumentEdit)
@@ -24,6 +25,12 @@ class DocxEditController {
     def undoStack:[DocEditOp]
     def redoStack:[DocEditOp]
     def maxUndo:int 200
+    ; What counts as one action, what an op's transaction is, and how much
+    ; falls off the bottom at the limit — `gallery/office/editor`, shared with
+    ; the spreadsheet's history. The document's own rules were missing all
+    ; three: a paste of three lines was five separate undos that never got
+    ; back to where they started.
+    def history:OfficeHistory (new OfficeHistory)
     def active:boolean false
     def enabled:boolean false
     def typingBold:boolean false
@@ -93,6 +100,28 @@ class DocxEditController {
         active = true
     }
 
+    ; Move the moving end of the selection and leave the anchor where it is.
+    ; A drag and a shift-click are the same gesture, and both may cross a
+    ; paragraph break — `orderedEnds` puts the two ends into document order, so
+    ; nothing below here cares which way round they are.
+    fn extendTo:void (paragraphId:int offset:int) {
+        if (active == false) {
+            this.setCaret(paragraphId offset)
+            return
+        }
+        def len:int (adapter.textLength(paragraphId))
+        if (len < 0) {
+            return
+        }
+        if (offset < 0) {
+            offset = 0
+        }
+        if (offset > len) {
+            offset = len
+        }
+        sel.focus = (DocumentPosition.create(paragraphId offset))
+    }
+
     fn caret:DocumentPosition () {
         return (sel.focus.copy())
     }
@@ -107,11 +136,43 @@ class DocxEditController {
         if suppressUndo {
             return
         }
+        op.txId = (history.stamp())
         push undoStack op
-        while ((array_length undoStack) > maxUndo) {
-            remove_index undoStack 0
+        ; Never trim mid-action: dropping the first half of a paste and keeping
+        ; the second leaves an undo that can only reach a state the document
+        ; was never in.
+        if (history.mayTrim()) {
+            this.trimUndo()
         }
         clear redoStack
+    }
+
+    fn trimUndo:void () {
+        def ids:[int]
+        def i:int 0
+        while (i < (array_length undoStack)) {
+            push ids ((itemAt undoStack i).txId)
+            i = (i + 1)
+        }
+        def drop:int (OfficeHistory.dropCount(ids maxUndo))
+        def k:int 0
+        while (k < drop) {
+            remove_index undoStack 0
+            k = (k + 1)
+        }
+    }
+
+    ; One action, however many primitives it takes. Nested safely, so a paste
+    ; that is an insert and a split and another insert is still one undo.
+    fn beginAction:void () {
+        history.begin()
+    }
+
+    fn endAction:void () {
+        history.end()
+        if (history.mayTrim()) {
+            this.trimUndo()
+        }
     }
 
     ; --- multi-paragraph selection -------------------------------------------
@@ -248,7 +309,7 @@ class DocxEditController {
             return
         }
         def op:DocEditOp (new DocEditOp)
-        op.kind = 5
+        op.kind = (DocEditKind.deleteSpan())
         op.paragraphId = sPid
         op.start = sOff
         op.oldText = (this.selectedText())
@@ -374,7 +435,7 @@ class DocxEditController {
         def dest:DocumentPosition (adapter.mergePrevious(pid))
         if (dest.paragraphId > 0) {
             def op2:DocEditOp (new DocEditOp)
-            op2.kind = 2
+            op2.kind = (DocEditKind.mergeParagraph())
             op2.paragraphId = pid
             op2.secondId = dest.paragraphId
             op2.start = dest.textOffset
@@ -424,7 +485,7 @@ class DocxEditController {
         if (cur.listNumId > 0) {
             if ((strlen cur.text) == 0) {
                 def op0:DocEditOp (new DocEditOp)
-                op0.kind = 7
+                op0.kind = (DocEditKind.listEnd())
                 op0.paragraphId = pid
                 op0.start = cur.listNumId
                 op0.end = cur.listLevel
@@ -442,7 +503,7 @@ class DocxEditController {
         }
         def newId:int (adapter.splitParagraph(pid off))
         def op:DocEditOp (new DocEditOp)
-        op.kind = 1
+        op.kind = (DocEditKind.splitParagraph())
         op.paragraphId = pid
         op.start = off
         op.secondId = newId
@@ -519,7 +580,7 @@ class DocxEditController {
             ri = (ri + 1)
         }
         def op:DocEditOp (new DocEditOp)
-        op.kind = 4
+        op.kind = (DocEditKind.pasteTable())
         op.paragraphId = pid
         op.secondId = afterId
         op.start = t.id
@@ -550,7 +611,7 @@ class DocxEditController {
             c.heightPx = h
         }
         def op:DocEditOp (new DocEditOp)
-        op.kind = 5
+        op.kind = (DocEditKind.pasteChart())
         op.paragraphId = pid
         op.secondId = afterId
         op.start = c.id
@@ -685,6 +746,9 @@ class DocxEditController {
     }
 
     ; Plain text paste: newlines become paragraph splits.
+    ; Pasting is ONE action however many primitives it takes. It used to push
+    ; one op per line and one per split — three lines were five undos, and
+    ; twenty presses still did not get the document back to where it started.
     fn pasteText:boolean (text:string) {
         if ((this.isActive()) == false) {
             return false
@@ -692,6 +756,13 @@ class DocxEditController {
         if ((strlen text) == 0) {
             return false
         }
+        this.beginAction()
+        def ok:boolean (this.pasteLines(text))
+        this.endAction()
+        return ok
+    }
+
+    fn pasteLines:boolean (text:string) {
         def lines:[string] (strsplit text "\n")
         def i:int 0
         def n:int (array_length lines)
@@ -756,7 +827,7 @@ class DocxEditController {
         ; snapshot the same way a paste does.
         if (what == "bold") {
             def op:DocEditOp (new DocEditOp)
-            op.kind = 3
+            op.kind = (DocEditKind.bold())
             op.paragraphId = pid
             op.start = a
             op.end = b
@@ -1104,7 +1175,7 @@ class DocxEditController {
             def li:int 0
             while (li < (array_length page.lines)) {
                 def line:LaidLine (itemAt page.lines li)
-                if (line.kind == 0) {
+                if (LaidLineKind.isBodyText(line.kind)) {
                     if (line.paraIndex == pid) {
                         if ((off >= line.docStart) && (off <= line.docEnd)) {
                             clear out
@@ -1158,10 +1229,10 @@ class DocxEditController {
         if (line.paraIndex <= 0) {
             return false
         }
-        if (line.kind == 0) {
+        if (LaidLineKind.isBodyText(line.kind)) {
             return true
         }
-        if (line.kind == 1) {
+        if (line.kind == (LaidLineKind.image())) {
             def p:Paragraph (unwrap line.paragraphRef)
             if ((strlen p.text) == 0) {
                 return true
@@ -1183,7 +1254,7 @@ class DocxEditController {
                     ; An image-only paragraph also emits an empty text line;
                     ; keep just one stop for it.
                     def dup:boolean false
-                    if (line.kind == 1) {
+                    if (line.kind == (LaidLineKind.image())) {
                         def k:int 0
                         while (k < (array_length outPage)) {
                             if ((itemAt outPage k) == pi) {
@@ -1322,7 +1393,7 @@ class DocxEditController {
         def li:int 0
         while (li < (array_length page.lines)) {
             def line:LaidLine (itemAt page.lines li)
-            if (line.kind == 0) {
+            if (LaidLineKind.isBodyText(line.kind)) {
                 if (line.paraIndex > 0) {
                     count = (count + 1)
                 }
@@ -1467,7 +1538,7 @@ class DocxEditController {
                     return true
                 }
                 def op:DocEditOp (new DocEditOp)
-                op.kind = 6
+                op.kind = (DocEditKind.tableRow())
                 op.start = blk
                 this.pushUndo(op)
                 def newId:int (adapter.cellParagraphId(blk (added - 1) 0))
@@ -1517,30 +1588,59 @@ class DocxEditController {
         active = true
     }
 
-    fn undo:void () {
-        if ((array_length undoStack) == 0) {
-            return
+    ; --- undo and redo, which are ONE function with a direction ---------------
+    ;
+    ; They used to be two switches over `op.kind`, and they drifted: `undo`
+    ; knew five kinds and `redo` knew one. Redo of anything else did nothing to
+    ; the document — and pushed the op back onto the undo stack anyway, so the
+    ; NEXT undo ran it a second time and invented text that had never been
+    ; there. Written as one function that cannot happen: a kind is handled in
+    ; both directions or in neither.
+    fn applyOp:boolean (op:DocEditOp forward:boolean) {
+        if (op.kind == (DocEditKind.text())) {
+            if forward {
+                adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.oldText)) op.newText)
+                this.setCaret(op.paragraphId (op.start + (strlen op.newText)))
+            } {
+                adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
+                this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
+            }
+            return true
         }
-        def op:DocEditOp (itemAt undoStack ((array_length undoStack) - 1))
-        removeLast undoStack
-        if (op.kind == 0) {
-            adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.newText)) op.oldText)
-            this.setCaret(op.paragraphId (op.start + (strlen op.oldText)))
-        }
-        if (op.kind == 7) {
-            ; Restore the list membership that "Enter on an empty item" cleared.
+        if (op.kind == (DocEditKind.listEnd())) {
             def lp:Paragraph (adapter.findParagraph(op.paragraphId))
-            lp.listNumId = op.start
-            lp.listLevel = op.end
-            lp.listFmt = op.newText
-            lp.listText = op.oldText
-            lp.listKind = op.secondId
+            if forward {
+                ; Ending the list again: clear what undo put back.
+                lp.listNumId = 0
+                lp.listKind = 0
+                lp.listLevel = 0
+                lp.listFmt = ""
+                lp.listText = ""
+            } {
+                ; Restore the list membership that "Enter on an empty item"
+                ; cleared.
+                lp.listNumId = op.start
+                lp.listLevel = op.end
+                lp.listFmt = op.newText
+                lp.listText = op.oldText
+                lp.listKind = op.secondId
+            }
             this.setCaret(op.paragraphId 0)
+            return true
         }
-        if (op.kind == 6) {
-            ; Undo the row Tab appended, and step back into the last cell.
+        if (op.kind == (DocEditKind.tableRow())) {
             def blkIdx:int op.start
-            def rowsBefore:int (adapter.rowCountOfTable(blkIdx))
+            if forward {
+                def added:int (adapter.appendTableRow(blkIdx))
+                if (added > 0) {
+                    def firstId:int (adapter.cellParagraphId(blkIdx (added - 1) 0))
+                    if (firstId > 0) {
+                        this.setCaret(firstId 0)
+                    }
+                }
+                return true
+            }
+            ; Undo the row Tab appended, and step back into the last cell.
             if (adapter.removeLastTableRow(blkIdx)) {
                 def lastRow:int ((adapter.rowCountOfTable(blkIdx)) - 1)
                 def lastCell:int ((adapter.cellCountInRow(blkIdx lastRow)) - 1)
@@ -1549,17 +1649,78 @@ class DocxEditController {
                     this.setCaret(backId (adapter.textLength(backId)))
                 }
             }
+            return true
         }
-        if (op.kind == 5) {
-            ; Multi-paragraph delete: put the text back, newlines re-splitting.
+        if (op.kind == (DocEditKind.deleteSpan())) {
             suppressUndo = true
-            this.setCaret(op.paragraphId op.start)
-            this.pasteText(op.oldText)
-            this.setCaret(op.paragraphId op.start)
+            if forward {
+                ; Delete the span again: select exactly what undo put back and
+                ; drop it, which is the same primitive the original edit used.
+                this.setCaret(op.paragraphId op.start)
+                this.selectForward(op.oldText)
+                this.deleteSelection()
+            } {
+                ; Put the text back, newlines re-splitting.
+                this.setCaret(op.paragraphId op.start)
+                this.pasteText(op.oldText)
+                this.setCaret(op.paragraphId op.start)
+            }
             suppressUndo = false
+            return true
         }
-        if (op.kind == 4) {
-            ; Drop the pasted table, then rejoin the paragraph it was split from.
+        if (op.kind == (DocEditKind.splitParagraph())) {
+            if forward {
+                ; The SAME id back, not a fresh one: the ops after this in the
+                ; same action still name the paragraph this split created.
+                def again:int (adapter.splitParagraphAs(op.paragraphId op.start op.secondId))
+                op.secondId = again
+                this.setCaret(again 0)
+            } {
+                ; Rejoin the two halves. Enter used to record a kind NOTHING
+                ; could undo — neither direction knew a 1 — so pressing it
+                ; made an op that stopped every undo below it dead.
+                def joined:DocumentPosition (adapter.mergePrevious(op.secondId))
+                if (joined.paragraphId > 0) {
+                    this.setCaret(joined.paragraphId joined.textOffset)
+                }
+            }
+            return true
+        }
+        if (op.kind == (DocEditKind.mergeParagraph())) {
+            if forward {
+                def dest2:DocumentPosition (adapter.mergePrevious(op.paragraphId))
+                if (dest2.paragraphId > 0) {
+                    this.setCaret(dest2.paragraphId dest2.textOffset)
+                }
+            } {
+                ; Split them apart again where the join fell, with the id the
+                ; paragraph had before the merge.
+                def re:int (adapter.splitParagraphAs(op.secondId op.start op.paragraphId))
+                op.paragraphId = re
+                this.setCaret(re 0)
+            }
+            return true
+        }
+        if (op.kind == (DocEditKind.bold())) {
+            ; What the op records is what bold was turned TO, so the inverse is
+            ; turning it the other way. A range that was MIXED before the
+            ; toggle comes back uniform rather than mixed — the op would have
+            ; to carry the run boundaries to do better, and it does not.
+            def want:boolean op.boldVal
+            if (forward == false) {
+                want = (op.boldVal == false)
+            }
+            adapter.applyRun(op.paragraphId op.start op.end "bold" want 0.0 "")
+            return true
+        }
+        if (op.kind == (DocEditKind.pasteTable())) {
+            if forward {
+                ; The table's content is gone once undo removed it, so a redo
+                ; that pretended otherwise would put an empty table back.
+                ; Refusing is the honest answer, and refusing WITHOUT moving
+                ; the op is what keeps the two stacks in step.
+                return false
+            }
             adapter.removeTableById(op.start)
             def back:DocumentPosition (adapter.mergePrevious(op.secondId))
             if (back.paragraphId > 0) {
@@ -1567,21 +1728,88 @@ class DocxEditController {
             } {
                 this.setCaret(op.paragraphId (adapter.textLength(op.paragraphId)))
             }
+            return true
         }
-        push redoStack op
+        if (op.kind == (DocEditKind.pasteChart())) {
+            if forward {
+                return false
+            }
+            ; A chart paste is the same shape as a table paste: the chart goes,
+            ; and the paragraph it split rejoins. This used to record itself as
+            ; a multi-paragraph DELETE — 5, one more than the table's 4 — so
+            ; undo ran the delete's restore path and the chart stayed.
+            adapter.removeChartBlock(op.start)
+            def cback:DocumentPosition (adapter.mergePrevious(op.secondId))
+            if (cback.paragraphId > 0) {
+                this.setCaret(cback.paragraphId cback.textOffset)
+            } {
+                this.setCaret(op.paragraphId (adapter.textLength(op.paragraphId)))
+            }
+            return true
+        }
+        return false
+    }
+
+    ; Select `text` forward from the caret, across paragraph breaks.
+    fn selectForward:void (text:string) {
+        def steps:int (strlen text)
+        def i:int 0
+        while (i < steps) {
+            this.moveRight(true)
+            i = (i + 1)
+        }
+    }
+
+    ; One press of undo is one ACTION: the top op, and every op below it that
+    ; was stamped with the same transaction.
+    fn undo:void () {
+        def n:int (array_length undoStack)
+        if (n == 0) {
+            return
+        }
+        def ids:[int]
+        def i:int 0
+        while (i < n) {
+            push ids ((itemAt undoStack i).txId)
+            i = (i + 1)
+        }
+        def span:int (OfficeHistory.spanAt(ids (n - 1)))
+        def moved:int 0
+        while (moved < span) {
+            def top:DocEditOp (itemAt undoStack ((array_length undoStack) - 1))
+            if ((this.applyOp(top false)) == false) {
+                ; An op that could not be undone stays where it is. Moving it
+                ; anyway is how the two stacks come apart.
+                return
+            }
+            removeLast undoStack
+            push redoStack top
+            moved = (moved + 1)
+        }
     }
 
     fn redo:void () {
-        if ((array_length redoStack) == 0) {
+        def n:int (array_length redoStack)
+        if (n == 0) {
             return
         }
-        def op:DocEditOp (itemAt redoStack ((array_length redoStack) - 1))
-        removeLast redoStack
-        if (op.kind == 0) {
-            adapter.replaceRange(op.paragraphId op.start (op.start + (strlen op.oldText)) op.newText)
-            this.setCaret(op.paragraphId (op.start + (strlen op.newText)))
+        def ids:[int]
+        def i:int 0
+        while (i < n) {
+            push ids ((itemAt redoStack i).txId)
+            i = (i + 1)
         }
-        push undoStack op
+        def span:int (OfficeHistory.spanAt(ids (n - 1)))
+        def moved:int 0
+        while (moved < span) {
+            def top:DocEditOp (itemAt redoStack ((array_length redoStack) - 1))
+            if ((this.applyOp(top true)) == false) {
+                return
+            }
+            removeLast redoStack
+            push undoStack top
+            moved = (moved + 1)
+        }
     }
 
     ; Hit-test using laid lines on the current page (same metrics as paint).
@@ -1599,7 +1827,7 @@ class DocxEditController {
         def i:int 0
         while (i < (array_length page.lines)) {
             def line:LaidLine (itemAt page.lines i)
-            if (line.kind == 0) {
+            if (LaidLineKind.isBodyText(line.kind)) {
                 def bw:int line.boxW
                 if (bw < 4) {
                     bw = line.width
@@ -1629,7 +1857,7 @@ class DocxEditController {
             def ii:int 0
             while (ii < (array_length page.lines)) {
                 def imgLine:LaidLine (itemAt page.lines ii)
-                if (imgLine.kind == 1) {
+                if (imgLine.kind == (LaidLineKind.image())) {
                     if ((y >= imgLine.y) && (y < (imgLine.y + imgLine.height))) {
                         if ((x >= imgLine.x) && (x < (imgLine.x + imgLine.width))) {
                             def ip:Paragraph (unwrap imgLine.paragraphRef)
@@ -1652,7 +1880,7 @@ class DocxEditController {
             def j:int 0
             while (j < (array_length page.lines)) {
                 def line2:LaidLine (itemAt page.lines j)
-                if (line2.kind == 0) {
+                if (LaidLineKind.isBodyText(line2.kind)) {
                     def bw2:int line2.boxW
                     if (bw2 < 4) {
                         bw2 = line2.width

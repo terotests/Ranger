@@ -128,6 +128,13 @@ class DocImage {
     def heightEmu:int 0
     def widthPx:int 0
     def heightPx:int 0
+    ; Word's alt text, from `wp:docPr/@descr`, and the shape's name from
+    ; `@name`. This is the ONLY thing a screen reader has to go on for a
+    ; picture — the pixels tell it nothing — and it used to be dropped on the
+    ; floor by the reader, so a document whose author had written proper alt
+    ; text arrived here with none.
+    def altText:string ""
+    def title:string ""
     def pixels:ImageBuffer (new ImageBuffer)
     def ok:boolean false
     def format:string ""
@@ -144,6 +151,29 @@ class DocImage {
             return (0 - (to_int ((0.0 - v) + 0.5)))
         }
         return (to_int (v + 0.5))
+    }
+
+    ; What a reader should say about this picture. The author's alt text if
+    ; there is any, the shape's name if that is all there is, and an honest
+    ; "Image" if the document says nothing — which is itself information: a
+    ; picture with no alt text is a documented accessibility failure of the
+    ; DOCUMENT, and hiding it behind an invented description would only make
+    ; it harder to find.
+    fn accessibleName:string () {
+        if ((strlen altText) > 0) {
+            return altText
+        }
+        if ((strlen title) > 0) {
+            return title
+        }
+        return "Image"
+    }
+
+    fn hasAltText:boolean () {
+        if ((strlen altText) > 0) {
+            return true
+        }
+        return ((strlen title) > 0)
     }
 
     fn syncPx:void () {
@@ -285,8 +315,53 @@ class DocumentTable {
 }
 
 ; kind: 0=paragraph 1=table 2=pageBreak 3=sectionBreak
+; ------------------------------------------------------------------------------
+; What a body block is.
+;
+; These numbers used to be written bare at both ends. That is the shape that
+; produced four separate bugs in the document editor's op kinds — a number the
+; producer wrote and the consumer had never been taught — and here it is worse
+; than it looks, because a laid-out line has a `kind` too and it means
+; something else entirely:
+;
+;     DocBlock.kind    0 paragraph  1 table  2 page break  3 section break  4 chart
+;     LaidLine.kind    0 text  1 image  2 fill  3 border  4 header  5 footer  6 chart
+;
+; Both are read in `DocxLayout.layoutDocument`, eight lines apart: `b.kind == 4`
+; is a chart and `cl.kind = 6` is the line drawn for it. Getting those the wrong
+; way round is one character, it compiles, and a chart silently becomes page
+; furniture. Naming them is what stops the two tables from being confusable.
+; ------------------------------------------------------------------------------
+class DocBlockKind {
+    ; A paragraph of the body text.
+    sfn para:int () {
+        return 0
+    }
+
+    ; A table.
+    sfn table:int () {
+        return 1
+    }
+
+    ; An explicit page break: the same section continues on a new page.
+    sfn pageBreak:int () {
+        return 2
+    }
+
+    ; A section break: `sectionIndex` says which section starts here, so the
+    ; margins, the header and the footer all change with it.
+    sfn sectionBreak:int () {
+        return 3
+    }
+
+    ; A chart, laid out whole — it is never split across a page boundary.
+    sfn chart:int () {
+        return 4
+    }
+}
+
 class DocBlock {
-    def kind:int 0
+    def kind:int (DocBlockKind.para())
     def paragraph:Paragraph (new Paragraph)
     def table:DocumentTable (new DocumentTable)
     def chart:DocChart (new DocChart)
@@ -297,34 +372,34 @@ class DocBlock {
 
     sfn chartBlock:DocBlock (c:DocChart) {
         def b:DocBlock (new DocBlock)
-        b.kind = 4
+        b.kind = (DocBlockKind.chart())
         b.chart = c
         return b
     }
 
     sfn para:DocBlock (p:Paragraph) {
         def b:DocBlock (new DocBlock)
-        b.kind = 0
+        b.kind = (DocBlockKind.para())
         b.paragraph = p
         return b
     }
 
     sfn tbl:DocBlock (t:DocumentTable) {
         def b:DocBlock (new DocBlock)
-        b.kind = 1
+        b.kind = (DocBlockKind.table())
         b.table = t
         return b
     }
 
     sfn pageBreak:DocBlock () {
         def b:DocBlock (new DocBlock)
-        b.kind = 2
+        b.kind = (DocBlockKind.pageBreak())
         return b
     }
 
     sfn sectionBreak:DocBlock (secIdx:int) {
         def b:DocBlock (new DocBlock)
-        b.kind = 3
+        b.kind = (DocBlockKind.sectionBreak())
         b.sectionIndex = secIdx
         return b
     }
@@ -380,6 +455,27 @@ class RichDocument {
         def p:Paragraph (new Paragraph)
         p.id = nextParaId
         nextParaId = (nextParaId + 1)
+        push paragraphs p
+        return p
+    }
+
+    ; The same, but keeping an id a paragraph already had.
+    ;
+    ; This is for REDO. Undo of an Enter merges two paragraphs and the second
+    ; one's id goes with it; redoing the Enter used to mint a fresh id, and
+    ; every later op in the same action still named the old one — so redoing a
+    ; paste of three lines put the first line back and then wrote the rest
+    ; nowhere. Handing the id back makes the redone paragraph the SAME
+    ; paragraph as far as the rest of the action is concerned.
+    fn addParagraphWithId:Paragraph (id:int) {
+        if (id <= 0) {
+            return (this.addParagraphOnly())
+        }
+        def p:Paragraph (new Paragraph)
+        p.id = id
+        if (id >= nextParaId) {
+            nextParaId = (id + 1)
+        }
         push paragraphs p
         return p
     }

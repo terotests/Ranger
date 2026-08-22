@@ -54,8 +54,29 @@ class DocxView {
         ctx.tr.addFontDir(fontDir)
         ctx.tr.loadFont("Open Sans" "Open_Sans/OpenSans-Regular.ttf")
         ctx.tr.addFace("Open_Sans/OpenSans-Bold.ttf")
+        ; The slanted faces. Nothing loaded them before, because nothing could
+        ; ask for them: the painter and the metrics took `bold` and no more, so
+        ; every italic run in every document was drawn upright and Word's
+        ; italic button did nothing anyone could see. `OfficeFont` walks back
+        ; to the upright face when a family has no italic, so a document naming
+        ; something else still draws — but Open Sans has both, and now they are
+        ; here to be drawn with.
+        ctx.tr.addFace("Open_Sans/OpenSans-Italic.ttf")
+        ctx.tr.addFace("Open_Sans/OpenSans-BoldItalic.ttf")
         ctx.tr.addFace("Cinzel/Cinzel-Regular.ttf")
         ctx.tr.addFace("Josefin_Sans/JosefinSans-Regular.ttf")
+        ; The families the shared alias map sends documents to. Without them
+        ; `OfficeFont` walks back to Open Sans and a Times New Roman paragraph
+        ; draws sans-serif — which is what this viewer did while the
+        ; spreadsheet, loading the same map AND these faces, drew it serif.
+        ; Sharing the map is only half the claim; the faces are the other half.
+        ctx.tr.addFace("Noto_Sans/NotoSans-Regular.ttf")
+        ctx.tr.addFace("Noto_Sans/NotoSans-Bold.ttf")
+        ctx.tr.addFace("Noto_Sans/NotoSans-Italic.ttf")
+        ctx.tr.addFace("Noto_Sans/NotoSans-BoldItalic.ttf")
+        ctx.tr.addFace("Droid_Serif/DroidSerif.ttf")
+        ctx.tr.addFace("Droid_Serif/DroidSerif-Bold.ttf")
+        ctx.tr.addFace("Droid_Serif/DroidSerif-Italic.ttf")
         ; The glyphs a document reaches for that a text face does not carry.
         ; Word writes its bullet levels as ● ○ ▪ — geometric shapes, not
         ; letters — so every list drew a column of empty boxes; and an emoji in
@@ -211,7 +232,7 @@ class DocxView {
         def i:int 0
         while (i < (array_length pg.lines)) {
             def line:LaidLine (itemAt pg.lines i)
-            if (line.kind == 0) {
+            if (LaidLineKind.isBodyText(line.kind)) {
                 if (line.paraIndex > 0) {
                     def order:int (edit.adapter.bodyOrderOf(line.paraIndex))
                     if ((order >= sOrder) && (order <= eOrder)) {
@@ -338,13 +359,13 @@ class DocxView {
             def line:LaidLine (itemAt pg.lines i)
             def lx:int (line.x + ox)
             def ly:int (line.y + oy)
-            if (line.kind == 2) {
+            if (line.kind == (LaidLineKind.fill())) {
                 ink.rect(lx ly line.width line.height (this.hexColor(line.fillHex)))
             }
-            if (line.kind == 3) {
+            if (line.kind == (LaidLineKind.border())) {
                 ink.rect(lx ly line.width line.height (this.hexColor(line.borderColor)))
             }
-            if (line.kind == 1) {
+            if (line.kind == (LaidLineKind.image())) {
                 def p:Paragraph line.paragraphRef
                 if (line.imageIndex < (array_length p.images)) {
                     def dimg:DocImage (itemAt p.images line.imageIndex)
@@ -366,10 +387,10 @@ class DocxView {
                     }
                 }
             }
-            if (line.kind == 6) {
+            if (line.kind == (LaidLineKind.chart())) {
                 this.paintChartLine(line lx ly)
             }
-            if ((line.kind == 0) || (line.kind == 4) || (line.kind == 5)) {
+            if (((line.kind == (LaidLineKind.text())) || (line.kind == (LaidLineKind.header()))) || (line.kind == (LaidLineKind.footer()))) {
                 this.paintStyledLine(line lx ly)
             }
             i = (i + 1)
@@ -424,7 +445,7 @@ class DocxView {
         }
         def p:Paragraph line.paragraphRef
         def muteChrome:boolean false
-        if ((line.kind == 4) || (line.kind == 5)) {
+        if ((line.kind == (LaidLineKind.header())) || (line.kind == (LaidLineKind.footer()))) {
             muteChrome = true
         }
         if ((p.id <= 0) || ((array_length p.spans) == 0)) {
@@ -432,7 +453,7 @@ class DocxView {
             if muteChrome {
                 col0 = (EVGColor.rgb(80 90 110))
             }
-            ink.text(line.text lx ly size col0 line.bold)
+            ink.textStyled(line.text lx ly size col0 line.bold line.italic)
             if line.underline {
                 def uy0:int ((ly + (to_int size)) + 1)
                 ink.rect(lx uy0 line.width 1 col0)
@@ -510,6 +531,10 @@ class DocxView {
         DocxTextMetrics.applyFace(ctx.tr bold)
     }
 
+    fn setPaintStyle:void (bold:boolean italic:boolean) {
+        DocxTextMetrics.applyStyle(ctx.tr bold italic)
+    }
+
     fn paintTextRun:int (chunk:string x:int y:int size:double sp:TextSpan muteChrome:boolean) {
         def col:EVGColor (this.hexColor(sp.colorHex))
         if muteChrome {
@@ -519,8 +544,11 @@ class DocxView {
         if (runSize < 8.0) {
             runSize = 8.0
         }
-        ink.text(chunk x y runSize col sp.bold)
-        def w:int (DocxTextMetrics.measurePlain(ctx.tr chunk runSize sp.bold))
+        ; Both the slant and the weight, and the SAME pair to the measure — the
+        ; painter and the metrics drifting apart is how a caret ends up beside
+        ; the glyphs rather than between them.
+        ink.textStyled(chunk x y runSize col sp.bold sp.italic)
+        def w:int (DocxTextMetrics.measureStyled(ctx.tr chunk runSize sp.bold sp.italic))
         if sp.underline {
             def uy:int ((y + (to_int runSize)) + 1)
             ink.rect(x uy w 1 col)

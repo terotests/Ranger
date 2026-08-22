@@ -1,0 +1,155 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeStyleTest — a property that knows it was not stated, and the chain that
+; needs it.
+; ==============================================================================
+;
+; The whole point is one distinction: "not specified" is not "specified as
+; false". A `boolean` cannot hold both, and a chain built on one turns into
+; "whoever set it to true last wins" — which is exactly what the .docx reader
+; did, so a word explicitly un-bolded inside a bold heading drew bold.
+;
+;   npm run office:style:test
+; ==============================================================================
+
+Import "../OfficeStyle.rgr"
+
+class StyleCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+}
+
+class OfficeStyleTest {
+    sfn main:void () {
+        def c:StyleCheck (new StyleCheck)
+        print "== OfficeStyleTest =="
+
+        print "-- three answers, not two --"
+        def unset (new StyleFlag())
+        c.ok("a fresh flag has said nothing" (unset.isSet == false))
+        c.ok("and reads as whatever it is asked to fall back to" (unset.or(true)))
+        c.ok("either way" ((unset.or(false)) == false))
+        def offFlag:StyleFlag (StyleFlag.of(false))
+        c.ok("a flag stated false HAS said something" offFlag.isSet)
+        c.ok("and does not fall back" ((offFlag.or(true)) == false))
+        ; These two are the distinction the whole file exists for.
+        c.ok("said-nothing and said-false are not the same"
+            ((unset.same(offFlag)) == false))
+        def onFlag:StyleFlag (StyleFlag.of(true))
+        c.ok("nor are said-true and said-false" ((onFlag.same(offFlag)) == false))
+        offFlag.clear()
+        c.ok("clearing takes it back to having said nothing" (offFlag.isSet == false))
+
+        print "-- numbers, where zero is a real answer --"
+        def n (new StyleNum())
+        c.ok("an unstated number falls back" ((n.or(11.0)) == 11.0))
+        n.set(0.0)
+        ; An indent of 0 and no indent at all are different: the first cancels
+        ; an inherited one.
+        c.ok("a stated zero does not fall back" ((n.or(11.0)) == 0.0))
+        c.ok("and counts as stated" n.isSet)
+
+        print "-- strings, where empty is a real answer --"
+        def t (new StyleText())
+        c.eqStr("an unstated string falls back" (t.or("000000")) "000000")
+        t.set("")
+        c.eqStr("a stated empty string does not" (t.or("000000")) "")
+
+        print "-- the chain --"
+        ; docDefaults, then the style, then the run's own formatting: each
+        ; applied over the last. This is the only reason the tri-state exists.
+        def defaults (new OfficeTextStyle())
+        defaults.family.set("Calibri")
+        defaults.sizePt.set(11.0)
+        defaults.bold.set(false)
+        defaults.italic.set(false)
+
+        def strong (new OfficeTextStyle())
+        strong.bold.set(true)
+        strong.italic.set(true)
+
+        def resolved:OfficeTextStyle (defaults.copy())
+        strong.applyOver(resolved)
+        c.ok("the style's bold wins over the default" resolved.bold.value)
+        c.ok("and its italic" resolved.italic.value)
+        c.eqStr("while the family it said nothing about survives" (resolved.family.or("?")) "Calibri")
+        c.ok("and so does the size" ((resolved.sizePt.or(0.0)) == 11.0))
+
+        ; A run that says nothing changes nothing.
+        def silent (new OfficeTextStyle())
+        c.ok("a silent style states nothing" ((silent.statesAnything()) == false))
+        def afterSilent:OfficeTextStyle (resolved.copy())
+        silent.applyOver(afterSilent)
+        c.ok("and leaves the chain exactly as it was" (afterSilent.same(resolved)))
+
+        ; A run that says NOT bold turns it off, and leaves italic alone.
+        def unbold (new OfficeTextStyle())
+        unbold.bold.set(false)
+        c.ok("stating false is stating something" (unbold.statesAnything()))
+        def afterUnbold:OfficeTextStyle (resolved.copy())
+        unbold.applyOver(afterUnbold)
+        c.ok("the run takes bold off the style" ((afterUnbold.bold.or(true)) == false))
+        c.ok("and leaves italic, which it said nothing about" (afterUnbold.italic.or(false)))
+        c.eqStr("and the family" (afterUnbold.family.or("?")) "Calibri")
+
+        print "-- the other direction --"
+        ; A caller holding the inner style fills in from the outer one; the
+        ; result must be the same as applying inner over outer.
+        def inner (new OfficeTextStyle())
+        inner.bold.set(false)
+        inner.sizePt.set(18.0)
+        def viaInherit:OfficeTextStyle (inner.copy())
+        viaInherit.inheritFrom(resolved)
+        def viaApply:OfficeTextStyle (resolved.copy())
+        inner.applyOver(viaApply)
+        c.ok("inheritFrom and applyOver agree" (viaInherit.same(viaApply)))
+        c.ok("the inner size won" ((viaInherit.sizePt.or(0.0)) == 18.0))
+        c.ok("and the inner bold, which is false, won too"
+            ((viaInherit.bold.or(true)) == false))
+
+        print "-- copies are copies --"
+        def orig (new OfficeTextStyle())
+        orig.bold.set(true)
+        orig.foreground.set("C00000")
+        def dup:OfficeTextStyle (orig.copy())
+        dup.bold.set(false)
+        dup.foreground.set("0000FF")
+        c.ok("changing the copy leaves the original alone" (orig.bold.value))
+        c.eqStr("in every property" (orig.foreground.or("?")) "C00000")
+        c.ok("and the two now differ" ((orig.same(dup)) == false))
+
+        print "-- clearing --"
+        def full (new OfficeTextStyle())
+        full.bold.set(true)
+        full.family.set("Cinzel")
+        full.baseline.set(30.0)
+        c.ok("it states things" (full.statesAnything()))
+        full.clear()
+        c.ok("and then states nothing" ((full.statesAnything()) == false))
+        def blank (new OfficeTextStyle())
+        c.ok("a cleared style is a fresh one" (full.same(blank)))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

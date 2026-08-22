@@ -9,7 +9,7 @@
 ; are left to PptxResolver — this layer only materialises what the XML says.
 ; ==============================================================================
 
-Import "OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
 Import "PptxXml.rgr"
 Import "PptxModel.rgr"
 Import "PptxGeom.rgr"
@@ -183,11 +183,18 @@ class PptxParser {
             run.fontSizePt = (PptxUnits.hundredthsPtToPt((?? sd 1800.0)))
             run.sizeSet = true
         }
-        if ((rp.attr("b")) == "1") {
-            run.bold = true
+        ; What the run SAID, not just whether it said yes. `b="0"` takes a word
+        ; out of a bold placeholder; no `b` at all lets the placeholder decide.
+        ; The list-level parser below has always read it this way.
+        def bAttr:string (rp.attr("b"))
+        if ((strlen bAttr) > 0) {
+            run.bold = (bAttr == "1")
+            run.boldSet = true
         }
-        if ((rp.attr("i")) == "1") {
-            run.italic = true
+        def iAttr:string (rp.attr("i"))
+        if ((strlen iAttr) > 0) {
+            run.italic = (iAttr == "1")
+            run.italicSet = true
         }
         def latin@(optional):PptxXmlNode (rp.firstChild("latin"))
         if (!null? latin) {
@@ -416,11 +423,15 @@ class PptxParser {
             def sd@(optional):double (str2double sz)
             body.defFontSizePt = (PptxUnits.hundredthsPtToPt((?? sd 1800.0)))
         }
-        if ((rp.attr("b")) == "1") {
-            body.defBold = true
+        def defB:string (rp.attr("b"))
+        if ((strlen defB) > 0) {
+            body.defBold = (defB == "1")
+            body.defBoldSet = true
         }
-        if ((rp.attr("i")) == "1") {
-            body.defItalic = true
+        def defI:string (rp.attr("i"))
+        if ((strlen defI) > 0) {
+            body.defItalic = (defI == "1")
+            body.defItalicSet = true
         }
         def latin@(optional):PptxXmlNode (rp.firstChild("latin"))
         if (!null? latin) {
@@ -1060,7 +1071,7 @@ class PptxParser {
 
     fn parseShape:PptxShape (sp:PptxXmlNode) {
         def shape (new PptxShape())
-        shape.kind = 0
+        shape.kind = (PptxShapeKind.shape())
         def nv@(optional):PptxXmlNode (sp.firstChild("nvSpPr"))
         if (!null? nv) {
             def nvn:PptxXmlNode (unwrap nv)
@@ -1068,6 +1079,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 shape.name = (cn.attr("name"))
+                shape.altText = (cn.attr("descr"))
                 def sid@(optional):int (str2int (cn.attr("id")))
                 shape.shapeId = (?? sid 0)
             }
@@ -1108,7 +1120,7 @@ class PptxParser {
 
     fn parsePicture:PptxShape (pic:PptxXmlNode slidePart:string) {
         def shape (new PptxShape())
-        shape.kind = 1
+        shape.kind = (PptxShapeKind.picture())
         def nv@(optional):PptxXmlNode (pic.firstChild("nvPicPr"))
         if (!null? nv) {
             def nvn:PptxXmlNode (unwrap nv)
@@ -1116,6 +1128,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 shape.name = (cn.attr("name"))
+                shape.altText = (cn.attr("descr"))
                 def sid@(optional):int (str2int (cn.attr("id")))
                 shape.shapeId = (?? sid 0)
             }
@@ -1148,7 +1161,7 @@ class PptxParser {
 
     fn parseGroup:PptxShape (grp:PptxXmlNode slidePart:string) {
         def shape (new PptxShape())
-        shape.kind = 2
+        shape.kind = (PptxShapeKind.group())
         def nv@(optional):PptxXmlNode (grp.firstChild("nvGrpSpPr"))
         if (!null? nv) {
             def nvn:PptxXmlNode (unwrap nv)
@@ -1156,6 +1169,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 shape.name = (cn.attr("name"))
+                shape.altText = (cn.attr("descr"))
                 def sid@(optional):int (str2int (cn.attr("id")))
                 shape.shapeId = (?? sid 0)
             }
@@ -1285,7 +1299,7 @@ class PptxParser {
 
     fn parseTable:PptxShape (tbl:PptxXmlNode x:double y:double w:double h:double) {
         def shape (new PptxShape())
-        shape.kind = 4
+        shape.kind = (PptxShapeKind.table())
         shape.name = "Table"
         shape.x = x
         shape.y = y
@@ -1447,6 +1461,7 @@ class PptxParser {
         ; The frame's own name and id: a table or a chart is a shape like any
         ; other to everything above here, and it needs to be findable by name.
         def frameName:string ""
+        def frameAlt:string ""
         def frameId:int 0
         def nv@(optional):PptxXmlNode (gf.firstChild("nvGraphicFramePr"))
         if (!null? nv) {
@@ -1454,6 +1469,7 @@ class PptxParser {
             if (!null? cNv) {
                 def cn:PptxXmlNode (unwrap cNv)
                 frameName = (cn.attr("name"))
+                frameAlt = (cn.attr("descr"))
                 def fid@(optional):int (str2int (cn.attr("id")))
                 frameId = (?? fid 0)
             }
@@ -1474,6 +1490,7 @@ class PptxParser {
             if ((strlen frameName) > 0) {
                 table.name = frameName
             }
+            table.altText = frameAlt
             table.shapeId = frameId
             def hit@(optional):PptxShape table
             return hit
@@ -1486,11 +1503,12 @@ class PptxParser {
                 rid = ((unwrap chartEl).attr("id"))
             }
             def shape (new PptxShape())
-            shape.kind = 5
+            shape.kind = (PptxShapeKind.chart())
             shape.name = "Chart"
             if ((strlen frameName) > 0) {
                 shape.name = frameName
             }
+            shape.altText = frameAlt
             shape.shapeId = frameId
             shape.x = x
             shape.y = y
@@ -1525,13 +1543,14 @@ class PptxParser {
         }
         if (node.name == "cxnSp") {
             def shape (new PptxShape())
-            shape.kind = 3
+            shape.kind = (PptxShapeKind.connector())
             def nv@(optional):PptxXmlNode (node.firstChild("nvCxnSpPr"))
             if (!null? nv) {
                 def cNv@(optional):PptxXmlNode ((unwrap nv).firstChild("cNvPr"))
                 if (!null? cNv) {
                     def cn:PptxXmlNode (unwrap cNv)
                     shape.name = (cn.attr("name"))
+                    shape.altText = (cn.attr("descr"))
                     def sid@(optional):int (str2int (cn.attr("id")))
                     shape.shapeId = (?? sid 0)
                 }
@@ -1551,7 +1570,18 @@ class PptxParser {
         return __missing
     }
 
-    fn parseSpTreeInto:void (tree:PptxXmlNode partPath:string shapes:[PptxShape]) {
+    ; The shape tree, in order — and everything in it that is not a shape.
+    ;
+    ; A child this reader does not know is not noise. It is SmartArt, an
+    ; embedded object, ink, or an `mc:AlternateContent` block holding a
+    ; rendering of something newer than this reader. Walking past it is right;
+    ; FORGETTING it is what makes a save delete it, so each one is remembered
+    ; as the span it occupies in the part, and where in z-order it sat.
+    ;
+    ; `nvGrpSpPr` and `grpSpPr` are the tree's own properties rather than
+    ; children of it, and the writer emits its own; they are the two things
+    ; here that are genuinely skipped.
+    fn parseSpTreeInto:void (tree:PptxXmlNode partPath:string shapes:[PptxShape] opaque:[PptxOpaque]) {
         def i:int 0
         while (i < (tree.childCount())) {
             def child:PptxXmlNode (tree.childAt(i))
@@ -1560,6 +1590,17 @@ class PptxParser {
                     def parsed@(optional):PptxShape (this.parseTreeChild(child partPath))
                     if (!null? parsed) {
                         push shapes (unwrap parsed)
+                    } {
+                        def keep (new PptxOpaque())
+                        keep.name = child.name
+                        keep.afterShapes = (array_length shapes)
+                        keep.source.set(partPath child.srcStart child.srcEnd)
+                        ; A span that came back empty is a span that cannot be
+                        ; put back, and an empty one written out would be a
+                        ; silent hole rather than a preserved element.
+                        if (keep.source.known) {
+                            push opaque keep
+                        }
                     }
                 }
             }
@@ -1595,7 +1636,7 @@ class PptxParser {
             }
             def spTree@(optional):PptxXmlNode (cs.firstChild("spTree"))
             if (!null? spTree) {
-                this.parseSpTreeInto((unwrap spTree) partPath sheet.shapes)
+                this.parseSpTreeInto((unwrap spTree) partPath sheet.shapes sheet.opaque)
             }
         }
         ; `p:txStyles` — a master's own typography, in three list styles. Most
@@ -1679,6 +1720,59 @@ class PptxParser {
         }
     }
 
+    ; Children of `<p:sld>` this model has no room for, split at the point
+    ; where the transition and the timing go. The schema orders them
+    ; `cSld, clrMapOvr, transition, timing, extLst`, so an element kept from
+    ; before that point has to go back before it and one from after has to go
+    ; back after — putting them all at one end writes a part PowerPoint
+    ; rejects.
+    fn parseSlideLevel:void (slide:PptxSlide partPath:string doc:PptxXmlNode) {
+        ; Where the modelled middle is. Anything at or after it is "tail".
+        def pivot:int (doc.childCount())
+        def i:int 0
+        while (i < (doc.childCount())) {
+            def c:PptxXmlNode (doc.childAt(i))
+            if (c.isText == false) {
+                if ((c.name == "transition") || (c.name == "timing")) {
+                    if (i < pivot) {
+                        pivot = i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (doc.childCount())) {
+            def ch:PptxXmlNode (doc.childAt(j))
+            if (ch.isText == false) {
+                def modelled:boolean false
+                if (ch.name == "cSld") {
+                    modelled = true
+                }
+                if (ch.name == "transition") {
+                    modelled = true
+                }
+                if (ch.name == "timing") {
+                    modelled = true
+                }
+                if (modelled == false) {
+                    def keep (new PptxOpaque())
+                    keep.name = ch.name
+                    keep.afterShapes = j
+                    keep.source.set(partPath ch.srcStart ch.srcEnd)
+                    if (keep.source.known) {
+                        if (j < pivot) {
+                            push slide.sldHead keep
+                        } {
+                            push slide.sldTail keep
+                        }
+                    }
+                }
+            }
+            j = (j + 1)
+        }
+    }
+
     fn parseSlide:PptxSlide (partPath:string width:double height:double) {
         def slide (new PptxSlide())
         slide.partPath = partPath
@@ -1710,9 +1804,15 @@ class PptxParser {
             }
             def spTree@(optional):PptxXmlNode (cs.firstChild("spTree"))
             if (!null? spTree) {
-                this.parseSpTreeInto((unwrap spTree) partPath slide.shapes)
+                this.parseSpTreeInto((unwrap spTree) partPath slide.shapes slide.opaque)
             }
         }
+        ; Everything else `<p:sld>` holds. `cSld`, the transition and the
+        ; timing are modelled; a colour map override, an extension list, a
+        ; custom data list or an `mc:AlternateContent` block are not, and a
+        ; rewrite used to drop all of them — including replacing a real colour
+        ; map override with a plain one.
+        this.parseSlideLevel(slide partPath doc)
         ; How the slide arrives, and what is built on it once it has.
         this.parseTransition(slide doc)
         def timing@(optional):PptxXmlNode (doc.find("timing"))
@@ -2025,6 +2125,9 @@ class PptxParser {
             return
         }
         def sn:PptxXmlNode (unwrap st)
+        ; That the block EXISTS is the thing the writer needs: a shape with a
+        ; style reference follows the theme, and one without it does not.
+        shape.hasStyle = true
         def fill@(optional):PptxXmlNode (sn.firstChild("fillRef"))
         if (!null? fill) {
             def fr:PptxXmlNode (unwrap fill)
@@ -2052,7 +2155,9 @@ class PptxParser {
         }
         def font@(optional):PptxXmlNode (sn.firstChild("fontRef"))
         if (!null? font) {
-            def col3@(optional):PptxColor (this.colorIn((unwrap font)))
+            def fn:PptxXmlNode (unwrap font)
+            shape.fontRef = (fn.attr("idx"))
+            def col3@(optional):PptxColor (this.colorIn(fn))
             if (!null? col3) {
                 shape.fontRefColor = (unwrap col3)
             }

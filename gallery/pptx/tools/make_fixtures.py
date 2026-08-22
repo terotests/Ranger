@@ -471,10 +471,24 @@ def rect_shape(
       </p:sp>"""
 
 
-def pic_shape(sid: int, name: str, rid: str, x: int, y: int, cx: int, cy: int) -> str:
+def _xml_attr(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def pic_shape(sid: int, name: str, rid: str, x: int, y: int, cx: int, cy: int,
+              descr: str | None = None) -> str:
+    # `descr` is the author's alt text. It is the only thing a screen reader can
+    # say about a picture, so a fixture has to be able to state both cases: one
+    # that has it, and one that does not.
+    alt = ' descr="%s"' % _xml_attr(descr) if descr else ""
     return f"""      <p:pic>
         <p:nvPicPr>
-          <p:cNvPr id="{sid}" name="{name}"/>
+          <p:cNvPr id="{sid}" name="{name}"{alt}/>
           <p:cNvPicPr/>
           <p:nvPr/>
         </p:nvPicPr>
@@ -492,7 +506,8 @@ def pic_shape(sid: int, name: str, rid: str, x: int, y: int, cx: int, cy: int) -
       </p:pic>"""
 
 
-def slide_rels(layout: bool = True, images: dict[str, str] | None = None) -> str:
+def slide_rels(layout: bool = True, images: dict[str, str] | None = None,
+               extra: list[str] | None = None) -> str:
     rels = []
     if layout:
         rels.append(
@@ -503,6 +518,12 @@ def slide_rels(layout: bool = True, images: dict[str, str] | None = None) -> str
             rels.append(
                 f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="{target}"/>'
             )
+    # Relationships named by content this reader does not model — a diagram's
+    # four parts, a piece of ink. They belong to the slide as much as a
+    # picture's does, and a rewrite that dropped them would leave the preserved
+    # XML pointing at nothing.
+    if extra:
+        rels.extend(extra)
     body = "\n  ".join(rels)
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -773,6 +794,106 @@ def spaced_runs_shape(sid: int, x: int, y: int, cx: int, cy: int) -> str:
       </p:sp>"""
 
 
+# --- things a reader is allowed not to understand -----------------------------
+#
+# A shape tree carries more than shapes. SmartArt and newer chart types arrive
+# wrapped in `mc:AlternateContent`, ink arrives as `p:contentPart`, and
+# `p:extLst` holds whatever the writing tool wanted to say to itself. Ranger
+# models none of it, walks past all of it, and — before the source spans — a
+# save that rewrote the slide deleted every one of them.
+#
+# The namespaces are declared on the elements themselves rather than on the
+# root, which is legal and keeps `slide_xml` unchanged for every other fixture.
+
+def alternate_content(sid: int, x: int, y: int, cx: int, cy: int) -> str:
+    """An mc:AlternateContent block, shaped like the one PowerPoint writes
+    around a diagram: a Choice nothing here can read, and a Fallback picture
+    of it."""
+    return f"""      <mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+        <mc:Choice xmlns:adec="http://schemas.microsoft.com/office/drawing/2017/decorative" Requires="adec">
+          <p:graphicFrame>
+            <p:nvGraphicFramePr>
+              <p:cNvPr id="{sid}" name="Diagram {sid}"/>
+              <p:cNvGraphicFramePr/>
+              <p:nvPr/>
+            </p:nvGraphicFramePr>
+            <p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram">
+                <dgm:relIds xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"
+                 xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                 r:dm="rId10" r:lo="rId11" r:qs="rId12" r:cs="rId13"/>
+              </a:graphicData>
+            </a:graphic>
+          </p:graphicFrame>
+        </mc:Choice>
+        <mc:Fallback>
+          <p:sp>
+            <p:nvSpPr>
+              <p:cNvPr id="{sid + 100}" name="Diagram fallback"/>
+              <p:cNvSpPr/>
+              <p:nvPr/>
+            </p:nvSpPr>
+            <p:spPr>
+              <a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+              <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+            </p:spPr>
+          </p:sp>
+        </mc:Fallback>
+      </mc:AlternateContent>"""
+
+
+def content_part(rid: str = "rId20") -> str:
+    """Ink. A single self-closing element, which is the case that catches a
+    span recorded only for elements with an end tag."""
+    return (f'      <p:contentPart xmlns:r="http://schemas.openxmlformats.org/'
+            f'officeDocument/2006/relationships" r:id="{rid}"/>')
+
+
+def tree_ext_lst() -> str:
+    """A `p:extLst` inside the shape tree, holding a creation id — the kind of
+    thing a tool writes for itself and expects to find again."""
+    return """      <p:extLst>
+        <p:ext uri="{BB962C8B-B14F-4D97-AF65-F5344CB8AC3E}">
+          <p14:creationId xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" val="1234567"/>
+        </p:ext>
+      </p:extLst>"""
+
+
+# --- a run that says it is NOT bold -------------------------------------------
+#
+# `b="0"` and no `b` at all are different documents. The first takes a word out
+# of a bold placeholder; the second lets the placeholder decide. A reader that
+# tests `bold == false` cannot tell them apart, and every reader here did.
+
+def unbold_body(sid: int, x: int, y: int, cx: int, cy: int) -> str:
+    """A body whose list style says bold and italic, holding three runs: one
+    silent (so it inherits both), one that says b="0" (so it must NOT be bold
+    while still inheriting italic), and one that says i="0"."""
+    return f"""      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="{sid}" name="Unbold"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square"/>
+          <a:lstStyle>
+            <a:lvl1pPr><a:defRPr b="1" i="1"/></a:lvl1pPr>
+          </a:lstStyle>
+          <a:p>
+            <a:r><a:rPr lang="en-US" sz="1800"/><a:t>inherits</a:t></a:r>
+            <a:r><a:rPr lang="en-US" sz="1800" b="0"/><a:t>notbold</a:t></a:r>
+            <a:r><a:rPr lang="en-US" sz="1800" i="0"/><a:t>notitalic</a:t></a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>"""
+
+
 def write_pptx(
     name: str,
     slides: list[tuple[str, str | None]],
@@ -783,6 +904,7 @@ def write_pptx(
     theme_xml: str | None = None,
     sld_sz: tuple[int, int] | None = None,
     extra_layouts: dict[str, tuple[str, str]] | None = None,
+    extra_parts: dict[str, str] | None = None,
 ) -> None:
     """slides: list of (slide_xml, optional slide_rels_xml)."""
     media = media or {}
@@ -857,6 +979,10 @@ def write_pptx(
                 zf.writestr(f"ppt/slides/_rels/slide{i + 1}.xml.rels", srels)
         for mname, data in media.items():
             zf.writestr(f"ppt/media/{mname}", data)
+        # Parts nothing here models, named by relationships from the slide.
+        if extra_parts:
+            for pname, ptext in extra_parts.items():
+                zf.writestr(pname, ptext)
     print(f"wrote {path}")
 
 
@@ -2673,6 +2799,82 @@ def main() -> None:
     write_pptx("31-inherited-text.pptx", [(slide_xml(inh), slide_rels()),
                                           (slide_xml(fitted), slide_rels())],
                master_xml=inherited_master())
+
+    # 32 — a slide holding things this reader does not model
+    #
+    # Between two ordinary shapes sits an mc:AlternateContent block (a diagram),
+    # after them a contentPart (ink) and a p:extLst. None of the three is in
+    # PptxModel. Editing the text and saving must leave all three exactly as
+    # they are: that is what the source spans are for.
+    unmodelled = sp_tree(
+        text_shape(2, "Heading", 457200, 400000, 6000000, 800000, "Before the diagram"),
+        alternate_content(3, 457200, 1400000, 4000000, 2400000),
+        text_shape(4, "Footer", 457200, 4200000, 6000000, 800000, "After the diagram"),
+        content_part(),
+        tree_ext_lst(),
+    )
+    # ...and at slide level too. CT_Slide orders its children
+    # `cSld, clrMapOvr, transition, timing, extLst`, so a transition sits
+    # between the two unmodelled ones and they have to go back on the sides of
+    # it they came from: an extLst written before the transition is a part
+    # PowerPoint rejects. The clrMapOvr is the other half of this — the writer
+    # used to state a plain `masterClrMapping` whatever the slide said, which
+    # throws away a palette swap.
+    unmodelled_tail = """  <p:transition spd="med"><p:fade/></p:transition>
+  <p:extLst>
+    <p:ext uri="{DEADBEEF-0000-4000-8000-000000000001}">
+      <p14:creationId xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" val="7654321"/>
+    </p:ext>
+  </p:extLst>"""
+    # The relationships the preserved content names. A diagram points at four
+    # parts of its own and the ink at one; none is modelled here, and all five
+    # have to come through a save with the XML that names them.
+    dgm = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagram"
+    unmodelled_rels = [
+        f'<Relationship Id="rId10" Type="{dgm}Data" Target="../diagrams/data1.xml"/>',
+        f'<Relationship Id="rId11" Type="{dgm}Layout" Target="../diagrams/layout1.xml"/>',
+        f'<Relationship Id="rId12" Type="{dgm}QuickStyle" Target="../diagrams/quickStyle1.xml"/>',
+        f'<Relationship Id="rId13" Type="{dgm}Colors" Target="../diagrams/colors1.xml"/>',
+        '<Relationship Id="rId20" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml" Target="../ink/ink1.xml"/>',
+    ]
+    write_pptx("32-unmodelled-content.pptx",
+               [(slide_xml(unmodelled, tail=unmodelled_tail),
+                 slide_rels(extra=unmodelled_rels))],
+               extra_parts={
+                   "ppt/diagrams/data1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:dataModel xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"><dgm:ptLst/></dgm:dataModel>\n',
+                   "ppt/diagrams/layout1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:layoutDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>\n',
+                   "ppt/diagrams/quickStyle1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:styleDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>\n',
+                   "ppt/diagrams/colors1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<dgm:colorsDef xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>\n',
+                   "ppt/ink/ink1.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<inkml:ink xmlns:inkml="http://www.w3.org/2003/InkML"/>\n',
+               })
+
+    # 33 — what a run said, versus what it did not say
+    unbold = sp_tree(unbold_body(2, 457200, 400000, 7000000, 1600000))
+    write_pptx("33-unbold.pptx", [(slide_xml(unbold), slide_rels())])
+
+    # 34 — alt text: what a screen reader has to go on
+    #
+    # Two pictures, one with the author's alt text and one without, plus a
+    # title placeholder so the slide has a name. A viewer that cannot tell the
+    # two pictures apart cannot report the second as the accessibility failure
+    # it is.
+    alt_png = solid_png(60, 120, 200, 120, 90)
+    alt34 = sp_tree(
+        ph_shape(
+            2, "Title 1", "title", None, 457200, 274638, 8229600, 1143000,
+            text="Alt text", bold=True,
+        ),
+        pic_shape(
+            3, "Revenue chart", "rId2", 457200, 1600200, 2743200, 2057400,
+            descr="Quarterly revenue by region, rising from 8.1 to 13.9 million",
+        ),
+        pic_shape(4, "Picture 4", "rId2", 3657600, 1600200, 2743200, 2057400),
+    )
+    write_pptx(
+        "34-alt-text.pptx",
+        [(slide_xml(alt34), slide_rels(images={"rId2": "../media/image1.png"}))],
+        media={"image1.png": alt_png},
+    )
 
     print("fixtures ready")
 

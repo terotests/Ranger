@@ -42,9 +42,28 @@ Import "../CellStyle.rgr"
 Import "../DataValidation.rgr"
 Import "../RichText.rgr"
 Import "../../zip/ZipWriter.rgr"
+Import "../../../ooxml/OpcPackage.rgr"
 Import "../../../pdf_writer/src/core/Utf8.rgr"
 
 class XlsxWriter {
+    ; --- save-over ------------------------------------------------------------
+    ;
+    ; Off by default, and that default is a decision rather than an oversight:
+    ; a fresh package is a CLEAN file, and cleaning is sometimes exactly what a
+    ; person wants. `writeOver` is the other half — everything the model does
+    ; not carry copied through from the package it was read from.
+    def overMode:boolean false
+    def overPkg:OpcPackage (new OpcPackage())
+    ; Parts this save generated, so the copy-through pass knows what NOT to
+    ; copy — a part written twice is a package no reader will open.
+    def writtenParts:[string:boolean]
+    ; The highest relationship id the sheet being written already used in the
+    ; source. The writer numbers its own hyperlink and table relationships from
+    ; 1; a preserved `<drawing r:id="rId1"/>` names the source's rId1, and two
+    ; different things called rId1 is the picture drawn where a table should
+    ; be.
+    def sheetRelBase:int 0
+
     def lastError:string ""
     ; Tables are numbered across the WORKBOOK — `xl/tables/table1.xml`,
     ; `table2.xml` — while they are written one sheet at a time, so the part
@@ -443,17 +462,36 @@ class XlsxWriter {
         while (i < (rt.count())) {
             def run:CellRun (itemAt rt.runs i)
             def props:string ""
-            if run.bold {
-                str_append props "<b/>"
+            ; A run that says it is NOT bold has to say so. Writing nothing
+            ; lets the cell's own weight back in on the next open, which is
+            ; the same conflation on the way out.
+            if run.boldSet {
+                if run.bold {
+                    str_append props "<b/>"
+                } {
+                    str_append props "<b val=\"0\"/>"
+                }
             }
-            if run.italic {
-                str_append props "<i/>"
+            if run.italicSet {
+                if run.italic {
+                    str_append props "<i/>"
+                } {
+                    str_append props "<i val=\"0\"/>"
+                }
             }
-            if run.underline {
-                str_append props "<u/>"
+            if run.underlineSet {
+                if run.underline {
+                    str_append props "<u/>"
+                } {
+                    str_append props "<u val=\"none\"/>"
+                }
             }
-            if run.strike {
-                str_append props "<strike/>"
+            if run.strikeSet {
+                if run.strike {
+                    str_append props "<strike/>"
+                } {
+                    str_append props "<strike val=\"0\"/>"
+                }
             }
             if (run.sizePt > 0.0) {
                 str_append props ("<sz val=\"" + (XlsxWriter.numText(run.sizePt)) + "\"/>")
@@ -487,11 +525,73 @@ class XlsxWriter {
         return (((to_double px) * 72.0) / 96.0)
     }
 
+    ; --- preserved worksheet children ----------------------------------------
+    ;
+    ; SpreadsheetML fixes the order of a worksheet's children, and Excel
+    ; refuses a file that gets it wrong — so a preserved element cannot simply
+    ; be appended. Each one belongs to one of five points relative to what this
+    ; writer emits itself, and within a point they keep the order the source
+    ; file had them in, which was already valid.
+    ;
+    ;   0  before <dimension>                     sheetPr
+    ;   1  after </sheetData>, before autoFilter  sheetCalcPr, sheetProtection,
+    ;                                             protectedRanges, scenarios
+    ;   2  after mergeCells, before dataValidations
+    ;                                             phoneticPr, conditionalFormatting
+    ;   3  after hyperlinks, before tableParts    printOptions … controls
+    ;   4  after tableParts                       extLst
+    sfn opaqueSlot:int (name:string) {
+        if (name == "sheetPr") {
+            return 0
+        }
+        if (name == "sheetCalcPr") {
+            return 1
+        }
+        if (name == "sheetProtection") {
+            return 1
+        }
+        if (name == "protectedRanges") {
+            return 1
+        }
+        if (name == "scenarios") {
+            return 1
+        }
+        if (name == "phoneticPr") {
+            return 2
+        }
+        if (name == "conditionalFormatting") {
+            return 2
+        }
+        if (name == "extLst") {
+            return 4
+        }
+        return 3
+    }
+
+    ; Everything preserved for one slot, in source order. Empty in clean mode:
+    ; a fresh package is meant to be fresh.
+    fn opaqueXml:string (m:SpreadsheetModel slot:int) {
+        if (overMode == false) {
+            return ""
+        }
+        def out:string ""
+        def i:int 0
+        while (i < (array_length m.opaque)) {
+            def o:SheetOpaque (itemAt m.opaque i)
+            if ((XlsxWriter.opaqueSlot(o.name)) == slot) {
+                str_append out o.source
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn sheetXml:string (m:SpreadsheetModel) {
         def lastR:int (m.usedRow())
         def lastC:int (m.usedCol())
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
         str_append out "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+        str_append out (this.opaqueXml(m 0))
         str_append out ("<dimension ref=\"A1:" + (XlsxWriter.cellRef(lastR lastC)) + "\"/>")
         ; The sheet's own defaults. Everything below states only what DIFFERS
         ; from them — a file that repeated the default for every row and column
@@ -626,6 +726,7 @@ class XlsxWriter {
             r = (r + 1)
         }
         str_append out "</sheetData>"
+        str_append out (this.opaqueXml(m 1))
 
         if ((array_length m.merges) > 0) {
             str_append out ("<mergeCells count=\"" + (to_string (array_length m.merges)) + "\">")
@@ -643,6 +744,7 @@ class XlsxWriter {
             }
             str_append out "</mergeCells>"
         }
+        str_append out (this.opaqueXml(m 2))
 
         ; Validations come before hyperlinks in the schema's order, and a
         ; reader that checks the order will reject them the other way round.
@@ -678,6 +780,7 @@ class XlsxWriter {
         if ((strlen links) > 0) {
             str_append out links
         }
+        str_append out (this.opaqueXml(m 3))
         ; Tables, last: a `<tableParts>` element points at the table PARTS by
         ; relationship, and the relationships are numbered after the sheet's
         ; hyperlinks, which is why the count of those is asked for here.
@@ -691,6 +794,7 @@ class XlsxWriter {
             }
             str_append out "</tableParts>"
         }
+        str_append out (this.opaqueXml(m 4))
         str_append out "</worksheet>"
         return out
     }
@@ -914,6 +1018,387 @@ class XlsxWriter {
         return out
     }
 
+
+    ; --- writing over the package the workbook came from -----------------------
+    ;
+    ; The clean write above is a good default and a bad only option. A
+    ; spreadsheet carries a great deal this model has never heard of — pivot
+    ; tables, macros, comments, the drawings that hold the pictures, the
+    ; document properties, the theme — and building a fresh package silently
+    ; deletes all of it. Measured on this repository's own fixtures, a plain
+    ; save dropped the drawings and both media parts from `images.xlsx`, the
+    ; comments part from `annotations.xlsx`, and `docProps` and the theme from
+    ; every workbook that had them.
+    ;
+    ; So: generate what the model owns, copy through everything else, and merge
+    ; the three places that name parts — the content types, the package
+    ; relationships and the workbook relationships. `SheetOpaque` covers the
+    ; fourth: the worksheet's own references to what was copied.
+    fn packOver:boolean (book:WorkbookModel pkg:OpcPackage z:ZipWriter) {
+        lastError = ""
+        if ((book.sheetCount()) == 0) {
+            lastError = "workbook has no sheets"
+            return false
+        }
+        overMode = true
+        overPkg = pkg
+        def fresh:[string:boolean]
+        writtenParts = fresh
+
+        ; --- the parts the model owns
+        def first:SpreadsheetModel (book.sheetAt(0))
+        this.addOver(z "xl/workbook.xml" (this.workbookXml(book)))
+        this.addOver(z "xl/styles.xml" (this.stylesXml(first.styles)))
+        def i:int 0
+        def tableSeen:int 0
+        while (i < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            def path:string (XlsxWriter.sheetPartOf(sh i))
+            tableBase = tableSeen
+            ; What the source already numbered, so this writer's own hyperlink
+            ; and table relationships start above it.
+            def relsPath:string (OpcPackage.relsPathFor(path))
+            def srcRels:string ""
+            if (pkg.hasPart(relsPath)) {
+                srcRels = (pkg.readXml(relsPath))
+            }
+            sheetRelBase = (XlsxWriter.highestRelId(srcRels))
+            this.addOver(z path (this.sheetXml(sh)))
+            def merged:string (this.mergedSheetRels(sh srcRels))
+            if ((strlen merged) > 0) {
+                this.addOver(z relsPath merged)
+            }
+            def ti:int 0
+            while (ti < (sh.tableCount())) {
+                def t:SheetTable (sh.tableAt(ti))
+                def num:int ((tableSeen + ti) + 1)
+                this.addOver(z ("xl/tables/table" + (to_string num) + ".xml") (XlsxWriter.tableXml(t num)))
+                ti = (ti + 1)
+            }
+            tableSeen = (tableSeen + (sh.tableCount()))
+            i = (i + 1)
+        }
+        sheetRelBase = 0
+        this.packScriptsOver(book z)
+
+        ; --- the three places that name parts
+        this.addOver(z "xl/_rels/workbook.xml.rels" (this.mergedWorkbookRels(book pkg)))
+        this.addOver(z "_rels/.rels" (this.mergedRootRels(pkg)))
+        this.addOver(z "[Content_Types].xml" (this.mergedContentTypes(book pkg)))
+
+        ; --- and everything nobody here understands
+        def parts:[string] (pkg.listParts())
+        def k:int 0
+        while (k < (array_length parts)) {
+            def part:string (itemAt parts k)
+            def done@(optional):boolean (get writtenParts part)
+            if (null? done) {
+                ; A worksheet the workbook no longer has — a deleted sheet —
+                ; must NOT be copied back in, and neither must its
+                ; relationships. Everything else goes through untouched.
+                if ((XlsxWriter.isDroppedSheetPart(book part)) == false) {
+                    z.addFile(part (pkg.readBinary(part)))
+                }
+            }
+            k = (k + 1)
+        }
+        overMode = false
+        return true
+    }
+
+    fn addOver:void (z:ZipWriter name:string text:string) {
+        XlsxWriter.addPart(z name text)
+        set writtenParts name true
+    }
+
+    ; Where a sheet goes back. Its own part if it had one, so the relationship
+    ; part beside it still matches; the conventional name if it is new.
+    sfn sheetPartOf:string (sh:SpreadsheetModel index:int) {
+        if ((strlen sh.partPath) > 0) {
+            return sh.partPath
+        }
+        return ("xl/worksheets/sheet" + ((to_string (index + 1)) + ".xml"))
+    }
+
+    ; A worksheet part in the source that no sheet in the workbook claims any
+    ; more. Copying it back would resurrect a deleted sheet as an orphan part.
+    sfn isDroppedSheetPart:boolean (book:WorkbookModel part:string) {
+        if ((indexOf part "xl/worksheets/") != 0) {
+            return false
+        }
+        def target:string part
+        def rels:boolean ((indexOf part "xl/worksheets/_rels/") == 0)
+        if rels {
+            ; `xl/worksheets/_rels/sheet1.xml.rels` belongs to
+            ; `xl/worksheets/sheet1.xml`.
+            def n:int (strlen part)
+            if ((indexOf part ".rels") != (n - 5)) {
+                return false
+            }
+            def base:string (substring part 20 (n - 5))
+            target = ("xl/worksheets/" + base)
+        }
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            if ((XlsxWriter.sheetPartOf(sh i)) == target) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The largest `rIdN` a relationship part uses. Ids are names rather than
+    ; numbers in OPC, but every producer writes them that way, and this writer
+    ; needs a number it can safely count from — an id it reuses is a picture
+    ; drawn where a table should be.
+    sfn highestRelId:int (rels:string) {
+        def best:int 0
+        def n:int (strlen rels)
+        def at:int (indexOf rels "Id=\"rId")
+        while (at >= 0) {
+            def i:int (at + 7)
+            def v:int 0
+            def any:boolean false
+            while (i < n) {
+                def ch:int (charAt rels i)
+                if (ch < 48) {
+                    i = n
+                } {
+                    if (ch > 57) {
+                        i = n
+                    } {
+                        v = ((v * 10) + (ch - 48))
+                        any = true
+                        i = (i + 1)
+                    }
+                }
+            }
+            if any {
+                if (v > best) {
+                    best = v
+                }
+            }
+            def rest:string (substring rels (at + 7) n)
+            def nxt:int (indexOf rest "Id=\"rId")
+            if (nxt < 0) {
+                at = -1
+            } {
+                at = ((at + 7) + nxt)
+            }
+        }
+        return best
+    }
+
+    ; The relationships inside a `<Relationships>` document, verbatim, as they
+    ; were written. Kept whole rather than re-emitted so a target this code has
+    ; no idea about survives with its type and its mode intact.
+    sfn relationshipsIn:string (rels:string) {
+        def out:string ""
+        def n:int (strlen rels)
+        def at:int (indexOf rels "<Relationship ")
+        while (at >= 0) {
+            def close:int at
+            def found:int -1
+            while (close < n) {
+                if ((charAt rels close) == 62) {
+                    found = close
+                    close = n
+                } {
+                    close = (close + 1)
+                }
+            }
+            if (found < 0) {
+                return out
+            }
+            str_append out (substring rels at (found + 1))
+            def rest:string (substring rels (found + 1) n)
+            def nxt:int (indexOf rest "<Relationship ")
+            if (nxt < 0) {
+                at = -1
+            } {
+                at = ((found + 1) + nxt)
+            }
+        }
+        return out
+    }
+
+    sfn relsDocument:string (body:string) {
+        return ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" + (body + "</Relationships>"))
+    }
+
+    ; One sheet's relationships: everything the source had, kept exactly, plus
+    ; the ones this writer generates for its hyperlinks and tables — numbered
+    ; from above the source's highest, which is what `sheetRelBase` is for.
+    fn mergedSheetRels:string (m:SpreadsheetModel srcRels:string) {
+        def kept:string (XlsxWriter.relationshipsIn(srcRels))
+        def mine:string (XlsxWriter.relationshipsIn((this.sheetRelsXml(m))))
+        if ((strlen kept) == 0) {
+            if ((strlen mine) == 0) {
+                return ""
+            }
+        }
+        return (XlsxWriter.relsDocument(kept + mine))
+    }
+
+    ; The workbook's relationships. The generated ones name the sheets and the
+    ; style table; the source's name the theme, the shared strings, the
+    ; calculation chain and whatever else was in there. A source relationship
+    ; is kept when the part it names is still going to be in the package.
+    fn mergedWorkbookRels:string (book:WorkbookModel pkg:OpcPackage) {
+        def out:string ""
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            def target:string (XlsxWriter.relTargetFromXl((XlsxWriter.sheetPartOf(sh i))))
+            str_append out ("<Relationship Id=\"rId" + (to_string (i + 1)) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"" + (target + "\"/>"))
+            i = (i + 1)
+        }
+        def styleId:int ((book.sheetCount()) + 1)
+        str_append out ("<Relationship Id=\"rId" + (to_string styleId) + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
+        def next:int (styleId + 1)
+        def rels:[OpcRelationship] (OpcPackage.parseRelationships((pkg.readXml("xl/_rels/workbook.xml.rels"))))
+        def r:int 0
+        while (r < (array_length rels)) {
+            def rel:OpcRelationship (itemAt rels r)
+            if (XlsxWriter.isRegeneratedRel(rel.type)) {
+                r = (r + 1)
+            } {
+                ; Renumbered, because the generated ids above took the low
+                ; numbers. Nothing points at a workbook relationship by id
+                ; except the workbook part, and this writer regenerates that.
+                str_append out ("<Relationship Id=\"rId" + (to_string next) + "\" Type=\"" + rel.type + "\" Target=\"" + rel.target + "\"")
+                if (rel.targetMode == "External") {
+                    str_append out " TargetMode=\"External\""
+                }
+                str_append out "/>"
+                next = (next + 1)
+                r = (r + 1)
+            }
+        }
+        return (XlsxWriter.relsDocument(out))
+    }
+
+    ; A relationship type this writer states itself, and therefore must not
+    ; copy: keeping the source's worksheet and style links beside the generated
+    ; ones would give the workbook two of each.
+    sfn isRegeneratedRel:boolean (type:string) {
+        if (OpcPackage.typeEndsWith(type "/worksheet")) {
+            return true
+        }
+        if (OpcPackage.typeEndsWith(type "/styles")) {
+            return true
+        }
+        return false
+    }
+
+    ; A part path as a workbook relationship states it: relative to `xl/`.
+    sfn relTargetFromXl:string (part:string) {
+        if ((indexOf part "xl/") == 0) {
+            return (substring part 3 (strlen part))
+        }
+        return ("/" + part)
+    }
+
+    ; The package relationships — where `docProps/core.xml` and
+    ; `docProps/app.xml` are named, which is the only reason a workbook's
+    ; author and title survive a save at all.
+    fn mergedRootRels:string (pkg:OpcPackage) {
+        def rels:[OpcRelationship] (OpcPackage.parseRelationships((pkg.readXml("_rels/.rels"))))
+        if ((array_length rels) == 0) {
+            return (XlsxWriter.relsDocument("<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"))
+        }
+        return (XlsxWriter.relsDocument((XlsxWriter.relationshipsIn((pkg.readXml("_rels/.rels"))))))
+    }
+
+    ; The content types. The source's document is the base — it already
+    ; declares the extensions and the overrides for everything that is being
+    ; copied through — and the generated parts are added where the source did
+    ; not already name them. A part with no content type makes the package
+    ; invalid, and so does a part named twice.
+    fn mergedContentTypes:string (book:WorkbookModel pkg:OpcPackage) {
+        def src:string (pkg.readXml("[Content_Types].xml"))
+        if ((strlen src) == 0) {
+            return (this.contentTypesXml(book))
+        }
+        def endAt:int (indexOf src "</Types>")
+        if (endAt < 0) {
+            return (this.contentTypesXml(book))
+        }
+        def head:string (substring src 0 endAt)
+        def add:string ""
+        def i:int 0
+        while (i < (book.sheetCount())) {
+            def sh:SpreadsheetModel (book.sheetAt(i))
+            def part:string ("/" + (XlsxWriter.sheetPartOf(sh i)))
+            if ((XlsxWriter.declaresPart(src part)) == false) {
+                str_append add ("<Override PartName=\"" + part + "\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
+            }
+            i = (i + 1)
+        }
+        def tn:int 0
+        def ti:int 0
+        while (ti < (book.sheetCount())) {
+            def sh2:SpreadsheetModel (book.sheetAt(ti))
+            tn = (tn + (sh2.tableCount()))
+            ti = (ti + 1)
+        }
+        def t:int 0
+        while (t < tn) {
+            def tpart:string ("/xl/tables/table" + ((to_string (t + 1)) + ".xml"))
+            if ((XlsxWriter.declaresPart(src tpart)) == false) {
+                str_append add ("<Override PartName=\"" + tpart + "\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml\"/>")
+            }
+            t = (t + 1)
+        }
+        ; A script part's extension, same rule as the clean writer: declared
+        ; only when a script is actually there.
+        def si:int 0
+        def sn:int (book.scriptCount())
+        def sawTsx:boolean false
+        def sawJs:boolean false
+        while (si < sn) {
+            def sc:GridScript (book.scriptAt(si))
+            def ext:string (GridScript.extensionOfPart(sc.part))
+            if (ext == ".js") {
+                sawJs = true
+            } {
+                sawTsx = true
+            }
+            si = (si + 1)
+        }
+        if sawTsx {
+            if ((indexOf src "Extension=\"tsx\"") < 0) {
+                str_append add "<Default Extension=\"tsx\" ContentType=\"text/plain\"/>"
+            }
+        }
+        if sawJs {
+            if ((indexOf src "Extension=\"js\"") < 0) {
+                str_append add "<Default Extension=\"js\" ContentType=\"text/plain\"/>"
+            }
+        }
+        return ((head + add) + "</Types>")
+    }
+
+    sfn declaresPart:boolean (types:string part:string) {
+        return ((indexOf types ("PartName=\"" + (part + "\""))) >= 0)
+    }
+
+    fn packScriptsOver:void (book:WorkbookModel z:ZipWriter) {
+        def i:int 0
+        def n:int (book.scriptCount())
+        while (i < n) {
+            def sc:GridScript (book.scriptAt(i))
+            def part:string sc.part
+            if ((strlen part) == 0) {
+                part = (GridScript.partFor(sc.name))
+            }
+            this.addOver(z part sc.source)
+            i = (i + 1)
+        }
+    }
+
     sfn addPart:void (z:ZipWriter name:string text:string) {
         z.addFile(name (XlsxWriter.utf8Buffer(text)))
     }
@@ -988,6 +1473,61 @@ class XlsxWriter {
         }
         z.save(dir name)
         return true
+    }
+
+    ; --- the two saves --------------------------------------------------------
+    ;
+    ; `write` builds a fresh package: a CLEAN file, and sometimes that is
+    ; exactly what is wanted. `writeOver` preserves what the model does not
+    ; carry. Neither is the right answer always, which is why both are here and
+    ; the caller says which.
+    ;
+    ; A workbook with no source — one made in the editor, or one whose host
+    ; called `dropSource()` — cannot be written over. That is reported rather
+    ; than silently downgraded: a caller that asked to preserve and got a clean
+    ; file would have no way to know.
+    fn writeOver:boolean (book:WorkbookModel dir:string name:string) {
+        lastError = ""
+        if ((book.hasSource()) == false) {
+            lastError = "this workbook was not read from a file, so there is nothing to write over"
+            return false
+        }
+        def pkg:OpcPackage (new OpcPackage())
+        if ((pkg.openBytes(book.sourceBytes "workbook.xlsx")) == false) {
+            lastError = "the workbook this was read from cannot be reopened"
+            return false
+        }
+        def z:ZipWriter (new ZipWriter)
+        z.create()
+        def ok:boolean (this.packOver(book pkg z))
+        pkg.close()
+        if (ok == false) {
+            return false
+        }
+        z.save(dir name)
+        return true
+    }
+
+    ; The same, as bytes — what a browser download needs.
+    fn writeOverToBuffer:buffer (book:WorkbookModel) {
+        lastError = ""
+        if ((book.hasSource()) == false) {
+            lastError = "this workbook was not read from a file, so there is nothing to write over"
+            return (buffer_alloc 0)
+        }
+        def pkg:OpcPackage (new OpcPackage())
+        if ((pkg.openBytes(book.sourceBytes "workbook.xlsx")) == false) {
+            lastError = "the workbook this was read from cannot be reopened"
+            return (buffer_alloc 0)
+        }
+        def z:ZipWriter (new ZipWriter)
+        z.create()
+        def ok:boolean (this.packOver(book pkg z))
+        pkg.close()
+        if (ok == false) {
+            return (buffer_alloc 0)
+        }
+        return (z.toBuffer())
     }
 
     ; Same package as `write`, as bytes — for browser download / in-memory hosts.

@@ -70,6 +70,8 @@ class PptxTextEditTest {
         this.testWrapAnchorAndAlign()
         this.testWrapBullet()
         this.testEditorCaret()
+        this.testSelectedShapeTyping()
+        this.testRunIdentity()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -493,6 +495,152 @@ class PptxTextEditTest {
         this.check("a bulleted line has less room, so it breaks earlier" (first.endCol <= ((itemAt plain 0).endCol)))
         def second:PptxTextLine (itemAt bulleted 1)
         this.check("the wrapped line hangs under the text, not the bullet" ((fabs (second.x - first.x)) < 0.01))
+    }
+
+
+    ; --- typing into a shape that is selected but has no caret in it ----------
+    ;
+    ; The bug this exists for: `appendText` and `backspaceText` used to take the
+    ; whole body out as one plain string, change the string and build the body
+    ; again from it. `setBodyText` gives every paragraph ONE run in the style of
+    ; the FIRST one, so a box holding an orange link and white prose came back
+    ; entirely orange and its empty paragraphs were gone — on the first
+    ; backspace, before a single character had been typed.
+    fn linkAndProse:PptxTextBody () {
+        def body (new PptxTextBody())
+        def p0 (new PptxParagraph())
+        def link (new PptxTextRun())
+        link.text = "www.trello.com"
+        link.color = (PptxColor.srgbOf("E8A33D"))
+        link.fontSizePt = 18.0
+        def prose (new PptxTextRun())
+        prose.text = " a wall of notes"
+        prose.color = (PptxColor.srgbOf("FFFFFF"))
+        prose.fontSizePt = 18.0
+        push p0.runs link
+        push p0.runs prose
+        push body.paragraphs p0
+        ; The blank line between items — a paragraph with nothing in it, which
+        ; a round trip through plain text does not survive either.
+        def blank (new PptxParagraph())
+        push body.paragraphs blank
+        def p1 (new PptxParagraph())
+        def bold (new PptxTextRun())
+        bold.text = "Free."
+        bold.bold = true
+        bold.color = (PptxColor.srgbOf("FFFFFF"))
+        bold.fontSizePt = 18.0
+        push p1.runs bold
+        push body.paragraphs p1
+        return body
+    }
+
+    fn testSelectedShapeTyping:void () {
+        print "--- typing into a selected shape keeps its formatting ---"
+        def pres (new PptxPresentation())
+        def slide (new PptxSlide())
+        def sh (new PptxShape())
+        sh.kind = 0
+        sh.x = 10.0
+        sh.y = 10.0
+        sh.width = 300.0
+        sh.height = 200.0
+        sh.hasXfrm = true
+        sh.hasText = true
+        sh.text = (this.linkAndProse())
+        push slide.shapes sh
+        push pres.slides slide
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.select(sh.editId)
+
+        ed.appendText("X")
+        def para0:PptxParagraph (itemAt sh.text.paragraphs 0)
+        this.check("the link and the prose are still two runs" ((array_length para0.runs) == 2))
+        this.check("the link kept its own colour" (((itemAt para0.runs 0).color.srgb) == "E8A33D"))
+        this.check("and the prose kept its own" (((itemAt para0.runs 1).color.srgb) == "FFFFFF"))
+        this.check("three paragraphs, including the blank one" ((array_length sh.text.paragraphs) == 3))
+        this.check("the character landed at the end" ((PptxTextEdit.paraText(sh.text 2)) == "Free.X"))
+        def last:PptxParagraph (itemAt sh.text.paragraphs 2)
+        this.check("and the last paragraph is still bold" ((itemAt last.runs 0).bold))
+
+        ed.backspaceText()
+        this.check("backspace took it off again" ((PptxTextEdit.paraText(sh.text 2)) == "Free."))
+        def after0:PptxParagraph (itemAt sh.text.paragraphs 0)
+        this.check("and did not flatten the runs above it" ((array_length after0.runs) == 2))
+        this.check("the link is still its own colour" (((itemAt after0.runs 0).color.srgb) == "E8A33D"))
+        this.check("the prose is still white" (((itemAt after0.runs 1).color.srgb) == "FFFFFF"))
+        this.check("the blank paragraph is still there" ((array_length sh.text.paragraphs) == 3))
+        this.check("and it is still blank" ((PptxTextEdit.paraText(sh.text 1)) == ""))
+
+        ; Backspacing the last character of a paragraph must not take the
+        ; paragraph with it, and must not reach into the one before.
+        ed.backspaceText()
+        ed.backspaceText()
+        ed.backspaceText()
+        ed.backspaceText()
+        ed.backspaceText()
+        this.check("the emptied paragraph is still a paragraph" ((array_length sh.text.paragraphs) == 3))
+        this.check("and the text above it is untouched"
+            ((PptxTextEdit.paraText(sh.text 0)) == "www.trello.com a wall of notes"))
+    }
+
+    ; --- when two runs are the same run ---------------------------------------
+    ;
+    ; `mergeRuns` DELETES the run it merges away, so anything `sameStyle` fails
+    ; to compare is formatting the next keystroke destroys. These are the
+    ; comparisons it used to be missing.
+    fn styledRun:PptxTextRun (text:string) {
+        def r (new PptxTextRun())
+        r.text = text
+        r.fontSizePt = 18.0
+        return r
+    }
+
+    fn testRunIdentity:void () {
+        print "--- two runs are one run only if nothing differs ---"
+        def a:PptxTextRun (this.styledRun("one"))
+        def b:PptxTextRun (this.styledRun("two"))
+        this.check("two plain runs are the same" (PptxTextEdit.sameStyle(a b)))
+
+        ; A theme colour that has not been resolved carries an empty `srgb` and
+        ; differs only in the slot it names, which is how a white run and a
+        ; hyperlink-coloured one looked identical.
+        a.color = (PptxColor.schemeOf("tx1"))
+        b.color = (PptxColor.schemeOf("hlink"))
+        this.check("two unresolved theme colours are not the same"
+            ((PptxTextEdit.sameStyle(a b)) == false))
+
+        def c:PptxTextRun (this.styledRun("one"))
+        def d:PptxTextRun (this.styledRun("two"))
+        c.highlight = (PptxColor.srgbOf("FFFF00"))
+        this.check("a highlighted run is not a plain one" ((PptxTextEdit.sameStyle(c d)) == false))
+
+        def e:PptxTextRun (this.styledRun("3"))
+        def f:PptxTextRun (this.styledRun("3"))
+        e.field = "slidenum"
+        this.check("a slide number is not text that looks like one"
+            ((PptxTextEdit.sameStyle(e f)) == false))
+
+        def g:PptxTextRun (this.styledRun("one"))
+        def h:PptxTextRun (this.styledRun("two"))
+        g.color = (PptxColor.srgbOf("4472C4"))
+        h.color = (PptxColor.srgbOf("4472C4"))
+        h.color.lumMod = 0.6
+        this.check("the same colour through different modifiers is not the same"
+            ((PptxTextEdit.sameStyle(g h)) == false))
+
+        ; And splitting a highlighted run must leave both halves highlighted.
+        def para (new PptxParagraph())
+        def marked (new PptxTextRun())
+        marked.text = "highlighted"
+        marked.fontSizePt = 18.0
+        marked.highlight = (PptxColor.srgbOf("FFFF00"))
+        push para.runs marked
+        PptxTextEdit.splitRunsAt(para 5)
+        this.check("splitting gives two runs" ((array_length para.runs) == 2))
+        this.check("the left half keeps the marker" (((itemAt para.runs 0).highlight.srgb) == "FFFF00"))
+        this.check("and so does the right" (((itemAt para.runs 1).highlight.srgb) == "FFFF00"))
     }
 
 }

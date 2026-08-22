@@ -1,0 +1,285 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxA11yTest — the deck, checked without a screen reader
+; ==============================================================================
+;
+; A screen reader cannot read a canvas, so before this tree existed a
+; presentation opened here was a blank window to anyone using one. Every
+; failure below is invisible to someone looking at the screen and total for
+; someone who is not:
+;
+;   * a deck that does not say which slide of how many this is
+;   * a slide title announced as ordinary text, so nothing can be navigated to
+;   * the master's chrome read between every two slides
+;   * a picture whose alt text the reader dropped — indistinguishable from a
+;     picture whose author never wrote any
+;   * alt text the WRITER dropped, which is worse: the author had it and
+;     editing the deck here deleted it
+;   * an id that changes between frames, which makes a reader lose its place
+;
+;   npm run pptx:a11y:test
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+Import "../src/PptxWriter.rgr"
+
+class DeckA11yCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class PptxA11yTest {
+    def c:DeckA11yCheck (new DeckA11yCheck)
+
+    sfn main:void () {
+        def t (new PptxA11yTest())
+        t.run()
+    }
+
+    sfn open:PptxApp (name:string) {
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(960 720)
+        if ((app.loadParts("gallery/pptx/fixtures" name)) == false) {
+            print ("  could not open " + name)
+        }
+        return app
+    }
+
+    fn run:void () {
+        print "=== PptxA11yTest ==="
+        this.testSlideList()
+        this.testTitles()
+        this.testChromeIsNotContent()
+        this.testAltText()
+        this.testAltTextSurvivesASave()
+        this.testTable()
+        this.testWellFormed()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --------------------------------------------------------------------------
+
+    fn testSlideList:void () {
+        print "--- slide 7 of 30 ---"
+        ; The position in the deck is the single most important thing a reader
+        ; can say about a presentation, and it comes from posInSet/setSize and
+        ; nothing else.
+        def app:PptxApp (PptxA11yTest.open("20-business-deck.pptx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def root:EVGA11yNode (t.find("deck"))
+        c.eqStr("the deck says how many slides it has" root.name "Presentation, 5 slides")
+        def s1:EVGA11yNode (t.find("deck/slide:1"))
+        c.eqInt("the first slide is 1" s1.posInSet 1)
+        c.eqInt("of 5" s1.setSize 5)
+        def s5:EVGA11yNode (t.find("deck/slide:5"))
+        c.eqInt("the last is 5" s5.posInSet 5)
+        c.eqInt("of 5" s5.setSize 5)
+        c.ok("the slide on screen is marked" s1.selected)
+        c.ok("and the others are not" (s5.selected == false))
+        c.eqStr("every slide hangs off the deck" s5.parentId "deck")
+    }
+
+    fn testTitles:void () {
+        print "--- a slide title is a heading ---"
+        def app:PptxApp (PptxA11yTest.open("20-business-deck.pptx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def s2:EVGA11yNode (t.find("deck/slide:2"))
+        ; The slide's name is its own title. A deck of "Slide 1, Slide 2,
+        ; Slide 3" is a deck nobody can navigate.
+        c.eqStr("the slide is named by its title" s2.name "Slide 2: Agenda")
+        def h:EVGA11yNode (t.find("deck/slide:2/shape:2"))
+        c.eqInt("the title placeholder is a heading" h.role (EVGA11yRole.heading()))
+        c.eqStr("named by its text" h.name "Agenda")
+        c.eqStr("and it says what it is" h.description "Slide title")
+        def body:EVGA11yNode (t.find("deck/slide:2/shape:3"))
+        c.eqInt("the body beside it is text" body.role (EVGA11yRole.text()))
+
+        ; A slide with no title placeholder is numbered, not guessed at: the
+        ; first text box on a slide is very often a label, and announcing it as
+        ; a title sends a reader looking for a section that is not there.
+        def app2:PptxApp (PptxA11yTest.open("25-table.pptx"))
+        def t2:EVGA11yTree (app2.a11yTree())
+        def only:EVGA11yNode (t2.find("deck/slide:1"))
+        c.eqStr("an untitled slide is announced by its number" only.name "Slide 1")
+    }
+
+    fn testChromeIsNotContent:void () {
+        print "--- the master's chrome is not the slide's content ---"
+        ; A shape inherited from the master or the layout is on every slide.
+        ; Met in the reading flow it would be read between every two slides.
+        def app:PptxApp (PptxA11yTest.open("15-master-layout-mixed.pptx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def inherited:int 0
+        def i:int 0
+        while (i < (t.count())) {
+            def n:EVGA11yNode (t.at(i))
+            if ((indexOf n.name "Master") == 0) {
+                inherited = (inherited + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("nothing named after the master is in the tree" inherited 0)
+        c.ok("but the slide itself is" (t.has("deck/slide:1")))
+    }
+
+    fn testAltText:void () {
+        print "--- the only thing anyone can say about a picture ---"
+        def app:PptxApp (PptxA11yTest.open("34-alt-text.pptx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def described:EVGA11yNode (t.find("deck/slide:1/shape:1"))
+        c.eqInt("the picture is published" described.role (EVGA11yRole.image()))
+        c.eqStr("named by the author's alt text" described.name "Quarterly revenue by region, rising from 8.1 to 13.9 million")
+        c.eqStr("and not flagged as missing one" described.description "")
+        def bare:EVGA11yNode (t.find("deck/slide:1/shape:2"))
+        c.eqInt("the second picture is published too" bare.role (EVGA11yRole.image()))
+        ; Said out loud rather than hidden: a reader's user can then tell "the
+        ; author wrote nothing" from "the viewer lost it".
+        c.eqStr("and says the deck has no alt text for it" bare.description "No alt text")
+    }
+
+    ; The half that matters more than reading it.
+    ;
+    ; A writer that drops `descr` does not merely fail to add accessibility —
+    ; it DELETES the author's, the first time the deck is edited here. That is
+    ; worse than never having read it, and it is silent.
+    fn testAltTextSurvivesASave:void () {
+        print "--- and it is still there after a save ---"
+        def app:PptxApp (PptxA11yTest.open("34-alt-text.pptx"))
+        def writer (new PptxWriter())
+        writer.save(app.presentation "gallery/pptx/bin" "alt-roundtrip.pptx")
+
+        def app2:PptxApp (new PptxApp)
+        app2.init("gallery/pdf_writer/assets/fonts")
+        app2.resize(960 720)
+        if ((app2.loadParts("gallery/pptx/bin" "alt-roundtrip.pptx")) == false) {
+            c.ok("the saved deck reopens" false)
+            return
+        }
+        c.ok("the saved deck reopens" true)
+        def t:EVGA11yTree (app2.a11yTree())
+        def found:string ""
+        def missing:int 0
+        def i:int 0
+        while (i < (t.count())) {
+            def n:EVGA11yNode (t.at(i))
+            if (n.role == (EVGA11yRole.image())) {
+                if (n.description == "No alt text") {
+                    missing = (missing + 1)
+                } {
+                    found = n.name
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqStr("the author's alt text came back" found "Quarterly revenue by region, rising from 8.1 to 13.9 million")
+        c.eqInt("and the picture that had none still has none" missing 1)
+    }
+
+    fn testTable:void () {
+        print "--- a table says how big it is ---"
+        def app:PptxApp (PptxA11yTest.open("25-table.pptx"))
+        def t:EVGA11yTree (app.a11yTree())
+        def g:EVGA11yNode (t.find("deck/slide:1/shape:1"))
+        c.eqInt("it is a grid" g.role (EVGA11yRole.grid()))
+        c.eqInt("three rows" g.rowCount 3)
+        c.eqInt("three columns" g.colCount 3)
+        def cell:EVGA11yNode (t.find("deck/slide:1/shape:1/row:1/cell:1"))
+        c.eqInt("a cell is a cell" cell.role (EVGA11yRole.cell()))
+        c.eqStr("carrying its text" cell.name "18")
+        c.eqInt("and knowing its row" cell.rowIndex 1)
+        c.eqInt("and its column" cell.colIndex 1)
+    }
+
+    ; The rules that hold for every deck. A tree can be perfectly detailed and
+    ; still unusable if it breaks one.
+    fn testWellFormed:void () {
+        print "--- the rules that hold for any deck ---"
+        def files:[string]
+        push files "20-business-deck.pptx"
+        push files "25-table.pptx"
+        push files "34-alt-text.pptx"
+        push files "05-group.pptx"
+        def fi:int 0
+        while (fi < (array_length files)) {
+            def file:string (itemAt files fi)
+            def app:PptxApp (PptxA11yTest.open(file))
+            def t:EVGA11yTree (app.a11yTree())
+            c.ok((file + ": has a tree at all") ((t.count()) > 0))
+            c.eqStr((file + ": rooted at the deck") t.rootId "deck")
+
+            def orphan:string ""
+            def unnamed:string ""
+            def dup:string ""
+            def i:int 0
+            while (i < (t.count())) {
+                def n:EVGA11yNode (t.at(i))
+                if ((strlen n.parentId) > 0) {
+                    if ((t.has(n.parentId)) == false) {
+                        orphan = n.id
+                    }
+                }
+                ; Anything a reader can land on has to have something to say.
+                if n.focusable {
+                    if ((strlen n.name) == 0) {
+                        unnamed = n.id
+                    }
+                }
+                def j:int (i + 1)
+                while (j < (t.count())) {
+                    def m:EVGA11yNode (t.at(j))
+                    if (m.id == n.id) {
+                        dup = n.id
+                    }
+                    j = (j + 1)
+                }
+                i = (i + 1)
+            }
+            c.eqStr((file + ": every node's parent exists") orphan "")
+            c.eqStr((file + ": every focusable node has a name") unnamed "")
+            c.eqStr((file + ": no id is used twice") dup "")
+
+            ; An id that changes between frames makes a reader lose its cursor
+            ; and reset focus, and everything still looks right on screen.
+            def again:EVGA11yTree (app.a11yTree())
+            c.eqInt((file + ": building it twice gives the same count") (again.count()) (t.count()))
+            def drift:string ""
+            def k:int 0
+            while (k < (t.count())) {
+                def a:EVGA11yNode (t.at(k))
+                def b:EVGA11yNode (again.at(k))
+                if (a.id != b.id) {
+                    drift = a.id
+                }
+                k = (k + 1)
+            }
+            c.eqStr((file + ": and the same ids in the same order") drift "")
+            fi = (fi + 1)
+        }
+    }
+}

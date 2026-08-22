@@ -29,7 +29,8 @@
 
 Import "PptxModel.rgr"
 Import "../../zip/ZipWriter.rgr"
-Import "OpcPackage.rgr"
+Import "../../ooxml/OpcPackage.rgr"
+Import "../../office/assets/OfficeAsset.rgr"
 
 class PptxWriteMedia {
     def part:string ""          ; the model's package path
@@ -39,6 +40,9 @@ class PptxWriteMedia {
     ; referenced where it lies rather than copied under a new name.
     def existing:boolean false
     def bytes:buffer (buffer_alloc 0)
+    ; What makes two of these the same picture. It is derived from the bytes,
+    ; never from `part` — see the note on `mediaIndexFor`.
+    def assetId:string ""
 
     Constructor () {
     }
@@ -60,10 +64,26 @@ class PptxWriter {
     def notesBodies:[string]
     ; Parts of the package being written over, when there is one.
     def sourceParts:[string:boolean]
+    ; Every distinct picture this save has seen, keyed by its content. The
+    ; writer used to key on the package path instead, which is how two
+    ; different files both called `logo.png` ended up as one picture in the
+    ; saved deck.
+    def assets:OfficeAssetStore (new OfficeAssetStore())
     def overMode:boolean false
     ; In over mode the master's chrome is already in the package, so a slide
     ; writes only what the slide itself declares.
     def skipInherited:boolean false
+    ; The package being written over, so that a shape tree can copy the
+    ; elements nobody here models — SmartArt, embedded objects, ink, vendor
+    ; extensions — out of the part they came from and put them back where they
+    ; were. Off unless `buildOver` turned it on: a FLAT save has no original to
+    ; copy from, and writing a span out of the wrong file would be worse than
+    ; dropping it.
+    def overPkg:OpcPackage (new OpcPackage())
+    def keepOpaque:boolean false
+    ; part path → its text. One slide asks for the same part once per opaque
+    ; element it holds, and a part is not cheap to decode twice.
+    def opaqueParts:[string:string]
 
     Constructor () {
     }
@@ -352,25 +372,65 @@ class PptxWriter {
 
     ; --- text bodies ---------------------------------------------------------
 
-    sfn runXml:string (run:PptxTextRun) {
+    ; Is this still exactly what the resolver put here for a run that stated
+    ; nothing? Then the file said nothing, and saying it now would freeze it —
+    ; the run would stop following the list style, the placeholder and the
+    ; theme's font scheme. Comparing the VALUE rather than trusting a flag is
+    ; what makes a later edit come out as an edit; see `PptxShape.styleFillSig`.
+    sfn stillInherited:boolean (sig:string now:string keepInherited:boolean) {
+        if (keepInherited == false) {
+            return false
+        }
+        if ((strlen sig) == 0) {
+            return false
+        }
+        return (sig == now)
+    }
+
+    sfn runXml:string (run:PptxTextRun keepInherited:boolean) {
         def attrs:string " lang=\"en-US\" dirty=\"0\""
-        if run.sizeSet {
-            attrs = (attrs + " sz=\"" + (PptxWriter.hundredths(run.fontSizePt)) + "\"")
+        def sizeNow:string (to_string (to_int ((run.fontSizePt * 100.0) + 0.5)))
+        if (PptxWriter.stillInherited(run.resolvedSizeSig sizeNow keepInherited)) {
         } {
             attrs = (attrs + " sz=\"" + (PptxWriter.hundredths(run.fontSizePt)) + "\"")
         }
-        if run.bold {
-            attrs = (attrs + " b=\"1\"")
+        ; A run that says it is NOT bold has to say so. Writing nothing lets
+        ; the placeholder's own weight back in on the next open, which is the
+        ; same conflation on the way out.
+        if run.boldSet {
+            if run.bold {
+                attrs = (attrs + " b=\"1\"")
+            } {
+                attrs = (attrs + " b=\"0\"")
+            }
+        } {
+            if run.bold {
+                attrs = (attrs + " b=\"1\"")
+            }
         }
-        if run.italic {
-            attrs = (attrs + " i=\"1\"")
+        if run.italicSet {
+            if run.italic {
+                attrs = (attrs + " i=\"1\"")
+            } {
+                attrs = (attrs + " i=\"0\"")
+            }
+        } {
+            if run.italic {
+                attrs = (attrs + " i=\"1\"")
+            }
         }
         def inner:string ""
         if run.color.isSet {
-            inner = ("<a:solidFill>" + (PptxWriter.colorXml(run.color)) + "</a:solidFill>")
+            if (PptxWriter.stillInherited(run.resolvedColorSig (run.color.signature()) keepInherited)) {
+            } {
+                inner = ("<a:solidFill>" + (PptxWriter.colorXml(run.color)) + "</a:solidFill>")
+            }
         }
         if ((strlen run.fontFamily) > 0) {
-            inner = (inner + "<a:latin typeface=\"" + (PptxWriter.esc(run.fontFamily)) + "\"/>")
+            if (PptxWriter.stillInherited(run.resolvedFontSig run.fontFamily keepInherited)) {
+            } {
+                inner = (inner + "<a:latin typeface=\"" + (PptxWriter.esc(run.fontFamily)) + "\"/>")
+            }
         }
         if run.highlight.isSet {
             inner = (inner + "<a:highlight>" + (PptxWriter.colorXml(run.highlight)) + "</a:highlight>")
@@ -388,7 +448,7 @@ class PptxWriter {
         return ("<a:r>" + rPr + "<a:t xml:space=\"preserve\">" + (PptxWriter.esc(run.text)) + "</a:t></a:r>")
     }
 
-    sfn paraXml:string (para:PptxParagraph) {
+    sfn paraXml:string (para:PptxParagraph keepInherited:boolean) {
         def attrs:string ""
         if (para.level > 0) {
             attrs = (attrs + " lvl=\"" + (to_string para.level) + "\"")
@@ -416,6 +476,18 @@ class PptxWriter {
         if (para.lineSpacingPct != 100.0) {
             inner = (inner + "<a:lnSpc><a:spcPct val=\"" + (to_string (to_int ((para.lineSpacingPct * 1000.0) + 0.5))) + "\"/></a:lnSpc>")
         }
+        ; A paragraph that said nothing about its bullet inherits one from the
+        ; list style. Writing either the resolved `buChar` or a flat `buNone`
+        ; here decides for it — the first bakes the level's bullet onto the
+        ; paragraph, the second turns it off — and both stop it following the
+        ; placeholder. `bulletSet` is the paragraph's own answer, and
+        ; `<a:buNone/>` IS an answer.
+        def saysBullet:boolean true
+        if keepInherited {
+            saysBullet = para.bulletSet
+        }
+        if (saysBullet == false) {
+        } {
         if para.hasBullet {
             if para.bulletColor.isSet {
                 inner = (inner + "<a:buClr>" + (PptxWriter.colorXml(para.bulletColor)) + "</a:buClr>")
@@ -445,7 +517,15 @@ class PptxWriter {
         } {
             inner = (inner + "<a:buNone/>")
         }
+        }
+        ; An empty `<a:pPr></a:pPr>` states nothing, and a paragraph that
+        ; stated nothing should not grow one on the way out.
         def pPr:string ("<a:pPr" + attrs + ">" + inner + "</a:pPr>")
+        if ((strlen attrs) == 0) {
+            if ((strlen inner) == 0) {
+                pPr = ""
+            }
+        }
         def out:string ("<a:p>" + pPr)
         def i:int 0
         while (i < (array_length para.runs)) {
@@ -456,7 +536,7 @@ class PptxWriter {
             if (run.text == "\n") {
                 out = (out + "<a:br/>")
             } {
-                out = (out + (PptxWriter.runXml(run)))
+                out = (out + (PptxWriter.runXml(run keepInherited)))
             }
             i = (i + 1)
         }
@@ -466,7 +546,7 @@ class PptxWriter {
         return (out + "</a:p>")
     }
 
-    sfn bodyXml:string (body:PptxTextBody) {
+    sfn bodyXml:string (body:PptxTextBody keepInherited:boolean) {
         def attrs:string (" lIns=\"" + (PptxWriter.emu(body.insetL)) + "\" tIns=\"" + (PptxWriter.emu(body.insetT)) + "\" rIns=\"" + (PptxWriter.emu(body.insetR)) + "\" bIns=\"" + (PptxWriter.emu(body.insetB)) + "\"")
         attrs = (attrs + " anchor=\"" + body.anchor + "\"")
         if body.wrap {
@@ -478,7 +558,7 @@ class PptxWriter {
         def i:int 0
         while (i < (array_length body.paragraphs)) {
             def para:PptxParagraph (itemAt body.paragraphs i)
-            out = (out + (PptxWriter.paraXml(para)))
+            out = (out + (PptxWriter.paraXml(para keepInherited)))
             i = (i + 1)
         }
         if ((array_length body.paragraphs) == 0) {
@@ -492,6 +572,7 @@ class PptxWriter {
     fn resetMedia:void () {
         def m:[PptxWriteMedia]
         media = m
+        assets = (new OfficeAssetStore())
         def c:[string]
         charts = c
         def cp:[string]
@@ -550,26 +631,75 @@ class PptxWriter {
         return ((prefix + "9999") + suffix)
     }
 
+    ; Does the package we are writing over hold exactly this picture at
+    ; `part`? The question is asked of the bytes, not of the name. A picture
+    ; the user inserted that happens to be called `image1.png` is not the
+    ; deck's own `ppt/media/image1.png`, and answering by name is how the
+    ; inserted bytes used to be thrown away and the deck's old picture shown
+    ; in their place.
+    fn sourceHolds:boolean (part:string id:string) {
+        if (overMode == false) {
+            return false
+        }
+        if ((strlen part) == 0) {
+            return false
+        }
+        def known@(optional):boolean (get sourceParts part)
+        if (null? known) {
+            return false
+        }
+        def already:string (assets.idForPart(part))
+        if ((strlen already) > 0) {
+            return (already == id)
+        }
+        def raw:buffer (overPkg.readBinary(part))
+        if ((buffer_length raw) == 0) {
+            return false
+        }
+        def sid:string (assets.intern(raw "" part))
+        return (sid == id)
+    }
+
+    ; Which entry in the media table this picture is, adding it if it is new.
+    ;
+    ; Two pictures are the same picture when their bytes are the same, and for
+    ; no other reason. Keying this on `part` — the name the picture happens to
+    ; be filed under — was wrong in both directions at once: two different
+    ; files inserted under one name became one picture, and the same picture
+    ; arriving under two names became two. Both go away once the question is
+    ; asked of the content.
     fn mediaIndexFor:int (part:string bytes:buffer) {
+        ; The identity comes from the bytes alone: `part` is deliberately not
+        ; passed, so a name that has been reused cannot alias one picture on
+        ; to another.
+        def id:string (assets.intern(bytes "" ""))
         def i:int 0
         while (i < (array_length media)) {
             def m:PptxWriteMedia (itemAt media i)
-            if (m.part == part) {
+            if (m.assetId == id) {
                 return i
             }
             i = (i + 1)
         }
-        def ext:string (PptxWriter.extensionOf(part))
         def entry (new PptxWriteMedia())
         entry.part = part
         entry.bytes = bytes
-        def known@(optional):boolean (get sourceParts part)
-        if (!null? known) {
-            ; Already in the package: reference it where it lies.
+        entry.assetId = id
+        if (this.sourceHolds(part id)) {
+            ; Already in the package, byte for byte: reference it where it
+            ; lies rather than writing a second copy of it.
             entry.existing = true
             entry.path = part
             entry.name = part
         } {
+            def ext:string (PptxWriter.extensionOf(part))
+            if ((strlen ext) == 0) {
+                ; A picture that never had a package name — one the user just
+                ; inserted — is named after what its bytes say it is.
+                def mime:string (assets.mimeOf(id))
+                def dotted:string (OfficeAssetStore.extensionForMime(mime))
+                ext = (substring dotted 1 (strlen dotted))
+            }
             def taken:[string:boolean]
             def j:int 0
             while (j < (array_length media)) {
@@ -577,15 +707,28 @@ class PptxWriter {
                 set taken m2.path true
                 j = (j + 1)
             }
-            def path:string ("ppt/media/image" + (to_string ((array_length media) + 1)) + "." + ext)
-            if overMode {
-                path = (this.freePart("ppt/media/image" ("." + ext) taken))
-            }
+            ; `freePart` steps over both the names already used in this save
+            ; and every part the source package brought with it, so a new
+            ; picture can never land on top of an old one.
+            def path:string (this.freePart("ppt/media/image" ("." + ext) taken))
             entry.path = path
             entry.name = path
         }
         push media entry
         return ((array_length media) - 1)
+    }
+
+    ; The `descr` attribute of a `p:cNvPr`, or nothing.
+    ;
+    ; A deck's alt text is the only thing a screen reader can say about a
+    ; picture, and a writer that leaves it out does not merely fail to add
+    ; accessibility — it DELETES the author's, the first time the deck is
+    ; edited here. That is worse than never having read it.
+    sfn descrAttr:string (shape:PptxShape) {
+        if ((strlen shape.altText) == 0) {
+            return ""
+        }
+        return ((" descr=\"" + (PptxWriter.esc(shape.altText))) + "\"")
     }
 
     sfn extensionOf:string (part:string) {
@@ -621,19 +764,19 @@ class PptxWriter {
     }
 
     fn shapeXml:string (shape:PptxShape) {
-        if (shape.kind == 2) {
+        if (shape.kind == (PptxShapeKind.group())) {
             return (this.groupXml(shape))
         }
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             return (this.pictureXml(shape))
         }
-        if (shape.kind == 4) {
+        if (shape.kind == (PptxShapeKind.table())) {
             return (this.tableXml(shape))
         }
-        if (shape.kind == 5) {
+        if (shape.kind == (PptxShapeKind.chart())) {
             return (this.chartFrameXml(shape))
         }
-        if (shape.kind == 3) {
+        if (shape.kind == (PptxShapeKind.connector())) {
             return (this.connectorXml(shape))
         }
         return (this.spXml(shape))
@@ -648,7 +791,7 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Connector " + (to_string id))
         }
-        def out:string ("<p:cxnSp><p:nvCxnSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>")
+        def out:string ("<p:cxnSp><p:nvCxnSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>")
         out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
         def preset:string shape.preset
         if ((strlen preset) == 0) {
@@ -673,6 +816,118 @@ class PptxWriter {
         return (out + "</p:spPr></p:cxnSp>")
     }
 
+    ; Did the style reference put this here rather than the file? Only asked
+    ; in save-over mode: a fresh package has no original style block to defer
+    ; to, so the resolved value IS what it has to state.
+    fn derivedFill:boolean (shape:PptxShape) {
+        if (overMode == false) {
+            return false
+        }
+        if (shape.hasStyle == false) {
+            return false
+        }
+        if ((strlen shape.styleFillSig) == 0) {
+            return false
+        }
+        ; Still exactly what the style produced, so the style reference says
+        ; it better. Anything the user changed answers no here.
+        return ((shape.fillSignature()) == shape.styleFillSig)
+    }
+
+    fn derivedLine:boolean (shape:PptxShape) {
+        if (overMode == false) {
+            return false
+        }
+        if (shape.hasStyle == false) {
+            return false
+        }
+        if ((strlen shape.styleLineSig) == 0) {
+            return false
+        }
+        return ((shape.lineSignature()) == shape.styleLineSig)
+    }
+
+    ; The `<p:style>` block, put back.
+    ;
+    ; It says the shape follows the theme's format matrix, and the resolver
+    ; turns that into a concrete gradient and a concrete font so the shape can
+    ; be drawn. Writing the concrete values back and dropping the block LOOKS
+    ; identical and is not the same file: the shape has stopped following the
+    ; theme, so changing the theme in PowerPoint no longer changes the shape.
+    ; Editing one shape on a slide did that to every shape on it.
+    ;
+    ; Only in save-over mode. A fresh package carries a theme this writer made
+    ; up, whose format matrix is three identical solids — a `fillRef` into THAT
+    ; would resolve to a flat colour, which is a different bug rather than the
+    ; same one avoided.
+    fn styleXml:string (shape:PptxShape) {
+        if (overMode == false) {
+            return ""
+        }
+        if (shape.hasStyle == false) {
+            return ""
+        }
+        def out:string "<p:style>"
+        out = (out + (PptxWriter.styleRef("a:lnRef" shape.lineRef shape.lineRefColor "")))
+        out = (out + (PptxWriter.styleRef("a:fillRef" shape.fillRef shape.fillRefColor "")))
+        out = (out + (PptxWriter.styleRef("a:effectRef" shape.effectRef (new PptxColor()) "")))
+        def fontIdx:string shape.fontRef
+        if ((strlen fontIdx) == 0) {
+            fontIdx = "minor"
+        }
+        out = (out + (PptxWriter.styleRefNamed("a:fontRef" fontIdx shape.fontRefColor)))
+        return (out + "</p:style>")
+    }
+
+    sfn styleRef:string (name:string idx:int color:PptxColor extra:string) {
+        def out:string ("<" + name + " idx=\"" + (to_string idx) + "\">")
+        out = (out + (PptxWriter.refColorXml(color)))
+        return (out + ("</" + (name + ">")))
+    }
+
+    ; `a:fontRef` numbers its index with a word rather than a number.
+    sfn styleRefNamed:string (name:string idx:string color:PptxColor) {
+        def out:string ("<" + name + " idx=\"" + (PptxWriter.esc(idx)) + "\">")
+        out = (out + (PptxWriter.refColorXml(color)))
+        return (out + ("</" + (name + ">")))
+    }
+
+    ; The colour INSIDE a style reference, which is a bare colour element with
+    ; no `a:solidFill` around it — the reference is already the fill.
+    sfn refColorXml:string (color:PptxColor) {
+        if (color.isSet == false) {
+            ; `<a:schemeClr val="phClr"/>` is what a style reference means by
+            ; "whatever the theme says": it is the placeholder colour the
+            ; format matrix substitutes into. A reference with no colour at
+            ; all is not what the file said.
+            return "<a:schemeClr val=\"phClr\"/>"
+        }
+        return (PptxWriter.colorXml(color))
+    }
+
+    ; `<p:nvPr>`, which is where a shape says it IS a placeholder.
+    ;
+    ; The writer used to emit a bare `<p:nvPr/>` for everything, so a title
+    ; placeholder came back as an ordinary text box: out of the outline view,
+    ; no longer inheriting from the layout, and "Reset Slide" with nothing to
+    ; reset to. It also stops being a title to anything that reads the deck —
+    ; including this repository's own accessibility tree, which finds a slide's
+    ; title by `p:ph type="title"` and would have started announcing every
+    ; saved deck as "Slide 1, Slide 2, Slide 3".
+    fn nvPrXml:string (shape:PptxShape) {
+        if (shape.isPlaceholder == false) {
+            return "<p:nvPr/>"
+        }
+        def out:string "<p:nvPr><p:ph"
+        if ((strlen shape.phType) > 0) {
+            out = (out + (" type=\"" + (PptxWriter.esc(shape.phType)) + "\""))
+        }
+        if (shape.phIdx >= 0) {
+            out = (out + (" idx=\"" + (to_string shape.phIdx) + "\""))
+        }
+        return (out + "/></p:nvPr>")
+    }
+
     fn spXml:string (shape:PptxShape) {
         def id:int (this.idFor(shape))
         def name:string shape.name
@@ -683,18 +938,43 @@ class PptxWriter {
         if shape.locked {
             locks = "<p:cNvSpPr><a:spLocks noMove=\"1\" noResize=\"1\" noRot=\"1\"/></p:cNvSpPr>"
         }
-        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/>" + locks + "<p:nvPr/></p:nvSpPr><p:spPr>")
-        out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
+        def out:string ("<p:sp><p:nvSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/>" + locks + (this.nvPrXml(shape)) + "</p:nvSpPr><p:spPr>")
+        ; Geometry the placeholder in the LAYOUT supplied is not the slide's.
+        ; Written here it pins the shape, so moving the title on the layout no
+        ; longer moves it on the slides.
+        def statedXfrm:boolean true
+        if overMode {
+            if ((strlen shape.sheetXfrmSig) > 0) {
+                ; Unmoved since it was inherited. A move — or a resize, or a
+                ; rotation — changes the signature and is written.
+                if ((shape.xfrmSignature()) == shape.sheetXfrmSig) {
+                    statedXfrm = false
+                }
+            }
+        }
+        if statedXfrm {
+            out = (out + (PptxWriter.xfrmXml(shape "a:xfrm" false)))
+        }
         out = (out + (PptxWriter.geomXml(shape)))
-        out = (out + (PptxWriter.fillXml(shape)))
-        out = (out + (PptxWriter.lineXml(shape)))
+        ; A fill or a line the RESOLVER worked out from the style reference is
+        ; not the shape's own, and stating it here would override the very
+        ; reference this writer is about to put back.
+        if (this.derivedFill(shape)) {
+        } {
+            out = (out + (PptxWriter.fillXml(shape)))
+        }
+        if (this.derivedLine(shape)) {
+        } {
+            out = (out + (PptxWriter.lineXml(shape)))
+        }
         out = (out + (PptxWriter.effectXml(shape)))
         out = (out + "</p:spPr>")
+        out = (out + (this.styleXml(shape)))
         ; `txBody` is optional on a shape, and writing an empty one turns a
         ; shape that has no text into one that has an empty paragraph — which
         ; is a different thing to everything that reads the file afterwards.
         if shape.hasText {
-            out = (out + (PptxWriter.bodyXml(shape.text)))
+            out = (out + (PptxWriter.bodyXml(shape.text overMode)))
         }
         return (out + "</p:sp>")
     }
@@ -727,7 +1007,7 @@ class PptxWriter {
         ; charts apart means neither has to know how many of the other there
         ; will turn out to be.
         def rid:string ("rIdImg" + (to_string (idx + 1)))
-        def out:string ("<p:pic><p:nvPicPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>")
+        def out:string ("<p:pic><p:nvPicPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>")
         out = (out + "<p:blipFill><a:blip r:embed=\"" + rid + "\"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>")
         out = (out + "<p:spPr>" + (PptxWriter.xfrmXml(shape "a:xfrm" false)) + "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></p:spPr>")
         return (out + "</p:pic>")
@@ -741,7 +1021,7 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Group " + (to_string id))
         }
-        def out:string ("<p:grpSp><p:nvGrpSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
+        def out:string ("<p:grpSp><p:nvGrpSpPr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>")
         out = (out + "<p:grpSpPr>" + (PptxWriter.xfrmXml(shape "a:xfrm" true)) + "</p:grpSpPr>")
         def i:int 0
         while (i < (array_length shape.children)) {
@@ -774,7 +1054,7 @@ class PptxWriter {
         }
         def colW:double (shape.width / (to_double cols))
         def rowH:double (shape.height / (to_double rows))
-        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"Table " + (to_string id) + "\"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
+        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"Table " + (to_string id) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
         out = (out + "<p:xfrm><a:off x=\"" + (PptxWriter.emu(shape.x)) + "\" y=\"" + (PptxWriter.emu(shape.y)) + "\"/><a:ext cx=\"" + (PptxWriter.emu(shape.width)) + "\" cy=\"" + (PptxWriter.emu(shape.height)) + "\"/></p:xfrm>")
         out = (out + "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/table\"><a:tbl><a:tblPr/><a:tblGrid>")
         def c:int 0
@@ -814,7 +1094,7 @@ class PptxWriter {
                 if ((array_length cell.body.paragraphs) > 0) {
                     ; A table cell's body is `a:txBody`, not `p:txBody` — the
                     ; same content in the drawing namespace.
-                    bodyXml = (PptxWriter.bodyXml(cell.body))
+                    bodyXml = (PptxWriter.bodyXml(cell.body overMode))
                     def cut:int (indexOf bodyXml "<p:txBody")
                     if (cut == 0) {
                         bodyXml = ("<a:txBody" + (substring bodyXml (strlen "<p:txBody") (strlen bodyXml)))
@@ -829,7 +1109,7 @@ class PptxWriter {
                     run.bold = cell.bold
                     run.fontSizePt = cell.fontSizePt
                     run.sizeSet = true
-                    bodyXml = ("<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"" + cell.align + "\"/>" + (PptxWriter.runXml(run)) + "</a:p></a:txBody>")
+                    bodyXml = ("<a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn=\"" + cell.align + "\"/>" + (PptxWriter.runXml(run false)) + "</a:p></a:txBody>")
                 }
                 def cellFill:string "<a:noFill/>"
                 if cell.fill.isSet {
@@ -868,20 +1148,126 @@ class PptxWriter {
     ; A sheet that was edited is written back into its OWN part, and only the
     ; shape tree of it: a master carries a colour map, a text style and a list
     ; of its layouts, and none of that is ours to regenerate.
-    fn spTreeXml:string (shapes:[PptxShape]) {
-        shapeId = 1
-        this.resetSlideUse()
-        def out:string "<p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
+    ; --- what this writer does not understand ---------------------------------
+    ;
+    ; A shape tree can hold children this model has no room for: SmartArt and
+    ; newer chart types wrapped in `mc:AlternateContent`, embedded objects,
+    ; ink, `p:extLst` blocks belonging to whoever wrote them. The parser
+    ; remembered each one as a span in the part it came out of; here it is
+    ; copied back through, byte for byte, at the place in z-order it had.
+    ;
+    ; Ranger does not have to understand something in order to preserve it.
+
+    fn opaqueText:string (ref:SourceRef) {
+        if (keepOpaque == false) {
+            return ""
+        }
+        if (ref.known == false) {
+            return ""
+        }
+        if (has opaqueParts ref.part) {
+            return (ref.slice((unwrap (get opaqueParts ref.part))))
+        }
+        def xml:string (overPkg.readXml(ref.part))
+        set opaqueParts ref.part xml
+        return (ref.slice(xml))
+    }
+
+    ; Everything that sat exactly after `written` shapes. `atLeast` catches the
+    ; tail: when an edit deleted shapes the counts no longer line up, and an
+    ; element whose slot is past the end of the tree still has to come back.
+    fn opaqueAt:string (list:[PptxOpaque] written:int atLeast:boolean) {
+        def out:string ""
+        if (keepOpaque == false) {
+            return out
+        }
         def i:int 0
-        while (i < (array_length shapes)) {
-            out = (out + (this.shapeXml((itemAt shapes i))))
+        while (i < (array_length list)) {
+            def op:PptxOpaque (itemAt list i)
+            def hit:boolean (op.afterShapes == written)
+            if atLeast {
+                hit = (op.afterShapes >= written)
+            }
+            if hit {
+                str_append out (this.opaqueText(op.source))
+            }
             i = (i + 1)
         }
+        return out
+    }
+
+    ; Every span in a list, in the order they were read.
+    fn opaqueAll:string (list:[PptxOpaque]) {
+        def out:string ""
+        if (keepOpaque == false) {
+            return out
+        }
+        def i:int 0
+        while (i < (array_length list)) {
+            def op:PptxOpaque (itemAt list i)
+            str_append out (this.opaqueText(op.source))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn opaqueHas:boolean (list:[PptxOpaque] name:string) {
+        if (keepOpaque == false) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length list)) {
+            def op:PptxOpaque (itemAt list i)
+            if (op.name == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The tree's own opening and its properties. The writer states its own
+    ; rather than keeping the original's, because a group transform that no
+    ; longer matches the shapes under it is worse than a neutral one.
+    sfn spTreeOpen:string () {
+        return "<p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
+    }
+
+    ; The children of a shape tree: the shapes this writer generates, with the
+    ; elements it does not model spliced back in between them.
+    fn treeChildren:string (shapes:[PptxShape] opaque:[PptxOpaque] skipInherit:boolean) {
+        def out:string ""
+        def written:int 0
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            def write:boolean true
+            if skipInherit {
+                if sh.inherited {
+                    write = false
+                }
+            }
+            if write {
+                str_append out (this.opaqueAt(opaque written false))
+                str_append out (this.shapeXml(sh))
+                written = (written + 1)
+            }
+            i = (i + 1)
+        }
+        str_append out (this.opaqueAt(opaque written true))
+        return out
+    }
+
+    fn spTreeXml:string (shapes:[PptxShape] opaque:[PptxOpaque]) {
+        shapeId = 1
+        this.resetSlideUse()
+        def out:string (PptxWriter.spTreeOpen())
+        str_append out (this.treeChildren(shapes opaque false))
         return (out + "</p:spTree>")
     }
 
     fn sheetWithShapes:string (xml:string sheet:PptxSheet) {
-        def tree:string (this.spTreeXml(sheet.shapes))
+        def tree:string (this.spTreeXml(sheet.shapes sheet.opaque))
         def start:int (indexOf xml "<p:spTree")
         if (start < 0) {
             return xml
@@ -907,7 +1293,7 @@ class PptxWriter {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notes xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree>"
         out = (out + "<p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>")
         out = (out + "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"Notes Placeholder\"/><p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr><p:nvPr><p:ph type=\"body\" idx=\"1\"/></p:nvPr></p:nvSpPr><p:spPr/>")
-        out = (out + (PptxWriter.bodyXml(notes.text)))
+        out = (out + (PptxWriter.bodyXml(notes.text false)))
         return (out + "</p:sp></p:spTree></p:cSld></p:notes>")
     }
 
@@ -988,25 +1374,33 @@ class PptxWriter {
             ti = (ti + 1)
         }
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:sld xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld>"
-        if slide.bg.isSet {
+        ; A background the slide did not state is the master's or the layout's,
+        ; and writing it here would freeze it onto this slide. In a fresh
+        ; package there is no master to defer to, so the resolved colour IS
+        ; what has to be stated.
+        def ownBg:boolean slide.bg.isSet
+        if overMode {
+            if slide.bgFromSheet {
+                ownBg = false
+            }
+        }
+        if ownBg {
             out = (out + "<p:bg><p:bgPr><a:solidFill>" + (PptxWriter.colorXml(slide.bg)) + "</a:solidFill><a:effectLst/></p:bgPr></p:bg>")
         }
-        out = (out + "<p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>")
-        def i:int 0
-        while (i < (array_length slide.shapes)) {
-            def sh:PptxShape (itemAt slide.shapes i)
-            def write:boolean true
-            if skipInherited {
-                if sh.inherited {
-                    write = false
-                }
-            }
-            if write {
-                out = (out + (this.shapeXml(sh)))
-            }
-            i = (i + 1)
+        out = (out + (PptxWriter.spTreeOpen()))
+        ; `skipInherited` is also what makes the opaque slots line up: it is on
+        ; exactly when the shapes being written are the ones the slide part
+        ; itself declared, which is what the parser counted.
+        out = (out + (this.treeChildren(slide.shapes slide.opaque skipInherited)))
+        out = (out + "</p:spTree></p:cSld>")
+        ; What stood between `</p:cSld>` and the transition. A slide that
+        ; states its own colour map override keeps it: writing a plain
+        ; `masterClrMapping` over the top of one is how a deck loses the
+        ; palette swap a layout gave it.
+        if ((this.opaqueHas(slide.sldHead "clrMapOvr")) == false) {
+            out = (out + "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
         }
-        out = (out + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
+        out = (out + (this.opaqueAll(slide.sldHead)))
         def tk:int 0
         while (tk < (array_length targets)) {
             def step:PptxBuildStep (itemAt slide.build tk)
@@ -1016,6 +1410,9 @@ class PptxWriter {
         }
         out = (out + (PptxWriter.transitionXml(slide)))
         out = (out + (PptxWriter.timingXml(slide)))
+        ; And what stood after them — a tool's own extension list, which the
+        ; schema puts last and which nothing here understands.
+        out = (out + (this.opaqueAll(slide.sldTail)))
         return (out + "</p:sld>")
     }
 
@@ -1185,7 +1582,7 @@ class PptxWriter {
         if ((strlen name) == 0) {
             name = ("Chart " + (to_string id))
         }
-        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
+        def out:string ("<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id=\"" + (to_string id) + "\" name=\"" + (PptxWriter.esc(name)) + "\"" + (PptxWriter.descrAttr(shape)) + "/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>")
         out = (out + "<p:xfrm><a:off x=\"" + (PptxWriter.emu(shape.x)) + "\" y=\"" + (PptxWriter.emu(shape.y)) + "\"/><a:ext cx=\"" + (PptxWriter.emu(shape.width)) + "\" cy=\"" + (PptxWriter.emu(shape.height)) + "\"/></p:xfrm>")
         out = (out + "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\"><c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" r:id=\"" + rid + "\"/></a:graphicData></a:graphic>")
         return (out + "</p:graphicFrame>")
@@ -1471,6 +1868,12 @@ class PptxWriter {
         zip.create()
         overMode = true
         skipInherited = true
+        ; The package is kept, so the parts this writer cannot generate can be
+        ; read back out of it.
+        overPkg = pkg
+        keepOpaque = true
+        def freshOpaque:[string:string]
+        opaqueParts = freshOpaque
         def parts:[string] (pkg.listParts())
         def p0:int 0
         while (p0 < (array_length parts)) {
@@ -1539,7 +1942,7 @@ class PptxWriter {
                 if (isNew == false) {
                     def relsPath:string (OpcPackage.relsPathFor(path2))
                     def relXml:string (pkg.readXml(relsPath))
-                    def olds:[OpcRelationship] (pkg.parseRelationships(relXml))
+                    def olds:[OpcRelationship] (OpcPackage.parseRelationships(relXml))
                     def ri:int 0
                     while (ri < (array_length olds)) {
                         def rel:OpcRelationship (itemAt olds ri)
@@ -1959,7 +2362,7 @@ class PptxWriter {
 
     sfn presentationRelsWith:string (pkg:OpcPackage xml:string slidePaths:[string]) {
         def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
-        def olds:[OpcRelationship] (pkg.parseRelationships(xml))
+        def olds:[OpcRelationship] (OpcPackage.parseRelationships(xml))
         def i:int 0
         while (i < (array_length olds)) {
             def rel:OpcRelationship (itemAt olds i)

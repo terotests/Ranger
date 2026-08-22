@@ -1,0 +1,765 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeAsset — a picture is its bytes, not the name someone gave the file
+; ==============================================================================
+;
+; All three editors used to identify an image by its package path. That is the
+; name the picture happens to be filed under, and it is wrong in both
+; directions at once:
+;
+;   Two different pictures, one name.  A user inserts `logo.png` from one
+;   folder and a different `logo.png` from another. `ppt/media/logo.png` is
+;   already taken, so the viewer's decode cache returns the first one and the
+;   writer's media table returns the first one. The second picture is silently
+;   replaced by the first, on screen AND in the saved file. Insert a file that
+;   happens to be called `image1.png` — the name every OOXML package gives its
+;   own media — and it collides with the deck's existing picture instead, so
+;   the newly inserted bytes are never written at all.
+;
+;   One picture, two names.  The same logo dropped on forty slides arrives as
+;   forty separate reads of the same part, forty buffers in memory, and, if it
+;   ever came in under two different names, two copies in the saved file.
+;
+; Both disappear if the identity of a picture is derived from its content. That
+; is all this file is: a store that hands out an id computed from the bytes,
+; keeps one copy per distinct content, and remembers which package parts are
+; aliases of it.
+;
+; On the hash. The digest is CRC-32 plus the byte length, which is a bucketing
+; device and nothing more — every hit is confirmed with a full byte comparison
+; before two pictures are called the same. That means the store cannot merge
+; two different images no matter how weak the digest is, and it is why CRC-32
+; (which the zip writer already runs on both targets, using shifts and xor so
+; it cannot overflow differently on JavaScript and C++) is enough. A stronger
+; digest would buy fewer comparisons, not more correctness.
+;
+;   npm run office:asset:test
+; ==============================================================================
+
+Import "../../zip/CRC32.rgr"
+
+; ------------------------------------------------------------------------------
+; One distinct picture.
+; ------------------------------------------------------------------------------
+class OfficeAsset {
+    ; Derived from the content: the same bytes always produce the same id, in
+    ; this session and the next one, on every target.
+    def id:string ""
+    def mimeType:string ""
+    def bytes:buffer (buffer_alloc 0)
+    ; The picture's own size in pixels, read out of the file's header. Zero
+    ; when the format is one we do not decode — a caller that needs a shape
+    ; then falls back to its own default rather than to a wrong number.
+    def width:int 0
+    def height:int 0
+    ; The digest alone, without the length suffix, kept for callers that want
+    ; to bucket without parsing the id apart.
+    def hash:string ""
+    ; Where this content lives in the package it was read from, or where it
+    ; has been assigned to be written. Empty for content that has never been
+    ; in a package. It is an ATTRIBUTE of the asset, never its identity.
+    def part:string ""
+
+    Constructor () {
+    }
+
+    fn size:int () {
+        return (buffer_length bytes)
+    }
+}
+
+; ------------------------------------------------------------------------------
+; A use of a picture: which asset, and how this particular use of it is framed.
+;
+; Two shapes showing the same logo cropped differently are two refs to one
+; asset. Keeping the framing here rather than on the asset is what makes the
+; deduplication safe — nothing about how a picture is displayed can leak into
+; the question of whether two pictures are the same picture.
+; ------------------------------------------------------------------------------
+class OfficeImageRef {
+    def assetId:string ""
+    ; Crop as fractions taken off each edge, the way DrawingML's `a:srcRect`
+    ; states it: 0.1 on the left means the leftmost tenth is not shown.
+    def cropL:double 0.0
+    def cropT:double 0.0
+    def cropR:double 0.0
+    def cropB:double 0.0
+    def flipH:boolean false
+    def flipV:boolean false
+    def rotation:double 0.0
+
+    Constructor () {
+    }
+
+    fn hasCrop:boolean () {
+        if (cropL > 0.0) {
+            return true
+        }
+        if (cropT > 0.0) {
+            return true
+        }
+        if (cropR > 0.0) {
+            return true
+        }
+        if (cropB > 0.0) {
+            return true
+        }
+        return false
+    }
+
+    ; The fraction of the asset's width and height that is actually shown.
+    fn visibleW:double () {
+        def v:double (1.0 - (cropL + cropR))
+        if (v < 0.0) {
+            return 0.0
+        }
+        return v
+    }
+
+    fn visibleH:double () {
+        def v:double (1.0 - (cropT + cropB))
+        if (v < 0.0) {
+            return 0.0
+        }
+        return v
+    }
+
+    fn same:boolean (o:OfficeImageRef) {
+        if (assetId != o.assetId) {
+            return false
+        }
+        if (cropL != o.cropL) {
+            return false
+        }
+        if (cropT != o.cropT) {
+            return false
+        }
+        if (cropR != o.cropR) {
+            return false
+        }
+        if (cropB != o.cropB) {
+            return false
+        }
+        if (flipH != o.flipH) {
+            return false
+        }
+        if (flipV != o.flipV) {
+            return false
+        }
+        return (rotation == o.rotation)
+    }
+
+    fn copyFrom:void (o:OfficeImageRef) {
+        assetId = o.assetId
+        cropL = o.cropL
+        cropT = o.cropT
+        cropR = o.cropR
+        cropB = o.cropB
+        flipH = o.flipH
+        flipV = o.flipV
+        rotation = o.rotation
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The store.
+; ------------------------------------------------------------------------------
+class OfficeAssetStore {
+    def assets:[OfficeAsset]
+    ; asset id -> position in `assets`
+    def index:[string:int]
+    ; package part -> position in `assets`. Several parts may name one asset;
+    ; that is the whole point.
+    def partIndex:[string:int]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length assets)
+    }
+
+    ; --- identity -------------------------------------------------------------
+
+    sfn hex8:string (v:int) {
+        ; Eight hex digits of a 32-bit pattern, reading the nibbles down from
+        ; the top with an unsigned shift so a CRC that looks negative as a
+        ; signed int still renders the same on both targets.
+        def digits:string "0123456789abcdef"
+        def out:string ""
+        def i:int 7
+        while (i >= 0) {
+            def nib:int (bit_and (bit_ushr v (i * 4)) 15)
+            out = (out + (substring digits nib (nib + 1)))
+            i = (i - 1)
+        }
+        return out
+    }
+
+    ; The digest of a buffer. Not a security hash and not claimed to be one —
+    ; see the note at the top of this file about why that is fine here.
+    sfn digest:string (bytes:buffer) {
+        def crc (new CRC32())
+        def v:int (crc.compute(bytes))
+        return (OfficeAssetStore.hex8(v))
+    }
+
+    ; The full content id: digest plus length. The length is there because it
+    ; is free and it makes the accidental-collision case need two independent
+    ; coincidences instead of one.
+    sfn contentId:string (bytes:buffer) {
+        def d:string (OfficeAssetStore.digest(bytes))
+        return ((d + "-") + (to_string (buffer_length bytes)))
+    }
+
+    sfn sameBytes:boolean (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if (n != (buffer_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get a i) != (buffer_get b i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; --- interning ------------------------------------------------------------
+
+    ; The one way content enters the store. Returns the id of the asset the
+    ; bytes belong to, creating it only if this exact content is new.
+    ;
+    ; `part` is where the bytes were found, or "" for content that has never
+    ; been in a package. It is recorded as an alias, never as identity: two
+    ; parts holding the same picture end up pointing at one asset, and a part
+    ; name that has been reused for different content does not overwrite
+    ; anything, it simply stops being an alias of the old one.
+    fn intern:string (bytes:buffer mime:string part:string) {
+        if ((buffer_length bytes) == 0) {
+            return ""
+        }
+        def id:string (OfficeAssetStore.contentId(bytes))
+        def at@(optional):int (get index id)
+        if (!null? at) {
+            def pos:int (unwrap at)
+            def existing:OfficeAsset (itemAt assets pos)
+            ; The id said these are probably the same. Prove it.
+            if (OfficeAssetStore.sameBytes(existing.bytes bytes)) {
+                if ((strlen part) > 0) {
+                    set partIndex part pos
+                    if ((strlen existing.part) == 0) {
+                        existing.part = part
+                    }
+                }
+                return existing.id
+            }
+            ; A genuine digest collision between two different pictures. Give
+            ; the newcomer a distinguished id rather than merging them: the
+            ; store may store one picture twice, it may never show the wrong
+            ; one.
+            id = (this.disambiguate(id bytes))
+        }
+        def a (new OfficeAsset())
+        a.id = id
+        a.bytes = bytes
+        a.hash = (OfficeAssetStore.digest(bytes))
+        a.part = part
+        def m:string mime
+        if ((strlen m) == 0) {
+            m = (OfficeAssetStore.sniff(bytes))
+        }
+        a.mimeType = m
+        push assets a
+        def pos2:int ((array_length assets) - 1)
+        set index a.id pos2
+        if ((strlen part) > 0) {
+            set partIndex part pos2
+        }
+        OfficeAssetStore.measure(a)
+        return a.id
+    }
+
+    fn disambiguate:string (base:string bytes:buffer) {
+        def n:int 2
+        while (n < 1000) {
+            def candidate:string ((base + "~") + (to_string n))
+            def at@(optional):int (get index candidate)
+            if (null? at) {
+                return candidate
+            }
+            def pos:int (unwrap at)
+            def existing:OfficeAsset (itemAt assets pos)
+            if (OfficeAssetStore.sameBytes(existing.bytes bytes)) {
+                return candidate
+            }
+            n = (n + 1)
+        }
+        return ((base + "~") + (to_string (array_length assets)))
+    }
+
+    ; --- lookup ---------------------------------------------------------------
+
+    fn positionOf:int (id:string) {
+        def at@(optional):int (get index id)
+        if (null? at) {
+            return (0 - 1)
+        }
+        return (unwrap at)
+    }
+
+    fn has:boolean (id:string) {
+        return ((this.positionOf(id)) >= 0)
+    }
+
+    ; The asset for an id, or an empty one. An empty asset has a zero-length
+    ; buffer, which every caller already has to handle for a picture whose
+    ; bytes went missing.
+    fn assetOf:OfficeAsset (id:string) {
+        def pos:int (this.positionOf(id))
+        if (pos < 0) {
+            return (new OfficeAsset())
+        }
+        return (itemAt assets pos)
+    }
+
+    fn assetAt:OfficeAsset (i:int) {
+        if (i < 0) {
+            return (new OfficeAsset())
+        }
+        if (i >= (array_length assets)) {
+            return (new OfficeAsset())
+        }
+        return (itemAt assets i)
+    }
+
+    fn bytesOf:buffer (id:string) {
+        def a:OfficeAsset (this.assetOf(id))
+        return a.bytes
+    }
+
+    fn mimeOf:string (id:string) {
+        def a:OfficeAsset (this.assetOf(id))
+        return a.mimeType
+    }
+
+    ; The id of whatever content the given package part currently holds, or
+    ; "" if that part has not been interned.
+    fn idForPart:string (part:string) {
+        def at@(optional):int (get partIndex part)
+        if (null? at) {
+            return ""
+        }
+        def pos:int (unwrap at)
+        def a:OfficeAsset (itemAt assets pos)
+        return a.id
+    }
+
+    ; --- output naming --------------------------------------------------------
+
+    ; Where an asset should be written. Content that came out of a package
+    ; keeps the part it came from; new content gets a name derived from its
+    ; own id, which is why two files that were both called `logo.png` cannot
+    ; land on top of each other, and why a file called `image1.png` cannot
+    ; land on top of the package's own `image1.png`.
+    ;
+    ; `taken` is every part name already spoken for in the output — including
+    ; the ones the source package brought with it.
+    fn assignPart:string (id:string dir:string taken:[string:boolean]) {
+        def pos:int (this.positionOf(id))
+        if (pos < 0) {
+            return ""
+        }
+        def a:OfficeAsset (itemAt assets pos)
+        if ((strlen a.part) > 0) {
+            def clash@(optional):boolean (get taken a.part)
+            if (null? clash) {
+                set taken a.part true
+                return a.part
+            }
+        }
+        def ext:string (OfficeAssetStore.extensionForMime(a.mimeType))
+        def stem:string (dir + a.hash)
+        def candidate:string (stem + ext)
+        def n:int 2
+        while (n < 10000) {
+            def used@(optional):boolean (get taken candidate)
+            if (null? used) {
+                set taken candidate true
+                a.part = candidate
+                set partIndex candidate pos
+                return candidate
+            }
+            candidate = (((stem + "-") + (to_string n)) + ext)
+            n = (n + 1)
+        }
+        return candidate
+    }
+
+    ; --- formats --------------------------------------------------------------
+
+    ; What the bytes say they are. Asking the content rather than the file
+    ; name matters here for the same reason the id does: a picture saved as
+    ; `photo.png` from a program that wrote a JPEG is not unusual, and a
+    ; content type written from the extension would then be a lie the package
+    ; carries.
+    sfn sniff:string (bytes:buffer) {
+        def n:int (buffer_length bytes)
+        if (n < 4) {
+            return ""
+        }
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        def b2:int (buffer_get bytes 2)
+        def b3:int (buffer_get bytes 3)
+        if (b0 == 137) {
+            if (b1 == 80) {
+                if (b2 == 78) {
+                    if (b3 == 71) {
+                        return "image/png"
+                    }
+                }
+            }
+        }
+        if (b0 == 255) {
+            if (b1 == 216) {
+                if (b2 == 255) {
+                    return "image/jpeg"
+                }
+            }
+        }
+        if (b0 == 71) {
+            if (b1 == 73) {
+                if (b2 == 70) {
+                    return "image/gif"
+                }
+            }
+        }
+        if (b0 == 66) {
+            if (b1 == 77) {
+                return "image/bmp"
+            }
+        }
+        ; TIFF, both byte orders.
+        if (b0 == 73) {
+            if (b1 == 73) {
+                if (b2 == 42) {
+                    return "image/tiff"
+                }
+            }
+        }
+        if (b0 == 77) {
+            if (b1 == 77) {
+                if (b2 == 0) {
+                    if (b3 == 42) {
+                        return "image/tiff"
+                    }
+                }
+            }
+        }
+        ; EMF: the record header is 0x00000001 then 0x0000000C..
+        if (b0 == 1) {
+            if (b1 == 0) {
+                if (b2 == 0) {
+                    if (b3 == 0) {
+                        return "image/x-emf"
+                    }
+                }
+            }
+        }
+        ; Placeable WMF.
+        if (b0 == 215) {
+            if (b1 == 205) {
+                if (b2 == 198) {
+                    if (b3 == 154) {
+                        return "image/x-wmf"
+                    }
+                }
+            }
+        }
+        if (OfficeAssetStore.looksLikeSvg(bytes)) {
+            return "image/svg+xml"
+        }
+        return ""
+    }
+
+    sfn looksLikeSvg:boolean (bytes:buffer) {
+        ; `<svg` or `<?xml` within the first stretch of the file. Only worth
+        ; looking at when the first byte is already `<`.
+        if ((buffer_get bytes 0) != 60) {
+            return false
+        }
+        def n:int (buffer_length bytes)
+        def limit:int 256
+        if (n < limit) {
+            limit = n
+        }
+        def i:int 0
+        while (i < (limit - 3)) {
+            if ((buffer_get bytes i) == 60) {
+                if ((buffer_get bytes (i + 1)) == 115) {
+                    if ((buffer_get bytes (i + 2)) == 118) {
+                        if ((buffer_get bytes (i + 3)) == 103) {
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn extensionForMime:string (mime:string) {
+        if (mime == "image/png") {
+            return ".png"
+        }
+        if (mime == "image/jpeg") {
+            return ".jpeg"
+        }
+        if (mime == "image/gif") {
+            return ".gif"
+        }
+        if (mime == "image/bmp") {
+            return ".bmp"
+        }
+        if (mime == "image/tiff") {
+            return ".tiff"
+        }
+        if (mime == "image/x-emf") {
+            return ".emf"
+        }
+        if (mime == "image/x-wmf") {
+            return ".wmf"
+        }
+        if (mime == "image/svg+xml") {
+            return ".svg"
+        }
+        return ".bin"
+    }
+
+    sfn mimeForPath:string (path:string) {
+        def lower:string (to_lowercase path)
+        def dot:int (0 - 1)
+        def i:int ((strlen lower) - 1)
+        while (i >= 0) {
+            if ((charAt lower i) == 46) {
+                dot = i
+                i = (0 - 1)
+            } {
+                i = (i - 1)
+            }
+        }
+        if (dot < 0) {
+            return ""
+        }
+        def ext:string (substring lower dot (strlen lower))
+        if (ext == ".png") {
+            return "image/png"
+        }
+        if (ext == ".jpg") {
+            return "image/jpeg"
+        }
+        if (ext == ".jpeg") {
+            return "image/jpeg"
+        }
+        if (ext == ".gif") {
+            return "image/gif"
+        }
+        if (ext == ".bmp") {
+            return "image/bmp"
+        }
+        if (ext == ".tif") {
+            return "image/tiff"
+        }
+        if (ext == ".tiff") {
+            return "image/tiff"
+        }
+        if (ext == ".emf") {
+            return "image/x-emf"
+        }
+        if (ext == ".wmf") {
+            return "image/x-wmf"
+        }
+        if (ext == ".svg") {
+            return "image/svg+xml"
+        }
+        return ""
+    }
+
+    ; --- natural size ---------------------------------------------------------
+
+    ; The picture's own pixel size, straight out of the header. This is not a
+    ; decode: it reads the few bytes every one of these formats puts its size
+    ; in, and leaves the asset at 0x0 when it cannot. A caller that inserts a
+    ; picture uses it to keep the picture's shape — without it, every inserted
+    ; image gets whatever aspect ratio the caller guessed.
+    sfn measure:void (a:OfficeAsset) {
+        if (a.mimeType == "image/png") {
+            OfficeAssetStore.measurePng(a)
+            return
+        }
+        if (a.mimeType == "image/jpeg") {
+            OfficeAssetStore.measureJpeg(a)
+            return
+        }
+        if (a.mimeType == "image/gif") {
+            OfficeAssetStore.measureGif(a)
+            return
+        }
+        if (a.mimeType == "image/bmp") {
+            OfficeAssetStore.measureBmp(a)
+            return
+        }
+    }
+
+    ; Both of these assemble with multiplies rather than shifts, and both
+    ; refuse a value whose top bit is set. That is not fussiness: an `int` is
+    ; a 32-bit signed integer when this compiles to C++ and a double when it
+    ; compiles to JavaScript, so a four-byte field with its high bit set is
+    ; the one input that would come out as two different numbers on the two
+    ; targets. No real picture is 2^31 pixels wide, so reporting "unknown"
+    ; there costs nothing and keeps the two builds saying the same thing.
+    sfn be32:int (bytes:buffer at:int) {
+        def b0:int (buffer_get bytes at)
+        if (b0 > 127) {
+            return 0
+        }
+        def b1:int (buffer_get bytes (at + 1))
+        def b2:int (buffer_get bytes (at + 2))
+        def b3:int (buffer_get bytes (at + 3))
+        return ((((b0 * 16777216) + (b1 * 65536)) + (b2 * 256)) + b3)
+    }
+
+    ; Little-endian, signed. A BMP says "bottom-up" by writing its height as a
+    ; negative number, so this one has to be able to come back negative — it
+    ; builds the magnitude from the complement rather than letting the
+    ; positive form overflow first.
+    sfn le32:int (bytes:buffer at:int) {
+        def b0:int (buffer_get bytes at)
+        def b1:int (buffer_get bytes (at + 1))
+        def b2:int (buffer_get bytes (at + 2))
+        def b3:int (buffer_get bytes (at + 3))
+        if (b3 < 128) {
+            return ((((b3 * 16777216) + (b2 * 65536)) + (b1 * 256)) + b0)
+        }
+        def mag:int (((((255 - b3) * 16777216) + ((255 - b2) * 65536)) + ((255 - b1) * 256)) + (255 - b0))
+        return (0 - (mag + 1))
+    }
+
+    sfn be16:int (bytes:buffer at:int) {
+        return (((buffer_get bytes at) * 256) + (buffer_get bytes (at + 1)))
+    }
+
+    sfn le16:int (bytes:buffer at:int) {
+        return (((buffer_get bytes (at + 1)) * 256) + (buffer_get bytes at))
+    }
+
+    sfn measurePng:void (a:OfficeAsset) {
+        ; 8 signature + 4 length + 4 "IHDR", then width and height.
+        if ((buffer_length a.bytes) < 24) {
+            return
+        }
+        a.width = (OfficeAssetStore.be32(a.bytes 16))
+        a.height = (OfficeAssetStore.be32(a.bytes 20))
+    }
+
+    sfn measureGif:void (a:OfficeAsset) {
+        if ((buffer_length a.bytes) < 10) {
+            return
+        }
+        a.width = (OfficeAssetStore.le16(a.bytes 6))
+        a.height = (OfficeAssetStore.le16(a.bytes 8))
+    }
+
+    sfn measureBmp:void (a:OfficeAsset) {
+        if ((buffer_length a.bytes) < 26) {
+            return
+        }
+        def w:int (OfficeAssetStore.le32(a.bytes 18))
+        def h:int (OfficeAssetStore.le32(a.bytes 22))
+        ; A BMP stored bottom-up says so by writing its height as a negative
+        ; number. It is the same picture either way, and the same size.
+        if (h < 0) {
+            h = (0 - h)
+        }
+        if (w < 0) {
+            w = (0 - w)
+        }
+        a.width = w
+        a.height = h
+    }
+
+    sfn measureJpeg:void (a:OfficeAsset) {
+        ; Walk the marker segments to the frame header. The size is not at a
+        ; fixed offset in a JPEG: how much comes before SOF depends on how
+        ; many comment, EXIF and quantisation segments the encoder wrote.
+        def bytes:buffer a.bytes
+        def n:int (buffer_length bytes)
+        def i:int 2
+        while ((i + 3) < n) {
+            if ((buffer_get bytes i) != 255) {
+                ; Not on a marker: resynchronise rather than read nonsense.
+                i = (i + 1)
+            } {
+                def marker:int (buffer_get bytes (i + 1))
+                if (marker == 255) {
+                    ; Fill byte before the real marker.
+                    i = (i + 1)
+                } {
+                    if (marker == 216) {
+                        i = (i + 2)
+                    } {
+                        if (marker == 217) {
+                            return
+                        } {
+                            if (marker == 218) {
+                                ; Start of scan: past this there is no header
+                                ; left to find.
+                                return
+                            } {
+                                def seg:int (OfficeAssetStore.be16(bytes (i + 2)))
+                                if (seg < 2) {
+                                    return
+                                }
+                                if (OfficeAssetStore.isSofMarker(marker)) {
+                                    if ((i + 9) < n) {
+                                        a.height = (OfficeAssetStore.be16(bytes (i + 5)))
+                                        a.width = (OfficeAssetStore.be16(bytes (i + 7)))
+                                    }
+                                    return
+                                }
+                                i = ((i + 2) + seg)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    sfn isSofMarker:boolean (marker:int) {
+        ; SOF0..SOF15 are 0xC0..0xCF except 0xC4 (Huffman tables), 0xC8
+        ; (reserved) and 0xCC (arithmetic conditioning) — those are not frame
+        ; headers and reading a size out of them gives garbage.
+        if (marker < 192) {
+            return false
+        }
+        if (marker > 207) {
+            return false
+        }
+        if (marker == 196) {
+            return false
+        }
+        if (marker == 200) {
+            return false
+        }
+        if (marker == 204) {
+            return false
+        }
+        return true
+    }
+}

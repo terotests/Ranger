@@ -8,7 +8,7 @@ then paint with EVG / SoftCanvas — the same present seam as the text editor
 ```text
 presentation.pptx
       ↓
- ZIP / OPC package          (OpcPackage + gallery/zip)
+ ZIP / OPC package          (gallery/ooxml OpcPackage + gallery/zip)
       ↓
  PresentationML / DrawingML (PptxXml + PptxParser)
       ↓
@@ -32,7 +32,6 @@ only resolved geometry, sRGB, fonts, and image part paths.
 ```text
 gallery/pptx/
   src/
-    OpcPackage.rgr      OPC ZIP + relationships
     PptxXml.rgr         tiny XML DOM (preserves a:t leading spaces)
     PptxModel.rgr       EMU→pt scene types + placeholders
     PptxParser.rgr      presentation / slide / theme / master / layout
@@ -54,6 +53,14 @@ gallery/pptx/
   fixtures/             OOXML decks 01–26
   tools/make_fixtures.py
   web/                  interactive WebGL present host
+
+gallery/ooxml/           shared with the .docx and .xlsx readers
+  OpcPackage.rgr         OPC ZIP: parts, content types, relationships
+  OoxmlText.rgr          XML entity decoding
+
+gallery/office/          likewise — see office/README.md
+  assets/OfficeAsset.rgr a picture identified by its bytes, not its file name
+  text/, drawing/, editor/, core/
 ```
 
 ## Fidelity (current)

@@ -1,0 +1,449 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeColor.rgr — a colour out of an Office theme, and what is done to it.
+; ==============================================================================
+;
+; DrawingML is not PowerPoint's. The same `<a:clrScheme>` names the same twelve
+; colours in a .pptx, a .xlsx and a .docx, and the same modifiers adjust them.
+; The deck reader had all of it; the spreadsheet had none of it, and dropped
+; every theme colour on the floor:
+;
+;     <color rgb="FFCC0000"/>              read
+;     <color theme="4" tint="-0.25"/>      "" — no colour at all
+;     <color indexed="10"/>                "" — likewise
+;
+; The second line is not exotic. It is what Excel writes for every cell styled
+; from the palette — "Blue, Accent 1, Lighter 40%" IS a theme index and a tint
+; — and `xl/theme/theme1.xml` was sitting in the package unread. The file even
+; said "theme colors / indexed palette are approximated"; it did not
+; approximate them, it discarded them.
+;
+; TWO FUNCTIONS CALLED TINT, AND THEY ARE NOT THE SAME ONE.
+;
+; This is the trap in sharing this code, so it is spelled out rather than
+; averaged away:
+;
+;   DrawingML `<a:tint val="60000"/>`   keeps 60% of each linear RGB channel
+;                                       and adds the rest as white.
+;   SpreadsheetML `tint="-0.25"`        scales the HLS LUMINANCE: negative
+;                                       darkens by that fraction, positive
+;                                       moves it that fraction towards 1.
+;
+; Same word, different space, different formula. They are `applyDrawingMods`
+; and `applyExcelTint` here, and nothing calls one where the other belongs.
+;
+; WHAT IS SHARED IS REAL, THOUGH: the theme palette itself — twelve names, the
+; same XML, parsed once — and the colour value that carries a scheme reference
+; and its modifiers instead of a flat hex, which is what lets a document be
+; re-themed rather than repainted.
+; ==============================================================================
+
+; The twelve colours a theme names, by their `a:clrScheme` keys: dk1, lt1, dk2,
+; lt2, accent1..accent6, hlink, folHlink.
+class OfficeTheme {
+    def colors:[string:string]
+
+    Constructor () {
+    }
+
+    fn set:void (name:string hex:string) {
+        set colors name hex
+    }
+
+    fn has:boolean (name:string) {
+        return (has colors name)
+    }
+
+    fn colorOf:string (name:string) {
+        def v@(optional):string (get colors name)
+        if (!null? v) {
+            return (unwrap v)
+        }
+        return "000000"
+    }
+
+    fn count:int () {
+        return (array_length (keys colors))
+    }
+
+    ; `bg1`/`tx1`/`bg2`/`tx2` are what a SLIDE calls the first four, and
+    ; `phClr` is the placeholder a theme style fills in from a shape's own
+    ; reference. The palette itself only knows the `dk`/`lt` names.
+    sfn mapSchemeName:string (name:string) {
+        if (name == "bg1") { return "lt1" }
+        if (name == "tx1") { return "dk1" }
+        if (name == "bg2") { return "lt2" }
+        if (name == "tx2") { return "dk2" }
+        if (name == "phClr") { return "accent1" }
+        return name
+    }
+
+    ; Excel names theme colours by INDEX, and the order is not the theme
+    ; file's. `<color theme="0"/>` is the light background and `theme="1"` the
+    ; dark text — the first two pairs are swapped relative to `a:clrScheme`,
+    ; which is a documented quirk and the single most likely thing to get
+    ; backwards. Beyond the twelve there is nothing to name.
+    sfn schemeForExcelIndex:string (idx:int) {
+        if (idx == 0) { return "lt1" }
+        if (idx == 1) { return "dk1" }
+        if (idx == 2) { return "lt2" }
+        if (idx == 3) { return "dk2" }
+        if (idx == 4) { return "accent1" }
+        if (idx == 5) { return "accent2" }
+        if (idx == 6) { return "accent3" }
+        if (idx == 7) { return "accent4" }
+        if (idx == 8) { return "accent5" }
+        if (idx == 9) { return "accent6" }
+        if (idx == 10) { return "hlink" }
+        if (idx == 11) { return "folHlink" }
+        return ""
+    }
+}
+
+class OfficeColor {
+    def isSet:boolean false
+    def isScheme:boolean false
+    def scheme:string ""
+    def srgb:string ""          ; RRGGBB, no hash
+    def alpha:double 1.0
+    ; The DrawingML adjustment chain. Each is "not stated" at its identity.
+    def lumMod:double 1.0
+    def lumOff:double 0.0
+    def tint:double 0.0
+    def shade:double 0.0
+    def satMod:double 1.0
+    ; The adjustments have already been carried out and `srgb` is the answer.
+    ; A colour that came out of a theme STYLE is two chains of modifiers deep,
+    ; which no single set can express — so it is baked, and a resolver leaves
+    ; it alone rather than resolving it back to the palette colour it started
+    ; from.
+    def baked:boolean false
+
+    Constructor () {
+    }
+
+    sfn srgbOf:OfficeColor (hex:string) {
+        def c (new OfficeColor())
+        c.isSet = true
+        c.srgb = hex
+        return c
+    }
+
+    sfn schemeOf:OfficeColor (name:string) {
+        def c (new OfficeColor())
+        c.isSet = true
+        c.isScheme = true
+        c.scheme = name
+        return c
+    }
+
+    fn hasMods:boolean () {
+        if (lumMod != 1.0) { return true }
+        if (lumOff != 0.0) { return true }
+        if (tint != 0.0) { return true }
+        if (shade != 0.0) { return true }
+        if (satMod != 1.0) { return true }
+        return false
+    }
+
+    fn copyModsFrom:void (src:OfficeColor) {
+        lumMod = src.lumMod
+        lumOff = src.lumOff
+        tint = src.tint
+        shade = src.shade
+        satMod = src.satMod
+    }
+}
+
+class OfficeColorMath {
+    sfn clamp01:double (v:double) {
+        if (v < 0.0) {
+            return 0.0
+        }
+        if (v > 1.0) {
+            return 1.0
+        }
+        return v
+    }
+
+    sfn hexDigit:int (c:int) {
+        if ((c >= 48) && (c <= 57)) {
+            return (c - 48)
+        }
+        if ((c >= 97) && (c <= 102)) {
+            return ((c - 97) + 10)
+        }
+        if ((c >= 65) && (c <= 70)) {
+            return ((c - 65) + 10)
+        }
+        return 0
+    }
+
+    sfn byteAt:int (hex:string at:int) {
+        if ((strlen hex) < (at + 2)) {
+            return 0
+        }
+        def hi:int (OfficeColorMath.hexDigit((charAt hex at)))
+        def lo:int (OfficeColorMath.hexDigit((charAt hex (at + 1))))
+        return ((hi * 16) + lo)
+    }
+
+    sfn hexOf:string (v:int) {
+        def n:int v
+        if (n < 0) {
+            n = 0
+        }
+        if (n > 255) {
+            n = 255
+        }
+        def digits:string "0123456789ABCDEF"
+        def hi:int (idiv n 16)
+        def lo:int (n % 16)
+        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+    }
+
+    sfn packHex:string (r:double g:double b:double) {
+        def ri:int (to_int ((r * 255.0) + 0.5))
+        def gi:int (to_int ((g * 255.0) + 0.5))
+        def bi:int (to_int ((b * 255.0) + 0.5))
+        return ((OfficeColorMath.hexOf(ri)) + (OfficeColorMath.hexOf(gi)) + (OfficeColorMath.hexOf(bi)))
+    }
+
+    ; --- DrawingML ------------------------------------------------------------
+    ;
+    ; The adjustments, in the order DrawingML applies them. `satMod` is done on
+    ; the distance from the channel average, which is what pushing saturation
+    ; is when there is no colour model to hand.
+    sfn applyDrawingMods:string (hex:string col:OfficeColor) {
+        if ((strlen hex) != 6) {
+            return hex
+        }
+        def r:double ((to_double (OfficeColorMath.byteAt(hex 0))) / 255.0)
+        def g:double ((to_double (OfficeColorMath.byteAt(hex 2))) / 255.0)
+        def b:double ((to_double (OfficeColorMath.byteAt(hex 4))) / 255.0)
+        if (col.satMod != 1.0) {
+            def avg:double (((r + g) + b) / 3.0)
+            r = (OfficeColorMath.clamp01((avg + ((r - avg) * col.satMod))))
+            g = (OfficeColorMath.clamp01((avg + ((g - avg) * col.satMod))))
+            b = (OfficeColorMath.clamp01((avg + ((b - avg) * col.satMod))))
+        }
+        if (col.lumMod != 1.0) {
+            r = (OfficeColorMath.clamp01((r * col.lumMod)))
+            g = (OfficeColorMath.clamp01((g * col.lumMod)))
+            b = (OfficeColorMath.clamp01((b * col.lumMod)))
+        }
+        if (col.lumOff != 0.0) {
+            r = (OfficeColorMath.clamp01((r + col.lumOff)))
+            g = (OfficeColorMath.clamp01((g + col.lumOff)))
+            b = (OfficeColorMath.clamp01((b + col.lumOff)))
+        }
+        if (col.tint != 0.0) {
+            ; Towards white by however much of the colour is kept.
+            r = (OfficeColorMath.clamp01(((r * col.tint) + (1.0 - col.tint))))
+            g = (OfficeColorMath.clamp01(((g * col.tint) + (1.0 - col.tint))))
+            b = (OfficeColorMath.clamp01(((b * col.tint) + (1.0 - col.tint))))
+        }
+        if (col.shade != 0.0) {
+            r = (OfficeColorMath.clamp01((r * col.shade)))
+            g = (OfficeColorMath.clamp01((g * col.shade)))
+            b = (OfficeColorMath.clamp01((b * col.shade)))
+        }
+        return (OfficeColorMath.packHex(r g b))
+    }
+
+    ; --- SpreadsheetML --------------------------------------------------------
+    ;
+    ; A DIFFERENT function that happens to share a name. Excel's `tint` scales
+    ; the HLS LUMINANCE, not the RGB channels:
+    ;
+    ;   tint < 0   L' = L * (1 + tint)          darker
+    ;   tint > 0   L' = L * (1 - tint) + tint   towards white
+    ;
+    ; "Lighter 40%" is `tint="0.4"`, "Darker 25%" is `tint="-0.25"`, and the
+    ; hue and the saturation are left exactly where they were — which is the
+    ; whole point of a tint and is not what scaling RGB does.
+    sfn applyExcelTint:string (hex:string tint:double) {
+        if ((strlen hex) != 6) {
+            return hex
+        }
+        if (tint == 0.0) {
+            return hex
+        }
+        def r:double ((to_double (OfficeColorMath.byteAt(hex 0))) / 255.0)
+        def g:double ((to_double (OfficeColorMath.byteAt(hex 2))) / 255.0)
+        def b:double ((to_double (OfficeColorMath.byteAt(hex 4))) / 255.0)
+        def hsl:[double]
+        OfficeColorMath.rgbToHsl(r g b hsl)
+        def h:double (itemAt hsl 0)
+        def s:double (itemAt hsl 1)
+        def l:double (itemAt hsl 2)
+        if (tint < 0.0) {
+            l = (l * (1.0 + tint))
+        } {
+            l = ((l * (1.0 - tint)) + tint)
+        }
+        def out:[double]
+        OfficeColorMath.hslToRgb(h s (OfficeColorMath.clamp01(l)) out)
+        return (OfficeColorMath.packHex((itemAt out 0) (itemAt out 1) (itemAt out 2)))
+    }
+
+    sfn rgbToHsl:void (r:double g:double b:double out:[double]) {
+        def mx:double r
+        if (g > mx) { mx = g }
+        if (b > mx) { mx = b }
+        def mn:double r
+        if (g < mn) { mn = g }
+        if (b < mn) { mn = b }
+        def l:double ((mx + mn) * 0.5)
+        def h:double 0.0
+        def s:double 0.0
+        def d:double (mx - mn)
+        if (d > 0.0) {
+            if (l > 0.5) {
+                s = (d / ((2.0 - mx) - mn))
+            } {
+                s = (d / (mx + mn))
+            }
+            if (mx == r) {
+                h = ((g - b) / d)
+                if (g < b) {
+                    h = (h + 6.0)
+                }
+            } {
+                if (mx == g) {
+                    h = (((b - r) / d) + 2.0)
+                } {
+                    h = (((r - g) / d) + 4.0)
+                }
+            }
+            h = (h / 6.0)
+        }
+        push out h
+        push out s
+        push out l
+    }
+
+    sfn hueToRgb:double (p:double q:double t:double) {
+        def tt:double t
+        if (tt < 0.0) {
+            tt = (tt + 1.0)
+        }
+        if (tt > 1.0) {
+            tt = (tt - 1.0)
+        }
+        if (tt < (1.0 / 6.0)) {
+            return (p + (((q - p) * 6.0) * tt))
+        }
+        if (tt < 0.5) {
+            return q
+        }
+        if (tt < (2.0 / 3.0)) {
+            return (p + (((q - p) * ((2.0 / 3.0) - tt)) * 6.0))
+        }
+        return p
+    }
+
+    sfn hslToRgb:void (h:double s:double l:double out:[double]) {
+        if (s == 0.0) {
+            push out l
+            push out l
+            push out l
+            return
+        }
+        def q:double 0.0
+        if (l < 0.5) {
+            q = (l * (1.0 + s))
+        } {
+            q = ((l + s) - (l * s))
+        }
+        def p:double ((2.0 * l) - q)
+        push out (OfficeColorMath.clamp01((OfficeColorMath.hueToRgb(p q (h + (1.0 / 3.0))))))
+        push out (OfficeColorMath.clamp01((OfficeColorMath.hueToRgb(p q h))))
+        push out (OfficeColorMath.clamp01((OfficeColorMath.hueToRgb(p q (h - (1.0 / 3.0))))))
+    }
+
+    ; --- the legacy indexed palette -------------------------------------------
+    ;
+    ; What `<color indexed="10"/>` means. It is the pre-2007 fixed palette, and
+    ; a workbook saved by anything old still uses it. 64 and 65 are the
+    ; system foreground and background, which have no fixed value; everything
+    ; else does.
+    sfn indexedColor:string (idx:int) {
+        def palette:[string]
+        push palette "000000"
+        push palette "FFFFFF"
+        push palette "FF0000"
+        push palette "00FF00"
+        push palette "0000FF"
+        push palette "FFFF00"
+        push palette "FF00FF"
+        push palette "00FFFF"
+        push palette "000000"
+        push palette "FFFFFF"
+        push palette "FF0000"
+        push palette "00FF00"
+        push palette "0000FF"
+        push palette "FFFF00"
+        push palette "FF00FF"
+        push palette "00FFFF"
+        push palette "800000"
+        push palette "008000"
+        push palette "000080"
+        push palette "808000"
+        push palette "800080"
+        push palette "008080"
+        push palette "C0C0C0"
+        push palette "808080"
+        push palette "9999FF"
+        push palette "993366"
+        push palette "FFFFCC"
+        push palette "CCFFFF"
+        push palette "660066"
+        push palette "FF8080"
+        push palette "0066CC"
+        push palette "CCCCFF"
+        push palette "000080"
+        push palette "FF00FF"
+        push palette "FFFF00"
+        push palette "00FFFF"
+        push palette "800080"
+        push palette "800000"
+        push palette "008080"
+        push palette "0000FF"
+        push palette "00CCFF"
+        push palette "CCFFFF"
+        push palette "CCFFCC"
+        push palette "FFFF99"
+        push palette "99CCFF"
+        push palette "FF99CC"
+        push palette "CC99FF"
+        push palette "FFCC99"
+        push palette "3366FF"
+        push palette "33CCCC"
+        push palette "99CC00"
+        push palette "FFCC00"
+        push palette "FF9900"
+        push palette "FF6600"
+        push palette "666699"
+        push palette "969696"
+        push palette "003366"
+        push palette "339966"
+        push palette "003300"
+        push palette "333300"
+        push palette "993300"
+        push palette "993366"
+        push palette "333399"
+        push palette "333333"
+        if (idx < 0) {
+            return ""
+        }
+        if (idx >= (array_length palette)) {
+            ; 64 is the system foreground, 65 the background: neither has a
+            ; value of its own, so a caller has to decide rather than be told
+            ; a wrong one.
+            return ""
+        }
+        return (itemAt palette idx)
+    }
+}

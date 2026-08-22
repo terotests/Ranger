@@ -179,9 +179,22 @@ function coords(ev) {
   };
 }
 
+// Whether the button is still down. A move with nothing held is a hover; a
+// move with the button held is a DRAG, and the app cannot tell the two apart
+// unless this file says which one it is. It used to always say "not held", so
+// dragging across text selected nothing.
+let buttonDown = false;
+
 canvas.addEventListener("pointerdown", async (ev) => {
   canvas.focus();
   const { x, y } = coords(ev);
+  buttonDown = true;
+  // The pointer is captured so that a drag which leaves the canvas keeps
+  // arriving here — letting go outside the window otherwise leaves the app
+  // believing the button is still down forever.
+  if (canvas.setPointerCapture) {
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) { /* not captured */ }
+  }
   // Through the frame, so a press lands on a window, then the toolbar, then
   // the paper — in that order, decided by the app rather than by this file.
   web.framePointer(x, y, true, true, false, ev.shiftKey);
@@ -191,12 +204,24 @@ canvas.addEventListener("pointerdown", async (ev) => {
 
 canvas.addEventListener("pointermove", async (ev) => {
   const { x, y } = coords(ev);
-  if (web.framePointer(x, y, false, false, false, false)) await draw(true);
+  if (web.framePointer(x, y, false, buttonDown, false, false)) await draw(true);
 });
 
 canvas.addEventListener("pointerup", async (ev) => {
   const { x, y } = coords(ev);
+  buttonDown = false;
+  if (canvas.releasePointerCapture) {
+    try { canvas.releasePointerCapture(ev.pointerId); } catch (_) { /* not captured */ }
+  }
   web.framePointer(x, y, false, false, true, ev.shiftKey);
+  await draw(true);
+});
+
+// A pointer that is cancelled (the browser took the gesture) ends the drag too.
+canvas.addEventListener("pointercancel", async (ev) => {
+  const { x, y } = coords(ev);
+  buttonDown = false;
+  web.framePointer(x, y, false, false, true, false);
   await draw(true);
 });
 
@@ -423,6 +448,32 @@ async function selftest() {
   web.typeText("Zx");
   await draw(true);
   ok("typing changed the page", web.scene(page) !== first);
+
+  // Dragging with the button held paints a selection. Through `framePointer`,
+  // because the bug was in this file as much as in the app: a move used to say
+  // the button was NOT down, so the app could not tell a drag from a hover and
+  // a drag across text selected nothing at all.
+  {
+    web.setEditMode(true);
+    const y = 200;
+    web.framePointer(120, y, true, true, false, false);
+    await draw(true);
+    const beforeDrag = web.copySelection() || "";
+    ok("a press alone selects nothing", beforeDrag.length === 0);
+    // Held, and moved — several steps, the way a real drag arrives.
+    for (const x of [200, 320, 460]) {
+      web.framePointer(x, y, false, true, false, false);
+    }
+    web.framePointer(460, y, false, false, true, false);
+    await draw(true);
+    const dragged = web.copySelection() || "";
+    ok("dragging with the button held selects text", dragged.length > 0);
+    // And letting go leaves it selected rather than collapsing it.
+    ok("and letting go keeps it", (web.copySelection() || "").length > 0);
+    web.framePointer(120, y, true, true, false, false);
+    web.framePointer(120, y, false, false, true, false);
+    await draw(true);
+  }
 
   // A chart pasted from the spreadsheet stays a chart, and is drawn by the
   // same Vela renderer — as geometry, not as a picture of one.

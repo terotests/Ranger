@@ -14,6 +14,57 @@ Import "../../game_engine/ui/UITextRenderer.rgr"
 
 ; kind: 0=text 1=image 2=tableCellBg 3=tableBorder 4=headerText 5=footerText
 ;        6=chart (chartId names the DocChart; the picture is rendered at paint)
+; ------------------------------------------------------------------------------
+; What a laid-out line draws.
+;
+; A `DocBlock` has a `kind` too, and it is a DIFFERENT table over the same small
+; integers — 4 is a chart there and a header here. Both are read inside
+; `layoutDocument`, a few lines apart. See the note on `DocBlockKind`.
+; ------------------------------------------------------------------------------
+class LaidLineKind {
+    ; A run of text. The great majority of lines.
+    sfn text:int () {
+        return 0
+    }
+
+    ; A picture, drawn from `imageIndex` within the line's paragraph.
+    sfn image:int () {
+        return 1
+    }
+
+    ; A filled rectangle — a table cell's shading.
+    sfn fill:int () {
+        return 2
+    }
+
+    ; A one-pixel rectangle standing in for a table border.
+    sfn border:int () {
+        return 3
+    }
+
+    ; Header text. Drawn muted, and not part of the body the caret walks.
+    sfn header:int () {
+        return 4
+    }
+
+    ; Footer text, on the same terms.
+    sfn footer:int () {
+        return 5
+    }
+
+    ; A chart, painted from the document's own JSON at paint time.
+    sfn chart:int () {
+        return 6
+    }
+
+    ; Is this a line of body text — something a click can land in and the caret
+    ; can walk? A header and a footer are text and are drawn as text, and they
+    ; are deliberately NOT this: the body is what the document editor edits.
+    sfn isBodyText:boolean (kind:int) {
+        return (kind == 0)
+    }
+}
+
 class LaidLine {
     def paraIndex:int 0
     def text:string ""
@@ -29,7 +80,7 @@ class LaidLine {
     def boxW:int 0
     def align:int 0
     def listPrefix:string ""
-    def kind:int 0
+    def kind:int (LaidLineKind.text())
     def imageIndex:int 0
     ; Which DocChart this line draws, by id rather than by index — an edit may
     ; add or remove charts between layout and paint.
@@ -152,7 +203,7 @@ class DocxLayout {
         def bi:int 0
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 2) {
+            if (b.kind == (DocBlockKind.pageBreak())) {
                 this.paintChrome(curPage curSec)
                 curPage = (this.newPage(curSec curSecIdx))
                 ml = (curSec.marginLeftPx())
@@ -170,7 +221,7 @@ class DocxLayout {
                     curMaxY = (curMaxY - 8)
                 }
             }
-            if (b.kind == 3) {
+            if (b.kind == (DocBlockKind.sectionBreak())) {
                 this.paintChrome(curPage curSec)
                 curSecIdx = b.sectionIndex
                 curSec = (doc.sectionAt(curSecIdx))
@@ -190,7 +241,7 @@ class DocxLayout {
                     curMaxY = (curMaxY - 8)
                 }
             }
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 def p:Paragraph b.paragraph
                 def need:int (this.estimateParaHeight(p contentW))
                 if ((y + need) > curMaxY) {
@@ -212,7 +263,7 @@ class DocxLayout {
                 }
                 y = (this.layoutParagraph(p ml y contentW))
             }
-            if (b.kind == 4) {
+            if (b.kind == (DocBlockKind.chart())) {
                 def ch:DocChart b.chart
                 def cw:int ch.widthPx
                 if (cw > contentW) {
@@ -240,7 +291,7 @@ class DocxLayout {
                     }
                 }
                 def cl (new LaidLine)
-                cl.kind = 6
+                cl.kind = (LaidLineKind.chart())
                 cl.chartId = ch.id
                 cl.x = ml
                 cl.y = y
@@ -251,7 +302,7 @@ class DocxLayout {
                 push curPage.lines cl
                 y = ((y + chh) + 10)
             }
-            if (b.kind == 1) {
+            if (b.kind == (DocBlockKind.table())) {
                 def tbl:DocumentTable b.table
                 def th:int (this.estimateTableHeight(tbl contentW))
                 if ((y + th) > curMaxY) {
@@ -302,7 +353,7 @@ class DocxLayout {
         def hi:int 0
         while (hi < (array_length sec.headerParas)) {
             def hp:Paragraph (itemAt sec.headerParas hi)
-            hy = (this.layoutChromePara(page hp ml hy cw 4))
+            hy = (this.layoutChromePara(page hp ml hy cw (LaidLineKind.header())))
             hi = (hi + 1)
         }
         ; footer
@@ -311,7 +362,7 @@ class DocxLayout {
         def fi:int 0
         while (fi < (array_length sec.footerParas)) {
             def fp:Paragraph (itemAt sec.footerParas fi)
-            fy = (this.layoutChromePara(page fp ml fy cw 5))
+            fy = (this.layoutChromePara(page fp ml fy cw (LaidLineKind.footer())))
             fi = (fi + 1)
         }
     }
@@ -466,6 +517,44 @@ class DocxLayout {
         return y
     }
 
+    ; Where a wrapped chunk really starts in the paragraph.
+    ;
+    ; `tr.wrap` breaks at a space and DROPS it, so line two does not begin
+    ; where line one ended: it begins one character later. Advancing the cursor
+    ; by the chunk's own length therefore names a range one short, and the
+    ; error ACCUMULATES — by the fourth wrapped line of a paragraph the offsets
+    ; were two characters behind the text they claim to describe.
+    ;
+    ; Everything that maps between pixels and offsets is built on this. The
+    ; caret drew two characters to the right of where it belonged, a click
+    ; landed on a different character than the one under the pointer, and text
+    ; typed at the caret went in where the offsets said rather than where the
+    ; caret was drawn — so a word appeared a couple of letters to the left of
+    ; the cursor, in the middle of the previous one.
+    ;
+    ; Only WHITESPACE may be stepped over. If the next character is anything
+    ; else the chunk is not a slice of this text at all, and moving the cursor
+    ; further would invent an offset rather than find one.
+    sfn chunkStart:int (text:string cursor:int chunk:string) {
+        if ((strlen chunk) == 0) {
+            return cursor
+        }
+        def n:int (strlen text)
+        def first:int (charAt chunk 0)
+        def at:int cursor
+        while (at < n) {
+            def c:int (charAt text at)
+            if (c == first) {
+                return at
+            }
+            if ((c != 32) && (c != 9) && (c != 10) && (c != 13)) {
+                return at
+            }
+            at = (at + 1)
+        }
+        return at
+    }
+
     fn layoutParagraph:int (p:Paragraph ml:int y:int contentW:int) {
         def before:int (to_int (DocxLayout.ptToPx(p.spaceBeforePt)))
         def after:int (to_int (DocxLayout.ptToPx(p.spaceAfterPt)))
@@ -482,12 +571,14 @@ class DocxLayout {
 
         def fontPx:double 14.0
         def bold:boolean false
+        def italic:boolean false
         def underline:boolean false
         def colorHex:string "000000"
         if ((array_length p.spans) > 0) {
             def s0:TextSpan (itemAt p.spans 0)
             fontPx = (DocxLayout.ptToPx(s0.fontSizePt))
             bold = s0.bold
+            italic = s0.italic
             underline = s0.underline
             colorHex = s0.colorHex
         }
@@ -496,8 +587,9 @@ class DocxLayout {
         }
         ; Wrapping and line widths must use the same face the painter will use
         ; for this paragraph's primary run, or a bold paragraph wraps as if it
-        ; were regular and every line measures short.
-        DocxTextMetrics.applyFace((unwrap tr) bold)
+        ; were regular and every line measures short. The slant counts for the
+        ; same reason: an italic face is not the width of its upright one.
+        DocxTextMetrics.applyStyle((unwrap tr) bold italic)
         def lh:int (to_int ((tr.lineHeight(fontPx)) * p.lineSpacing))
         if (lh < 12) {
             lh = 12
@@ -526,9 +618,10 @@ class DocxLayout {
                 }
                 def chunk:string (itemAt wrapped li)
                 def line:LaidLine (new LaidLine)
-                line.kind = 0
+                line.kind = (LaidLineKind.text())
                 line.paragraphRef = p
                 line.paraIndex = p.id
+                cursor = (DocxLayout.chunkStart(p.text cursor chunk))
                 line.docStart = cursor
                 line.docEnd = (cursor + (strlen chunk))
                 cursor = line.docEnd
@@ -587,7 +680,7 @@ class DocxLayout {
                 ml = (curSec.marginLeftPx())
             }
             def emptyLine:LaidLine (new LaidLine)
-            emptyLine.kind = 0
+            emptyLine.kind = (LaidLineKind.text())
             emptyLine.paragraphRef = p
             emptyLine.paraIndex = p.id
             emptyLine.docStart = 0
@@ -627,7 +720,7 @@ class DocxLayout {
                 ml = (curSec.marginLeftPx())
             }
             def iline:LaidLine (new LaidLine)
-            iline.kind = 1
+            iline.kind = (LaidLineKind.image())
             iline.paragraphRef = p
             iline.paraIndex = p.id
             iline.imageIndex = ii
@@ -738,7 +831,7 @@ class DocxLayout {
                 ; background
                 if ((strlen cell2.fillHex) == 6) {
                     def bg:LaidLine (new LaidLine)
-                    bg.kind = 2
+                    bg.kind = (LaidLineKind.fill())
                     bg.x = x
                     bg.y = y
                     bg.width = cw2
@@ -754,7 +847,7 @@ class DocxLayout {
                 if (cell2.borderTop.style != "nil") {
                     if (cell2.borderTop.style != "none") {
                         def bt:LaidLine (new LaidLine)
-                        bt.kind = 3
+                        bt.kind = (LaidLineKind.border())
                         bt.x = x
                         bt.y = y
                         bt.width = cw2
@@ -766,7 +859,7 @@ class DocxLayout {
                 if (cell2.borderBottom.style != "nil") {
                     if (cell2.borderBottom.style != "none") {
                         def bb:LaidLine (new LaidLine)
-                        bb.kind = 3
+                        bb.kind = (LaidLineKind.border())
                         bb.x = x
                         bb.y = ((y + rowH) - 1)
                         bb.width = cw2
@@ -778,7 +871,7 @@ class DocxLayout {
                 if (cell2.borderLeft.style != "nil") {
                     if (cell2.borderLeft.style != "none") {
                         def bl:LaidLine (new LaidLine)
-                        bl.kind = 3
+                        bl.kind = (LaidLineKind.border())
                         bl.x = x
                         bl.y = y
                         bl.width = 1
@@ -790,7 +883,7 @@ class DocxLayout {
                 if (cell2.borderRight.style != "nil") {
                     if (cell2.borderRight.style != "none") {
                         def br:LaidLine (new LaidLine)
-                        br.kind = 3
+                        br.kind = (LaidLineKind.border())
                         br.x = ((x + cw2) - 1)
                         br.y = y
                         br.width = 1
@@ -843,9 +936,10 @@ class DocxLayout {
         while (li < (array_length wrapped)) {
             def chunk:string (itemAt wrapped li)
             def line:LaidLine (new LaidLine)
-            line.kind = 0
+            line.kind = (LaidLineKind.text())
             line.paragraphRef = p
             line.paraIndex = p.id
+            cursor = (DocxLayout.chunkStart(p.text cursor chunk))
             line.docStart = cursor
             line.docEnd = (cursor + (strlen chunk))
             cursor = line.docEnd

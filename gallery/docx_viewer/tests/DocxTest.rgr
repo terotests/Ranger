@@ -1119,6 +1119,357 @@ class DocxTest {
         c.ok("and so does undoing it" ((((viewer.document()).revision)) > rev1))
         viewer.setEditMode(false)
 
+        ; --- a laid line names exactly the text it paints ----------------------
+        ;
+        ; Every map between a pixel and a document offset is built on this:
+        ; `line.text` is what gets drawn, `[docStart, docEnd)` is what the
+        ; caret, the click and the selection measure. They have to be the same
+        ; characters.
+        ;
+        ; They were not. `tr.wrap` breaks at a space and DROPS it, and the
+        ; layout advanced its cursor by the chunk's own length, so line two of
+        ; a paragraph claimed to start one character before it did — and the
+        ; error accumulated, so by the fourth wrapped line the offsets were two
+        ; characters behind the glyphs. The caret drew two characters right of
+        ; where it belonged, a click landed on a different character than the
+        ; one under the pointer, and typing put the text in where the offsets
+        ; said rather than where the caret was: a word appeared a couple of
+        ; letters to the left, inside the previous one.
+        ;
+        ; 208 of this document's 290 lines were wrong.
+        print "== a laid line names exactly the text it paints =="
+        c.ok("open a document that wraps a lot" (viewer.openFile(fix "20-business-report.docx")))
+        viewer.renderPage(0)
+        def lineChecked:int 0
+        def lineBad:int 0
+        def firstBad:string ""
+        def lp:int 0
+        while (lp < (viewer.view.layout.pageCount())) {
+            def lpage:LaidPage (viewer.view.layout.pageAt(lp))
+            def lni:int 0
+            while (lni < (array_length lpage.lines)) {
+                def lline:LaidLine (itemAt lpage.lines lni)
+                if (lline.kind == 0) {
+                    def lpara:Paragraph lline.paragraphRef
+                    if (lpara.id > 0) {
+                        def shown:string lline.text
+                        if ((strlen lline.listPrefix) > 0) {
+                            if ((indexOf shown lline.listPrefix) == 0) {
+                                shown = (substring shown (strlen lline.listPrefix) (strlen shown))
+                            }
+                        }
+                        def la:int lline.docStart
+                        def lb:int lline.docEnd
+                        if (lb > (strlen lpara.text)) {
+                            lb = (strlen lpara.text)
+                        }
+                        def named:string ""
+                        if (lb > la) {
+                            named = (substring lpara.text la lb)
+                        }
+                        lineChecked = (lineChecked + 1)
+                        if (shown != named) {
+                            lineBad = (lineBad + 1)
+                            if ((strlen firstBad) == 0) {
+                                firstBad = (("painted '" + shown) + ("' but named '" + named) + "'")
+                            }
+                        }
+                    }
+                }
+                lni = (lni + 1)
+            }
+            lp = (lp + 1)
+        }
+        c.ok("there are wrapped lines to check" (lineChecked > 100))
+        if (lineBad > 0) {
+            print ("    " + firstBad)
+        }
+        c.eqInt("every line names the text it paints" lineBad 0)
+
+        ; --- dragging the mouse paints a selection -----------------------------
+        ;
+        ; Two halves, and both were missing. The app only ever looked at a
+        ; PRESS, so a move with the button held did nothing at all; and
+        ; extending gave up when the two ends were in different paragraphs and
+        ; collapsed to a caret, so even a shift-click could not select across a
+        ; paragraph break — though every edit below it handles such a range.
+        print "== dragging selects, across paragraphs too =="
+        c.ok("open the report to select in" (viewer.openFile(fix "20-business-report.docx")))
+        viewer.setEditMode(true)
+        viewer.renderPage(0)
+        def dragPage:LaidPage (viewer.view.layout.pageAt(0))
+        def firstLine:int -1
+        def laterLine:int -1
+        def dl:int 0
+        while (dl < (array_length dragPage.lines)) {
+            def dline:LaidLine (itemAt dragPage.lines dl)
+            if (dline.kind == 0) {
+                def dpara:Paragraph dline.paragraphRef
+                if ((dpara.id > 0) && ((strlen dline.text) > 8)) {
+                    if (firstLine < 0) {
+                        firstLine = dl
+                    } {
+                        if (laterLine < 0) {
+                            def firstOne:LaidLine (itemAt dragPage.lines firstLine)
+                            def firstPara:Paragraph firstOne.paragraphRef
+                            if (dpara.id != firstPara.id) {
+                                laterLine = dl
+                            }
+                        }
+                    }
+                }
+            }
+            dl = (dl + 1)
+        }
+        c.ok("two lines in different paragraphs to drag between" ((firstLine >= 0) && (laterLine >= 0)))
+        if ((firstLine >= 0) && (laterLine >= 0)) {
+            def from:LaidLine (itemAt dragPage.lines firstLine)
+            def to:LaidLine (itemAt dragPage.lines laterLine)
+            viewer.clickAt((from.x + 4) (from.y + 2) false)
+            def anchorPara:int ((viewer.edit.caret()).paragraphId)
+            c.ok("the press put a caret down" (anchorPara > 0))
+            c.ok("and nothing is selected yet" ((viewer.edit.selection()).isCollapsed()))
+            ; The drag, ending in a different paragraph further down.
+            viewer.dragTo((to.x + 20) (to.y + 2))
+            c.ok("dragging selected something" (((viewer.edit.selection()).isCollapsed()) == false))
+            def startAt:[int]
+            def endAt:[int]
+            viewer.edit.orderedEnds(startAt endAt)
+            c.ok("the selection spans two paragraphs" ((itemAt startAt 0) != (itemAt endAt 0)))
+            c.eqInt("and it starts where the press was" (itemAt startAt 0) anchorPara)
+            ; Dragging back onto the first line collapses it again.
+            viewer.dragTo((from.x + 4) (from.y + 2))
+            c.ok("dragging back to the press point clears it" ((viewer.edit.selection()).isCollapsed()))
+        }
+        viewer.setEditMode(false)
+
+        ; --- italic reaches the face ------------------------------------------
+        ;
+        ; A span carried `italic`, the toolbar toggled it and Ctrl+I set it —
+        ; and `applyFace` took one argument, `bold`, so the slant stopped at
+        ; the model. Every italic run in every document opened here was drawn
+        ; upright, and Word's italic button did nothing anyone could see.
+        ;
+        ; Width is how a test can tell: an italic face is not the same width as
+        ; its upright one, so measuring the same string both ways answers the
+        ; same number only if the face never changed.
+        print "== italic reaches the face =="
+        def itDoc:RichDocument (new RichDocument)
+        def itPara:Paragraph (itDoc.addParagraph())
+        itPara.text = "Hamburgefonstiv and again"
+        def plainSpan:TextSpan (new TextSpan)
+        plainSpan.start = 0
+        plainSpan.end = 15
+        plainSpan.fontSizePt = 11.0
+        push itPara.spans plainSpan
+        def slantSpan:TextSpan (new TextSpan)
+        slantSpan.start = 15
+        slantSpan.end = (strlen itPara.text)
+        slantSpan.italic = true
+        slantSpan.fontSizePt = 11.0
+        push itPara.spans slantSpan
+        def itTr:UITextRenderer (unwrap viewer.view.layout.tr)
+        ; The face the renderer is put on, which is the contract — the widths
+        ; of two faces are the type designer's business, and Open Sans happens
+        ; to give its italic the same advances as its regular.
+        DocxTextMetrics.applyStyle(itTr false false)
+        c.eqStr("plain text asks for the regular face" itTr.fontFamily "Open Sans")
+        DocxTextMetrics.applyStyle(itTr false true)
+        c.eqStr("an italic run asks for the italic face" itTr.fontFamily "Open Sans-Italic")
+        DocxTextMetrics.applyStyle(itTr true false)
+        c.eqStr("a bold run asks for the bold face" itTr.fontFamily "Open Sans-Bold")
+        DocxTextMetrics.applyStyle(itTr true true)
+        c.eqStr("and both asks for both" itTr.fontFamily "Open Sans-Bold Italic")
+        ; The span walk has to see the change, which is the part that was
+        ; missing: runs used to break only where the WEIGHT changed, so an
+        ; italic word inside plain text never got a face of its own.
+        c.ok("the walk knows where the slant starts"
+            (((DocxTextMetrics.italicAt(itPara 3)) == false) && (DocxTextMetrics.italicAt(itPara 20))))
+        c.ok("and gives the two halves different face keys"
+            ((DocxTextMetrics.faceKeyAt(itPara 3)) != (DocxTextMetrics.faceKeyAt(itPara 20))))
+        ; End to end: a real document with italic in it, drawn. The display
+        ; list says `"italic":true` for the runs that are slanted — and it said
+        ; it for none of them before, whatever the document contained.
+        c.ok("open a document with italic in it" (viewer.openFile(fix "20-business-report.docx")))
+        def itScene:string (viewer.sceneJson(0))
+        c.ok("the page carries slanted runs" ((indexOf itScene "\"italic\":true") >= 0))
+        c.ok("and upright ones too" ((indexOf itScene "\"text\"") >= 0))
+
+        ; --- what a run said, versus what it did not say -----------------------
+        ;
+        ; `<w:b w:val="0"/>` and no `<w:b>` at all are different documents. The
+        ; first takes a word out of a bold style; the second lets the style
+        ; decide. `applyRPr` read the run as
+        ;
+        ;     if (hasFlag "w:b") { into.bold = true }
+        ;
+        ; which is the same for both — so a word explicitly un-bolded inside a
+        ; bold heading drew bold, and there was no way to say otherwise. The
+        ; underline path had always been written with the distinction in mind,
+        ; which is why only bold and italic were wrong.
+        print "== a run that says it is NOT bold =="
+        def triStyles:string "<w:styles xmlns:w=\"x\"><w:style w:type=\"paragraph\" w:styleId=\"Strong\"><w:name w:val=\"Strong\"/><w:rPr><w:b/><w:i/></w:rPr></w:style></w:styles>"
+        def triRes:WordStyleResolver (new WordStyleResolver)
+        triRes.parseStylesXml(triStyles)
+        def base:ResolvedParagraphStyle (triRes.resolveParagraphStyle("Strong"))
+        c.ok("the style says bold" base.run.bold)
+        c.ok("and italic" base.run.italic)
+
+        ; A run that says nothing keeps the style's answer.
+        def silent:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+        triRes.applyRPr("<w:rPr><w:sz w:val=\"24\"/></w:rPr>" silent)
+        c.ok("a silent run stays bold" silent.bold)
+        c.ok("and stays italic" silent.italic)
+
+        ; A run that says val="0" turns it off — the whole point.
+        def offRun:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+        triRes.applyRPr("<w:rPr><w:b w:val=\"0\"/></w:rPr>" offRun)
+        c.ok("a run that says b=0 is NOT bold" (offRun.bold == false))
+        c.ok("and is still italic, which it said nothing about" offRun.italic)
+
+        def offIt:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+        triRes.applyRPr("<w:rPr><w:i w:val=\"false\"/></w:rPr>" offIt)
+        c.ok("a run that says i=false is NOT italic" (offIt.italic == false))
+        c.ok("and is still bold" offIt.bold)
+
+        ; Every spelling the standard allows for off, and one for on.
+        def offNames:[string]
+        push offNames "0"
+        push offNames "false"
+        push offNames "off"
+        def spellingsOk:boolean true
+        def sp:int 0
+        while (sp < (array_length offNames)) {
+            def spelled:ResolvedRunStyle ((triRes.resolveParagraphStyle("Strong")).run)
+            triRes.applyRPr((("<w:rPr><w:b w:val=\"" + (itemAt offNames sp)) + "\"/></w:rPr>") spelled)
+            if spelled.bold {
+                spellingsOk = false
+            }
+            sp = (sp + 1)
+        }
+        c.ok("0, false and off all mean off" spellingsOk)
+        def onRun:ResolvedRunStyle ((triRes.resolveParagraphStyle("Normal")).run)
+        triRes.applyRPr("<w:rPr><w:b w:val=\"1\"/></w:rPr>" onRun)
+        c.ok("and val=1 still means on" onRun.bold)
+
+        ; The tri-state carrier itself, which is what makes the above sayable.
+        def stated:OfficeTextStyle (WordStyleResolver.runStyleOf("<w:rPr><w:b w:val=\"0\"/></w:rPr>"))
+        c.ok("the style says it stated the weight" stated.bold.isSet)
+        c.ok("and that the weight is off" (stated.bold.value == false))
+        c.ok("and says nothing about the slant" ((stated.italic.isSet) == false))
+        def quiet:OfficeTextStyle (WordStyleResolver.runStyleOf("<w:rPr/>"))
+        c.ok("an empty rPr states nothing at all" ((quiet.statesAnything()) == false))
+
+        ; --- every edit is undoable, and redo is undo's inverse ----------------
+        ;
+        ; This is the guard, not a case list. For each editing action the
+        ; controller offers, it does the thing, undoes it, redoes it and undoes
+        ; it again, and requires the document text to match at every point it
+        ; should. Four bugs lived behind its absence, and they were all the
+        ; same bug — an op kind written as a bare number by the code that
+        ; PRODUCES it and never taught to the code that replays it:
+        ;
+        ;   Enter recorded a kind 1 that neither direction knew. So it could
+        ;   not be undone, AND it stopped every undo below it dead.
+        ;   Backspace joining two paragraphs recorded a 2 — the same.
+        ;   Bold recorded a 3 — the same.
+        ;   Redo knew one kind of the nine and moved the op to the undo stack
+        ;   anyway, so the next undo ran it twice and invented text.
+        ;
+        ; Adding an action without adding it here shows up as a failure on the
+        ; line that says the document came back.
+        print "== every edit is undoable, and redo is its inverse =="
+        def hv:DocxViewer (new DocxViewer)
+        hv.init("gallery/pdf_writer/assets/fonts")
+        c.ok("open a document to edit" (hv.openFile(fix "hello.docx")))
+
+        def actions:[string]
+        push actions "type"
+        push actions "enter"
+        push actions "backspace-join"
+        push actions "bold"
+        push actions "paste-lines"
+        push actions "delete-span"
+        push actions "paste-chart"
+
+        def ai:int 0
+        while (ai < (array_length actions)) {
+            def what:string (itemAt actions ai)
+            ; Every action starts from the same document.
+            hv.openFile(fix "hello.docx")
+            hv.setEditMode(true)
+            hv.renderPage(0)
+            def d0:RichDocument (hv.document())
+            def start:string (d0.plainText())
+            def first:Paragraph (d0.paragraphAt(0))
+            def second:Paragraph (d0.paragraphAt(1))
+
+            if (what == "type") {
+                hv.edit.setCaret(first.id 3)
+                hv.edit.insertText("XYZ")
+            }
+            if (what == "enter") {
+                hv.edit.setCaret(first.id 3)
+                hv.edit.splitAtCaret()
+            }
+            if (what == "backspace-join") {
+                hv.edit.setCaret(second.id 0)
+                hv.edit.backspace()
+            }
+            if (what == "bold") {
+                hv.edit.setCaret(first.id 0)
+                hv.edit.extendTo(first.id 6)
+                hv.edit.toggleBold()
+            }
+            if (what == "paste-lines") {
+                hv.edit.setCaret(first.id (strlen first.text))
+                hv.edit.pasteText("AAA\nBBB\nCCC")
+            }
+            if (what == "delete-span") {
+                hv.edit.setCaret(first.id 3)
+                hv.edit.extendTo(second.id 4)
+                hv.edit.deleteSelection()
+            }
+            if (what == "paste-chart") {
+                hv.edit.setCaret(first.id 4)
+                hv.edit.pasteChart("{\"mark\":\"bar\",\"data\":{\"values\":[{\"a\":1}]}}" 200 120)
+            }
+
+            def afterDo:string ((hv.document()).plainText())
+            ; Bold changes no TEXT, so it is checked by its own state below
+            ; rather than by the string.
+            if (what != "bold") {
+                c.ok((what + ": changed the document") (afterDo != start))
+            }
+
+            ; ONE undo, because one action is one undo however many primitives
+            ; it took.
+            hv.edit.undo()
+            def afterUndo:string ((hv.document()).plainText())
+            c.ok((what + ": one undo puts it back") (afterUndo == start))
+
+            ; Redo, where the action can be redone at all. A paste whose
+            ; content undo threw away cannot be, and the honest answer there is
+            ; to refuse WITHOUT moving the op — which the next undo checks.
+            hv.edit.redo()
+            def afterRedo:string ((hv.document()).plainText())
+            if (afterRedo != afterDo) {
+                c.ok((what + ": redo refused rather than half-doing it")
+                    (afterRedo == start))
+            } {
+                c.ok((what + ": redo does it again") true)
+            }
+
+            ; And the invariant the corruption came from: whatever redo did or
+            ; refused to do, ONE more undo lands on the start state and never
+            ; past it.
+            hv.edit.undo()
+            def afterUndo2:string ((hv.document()).plainText())
+            c.ok((what + ": and undo lands on the start again") (afterUndo2 == start))
+            ai = (ai + 1)
+        }
+        hv.setEditMode(false)
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

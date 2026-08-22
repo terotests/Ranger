@@ -114,6 +114,17 @@ HDR_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+
 FTR_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"
 
 
+def _esc(s: str) -> str:
+    """XML attribute escaping. Alt text is the author's prose and will contain
+    ampersands and quotes sooner or later."""
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
 def p(
     text_runs,
     pstyle=None,
@@ -122,6 +133,8 @@ def p(
     ilvl=0,
     drawing_rid=None,
     extent=None,
+    alt=None,
+    alt_title=None,
     firstLine=None,
     hanging=None,
     left=None,
@@ -181,13 +194,25 @@ def p(
         runs.append(f'<w:r>{rpr_xml}<w:t xml:space="preserve">{t}</w:t></w:r>')
     if drawing_rid:
         cx, cy = extent or (2286000, 1143000)  # 2.5" x 1.25"
+        # wp:docPr carries the author's alt text. A picture with none is the
+        # ordinary case in these fixtures and is left without one on purpose:
+        # a viewer has to be able to say "the document has no alt text here"
+        # as clearly as it says what the alt text is.
+        doc_pr = ""
+        if alt is not None or alt_title is not None:
+            attrs = 'id="1" name="%s"' % _esc(alt_title or "Picture 1")
+            if alt is not None:
+                attrs += ' descr="%s"' % _esc(alt)
+            if alt_title is not None:
+                attrs += ' title="%s"' % _esc(alt_title)
+            doc_pr = "<wp:docPr %s/>" % attrs
         runs.append(
             f'''<w:r><w:drawing>
   <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
              xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
              xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-    <wp:extent cx="{cx}" cy="{cy}"/>
+    <wp:extent cx="{cx}" cy="{cy}"/>{doc_pr}
     <a:graphic>
       <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
         <pic:pic>
@@ -780,6 +805,43 @@ if __name__ == "__main__":
             ("/word/footer1.xml", FTR_CT),
         ],
         final_sect_pr=sect_pr(header_rid="rId10", footer_rid="rId11"),
+    )
+
+    # --- 23 alt text: what a screen reader has to go on -------------------
+    #
+    # Two pictures: one whose author wrote alt text, and one whose author did
+    # not. Both cases have to be visible, because a viewer that cannot tell
+    # them apart cannot report the second as the accessibility failure it is.
+    alt_png_a = make_png_bytes(200, 120, (60, 120, 200))
+    alt_png_b = make_png_bytes(140, 90, (200, 120, 60))
+    write_docx(
+        "23-image-alt-text.docx",
+        [
+            p([("Alt text", True, False, None, None)], pstyle="Heading1"),
+            p(
+                [],
+                drawing_rid="rId10",
+                extent=(1828800, 1097280),
+                jc="center",
+                alt="Quarterly revenue by region, rising from 8.1 to 13.9 million",
+                alt_title="Revenue chart",
+            ),
+            p([("The picture above has alt text.", False, False, None, None)]),
+            p([], drawing_rid="rId11", extent=(1280160, 823088), jc="center"),
+            p([("The picture above has none.", False, False, None, None)]),
+        ],
+        extra_rels=[
+            ("rId10", "media/image1.png", IMG_REL),
+            ("rId11", "media/image2.png", IMG_REL),
+        ],
+        media=[
+            ("word/media/image1.png", alt_png_a),
+            ("word/media/image2.png", alt_png_b),
+        ],
+        content_type_overrides=[
+            ("/word/media/image1.png", "image/png"),
+            ("/word/media/image2.png", "image/png"),
+        ],
     )
 
     # --- 13 mixed images ---

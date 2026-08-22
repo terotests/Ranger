@@ -9,7 +9,9 @@ Import "../src/XlsxNumberFormat.rgr"
 Import "../src/xlsx/XlsxLoader.rgr"
 Import "../src/xlsx/XlsxWorksheet.rgr"
 Import "../src/CellStyle.rgr"
+Import "../../office/drawing/OfficeColor.rgr"
 Import "../../pdf_writer/src/core/Utf8.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
 
 class Checker {
     def passed:int 0
@@ -35,6 +37,17 @@ class Checker {
 }
 
 class XlsxTest {
+    ; A real, decodable PNG of `w` x `h` in one solid colour. Written by hand
+    ; rather than read from a fixture so the two pictures in the cache test
+    ; differ in content AND in size, which is what makes "the cache returned
+    ; the wrong one" visible as a number rather than as a guess.
+    sfn tinyPng:buffer (w:int h:int r:int g:int b:int) {
+        def buf (new RasterBuffer)
+        buf.createWithColor(w h r g b 255)
+        def png (new PNGEncoder)
+        return (png.encodeQuiet(buf))
+    }
+
     sfn hasSub:boolean (hay:string needle:string) {
         def n:int (strlen needle)
         def m:int (strlen hay)
@@ -343,6 +356,47 @@ class XlsxTest {
             c.ok("in italic" r2.italic)
             c.eqStr("and smaller" (to_string (to_int r2.sizePt)) "8")
 
+            ; --- what a run said, versus what it did not say ---------------
+            ;
+            ; `<b val="0"/>` and no `<b>` at all are different documents. The
+            ; first takes a word out of a bold cell; the second lets the cell
+            ; decide. `CellRun` carried only the value, and `styleOver` tested
+            ; it as `if bold { st.bold = true }` — the same for both — so a run
+            ; that un-bolded itself drew bold, and a save wrote nothing where
+            ; it had said something.
+            c.ok("the plain middle run states nothing about its weight"
+                ((r1.boldSet == false) && (r1.italicSet == false)))
+            c.ok("while the bold one states it" r0.boldSet)
+            c.ok("and the italic one states its slant" r2.italicSet)
+
+            def offP:XmlLite (new XmlLite)
+            offP.reset("<si><r><rPr><b val=\"0\"/><i val=\"0\"/></rPr><t>quiet</t></r><r><t>silent</t></r></si>")
+            offP.nextTag()
+            def offRt:RichText (XlsxSharedStrings.parseRuns(offP "si"))
+            c.eqInt("two runs came back" (offRt.count()) 2)
+            if ((offRt.count()) == 2) {
+                def offRun:CellRun (itemAt offRt.runs 0)
+                def quietRun:CellRun (itemAt offRt.runs 1)
+                c.ok("a run that says b=0 stated its weight" offRun.boldSet)
+                c.ok("and the weight is off" (offRun.bold == false))
+                c.ok("a run with no rPr stated nothing" ((quietRun.boldSet == false) && (quietRun.italicSet == false)))
+                ; The bug itself: over a BOLD cell, one draws bold and the
+                ; other does not.
+                def boldCell:CellStyle (new CellStyle)
+                boldCell.bold = true
+                boldCell.italic = true
+                def overOff:CellStyle (offRun.styleOver(boldCell))
+                def overQuiet:CellStyle (quietRun.styleOver(boldCell))
+                c.ok("the run that said no is NOT bold over a bold cell" (overOff.bold == false))
+                c.ok("nor italic" (overOff.italic == false))
+                c.ok("while the silent one inherits the cell's bold" overQuiet.bold)
+                c.ok("and its italic" overQuiet.italic)
+                ; And a run that says "not bold" is asking for something the
+                ; cell would not give it, so the string is rich text.
+                c.ok("saying no counts as styling" (offRun.isStyled()))
+                c.ok("saying nothing does not" ((quietRun.isStyled()) == false))
+            }
+
             c.ok("an inline string carries runs too" (rtApp.model.hasRichText(4 1)))
             c.eqStr("spelling what it should" (rtApp.model.getCell(4 1)) "inline runs")
             c.ok("a plain cell is not rich" ((rtApp.model.hasRichText(0 0)) == false))
@@ -413,6 +467,24 @@ class XlsxTest {
             imApp.sceneJson()
             c.eqInt("a second paint decodes nothing again" imApp.view.images.decodes decodesAfterFirst)
             c.ok("and it renders" ((strlen scene) > 500))
+
+            print "-- and the next workbook's picture is not this one --"
+            ; Every .xlsx calls its first picture `xl/media/image1.png`. The
+            ; decode cache used to be keyed on that name and was never cleared
+            ; between documents, so opening a second workbook showed the first
+            ; one's photographs. This is the same bug that was reported in the
+            ; deck viewer, in the spreadsheet.
+            def other:buffer (XlsxTest.tinyPng(3 5 200 30 40))
+            def redec:DecodedImage (imApp.view.images.decode("xl/media/image1.png" "png" other))
+            c.ok("a different picture under the same part decodes" redec.ok)
+            c.eqInt("to ITS width, not the first one's" redec.img.width 3)
+            c.eqInt("and its height" redec.img.height 5)
+            def back:DecodedImage (imApp.view.images.cached("xl/media/image1.png"))
+            c.eqInt("and that is what the part now resolves to" back.img.width 3)
+            ; The first picture is not lost — it is still one decode, keyed by
+            ; what it is rather than by what it was called.
+            def again:DecodedImage (imApp.view.images.decode("xl/media/image1.png" "png" other))
+            c.eqInt("asking for it twice decodes once" again.img.width 3)
         }
 
         print "== what other programs leave out: shared formulas, an empty font, the sheet's own defaults =="
@@ -505,11 +577,74 @@ class XlsxTest {
         c.eqInt("300KB decode length" (strlen bigText) bigN)
         c.ok("300KB decode is ASCII A" ((charAt bigText 0) == 65))
 
+        ; --- colours a workbook names without spelling them out ----------------
+        ;
+        ; A `<color>` says which colour one of four ways and only one of them is
+        ; a hex string. The reader read that one and dropped the rest — so a
+        ; workbook coloured the way Excel colours things by default, from the
+        ; theme palette, came out with no colours at all. `xl/theme/theme1.xml`
+        ; was in the package the whole time, unread.
+        print "== a colour named by theme, tint or index =="
+        def thApp:GridApp (new GridApp)
+        thApp.init("gallery/pdf_writer/assets/fonts")
+        def thOk:boolean (thApp.loadXlsx("gallery/datagrid/fixtures/theme-colors.xlsx"))
+        c.ok("the theme fixture loaded" thOk)
+        if thOk {
+            def m:SpreadsheetModel (thApp.model)
+            def accent:string ((m.getCellStyle(0 0)).textRgb)
+            c.eqStr("theme=4 is the first accent, out of the theme part" accent "#4472C4")
+
+            ; Excel's tint scales HLS luminance, so a lighter accent is still
+            ; BLUE. Scaling RGB channels instead — DrawingML's tint, the other
+            ; function with the same name — would wash the hue out.
+            def lighter:string ((m.getCellStyle(1 0)).textRgb)
+            def darker:string ((m.getCellStyle(2 0)).textRgb)
+            c.ok("a tinted colour is not the flat one" ((lighter != accent) && (darker != accent)))
+            c.ok("lighter really is lighter"
+                ((XlsxTest.chanOf(lighter 0)) > (XlsxTest.chanOf(accent 0))))
+            c.ok("darker really is darker"
+                ((XlsxTest.chanOf(darker 4)) < (XlsxTest.chanOf(accent 4))))
+            c.ok("and both are still blue"
+                (((XlsxTest.chanOf(lighter 4)) > (XlsxTest.chanOf(lighter 0)))
+                    && ((XlsxTest.chanOf(darker 4)) > (XlsxTest.chanOf(darker 0)))))
+
+            ; The swap. Excel's theme INDICES are not the theme file's order:
+            ; 0 is the light background and 1 the dark text. A reader that maps
+            ; them in file order paints white on white.
+            def t0:string ((m.getCellStyle(3 0)).textRgb)
+            def t1:string ((m.getCellStyle(4 0)).textRgb)
+            c.eqStr("theme=0 is the LIGHT one" t0 "#FDFDFD")
+            c.eqStr("and theme=1 the DARK one" t1 "#1A1A1A")
+
+            ; A system colour has no value of its own; the file carries the one
+            ; it had when it was written, which is the only answer available.
+            c.ok("a sysClr slot was read from its lastClr" ((strlen t0) == 7))
+
+            def idx:string ((m.getCellStyle(5 0)).textRgb)
+            c.eqStr("indexed=10 is the legacy palette's red" idx "#FF0000")
+
+            ; And a FILL named the same ways, not just a font.
+            def fill:string ((m.getCellStyle(6 0)).fillRgb)
+            c.eqStr("a fill can be a theme colour too" fill "#70AD47")
+            def fillTint:string ((m.getCellStyle(7 0)).fillRgb)
+            c.ok("and can carry a tint" ((fillTint != fill) && ((strlen fillTint) == 7)))
+        }
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"
         } {
             print "SOME FAILED"
         }
+    }
+
+    ; One channel of a "#RRGGBB" as a number, so a test can say "lighter" and
+    ; "still blue" rather than pinning an exact byte the maths may round
+    ; either way.
+    sfn chanOf:int (css:string at:int) {
+        if ((strlen css) != 7) {
+            return -1
+        }
+        return (OfficeColorMath.byteAt((substring css 1 7) at))
     }
 }

@@ -8,6 +8,7 @@
 ; column widths, row heights, merge ranges. No formula engine.
 ; ==============================================================================
 
+Import "../../../ooxml/OpcPackage.rgr"
 Import "XmlLite.rgr"
 Import "XlsxSharedStrings.rgr"
 Import "../SpreadsheetModel.rgr"
@@ -62,8 +63,11 @@ class XlsxWorksheet {
     Constructor () {
     }
 
-    ; rId → Target, out of `xl/worksheets/_rels/sheetN.xml.rels`. A relationship
-    ; part is a flat list of self-closing tags, so this needs no nesting.
+    ; rId → Target, out of a sheet's own `.rels` part. The scan is
+    ; `OpcPackage`'s, which is the same one the .docx and .pptx readers use;
+    ; this file used to have two of its own. The RAW target comes back here
+    ; rather than a package path, because a hyperlink's target is a URL and the
+    ; caller resolves the rest against the part that named it.
     sfn relTarget:string (rels:string id:string) {
         if ((strlen rels) == 0) {
             return ""
@@ -71,44 +75,36 @@ class XlsxWorksheet {
         if ((strlen id) == 0) {
             return ""
         }
-        def p:XmlLite (new XmlLite)
-        p.reset(rels)
-        while (p.pos < p.len) {
-            def t:XmlTag (p.nextTag())
-            if (t.valid == false) {
-                break
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(rels))
+        def i:int 0
+        while (i < (array_length list)) {
+            def rel:OpcRelationship (itemAt list i)
+            if (rel.id == id) {
+                return rel.target
             }
-            if ((t.name == "Relationship") && (t.isEnd == false)) {
-                if ((t.attr("Id")) == id) {
-                    return (t.attr("Target"))
-                }
-            }
+            i = (i + 1)
         }
         return ""
     }
 
-    ; The first relationship of a given type — how the comments part is found.
+    ; The first relationship of a given type — how the comments part and the
+    ; drawing part are found. The suffix has to match the END of the type:
+    ; "/drawing" is not "/drawingHF", and a header picture is not a picture on
+    ; the sheet.
     sfn relTargetOfType:string (rels:string typeSuffix:string) {
         if ((strlen rels) == 0) {
             return ""
         }
-        def p:XmlLite (new XmlLite)
-        p.reset(rels)
-        while (p.pos < p.len) {
-            def t:XmlTag (p.nextTag())
-            if (t.valid == false) {
-                break
-            }
-            if ((t.name == "Relationship") && (t.isEnd == false)) {
-                def ty:string (t.attr("Type"))
-                def n:int (strlen ty)
-                def m:int (strlen typeSuffix)
-                if (n >= m) {
-                    if ((substring ty (n - m) n) == typeSuffix) {
-                        return (t.attr("Target"))
-                    }
+        def list:[OpcRelationship] (OpcPackage.parseRelationships(rels))
+        def i:int 0
+        while (i < (array_length list)) {
+            def rel:OpcRelationship (itemAt list i)
+            if (OpcPackage.typeEndsWith(rel.type typeSuffix)) {
+                if ((rel.isExternal()) == false) {
+                    return rel.target
                 }
             }
+            i = (i + 1)
         }
         return ""
     }
@@ -316,6 +312,136 @@ class XlsxWorksheet {
         }
     }
 
+    ; The worksheet children `XlsxWriter.sheetXml` does not write.
+    ;
+    ; An allowlist rather than "anything unknown": the writer regenerates
+    ; `cols`, `mergeCells`, `autoFilter`, `dataValidations`, `hyperlinks` and
+    ; `tableParts` from the model, and preserving those too would put each of
+    ; them in the file twice. This names what is genuinely unrepresented, and a
+    ; name that is not on it is either modelled or deliberately dropped.
+    sfn isPreserved:boolean (name:string) {
+        if (name == "sheetPr") {
+            return true
+        }
+        if (name == "sheetCalcPr") {
+            return true
+        }
+        if (name == "sheetProtection") {
+            return true
+        }
+        if (name == "protectedRanges") {
+            return true
+        }
+        if (name == "scenarios") {
+            return true
+        }
+        if (name == "phoneticPr") {
+            return true
+        }
+        ; The loader DOES read conditional formatting into `cfRules`, and the
+        ; writer does not write it. Preserving the source is what keeps it in
+        ; the file until the writer learns to state it.
+        if (name == "conditionalFormatting") {
+            return true
+        }
+        if (name == "printOptions") {
+            return true
+        }
+        if (name == "pageMargins") {
+            return true
+        }
+        if (name == "pageSetup") {
+            return true
+        }
+        if (name == "headerFooter") {
+            return true
+        }
+        if (name == "rowBreaks") {
+            return true
+        }
+        if (name == "colBreaks") {
+            return true
+        }
+        if (name == "customProperties") {
+            return true
+        }
+        if (name == "cellWatches") {
+            return true
+        }
+        if (name == "ignoredErrors") {
+            return true
+        }
+        if (name == "smartTags") {
+            return true
+        }
+        ; The two that matter most: the pictures and the comments are in the
+        ; package, and these are the only thing that says so.
+        if (name == "drawing") {
+            return true
+        }
+        if (name == "drawingHF") {
+            return true
+        }
+        if (name == "legacyDrawing") {
+            return true
+        }
+        if (name == "legacyDrawingHF") {
+            return true
+        }
+        if (name == "picture") {
+            return true
+        }
+        if (name == "oleObjects") {
+            return true
+        }
+        if (name == "controls") {
+            return true
+        }
+        if (name == "webPublishItems") {
+            return true
+        }
+        if (name == "extLst") {
+            return true
+        }
+        return false
+    }
+
+    ; The element `t` just opened, whole, as it appears in `xml` — and the
+    ; parser left standing just past it.
+    ;
+    ; A self-closing tag is its own span. Anything else is scanned to its
+    ; matching end tag, counting nesting, because `<extLst>` contains an
+    ; `<ext>` that may contain another `<extLst>`.
+    sfn spanOf:string (p:XmlLite xml:string t:XmlTag) {
+        def start:int t.startPos
+        if t.selfClose {
+            return (substring xml start t.endPos)
+        }
+        def want:string t.name
+        def depth:int 1
+        while (p.pos < p.len) {
+            def n:XmlTag (p.nextTag())
+            if (n.valid == false) {
+                return ""
+            }
+            if (n.name == want) {
+                if n.isEnd {
+                    depth = (depth - 1)
+                    if (depth == 0) {
+                        return (substring xml start n.endPos)
+                    }
+                } {
+                    if (n.selfClose == false) {
+                        depth = (depth + 1)
+                    }
+                }
+            }
+        }
+        ; Ran off the end: the file is truncated. Preserving half an element
+        ; would produce a package Excel refuses, so preserve none of it.
+        return ""
+    }
+
     fn parse:void (xml:string model:SpreadsheetModel sst:XlsxSharedStrings) {
         model.clearSheet()
         ; One parser serves every sheet in the book, and `si` is numbered from
@@ -335,10 +461,38 @@ class XlsxWorksheet {
         }
         def p:XmlLite (new XmlLite)
         p.reset(xml)
+        ; Depth-of-sheetData, so an `<extLst>` inside a cell is never mistaken
+        ; for the worksheet's own. Everything captured below is a DIRECT child
+        ; of `<worksheet>`; nothing inside `<sheetData>` is.
+        def inSheetData:boolean false
         while (p.pos < p.len) {
             def t:XmlTag (p.nextTag())
             if (t.valid == false) {
                 break
+            }
+            if (t.name == "sheetData") {
+                inSheetData = (t.isEnd == false)
+                if t.selfClose {
+                    inSheetData = false
+                }
+            }
+            ; A worksheet child this writer does not generate. Taken whole,
+            ; source and all, so it can go back exactly as it came — see
+            ; `SheetOpaque`. Without this a saved workbook keeps the pictures
+            ; in the package and points at none of them.
+            if (inSheetData == false) {
+                if (t.isEnd == false) {
+                    if (XlsxWorksheet.isPreserved(t.name)) {
+                        def src:string (XlsxWorksheet.spanOf(p xml t))
+                        if ((strlen src) > 0) {
+                            def keep (new SheetOpaque)
+                            keep.name = t.name
+                            keep.source = src
+                            push model.opaque keep
+                        }
+                        continue
+                    }
+                }
             }
             ; <sheetFormatPr defaultRowHeight="12.75" defaultColWidth="12.63"/>
             ; — how big a row or column is when the file does not say. Most

@@ -196,7 +196,7 @@ class PptxToEvg {
     }
 
     fn shapeElement:EVGElement (shape:PptxShape) {
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             def img (EVGElement.createImg())
             this.applyBox(img shape)
             if ((strlen shape.imagePart) > 0) {
@@ -204,7 +204,7 @@ class PptxToEvg {
             }
             return img
         }
-        if (shape.kind == 2) {
+        if (shape.kind == (PptxShapeKind.group())) {
             def grp (EVGElement.createDiv())
             this.applyBox(grp shape)
             def i:int 0
@@ -686,7 +686,7 @@ class PptxToEvg {
             return 0.0
         }
         def inner (new PptxShape())
-        inner.kind = 0
+        inner.kind = (PptxShapeKind.shape())
         inner.hasText = true
         inner.text = cell.body
         def ml:double (this.ptToPx(cell.marLPt))
@@ -846,7 +846,7 @@ class PptxToEvg {
             return
         }
         def inner (new PptxShape())
-        inner.kind = 0
+        inner.kind = (PptxShapeKind.shape())
         inner.hasText = true
         inner.text = cell.body
         inner.text.anchor = cell.anchor
@@ -1086,7 +1086,7 @@ class PptxToEvg {
         def y:double (this.ptToPx((shape.y + oy)))
         def w:double (this.ptToPx(shape.width))
         def h:double (this.ptToPx(shape.height))
-        if (shape.kind == 2) {
+        if (shape.kind == (PptxShapeKind.group())) {
             def i:int 0
             while (i < (array_length shape.children)) {
                 def child:PptxShape (itemAt shape.children i)
@@ -1096,7 +1096,7 @@ class PptxToEvg {
             }
             return
         }
-        if (shape.kind == 1) {
+        if (shape.kind == (PptxShapeKind.picture())) {
             if ((strlen shape.imagePart) > 0) {
                 this.pushImage(dl shape.imagePart x y w h shape.flipH shape.flipV shape.rotation)
             } {
@@ -1104,11 +1104,11 @@ class PptxToEvg {
             }
             return
         }
-        if (shape.kind == 4) {
+        if (shape.kind == (PptxShapeKind.table())) {
             this.emitTable(dl shape x y w h)
             return
         }
-        if (shape.kind == 5) {
+        if (shape.kind == (PptxShapeKind.chart())) {
             PptxChartVela.emitToDisplayList(dl shape.chart x y w h)
             return
         }
@@ -1116,7 +1116,7 @@ class PptxToEvg {
         ; the two ends, and `flipH` / `flipV` say which corner is which. Drawn
         ; as a rectangle it was invisible — no fill, and an outline around a
         ; box nobody can see.
-        if (shape.kind == 3) {
+        if (shape.kind == (PptxShapeKind.connector())) {
             this.emitConnector(dl shape x y w h)
             return
         }
@@ -1205,7 +1205,7 @@ class PptxToEvg {
                 } {
                     if (shape.shadow.isSet) {
                         def rc2 (new EVGDrawCmd())
-                        rc2.kind = 0
+                        rc2.kind = (PptxShapeKind.shape())
                         rc2.x = x
                         rc2.y = y
                         rc2.w = w

@@ -77,6 +77,12 @@ class DocumentRange {
 }
 
 ; Undoable document op (paragraph-scoped).
+; One recorded edit. `kind` says which; the fields mean different things for
+; each, which is why the values have NAMES below rather than being written as
+; numbers at the call sites. They were numbers, and `pasteChart` recorded a 5
+; — the multi-paragraph delete — because 5 was one more than the table paste's
+; 4. Undoing a chart paste ran the delete's restore path and left the chart in
+; the document.
 class DocEditOp {
     def kind:int 0
     def paragraphId:int 0
@@ -87,8 +93,64 @@ class DocEditOp {
     def secondId:int 0
     def boldSet:boolean false
     def boldVal:boolean false
+    ; Which action this op belongs to. Ops sharing an id undo together, so a
+    ; paste that is five primitives is one press of undo. Zero means the op
+    ; stands alone.
+    def txId:int 0
 
     Constructor () {
+    }
+}
+
+; The kinds, named. `undo` and `redo` are one function with a direction — see
+; `DocxEditController.applyOp` — and adding a kind here without teaching that
+; function both directions is what this naming exists to make obvious.
+class DocEditKind {
+    ; Text replaced inside one paragraph: the ordinary keystroke.
+    sfn text:int () {
+        return 0
+    }
+
+    ; Enter: one paragraph became two. `secondId` is the new one.
+    sfn splitParagraph:int () {
+        return 1
+    }
+
+    ; Backspace at the start of a paragraph: two became one. `secondId` is the
+    ; paragraph they merged INTO and `start` where the join fell.
+    sfn mergeParagraph:int () {
+        return 2
+    }
+
+    ; Bold toggled over a range. `boldVal` is what it was turned TO.
+    sfn bold:int () {
+        return 3
+    }
+
+    ; A table pasted, splitting the paragraph it landed in.
+    sfn pasteTable:int () {
+        return 4
+    }
+
+    ; A selection spanning several paragraphs, deleted.
+    sfn deleteSpan:int () {
+        return 5
+    }
+
+    ; Tab at the end of a table added a row.
+    sfn tableRow:int () {
+        return 6
+    }
+
+    ; Enter on an empty list item ended the list.
+    sfn listEnd:int () {
+        return 7
+    }
+
+    ; A chart pasted, the same shape as a table paste. This used to share the
+    ; multi-paragraph delete's number.
+    sfn pasteChart:int () {
+        return 8
     }
 }
 

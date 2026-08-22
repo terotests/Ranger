@@ -200,6 +200,13 @@ class RichDocumentEdit {
     }
 
     fn splitParagraph:int (paragraphId:int offset:int) {
+        return (this.splitParagraphAs(paragraphId offset 0))
+    }
+
+    ; `keepId` > 0 means "the new paragraph is THIS paragraph coming back" —
+    ; what a redo needs, so the ops after it in the same action still name
+    ; something that exists.
+    fn splitParagraphAs:int (paragraphId:int offset:int keepId:int) {
         doc.touch()
         def idx:int (this.findParagraphIndex(paragraphId))
         if (idx < 0) {
@@ -216,7 +223,7 @@ class RichDocumentEdit {
         def left:string (substring p.text 0 offset)
         def right:string (substring p.text offset len)
         ; New paragraph after p in blocks + paragraphs list
-        def np:Paragraph (doc.addParagraphOnly())
+        def np:Paragraph (doc.addParagraphWithId(keepId))
         np.styleId = p.styleId
         np.align = p.align
         np.spaceBeforePt = p.spaceBeforePt
@@ -280,7 +287,7 @@ class RichDocumentEdit {
         def found:boolean false
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 if (b.paragraph.id == paragraphId) {
                     def nb:DocBlock (DocBlock.para(np))
                     ; insert after bi
@@ -320,7 +327,7 @@ class RichDocumentEdit {
         def bi:int 0
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 if (b.paragraph.id == paragraphId) {
                     return order
                 }
@@ -336,7 +343,7 @@ class RichDocumentEdit {
         def bi:int 0
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 count = (count + 1)
             }
             bi = (bi + 1)
@@ -349,7 +356,7 @@ class RichDocumentEdit {
         def bi:int 0
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 if (seen == order) {
                     return b.paragraph.id
                 }
@@ -374,7 +381,7 @@ class RichDocumentEdit {
         def bi:int 0
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 1) {
+            if (b.kind == (DocBlockKind.table())) {
                 def t:DocumentTable b.table
                 def ri:int 0
                 while (ri < (array_length t.rows)) {
@@ -415,7 +422,7 @@ class RichDocumentEdit {
             return 0
         }
         def b:DocBlock (doc.blockAt(blockIndex))
-        if (b.kind != 1) {
+        if (b.kind != (DocBlockKind.table())) {
             return 0
         }
         def t:DocumentTable b.table
@@ -439,7 +446,7 @@ class RichDocumentEdit {
             return 0
         }
         def b:DocBlock (doc.blockAt(blockIndex))
-        if (b.kind != 1) {
+        if (b.kind != (DocBlockKind.table())) {
             return 0
         }
         def t:DocumentTable b.table
@@ -455,7 +462,7 @@ class RichDocumentEdit {
             return 0
         }
         def b:DocBlock (doc.blockAt(blockIndex))
-        if (b.kind != 1) {
+        if (b.kind != (DocBlockKind.table())) {
             return 0
         }
         def t:DocumentTable b.table
@@ -467,7 +474,7 @@ class RichDocumentEdit {
         def bi:int (blockIndex + 1)
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 return b.paragraph.id
             }
             bi = (bi + 1)
@@ -479,7 +486,7 @@ class RichDocumentEdit {
         def bi:int (blockIndex - 1)
         while (bi >= 0) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 return b.paragraph.id
             }
             bi = (bi - 1)
@@ -496,10 +503,10 @@ class RichDocumentEdit {
         def bi:int (at + 1)
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 1) {
+            if (b.kind == (DocBlockKind.table())) {
                 return bi
             }
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 return -1
             }
             bi = (bi + 1)
@@ -515,10 +522,10 @@ class RichDocumentEdit {
         def bi:int (at - 1)
         while (bi >= 0) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 1) {
+            if (b.kind == (DocBlockKind.table())) {
                 return bi
             }
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 return -1
             }
             bi = (bi - 1)
@@ -534,7 +541,7 @@ class RichDocumentEdit {
             return -1
         }
         def b:DocBlock (doc.blockAt(blockIndex))
-        if (b.kind != 1) {
+        if (b.kind != (DocBlockKind.table())) {
             return -1
         }
         def t:DocumentTable b.table
@@ -590,7 +597,7 @@ class RichDocumentEdit {
             return false
         }
         def b:DocBlock (doc.blockAt(blockIndex))
-        if (b.kind != 1) {
+        if (b.kind != (DocBlockKind.table())) {
             return false
         }
         def t:DocumentTable b.table
@@ -606,7 +613,7 @@ class RichDocumentEdit {
         def bi:int 0
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 if (b.paragraph.id == paragraphId) {
                     return bi
                 }
@@ -685,7 +692,7 @@ class RichDocumentEdit {
         while (i < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(i))
             def drop:boolean false
-            if (b.kind == 4) {
+            if (b.kind == (DocBlockKind.chart())) {
                 if (b.chart.id == chartId) {
                     drop = true
                     found = true
@@ -714,7 +721,7 @@ class RichDocumentEdit {
         def bi:int 0
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 1) {
+            if (b.kind == (DocBlockKind.table())) {
                 if (b.table.id == tableId) {
                     at = bi
                     bi = (doc.blockCount())
@@ -756,7 +763,7 @@ class RichDocumentEdit {
         def saw:boolean false
         while (bi < (doc.blockCount())) {
             def b:DocBlock (doc.blockAt(bi))
-            if (b.kind == 0) {
+            if (b.kind == (DocBlockKind.para())) {
                 if (b.paragraph.id == paragraphId) {
                     saw = true
                     bi = (doc.blockCount())
@@ -790,7 +797,7 @@ class RichDocumentEdit {
         def bj:int 0
         while (bj < (doc.blockCount())) {
             def bb:DocBlock (doc.blockAt(bj))
-            if (bb.kind == 0) {
+            if (bb.kind == (DocBlockKind.para())) {
                 if (bb.paragraph.id == paragraphId) {
                     ; skip
                 } {

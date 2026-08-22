@@ -15,6 +15,35 @@
 ;   3 = connector (MVP: treated like a thin shape)
 ; ==============================================================================
 
+Import "../../ooxml/SourceRef.rgr"
+
+; ------------------------------------------------------------------------------
+; What a slide holds that this model does not describe.
+;
+; A shape tree can carry things no reader here understands: SmartArt and charts
+; wrapped in `mc:AlternateContent`, embedded objects, ink (`p:contentPart`),
+; and `p:extLst` blocks whose contents belong to whoever wrote them. The parser
+; walks past all of it, and a writer that regenerates the tree from the shapes
+; would therefore delete it.
+;
+; So each one is remembered as WHERE it was, and put back exactly there:
+;
+;   source       the span in the slide part it came out of
+;   afterShapes  how many shapes preceded it — its place in z-order
+;   name         what it was called, for a person reading a diagnostic
+;
+; Nothing is copied and nothing is understood. That is the point: `Ranger does
+; not have to understand something in order to preserve it.`
+; ------------------------------------------------------------------------------
+class PptxOpaque {
+    def source:SourceRef (new SourceRef())
+    def afterShapes:int 0
+    def name:string ""
+
+    Constructor () {
+    }
+}
+
 class PptxColor {
     def isSet:boolean false
     def isScheme:boolean false
@@ -41,6 +70,32 @@ class PptxColor {
     def baked:boolean false
 
     Constructor () {
+    }
+
+    ; A string that changes when anything about this colour does. Used to tell
+    ; a value the resolver worked out from one the file stated — see the note
+    ; on `styleFillSig`.
+    fn signature:string () {
+        if (isSet == false) {
+            return "-"
+        }
+        def out:string srgb
+        if isScheme {
+            out = ("#" + scheme)
+        }
+        if baked {
+            out = (out + "!")
+        }
+        if (this.hasMods()) {
+            out = (out + ((("~" + (to_string (to_int ((lumMod * 1000.0) + 0.5)))) + ",") + ((to_string (to_int ((lumOff * 1000.0) + 0.5))) + ",")))
+            out = (out + ((to_string (to_int ((tint * 1000.0) + 0.5))) + ","))
+            out = (out + ((to_string (to_int ((shade * 1000.0) + 0.5))) + ","))
+            out = (out + (to_string (to_int ((satMod * 1000.0) + 0.5))))
+        }
+        if (alpha < 0.999) {
+            out = (out + ("/" + (to_string (to_int ((alpha * 1000.0) + 0.5)))))
+        }
+        return out
     }
 
     fn hasMods:boolean () {
@@ -152,7 +207,23 @@ class PptxTextRun {
     def fontFamily:string ""
     def fontSizePt:double 18.0
     def sizeSet:boolean false
+    ; What the RESOLVER put here, for a run that stated nothing of its own —
+    ; from the list style, the body default or the theme. Signatures rather
+    ; than flags for the reason given on `PptxShape.styleFillSig`: a flag
+    ; would stay set after the user changed the font, and the save would then
+    ; discard the change. These stop matching the moment anything moves.
+    def resolvedFontSig:string ""
+    def resolvedColorSig:string ""
+    def resolvedSizeSig:string ""
+    ; Whether the run SAID anything about its weight and slant, alongside what
+    ; it said. `b="0"` and no `b` at all are different documents: the first
+    ; takes a word out of a bold placeholder, the second lets the placeholder
+    ; decide. Testing `bold == false` cannot tell them apart, and the
+    ; inheritance below used to do exactly that — so a run that un-bolded
+    ; itself came back bold. Same idea, and the same spelling, as `sizeSet`.
+    def boldSet:boolean false
     def bold:boolean false
+    def italicSet:boolean false
     def italic:boolean false
     def color:PptxColor (new PptxColor())
 
@@ -372,7 +443,12 @@ class PptxTextBody {
     ; Default run props from a:lstStyle / a:defRPr (placeholder style inheritance)
     def hasDefRPr:boolean false
     def defFontSizePt:double 18.0
+    ; The same distinction one level up: a `defRPr` that says `b="0"` turns
+    ; bold off for the body, and one that says nothing lets the placeholder
+    ; through.
+    def defBoldSet:boolean false
     def defBold:boolean false
+    def defItalicSet:boolean false
     def defItalic:boolean false
     def defFontFamily:string ""
     def defColor:PptxColor (new PptxColor())
@@ -477,10 +553,56 @@ class PptxChart {
     }
 }
 
+; ------------------------------------------------------------------------------
+; What a shape on a slide is.
+;
+; The comment that used to sit here said the same thing, and a comment is not
+; something the compiler checks. These are read in the parser, the resolver,
+; the editor, the painter and the writer — six places, all of which had the
+; table written out as bare numbers, and any one of them could drift from the
+; others without anything noticing until a shape stopped being drawn.
+; ------------------------------------------------------------------------------
+class PptxShapeKind {
+    ; `p:sp` — an autoshape, a placeholder, a text box.
+    sfn shape:int () {
+        return 0
+    }
+
+    ; `p:pic` — a picture. `imagePart` and `imageBytes` carry it.
+    sfn picture:int () {
+        return 1
+    }
+
+    ; `p:grpSp` — a group. Its `children` are shapes in their own right.
+    sfn group:int () {
+        return 2
+    }
+
+    ; `p:cxnSp` — a connector.
+    sfn connector:int () {
+        return 3
+    }
+
+    ; A `p:graphicFrame` holding `a:tbl`.
+    sfn table:int () {
+        return 4
+    }
+
+    ; A `p:graphicFrame` holding a chart reference.
+    sfn chart:int () {
+        return 5
+    }
+}
+
 class PptxShape {
-    def kind:int 0
-    ; kind: 0 shape, 1 picture, 2 group, 3 connector, 4 table, 5 chart
+    def kind:int (PptxShapeKind.shape())
     def name:string ""
+    ; The author's alt text, from `p:cNvPr/@descr`. It is the ONLY thing a
+    ; screen reader has to go on for a picture, a chart or a diagram — the
+    ; pixels tell it nothing — and it used to be read past and then written
+    ; back out as nothing, so a deck whose author had written proper alt text
+    ; lost it the first time it was edited here.
+    def altText:string ""
     ; `p:cNvPr/@id`, which is the name the slide's own timing tree uses to say
     ; which shape an animation is about.
     def shapeId:int 0
@@ -514,12 +636,82 @@ class PptxShape {
     ; "diamond" are the shapes DrawingML names.
     def headEnd:string ""
     def tailEnd:string ""
+    ; `<p:style>` — the shape's link to the theme's format matrix. A shape
+    ; that has one follows the theme: change the theme in PowerPoint and the
+    ; shape changes with it. The writer used to drop the block and state the
+    ; RESOLVED gradient and font instead, so editing one shape on a slide
+    ; unlinked every shape on it — the deck still looked right and had stopped
+    ; being a themed deck.
+    def hasStyle:boolean false
     def fillRef:int 0
     def fillRefColor:PptxColor (new PptxColor())
     def lineRef:int 0
     def lineRefColor:PptxColor (new PptxColor())
     def effectRef:int 0
+    ; `a:fontRef@idx` — "minor" or "major". A string rather than an int
+    ; because that is what the attribute holds.
+    def fontRef:string ""
     def fontRefColor:PptxColor (new PptxColor())
+    ; What the RESOLVER worked out, recorded so the writer can tell it from
+    ; what the file said.
+    ;
+    ; These are SIGNATURES rather than flags, and the difference is the whole
+    ; point. A flag says "this fill was inherited", and stays true after the
+    ; user changes the fill — so the save discards the edit. That is the
+    ; failure mode that matters here: writing an inherited value back is a
+    ; fidelity loss, and dropping a stated one is data loss.
+    ;
+    ; A signature cannot be wrong that way. The writer asks "does this still
+    ; look exactly like what was inherited?", and any change to any part of it
+    ; answers no. There is no mutation site to remember to update.
+    def styleFillSig:string ""
+    def styleLineSig:string ""
+    def sheetXfrmSig:string ""
+
+    ; The shape's fill, as a string that changes when anything about it does.
+    fn fillSignature:string () {
+        if noFill {
+            return "none"
+        }
+        if fillGrad.isSet {
+            def a:PptxColor fillGrad.c1
+            def b:PptxColor fillGrad.c2
+            return ((("grad:" + (to_string fillGrad.dir)) + ":") + ((a.signature()) + ":" + (b.signature())))
+        }
+        if fill.isSet {
+            return ("solid:" + (fill.signature()))
+        }
+        return ""
+    }
+
+    fn lineSignature:string () {
+        if noLine {
+            return "none"
+        }
+        def w:string (to_string (to_int ((lineWidthPt * 100.0) + 0.5)))
+        if line.isSet {
+            return ((("line:" + (line.signature())) + ":") + w)
+        }
+        return (":" + w)
+    }
+
+    fn xfrmSignature:string () {
+        if (hasXfrm == false) {
+            return ""
+        }
+        def parts:string (to_string (to_int ((x * 100.0) + 0.5)))
+        parts = (parts + ("," + (to_string (to_int ((y * 100.0) + 0.5)))))
+        parts = (parts + ("," + (to_string (to_int ((width * 100.0) + 0.5)))))
+        parts = (parts + ("," + (to_string (to_int ((height * 100.0) + 0.5)))))
+        parts = (parts + ("," + (to_string (to_int ((rotation * 100.0) + 0.5)))))
+        if flipH {
+            parts = (parts + ",h")
+        }
+        if flipV {
+            parts = (parts + ",v")
+        }
+        return parts
+    }
     def fill:PptxColor (new PptxColor())
     def fillGrad:PptxGradient (new PptxGradient())
     def line:PptxColor (new PptxColor())
@@ -599,6 +791,25 @@ class PptxSlide {
     def width:double 720.0      ; pt (default 10")
     def height:double 540.0     ; pt (default 7.5")
     def shapes:[PptxShape]
+    ; Children of the slide's shape tree that nothing here models — SmartArt,
+    ; embedded objects, ink, vendor extensions — kept as source spans so that
+    ; editing the slide around them does not delete them.
+    ; Set by the RESOLVER, never by the parser: this background came from the
+    ; layout, the master or the theme's default rather than from the slide.
+    ; The writer used to state it as the slide's own, so editing one shape on
+    ; a slide froze its background — change the master and every slide that
+    ; had ever been touched stopped following it.
+    def bgFromSheet:boolean false
+    def opaque:[PptxOpaque]
+    ; And the same one level up: children of `<p:sld>` itself that this model
+    ; does not describe. `sldHead` is what stood before the transition and the
+    ; timing — the colour map override among them, which the writer used to
+    ; replace with a plain one whatever the slide said — and `sldTail` what
+    ; stood after, which is where a tool's own extension list lives. Both are
+    ; positions in the schema's order, so putting them back where they were is
+    ; what keeps the part valid.
+    def sldHead:[PptxOpaque]
+    def sldTail:[PptxOpaque]
     def bg:PptxColor (new PptxColor())
     def layoutPart:string ""
     def masterPart:string ""
@@ -630,6 +841,9 @@ class PptxSlide {
 class PptxSheet {
     def partPath:string ""
     def shapes:[PptxShape]
+    ; Children of this sheet's shape tree that nothing here models, kept as
+    ; source spans so a rewrite puts them back rather than dropping them.
+    def opaque:[PptxOpaque]
     def bg:PptxColor (new PptxColor())
     ; `p:txStyles` — the master's own typography, in three list styles. A
     ; placeholder with no formatting of its own gets everything from here, and

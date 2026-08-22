@@ -39,17 +39,17 @@ class PptxDemo {
         while (i < (array_length s.shapes)) {
             def sh:PptxShape (itemAt s.shapes i)
             def kind:string "shape"
-            if (sh.kind == 1) {
+            if (sh.kind == (PptxShapeKind.picture())) {
                 kind = "picture"
             }
-            if (sh.kind == 2) {
+            if (sh.kind == (PptxShapeKind.group())) {
                 kind = "group"
             }
             def extra:string ""
             if sh.hasText {
                 extra = (" text=\"" + (sh.text.plainText()) + "\"")
             }
-            if (sh.kind == 1) {
+            if (sh.kind == (PptxShapeKind.picture())) {
                 extra = (" part=" + sh.imagePart)
             }
             print ("    [" + kind + "] " + sh.name + " @(" + (to_string sh.x) + "," + (to_string sh.y) + ") " + (to_string sh.width) + "x" + (to_string sh.height) + " fill=" + sh.fill.srgb + extra)
