@@ -585,6 +585,7 @@
     "office:style:test": "bash gallery/office/text/tools/run_style_test.sh",
     "office:bidi:test": "bash gallery/office/text/tools/run_bidi_test.sh",
     "office:arabic:test": "bash gallery/office/text/tools/run_arabic_test.sh",
+    "office:text:test": "bash gallery/office/text/tools/run_text_test.sh",
     "office:color:test": "bash gallery/office/drawing/tools/run_color_test.sh",
     "office:history:test": "bash gallery/office/editor/tools/run_history_test.sh",
     "office:asset:test": "bash gallery/office/assets/tools/run_asset_test.sh",
