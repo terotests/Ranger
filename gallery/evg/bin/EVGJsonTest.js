@@ -5282,34 +5282,6 @@ class EVGDisplayList  {
     this.setPolyBounds(c);
     this.cmds.push(c);
   };
-  addPolyRings (rings, col, evenOddFill) {
-    if ( (rings.length) == 0 ) {
-      return;
-    }
-    const c = new EVGDrawCmd();
-    c.kind = 6;
-    c.evenOdd = evenOddFill;
-    c.r = col.red();
-    c.g = col.green();
-    c.b = col.blue();
-    c.a = col.alpha();
-    let i = 0;
-    while (i < (rings.length)) {
-      const ring = rings[i];
-      let j = 0;
-      while (j < (ring.pts.length)) {
-        c.pts.push(ring.pts[j]);
-        j = j + 1;
-      };
-      c.ringEnds.push(c.pts.length);
-      i = i + 1;
-    };
-    if ( (c.pts.length) < 6 ) {
-      return;
-    }
-    this.setPolyBounds(c);
-    this.cmds.push(c);
-  };
   addPolygon (pts, col) {
     if ( (pts.length) < 6 ) {
       return;
@@ -5729,34 +5701,6 @@ class EVGDisplayList  {
     };
     out = out + "]}";
     return out;
-  };
-  offsetBy (dx, dy) {
-    let i = 0;
-    while (i < (this.cmds.length)) {
-      const c = this.cmds[i];
-      if ( c.kind != 5 ) {
-        c.x = c.x + dx;
-        c.y = c.y + dy;
-        let pi = 0;
-        while (pi < (c.pts.length)) {
-          const even = (pi % 2) == 0;
-          if ( even ) {
-            c.pts[pi] = (c.pts[pi]) + dx;
-          } else {
-            c.pts[pi] = (c.pts[pi]) + dy;
-          }
-          pi = pi + 1;
-        };
-      }
-      i = i + 1;
-    };
-  };
-  appendFrom (src) {
-    let i = 0;
-    while (i < (src.cmds.length)) {
-      this.cmds.push(src.cmds[i]);
-      i = i + 1;
-    };
   };
   summary () {
     let rects = 0;
