@@ -301,10 +301,19 @@ framed — crop, flip, rotation. Keeping the framing off the asset is what makes
 the deduplication safe: nothing about how a picture is displayed can leak into
 the question of whether two pictures are the same picture.
 
-**Only `.pptx` is wired to it, because only `.pptx` can reach the bug.** Neither
-the document viewer nor the spreadsheet has a host insert path, and `.xlsx` has
-no image writer at all — wiring them now would be churn with no user. What is
-worth doing when they grow one is already decided by this file.
+The spreadsheet's decode cache is on it too, and for a bug of its own. `GridImages`
+keyed its decoded pixels on the package part name and **outlives the workbook**,
+so opening a second `.xlsx` showed the first one's pictures — every `.xlsx` calls
+its first picture `xl/media/image1.png`, and the cache already had that key. It is
+the same bug that was reported in the deck viewer, in the spreadsheet. The cache
+is keyed on the content now; a part name is an alias the next document is free to
+point somewhere else. Its `kind` came from the file extension too, so a JPEG saved
+as `.png` was reported as an "unreadable png" — the sniffed type wins now.
+
+`.xlsx` has no image *writer* and neither `.docx` nor `.xlsx` has a host insert
+path, so the naming half of the store is only used by `.pptx`. Wiring the rest
+before there is something to wire would be churn; what is worth doing when they
+grow one is already decided by this file.
 
 ### The rest of `core/` — revisions
 

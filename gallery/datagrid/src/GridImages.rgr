@@ -7,8 +7,15 @@
 ; The model holds anchors and a part name; this holds pixels. Keeping them apart
 ; matters because they have different lifetimes: an anchor moves whenever a
 ; column is resized, and decoding a PNG to move it would be absurd. So the
-; bytes are decoded ONCE per package part, cached by that name, and every
-; redraw is a scale and a blit.
+; bytes are decoded ONCE and every redraw is a scale and a blit.
+;
+; Once per WHAT is the whole question. This used to cache by package part name,
+; and this object outlives the workbook — so opening a second .xlsx showed the
+; first one's pictures, because every .xlsx calls its first picture
+; `xl/media/image1.png` and the cache already had that key. The same bug was
+; reported in the deck viewer. The cache is keyed on the CONTENT now, through
+; `OfficeAssetStore`, and a part name is an alias that the next document is
+; free to point somewhere else.
 ;
 ; Two backends, one display list:
 ;
@@ -33,9 +40,14 @@ Import "../../evg/EVGColor.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/lpc/src/png_decoder.rgr"
 Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "../../office/assets/OfficeAsset.rgr"
 
 class DecodedImage {
+    ; The part this content was last seen at. Useful in a message; never the
+    ; cache key — see the note at the top of this file.
     def src:string ""
+    ; What the content IS. This is the key.
+    def assetId:string ""
     def img:ImageBuffer (new ImageBuffer)
     def ok:boolean false
     ; Why it could not be shown, when it could not. Painted in the frame rather
@@ -49,17 +61,24 @@ class DecodedImage {
 
 class GridImages {
     def cache:[DecodedImage]
+    ; Which content is which. The store answers "are these two pictures the
+    ; same picture" from the bytes, so a part name that has been reused by the
+    ; next workbook simply stops pointing at the old one.
+    def assets:OfficeAssetStore (new OfficeAssetStore)
     ; Counted so a test can prove the cache works rather than assume it.
     def decodes:int 0
 
     Constructor () {
     }
 
-    fn cached:DecodedImage (src:string) {
+    fn cachedById:DecodedImage (assetId:string) {
+        if ((strlen assetId) == 0) {
+            return (new DecodedImage)
+        }
         def i:int 0
         while (i < (array_length cache)) {
             def e:DecodedImage (itemAt cache i)
-            if (e.src == src) {
+            if (e.assetId == assetId) {
                 return e
             }
             i = (i + 1)
@@ -67,22 +86,48 @@ class GridImages {
         return (new DecodedImage)
     }
 
+    ; What the given part currently holds. The part is looked up through the
+    ; store rather than compared against the cache directly: whichever content
+    ; was interned there last is what the part means now.
+    fn cached:DecodedImage (src:string) {
+        def id:string (assets.idForPart(src))
+        return (this.cachedById(id))
+    }
+
     ; Decode the bytes of one media part, once. The caller reads them out of
     ; the package — this class never opens a file, so it stays testable with a
     ; buffer built by hand.
     fn decode:DecodedImage (src:string kind:string bytes:buffer) {
-        def prev:DecodedImage (this.cached(src))
-        if (prev.src == src) {
+        if ((buffer_length bytes) == 0) {
+            ; Nothing to identify. Answer with a note rather than caching an
+            ; emptiness under a name the next document may fill.
+            def none (new DecodedImage)
+            none.src = src
+            none.note = "missing"
+            return none
+        }
+        ; Interning re-points `src` at THIS content, which is what makes a
+        ; second workbook's picture its own.
+        def id:string (assets.intern(bytes "" src))
+        def prev:DecodedImage (this.cachedById(id))
+        if (prev.assetId == id) {
+            prev.src = src
             return prev
         }
         def out:DecodedImage (new DecodedImage)
         out.src = src
-        if ((buffer_length bytes) == 0) {
-            out.note = "missing"
-            push cache out
-            return out
-        }
+        out.assetId = id
         decodes = (decodes + 1)
+        ; What the bytes say they are beats what the file is called. A JPEG
+        ; saved as `.png` is not unusual, and decoding it with the PNG decoder
+        ; produces "unreadable png" for a picture that is perfectly readable.
+        def sniffed:string (assets.mimeOf(id))
+        if (sniffed == "image/png") {
+            kind = "png"
+        }
+        if (sniffed == "image/jpeg") {
+            kind = "jpeg"
+        }
         if (kind == "png") {
             def dec:PNGDecoder (new PNGDecoder)
             def img:ImageBuffer (dec.decodeBytes(bytes))

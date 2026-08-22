@@ -11,6 +11,7 @@ Import "../src/xlsx/XlsxWorksheet.rgr"
 Import "../src/CellStyle.rgr"
 Import "../../office/drawing/OfficeColor.rgr"
 Import "../../pdf_writer/src/core/Utf8.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
 
 class Checker {
     def passed:int 0
@@ -36,6 +37,17 @@ class Checker {
 }
 
 class XlsxTest {
+    ; A real, decodable PNG of `w` x `h` in one solid colour. Written by hand
+    ; rather than read from a fixture so the two pictures in the cache test
+    ; differ in content AND in size, which is what makes "the cache returned
+    ; the wrong one" visible as a number rather than as a guess.
+    sfn tinyPng:buffer (w:int h:int r:int g:int b:int) {
+        def buf (new RasterBuffer)
+        buf.createWithColor(w h r g b 255)
+        def png (new PNGEncoder)
+        return (png.encodeQuiet(buf))
+    }
+
     sfn hasSub:boolean (hay:string needle:string) {
         def n:int (strlen needle)
         def m:int (strlen hay)
@@ -455,6 +467,24 @@ class XlsxTest {
             imApp.sceneJson()
             c.eqInt("a second paint decodes nothing again" imApp.view.images.decodes decodesAfterFirst)
             c.ok("and it renders" ((strlen scene) > 500))
+
+            print "-- and the next workbook's picture is not this one --"
+            ; Every .xlsx calls its first picture `xl/media/image1.png`. The
+            ; decode cache used to be keyed on that name and was never cleared
+            ; between documents, so opening a second workbook showed the first
+            ; one's photographs. This is the same bug that was reported in the
+            ; deck viewer, in the spreadsheet.
+            def other:buffer (XlsxTest.tinyPng(3 5 200 30 40))
+            def redec:DecodedImage (imApp.view.images.decode("xl/media/image1.png" "png" other))
+            c.ok("a different picture under the same part decodes" redec.ok)
+            c.eqInt("to ITS width, not the first one's" redec.img.width 3)
+            c.eqInt("and its height" redec.img.height 5)
+            def back:DecodedImage (imApp.view.images.cached("xl/media/image1.png"))
+            c.eqInt("and that is what the part now resolves to" back.img.width 3)
+            ; The first picture is not lost — it is still one decode, keyed by
+            ; what it is rather than by what it was called.
+            def again:DecodedImage (imApp.view.images.decode("xl/media/image1.png" "png" other))
+            c.eqInt("asking for it twice decodes once" again.img.width 3)
         }
 
         print "== what other programs leave out: shared formulas, an empty font, the sheet's own defaults =="
