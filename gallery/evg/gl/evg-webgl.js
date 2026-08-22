@@ -445,12 +445,17 @@ function atlasFor(gl, cmds, dpr) {
   }
   const key = keys.join("\u0001");
   const have = ATLASES.get(gl);
-  if (have && have.key === key) return have;
+  if (have && have.key === key) { have.rebuilt = false; return have; }
   if (have && have.canvas) gl.deleteTexture(have.canvas);
   const { canvas, slots } = buildTextAtlas(cmds, dpr);
   const made = {
     key,
     slots,
+    // Reported in the stats: rebuilding the atlas means rasterising every run
+    // on a 2-D canvas and uploading it, and doing that on a frame where
+    // nothing about the text changed is the waste this cache exists to stop.
+    // A test can watch it; a timing number on a software GL driver cannot.
+    rebuilt: true,
     canvas: canvas ? makeTexture(gl, canvas) : makeTexture(gl, new ImageData(1, 1)),
   };
   ATLASES.set(gl, made);
@@ -468,11 +473,14 @@ function textureCacheFor(gl, images) {
     cache = new Map();
     IMAGE_TEXTURES.set(gl, cache);
   }
+  let uploaded = 0;
   for (const [src, img] of images) {
     if (!img) continue;
     if (cache.has(src)) continue;
     cache.set(src, { tex: makeTexture(gl, img), w: img.naturalWidth, h: img.naturalHeight });
+    uploaded += 1;
   }
+  cache.uploaded = uploaded;
   return cache;
 }
 
@@ -523,13 +531,14 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // out every run on a 2-D canvas and uploading the result — and the runs are
   // the same from one frame to the next almost always, because a frame that
   // differs by a moved shape has not changed a single letter.
-  const { canvas: atlasCanvas, slots, key: atlasKey } = atlasFor(gl, cmds, dpr);
+  const { canvas: atlasCanvas, slots, rebuilt: atlasRebuilt } = atlasFor(gl, cmds, dpr);
   const atlas = atlasCanvas;
 
   // One texture per distinct source, uploaded ONCE — not once per frame. This
   // used to make a new GL texture for every picture on every frame and never
   // delete any of them: a decode and an upload per frame, and a leak.
   const textures = textureCacheFor(gl, images);
+  const texturesUploaded = textures.uploaded | 0;
 
   // Instances in paint order, plus the runs that must be drawn separately.
   // A run is a stretch of instances that share a texture binding; an image
@@ -810,6 +819,9 @@ export function renderDisplayList(gl, doc, opts = {}) {
   return {
     drawn: count, textRuns: slots.size, images: drawnImages, missingImages,
     runs: runs.length, paths,
+    // What this frame had to make rather than reuse. Both should be 0 on a
+    // frame that draws what the last one drew.
+    atlasRebuilt: atlasRebuilt ? 1 : 0, texturesUploaded,
     // A context without a stencil buffer cannot fill a path; say so rather than
     // drawing a chart with no bars in it.
     skippedFills,

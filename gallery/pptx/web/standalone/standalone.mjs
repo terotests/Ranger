@@ -560,6 +560,22 @@ async function selftest() {
   web.gotoSlide(0);
   await draw();
 
+  // Drawing the same slide again must not rebuild anything. The text atlas is
+  // rasterised on a 2-D canvas and uploaded, and every picture becomes a GL
+  // texture; doing either on a frame where nothing changed was most of what a
+  // pointer move cost. This is the check that keeps it that way — a cache
+  // keyed on something that is fresh every frame looks exactly like a cache
+  // until you ask it this.
+  lastScene = null;
+  await draw();
+  const frame1 = window.__evgStats;
+  lastScene = null;
+  await draw();
+  const frame2 = window.__evgStats;
+  ok("redrawing the same slide reuses the text atlas", (frame2.atlasRebuilt | 0) === 0);
+  ok("and uploads no picture a second time", (frame2.texturesUploaded | 0) === 0);
+  ok("while still drawing the same thing", (frame2.drawn | 0) === (frame1.drawn | 0));
+
   // The show: the deck without any chrome around it, driven by the page's own
   // clock. A browser is the only host here that HAS a clock, so this is the
   // only place the time-varying half of a transition is exercised for real.
