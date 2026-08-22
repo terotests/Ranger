@@ -1,0 +1,606 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeArabic — Arabic is cursive, and unjoined letters are not Arabic
+; ==============================================================================
+;
+; Every Arabic letter has up to four shapes depending on what is beside it:
+; alone, at the start of a word, in the middle, at the end. A renderer that
+; draws the stored codepoints draws every letter in its isolated shape, which
+; is as wrong as writing English with a space between every letter and every
+; letter a capital. That is what all three editors did.
+;
+; The proper way to do this is the font's own GSUB table — the `init`, `medi`
+; and `fina` features. This repository's font stack has no GSUB shaper, so
+; this maps to the Arabic Presentation Forms-B block instead (U+FE70-U+FEFC),
+; which is the pre-composed set of those same shapes. Almost every Arabic font
+; carries it, including the El Messiri family in this repository's assets.
+;
+; That is a real limitation and it is worth stating plainly: presentation
+; forms cover the shapes, not the ligatures a font would form itself, and the
+; two mandatory lam-alef ligatures are handled here by hand because a word
+; like "لا" is wrong without them. Anything beyond that — the optional
+; ligatures, the mark positioning — needs a GSUB/GPOS shaper, and this is the
+; layer that shaper would slot into.
+;
+; The joining types come from Unicode's ArabicShaping.txt:
+;
+;   D  dual-joining     joins on both sides — most letters
+;   R  right-joining    joins only to the letter before it — alef, dal, reh,
+;                       waw and their relatives, which is why a word can break
+;                       visually in the middle
+;   T  transparent      the harakat, which are skipped when looking at
+;                       neighbours: a fatha between two letters must not stop
+;                       them joining
+;   U  non-joining      hamza
+;
+;   npm run office:arabic:test
+; ==============================================================================
+
+class OfficeArabic {
+
+    ; Is this a letter that joins to the letter FOLLOWING it? Dual-joining
+    ; letters and the tatweel do; right-joining ones do not, which is what
+    ; makes a word visually break after an alef.
+    sfn isDual:boolean (cp:int) {
+        if (cp == 1574) {
+            return true
+        }
+        if (cp == 1576) {
+            return true
+        }
+        if (cp == 1578) {
+            return true
+        }
+        if (cp == 1579) {
+            return true
+        }
+        if (cp == 1580) {
+            return true
+        }
+        if (cp == 1581) {
+            return true
+        }
+        if (cp == 1582) {
+            return true
+        }
+        if (cp == 1587) {
+            return true
+        }
+        if (cp == 1588) {
+            return true
+        }
+        if (cp == 1589) {
+            return true
+        }
+        if (cp == 1590) {
+            return true
+        }
+        if (cp == 1591) {
+            return true
+        }
+        if (cp == 1592) {
+            return true
+        }
+        if (cp == 1593) {
+            return true
+        }
+        if (cp == 1594) {
+            return true
+        }
+        if (cp == 1601) {
+            return true
+        }
+        if (cp == 1602) {
+            return true
+        }
+        if (cp == 1603) {
+            return true
+        }
+        if (cp == 1604) {
+            return true
+        }
+        if (cp == 1605) {
+            return true
+        }
+        if (cp == 1606) {
+            return true
+        }
+        if (cp == 1607) {
+            return true
+        }
+        if (cp == 1609) {
+            return true
+        }
+        if (cp == 1610) {
+            return true
+        }
+        if (cp == 1600) {
+            return true
+        }
+        return false
+    }
+
+    ; Does this character have a shape at all — is it an Arabic letter this
+    ; can do anything with?
+    sfn isLetter:boolean (cp:int) {
+        return ((OfficeArabic.isoFormOf(cp)) > 0)
+    }
+
+    ; A character that is skipped when looking left or right for a neighbour.
+    ; The harakat sit ON a letter rather than beside it, so a fatha between
+    ; two letters must not stop them joining — which is the single most
+    ; common way a hand-written shaper gets vowelled text wrong.
+    sfn isTransparent:boolean (cp:int) {
+        if (cp >= 1552) {
+            if (cp <= 1562) {
+                return true
+            }
+        }
+        if (cp >= 1611) {
+            if (cp <= 1631) {
+                return true
+            }
+        }
+        if (cp == 1648) {
+            return true
+        }
+        if (cp >= 1750) {
+            if (cp <= 1756) {
+                return true
+            }
+        }
+        if (cp >= 1759) {
+            if (cp <= 1764) {
+                return true
+            }
+        }
+        if (cp >= 1767) {
+            if (cp <= 1768) {
+                return true
+            }
+        }
+        if (cp >= 1770) {
+            if (cp <= 1773) {
+                return true
+            }
+        }
+        ; ZWNJ (8204) is deliberately NOT transparent. It exists so an author
+        ; can write an unjoined pair on purpose, and skipping over it would
+        ; join the very letters it was typed to keep apart.
+        return false
+    }
+
+    ; The isolated presentation form for a letter, or 0.
+    sfn isoFormOf:int (cp:int) {
+        if (cp == 1569) {
+            return 65152
+        }
+        if (cp == 1570) {
+            return 65153
+        }
+        if (cp == 1571) {
+            return 65155
+        }
+        if (cp == 1572) {
+            return 65157
+        }
+        if (cp == 1573) {
+            return 65159
+        }
+        if (cp == 1574) {
+            return 65161
+        }
+        if (cp == 1575) {
+            return 65165
+        }
+        if (cp == 1576) {
+            return 65167
+        }
+        if (cp == 1577) {
+            return 65171
+        }
+        if (cp == 1578) {
+            return 65173
+        }
+        if (cp == 1579) {
+            return 65177
+        }
+        if (cp == 1580) {
+            return 65181
+        }
+        if (cp == 1581) {
+            return 65185
+        }
+        if (cp == 1582) {
+            return 65189
+        }
+        if (cp == 1583) {
+            return 65193
+        }
+        if (cp == 1584) {
+            return 65195
+        }
+        if (cp == 1585) {
+            return 65197
+        }
+        if (cp == 1586) {
+            return 65199
+        }
+        if (cp == 1587) {
+            return 65201
+        }
+        if (cp == 1588) {
+            return 65205
+        }
+        if (cp == 1589) {
+            return 65209
+        }
+        if (cp == 1590) {
+            return 65213
+        }
+        if (cp == 1591) {
+            return 65217
+        }
+        if (cp == 1592) {
+            return 65221
+        }
+        if (cp == 1593) {
+            return 65225
+        }
+        if (cp == 1594) {
+            return 65229
+        }
+        if (cp == 1601) {
+            return 65233
+        }
+        if (cp == 1602) {
+            return 65237
+        }
+        if (cp == 1603) {
+            return 65241
+        }
+        if (cp == 1604) {
+            return 65245
+        }
+        if (cp == 1605) {
+            return 65249
+        }
+        if (cp == 1606) {
+            return 65253
+        }
+        if (cp == 1607) {
+            return 65257
+        }
+        if (cp == 1608) {
+            return 65261
+        }
+        if (cp == 1609) {
+            return 65263
+        }
+        if (cp == 1610) {
+            return 65265
+        }
+        return 0
+    }
+
+    ; How many shapes it has: 2 (isolated, final) or 4 (isolated, final,
+    ; initial, medial). The order inside the block is fixed by Unicode.
+    sfn formCountOf:int (cp:int) {
+        if (cp == 1569) {
+            return 1
+        }
+        if (cp == 1570) {
+            return 2
+        }
+        if (cp == 1571) {
+            return 2
+        }
+        if (cp == 1572) {
+            return 2
+        }
+        if (cp == 1573) {
+            return 2
+        }
+        if (cp == 1574) {
+            return 4
+        }
+        if (cp == 1575) {
+            return 2
+        }
+        if (cp == 1576) {
+            return 4
+        }
+        if (cp == 1577) {
+            return 2
+        }
+        if (cp == 1578) {
+            return 4
+        }
+        if (cp == 1579) {
+            return 4
+        }
+        if (cp == 1580) {
+            return 4
+        }
+        if (cp == 1581) {
+            return 4
+        }
+        if (cp == 1582) {
+            return 4
+        }
+        if (cp == 1583) {
+            return 2
+        }
+        if (cp == 1584) {
+            return 2
+        }
+        if (cp == 1585) {
+            return 2
+        }
+        if (cp == 1586) {
+            return 2
+        }
+        if (cp == 1587) {
+            return 4
+        }
+        if (cp == 1588) {
+            return 4
+        }
+        if (cp == 1589) {
+            return 4
+        }
+        if (cp == 1590) {
+            return 4
+        }
+        if (cp == 1591) {
+            return 4
+        }
+        if (cp == 1592) {
+            return 4
+        }
+        if (cp == 1593) {
+            return 4
+        }
+        if (cp == 1594) {
+            return 4
+        }
+        if (cp == 1601) {
+            return 4
+        }
+        if (cp == 1602) {
+            return 4
+        }
+        if (cp == 1603) {
+            return 4
+        }
+        if (cp == 1604) {
+            return 4
+        }
+        if (cp == 1605) {
+            return 4
+        }
+        if (cp == 1606) {
+            return 4
+        }
+        if (cp == 1607) {
+            return 4
+        }
+        if (cp == 1608) {
+            return 2
+        }
+        if (cp == 1609) {
+            return 2
+        }
+        if (cp == 1610) {
+            return 4
+        }
+        return 0
+    }
+
+    ; ==========================================================================
+    ; Shaping
+    ; ==========================================================================
+    ;
+    ; Two things about the order of operations, because getting them the wrong
+    ; way round produces text that looks almost right:
+    ;
+    ;   * shaping happens in LOGICAL order, before the bidi reordering. A
+    ;     letter's shape depends on the letters it is stored next to, not on
+    ;     the letters it ends up drawn next to. Shape first, then reorder the
+    ;     result with OfficeBidi.
+    ;   * the array that comes back is the same length as the one that went
+    ;     in. That is deliberate. Every caret position, every selection range
+    ;     and every run boundary in the three editors is an index into the
+    ;     source text, and a shaper that changed the length would invalidate
+    ;     all of them silently.
+    ;
+    ; The one place a shape does not fit one codepoint is lam-alef, which is a
+    ; mandatory ligature: two letters, one glyph. That is written as the
+    ; ligature at the lam's index and a 0 at the alef's — 0 meaning "this
+    ; codepoint has no glyph of its own, it is inside the one before it". A
+    ; painter draws nothing and advances nothing for a 0; a caret between the
+    ; two therefore sits where the ligature starts, which is what every other
+    ; implementation does with an inseparable pair.
+
+    ; The nearest earlier character that is not a harakat, or -1.
+    sfn prevIndex:int (cps:[int] i:int) {
+        def k:int (i - 1)
+        while (k >= 0) {
+            if ((OfficeArabic.isTransparent((itemAt cps k))) == false) {
+                return k
+            }
+            k = (k - 1)
+        }
+        return -1
+    }
+
+    ; The nearest later character that is not a harakat, or -1.
+    sfn nextIndex:int (cps:[int] i:int) {
+        def n:int (array_length cps)
+        def k:int (i + 1)
+        while (k < n) {
+            if ((OfficeArabic.isTransparent((itemAt cps k))) == false) {
+                return k
+            }
+            k = (k + 1)
+        }
+        return -1
+    }
+
+    ; itemAt that tolerates the -1 the two above return for "nothing there".
+    sfn cpAt:int (cps:[int] i:int) {
+        if (i < 0) {
+            return 0
+        }
+        return (itemAt cps i)
+    }
+
+    ; Can this character connect to the one AFTER it in memory — which, in a
+    ; right-to-left run, is the one drawn to its left? Dual-joining letters
+    ; and the tatweel can; alef and its relatives cannot, which is why an
+    ; Arabic word breaks visually in the middle without being two words.
+    ; ZWJ is the author saying "join here anyway".
+    sfn joinsForward:boolean (cp:int) {
+        if (cp == 8205) {
+            return true
+        }
+        return (OfficeArabic.isDual(cp))
+    }
+
+    ; Can this character accept a connection from the one BEFORE it? Every
+    ; Arabic letter can — including the right-joining ones, which is exactly
+    ; what "right-joining" means. ZWNJ (8204) deliberately cannot: it is how
+    ; an author writes an unjoined pair on purpose.
+    sfn joinsBackward:boolean (cp:int) {
+        if (cp == 8205) {
+            return true
+        }
+        if (cp == 1600) {
+            return true
+        }
+        ; Hamza is the exception, and the only one in this table: joining type
+        ; U, which joins on neither side. Its single shape is what says so —
+        ; a letter with one form has nothing to join with.
+        if ((OfficeArabic.formCountOf(cp)) < 2) {
+            return false
+        }
+        return (OfficeArabic.isLetter(cp))
+    }
+
+    ; The presentation form for a letter given what it joins to. The four
+    ; shapes sit consecutively in the block in a fixed order — isolated,
+    ; final, initial, medial — so this is arithmetic on the isolated form
+    ; once the joining is known. Two-shape letters have only the first two,
+    ; so a two-shape letter in the middle of a word takes its FINAL form,
+    ; not a medial one it does not have.
+    sfn formOf:int (cp:int joinsPrev:boolean joinsNext:boolean) {
+        def base:int (OfficeArabic.isoFormOf(cp))
+        if (base == 0) {
+            return cp
+        }
+        def count:int (OfficeArabic.formCountOf(cp))
+        if (count < 2) {
+            return base
+        }
+        if joinsPrev {
+            if joinsNext {
+                if (count == 4) {
+                    return (base + 3)
+                }
+                return (base + 1)
+            }
+            return (base + 1)
+        }
+        if joinsNext {
+            if (count == 4) {
+                return (base + 2)
+            }
+            return base
+        }
+        return base
+    }
+
+    ; The isolated lam-alef ligature for the alef that follows a lam, or 0.
+    ; Only these four combinations ligate, and all four are mandatory: the
+    ; word "لا" written as two separate letters is wrong, not merely ugly.
+    sfn ligatureOf:int (alef:int) {
+        if (alef == 1570) {
+            return 65269
+        }
+        if (alef == 1571) {
+            return 65271
+        }
+        if (alef == 1573) {
+            return 65273
+        }
+        if (alef == 1575) {
+            return 65275
+        }
+        return 0
+    }
+
+    ; Is there anything here worth shaping? Latin text is the overwhelming
+    ; majority of what these editors draw and it must not pay for this.
+    sfn hasArabic:boolean (cps:[int]) {
+        def n:int (array_length cps)
+        def i:int 0
+        while (i < n) {
+            if (OfficeArabic.isLetter((itemAt cps i))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The whole of it: logical-order codepoints in, the same count of
+    ; presentation forms out.
+    sfn shape:[int] (cps:[int]) {
+        def n:int (array_length cps)
+        def out:[int]
+        def i:int 0
+        while (i < n) {
+            push out (itemAt cps i)
+            i = (i + 1)
+        }
+        def at:int 0
+        while (at < n) {
+            def cp:int (itemAt cps at)
+            ; An alef already swallowed by the lam before it keeps its 0.
+            def standing:int (itemAt out at)
+            if (standing > 0) {
+                if (OfficeArabic.isLetter(cp)) {
+                    def pi:int (OfficeArabic.prevIndex(cps at))
+                    def ni:int (OfficeArabic.nextIndex(cps at))
+                    def pcp:int (OfficeArabic.cpAt(cps pi))
+                    def ncp:int (OfficeArabic.cpAt(cps ni))
+                    def jp:boolean (OfficeArabic.joinsForward(pcp))
+                    def jn:boolean false
+                    if (OfficeArabic.joinsForward(cp)) {
+                        jn = (OfficeArabic.joinsBackward(ncp))
+                    }
+                    def lig:int 0
+                    if (cp == 1604) {
+                        lig = (OfficeArabic.ligatureOf(ncp))
+                    }
+                    if (lig > 0) {
+                        ; The ligature has two shapes of its own, and which one
+                        ; it takes is decided by the LAM's left-hand neighbour:
+                        ; the alef end of it never joins forward.
+                        def form:int lig
+                        if jp {
+                            form = (lig + 1)
+                        }
+                        set_at out at form
+                        set_at out ni 0
+                    } {
+                        set_at out at (OfficeArabic.formOf(cp jp jn))
+                    }
+                }
+            }
+            at = (at + 1)
+        }
+        return out
+    }
+}
