@@ -18,6 +18,8 @@ one OPC package reader, and the XML text rules.
 
 ```text
 gallery/office/
+    assets/
+        OfficeAsset.rgr        a picture is its bytes, not its file name
     core/
         OfficeId.rgr           a name two sessions can mint at once
     editor/
@@ -39,6 +41,7 @@ npm run office:style:test      # likewise
 npm run office:color:test      # likewise
 npm run office:history:test    # likewise
 npm run office:id:test         # likewise
+npm run office:asset:test      # likewise
 ```
 
 ### `OfficeFont`
@@ -255,8 +258,55 @@ collision to fix. It is the foundation the next step needs, tested on its own.
 this codebase already has, and where copying a text CRDT stops being enough for
 a slide.
 
-### The rest of `core/` — revisions, assets
+### `OfficeAsset` — a picture is its bytes
 
-Stable `EntityId` (PPTX's `editId` is already this, done right), `Revision`, an
-`AssetStore` so one logo on forty slides is one asset, and one transaction and
-history framework instead of the three there are now.
+All three editors identified an image by its **package path**. That is the name
+the picture happens to be filed under, and it was wrong in both directions at
+once:
+
+| | what happened |
+| --- | --- |
+| two pictures, one name | a user inserts `logo.png` from one folder and a different `logo.png` from another. The viewer's decode cache and the writer's media table both already hold that key, so **the second picture is silently replaced by the first** — on screen and in the saved file |
+| a name the package already uses | insert a file called `image1.png`, the name every OOXML package gives its own media, and the writer decides it is "already in the package" and references the deck's old picture instead. **The inserted bytes are never written at all** |
+| one picture, two names | the same logo arriving under two part names is written twice |
+
+The regression test in `PptxWriterTest` states all three at once, and on the
+old writer it fails on exactly the two claims it should: the second picture
+came back as the first, and the repeat was duplicated.
+
+`OfficeAssetStore` hands out an id computed from the content, keeps one copy per
+distinct picture, and remembers which package parts are aliases of it. A part is
+an **attribute** of an asset, never its identity.
+
+On the hash: it is CRC-32 plus the byte length, and every hit is confirmed with
+a full byte comparison before two pictures are called the same. So the store
+cannot merge two different images no matter how weak the digest is — a stronger
+one would buy fewer comparisons, not more correctness. CRC-32 is what the zip
+writer already runs on both targets, using shifts and xor so it cannot overflow
+differently on JavaScript and C++.
+
+Two things fall out of asking the bytes rather than the name:
+
+- **The type.** A JPEG saved as `photo.png` is not unusual, and a content type
+  written from the extension is then a lie the package carries. `sniff` reads
+  the magic number instead.
+- **The size.** `insertPicture` forced every inserted image to 3:5 whatever it
+  actually was, so every photograph came in squashed. The header says how big
+  the picture is — `measure` reads it out of PNG, JPEG (walking the segments,
+  because SOF is not at a fixed offset), GIF and BMP, and leaves the size at
+  zero rather than guessing for the formats it does not know.
+
+`OfficeImageRef` is the other half: which asset, and how *this* use of it is
+framed — crop, flip, rotation. Keeping the framing off the asset is what makes
+the deduplication safe: nothing about how a picture is displayed can leak into
+the question of whether two pictures are the same picture.
+
+**Only `.pptx` is wired to it, because only `.pptx` can reach the bug.** Neither
+the document viewer nor the spreadsheet has a host insert path, and `.xlsx` has
+no image writer at all — wiring them now would be churn with no user. What is
+worth doing when they grow one is already decided by this file.
+
+### The rest of `core/` — revisions
+
+Stable `EntityId` (PPTX's `editId` is already this, done right), `Revision`, and
+one transaction and history framework instead of the three there are now.

@@ -1,0 +1,384 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeAssetTest — the first check here is the bug the store exists to stop
+; ==============================================================================
+;
+; Two different pictures both called `logo.png`: under identity-by-name they
+; are one picture, and the second one is silently replaced by the first. Under
+; identity-by-content they are two, no matter what either file is called.
+;
+; Compiled twice, because everything here is byte arithmetic and a `string` is
+; UTF-16 code units on JavaScript and bytes in C++. The 32-bit header reads are
+; the sharpest case: an `int` is a double on one target and a signed 32-bit
+; integer on the other, so a size field with its top bit set is exactly the
+; input that could come back as two different numbers.
+;
+;   npm run office:asset:test
+; ==============================================================================
+
+Import "../OfficeAsset.rgr"
+
+class AssetCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class OfficeAssetTest {
+    def c:AssetCheck (new AssetCheck())
+
+    sfn main:void () {
+        def t (new OfficeAssetTest())
+        t.run()
+    }
+
+    ; --- fixtures -------------------------------------------------------------
+
+    ; A buffer written out as decimal byte values, e.g. "255 216 255 224".
+    ; Spelled as a string rather than an array literal so the fixtures read
+    ; like the hex dumps they are taken from.
+    fn bytesOf:buffer (spec:string) {
+        def n:int (strlen spec)
+        def values:[int]
+        def cur:int 0
+        def inNumber:boolean false
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt spec i)
+            if (ch == 32) {
+                if inNumber {
+                    push values cur
+                }
+                cur = 0
+                inNumber = false
+            } {
+                cur = ((cur * 10) + (ch - 48))
+                inNumber = true
+            }
+            i = (i + 1)
+        }
+        if inNumber {
+            push values cur
+        }
+        def count:int (array_length values)
+        def out:buffer (buffer_alloc count)
+        def j:int 0
+        while (j < count) {
+            buffer_set out j (itemAt values j)
+            j = (j + 1)
+        }
+        return out
+    }
+
+    ; A PNG header that really parses: signature, IHDR length, IHDR, size.
+    fn png:buffer (w:int h:int marker:int) {
+        def out:buffer (buffer_alloc 32)
+        def i:int 0
+        while (i < 32) {
+            buffer_set out i 0
+            i = (i + 1)
+        }
+        buffer_set out 0 137
+        buffer_set out 1 80
+        buffer_set out 2 78
+        buffer_set out 3 71
+        buffer_set out 4 13
+        buffer_set out 5 10
+        buffer_set out 6 26
+        buffer_set out 7 10
+        buffer_set out 11 13
+        buffer_set out 12 73
+        buffer_set out 13 72
+        buffer_set out 14 68
+        buffer_set out 15 82
+        buffer_set out 16 (bit_and (bit_ushr w 24) 255)
+        buffer_set out 17 (bit_and (bit_ushr w 16) 255)
+        buffer_set out 18 (bit_and (bit_ushr w 8) 255)
+        buffer_set out 19 (bit_and w 255)
+        buffer_set out 20 (bit_and (bit_ushr h 24) 255)
+        buffer_set out 21 (bit_and (bit_ushr h 16) 255)
+        buffer_set out 22 (bit_and (bit_ushr h 8) 255)
+        buffer_set out 23 (bit_and h 255)
+        ; Whatever distinguishes this picture from another of the same size.
+        buffer_set out 30 marker
+        return out
+    }
+
+    fn run:void () {
+        print "=== OfficeAssetTest ==="
+        this.testTwoLogos()
+        this.testDedup()
+        this.testPartAlias()
+        this.testDigest()
+        this.testSniff()
+        this.testSizes()
+        this.testJpegSize()
+        this.testNaming()
+        this.testImageRef()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The bug.
+    ; --------------------------------------------------------------------------
+    fn testTwoLogos:void () {
+        print "--- two files, one name ---"
+        def store (new OfficeAssetStore())
+        def red:buffer (this.png(64 64 1))
+        def blue:buffer (this.png(64 64 2))
+        ; Both arrive claiming the same package part, which is what happens
+        ; when a user inserts `logo.png` from two different folders.
+        def a:string (store.intern(red "" "ppt/media/logo.png"))
+        def b:string (store.intern(blue "" "ppt/media/logo.png"))
+        c.ok("two different pictures get two different ids" (a != b))
+        c.eqInt("and the store holds both of them" (store.count()) 2)
+        def ba:buffer (store.bytesOf(a))
+        def bb:buffer (store.bytesOf(b))
+        c.eqInt("the first one's bytes are its own" (buffer_get ba 30) 1)
+        c.eqInt("the second one's bytes are its own" (buffer_get bb 30) 2)
+        ; The part name is an alias, and the last writer of it wins. What must
+        ; never happen is the first asset's content coming back for the second.
+        def viaPart:string (store.idForPart("ppt/media/logo.png"))
+        c.eqStr("the part now names the picture that was put there last" viaPart b)
+    }
+
+    fn testDedup:void () {
+        print "--- one picture, many slides ---"
+        def store (new OfficeAssetStore())
+        def logo:buffer (this.png(120 40 7))
+        def ids:[string]
+        def i:int 0
+        while (i < 40) {
+            def part:string ("ppt/media/image" + ((to_string (i + 1)) + ".png"))
+            push ids (store.intern(logo "" part))
+            i = (i + 1)
+        }
+        c.eqInt("the same logo on forty slides is one asset" (store.count()) 1)
+        def first:string (itemAt ids 0)
+        def allSame:boolean true
+        def j:int 0
+        while (j < 40) {
+            if ((itemAt ids j) != first) {
+                allSame = false
+            }
+            j = (j + 1)
+        }
+        c.ok("and every slide names it by the same id" allSame)
+        ; Every one of those forty part names still resolves.
+        c.eqStr("the first part resolves" (store.idForPart("ppt/media/image1.png")) first)
+        c.eqStr("and so does the fortieth" (store.idForPart("ppt/media/image40.png")) first)
+    }
+
+    fn testPartAlias:void () {
+        print "--- a part is an attribute, not a name ---"
+        def store (new OfficeAssetStore())
+        def pic:buffer (this.png(10 10 3))
+        def id:string (store.intern(pic "" "word/media/image1.png"))
+        ; The same content turning up somewhere else does not make a second
+        ; asset, and does not forget where it was first seen.
+        def again:string (store.intern(pic "" "word/media/image9.png"))
+        c.eqStr("the same content under another name is the same asset" again id)
+        c.eqInt("nothing was duplicated" (store.count()) 1)
+        def a:OfficeAsset (store.assetOf(id))
+        c.eqStr("the asset keeps the part it was first found at" a.part "word/media/image1.png")
+        c.eqStr("but the later name resolves to it too" (store.idForPart("word/media/image9.png")) id)
+        c.ok("an unknown part resolves to nothing" ((store.idForPart("word/media/nope.png")) == ""))
+        c.ok("and so does an unknown id" ((store.has("not-an-id")) == false))
+        def empty:OfficeAsset (store.assetOf("not-an-id"))
+        c.eqInt("asking for one gives an empty asset, not a crash" (buffer_length empty.bytes) 0)
+    }
+
+    fn testDigest:void () {
+        print "--- the digest ---"
+        def a:buffer (this.png(4 4 1))
+        def b:buffer (this.png(4 4 1))
+        def d:buffer (this.png(4 4 2))
+        c.eqStr("the same bytes digest the same" (OfficeAssetStore.digest(a)) (OfficeAssetStore.digest(b)))
+        c.ok("different bytes do not" ((OfficeAssetStore.digest(a)) != (OfficeAssetStore.digest(d))))
+        def id:string (OfficeAssetStore.contentId(a))
+        c.eqInt("the content id is eight hex digits, a dash and the length" (strlen id) 11)
+        c.ok("and it ends in the length" ((indexOf id "-32") == 8))
+        c.ok("identical buffers compare equal" (OfficeAssetStore.sameBytes(a b)))
+        c.ok("different ones do not" ((OfficeAssetStore.sameBytes(a d)) == false))
+        def short:buffer (buffer_alloc 4)
+        c.ok("nor do buffers of different lengths" ((OfficeAssetStore.sameBytes(a short)) == false))
+        ; The digest is written from a 32-bit pattern that is very often
+        ; negative as a signed integer. Rendering it must not depend on that.
+        def hex:string (OfficeAssetStore.hex8(0 - 1))
+        c.eqStr("all ones renders as ffffffff on both targets" hex "ffffffff")
+        c.eqStr("and zero as eight zeroes" (OfficeAssetStore.hex8(0)) "00000000")
+        c.eqStr("and 0x0abcdef1 keeps its leading zero" (OfficeAssetStore.hex8(180150001)) "0abcdef1")
+    }
+
+    fn testSniff:void () {
+        print "--- what the bytes say they are ---"
+        def png:buffer (this.png(1 1 0))
+        c.eqStr("PNG" (OfficeAssetStore.sniff(png)) "image/png")
+        def jpg:string "255 216 255 224 0 16 74 70"
+        c.eqStr("JPEG" (OfficeAssetStore.sniff((this.bytesOf(jpg)))) "image/jpeg")
+        def gif:string "71 73 70 56 57 97 10 0 20 0"
+        c.eqStr("GIF" (OfficeAssetStore.sniff((this.bytesOf(gif)))) "image/gif")
+        def bmp:string "66 77 0 0 0 0 0 0"
+        c.eqStr("BMP" (OfficeAssetStore.sniff((this.bytesOf(bmp)))) "image/bmp")
+        def tif:string "73 73 42 0 8 0 0 0"
+        c.eqStr("TIFF little-endian" (OfficeAssetStore.sniff((this.bytesOf(tif)))) "image/tiff")
+        def tifBe:string "77 77 0 42 0 0 0 8"
+        c.eqStr("TIFF big-endian" (OfficeAssetStore.sniff((this.bytesOf(tifBe)))) "image/tiff")
+        def emf:string "1 0 0 0 108 0 0 0"
+        c.eqStr("EMF" (OfficeAssetStore.sniff((this.bytesOf(emf)))) "image/x-emf")
+        def wmf:string "215 205 198 154 0 0 0 0"
+        c.eqStr("placeable WMF" (OfficeAssetStore.sniff((this.bytesOf(wmf)))) "image/x-wmf")
+        def svg:string "60 115 118 103 32 120 109 108"
+        c.eqStr("SVG" (OfficeAssetStore.sniff((this.bytesOf(svg)))) "image/svg+xml")
+        def junk:string "1 2 3 4 5 6 7 8 9 10"
+        c.eqStr("and something else is nothing" (OfficeAssetStore.sniff((this.bytesOf(junk)))) "")
+        def tiny:buffer (buffer_alloc 2)
+        c.eqStr("two bytes are not a picture" (OfficeAssetStore.sniff(tiny)) "")
+        ; The point of sniffing rather than trusting the name.
+        def store (new OfficeAssetStore())
+        def id:string (store.intern((this.bytesOf(jpg)) "" "ppt/media/photo.png"))
+        def a:OfficeAsset (store.assetOf(id))
+        c.eqStr("a JPEG filed under a .png name is still a JPEG" a.mimeType "image/jpeg")
+        c.eqStr("a stated type is taken as given" (OfficeAssetStore.mimeForPath("x/y/pic.JPG")) "image/jpeg")
+        c.eqStr("an unknown extension says so" (OfficeAssetStore.mimeForPath("x/y/pic.xyz")) "")
+        c.eqStr("and so does no extension at all" (OfficeAssetStore.mimeForPath("noextension")) "")
+        c.eqStr("jpeg writes .jpeg" (OfficeAssetStore.extensionForMime("image/jpeg")) ".jpeg")
+        c.eqStr("an unknown type writes .bin" (OfficeAssetStore.extensionForMime("application/x-thing")) ".bin")
+    }
+
+    fn testSizes:void () {
+        print "--- the picture's own size ---"
+        def store (new OfficeAssetStore())
+        def wide:string (store.intern((this.png(800 200 1)) "" ""))
+        def a:OfficeAsset (store.assetOf(wide))
+        c.eqInt("PNG width" a.width 800)
+        c.eqInt("PNG height" a.height 200)
+        def gif:string "71 73 70 56 57 97 44 1 200 0"
+        def g:string (store.intern((this.bytesOf(gif)) "" ""))
+        def ga:OfficeAsset (store.assetOf(g))
+        c.eqInt("GIF width is little-endian" ga.width 300)
+        c.eqInt("GIF height" ga.height 200)
+        ; A bottom-up BMP writes its height as a negative number.
+        def bmp:string "66 77 0 0 0 0 0 0 0 0 54 0 0 0 40 0 0 0 100 0 0 0 156 255 255 255 1 0"
+        def b:string (store.intern((this.bytesOf(bmp)) "" ""))
+        def ba:OfficeAsset (store.assetOf(b))
+        c.eqInt("BMP width" ba.width 100)
+        c.eqInt("a bottom-up BMP is 100 tall, not minus 100" ba.height 100)
+        ; The reading that would differ between a double and a signed int.
+        def huge:buffer (this.png(1 1 0))
+        buffer_set huge 16 255
+        buffer_set huge 17 255
+        buffer_set huge 18 255
+        buffer_set huge 19 255
+        def h:string (store.intern(huge "" ""))
+        def ha:OfficeAsset (store.assetOf(h))
+        c.eqInt("a size with its top bit set is reported as unknown" ha.width 0)
+        ; Something we do not read the size of at all.
+        def svg:string "60 115 118 103 32 119 61 34 53 34"
+        def s:string (store.intern((this.bytesOf(svg)) "" ""))
+        def sa:OfficeAsset (store.assetOf(s))
+        c.eqInt("an unmeasured format stays at zero rather than guessing" sa.width 0)
+    }
+
+    fn testJpegSize:void () {
+        print "--- walking a JPEG to its frame header ---"
+        ; SOI, then an APP0 that has to be stepped over, then a comment that
+        ; contains a byte pair that looks like a marker, then SOF0 320x240.
+        def jpg:string "255 216 255 224 0 6 74 70 73 70 255 254 0 6 255 192 0 0 255 192 0 17 8 0 240 1 64 3 1 34 0 2 17 1 3 17 1 255 218 0 8"
+        def store (new OfficeAssetStore())
+        def id:string (store.intern((this.bytesOf(jpg)) "" ""))
+        def a:OfficeAsset (store.assetOf(id))
+        c.eqStr("it is a JPEG" a.mimeType "image/jpeg")
+        c.eqInt("width comes from the real SOF0, not the one inside the comment" a.width 320)
+        c.eqInt("height likewise" a.height 240)
+        ; A JPEG whose scan starts before any frame header: no size, no hang.
+        def headless:string "255 216 255 218 0 8 1 2 3 4 5 6"
+        def h:string (store.intern((this.bytesOf(headless)) "" ""))
+        def ha:OfficeAsset (store.assetOf(h))
+        c.eqInt("a JPEG with no frame header reports no size" ha.width 0)
+        ; A truncated JPEG must not read past the end.
+        def cut:string "255 216 255 192 0"
+        def t:string (store.intern((this.bytesOf(cut)) "" ""))
+        def ta:OfficeAsset (store.assetOf(t))
+        c.eqInt("a truncated one reports no size" ta.width 0)
+    }
+
+    fn testNaming:void () {
+        print "--- where it gets written ---"
+        def store (new OfficeAssetStore())
+        def fromDeck:string (store.intern((this.png(10 10 1)) "" "ppt/media/image1.png"))
+        def inserted:string (store.intern((this.png(10 10 2)) "" ""))
+        def taken:[string:boolean]
+        def p1:string (store.assignPart(fromDeck "ppt/media/" taken))
+        c.eqStr("content that came out of a package stays where it was" p1 "ppt/media/image1.png")
+        def p2:string (store.assignPart(inserted "ppt/media/" taken))
+        c.ok("new content gets a name of its own" (p2 != p1))
+        c.ok("under the directory it was asked for" ((indexOf p2 "ppt/media/") == 0))
+        c.ok("and ending in the extension its bytes call for" ((indexOf p2 ".png") > 0))
+        ; The insidious one: a user inserts a file that is itself called
+        ; image1.png. It must not land on the deck's own image1.png.
+        def store2 (new OfficeAssetStore())
+        def deckPic:string (store2.intern((this.png(10 10 1)) "" "ppt/media/image1.png"))
+        def hostPic:string (store2.intern((this.png(10 10 5)) "" ""))
+        def taken2:[string:boolean]
+        set taken2 "ppt/media/image1.png" true
+        def a1:string (store2.assignPart(deckPic "ppt/media/" taken2))
+        def a2:string (store2.assignPart(hostPic "ppt/media/" taken2))
+        c.ok("an inserted image1.png does not land on the deck's own" (a2 != "ppt/media/image1.png"))
+        c.ok("nor on the one already assigned" (a2 != a1))
+        c.eqStr("naming an unknown asset gives nothing" (store.assignPart("nope" "ppt/media/" taken)) "")
+    }
+
+    fn testImageRef:void () {
+        print "--- a use of a picture ---"
+        def store (new OfficeAssetStore())
+        def id:string (store.intern((this.png(400 300 1)) "" ""))
+        def r1 (new OfficeImageRef())
+        r1.assetId = id
+        def r2 (new OfficeImageRef())
+        r2.assetId = id
+        r2.cropL = 0.25
+        r2.cropR = 0.25
+        c.ok("an uncropped use says so" ((r1.hasCrop()) == false))
+        c.ok("a cropped one says so too" (r2.hasCrop()))
+        c.ok("half the width is visible" ((r2.visibleW()) == 0.5))
+        c.ok("all of the height is" ((r2.visibleH()) == 1.0))
+        c.ok("two different framings of one picture are not the same use" ((r1.same(r2)) == false))
+        def r3 (new OfficeImageRef())
+        r3.copyFrom(r2)
+        c.ok("a copy is the same use" (r3.same(r2)))
+        r3.flipH = true
+        c.ok("until something about it changes" ((r3.same(r2)) == false))
+        c.eqInt("and both of them still point at one asset" (store.count()) 1)
+        ; Cropping past the middle from both sides shows nothing, not a
+        ; negative width.
+        def r4 (new OfficeImageRef())
+        r4.cropT = 0.8
+        r4.cropB = 0.8
+        c.ok("an over-crop shows nothing rather than a negative size" ((r4.visibleH()) == 0.0))
+    }
+}

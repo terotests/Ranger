@@ -49,6 +49,7 @@ class PptxWriterTest {
         this.testRoundTripFixtures()
         this.testFlattening()
         this.testPictures()
+        this.testTwoPicturesOneName()
         this.testEditedDeck()
         this.testLockRoundTrip()
         this.testFlipRoundTrip()
@@ -382,6 +383,121 @@ class PptxWriterTest {
         }
         this.check("the inserted shape is in the file" found)
         p2.close()
+    }
+
+    ; Two different pictures that arrived under the same name.
+    ;
+    ; This is what a user does when they insert `logo.png` from one folder and
+    ; a different `logo.png` from another, and it used to produce a deck with
+    ; the first picture in both places: the writer's media table was keyed on
+    ; the package path, so the second picture was never written at all. The
+    ; deck below states the collision directly, because that is the only way
+    ; to be sure the identity really comes from the content.
+    fn testTwoPicturesOneName:void () {
+        print "--- two pictures, one name ---"
+        def pres (new PptxPresentation())
+        pres.slideWidth = 960.0
+        pres.slideHeight = 540.0
+        def slide (new PptxSlide())
+        slide.width = 960.0
+        slide.height = 540.0
+        def a (new PptxShape())
+        a.kind = 1
+        a.name = "A"
+        a.x = 10.0
+        a.y = 10.0
+        a.width = 100.0
+        a.height = 100.0
+        a.hasXfrm = true
+        a.imagePart = "ppt/media/logo.png"
+        a.imageBytes = (this.markedPng(11))
+        push slide.shapes a
+        def b (new PptxShape())
+        b.kind = 1
+        b.name = "B"
+        b.x = 200.0
+        b.y = 10.0
+        b.width = 100.0
+        b.height = 100.0
+        b.hasXfrm = true
+        b.imagePart = "ppt/media/logo.png"
+        b.imageBytes = (this.markedPng(22))
+        push slide.shapes b
+        ; And a third shape showing the first picture again, under a name of
+        ; its own. That one must NOT produce a second copy in the file.
+        def c (new PptxShape())
+        c.kind = 1
+        c.name = "C"
+        c.x = 400.0
+        c.y = 10.0
+        c.width = 100.0
+        c.height = 100.0
+        c.hasXfrm = true
+        c.imagePart = "ppt/media/other.png"
+        c.imageBytes = (this.markedPng(11))
+        push slide.shapes c
+        push pres.slides slide
+
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "two-logos.pptx")
+        this.check("the two different pictures are two entries" ((array_length writer.media) == 2))
+
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "two-logos.pptx"))
+        this.check("the deck reopens" ok)
+        if (ok == false) {
+            return
+        }
+        def after:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        def s2:PptxSlide (itemAt after.slides 0)
+        this.check("all three shapes came back" ((array_length s2.shapes) == 3))
+        if ((array_length s2.shapes) < 3) {
+            p2.close()
+            return
+        }
+        def sa:PptxShape (itemAt s2.shapes 0)
+        def sb:PptxShape (itemAt s2.shapes 1)
+        def sc:PptxShape (itemAt s2.shapes 2)
+        this.check("the first picture is its own" ((this.pngMark(sa.imageBytes)) == 11))
+        this.check("the second is not the first" ((this.pngMark(sb.imageBytes)) == 22))
+        this.check("and the third is the first again" ((this.pngMark(sc.imageBytes)) == 11))
+        this.check("they landed at two different parts" (sa.imagePart != sb.imagePart))
+        this.check("and the repeat shares the first one's part" (sa.imagePart == sc.imagePart))
+        p2.close()
+    }
+
+    ; A PNG header that parses, with one byte saying which picture it is.
+    fn markedPng:buffer (mark:int) {
+        def out:buffer (buffer_alloc 32)
+        def i:int 0
+        while (i < 32) {
+            buffer_set out i 0
+            i = (i + 1)
+        }
+        buffer_set out 0 137
+        buffer_set out 1 80
+        buffer_set out 2 78
+        buffer_set out 3 71
+        buffer_set out 4 13
+        buffer_set out 5 10
+        buffer_set out 6 26
+        buffer_set out 7 10
+        buffer_set out 11 13
+        buffer_set out 12 73
+        buffer_set out 13 72
+        buffer_set out 14 68
+        buffer_set out 15 82
+        buffer_set out 19 8
+        buffer_set out 23 8
+        buffer_set out 31 mark
+        return out
+    }
+
+    fn pngMark:int (bytes:buffer) {
+        if ((buffer_length bytes) < 32) {
+            return 0 - 1
+        }
+        return (buffer_get bytes 31)
     }
 
     ; A picture is bytes in the package, not a reference to one that was in

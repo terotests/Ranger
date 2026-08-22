@@ -57,6 +57,10 @@ gallery/pptx/
 gallery/ooxml/           shared with the .docx and .xlsx readers
   OpcPackage.rgr         OPC ZIP: parts, content types, relationships
   OoxmlText.rgr          XML entity decoding
+
+gallery/office/          likewise — see office/README.md
+  assets/OfficeAsset.rgr a picture identified by its bytes, not its file name
+  text/, drawing/, editor/, core/
 ```
 
 ## Fidelity (current)

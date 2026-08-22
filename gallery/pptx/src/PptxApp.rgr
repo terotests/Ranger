@@ -15,6 +15,7 @@ Import "PptxView.rgr"
 Import "PptxEdit.rgr"
 Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
+Import "../../office/assets/OfficeAsset.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGDisplayList.rgr"
@@ -135,6 +136,10 @@ class PptxApp {
     ; Editing. The viewer is the default and the editor is a mode on top of
     ; it — a deck you opened to read cannot be changed by a stray click.
     def editor:PptxEditor (new PptxEditor())
+    ; Pictures the host handed in, identified by their content. Nothing here
+    ; is used for drawing — it is what stops one inserted file from being
+    ; mistaken for another because they were called the same thing.
+    def assets:OfficeAssetStore (new OfficeAssetStore())
     ; The deck opens ready to be edited. It used to open read-only, with the
     ; editor behind a toolbar toggle, which meant the first thing anyone did —
     ; click the slide — turned the page instead of picking a shape up.
@@ -2417,17 +2422,50 @@ class PptxApp {
         return r.italic
     }
 
-    ; A picture from the host: the bytes go into the viewer's decode cache
-    ; under a package-shaped name, which is all the painter ever asks for.
+    ; A picture from the host.
+    ;
+    ; The name the file arrived under is not used to identify it. It used to
+    ; be — the part was `ppt/media/` plus whatever the user's file was called —
+    ; and two consequences followed. A second file also called `logo.png` was
+    ; silently shown and saved as the first one, because the decode cache and
+    ; the writer's media table both already had that key. And a file called
+    ; `image1.png`, the name every OOXML package gives its own media, collided
+    ; with the deck's own picture, so the inserted bytes were dropped
+    ; altogether. The part is derived from the content instead, which cannot
+    ; do either.
+    ;
+    ; The picture is also given its own shape. It used to be forced to 3:5
+    ; whatever it actually was, so every inserted photograph came in squashed
+    ; or stretched; the size in its header decides now, and the old guess is
+    ; kept only for the formats whose header we do not read.
     fn insertPicture:boolean (name:string bytes:buffer) {
         if (loaded == false) {
             return false
         }
+        if ((buffer_length bytes) == 0) {
+            return false
+        }
         this.syncEditor()
-        def part:string ("ppt/media/" + name)
+        def assetId:string (assets.intern(bytes (OfficeAssetStore.mimeForPath(name)) ""))
+        def asset:OfficeAsset (assets.assetOf(assetId))
+        def ext:string (OfficeAssetStore.extensionForMime(asset.mimeType))
+        def part:string (("ppt/media/" + asset.hash) + ext)
         view.cacheImage(part bytes)
         def w:double ((this.slideW()) * 0.35)
         def h:double (w * 0.6)
+        if (asset.width > 0) {
+            if (asset.height > 0) {
+                h = (w * ((to_double asset.height) / (to_double asset.width)))
+                ; A very tall picture is fitted to the slide's height rather
+                ; than run off the bottom of it.
+                def maxH:double ((this.slideH()) * 0.8)
+                if (h > maxH) {
+                    def shrink:double (maxH / h)
+                    h = maxH
+                    w = (w * shrink)
+                }
+            }
+        }
         def x:double (((this.slideW()) - w) * 0.5)
         def y:double (((this.slideH()) - h) * 0.5)
         def id:int (editor.addPicture(part bytes x y w h))

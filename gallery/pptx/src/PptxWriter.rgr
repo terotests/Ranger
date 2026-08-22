@@ -30,6 +30,7 @@
 Import "PptxModel.rgr"
 Import "../../zip/ZipWriter.rgr"
 Import "../../ooxml/OpcPackage.rgr"
+Import "../../office/assets/OfficeAsset.rgr"
 
 class PptxWriteMedia {
     def part:string ""          ; the model's package path
@@ -39,6 +40,9 @@ class PptxWriteMedia {
     ; referenced where it lies rather than copied under a new name.
     def existing:boolean false
     def bytes:buffer (buffer_alloc 0)
+    ; What makes two of these the same picture. It is derived from the bytes,
+    ; never from `part` — see the note on `mediaIndexFor`.
+    def assetId:string ""
 
     Constructor () {
     }
@@ -60,6 +64,11 @@ class PptxWriter {
     def notesBodies:[string]
     ; Parts of the package being written over, when there is one.
     def sourceParts:[string:boolean]
+    ; Every distinct picture this save has seen, keyed by its content. The
+    ; writer used to key on the package path instead, which is how two
+    ; different files both called `logo.png` ended up as one picture in the
+    ; saved deck.
+    def assets:OfficeAssetStore (new OfficeAssetStore())
     def overMode:boolean false
     ; In over mode the master's chrome is already in the package, so a slide
     ; writes only what the slide itself declares.
@@ -522,6 +531,7 @@ class PptxWriter {
     fn resetMedia:void () {
         def m:[PptxWriteMedia]
         media = m
+        assets = (new OfficeAssetStore())
         def c:[string]
         charts = c
         def cp:[string]
@@ -580,26 +590,75 @@ class PptxWriter {
         return ((prefix + "9999") + suffix)
     }
 
+    ; Does the package we are writing over hold exactly this picture at
+    ; `part`? The question is asked of the bytes, not of the name. A picture
+    ; the user inserted that happens to be called `image1.png` is not the
+    ; deck's own `ppt/media/image1.png`, and answering by name is how the
+    ; inserted bytes used to be thrown away and the deck's old picture shown
+    ; in their place.
+    fn sourceHolds:boolean (part:string id:string) {
+        if (overMode == false) {
+            return false
+        }
+        if ((strlen part) == 0) {
+            return false
+        }
+        def known@(optional):boolean (get sourceParts part)
+        if (null? known) {
+            return false
+        }
+        def already:string (assets.idForPart(part))
+        if ((strlen already) > 0) {
+            return (already == id)
+        }
+        def raw:buffer (overPkg.readBinary(part))
+        if ((buffer_length raw) == 0) {
+            return false
+        }
+        def sid:string (assets.intern(raw "" part))
+        return (sid == id)
+    }
+
+    ; Which entry in the media table this picture is, adding it if it is new.
+    ;
+    ; Two pictures are the same picture when their bytes are the same, and for
+    ; no other reason. Keying this on `part` — the name the picture happens to
+    ; be filed under — was wrong in both directions at once: two different
+    ; files inserted under one name became one picture, and the same picture
+    ; arriving under two names became two. Both go away once the question is
+    ; asked of the content.
     fn mediaIndexFor:int (part:string bytes:buffer) {
+        ; The identity comes from the bytes alone: `part` is deliberately not
+        ; passed, so a name that has been reused cannot alias one picture on
+        ; to another.
+        def id:string (assets.intern(bytes "" ""))
         def i:int 0
         while (i < (array_length media)) {
             def m:PptxWriteMedia (itemAt media i)
-            if (m.part == part) {
+            if (m.assetId == id) {
                 return i
             }
             i = (i + 1)
         }
-        def ext:string (PptxWriter.extensionOf(part))
         def entry (new PptxWriteMedia())
         entry.part = part
         entry.bytes = bytes
-        def known@(optional):boolean (get sourceParts part)
-        if (!null? known) {
-            ; Already in the package: reference it where it lies.
+        entry.assetId = id
+        if (this.sourceHolds(part id)) {
+            ; Already in the package, byte for byte: reference it where it
+            ; lies rather than writing a second copy of it.
             entry.existing = true
             entry.path = part
             entry.name = part
         } {
+            def ext:string (PptxWriter.extensionOf(part))
+            if ((strlen ext) == 0) {
+                ; A picture that never had a package name — one the user just
+                ; inserted — is named after what its bytes say it is.
+                def mime:string (assets.mimeOf(id))
+                def dotted:string (OfficeAssetStore.extensionForMime(mime))
+                ext = (substring dotted 1 (strlen dotted))
+            }
             def taken:[string:boolean]
             def j:int 0
             while (j < (array_length media)) {
@@ -607,10 +666,10 @@ class PptxWriter {
                 set taken m2.path true
                 j = (j + 1)
             }
-            def path:string ("ppt/media/image" + (to_string ((array_length media) + 1)) + "." + ext)
-            if overMode {
-                path = (this.freePart("ppt/media/image" ("." + ext) taken))
-            }
+            ; `freePart` steps over both the names already used in this save
+            ; and every part the source package brought with it, so a new
+            ; picture can never land on top of an old one.
+            def path:string (this.freePart("ppt/media/image" ("." + ext) taken))
             entry.path = path
             entry.name = path
         }
