@@ -338,6 +338,19 @@ class PptxClone {
             push sl.shapes (PptxClone.shape(sh))
             i = (i + 1)
         }
+        ; What the slide carries and this model does not describe. A snapshot
+        ; that dropped these would delete a deck's SmartArt on the first undo,
+        ; which is exactly the failure the source spans exist to prevent.
+        def oi:int 0
+        while (oi < (array_length src.opaque)) {
+            def so:PptxOpaque (itemAt src.opaque oi)
+            def op (new PptxOpaque())
+            op.name = so.name
+            op.afterShapes = so.afterShapes
+            op.source.copyFrom(so.source)
+            push sl.opaque op
+            oi = (oi + 1)
+        }
         return sl
     }
 }
@@ -2573,18 +2586,35 @@ class PptxEditor {
         this.pushSnapshot(label)
     }
 
+    ; --- typing into a SELECTED shape, with no caret in it yet ----------------
+    ;
+    ; These two edit the end of the shape's text, and they used to do it by
+    ; taking the whole body out as one plain string, changing that string, and
+    ; building the body again from it. Which flattened the shape:
+    ; `setBodyText` gives every paragraph ONE run in the style of the FIRST
+    ; one, so a box holding an orange link and white prose came back entirely
+    ; orange, a bold word came back plain, and the empty paragraphs between
+    ; items were gone — on the FIRST backspace, before a single character had
+    ; been typed.
+    ;
+    ; The caret machinery next door has always inserted and deleted by run.
+    ; So these do the same thing, at the end of the text rather than at a
+    ; caret: `insertAt` and `deleteRange` split and rejoin runs and leave every
+    ; other run, and every paragraph's own bullet, level and spacing, alone.
+    ;
+    ; `setBodyText` is still right where it is used — a new shape's text, a
+    ; whole body replaced on purpose — because there the flattening IS the
+    ; intent. It is only wrong as a way of editing what is already there.
+
     fn appendText:boolean (s:string) {
         def hit@(optional):PptxShape (this.firstSelected())
         if (null? hit) {
             return false
         }
         def sh:PptxShape (unwrap hit)
-        def current:string ""
-        if sh.hasText {
-            current = (sh.text.plainText())
-        }
         sh.hasText = true
-        PptxEditor.setBodyText(sh.text (current + s))
+        def end:PptxTextPos (PptxTextEdit.docEnd(sh.text))
+        PptxTextEdit.insertAt(sh.text end s)
         this.pushCoalesced("typing")
         return true
     }
@@ -2598,13 +2628,15 @@ class PptxEditor {
         if (sh.hasText == false) {
             return false
         }
-        def current:string (sh.text.plainText())
-        def n:int (strlen current)
-        if (n == 0) {
+        def end:PptxTextPos (PptxTextEdit.docEnd(sh.text))
+        ; One character back, not one string unit back: `moveLeft` steps over a
+        ; surrogate pair, and chopping the last unit off a plain string cut an
+        ; emoji in half.
+        def from:PptxTextPos (PptxTextEdit.moveLeft(sh.text end))
+        if (from.isSame(end)) {
             return false
         }
-        def cut:string (substring current 0 (n - 1))
-        PptxEditor.setBodyText(sh.text cut)
+        PptxTextEdit.deleteRange(sh.text from end)
         this.pushCoalesced("typing")
         return true
     }

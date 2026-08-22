@@ -64,6 +64,17 @@ class PptxWriter {
     ; In over mode the master's chrome is already in the package, so a slide
     ; writes only what the slide itself declares.
     def skipInherited:boolean false
+    ; The package being written over, so that a shape tree can copy the
+    ; elements nobody here models — SmartArt, embedded objects, ink, vendor
+    ; extensions — out of the part they came from and put them back where they
+    ; were. Off unless `buildOver` turned it on: a FLAT save has no original to
+    ; copy from, and writing a span out of the wrong file would be worse than
+    ; dropping it.
+    def overPkg:OpcPackage (new OpcPackage())
+    def keepOpaque:boolean false
+    ; part path → its text. One slide asks for the same part once per opaque
+    ; element it holds, and a part is not cheap to decode twice.
+    def opaqueParts:[string:string]
 
     Constructor () {
     }
@@ -868,20 +879,96 @@ class PptxWriter {
     ; A sheet that was edited is written back into its OWN part, and only the
     ; shape tree of it: a master carries a colour map, a text style and a list
     ; of its layouts, and none of that is ours to regenerate.
-    fn spTreeXml:string (shapes:[PptxShape]) {
-        shapeId = 1
-        this.resetSlideUse()
-        def out:string "<p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
+    ; --- what this writer does not understand ---------------------------------
+    ;
+    ; A shape tree can hold children this model has no room for: SmartArt and
+    ; newer chart types wrapped in `mc:AlternateContent`, embedded objects,
+    ; ink, `p:extLst` blocks belonging to whoever wrote them. The parser
+    ; remembered each one as a span in the part it came out of; here it is
+    ; copied back through, byte for byte, at the place in z-order it had.
+    ;
+    ; Ranger does not have to understand something in order to preserve it.
+
+    fn opaqueText:string (ref:SourceRef) {
+        if (keepOpaque == false) {
+            return ""
+        }
+        if (ref.known == false) {
+            return ""
+        }
+        if (has opaqueParts ref.part) {
+            return (ref.slice((unwrap (get opaqueParts ref.part))))
+        }
+        def xml:string (overPkg.readXml(ref.part))
+        set opaqueParts ref.part xml
+        return (ref.slice(xml))
+    }
+
+    ; Everything that sat exactly after `written` shapes. `atLeast` catches the
+    ; tail: when an edit deleted shapes the counts no longer line up, and an
+    ; element whose slot is past the end of the tree still has to come back.
+    fn opaqueAt:string (list:[PptxOpaque] written:int atLeast:boolean) {
+        def out:string ""
+        if (keepOpaque == false) {
+            return out
+        }
         def i:int 0
-        while (i < (array_length shapes)) {
-            out = (out + (this.shapeXml((itemAt shapes i))))
+        while (i < (array_length list)) {
+            def op:PptxOpaque (itemAt list i)
+            def hit:boolean (op.afterShapes == written)
+            if atLeast {
+                hit = (op.afterShapes >= written)
+            }
+            if hit {
+                str_append out (this.opaqueText(op.source))
+            }
             i = (i + 1)
         }
+        return out
+    }
+
+    ; The tree's own opening and its properties. The writer states its own
+    ; rather than keeping the original's, because a group transform that no
+    ; longer matches the shapes under it is worse than a neutral one.
+    sfn spTreeOpen:string () {
+        return "<p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>"
+    }
+
+    ; The children of a shape tree: the shapes this writer generates, with the
+    ; elements it does not model spliced back in between them.
+    fn treeChildren:string (shapes:[PptxShape] opaque:[PptxOpaque] skipInherit:boolean) {
+        def out:string ""
+        def written:int 0
+        def i:int 0
+        while (i < (array_length shapes)) {
+            def sh:PptxShape (itemAt shapes i)
+            def write:boolean true
+            if skipInherit {
+                if sh.inherited {
+                    write = false
+                }
+            }
+            if write {
+                str_append out (this.opaqueAt(opaque written false))
+                str_append out (this.shapeXml(sh))
+                written = (written + 1)
+            }
+            i = (i + 1)
+        }
+        str_append out (this.opaqueAt(opaque written true))
+        return out
+    }
+
+    fn spTreeXml:string (shapes:[PptxShape] opaque:[PptxOpaque]) {
+        shapeId = 1
+        this.resetSlideUse()
+        def out:string (PptxWriter.spTreeOpen())
+        str_append out (this.treeChildren(shapes opaque false))
         return (out + "</p:spTree>")
     }
 
     fn sheetWithShapes:string (xml:string sheet:PptxSheet) {
-        def tree:string (this.spTreeXml(sheet.shapes))
+        def tree:string (this.spTreeXml(sheet.shapes sheet.opaque))
         def start:int (indexOf xml "<p:spTree")
         if (start < 0) {
             return xml
@@ -991,21 +1078,11 @@ class PptxWriter {
         if slide.bg.isSet {
             out = (out + "<p:bg><p:bgPr><a:solidFill>" + (PptxWriter.colorXml(slide.bg)) + "</a:solidFill><a:effectLst/></p:bgPr></p:bg>")
         }
-        out = (out + "<p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>")
-        def i:int 0
-        while (i < (array_length slide.shapes)) {
-            def sh:PptxShape (itemAt slide.shapes i)
-            def write:boolean true
-            if skipInherited {
-                if sh.inherited {
-                    write = false
-                }
-            }
-            if write {
-                out = (out + (this.shapeXml(sh)))
-            }
-            i = (i + 1)
-        }
+        out = (out + (PptxWriter.spTreeOpen()))
+        ; `skipInherited` is also what makes the opaque slots line up: it is on
+        ; exactly when the shapes being written are the ones the slide part
+        ; itself declared, which is what the parser counted.
+        out = (out + (this.treeChildren(slide.shapes slide.opaque skipInherited)))
         out = (out + "</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>")
         def tk:int 0
         while (tk < (array_length targets)) {
@@ -1471,6 +1548,12 @@ class PptxWriter {
         zip.create()
         overMode = true
         skipInherited = true
+        ; The package is kept, so the parts this writer cannot generate can be
+        ; read back out of it.
+        overPkg = pkg
+        keepOpaque = true
+        def freshOpaque:[string:string]
+        opaqueParts = freshOpaque
         def parts:[string] (pkg.listParts())
         def p0:int 0
         while (p0 < (array_length parts)) {

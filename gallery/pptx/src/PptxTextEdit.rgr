@@ -231,13 +231,23 @@ class PptxTextEdit {
         dst.sizeSet = src.sizeSet
         dst.bold = src.bold
         dst.italic = src.italic
+        dst.color = (PptxTextEdit.copyColor(src.color))
+        ; The marker pen behind the run. Splitting a highlighted run used to
+        ; hand back two halves with no highlight at all, so putting a caret in
+        ; the middle of one erased it.
+        dst.highlight = (PptxTextEdit.copyColor(src.highlight))
+    }
+
+    sfn copyColor:PptxColor (src:PptxColor) {
         def c (new PptxColor())
-        c.isSet = src.color.isSet
-        c.isScheme = src.color.isScheme
-        c.scheme = src.color.scheme
-        c.srgb = src.color.srgb
-        c.alpha = src.color.alpha
-        dst.color = c
+        c.isSet = src.isSet
+        c.isScheme = src.isScheme
+        c.scheme = src.scheme
+        c.srgb = src.srgb
+        c.alpha = src.alpha
+        c.baked = src.baked
+        c.copyModsFrom(src)
+        return c
     }
 
     ; The run whose style newly typed text should take: the one to the LEFT of
@@ -369,6 +379,11 @@ class PptxTextEdit {
         para.runs = out
     }
 
+    ; Two runs are the same run only if EVERY difference between them has been
+    ; checked. What this misses, `mergeRuns` deletes: the second run's text is
+    ; appended to the first and the second run — with whatever this failed to
+    ; compare — is dropped. So an omission here is not a missed optimisation,
+    ; it is formatting the user loses on the next keystroke.
     sfn sameStyle:boolean (a:PptxTextRun b:PptxTextRun) {
         if (a.bold != b.bold) {
             return false
@@ -382,10 +397,56 @@ class PptxTextEdit {
         if ((fabs (a.fontSizePt - b.fontSizePt)) > 0.01) {
             return false
         }
-        if (a.color.isSet != b.color.isSet) {
+        ; A computed run — a slide number — is never the same as typed text,
+        ; whatever it happens to look like right now.
+        if (a.field != b.field) {
             return false
         }
-        if (a.color.srgb != b.color.srgb) {
+        if ((PptxTextEdit.sameColor(a.color b.color)) == false) {
+            return false
+        }
+        if ((PptxTextEdit.sameColor(a.highlight b.highlight)) == false) {
+            return false
+        }
+        return true
+    }
+
+    ; Everything that decides what a colour DRAWS as. `srgb` alone is not it:
+    ; two theme colours that have not been resolved yet both carry an empty
+    ; `srgb` and differ only in the scheme slot they name, and two resolved
+    ; ones can share a base colour and differ entirely in their modifiers.
+    sfn sameColor:boolean (a:PptxColor b:PptxColor) {
+        if (a.isSet != b.isSet) {
+            return false
+        }
+        if ((a.isSet == false) && (b.isSet == false)) {
+            return true
+        }
+        if (a.srgb != b.srgb) {
+            return false
+        }
+        if (a.isScheme != b.isScheme) {
+            return false
+        }
+        if (a.scheme != b.scheme) {
+            return false
+        }
+        if ((fabs (a.alpha - b.alpha)) > 0.001) {
+            return false
+        }
+        if ((fabs (a.lumMod - b.lumMod)) > 0.001) {
+            return false
+        }
+        if ((fabs (a.lumOff - b.lumOff)) > 0.001) {
+            return false
+        }
+        if ((fabs (a.tint - b.tint)) > 0.001) {
+            return false
+        }
+        if ((fabs (a.shade - b.shade)) > 0.001) {
+            return false
+        }
+        if ((fabs (a.satMod - b.satMod)) > 0.001) {
             return false
         }
         return true

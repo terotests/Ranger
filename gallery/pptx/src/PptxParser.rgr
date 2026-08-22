@@ -1551,7 +1551,18 @@ class PptxParser {
         return __missing
     }
 
-    fn parseSpTreeInto:void (tree:PptxXmlNode partPath:string shapes:[PptxShape]) {
+    ; The shape tree, in order — and everything in it that is not a shape.
+    ;
+    ; A child this reader does not know is not noise. It is SmartArt, an
+    ; embedded object, ink, or an `mc:AlternateContent` block holding a
+    ; rendering of something newer than this reader. Walking past it is right;
+    ; FORGETTING it is what makes a save delete it, so each one is remembered
+    ; as the span it occupies in the part, and where in z-order it sat.
+    ;
+    ; `nvGrpSpPr` and `grpSpPr` are the tree's own properties rather than
+    ; children of it, and the writer emits its own; they are the two things
+    ; here that are genuinely skipped.
+    fn parseSpTreeInto:void (tree:PptxXmlNode partPath:string shapes:[PptxShape] opaque:[PptxOpaque]) {
         def i:int 0
         while (i < (tree.childCount())) {
             def child:PptxXmlNode (tree.childAt(i))
@@ -1560,6 +1571,17 @@ class PptxParser {
                     def parsed@(optional):PptxShape (this.parseTreeChild(child partPath))
                     if (!null? parsed) {
                         push shapes (unwrap parsed)
+                    } {
+                        def keep (new PptxOpaque())
+                        keep.name = child.name
+                        keep.afterShapes = (array_length shapes)
+                        keep.source.set(partPath child.srcStart child.srcEnd)
+                        ; A span that came back empty is a span that cannot be
+                        ; put back, and an empty one written out would be a
+                        ; silent hole rather than a preserved element.
+                        if (keep.source.known) {
+                            push opaque keep
+                        }
                     }
                 }
             }
@@ -1595,7 +1617,7 @@ class PptxParser {
             }
             def spTree@(optional):PptxXmlNode (cs.firstChild("spTree"))
             if (!null? spTree) {
-                this.parseSpTreeInto((unwrap spTree) partPath sheet.shapes)
+                this.parseSpTreeInto((unwrap spTree) partPath sheet.shapes sheet.opaque)
             }
         }
         ; `p:txStyles` — a master's own typography, in three list styles. Most
@@ -1710,7 +1732,7 @@ class PptxParser {
             }
             def spTree@(optional):PptxXmlNode (cs.firstChild("spTree"))
             if (!null? spTree) {
-                this.parseSpTreeInto((unwrap spTree) partPath slide.shapes)
+                this.parseSpTreeInto((unwrap spTree) partPath slide.shapes slide.opaque)
             }
         }
         ; How the slide arrives, and what is built on it once it has.

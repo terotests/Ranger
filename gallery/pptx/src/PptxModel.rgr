@@ -15,6 +15,35 @@
 ;   3 = connector (MVP: treated like a thin shape)
 ; ==============================================================================
 
+Import "../../ooxml/SourceRef.rgr"
+
+; ------------------------------------------------------------------------------
+; What a slide holds that this model does not describe.
+;
+; A shape tree can carry things no reader here understands: SmartArt and charts
+; wrapped in `mc:AlternateContent`, embedded objects, ink (`p:contentPart`),
+; and `p:extLst` blocks whose contents belong to whoever wrote them. The parser
+; walks past all of it, and a writer that regenerates the tree from the shapes
+; would therefore delete it.
+;
+; So each one is remembered as WHERE it was, and put back exactly there:
+;
+;   source       the span in the slide part it came out of
+;   afterShapes  how many shapes preceded it — its place in z-order
+;   name         what it was called, for a person reading a diagnostic
+;
+; Nothing is copied and nothing is understood. That is the point: `Ranger does
+; not have to understand something in order to preserve it.`
+; ------------------------------------------------------------------------------
+class PptxOpaque {
+    def source:SourceRef (new SourceRef())
+    def afterShapes:int 0
+    def name:string ""
+
+    Constructor () {
+    }
+}
+
 class PptxColor {
     def isSet:boolean false
     def isScheme:boolean false
@@ -599,6 +628,10 @@ class PptxSlide {
     def width:double 720.0      ; pt (default 10")
     def height:double 540.0     ; pt (default 7.5")
     def shapes:[PptxShape]
+    ; Children of the slide's shape tree that nothing here models — SmartArt,
+    ; embedded objects, ink, vendor extensions — kept as source spans so that
+    ; editing the slide around them does not delete them.
+    def opaque:[PptxOpaque]
     def bg:PptxColor (new PptxColor())
     def layoutPart:string ""
     def masterPart:string ""
@@ -630,6 +663,9 @@ class PptxSlide {
 class PptxSheet {
     def partPath:string ""
     def shapes:[PptxShape]
+    ; Children of this sheet's shape tree that nothing here models, kept as
+    ; source spans so a rewrite puts them back rather than dropping them.
+    def opaque:[PptxOpaque]
     def bg:PptxColor (new PptxColor())
     ; `p:txStyles` — the master's own typography, in three list styles. A
     ; placeholder with no formatting of its own gets everything from here, and

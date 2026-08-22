@@ -61,6 +61,7 @@ class PptxWriterTest {
         this.testSheetEditRoundTrip()
         this.testFooterRoundTrip()
         this.testShowRoundTrip()
+        this.testUnmodelledContentSurvives()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -1092,6 +1093,119 @@ class PptxWriterTest {
             i = (i + 1)
         }
         return true
+    }
+
+
+    ; --- what this writer does not understand has to survive it ---------------
+    ;
+    ; A shape tree carries more than shapes: SmartArt and newer chart types
+    ; arrive wrapped in `mc:AlternateContent`, ink as `p:contentPart`, and
+    ; `p:extLst` holds whatever the writing tool wanted to say to itself.
+    ; `PptxModel` has no room for any of it, so before the parser recorded
+    ; WHERE each one was, editing the slide around them deleted them: a save
+    ; regenerated the tree out of the shapes, and the shapes were all it had.
+    ;
+    ; This edits the slide those three sit on, which is the case that has to
+    ; work — an UNtouched slide is copied through byte for byte and proves
+    ; nothing.
+    fn testUnmodelledContentSurvives:void () {
+        print "--- what the model does not describe survives a save ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "32-unmodelled-content.pptx")) == false) {
+            this.check("open the deck with unmodelled content" false)
+            return
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        def slideRaw:PptxSlide (itemAt raw.slides 0)
+        this.check("the three unmodelled children were noticed" ((array_length slideRaw.opaque) == 3))
+        if ((array_length slideRaw.opaque) == 3) {
+            def diagram:PptxOpaque (itemAt slideRaw.opaque 0)
+            def ink:PptxOpaque (itemAt slideRaw.opaque 1)
+            def exts:PptxOpaque (itemAt slideRaw.opaque 2)
+            this.check("the diagram sits between the two shapes"
+                ((diagram.name == "AlternateContent") && (diagram.afterShapes == 1)))
+            this.check("the ink comes after both" (ink.afterShapes == 2))
+            this.check("and so does the extension list" (exts.name == "extLst"))
+            ; A self-closing element is the case a span recorded only at an end
+            ; tag would get wrong.
+            this.check("the self-closing one has a span too" ink.source.known)
+        }
+
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation(raw))
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(0)
+        def shapes:[PptxShape] (ed.editableShapes())
+        this.check("the slide has shapes to edit" ((array_length shapes) > 0))
+        if ((array_length shapes) == 0) {
+            return
+        }
+        ; Undo and redo go through the snapshot clone, which is the other place
+        ; the spans can be dropped.
+        def target:PptxShape (itemAt shapes 0)
+        ed.select(target.editId)
+        ed.moveSelection(12.0 4.0)
+        ed.undo()
+        ed.redo()
+        def slide:PptxSlide (itemAt pres.slides 0)
+        this.check("the edit marked the slide" slide.dirty)
+        this.check("and history kept the unmodelled children" ((array_length slide.opaque) == 3))
+
+        def writer (new PptxWriter())
+        writer.saveOver(pres parser.pkg "gallery/pptx/bin" "over-unmodelled.pptx")
+        def out (new OpcPackage())
+        if ((out.openParts("gallery/pptx/bin" "over-unmodelled.pptx")) == false) {
+            this.check("the written deck opens" false)
+            return
+        }
+        def before:string (parser.pkg.readXml("ppt/slides/slide1.xml"))
+        def after:string (out.readXml("ppt/slides/slide1.xml"))
+        this.check("the slide really was rewritten" (after != before))
+        this.check("the diagram is still there" ((indexOf after "<mc:AlternateContent") >= 0))
+        this.check("with the part of it nothing here can read"
+            ((indexOf after "drawingml/2006/diagram") >= 0))
+        this.check("and its fallback picture" ((indexOf after "Diagram fallback") >= 0))
+        this.check("the ink is still there" ((indexOf after "<p:contentPart") >= 0))
+        this.check("the extension list is still there" ((indexOf after "creationId") >= 0))
+        this.check("each of them exactly once"
+            (((PptxWriterTest.countOf(after "<mc:AlternateContent")) == 1)
+                && ((PptxWriterTest.countOf(after "<p:contentPart")) == 1)
+                && ((PptxWriterTest.countOf(after "creationId")) == 1)))
+        ; Order, not just presence: an element put back in the wrong slot is a
+        ; diagram that has moved behind the text.
+        def diagramAt:int (indexOf after "<mc:AlternateContent")
+        def headingAt:int (indexOf after "Before the diagram")
+        def footerAt:int (indexOf after "After the diagram")
+        def inkAt:int (indexOf after "<p:contentPart")
+        this.check("the diagram is still after the heading" (diagramAt > headingAt))
+        this.check("and still before the footer" (diagramAt < footerAt))
+        this.check("and the ink after both" (inkAt > footerAt))
+
+        ; And the deck still reads back as a deck.
+        def again (new PptxParser())
+        if (again.openParts("gallery/pptx/bin" "over-unmodelled.pptx")) {
+            def back:PptxPresentation (again.parsePresentation())
+            def backSlide:PptxSlide (itemAt back.slides 0)
+            this.check("reopening finds the shapes" ((array_length backSlide.shapes) == 2))
+            this.check("and the three unmodelled children again" ((array_length backSlide.opaque) == 3))
+            again.close()
+        }
+        out.close()
+        parser.close()
+    }
+
+    sfn countOf:int (haystack:string needle:string) {
+        def n:int 0
+        def at:int 0
+        while (true) {
+            def hit:int (indexOfFrom haystack needle at)
+            if (hit < 0) {
+                return n
+            }
+            n = (n + 1)
+            at = (hit + (strlen needle))
+        }
+        return n
     }
 
 }

@@ -773,6 +773,72 @@ def spaced_runs_shape(sid: int, x: int, y: int, cx: int, cy: int) -> str:
       </p:sp>"""
 
 
+# --- things a reader is allowed not to understand -----------------------------
+#
+# A shape tree carries more than shapes. SmartArt and newer chart types arrive
+# wrapped in `mc:AlternateContent`, ink arrives as `p:contentPart`, and
+# `p:extLst` holds whatever the writing tool wanted to say to itself. Ranger
+# models none of it, walks past all of it, and — before the source spans — a
+# save that rewrote the slide deleted every one of them.
+#
+# The namespaces are declared on the elements themselves rather than on the
+# root, which is legal and keeps `slide_xml` unchanged for every other fixture.
+
+def alternate_content(sid: int, x: int, y: int, cx: int, cy: int) -> str:
+    """An mc:AlternateContent block, shaped like the one PowerPoint writes
+    around a diagram: a Choice nothing here can read, and a Fallback picture
+    of it."""
+    return f"""      <mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+        <mc:Choice xmlns:adec="http://schemas.microsoft.com/office/drawing/2017/decorative" Requires="adec">
+          <p:graphicFrame>
+            <p:nvGraphicFramePr>
+              <p:cNvPr id="{sid}" name="Diagram {sid}"/>
+              <p:cNvGraphicFramePr/>
+              <p:nvPr/>
+            </p:nvGraphicFramePr>
+            <p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></p:xfrm>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram">
+                <dgm:relIds xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram"
+                 xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                 r:dm="rId10" r:lo="rId11" r:qs="rId12" r:cs="rId13"/>
+              </a:graphicData>
+            </a:graphic>
+          </p:graphicFrame>
+        </mc:Choice>
+        <mc:Fallback>
+          <p:sp>
+            <p:nvSpPr>
+              <p:cNvPr id="{sid + 100}" name="Diagram fallback"/>
+              <p:cNvSpPr/>
+              <p:nvPr/>
+            </p:nvSpPr>
+            <p:spPr>
+              <a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>
+              <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+            </p:spPr>
+          </p:sp>
+        </mc:Fallback>
+      </mc:AlternateContent>"""
+
+
+def content_part(rid: str = "rId20") -> str:
+    """Ink. A single self-closing element, which is the case that catches a
+    span recorded only for elements with an end tag."""
+    return (f'      <p:contentPart xmlns:r="http://schemas.openxmlformats.org/'
+            f'officeDocument/2006/relationships" r:id="{rid}"/>')
+
+
+def tree_ext_lst() -> str:
+    """A `p:extLst` inside the shape tree, holding a creation id — the kind of
+    thing a tool writes for itself and expects to find again."""
+    return """      <p:extLst>
+        <p:ext uri="{BB962C8B-B14F-4D97-AF65-F5344CB8AC3E}">
+          <p14:creationId xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" val="1234567"/>
+        </p:ext>
+      </p:extLst>"""
+
+
 def write_pptx(
     name: str,
     slides: list[tuple[str, str | None]],
@@ -2673,6 +2739,21 @@ def main() -> None:
     write_pptx("31-inherited-text.pptx", [(slide_xml(inh), slide_rels()),
                                           (slide_xml(fitted), slide_rels())],
                master_xml=inherited_master())
+
+    # 32 — a slide holding things this reader does not model
+    #
+    # Between two ordinary shapes sits an mc:AlternateContent block (a diagram),
+    # after them a contentPart (ink) and a p:extLst. None of the three is in
+    # PptxModel. Editing the text and saving must leave all three exactly as
+    # they are: that is what the source spans are for.
+    unmodelled = sp_tree(
+        text_shape(2, "Heading", 457200, 400000, 6000000, 800000, "Before the diagram"),
+        alternate_content(3, 457200, 1400000, 4000000, 2400000),
+        text_shape(4, "Footer", 457200, 4200000, 6000000, 800000, "After the diagram"),
+        content_part(),
+        tree_ext_lst(),
+    )
+    write_pptx("32-unmodelled-content.pptx", [(slide_xml(unmodelled), slide_rels())])
 
     print("fixtures ready")
 

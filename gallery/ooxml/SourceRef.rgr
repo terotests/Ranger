@@ -1,0 +1,91 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; SourceRef.rgr — where a parsed object came from, so it can be written back
+; unchanged.
+; ==============================================================================
+;
+; An OOXML reader that understands a file completely could write it out of its
+; model and lose nothing. No reader understands a file completely. SmartArt,
+; embedded objects, ink, animations, vendor extensions and the tags of Office
+; versions that do not exist yet all live in the same parts as the shapes an
+; editor does model, and the moment a part is regenerated from the model they
+; are gone.
+;
+; The fix is not to model more. It is to remember WHERE each thing was:
+;
+;   part   the package path the XML was read from
+;   start  index of the '<' that opens the element
+;   end    index just past the '>' that closes it
+;
+; Then a writer rewriting that part can copy the untouched stretches through
+; byte for byte and generate only what actually changed. **Ranger does not have
+; to understand something in order to preserve it.**
+;
+; TWO THINGS THIS DEPENDS ON, and both are true here rather than assumed.
+;
+; The offsets are into the string `OpcPackage.readXml` returns — the part
+; decoded as UTF-8 — and the writer re-reads the same part from the same open
+; package, so it gets the same string and the same offsets. They are NOT byte
+; offsets into the ZIP member, and they are not stable across a save: a package
+; written out and read back is parsed again, which is what makes them right
+; again rather than stale.
+;
+; Nothing is copied. A slide with two hundred shapes carries two hundred pairs
+; of integers, not two hundred copies of its own XML. `slice` is what turns one
+; back into text, and only the writer ever calls it.
+; ==============================================================================
+
+class SourceRef {
+    def part:string ""
+    def start:int 0
+    def end:int 0
+    ; False on anything built rather than read — a shape an editor added has no
+    ; source, and asking for its original text is a question with no answer.
+    def known:boolean false
+
+    Constructor () {
+    }
+
+    fn set:void (partPath:string from:int to:int) {
+        part = partPath
+        start = from
+        end = to
+        known = ((to > from) && (from >= 0))
+    }
+
+    fn copyFrom:void (src:SourceRef) {
+        part = src.part
+        start = src.start
+        end = src.end
+        known = src.known
+    }
+
+    fn length:int () {
+        if (known == false) {
+            return 0
+        }
+        return (end - start)
+    }
+
+    ; The original text, out of the part this ref points into. The bounds are
+    ; checked rather than trusted: a ref that outlived the string it indexes is
+    ; a bug, and answering "" is how it stays a missing shape instead of a
+    ; crash or, worse, a slice of somebody else's markup.
+    fn slice:string (xml:string) {
+        if (known == false) {
+            return ""
+        }
+        def n:int (strlen xml)
+        if (start < 0) {
+            return ""
+        }
+        if (end > n) {
+            return ""
+        }
+        if (end <= start) {
+            return ""
+        }
+        return (substring xml start end)
+    }
+}
