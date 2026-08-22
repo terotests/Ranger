@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_gssolver — Gauss-Seidel SPOOK solver (cannon-es src/solver/GSSolver).
 ;   Solves the list of CannonEquation constraints and writes the resulting

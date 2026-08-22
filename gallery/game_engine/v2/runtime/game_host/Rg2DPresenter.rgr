@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; Rg2DPresenter — pane presentation from host-owned surface state (D-SYNC).
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; XlsxWorkbook - workbook.xml + workbook.xml.rels → sheet name / part paths.
 ; ==============================================================================

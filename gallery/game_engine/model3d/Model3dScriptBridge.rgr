@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; Model3dScriptBridge.rgr — expose host GLB loading + GL-mesh creation to TSX.
 ; ==============================================================================

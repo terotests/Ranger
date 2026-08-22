@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EXIF Orientation Test
 ; Tests all 8 EXIF orientation values
 

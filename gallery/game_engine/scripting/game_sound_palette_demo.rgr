@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Headless self-test for the sound palette registry (IDEAL_TODO 4.4). Run:
 ;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
 ;     gallery/game_engine/scripting/game_sound_palette_demo.rgr \

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Variant B — the shape lowering as it stands: one small class per case.
 shape ShValue {
     group Ref@(reference) {

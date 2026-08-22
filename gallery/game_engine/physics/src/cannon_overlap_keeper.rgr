@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_overlap_keeper — overlap pair tracking (Cannon.js port).
 ; ==============================================================================

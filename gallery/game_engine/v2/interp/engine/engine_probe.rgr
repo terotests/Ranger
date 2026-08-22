@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; probe: does the staged v2 ComponentEngine compile and run a tiny script?
 Import "../migrate/src/ComponentEngine.rgr"
 

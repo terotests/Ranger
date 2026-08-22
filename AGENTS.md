@@ -15,6 +15,14 @@ Prefer the published docs over the old `ai/` guides:
 
 Source files use the **`.rgr`** extension (not `.clj`). Entry point: `sfn main:void ()`.
 
+## Licenses
+
+- Outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`).
+- Under `gallery/`: **AGPL-3.0-or-later** unless a file says otherwise (`gallery/LICENSE`, `LICENSE-AGPL-3.0`).
+- Root [`LICENSE`](LICENSE) is the mixed-license overview, not a single license text.
+- Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`.
+- Details: [`LICENSING.md`](LICENSING.md).
+
 ## Git & pull-request workflow
 
 These rules exist because work has been lost or landed in the wrong place before —

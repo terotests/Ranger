@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; VlConfig.rgr — the style defaults a mark inherits before its own encode runs.
 ; ==============================================================================

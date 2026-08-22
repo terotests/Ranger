@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; EditorBuffer - multiline text model for the EVG text-editor prototype.
 ; ==============================================================================

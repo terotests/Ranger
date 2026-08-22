@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; book_web.rgr - the book editor, in the browser, with no host behind it
 ; ==============================================================================

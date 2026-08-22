@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; vocal_fx_runner_demo - drives vocal_fx_demo.game.tsx and captures a WAV.
 ; ==============================================================================

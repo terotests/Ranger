@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; A small program covering what the engine's first version understands:
 ; static functions, recursion, loops, classes with fields, instance methods,
 ; arrays and strings.

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; TextEditCore - portable caret/selection/input core (not OOXML-aware).
 ; ==============================================================================

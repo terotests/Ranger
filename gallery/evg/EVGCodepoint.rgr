@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGCodepoint.rgr — iterate text by codepoint, not by UTF-16 code unit
 ;
 ; `charAt` returns a UTF-16 code unit. Everything outside the Basic

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_tsx_bridge_texture_test — no SILENT fallbacks: we can prove whether the
 ; specified texture actually rendered, or a placeholder was substituted.

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; GltfJson.rgr — a compact, self-contained JSON parser for the 3D asset loader.
 ; (Named GltfJson, not Json, to avoid a case-insensitive filename clash with

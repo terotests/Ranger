@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; =============================================================================
 ; ts_ast_patch - Top-level AST diff for in-process script hot reload.
 ; =============================================================================

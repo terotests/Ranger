@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_teapot_tsx_host — run the teapot example (teapot.tsx) on the GPU, interpreted.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGStyleLoader.rgr - Load CSS files and apply them to a laid-out-to-be EVG tree
 ;
 ; Shared by the CLI tools so `-css` / `-theme` behave identically whichever

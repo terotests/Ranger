@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; devices_test — ranger:core audio / input / surface gate (Phase 10, fakes).
 ; ==============================================================================

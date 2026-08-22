@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; Portable calendar math on ISO-8601 date strings (YYYY-MM-DD).
 ; No host Date, timezone, or locale — safe to compile to any Ranger target.

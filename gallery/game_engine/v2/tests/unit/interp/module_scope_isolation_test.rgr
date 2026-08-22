@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; module_scope_isolation_test — tests/unit/interp gate (D-MODULES scope
 ; isolation, engine-level).

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; BookEdit.rgr - editing a book, in page points, knowing nothing about pixels
 ; ==============================================================================

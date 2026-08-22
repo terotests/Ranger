@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 operators {
     has_console_colors  cmdHasColors:boolean () {

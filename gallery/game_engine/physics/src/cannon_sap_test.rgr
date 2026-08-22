@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_sap_test — SAP broadphase produces the same pairs as the naive one.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_particle — a point mass (cannon-es Particle).
 ;   Modelled as a zero-radius sphere (shape type 1) so it reuses the sphere

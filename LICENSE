@@ -1,0 +1,20 @@
+Ranger uses multiple licenses.
+
+Ranger compiler, language implementation, runtime, and other source
+code outside the gallery/ directory are licensed under the MIT License.
+See LICENSE-MIT.
+
+All source code under gallery/ is licensed under the GNU Affero
+General Public License version 3 or later (AGPL-3.0-or-later),
+unless a file or subdirectory explicitly states otherwise.
+See LICENSE-AGPL-3.0 and gallery/LICENSE.
+
+Third-party components remain subject to their respective licenses.
+
+SPDX identifiers:
+
+  MIT                 — files outside gallery/ (unless otherwise stated)
+  AGPL-3.0-or-later   — files under gallery/ (unless otherwise stated)
+
+Further notes, the dependency rule, and third-party exceptions:
+see LICENSING.md.

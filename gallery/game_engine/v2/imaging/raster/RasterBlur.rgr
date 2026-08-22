@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; RasterBlur - Blur algorithms for shadow and effect rendering
 ; Implements box blur (fast) for shadow effects
 

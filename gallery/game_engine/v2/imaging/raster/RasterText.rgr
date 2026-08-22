@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; RasterText.rgr - Text rendering for raster buffers
 ; Uses the existing TrueTypeFont class for font loading and metrics,
 ; adds glyph outline parsing for rasterization.

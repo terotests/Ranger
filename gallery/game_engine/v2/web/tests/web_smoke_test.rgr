@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_smoke_test — headless smoke gate for the web soft-render host.
 ; ==============================================================================

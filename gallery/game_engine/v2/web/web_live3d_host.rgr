@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_live3d_host — LIVE ranger:three scene, software-rendered in the browser.
 ; ==============================================================================

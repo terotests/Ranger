@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; menu_tsx_render_demo - render the TSX launcher through the RICH EVG renderer.
 ; ==============================================================================

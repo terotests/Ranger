@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; JPEGReader - A JPEG file reader for Ranger
 ; Reads JPEG files and extracts image data for PDF embedding
 ;

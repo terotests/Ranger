@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ui_menu_runner_demo - headless smoke test for the engine=ui game path.
 ; ==============================================================================

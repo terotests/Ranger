@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_value_parity_test — the value-parity conformance gate (THREE.md §9.4-7).
 ; ==============================================================================

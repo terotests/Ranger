@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; RasterCompositing - Alpha blending and compositing for raster rendering
 ; Provides Porter-Duff compositing operations
 

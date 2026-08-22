@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; event_drain_runner_demo - sticky state.events must not replay after drain.
 ; ==============================================================================

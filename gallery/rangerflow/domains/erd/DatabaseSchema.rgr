@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ============================================================================
 ; DatabaseSchema.rgr — what a database looks like, with no diagram in sight.
 ; ============================================================================

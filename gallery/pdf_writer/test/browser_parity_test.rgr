@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; browser_parity_test.rgr — EVG measures what a browser measured, without a browser
 ; ==============================================================================

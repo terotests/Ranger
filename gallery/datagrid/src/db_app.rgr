@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; db_app - the module the window host loads when it is asked for a database.
 ; ==============================================================================

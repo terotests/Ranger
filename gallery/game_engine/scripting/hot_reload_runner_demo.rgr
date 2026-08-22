@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; hot_reload_runner_demo - AST diff + in-process patch without SDL restart.
 ; ==============================================================================

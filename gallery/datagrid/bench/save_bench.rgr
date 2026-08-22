@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; save_bench - how long does writing a big sheet take, and where does it go.
 ; ==============================================================================

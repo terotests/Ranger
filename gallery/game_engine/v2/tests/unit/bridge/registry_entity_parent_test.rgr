@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; registry_entity_parent_test — D-SYNC increments 1, 2 & 3: standalone membership.
 ; ==============================================================================

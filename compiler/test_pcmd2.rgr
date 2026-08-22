@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 operators {
     test1 _:void () {

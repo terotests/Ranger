@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_script_demo - proves the game-scripting namespace injection.
 ; ==============================================================================

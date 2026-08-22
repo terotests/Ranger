@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; flow_test.rgr — changing one signal recomputes only what reads it.
 ; ==============================================================================

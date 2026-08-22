@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Unicode identifier tables for the TypeScript lexer.
 ;
 ; A code point above ASCII is only an identifier character when Unicode says

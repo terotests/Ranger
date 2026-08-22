@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; BookTest.rgr - the book engine, checked where it can actually be wrong
 ; ==============================================================================

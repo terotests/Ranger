@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; JPEGDecoder.rgr - Full JPEG decoder (baseline DCT)
 ; Decodes JPEG to raw RGB pixels
 

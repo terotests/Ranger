@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; counter_runner_demo - while-loop demo via the TS interpreter (ComponentEngine).
 ; ==============================================================================

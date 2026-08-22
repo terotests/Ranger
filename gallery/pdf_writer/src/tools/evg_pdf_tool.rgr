@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; evg_pdf_tool.rgr - CLI tool for TSX to PDF conversion
 ;
 ; Usage: evg_pdf_tool.exe input.tsx output.pdf

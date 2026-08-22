@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_icon_shots_demo — bake launcher icons: run every game headless, screenshot
 ; it, and drop the frame as games/<id>/assets/image.png.

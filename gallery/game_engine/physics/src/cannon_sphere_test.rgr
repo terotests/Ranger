@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_sphere_test — Cannon.js test/Sphere.js ported to Ranger.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; schema_validation_test — registry/schema gate (D-REGISTRY / D-ADAPTER).
 ; ==============================================================================

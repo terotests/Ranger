@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_body_test — Cannon.js test/Body.js ported to Ranger (subset).
 ; ==============================================================================

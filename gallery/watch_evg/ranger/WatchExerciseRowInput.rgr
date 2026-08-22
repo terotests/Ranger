@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Plain row input for watch EVG scenes (matches ActiveWorkout ExerciseRowView fields used by bezel).
 
 class WatchExerciseRowInput {

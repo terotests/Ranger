@@ -2,11 +2,24 @@
 
 **Version 3.3.0** | Status: `experimental`
 
+**Licensing:** The Ranger compiler and core language implementation are MIT
+licensed. Advanced applications and technology under `gallery/`, including
+EVG and the Office document stack, are licensed under AGPL-3.0-or-later.
+See [`LICENSE`](LICENSE) for details.
+
 Ranger is a self-hosting cross-language compiler for writing portable algorithms, parsers, generators, and small tools once and compiling them to multiple target languages.
 
 It includes a compact typed language with classes, inheritance, traits, lambdas, type inference, extension methods, custom operators, and host integration through system classes.
 
 Ranger is best approached today as a compiler and language lab with practical multi-target output, not as a polished general-purpose language ecosystem.
+
+Ranger language = permissive. Ranger Gallery technology = copyleft.
+
+The compiler does not put the AGPL on a program you write and compile.
+Using EVG or another `gallery/` module does: that is the application
+framework, not only the language. Full texts: [`LICENSE-MIT`](LICENSE-MIT),
+[`LICENSE-AGPL-3.0`](LICENSE-AGPL-3.0), [`gallery/LICENSE`](gallery/LICENSE).
+The path rule and third-party exceptions are in [`LICENSING.md`](LICENSING.md).
 
 ## What Ranger Is Good At
 
@@ -63,7 +76,8 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - [Documentation site](https://terotests.github.io/Ranger/docs/) — install, first program, types, optionals, and the **generated operator reference** (838 operators, compiled from the sources of the commit that publishes the site, so it cannot drift)
 - [Online playground](https://terotests.github.io/Ranger/) — try Ranger in the browser (`playground/`, Vite + current compiler)
 - `README.md` - language overview, installation, and syntax notes
-- [`gallery/README.md`](gallery/README.md) - index of the larger examples: parsers, EVG/TSX document tooling, games, and `@process` host apps
+- [`gallery/README.md`](gallery/README.md) - index of the application stack (AGPL): EVG, Office, DataGrid, parsers, games, and `@process` host apps
+- [`LICENSING.md`](LICENSING.md) - MIT compiler vs AGPL gallery
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
 - [`CHANGELOG.md`](CHANGELOG.md) - version history
 - [`AGENTS.md`](AGENTS.md) — git/PR rules and Ranger gotchas for AI agents; links the [FAQ](https://terotests.github.io/Ranger/docs/faq/)

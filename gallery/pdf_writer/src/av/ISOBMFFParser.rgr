@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ISOBMFFParser.rgr - ISO Base Media File Format Parser
 ; Parses HEIC/HEIF container format (also used by MP4, MOV)
 ;

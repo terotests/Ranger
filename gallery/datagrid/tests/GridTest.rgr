@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; GridTest - validation suite for the EVG DataGrid / spreadsheet prototype.
 ; ==============================================================================

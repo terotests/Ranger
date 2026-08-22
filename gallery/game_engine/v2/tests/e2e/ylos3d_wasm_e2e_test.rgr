@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ylos3d_wasm_e2e_test — the faithful Rust/wasm32 port of ylos3d, through the host.
 ; ==============================================================================

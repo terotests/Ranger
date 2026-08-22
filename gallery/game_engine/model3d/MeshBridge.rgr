@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; MeshBridge.rgr — convert a loaded model3d mesh into the engine's GPU-mesh
 ; format so a GLB can be drawn by the host-managed 3D scene (gfx_sdl.rgr).

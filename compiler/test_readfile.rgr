@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 operators {
     asread_file  _@(optional async):string (path:string filename:string) {
         templates {

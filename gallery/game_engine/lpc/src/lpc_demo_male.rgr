@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; lpc_demo_male — hardcoded male walk layers for first animated character MVP.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; Model3dScriptBridgeTest.rgr — headless proof of the TSX-interpreter 3D path.
 ; ==============================================================================

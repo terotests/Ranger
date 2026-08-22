@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGGrid.rgr - Track lists and item placement for EVG's CSS Grid subset
 ;
 ; Targets photo-book pages, not CSS Grid Level 2. What is supported:

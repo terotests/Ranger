@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; vela_commands.rgr — run a Vega specification and print the draw commands.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; orbit_controls_test — the live ranger:three orbit-camera command surface.
 ; ==============================================================================

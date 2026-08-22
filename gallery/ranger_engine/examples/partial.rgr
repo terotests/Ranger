@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; A program the engine only partly understands. `tally` uses a map, which the
 ; lowering pass does not cover yet, so that one function is marked unsupported
 ; with a reason — and everything else in the file still runs.

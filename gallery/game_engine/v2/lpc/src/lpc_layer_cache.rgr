@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; lpc_layer_cache — decoded layer RGBA buffers for the current LPC session.
 ; ==============================================================================

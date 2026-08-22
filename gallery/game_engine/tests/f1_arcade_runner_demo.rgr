@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; f1_arcade_runner_demo - headless smoke for games/f1_arcade/index.tsx
 ; ==============================================================================

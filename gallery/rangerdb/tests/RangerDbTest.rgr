@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; RangerDB against the shared backend contract, plus the things only an
 ; in-process engine can be asked about: column pruning, row groups, tombstones
 ; and the text snapshot.

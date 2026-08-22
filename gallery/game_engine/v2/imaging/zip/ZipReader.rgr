@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ZipReader.rgr - ZIP archive reader
 ; Opens, parses, and extracts files from ZIP archives
 

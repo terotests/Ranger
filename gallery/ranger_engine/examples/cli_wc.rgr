@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; A command-line program for the engine: reads a file named on the command
 ; line and counts its lines, words and characters. Between them, the three
 ; things a CLI needs — arguments, input and output — go through the engine's

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_sdl_native_host - SDL2 loop for static-compiled native game scripts.
 ; ==============================================================================

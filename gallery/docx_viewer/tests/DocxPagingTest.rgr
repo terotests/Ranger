@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; DocxPagingTest — reading a document is not editing one, but the keys still
 ; have to do something.

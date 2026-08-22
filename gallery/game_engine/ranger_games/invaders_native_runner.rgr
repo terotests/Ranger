@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; invaders_native_runner - headless Space Invaders (static-compiled script path).
 ; ==============================================================================

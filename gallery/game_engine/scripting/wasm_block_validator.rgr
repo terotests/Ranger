@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_block_validator — one validator for every shared ABI block (IDEAL_API §0.3)
 ; ==============================================================================

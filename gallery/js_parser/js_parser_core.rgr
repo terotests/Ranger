@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; JavaScript ES5 Parser - Core module
 ; Contains JSNode, SimpleParser, and AST printing utilities
 ; Outputs ESTree-compatible AST format

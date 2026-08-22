@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; BitReader.rgr - Bit-level stream reader for JPEG decoding
 ; Handles reading individual bits and byte stuffing (FF00 → FF)
 

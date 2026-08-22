@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_native_bridge — the interpreter transport for the Three command ABI.
 ; ==============================================================================

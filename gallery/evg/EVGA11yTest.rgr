@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; EVGA11yTest — the accessibility tree module, and what a dialog says about
 ; itself.

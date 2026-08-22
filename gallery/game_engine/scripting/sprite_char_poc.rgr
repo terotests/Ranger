@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; sprite_char_poc — WASM sprite test game (core; no gfx/SDL dependency).
 ; ==============================================================================

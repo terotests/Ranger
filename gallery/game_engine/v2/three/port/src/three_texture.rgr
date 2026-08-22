@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_texture — image data holder (Three.js port of src/textures/Texture.js).
 ; ==============================================================================

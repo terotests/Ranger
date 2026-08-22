@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; RgWasmRustGen — emit a Rust wasm32 guest binding FROM the schema (BRIDGES 4/6).
 ; ==============================================================================

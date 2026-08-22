@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ranger_pong_runner_demo - headless integration test for WasmGameRunner driving
 ; a game whose logic.wasm was compiled from the RANGER language (games/ranger_pong).

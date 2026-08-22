@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_light_probe_volume — a REUSABLE diffuse-GI light-probe volume rig.
 ; ==============================================================================

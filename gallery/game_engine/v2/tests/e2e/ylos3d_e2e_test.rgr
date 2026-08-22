@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ylos3d_e2e_test — ylos2 gameplay + 3D diamond sprites on the generic host.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ts_emitter_main - CLI: parse .game.tsx and emit native Ranger game script.
 ; ==============================================================================

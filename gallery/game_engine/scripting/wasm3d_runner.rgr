@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm3d_runner — in-engine GPU (GLES2) renderer for .wasm guests (render=3d).
 ; ==============================================================================

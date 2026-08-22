@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; evg_raster_text_test.rgr - Test text rendering in raster buffer
 
 Import "../raster/EVGRasterRenderer.rgr"

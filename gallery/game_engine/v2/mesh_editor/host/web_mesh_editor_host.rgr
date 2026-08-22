@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; web_mesh_editor_host — Ranger Three preview host for the spline mesh editor.
 ; ==============================================================================

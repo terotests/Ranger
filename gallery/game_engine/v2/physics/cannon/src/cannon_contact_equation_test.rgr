@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_contact_equation_test — Cannon.js test/ContactEquation.js ported.
 ; ==============================================================================

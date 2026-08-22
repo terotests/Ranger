@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_tsx_bridge — the GENERIC reconciler: map an interpreted TSX façade scene
 ; onto the ONE host-owned Ranger Three registry (ThreeSceneHost), then render it

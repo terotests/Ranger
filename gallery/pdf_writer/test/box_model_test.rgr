@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; box_model_test.rgr — EVG's boxes match a browser's, without a browser
 ; ==============================================================================

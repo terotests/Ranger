@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; chart_test.rgr — the chart API builds the specification a person would write.
 ; ==============================================================================

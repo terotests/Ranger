@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; RgAdapter — native adapter over the typed arenas (D-ADAPTER / D-PROP).
 ; ==============================================================================

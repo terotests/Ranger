@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Conformance test for the GameSceneProvider seam (IDEAL_TODO 4.1, IDEAL.md §0/§7).
 ; Proves the invariant: a SECOND physics game drives the SAME interface reference
 ; with different world size, player count, camera, ids, and sound vocabulary — so

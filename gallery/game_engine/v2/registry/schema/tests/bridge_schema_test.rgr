@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; bridge_schema_test — BRIDGES.md step-1 gate: the authored core+two_d rows.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; BookEditorTest.rgr - editing a book, checked without a window
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; RgGameHost — the single generic host for interpreted v2 ranger2d TSX games.
 ; ==============================================================================

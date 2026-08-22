@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; dispose_backend_test — host/tests/dispose_backend gate (D-LIFE lifetime 3).
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 Import "SVGPathParser.rgr"
 Import "VectorShapes.rgr"
 Import "VectorViewBox.rgr"

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; sponza_sdl_runner — the light-probe-volume (Sponza) scene on SDL + OpenGL,
 ; running the interpreted sponza.tsx with HOT RELOAD (edit the .tsx, the scene

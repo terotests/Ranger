@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; An external compiler plugin is an npm package, so only the Node.js host can
 ; load one. Every other target still has to produce a program that COMPILES:

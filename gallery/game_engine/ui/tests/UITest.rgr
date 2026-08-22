@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; UITest - self-checking unit tests for the EVG UI layer (pure logic).
 ; ==============================================================================

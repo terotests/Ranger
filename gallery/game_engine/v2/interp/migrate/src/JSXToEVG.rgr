@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; JSXToEVG.rgr - Convert JSX AST nodes to EVG elements
 ; 
 ; This module takes the AST output from ts_parser (with JSX support)

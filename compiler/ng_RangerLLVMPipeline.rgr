@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 Import "ng_LowIRBuilder.rgr"
 Import "ng_LLVMIRWriter.rgr"

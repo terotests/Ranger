@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGPDFRenderer.rgr - Render EVG elements to PDF
 ; 
 ; Takes EVG element tree with calculated positions and renders to PDF using PDFWriter.

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; as_source_demo — headless proof: interpret a .as game against the RGW1/RGU1
 ; ABI and read back the shared memory (same layout the WASM host reads).

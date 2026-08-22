@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; Model3dGlUploader.rgr — the SDL/GL branch of the Model3dScriptBridge seam.
 ; ==============================================================================

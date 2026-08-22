@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_cube_map — a 6-face cube of captured radiance (the CubeCamera target).
 ; ==============================================================================

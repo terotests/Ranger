@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; The same contract, against the engines the host has. A driver that is not
 ; installed is reported as skipped rather than failed - the point of the
 ; scoreboard is which engines answer the same, not which machine has what.

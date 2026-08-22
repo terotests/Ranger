@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; JavaScript ES6 Parser - Main entry point
 ; Usage: node js_parser.js [options]
 ;   -h, --help     Show this help message

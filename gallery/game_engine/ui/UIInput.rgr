@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; UIInput - portable pointer + keyboard input snapshot for the EVG UI layer.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; ScriptEditorTest — the lexer says what a run of characters is, and the
 ; editor does what a key press means.

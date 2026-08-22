@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Headless: drive WasmPhysicsRunner with an interpreted .as guest (no .wasm).
 ; Proves the swap — physics + resources + HUD all run off the .as ABI.
 Import "./wasm_physics_runner.rgr"

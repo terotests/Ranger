@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Benchmark program for the engine's tiers. Everything here is numeric on
 ; purpose: that is the shape the JIT tier compiles, and the shape where an
 ; interpreter loses the most.

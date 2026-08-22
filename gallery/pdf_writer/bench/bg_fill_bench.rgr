@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; =============================================================================
 ; bg_fill_bench - native (C++) micro-benchmark for the SoftCanvas blit layer.
 ; =============================================================================

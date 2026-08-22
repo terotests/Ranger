@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_sun_shadow_rig — a REUSABLE sun + shadow technique rig (no demo glue).
 ; ==============================================================================

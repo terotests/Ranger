@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; menu_tsx_uirunner_demo - drive the TSX launcher through GameUiRunner (the host
 ; path), not just ComponentEngine directly.

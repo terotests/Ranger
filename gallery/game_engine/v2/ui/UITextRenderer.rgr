@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; UITextRenderer - accelerated, font-aware text for the EVG UI layer.
 ; ==============================================================================

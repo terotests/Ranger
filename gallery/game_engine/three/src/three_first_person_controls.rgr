@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_first_person_controls — WASD + mouse-look (Three.js addons
 ; FirstPersonControls). Sponza slice 2.

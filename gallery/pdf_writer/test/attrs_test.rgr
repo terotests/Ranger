@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; attrs_test.rgr — the JSX attribute surface matches EVGElement's
 ; ==============================================================================

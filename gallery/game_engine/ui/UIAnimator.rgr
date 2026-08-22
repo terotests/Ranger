@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; UIAnimator — a tiny Pixi.js-style effect/animation system for EVG UI elements.
 ; ==============================================================================

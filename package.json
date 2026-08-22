@@ -12,7 +12,8 @@
     "dist/",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "LICENSE-MIT"
   ],
   "publishConfig": {
     "access": "public",

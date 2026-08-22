@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_teapot_data — Utah teapot Bézier control data (from three.js addons
 ; TeapotGeometry.js, BSD). 32 patches × 16 control-point indices (0-based) into

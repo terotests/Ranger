@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_provider — the host-capability provider seam (IDEAL.md §6, IDEAL_API §7)
 ; ==============================================================================

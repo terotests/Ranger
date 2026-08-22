@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_sky — atmospheric sky dome (Three.js addons objects/Sky.js). Slice 5.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Regression: import AST cache reuses parse across loadScript() when mtime
 ; is unchanged. Second load of the same entry must still resolve imports.
 

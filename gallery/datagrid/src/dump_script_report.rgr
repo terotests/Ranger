@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; dump_script_report — the report preview, as a PNG, and the PDF beside it.
 ; ==============================================================================

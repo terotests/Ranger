@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Buffer.rgr - A growable buffer system for Ranger
 ; Uses a linked list of fixed-size buffer chunks for efficient memory management
 

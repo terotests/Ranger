@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 ; Helper class to hold a list of method names (for call graph)
 class MethodCallList {
   def calls:[string]

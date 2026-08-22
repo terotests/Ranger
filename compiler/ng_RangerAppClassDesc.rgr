@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; A view of a closed shape family: the whole shape, one group, or one case.
 ; allowedCases is the set of concrete case class names visible through this

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; SoftPainter.rgr — an EVG display list, painted onto a SoftCanvas.
 ; ==============================================================================

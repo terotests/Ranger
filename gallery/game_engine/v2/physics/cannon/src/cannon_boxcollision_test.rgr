@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_boxcollision_test — sphere-box and plane-box contacts through the world.
 ; ==============================================================================

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; TypeScript Parser - Using unified node approach
 ; All AST nodes use a single TSNode class to avoid type issues
 

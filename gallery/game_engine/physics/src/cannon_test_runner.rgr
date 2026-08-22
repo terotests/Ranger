@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_test_runner — headless Cannon.js parity tests (Ranger port).
 ; Pass shell_arg(0) to run a single test id (e.g. Vec3.cross).

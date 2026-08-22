@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_physics_bridge — EvalValue ↔ PhysicsCore adapter (host/runtime layer).
 ; No game semantics: only serialization and neutral command/contact mapping.

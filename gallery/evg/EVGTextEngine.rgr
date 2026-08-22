@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGTextEngine.rgr - The one text measurement + line breaking implementation
 ;
 ; PLAN_CSS_LAYOUT_AND_FONTS.md §8. Layout, PDF paint and raster paint must agree

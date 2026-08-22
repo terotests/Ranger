@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_split_nav_demo — pane bridges keep independent pushGame/loadGame queues.
 ; ==============================================================================

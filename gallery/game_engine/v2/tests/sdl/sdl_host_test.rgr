@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; sdl_host_test — the SDL host's TESTABLE seams (no window required).
 ; ==============================================================================

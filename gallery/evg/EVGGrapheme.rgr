@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGGrapheme.rgr — the unit a reader calls "one character"
 ;
 ; A codepoint is not it. 🇫🇮 is two, 👍🏽 is two, 1️⃣ is three, 👨‍👩‍👧 is five, and

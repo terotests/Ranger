@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; cannon_ray_test — raycasting against spheres and planes through the world.
 ; ==============================================================================

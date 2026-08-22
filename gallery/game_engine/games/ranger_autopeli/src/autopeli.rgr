@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ============================================================================
 ; autopeli.rgr — "Autot2", a two-player top-down racing/traffic-dodger written
 ; in RANGER, compiled to WASM, driven by the engine's host-physics RGW1 runner

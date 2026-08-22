@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; Legacy ES6-only host Date wrapper.
 ; For portable calendar logic use lib/IsoDateLib.rgr (ISO strings, no timezone).

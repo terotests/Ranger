@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_gltf_file_test — .glb chunk split + JSON + accessor decode + node tree.
 ; ==============================================================================

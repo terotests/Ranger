@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; VlEvgList.rgr — a chart's draw commands become EVG display-list commands.
 ; ==============================================================================

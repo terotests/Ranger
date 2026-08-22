@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; jpeg_to_ppm.rgr - decode a JPEG and write a lossless PPM
 ; Usage: jpeg_to_ppm input.jpg outdir outname.ppm
 ; Diagnostic only: lets the decoder be scored without the encoder in the way.

@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Headless self-test for EnvResolver (IDEAL_TODO 3.2). Run:
 ;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
 ;     gallery/game_engine/scripting/game_env_resolver_demo.rgr \

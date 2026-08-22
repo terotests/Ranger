@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Round-trips a spec through the JSON layer and checks the number formatting
 ; the golden files depend on.
 Import "../src/VlJson.rgr"

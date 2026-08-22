@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; =============================================================================
 ; bench_parse — the TypeScript parser as a benchmark entry point.
 ; =============================================================================

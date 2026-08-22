@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; Ranger Low IR ? typed three-address intermediate representation.
 ; Phase 1: Ranger AST ? Low IR ? LLVM IR / WAT

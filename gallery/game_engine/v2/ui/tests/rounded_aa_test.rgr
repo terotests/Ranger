@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; rounded_aa_test — rounded-corner fills are anti-aliased (sub-pixel coverage).
 ; ==============================================================================

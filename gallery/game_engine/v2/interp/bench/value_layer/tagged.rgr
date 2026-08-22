@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Variant D — one small class per case (same allocation as the shape lowering)
 ; but dispatch through an int tag instead of a type test. Isolates how much of
 ; the shape's remaining cost is the `instanceof` chain rather than the object.

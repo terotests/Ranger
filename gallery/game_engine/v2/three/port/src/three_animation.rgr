@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_animation — keyframe animation (Three.js port, no-render core).
 ; ==============================================================================

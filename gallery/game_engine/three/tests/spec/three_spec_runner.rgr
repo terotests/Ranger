@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_spec_runner — ONE compiled runner for several no-render features.
 ; ==============================================================================

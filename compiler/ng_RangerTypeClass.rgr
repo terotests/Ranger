@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 ; each node could have some kind of predetermined type, which can change during the evaluation of the code.
 ; there could be also 'literal' type

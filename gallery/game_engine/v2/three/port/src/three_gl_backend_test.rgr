@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_gl_backend_test — headless smoke: the GL backend wires up + degrades.
 ; ==============================================================================

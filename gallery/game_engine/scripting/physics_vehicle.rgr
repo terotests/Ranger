@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; physics_vehicle — wheel vehicle solver plugin for PhysicsCore.
 ; Longitudinal: arcade speed along body forward (matches maxSpeed/accel/drag).

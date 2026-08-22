@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; three_color — RGB colour (Three.js port of src/math/Color.js, core subset).
 ; ==============================================================================

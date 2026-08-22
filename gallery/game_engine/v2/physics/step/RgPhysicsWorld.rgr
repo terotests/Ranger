@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; RgPhysicsWorld — headless rigid-body world (D-TYPE separate arena).
 ; ==============================================================================

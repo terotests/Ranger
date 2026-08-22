@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; geo_check.rgr — the projections, point by point, against d3's own answer.
 ; ==============================================================================

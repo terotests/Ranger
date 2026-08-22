@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; VlExpr.rgr — the Vega expression language: parse to an AST, evaluate it.
 ; ==============================================================================

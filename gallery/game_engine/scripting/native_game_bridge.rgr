@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; native_game_bridge - shared hook surface for headless + SDL native game hosts.
 ; ==============================================================================

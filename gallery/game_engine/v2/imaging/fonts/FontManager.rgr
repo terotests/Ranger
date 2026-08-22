@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; FontManager.rgr - Manage loaded fonts and provide text measurement
 ;
 ; Usage:

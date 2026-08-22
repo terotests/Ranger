@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: MIT
+
 
 systemclass  UIElement {
     es6          DOMElement

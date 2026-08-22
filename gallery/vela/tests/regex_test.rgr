@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; Regular expression checks. Every expected answer here is what JavaScript's
 ; own engine answers for the same pattern and the same subject, which is the
 ; engine the reference implementation uses.

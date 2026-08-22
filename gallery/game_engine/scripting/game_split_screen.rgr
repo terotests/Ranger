@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; game_split_screen — generic two-pane split-screen host for script games.
 ; ==============================================================================

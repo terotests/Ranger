@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGStyleSheet.rgr - A small, print-safe CSS subset for EVG
 ;
 ; This is deliberately NOT a browser cascade. It supports exactly what a

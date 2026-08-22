@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; EVGTextMeasurer.rgr - Abstract text measurement interface for EVG layout
 
 class EVGTextMetrics {

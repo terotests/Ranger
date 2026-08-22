@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_sprite_runner — host side of the RGSP1 sprite ABI.
 ; Offsets/layout mirror wasm/wasm_sprite_abi.h.

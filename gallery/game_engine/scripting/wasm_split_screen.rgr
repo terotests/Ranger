@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; wasm_split_screen — split-screen host for WASM physics games (one world).
 ; ==============================================================================

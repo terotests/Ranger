@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; =============================================================================
 ; engine_evg_module — Node module entry for the interpreter PLUS the EVG host.
 ; =============================================================================

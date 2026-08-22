@@ -1,3 +1,5 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
 ; ==============================================================================
 ; pong_native_runner - headless parity demo: native Pong vs TS-interpreter path.
 ; ==============================================================================
