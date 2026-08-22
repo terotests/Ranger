@@ -18,6 +18,8 @@ one OPC package reader, and the XML text rules.
 
 ```text
 gallery/office/
+    editor/
+        OfficeHistory.rgr      what "one undo" means
     drawing/
         OfficeColor.rgr        the theme palette, and what is done to a colour
     text/
@@ -33,6 +35,7 @@ npm run office:font:test       # JavaScript and C++
 npm run office:metrics:test    # likewise
 npm run office:style:test      # likewise
 npm run office:color:test      # likewise
+npm run office:history:test    # likewise
 ```
 
 ### `OfficeFont`
@@ -199,7 +202,39 @@ into one `TextRun { text, style, source? }` is the rest of the merge; the
 distinction it exists to protect is already in place, which was the part that
 was actually wrong.
 
-### `core/` — identity, revisions, assets, transactions
+### `OfficeHistory`
+
+The document editor's history was missing every rule the spreadsheet's had,
+and each absence was a bug — all four the same bug, an op kind written as a
+bare **number** by the code that produces it and never taught to the code that
+replays it:
+
+| what happened | why |
+| --- | --- |
+| Enter could not be undone, **and blocked every undo below it** | a split recorded `kind = 1`, which neither direction knew; backspace-join (`2`) and bold (`3`) the same |
+| Redo **corrupted** the document | `undo` knew five kinds, `redo` knew one — and moved the op to the undo stack anyway, so the next undo ran it twice and invented text |
+| Undoing a chart paste left the chart | `pasteChart` recorded `5`, the multi-paragraph delete, because 5 was one more than the table paste's 4 |
+| One paste was five undos, and never got back | no transactions at all |
+
+`OfficeHistory` holds what that needs and nothing else: what counts as one
+action (nested safely), which action an op belongs to, how many ops off the top
+are one undo, and how many fall off the bottom at the cap — **always whole
+actions**, because a surviving half is an undo that can only reach a state the
+document was never in.
+
+The **operations** stay where they are. `SheetSetCell` is not `SlideMoveShape`
+is not `DocInsertText`, and Ranger has no generics to hold them with anyway.
+
+The structural fix is that undo and redo are one function with a **direction**.
+Written as two switches over the same kind they drift, and the drift is silent
+until someone presses redo. A kind is handled both ways or neither — and where
+it genuinely cannot be redone, it refuses *without moving the op*, so the two
+stacks cannot come apart.
+
+The guard is a property test rather than a case list: every action goes through
+do → undo → redo → undo, and the text has to match at each point it should.
+
+### `core/` — identity, revisions, assets
 
 Stable `EntityId` (PPTX's `editId` is already this, done right), `Revision`, an
 `AssetStore` so one logo on forty slides is one asset, and one transaction and

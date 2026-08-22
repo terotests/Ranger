@@ -186,16 +186,23 @@ Gradients, line styles, shadows, transforms and shape geometry are still in
 `PptxModel`, and `.xlsx` charts and drawings (`XlsxDrawing.rgr`) and `.docx`
 floating drawings use all of them. Same move, still to make.
 
-### 5. `EditorSession` — one transaction and history framework
+### 5. `EditorSession` — the history rules are shared; the session is not yet
 
-There are three: `SpreadsheetUndoOp` with its own stacks and `txDepth`,
-`DocxEditController`'s undo stack and selection state, and `PptxEdit`'s
-snapshot/revision history. Don't merge the operations — `SheetSetCell` is not
-`SlideMoveShape`. Merge the machinery: `beginTransaction` / `apply` / `commit` /
-`undo` / `redo` / `coalesce`, over a shared `Revision` and `DirtySet`.
+[`OfficeHistory`](../office/README.md) is the machinery: one action however
+many primitives, whole-action trimming at the cap, and the discipline that undo
+and redo are one function with a direction. The operations stayed where they
+are, as they should.
 
-Autosave, collaboration, scripting and AI-driven editing all need exactly this
-and none of them want three of it.
+It was worth doing for what it found. The document editor was missing every
+rule the spreadsheet had, and each absence was a live bug: Enter could not be
+undone **and blocked every undo below it**, redo corrupted the document,
+undoing a chart paste left the chart, and one paste was five undos that never
+got back to the start.
+
+Still to come: the SESSION around it — selection state, a clipboard and a dirty
+set that autosave, collaboration and scripting can all read, and `PptxEdit`'s
+snapshot history brought under the same rules (it is whole-deck snapshots
+rather than an op log, which is a different shape with the same questions).
 
 ### 6. `AssetStore` — one place for bytes
 
