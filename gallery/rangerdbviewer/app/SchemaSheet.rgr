@@ -1,0 +1,259 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SchemaSheet.rgr — a table's columns, as a spreadsheet you can edit.
+; ============================================================================
+;
+;      A         B          C       D          E
+;   ┌─────────┬──────────┬───────┬──────────┬──────────┐
+; 1 │ column  │ type     │ null  │ default  │ key      │
+; 2 │ id      │ INTEGER ▾│ no   ▾│          │ PK      ▾│
+; 3 │ email   │ VARCHAR ▾│ no   ▾│          │         ▾│
+; 4 │ country │ VARCHAR ▾│ yes  ▾│ 'FI'     │         ▾│
+;   └─────────┴──────────┴───────┴──────────┴──────────┘
+;
+; The dropdowns are not new. `DataValidation` with `kind = "list"` has been in
+; the spreadsheet all along — the grid already draws the arrow, already opens
+; the picker, already refuses a value that is not one of the choices — so
+; "the data type is a dropdown" is one call per column rather than a custom
+; editor.
+;
+; ---------------------------------------------------------------------------
+; Editing the sheet edits the SCHEMA, not the database
+; ---------------------------------------------------------------------------
+;
+; A cell changed here changes the `DatabaseSchema` this sheet was built from,
+; and nothing else. What turns that into an `ALTER TABLE` is `SchemaDiff`
+; against the original, and what turns THAT into statements is
+; `MigrationPlan` — the same two the migration section uses, because
+; "somebody edited the schema" and "somebody's migrations changed the schema"
+; are the same event with a different author.
+;
+; So there is no path from this sheet to a running database that does not go
+; through a migration a person has read.
+; ============================================================================
+
+Import "../../datagrid/src/GridPane.rgr"
+Import "../../rangerdb/src/schema/DatabaseSchema.rgr"
+
+class SchemaSheet {
+    def pane:GridPane (new GridPane)
+    ; The table as it was when the sheet was built, so a diff has something to
+    ; compare against after somebody types.
+    def original:DBTable (new DBTable)
+    def edited:DBTable (new DBTable)
+    def tableName:string ""
+    def rows:int 0
+
+    Constructor () {
+    }
+
+    sfn colName:int () {
+        return 0
+    }
+    sfn colType:int () {
+        return 1
+    }
+    sfn colNull:int () {
+        return 2
+    }
+    sfn colDefault:int () {
+        return 3
+    }
+    sfn colKey:int () {
+        return 4
+    }
+
+    ; The types offered in the dropdown. Deliberately the portable ones: a
+    ; list that tried to be every dialect's spelling would be unusable, and a
+    ; type not on the list can still be typed, because `allowBlank` is off but
+    ; the rule only covers the rows a table actually has.
+    sfn commonTypes:[string] () {
+        def out:[string]
+        push out "INTEGER"
+        push out "BIGINT"
+        push out "SMALLINT"
+        push out "DOUBLE"
+        push out "DECIMAL"
+        push out "BOOLEAN"
+        push out "VARCHAR"
+        push out "TEXT"
+        push out "DATE"
+        push out "TIME"
+        push out "TIMESTAMP"
+        push out "BLOB"
+        push out "JSON"
+        return out
+    }
+
+    sfn yesNo:[string] () {
+        def out:[string]
+        push out "yes"
+        push out "no"
+        return out
+    }
+
+    sfn keyChoices:[string] () {
+        def out:[string]
+        push out ""
+        push out "PK"
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Building
+    ; ------------------------------------------------------------------------
+    fn build:void (t:DBTable) {
+        original = t
+        edited = t
+        tableName = t.name
+        rows = (array_length t.columns)
+
+        def m:SpreadsheetModel (new SpreadsheetModel)
+        m.growTo((rows + 2) 5)
+        m.setCell(0 (SchemaSheet.colName()) "column")
+        m.setCell(0 (SchemaSheet.colType()) "type")
+        m.setCell(0 (SchemaSheet.colNull()) "null")
+        m.setCell(0 (SchemaSheet.colDefault()) "default")
+        m.setCell(0 (SchemaSheet.colKey()) "key")
+
+        def i:int 0
+        while (i < rows) {
+            def c:SchemaColumn (itemAt t.columns i)
+            def r:int (i + 1)
+            m.setCell(r (SchemaSheet.colName()) c.name)
+            m.setCell(r (SchemaSheet.colType()) c.dataType)
+            m.setCell(r (SchemaSheet.colNull()) (SchemaSheet.boolText(c.nullable)))
+            m.setCell(r (SchemaSheet.colDefault()) c.defaultValue)
+            if (c.isPrimaryKey) {
+                m.setCell(r (SchemaSheet.colKey()) "PK")
+            }
+            i = (i + 1)
+        }
+        pane.adopt(m)
+
+        ; The dropdowns. One call per column, and the grid does the rest.
+        def last:int rows
+        pane.listColumn((SchemaSheet.colType()) 1 last (SchemaSheet.commonTypes()))
+        pane.listColumn((SchemaSheet.colNull()) 1 last (SchemaSheet.yesNo()))
+        pane.listColumn((SchemaSheet.colKey()) 1 last (SchemaSheet.keyChoices()))
+    }
+
+    sfn boolText:string (b:boolean) {
+        if b {
+            return "yes"
+        }
+        return "no"
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Reading the sheet back
+    ; ------------------------------------------------------------------------
+    ;
+    ; A fresh DBTable built from what the cells now say. It is deliberately a
+    ; NEW table rather than the original mutated: the differ needs both sides,
+    ; and an edit that quietly changed the thing it was being compared against
+    ; would diff a schema with itself and report nothing.
+    fn readBack:DBTable () {
+        def t:DBTable (DBTable.create(tableName))
+        t.schema = original.schema
+        t.kind = original.kind
+        def pk:int 0
+        def i:int 0
+        while (i < rows) {
+            def r:int (i + 1)
+            def name:string (trim (pane.model.getCell(r (SchemaSheet.colName()))))
+            if ((strlen name) > 0) {
+                def col:SchemaColumn (t.column(name (trim (pane.model.getCell(r (SchemaSheet.colType()))))))
+                def nullText:string (trim (pane.model.getCell(r (SchemaSheet.colNull()))))
+                col.nullable = (nullText == "yes")
+                col.defaultValue = (trim (pane.model.getCell(r (SchemaSheet.colDefault()))))
+                def keyText:string (trim (pane.model.getCell(r (SchemaSheet.colKey()))))
+                if (keyText == "PK") {
+                    pk = (pk + 1)
+                    col.isPrimaryKey = true
+                    col.pkPosition = pk
+                    ; A key column is not nullable whatever the sheet says, for
+                    ; the same reason the SQLite introspector overrides it.
+                    col.nullable = false
+                }
+            }
+            i = (i + 1)
+        }
+        ; Indexes and constraints are not editable here and must survive: a
+        ; sheet that quietly dropped every index because it does not show them
+        ; would produce a migration that drops every index.
+        def k:int 0
+        def nk:int (array_length original.indexes)
+        while (k < nk) {
+            push t.indexes (itemAt original.indexes k)
+            k = (k + 1)
+        }
+        def c2:int 0
+        def nc:int (array_length original.constraints)
+        while (c2 < nc) {
+            push t.constraints (itemAt original.constraints c2)
+            c2 = (c2 + 1)
+        }
+        edited = t
+        return t
+    }
+
+    fn isDirty:boolean () {
+        def now:DBTable (this.readBack())
+        if ((array_length now.columns) != (array_length original.columns)) {
+            return true
+        }
+        def i:int 0
+        def n:int (array_length now.columns)
+        while (i < n) {
+            def a:SchemaColumn (itemAt original.columns i)
+            def b:SchemaColumn (itemAt now.columns i)
+            if ((a.name == b.name) == false) {
+                return true
+            }
+            if ((a.dataType == b.dataType) == false) {
+                return true
+            }
+            if ((a.nullable == b.nullable) == false) {
+                return true
+            }
+            if ((a.defaultValue == b.defaultValue) == false) {
+                return true
+            }
+            if ((a.isPrimaryKey == b.isPrimaryKey) == false) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The two schemas a differ needs: the database as it is, and the same
+    ; database with this one table as the sheet now describes it.
+    fn editedSchema:DatabaseSchema (whole:DatabaseSchema) {
+        def out:DatabaseSchema (new DatabaseSchema)
+        out.name = whole.name
+        out.engine = whole.engine
+        def now:DBTable (this.readBack())
+        def i:int 0
+        def n:int (array_length whole.tables)
+        while (i < n) {
+            def t:DBTable (itemAt whole.tables i)
+            if (t.name == tableName) {
+                out.addTable(now)
+            } {
+                out.addTable(t)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        def nk:int (array_length whole.foreignKeys)
+        while (k < nk) {
+            out.addForeignKey((itemAt whole.foreignKeys k))
+            k = (k + 1)
+        }
+        out.resolve()
+        return out
+    }
+}

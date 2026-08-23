@@ -1,0 +1,215 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Findings.rgr — what an analyzer says, and how sure it is.
+; ============================================================================
+;
+; A finding is a rule that fired, a sentence a person can read, and — where
+; there is one — the DDL that would fix it. That last part is what connects
+; this section to the migration one: a fix is a change, and a change goes
+; through `SchemaDiff` and `MigrationPlan` like any other.
+;
+; ---------------------------------------------------------------------------
+; Observed, or merely inferred
+; ---------------------------------------------------------------------------
+;
+; "This index is unused" and "I have no evidence this index is used" are
+; different claims, and only the first one requires a workload to have been
+; watched. An analyzer that says the first when it means the second gets an
+; index dropped that a nightly report depends on.
+;
+; So every finding carries `observed`. Rules that reason from the schema alone
+; set it false and say "no evidence" rather than "unused"; rules that read a
+; live database or a supplied workload set it true.
+;
+; ---------------------------------------------------------------------------
+; False positives are the failure mode
+; ---------------------------------------------------------------------------
+;
+; An analyzer that reports thirty things, six of which are wrong, is worse than
+; one that reports four. So the test for this section is not only that each
+; rule fires on a schema built to trip it — it is that NO rule fires on a
+; schema built correctly. The control is the more important half.
+; ============================================================================
+
+Import "../../rangerdb/src/schema/DatabaseSchema.rgr"
+
+class Severity {
+    ; Worth knowing.
+    sfn info:string () {
+        return "info"
+    }
+    ; Will cost something — a slow query, a table scan on every join.
+    sfn warn:string () {
+        return "warn"
+    }
+    ; Wrong, or a correctness risk: a table with no key, an orphaned row.
+    sfn high:string () {
+        return "high"
+    }
+
+    sfn rankOf:int (s:string) {
+        if (s == "high") {
+            return 0
+        }
+        if (s == "warn") {
+            return 1
+        }
+        return 2
+    }
+}
+
+class Finding {
+    ; The rule that fired, e.g. "index.duplicate". Stable, so a caller can
+    ; suppress one by name.
+    def rule:string ""
+    def severity:string "info"
+    def table:string ""
+    ; The index or column the finding is about, where it is about one.
+    def object:string ""
+    def message:string ""
+    ; The DDL that would fix it, or "" when there is no single statement that
+    ; would. Never a guess dressed as a fix.
+    def fix:string ""
+    ; See the header: false means "reasoned from the schema, with no evidence
+    ; from a running database".
+    def observed:boolean false
+
+    Constructor () {
+    }
+
+    sfn of:Finding (rule:string severity:string table:string message:string) {
+        def f:Finding (new Finding)
+        f.rule = rule
+        f.severity = severity
+        f.table = table
+        f.message = message
+        return f
+    }
+
+    fn describe:string () {
+        def out:string ("[" + severity + "] " + rule + "  " + table)
+        if ((strlen object) > 0) {
+            out = (out + "." + object)
+        }
+        out = (out + "\n    " + message)
+        if ((observed) == false) {
+            out = (out + "\n    (from the schema alone — nothing was measured)")
+        }
+        if ((strlen fix) > 0) {
+            out = (out + "\n    fix: " + fix)
+        }
+        return out
+    }
+}
+
+class FindingList {
+    def findings:[Finding]
+
+    Constructor () {
+    }
+
+    fn add:Finding (f:Finding) {
+        push findings f
+        return f
+    }
+
+    fn count:int () {
+        return (array_length findings)
+    }
+
+    fn isEmpty:boolean () {
+        return ((array_length findings) == 0)
+    }
+
+    fn countOfRule:int (rule:string) {
+        def n:int 0
+        def i:int 0
+        def total:int (array_length findings)
+        while (i < total) {
+            def f:Finding (itemAt findings i)
+            if (f.rule == rule) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn countOfSeverity:int (severity:string) {
+        def n:int 0
+        def i:int 0
+        def total:int (array_length findings)
+        while (i < total) {
+            def f:Finding (itemAt findings i)
+            if (f.severity == severity) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn firstOfRule:Finding (rule:string) {
+        def i:int 0
+        def total:int (array_length findings)
+        while (i < total) {
+            def f:Finding (itemAt findings i)
+            if (f.rule == rule) {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new Finding)
+    }
+
+    ; Worst first, and stable within a severity so the order a reader sees is
+    ; the order the tables are in.
+    fn ordered:[Finding] () {
+        def out:[Finding]
+        def want:int 0
+        while (want < 3) {
+            def i:int 0
+            def n:int (array_length findings)
+            while (i < n) {
+                def f:Finding (itemAt findings i)
+                if ((Severity.rankOf(f.severity)) == want) {
+                    push out f
+                }
+                i = (i + 1)
+            }
+            want = (want + 1)
+        }
+        return out
+    }
+
+    fn summary:string () {
+        def n:int (array_length findings)
+        if (n == 0) {
+            return "nothing to report"
+        }
+        def out:string ((to_string n) + " findings")
+        def h:int (this.countOfSeverity("high"))
+        if (h > 0) {
+            out = (out + ", " + (to_string h) + " high")
+        }
+        def w:int (this.countOfSeverity("warn"))
+        if (w > 0) {
+            out = (out + ", " + (to_string w) + " worth fixing")
+        }
+        return out
+    }
+
+    fn dump:string () {
+        def out:string ""
+        def list:[Finding] (this.ordered())
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            def f:Finding (itemAt list i)
+            out = (out + (f.describe()) + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+}

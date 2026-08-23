@@ -138,6 +138,31 @@ class RangerDbViewerWeb {
         return (sc.toSvg())
     }
 
+    ; The findings the schema alone supports, as JSON — for a page that would
+    ; rather list them in the DOM than read them off the canvas.
+    fn findingsJson:string () {
+        frame.runAudit()
+        def list:[Finding] (frame.findings.ordered())
+        def out:string "["
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            def f:Finding (itemAt list i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"rule\":" + (EVGDisplayString.of(f.rule)))
+            out = (out + ",\"severity\":" + (EVGDisplayString.of(f.severity)))
+            out = (out + ",\"table\":" + (EVGDisplayString.of(f.table)))
+            out = (out + ",\"object\":" + (EVGDisplayString.of(f.object)))
+            out = (out + ",\"message\":" + (EVGDisplayString.of(f.message)))
+            out = (out + ",\"fix\":" + (EVGDisplayString.of(f.fix)))
+            out = (out + ",\"observed\":" + (EVGDisplayString.boolText(f.observed)) + "}")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
     ; The schema as DDL, in this build's dialect. Written by SchemaToDdl,
     ; which is checked against DdlToSchema by a round-trip test rather than by
     ; anyone reading its output.

@@ -243,7 +243,18 @@ async function boot() {
   // The live engine cannot describe a relationship yet, so the page opens on
   // the schema that can — and the button beside it goes back.
   web.run("db.sql", "");
-  web.run("view.diagram", "");
+  // `?section=` opens straight onto one of the pages, which is what a link to
+  // a particular view needs and what a screenshot of one needs too.
+  const wanted = new URLSearchParams(location.search).get("section") || "diagram";
+  if (wanted === "metrics") {
+    web.run("metrics.run", "");
+  } else if (wanted === "schema") {
+    web.run("view.schema", "");
+  } else if (wanted === "data") {
+    web.run("view.data", "");
+  } else {
+    web.run("view.diagram", "");
+  }
   draw();
   window.__dbReady = true;
 

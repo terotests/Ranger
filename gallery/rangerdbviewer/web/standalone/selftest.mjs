@@ -83,6 +83,19 @@ export async function selftest(web, draw) {
   ok("…with the relationships in it", ddl.indexOf("FOREIGN KEY") >= 0);
   ok("…and the indexes", ddl.indexOf("CREATE INDEX") >= 0);
 
+  // --- the metrics section --------------------------------------------------
+  ok("the metrics section can be run", web.run("metrics.run", ""));
+  draw();
+  ok("…and it is showing", web.section() === "metrics");
+  const findings = JSON.parse(web.findingsJson());
+  ok("the demo schema is analysed", Array.isArray(findings));
+  // The demo schema has a nullable foreign key on categories.parent_id (a
+  // self-reference that must be optional or the first row cannot exist), so
+  // there is something to find — and every schema-only finding must say it
+  // measured nothing.
+  ok("…and nothing claims to have been measured", findings.every((f) => f.observed === false));
+  ok("every finding names a rule", findings.every((f) => (f.rule || "").length > 0));
+
   // --- the honest refusal ---------------------------------------------------
   ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);
   ok("…and the refusal says why", (web.note() || "").indexOf("host") >= 0);

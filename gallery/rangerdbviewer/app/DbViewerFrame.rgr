@@ -32,6 +32,7 @@ Import "../../evg/EVGToolbarView.rgr"
 Import "../../rangerflow/core/FlowEditor.rgr"
 Import "../../rangerdb/src/schema/DdlToSchema.rgr"
 Import "../../rangerdb/src/schema/SchemaToDdl.rgr"
+Import "../metrics/SchemaAudit.rgr"
 
 ; ----------------------------------------------------------------------------
 ; The strip. Three pages, because a database viewer has three jobs and a
@@ -64,6 +65,12 @@ class DbViewerToolbar extends EVGToolbar {
         this.add("data.first" "" "First page" (ToolIcon.navFirst()))
         this.add("data.prev" "" "Previous page" (ToolIcon.navPrev()))
         this.add("data.next" "" "Next page" (ToolIcon.navNext()))
+
+        this.addTab("Metrics")
+        this.addLarge("metrics.run" "" "Analyse" (ToolIcon.report()))
+        this.addSeparator()
+        this.add("metrics.indexes" "" "Index findings only" (ToolIcon.borderMore()))
+        this.add("metrics.all" "" "Everything the schema can tell" (ToolIcon.search()))
 
         this.addTab("Diagram")
         this.addLarge("view.diagram" "" "Draw" (ToolIcon.chart()))
@@ -98,6 +105,10 @@ class DbViewerFrame {
     ; "all" | "tables" | "near"
     def diagramScope:string "all"
 
+    ; The findings, and which rule family is being shown.
+    def findings:FindingList (new FindingList)
+    def findingsReady:boolean false
+    def findingFilter:string "all"
     def dataOffset:int 0
     def dataPageSize:int 40
     def note:string ""
@@ -219,6 +230,15 @@ class DbViewerFrame {
 
     ; The schema as DDL. The frame produces text and never a file — writing
     ; one is the host's job, in a browser as much as anywhere else.
+    ; Only the rules that read the schema. The ones that read ROWS cost a scan
+    ; and are never run because a panel came into view — a host asks for those
+    ; deliberately, after `LiveMetrics.estimateCost` has said what they cost.
+    fn runAudit:void () {
+        findings = (SchemaAudit.run(app.schema))
+        findingsReady = true
+        note = (findings.summary())
+    }
+
     fn schemaDdl:string () {
         def w:SchemaToDdl (SchemaToDdl.forDialect(""))
         w.ifNotExists = true
@@ -244,6 +264,7 @@ class DbViewerFrame {
         if (id == "db.refresh") {
             app.refresh()
             diagramReady = false
+            findingsReady = false
             return true
         }
         if (id == "db.open") {
@@ -255,6 +276,23 @@ class DbViewerFrame {
         }
         if (id == "engine.sqlite") {
             return (this.openDemo("sqlite"))
+        }
+        if (id == "metrics.run") {
+            app.showSection("metrics")
+            this.runAudit()
+            return true
+        }
+        if (id == "metrics.indexes") {
+            findingFilter = "index"
+            app.showSection("metrics")
+            this.runAudit()
+            return true
+        }
+        if (id == "metrics.all") {
+            findingFilter = "all"
+            app.showSection("metrics")
+            this.runAudit()
+            return true
         }
         if (id == "export.ddl") {
             note = "the page writes the file; the frame only produces the text"
@@ -621,6 +659,10 @@ class DbViewerFrame {
             this.paintData(dl x y w h)
             return
         }
+        if (app.section == "metrics") {
+            this.paintMetrics(dl x y w h)
+            return
+        }
         this.paintColumns(dl x y w h)
     }
 
@@ -766,6 +808,66 @@ class DbViewerFrame {
             r = (r + 1)
         }
         dl.addClipEnd()
+    }
+
+    fn paintMetrics:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        if (findingsReady == false) {
+            this.runAudit()
+        }
+        toolbarView.pushText(dl "what the schema says about itself" (to_double (x + 16)) (to_double (y + 12)) 15.0 theme.ink)
+        toolbarView.pushText(dl (findings.summary()) (to_double (x + 16)) (to_double (y + 34)) 11.0 theme.glyph)
+        dl.addClip((to_double x) (to_double (y + 50)) (to_double w) (to_double (h - 50)))
+        def list:[Finding] (findings.ordered())
+        def ry:int (y + 58)
+        def i:int 0
+        def n:int (array_length list)
+        if (n == 0) {
+            toolbarView.pushText(dl "Nothing to report — every table has a key, every relationship is indexed, and no index repeats another." (to_double (x + 16)) (to_double ry) 12.0 theme.dim)
+        }
+        while (i < n) {
+            def f:Finding (itemAt list i)
+            def show:boolean true
+            if (findingFilter == "index") {
+                show = (DbViewerFrame.beginsWith(f.rule "index"))
+            }
+            if show {
+                def tint:EVGColor theme.dim
+                if (f.severity == "high") {
+                    tint = theme.warn
+                }
+                if (f.severity == "warn") {
+                    tint = theme.accent
+                }
+                toolbarView.pushText(dl f.severity (to_double (x + 16)) (to_double ry) 10.0 tint)
+                def where:string f.table
+                if ((strlen f.object) > 0) {
+                    where = (where + "." + f.object)
+                }
+                toolbarView.pushText(dl where (to_double (x + 60)) (to_double ry) 12.0 theme.ink)
+                toolbarView.pushText(dl f.rule (to_double (x + 240)) (to_double ry) 10.0 theme.glyph)
+                ry = (ry + 16)
+                def room:double (to_double (w - 90))
+                def line:string (this.fitText(f.message room 11.0))
+                toolbarView.pushText(dl line (to_double (x + 60)) (to_double ry) 11.0 theme.dim)
+                ry = (ry + 16)
+                if ((strlen f.fix) > 0) {
+                    def fixLine:string (this.fitText(("fix: " + f.fix) room 10.5))
+                    toolbarView.pushText(dl fixLine (to_double (x + 60)) (to_double ry) 10.5 theme.link)
+                    ry = (ry + 16)
+                }
+                ry = (ry + 8)
+            }
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    sfn beginsWith:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == prefix)
     }
 
     fn paintStatus:void (dl:EVGDisplayList) {

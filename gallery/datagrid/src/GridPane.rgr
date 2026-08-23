@@ -1,0 +1,375 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; GridPane.rgr — the spreadsheet as a component another application embeds.
+; ============================================================================
+;
+; The DataGrid was written as an application: a toolbar, a formula bar, sheet
+; tabs, and a grid under them. Everything below the chrome is already a
+; component — it just had no name and no way to be put somewhere.
+;
+; This is that name. A pane is a model, a selection, a viewport and a view,
+; drawn into somebody else's display list at somebody else's coordinates:
+;
+;     ┌─ the host's window ──────────────────────────┐
+;     │  its own toolbar                             │
+;     ├───────────────┬──────────────────────────────┤
+;     │ its own list  │  ╔═ GridPane ══════════════╗ │
+;     │               │  ║ name    type     null   ║ │
+;     │               │  ║ id      INTEGER▾  no    ║ │
+;     │               │  ║ email   VARCHAR▾  no    ║ │
+;     │               │  ╚═════════════════════════╝ │
+;     └───────────────┴──────────────────────────────┘
+;
+; ---------------------------------------------------------------------------
+; Nothing here is new drawing
+; ---------------------------------------------------------------------------
+;
+; No painter was written for this. The chrome was ALREADY conditional —
+; `toolbarH`, `formulaBarH` and `sheetTabH` are plain fields, and a pane sets
+; them to zero — and `GridView.buildDisplayList` already returns a list rather
+; than drawing to a screen. So an embedded sheet is the same code the
+; spreadsheet runs, with the furniture switched off and an offset applied.
+;
+; That is the point. A second grid written for the database viewer would have
+; its own idea of what a cell edit is, its own validation, its own selection
+; model, and within a month the two would disagree about something a user can
+; see. Everything a pane can do — validation dropdowns, cell styles,
+; conditional formats, sorting, the undo stack — arrives here because it was
+; built once, over there.
+; ============================================================================
+
+Import "SpreadsheetModel.rgr"
+Import "WorkbookModel.rgr"
+Import "GridView.rgr"
+Import "GridSelection.rgr"
+Import "DataGrid.rgr"
+Import "SheetView.rgr"
+Import "DataValidation.rgr"
+
+class GridPane {
+    def book:WorkbookModel (new WorkbookModel)
+    def model:SpreadsheetModel (new SpreadsheetModel)
+    def sel:GridSelection (new GridSelection)
+    def grid:DataGrid (new DataGrid)
+    def view:GridView (new GridView)
+    def sheetView:SheetView (new SheetView)
+    def editing:boolean false
+    def editBuf:string ""
+    ; Where the pane sits in the host's window.
+    def paneX:int 0
+    def paneY:int 0
+    def paneW:int 600
+    def paneH:int 400
+    ; A pane whose cells the host does not want changed. The grid still
+    ; selects, scrolls and copies; it just refuses to begin an edit.
+    def readOnly:boolean false
+
+    Constructor () {
+    }
+
+    ; A pane with no fonts yet. Fonts arrive as bytes afterwards, because a
+    ; browser has no font directory to read — the same reason `initBare`
+    ; exists beside `init`.
+    fn start:void (w:int h:int) {
+        view.initBare(w h)
+        this.adopt(model)
+        this.setBounds(0 0 w h)
+    }
+
+    fn addFontBytes:boolean (family:string data:buffer) {
+        return (view.ctx.tr.loadFontBytes(family data))
+    }
+
+    fn addFaceBytes:boolean (data:buffer) {
+        return (view.ctx.tr.addFaceBytes(data))
+    }
+
+    ; Share a host's already-loaded faces rather than parsing them twice. A
+    ; viewer that has fonts for its own text has them for the pane too.
+    fn shareFontsWith:void (other:UIContext) {
+        view.ctx.tr = other.tr
+    }
+
+    fn adopt:void (m:SpreadsheetModel) {
+        model = m
+        sheetView.attach(model)
+        grid.bindView(sheetView)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
+    ; The furniture an application wants and a pane does not. Set once, here,
+    ; so no caller has to remember three field names.
+    fn setBounds:void (x:int y:int w:int h:int) {
+        paneX = x
+        paneY = y
+        paneW = w
+        paneH = h
+        grid.toolbarH = 0
+        grid.formulaBarH = 0
+        grid.sheetTabH = 0
+        ; The pane's own coordinates start at zero; the host offsets the list
+        ; it gets back. Laying the grid out at the host's coordinates instead
+        ; would make every hit test need the offset applied twice.
+        grid.setBounds(0 0 w h)
+        grid.updateVisible(model)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Drawing
+    ; ------------------------------------------------------------------------
+    fn buildList:EVGDisplayList () {
+        return (view.buildDisplayList(model sel grid editing editBuf book))
+    }
+
+    ; Draw into a host's list, clipped to the pane and moved to where the host
+    ; put it.
+    fn buildInto:void (dl:EVGDisplayList) {
+        def sub:EVGDisplayList (this.buildList())
+        dl.addClip((to_double paneX) (to_double paneY) (to_double paneW) (to_double paneH))
+        GridPane.offsetList(sub paneX paneY)
+        GridPane.appendList(dl sub)
+        dl.addClipEnd()
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Input — the host passes its own coordinates and the pane subtracts
+    ; ------------------------------------------------------------------------
+    fn containsPoint:boolean (x:int y:int) {
+        if (x < paneX) {
+            return false
+        }
+        if (y < paneY) {
+            return false
+        }
+        if (x >= (paneX + paneW)) {
+            return false
+        }
+        return (y < (paneY + paneH))
+    }
+
+    fn localX:int (x:int) {
+        return (x - paneX)
+    }
+
+    fn localY:int (y:int) {
+        return (y - paneY)
+    }
+
+    ; Which cell is under a point of the HOST's window. Row is -1 when the
+    ; point is not over a cell at all.
+    fn cellAt:CellPos (x:int y:int) {
+        if ((this.containsPoint(x y)) == false) {
+            def none:CellPos (new CellPos)
+            none.row = -1
+            none.col = -1
+            return none
+        }
+        return (grid.hitTest(model (this.localX(x)) (this.localY(y))))
+    }
+
+    fn selectAt:boolean (x:int y:int) {
+        def hit:CellPos (this.cellAt(x y))
+        if (hit.row < 0) {
+            return false
+        }
+        if (hit.col < 0) {
+            return false
+        }
+        sel.active.row = hit.row
+        sel.active.col = hit.col
+        sel.anchor.row = hit.row
+        sel.anchor.col = hit.col
+        return true
+    }
+
+    ; Was the dropdown arrow of a list-validated cell clicked? The grid draws
+    ; that arrow already; this is the question a host asks before deciding
+    ; whether a click opens the picker or starts an edit.
+    fn hitListArrow:boolean (x:int y:int) {
+        if ((this.containsPoint(x y)) == false) {
+            return false
+        }
+        return (grid.hitListArrow(model sel (this.localX(x)) (this.localY(y))))
+    }
+
+    fn scrollBy:boolean (dy:int) {
+        def before:int grid.scrollY
+        grid.scrollY = (grid.scrollY + dy)
+        if (grid.scrollY < 0) {
+            grid.scrollY = 0
+        }
+        grid.updateVisible(model)
+        return ((grid.scrollY == before) == false)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Editing
+    ; ------------------------------------------------------------------------
+    fn beginEdit:boolean () {
+        if readOnly {
+            return false
+        }
+        editing = true
+        editBuf = (model.formulaBarText(sel.active.row sel.active.col))
+        return true
+    }
+
+    fn cancelEdit:void () {
+        editing = false
+        editBuf = ""
+    }
+
+    ; The value a caller is about to commit, checked against whatever rule
+    ; covers the cell. A pane refuses rather than storing something the
+    ; column's own validation says is not allowed.
+    fn accepts:boolean (row:int col:int text:string) {
+        def rule:DataValidation (model.validationAt(row col))
+        return (rule.accepts(text))
+    }
+
+    fn commitEdit:boolean () {
+        if (editing == false) {
+            return false
+        }
+        def r:int sel.active.row
+        def c:int sel.active.col
+        if ((this.accepts(r c editBuf)) == false) {
+            return false
+        }
+        model.applyEdit(r c editBuf "")
+        editing = false
+        editBuf = ""
+        sheetView.markDirty()
+        sheetView.rebuild()
+        return true
+    }
+
+    ; Set a cell without going through the editor, still respecting the rule.
+    fn setCell:boolean (row:int col:int text:string) {
+        if ((this.accepts(row col text)) == false) {
+            return false
+        }
+        model.setCell(row col text)
+        sheetView.markDirty()
+        sheetView.rebuild()
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Validation — the dropdown a column offers
+    ; ------------------------------------------------------------------------
+    ;
+    ; The grid already draws the arrow and opens the picker for a `list` rule;
+    ; all a host has to do is say which column has which choices. This is the
+    ; call that makes "the data type is a dropdown" one line rather than a
+    ; custom editor.
+    fn listColumn:DataValidation (col:int firstRow:int lastRow:int choices:[string]) {
+        def v:DataValidation (new DataValidation)
+        v.kind = "list"
+        v.c0 = col
+        v.c1 = col
+        v.r0 = firstRow
+        v.r1 = lastRow
+        v.f1 = (GridPane.quotedList(choices))
+        v.allowBlank = false
+        v.errorTitle = "Not one of the choices"
+        v.errorText = ("This column accepts: " + (GridPane.plainList(choices)))
+        model.addValidation(v)
+        return v
+    }
+
+    fn wholeColumn:DataValidation (col:int firstRow:int lastRow:int low:string high:string) {
+        def v:DataValidation (new DataValidation)
+        v.kind = "whole"
+        v.op = "between"
+        v.c0 = col
+        v.c1 = col
+        v.r0 = firstRow
+        v.r1 = lastRow
+        v.f1 = low
+        v.f2 = high
+        model.addValidation(v)
+        return v
+    }
+
+    fn textLengthColumn:DataValidation (col:int firstRow:int lastRow:int low:string high:string) {
+        def v:DataValidation (new DataValidation)
+        v.kind = "textLength"
+        v.op = "between"
+        v.c0 = col
+        v.c1 = col
+        v.r0 = firstRow
+        v.r1 = lastRow
+        v.f1 = low
+        v.f2 = high
+        model.addValidation(v)
+        return v
+    }
+
+    fn clearValidations:void (rows:int cols:int) {
+        model.clearValidationsIn(0 0 rows cols)
+    }
+
+    ; OOXML writes a list rule's choices as one quoted, comma-separated
+    ; string, and `DataValidation.listValues` reads that back — so a pane
+    ; writes what the reader expects rather than inventing a second spelling.
+    sfn quotedList:string (choices:[string]) {
+        def inner:string (GridPane.plainList(choices))
+        def q:string "\""
+        return (q + inner + q)
+    }
+
+    sfn plainList:string (choices:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length choices)
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (itemAt choices i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The two list utilities an embedded display list needs.
+    ; ------------------------------------------------------------------------
+    sfn offsetList:void (src:EVGDisplayList dx:int dy:int) {
+        def i:int 0
+        def n:int (array_length src.cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt src.cmds i)
+            ; kind 5 ends a clip and carries no geometry to move.
+            if (c.kind != 5) {
+                c.x = (c.x + (to_double dx))
+                c.y = (c.y + (to_double dy))
+                def pi:int 0
+                def np:int (array_length c.pts)
+                while (pi < np) {
+                    def even:boolean ((pi % 2) == 0)
+                    if even {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dx))
+                    } {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dy))
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn appendList:void (into:EVGDisplayList src:EVGDisplayList) {
+        def i:int 0
+        def n:int (array_length src.cmds)
+        while (i < n) {
+            push into.cmds (itemAt src.cmds i)
+            i = (i + 1)
+        }
+    }
+}
