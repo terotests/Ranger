@@ -1,0 +1,172 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGRulerTest — the numbers on the ruler, without a font in sight
+; ==============================================================================
+;
+; The ruler is split into geometry and drawing for exactly this: the numbers
+; can be checked without a canvas, and they are the half that is easy to get
+; wrong. What is checked here is what a reader would notice within a minute of
+; using it:
+;
+;   * the numbers count from the left edge of the PAPER, not of the window
+;   * the marks are the eighths of a unit, with the halves taller and the
+;     whole units taller still and numbered
+;   * a hanging indent puts the first line LEFT of the rest of the paragraph,
+;     which is the case a clamp to zero silently destroys
+;   * the two left markers sit on top of each other when there is no
+;     first-line indent, and the hit test still tells them apart
+;   * a marker dragged off the paper stops at the edge of the text column
+;
+;   npm run evg:ruler:test
+; ==============================================================================
+
+Import "EVGRuler.rgr"
+
+class RulerCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+}
+
+class EVGRulerTest {
+    def c:RulerCheck (new RulerCheck)
+
+    sfn main:void () {
+        def t (new EVGRulerTest())
+        t.run()
+    }
+
+    ; A letter page at 96 dpi: 8.5 inches of paper with a one-inch margin
+    ; each side, sitting in a window wider than it.
+    sfn page:EVGRuler () {
+        def r (new EVGRuler)
+        r.x = 0
+        r.y = 40
+        r.w = 1000
+        r.h = 22
+        r.pageX = 100
+        r.pageW = 816
+        r.marginL = 96
+        r.marginR = 96
+        r.pxPerUnit = 96.0
+        return r
+    }
+
+    fn run:void () {
+        print "=== EVGRulerTest ==="
+        this.testColumn()
+        this.testTicks()
+        this.testIndents()
+        this.testHit()
+        this.testDrag()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testColumn:void () {
+        print "--- where the paper and the text are ---"
+        def r:EVGRuler (EVGRulerTest.page())
+        c.eqInt("the text column starts an inch into the paper" (r.marginLeftX()) 196)
+        c.eqInt("and ends an inch before its right edge" (r.marginRightX()) 820)
+        c.eqInt("with no indents the text starts at the margin" (r.textLeftX()) 196)
+        c.eqInt("and ends at the other one" (r.textRightX()) 820)
+    }
+
+    fn testTicks:void () {
+        print "--- the marks ---"
+        def r:EVGRuler (EVGRulerTest.page())
+        ; Counted over the PAPER: a ruler numbered from the window edge
+        ; measures nothing anybody cares about.
+        c.eqInt("the first tick is at the left edge of the paper" (r.tickX(0)) 100)
+        c.eqInt("the eighth is one inch along" (r.tickX(8)) 196)
+        c.ok("and it is a whole unit" (r.tickIsUnit(8)))
+        c.eqInt("numbered 1" (r.tickLabel(8)) 1)
+        c.ok("a half is a half and not a unit"
+            ((r.tickIsHalf(4)) && ((r.tickIsUnit(4)) == false)))
+        c.ok("an eighth is neither"
+            (((r.tickIsHalf(3)) == false) && ((r.tickIsUnit(3)) == false)))
+        c.ok("the marks cover the paper" ((r.tickCount()) >= 68))
+    }
+
+    fn testIndents:void () {
+        print "--- and the paragraph's own indents ---"
+        def r:EVGRuler (EVGRulerTest.page())
+        r.indentLeft = 48
+        r.indentRight = 24
+        c.eqInt("a left indent moves the text in" (r.textLeftX()) 244)
+        c.eqInt("a right indent brings the other end in" (r.textRightX()) 796)
+        c.eqInt("and the first line follows the left one" (r.firstLineX()) 244)
+
+        ; A HANGING indent: the first line starts left of the rest, which is
+        ; how every bulleted list in every document is built. A first-line
+        ; indent clamped to zero cannot express it.
+        r.indentFirst = -24
+        c.eqInt("a hanging first line starts left of the paragraph" (r.firstLineX()) 220)
+        c.ok("which is left of the body" ((r.firstLineX()) < (r.textLeftX())))
+    }
+
+    fn testHit:void () {
+        print "--- which marker the pointer is on ---"
+        def r:EVGRuler (EVGRulerTest.page())
+        c.eqInt("the top half of the band is the first line"
+            (r.hitMarker(196 (r.y + 3))) (EVGRuler.markerFirst()))
+        ; The two left markers are at the SAME x when there is no first-line
+        ; indent, which is most paragraphs. The band is split top and bottom
+        ; so both stay reachable — a hit test that answered one of them for
+        ; the whole band would make the other undraggable and leave nobody
+        ; able to say why.
+        c.eqInt("the bottom half is the left indent"
+            (r.hitMarker(196 ((r.y + r.h) - 3))) (EVGRuler.markerLeft()))
+        c.eqInt("the right indent is at the other end"
+            (r.hitMarker(820 ((r.y + r.h) - 3))) (EVGRuler.markerRight()))
+        c.eqInt("the middle of the ruler is no marker"
+            (r.hitMarker(500 (r.y + 8))) -1)
+        c.eqInt("and neither is a point above the band"
+            (r.hitMarker(196 (r.y - 4))) -1)
+        ; A few pixels off still counts: a marker six pixels wide that only
+        ; answers its exact centre is a marker nobody can grab.
+        c.eqInt("a near miss still finds it"
+            (r.hitMarker(200 (r.y + 3))) (EVGRuler.markerFirst()))
+    }
+
+    fn testDrag:void () {
+        print "--- and where dragging one puts it ---"
+        def r:EVGRuler (EVGRulerTest.page())
+        c.eqInt("dragging the left indent an inch in" (r.indentFor(1 292)) 96)
+        c.eqInt("dragging the right indent an inch in" (r.indentFor(2 724)) 96)
+
+        ; Off the paper in either direction stops at the column.
+        c.eqInt("dragged off the left edge it stops at the margin" (r.indentFor(1 0)) 0)
+        c.eqInt("dragged off the right edge it stops too" (r.indentFor(2 5000)) 0)
+        def colR:int (r.marginRightX())
+        def colL:int (r.marginLeftX())
+        c.ok("and cannot be dragged past the far side"
+            ((r.indentFor(1 5000)) < (colR - colL)))
+
+        ; The first line may go negative — that is the hanging indent — but
+        ; not so far that it leaves the paper.
+        r.indentLeft = 48
+        c.eqInt("the first line can be dragged left of the paragraph"
+            (r.indentFor(0 220)) -24)
+        c.ok("but not off the paper" ((r.indentFor(0 0)) >= (0 - 49)))
+    }
+}

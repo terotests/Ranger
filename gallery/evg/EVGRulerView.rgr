@@ -1,0 +1,156 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGRulerView — the ruler, drawn
+; ==============================================================================
+;
+; The geometry is `EVGRuler` and is checked without a font or a canvas. This
+; is the half that needs a measurer, and it is deliberately small: a band, the
+; paper lighter than the space beside it, ticks, numbers on the whole units,
+; and three markers.
+;
+; The markers are the part worth drawing carefully. Word's are a downward
+; triangle for the first line, an upward one for the left indent and another
+; for the right — two of them stacked at the same x whenever the paragraph has
+; no first-line indent, which is most paragraphs. Drawing them as one lump
+; there is why so many rulers are undraggable: a reader cannot aim at a
+; marker they cannot see the edges of.
+; ==============================================================================
+
+Import "EVGDisplayList.rgr"
+Import "EVGColor.rgr"
+Import "EVGRuler.rgr"
+Import "../game_engine/ui/UIContext.rgr"
+
+class EVGRulerTheme {
+    ; The band beside the paper: the page is not there, and it should not look
+    ; as though it is.
+    def bg:EVGColor (EVGColor.rgb(222 227 235))
+    ; The paper's own width within the band.
+    def paper:EVGColor (EVGColor.rgb(252 253 255))
+    ; The parts of the paper outside the text column — the margins, which is
+    ; the one thing a ruler exists to make visible.
+    def margin:EVGColor (EVGColor.rgb(214 221 231))
+    def line:EVGColor (EVGColor.rgb(160 170 186))
+    def ink:EVGColor (EVGColor.rgb(70 80 96))
+    def marker:EVGColor (EVGColor.rgb(60 90 150))
+    def markerHot:EVGColor (EVGColor.rgb(40 100 210))
+
+    Constructor () {
+    }
+}
+
+class EVGRulerView {
+    def ctx:UIContext (new UIContext)
+    def theme:EVGRulerTheme (new EVGRulerTheme)
+    def fontFamily:string "Open Sans"
+    ; Which marker the pointer is on, or -1. Chrome, but it is the difference
+    ; between a marker that looks draggable and one that looks painted on.
+    def hot:int -1
+
+    Constructor () {
+    }
+
+    fn attach:void (c:UIContext family:string) {
+        ctx = c
+        fontFamily = family
+    }
+
+    fn pushRect:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        dl.addRect(x y w h col)
+    }
+
+    fn pushText:void (dl:EVGDisplayList s:string x:double y:double size:double col:EVGColor) {
+        ctx.tr.fontFamily = fontFamily
+        def w:double (ctx.tr.measureWidth(s size))
+        def h:double (ctx.tr.lineHeight(size))
+        dl.addText(s x y size col fontFamily false false w h)
+    }
+
+    fn paint:void (dl:EVGDisplayList r:EVGRuler) {
+        def bx:double (to_double r.x)
+        def by:double (to_double r.y)
+        def bw:double (to_double r.w)
+        def bh:double (to_double r.h)
+        this.pushRect(dl bx by bw bh theme.bg)
+
+        ; The paper, then the text column lighter inside it. Two rectangles
+        ; rather than four: the margins are what is LEFT, and drawing them as
+        ; the leftovers is what keeps them exactly flush with the column.
+        this.pushRect(dl (to_double r.pageX) (by + 3.0) (to_double r.pageW) (bh - 7.0) theme.margin)
+        def colL:int (r.marginLeftX())
+        def colR:int (r.marginRightX())
+        if (colR > colL) {
+            this.pushRect(dl (to_double colL) (by + 3.0) (to_double (colR - colL)) (bh - 7.0) theme.paper)
+        }
+
+        ; The ticks, over the paper only.
+        def n:int (r.tickCount())
+        def i:int 0
+        while (i < n) {
+            def tx:int (r.tickX(i))
+            if (tx >= r.pageX) {
+                if (tx <= (r.pageX + r.pageW)) {
+                    def len:double 3.0
+                    if (r.tickIsHalf(i)) {
+                        len = 5.0
+                    }
+                    if (r.tickIsUnit(i)) {
+                        len = 7.0
+                    }
+                    def ty:double ((by + bh) - (4.0 + len))
+                    this.pushRect(dl (to_double tx) ty 1.0 len theme.line)
+                    if (r.tickIsUnit(i)) {
+                        def num:int (r.tickLabel(i))
+                        if (num > 0) {
+                            def s:string (to_string num)
+                            ctx.tr.fontFamily = fontFamily
+                            def tw:double (ctx.tr.measureWidth(s 9.0))
+                            this.pushText(dl s ((to_double tx) - (tw * 0.5)) (by + 3.0) 9.0 theme.ink)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+
+        this.pushRect(dl bx ((by + bh) - 1.0) bw 1.0 theme.line)
+
+        ; The three markers.
+        this.paintMarker(dl r (EVGRuler.markerFirst()) true)
+        this.paintMarker(dl r (EVGRuler.markerLeft()) false)
+        this.paintMarker(dl r (EVGRuler.markerRight()) false)
+    }
+
+    ; A triangle, as a stack of rows — the display list has no polygon that
+    ; every backend fills the same way, and a marker is six pixels tall.
+    fn paintMarker:void (dl:EVGDisplayList r:EVGRuler which:int pointingDown:boolean) {
+        def mx:int (r.markerX(which))
+        if (mx < r.pageX) {
+            return
+        }
+        if (mx > (r.pageX + r.pageW)) {
+            return
+        }
+        def col:EVGColor theme.marker
+        if (hot == which) {
+            col = theme.markerHot
+        }
+        def rows:int 6
+        def top:int (r.y + 2)
+        if (pointingDown == false) {
+            top = ((r.y + r.h) - 8)
+        }
+        def i:int 0
+        while (i < rows) {
+            def half:int i
+            if pointingDown {
+                half = (rows - 1 - i)
+            }
+            def x0:double (to_double (mx - half))
+            def w:double (to_double ((half * 2) + 1))
+            this.pushRect(dl x0 (to_double (top + i)) w 1.0 col)
+            i = (i + 1)
+        }
+    }
+}

@@ -29,6 +29,7 @@
 ; ==============================================================================
 
 Import "DocxViewer.rgr"
+Import "../../evg/EVGRulerView.rgr"
 Import "DocxA11y.rgr"
 Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
@@ -143,6 +144,15 @@ class DocxApp {
     def H:int 700
     def toolbarH:int 32
     def statusH:int 22
+    ; The ruler, between the strip and the paper.
+    ;
+    ; A word processor without one can be typed into but not laid out: it is
+    ; the only place a reader can SEE that the page has margins and that the
+    ; paragraph they are in is indented, without opening a dialog and knowing
+    ; the word "indent" first.
+    def ruler:EVGRuler (new EVGRuler)
+    def rulerView:EVGRulerView (new EVGRulerView)
+    def rulerH:int 22
     def status:string ""
     def theme:EVGToolbarTheme (new EVGToolbarTheme)
     ; What the app would like the host to do about a file — "open", "saveAs"
@@ -220,8 +230,65 @@ class DocxApp {
     }
 
     ; --- geometry -------------------------------------------------------------
+    ; Fill the ruler from the page under it and the paragraph the caret is
+    ; in. Both, every frame: the margins change with the SECTION — a landscape
+    ; section is a different page — and the indents change with every
+    ; keystroke that moves the caret into another paragraph.
+    fn syncRuler:void (pw:int) {
+        ruler.x = 0
+        ruler.y = toolbarH
+        ruler.w = W
+        ruler.h = rulerH
+        ruler.pageX = pageX
+        ruler.pageW = pw
+        ruler.pxPerUnit = 96.0
+        def pg@(optional):LaidPage (viewer.view.layout.pageAt(viewer.currentPage))
+        if (null? pg) {
+            return
+        }
+        def page:LaidPage (unwrap pg)
+        ruler.marginL = page.contentX
+        def right:int ((page.width - page.contentX) - page.contentW)
+        if (right < 0) {
+            right = 0
+        }
+        ruler.marginR = right
+        ruler.indentFirst = 0
+        ruler.indentLeft = 0
+        ruler.indentRight = 0
+        def para@(optional):Paragraph (this.caretParagraph())
+        if (!null? para) {
+            def pp:Paragraph (unwrap para)
+            ruler.indentLeft = (to_int (DocxLayout.ptToPx(pp.indentLeftPt)))
+            ruler.indentRight = (to_int (DocxLayout.ptToPx(pp.indentRightPt)))
+            ruler.indentFirst = (to_int (DocxLayout.ptToPx(pp.indentFirstLinePt)))
+        }
+    }
+
+    ; The paragraph the caret is in, or nothing when there is no caret — a
+    ; document being read rather than edited still has margins worth showing,
+    ; which is why this failing is not a reason to skip the ruler.
+    fn caretParagraph@(optional):Paragraph () {
+        def none@(optional):Paragraph
+        def want:int viewer.edit.sel.focus.paragraphId
+        if (want <= 0) {
+            return none
+        }
+        def d:RichDocument viewer.doc
+        def i:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            if (p.id == want) {
+                def hit@(optional):Paragraph p
+                return hit
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
     fn pageTop:int () {
-        return toolbarH
+        return (toolbarH + rulerH)
     }
 
     fn pageAreaH:int () {
@@ -674,6 +741,7 @@ class DocxApp {
         ; else being told about scrolling.
         viewer.viewportH = (this.pageAreaH())
         pageY = ((this.pageTop()) - viewer.scrollY)
+        this.syncRuler(pw)
         DocxApp.offsetList(dl pageX pageY)
 
         def framed:EVGDisplayList (new EVGDisplayList)
@@ -691,6 +759,8 @@ class DocxApp {
         this.adoptDocumentDirection(viewer.doc)
         toolbar.refresh(viewer.edit (viewer.editMode()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
+        rulerView.attach(viewer.view.ctx "Open Sans")
+        rulerView.paint(framed ruler)
 
         ; The status line: which page, and what the app last did.
         def sy:int (H - statusH)

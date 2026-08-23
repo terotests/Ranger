@@ -1,0 +1,232 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGRuler — where the paper starts, where the text starts, and how far along
+; ==============================================================================
+;
+; A word processor without a ruler can be typed into but not laid out. It is
+; the one place a reader can SEE that the page has margins, that the paragraph
+; they are in is indented, and by how much — and the one place they can say so
+; without opening a dialog and knowing the word "indent" first.
+;
+; This is the geometry only: where the band is, where the ticks fall, where
+; the three markers sit and which one the pointer is on. The drawing is
+; `EVGRulerView`, and the split is the same one `EVGToolbar` has, for the same
+; reason — the numbers can be checked without a font, a canvas or a window,
+; and they are the half that is easy to get wrong.
+;
+; Everything is in SCREEN pixels except `pxPerUnit`, which is how many of them
+; a ruler unit is. An inch at 96 dpi is the default because that is the unit
+; Word's own ruler is marked in and the unit its measurements arrive in; a
+; caller working in centimetres passes 37.8 and gets a centimetre ruler with
+; no other change.
+;
+;   npm run evg:ruler:test
+; ==============================================================================
+
+class EVGRuler {
+    ; The band itself.
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 22
+
+    ; Where the paper is inside it. The ruler is as wide as the window and the
+    ; paper is not, so the two are separate: the numbers count from the left
+    ; edge of the PAPER, and the band beyond the paper is dead space.
+    def pageX:int 0
+    def pageW:int 0
+
+    ; The text column inside the paper, in pixels from the paper's left edge.
+    def marginL:int 0
+    def marginR:int 0
+
+    ; The paragraph's own indents, in pixels, measured from the text column —
+    ; not from the paper. That is what they are in the file and it is why a
+    ; hanging indent is a negative first line.
+    def indentFirst:int 0
+    def indentLeft:int 0
+    def indentRight:int 0
+
+    def pxPerUnit:double 96.0
+    ; Eight ticks to the unit: the eighths of an inch a Word ruler shows.
+    def ticksPerUnit:int 8
+
+    Constructor () {
+    }
+
+    ; --- the paper, in screen coordinates ------------------------------------
+
+    fn textLeftX:int () {
+        return ((pageX + marginL) + indentLeft)
+    }
+
+    fn textRightX:int () {
+        return (((pageX + pageW) - marginR) - indentRight)
+    }
+
+    ; The first line can start left of the rest of the paragraph — that is a
+    ; hanging indent, and it is why this is not clamped to the others.
+    fn firstLineX:int () {
+        return (((pageX + marginL) + indentLeft) + indentFirst)
+    }
+
+    fn marginLeftX:int () {
+        return (pageX + marginL)
+    }
+
+    fn marginRightX:int () {
+        return ((pageX + pageW) - marginR)
+    }
+
+    ; --- the marks ------------------------------------------------------------
+
+    ; How many ticks fit across the paper. Counted over the PAPER rather than
+    ; the band, because a ruler numbered from the window edge measures nothing
+    ; anybody cares about.
+    fn tickCount:int () {
+        if (pxPerUnit <= 0.0) {
+            return 0
+        }
+        def per:double (pxPerUnit / (to_double ticksPerUnit))
+        if (per <= 0.0) {
+            return 0
+        }
+        return ((to_int ((to_double pageW) / per)) + 1)
+    }
+
+    fn tickX:int (i:int) {
+        def per:double (pxPerUnit / (to_double ticksPerUnit))
+        return (pageX + (to_int ((to_double i) * per)))
+    }
+
+    ; A whole unit gets a number; the eighths get a mark and no number.
+    fn tickIsUnit:boolean (i:int) {
+        if (ticksPerUnit <= 0) {
+            return false
+        }
+        return ((i % ticksPerUnit) == 0)
+    }
+
+    ; Half units are drawn taller than eighths, which is what makes a ruler
+    ; countable at a glance rather than a row of identical scratches.
+    fn tickIsHalf:boolean (i:int) {
+        if (ticksPerUnit <= 0) {
+            return false
+        }
+        def half:int (idiv ticksPerUnit 2)
+        if (half <= 0) {
+            return false
+        }
+        return ((i % half) == 0)
+    }
+
+    fn tickLabel:int (i:int) {
+        if (ticksPerUnit <= 0) {
+            return 0
+        }
+        return (idiv i ticksPerUnit)
+    }
+
+    ; --- the markers ----------------------------------------------------------
+    ; 0 the first line, 1 the left indent, 2 the right indent, -1 none.
+
+    sfn markerFirst:int () { return 0 }
+    sfn markerLeft:int ()  { return 1 }
+    sfn markerRight:int () { return 2 }
+
+    fn markerX:int (which:int) {
+        if (which == 0) {
+            return (this.firstLineX())
+        }
+        if (which == 1) {
+            return (this.textLeftX())
+        }
+        return (this.textRightX())
+    }
+
+    ; Which marker the pointer is on, or -1.
+    ;
+    ; The first line and the left indent sit at the same x whenever the
+    ; paragraph has no first-line indent, which is most paragraphs. The FIRST
+    ; LINE wins there, because it is the one at the top of the band and the
+    ; one under the pointer coming down onto it — a hit test that answered the
+    ; left indent would make the top marker undraggable in the common case and
+    ; leave nobody able to say why.
+    fn hitMarker:int (px:int py:int) {
+        if (py < y) {
+            return -1
+        }
+        if (py >= (y + h)) {
+            return -1
+        }
+        def half:int (idiv h 2)
+        def top:boolean (py < (y + half))
+        if top {
+            if (this.nearX(px (this.firstLineX()))) {
+                return 0
+            }
+        } {
+            if (this.nearX(px (this.textLeftX()))) {
+                return 1
+            }
+        }
+        if (this.nearX(px (this.textRightX()))) {
+            return 2
+        }
+        return -1
+    }
+
+    fn nearX:boolean (px:int at:int) {
+        def d:int (px - at)
+        if (d < 0) {
+            d = (0 - d)
+        }
+        return (d <= 6)
+    }
+
+    ; Where a marker dragged to `px` puts its indent, in pixels from the text
+    ; column. Clamped so a marker cannot be dragged off its own paper: an
+    ; indent wider than the column is a paragraph with no width at all, and
+    ; the file will happily hold one.
+    fn indentFor:int (which:int px:int) {
+        def colL:int (pageX + marginL)
+        def colR:int ((pageX + pageW) - marginR)
+        def span:int (colR - colL)
+        if (span < 1) {
+            return 0
+        }
+        if (which == 2) {
+            def r:int (colR - px)
+            if (r < 0) {
+                r = 0
+            }
+            if (r > (span - 1)) {
+                r = (span - 1)
+            }
+            return r
+        }
+        def v:int (px - colL)
+        if (which == 1) {
+            if (v < 0) {
+                v = 0
+            }
+            if (v > (span - 1)) {
+                v = (span - 1)
+            }
+            return v
+        }
+        ; The first line is relative to the left indent and may be negative —
+        ; that is a hanging indent, and clamping it to zero is what makes a
+        ; bulleted list impossible to express.
+        def f:int ((px - colL) - indentLeft)
+        def lo:int (0 - (indentLeft + 1))
+        if (f < lo) {
+            f = lo
+        }
+        if (f > (span - 1)) {
+            f = (span - 1)
+        }
+        return f
+    }
+}
