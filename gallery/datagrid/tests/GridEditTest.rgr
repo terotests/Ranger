@@ -2890,17 +2890,24 @@ class GridEditTest {
         tb.sheetView.markDirty()
         tb.sheetView.rebuild()
         tb.render()
-        ; Borders are on the Format page now, so this has to open it first —
-        ; which is what a reader does. A button on a page that is not showing
-        ; has no rectangle at all.
+        ; Borders are on the Format page and inside a dropdown now, so this
+        ; has to walk the same path a reader does: open the page, open the
+        ; list, then press the entry. Neither the page nor the list has a
+        ; rectangle for anything it is not showing.
         def fmtTab:int (tb.view.toolbar.tabNamed("Format"))
         c.ok("there is a Format page" (fmtTab >= 0))
         tb.view.toolbar.selectTab(fmtTab)
         tb.render()
+        def menuIdx:int -1
         def bdIdx:int -1
         def bi:int 0
         while (bi < (tb.view.toolbar.count())) {
             def bt:ToolItem (tb.view.toolbar.at(bi))
+            if bt.isMenu {
+                if (bt.label == "Borders") {
+                    menuIdx = bi
+                }
+            }
             if (bt.command == "format.border") {
                 if (bt.arg == "all") {
                     bdIdx = bi
@@ -2908,6 +2915,12 @@ class GridEditTest {
             }
             bi = (bi + 1)
         }
+        c.ok("there is a Borders dropdown" (menuIdx >= 0))
+        def shutItem:ToolItem (tb.view.toolbar.at(bdIdx))
+        c.eqInt("its entries take no room while it is shut" shutItem.w 0)
+        c.ok("pressing it opens the list rather than running anything"
+            (tb.view.toolbar.pressItem(menuIdx)))
+        tb.render()
         c.ok("the toolbar has an All borders button" (bdIdx >= 0))
         def bItem:ToolItem (tb.view.toolbar.at(bdIdx))
         def bx:int (bItem.x + (idiv bItem.w 2))

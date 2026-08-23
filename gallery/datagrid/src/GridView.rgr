@@ -1925,6 +1925,15 @@ class GridView {
             wi = (wi + 1)
         }
 
+        ; An open dropdown hangs BELOW the strip, over the formula bar and the
+        ; first rows of the sheet, so it is drawn last. Drawing it inside the
+        ; strip's own paint looked right and produced a list that was painted
+        ; and then immediately covered by everything under the band — a bug
+        ; only a picture finds.
+        if (grid.toolbarH > 0) {
+            toolbarView.paintOverlay(dl toolbar)
+        }
+
         return dl
     }
 

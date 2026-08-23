@@ -52,7 +52,11 @@ class DocxToolbar extends EVGToolbar {
         clear items
         clear tabs
         this.addTab("Home")
-        this.add("file.save" "" "Save" (ToolIcon.save()))
+        ; The four a beginner reaches for first carry their names. The rest
+        ; stay pictures — a band where everything is labelled is as unreadable
+        ; as one where nothing is.
+        this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
+        this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
         this.addSeparator()
@@ -212,6 +216,7 @@ class DocxApp {
         commands.add("page.prev" "Previous page" "View" "PageUp")
         commands.addArg("page.goto" "Go to page" "View" "")
         commands.add("view.rtl" "Right-to-left layout" "View" "")
+        commands.add("file.print" "Print" "File" "Ctrl+P")
     }
 
     ; --- geometry -------------------------------------------------------------
@@ -264,6 +269,15 @@ class DocxApp {
     fn runCommand:boolean (id:string arg:string) {
         if (id == "file.save") {
             fileRequest = "saveAs"
+            return true
+        }
+        ; Printing is the host's: this program can lay a page out and draw it,
+        ; and it has no idea what printers exist. `fileRequest` is the same
+        ; channel saving already goes out on, and a host that does not answer
+        ; it simply has no Print — which is honest, and better than a button
+        ; that appears to work.
+        if (id == "file.print") {
+            fileRequest = "print"
             return true
         }
         if (id == "view.rtl") {
@@ -562,6 +576,12 @@ class DocxApp {
                 return true
             }
             if (toolbar.hot >= 0) {
+                ; A dropdown opens its list instead of running something; the
+                ; strip settles that itself so the three apps cannot drift on
+                ; what one does.
+                if (toolbar.pressItem(toolbar.hot)) {
+                    return true
+                }
                 def t:ToolItem (toolbar.at(toolbar.hot))
                 this.runCommand(t.command t.arg)
                 return true
@@ -611,6 +631,7 @@ class DocxApp {
             if (name == "z") { return (this.runCommand("edit.undo" "")) }
             if (name == "y") { return (this.runCommand("edit.redo" "")) }
             if (name == "s") { return (this.runCommand("file.save" "")) }
+            if (name == "p") { return (this.runCommand("file.print" "")) }
         }
         if (name == "left")     { viewer.keyLeft(shift)   return true }
         if (name == "right")    { viewer.keyRight(shift)  return true }
@@ -680,6 +701,11 @@ class DocxApp {
             label = ((label + "   ") + status)
         }
         toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
+
+        ; An open dropdown hangs BELOW the strip, so it is drawn after
+        ; everything the strip sits on top of and before the windows, which
+        ; are the only thing that belongs above it.
+        toolbarView.paintOverlay(framed toolbar)
 
         def wi:int 0
         while (wi < (array_length windows.windows)) {

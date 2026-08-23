@@ -242,6 +242,7 @@ class EVGToolbarView {
         ; sized by counting characters is visibly wrong on the first proper
         ; name it meets.
         this.measureTabs(bar)
+        this.measureLabels(bar)
         bar.layout(x0 y0 width)
         if (bar.hasTabs()) {
             this.paintTabs(dl bar x0 y0 width)
@@ -264,7 +265,13 @@ class EVGToolbarView {
                     if (t.textW > 0) {
                         this.paintTextButton(dl t)
                     } {
-                        this.paintToolIcon(dl t)
+                        this.paintToolIcon(dl t bar.iconW)
+                        if t.showLabel {
+                            this.paintChipLabel(dl t bar.iconW)
+                        }
+                        if t.isMenu {
+                            this.paintChevron(dl ((t.x + t.w) - 9) (t.y + (idiv t.h 2)) theme.dim)
+                        }
                     }
                 }
             }
@@ -288,6 +295,74 @@ class EVGToolbarView {
                 this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.accent)
                 this.pushText(dl tip (to_double (tx + 6)) (to_double (ty + 3)) 12.0 theme.ink)
             }
+        }
+    }
+
+    ; The word beside the picture on a labelled button.
+    fn paintChipLabel:void (dl:EVGDisplayList t:ToolItem iconW:int) {
+        this.applyFace(false)
+        def ty:double ((to_double t.y) + (((to_double t.h) - 12.0) * 0.5))
+        this.pushText(dl t.label (to_double (t.x + iconW)) ty 12.0 theme.ink)
+    }
+
+    ; The little chevron that says a button has a list under it.
+    fn paintChevron:void (dl:EVGDisplayList cx:int cy:int col:EVGColor) {
+        this.pushRect(dl (to_double (cx - 3)) (to_double (cy - 1)) 7.0 1.0 col)
+        this.pushRect(dl (to_double (cx - 2)) (to_double (cy + 1)) 5.0 1.0 col)
+        this.pushRect(dl (to_double (cx - 1)) (to_double (cy + 3)) 3.0 1.0 col)
+    }
+
+    ; What every caption measures at, for the layout to size the buttons by.
+    ; Same arrangement as the page names: the strip has no measurer, the view
+    ; does, and the numbers are written back before the layout runs.
+    fn measureLabels:void (bar:EVGToolbar) {
+        this.applyFace(false)
+        def i:int 0
+        while (i < (bar.count())) {
+            def t:ToolItem (bar.at(i))
+            if t.showLabel {
+                t.labelW = (to_int ((ctx.tr.measureWidth(t.label 12.0)) + 8.0))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The open dropdown's list.
+    ;
+    ; A SEPARATE call, made by the app at the very end of its frame, because
+    ; a list hangs below the strip and everything the app draws afterwards —
+    ; the formula bar, the sheet, the page — is drawn over the band and would
+    ; bury it. Drawing it inside `paint` looked right and produced a menu that
+    ; was painted and then immediately covered up, which is a bug you can only
+    ; find by looking at the picture.
+    fn paintOverlay:void (dl:EVGDisplayList bar:EVGToolbar) {
+        this.paintMenu(dl bar)
+    }
+
+    fn paintMenu:void (dl:EVGDisplayList bar:EVGToolbar) {
+        def box:[int] (bar.menuBox())
+        if ((array_length box) < 4) {
+            return
+        }
+        def bx:double (to_double (itemAt box 0))
+        def by:double (to_double (itemAt box 1))
+        def bw:double (to_double (itemAt box 2))
+        def bh:double (to_double (itemAt box 3))
+        this.pushRect(dl bx by bw bh theme.tipBg)
+        this.pushBorder(dl bx by bw bh 1.0 theme.line)
+        def i:int 0
+        while (i < (bar.count())) {
+            def t:ToolItem (bar.at(i))
+            if (t.menuOwner == bar.openMenu) {
+                if (t.w > 0) {
+                    if (bar.hot == i) {
+                        this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double t.h) theme.hotBg)
+                    }
+                    this.paintToolIcon(dl t bar.iconW)
+                    this.paintChipLabel(dl t bar.iconW)
+                }
+            }
+            i = (i + 1)
         }
     }
 
@@ -444,9 +519,15 @@ class EVGToolbarView {
         }
     }
 
-    fn paintToolIcon:void (dl:EVGDisplayList t:ToolItem) {
+    fn paintToolIcon:void (dl:EVGDisplayList t:ToolItem iconW:int) {
         def cx:int (t.x + (idiv t.w 2))
         def cy:int (t.y + (idiv t.h 2))
+        ; A labelled button puts its picture at the left and its word beside
+        ; it, the way every office strip does — centring the glyph in a button
+        ; three times its width leaves the word floating away from it.
+        if t.showLabel {
+            cx = (t.x + (idiv iconW 2))
+        }
         def ink:EVGColor theme.ink
         def dim:EVGColor theme.dim
         def k:int t.icon

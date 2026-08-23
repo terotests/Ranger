@@ -181,6 +181,11 @@ class ToolIcon {
     ; text will run once it is pressed, which is the only thing about this
     ; button a reader needs to guess.
     sfn textRtl:int ()     { return 79 }
+    ; The printer. Every office suite puts one on the strip and it is the one
+    ; picture nobody has to be taught.
+    sfn printDoc:int ()    { return 80 }
+    ; The chevron a dropdown draws beside its own picture.
+    sfn caret:int ()       { return 81 }
 }
 
 class ToolItem {
@@ -207,6 +212,25 @@ class ToolItem {
     def pressed:boolean false
     ; Wider than an icon: font / size dropdowns show a readable label.
     def textW:int 0
+    ; Draw the name beside the picture, not only in the tooltip.
+    ;
+    ; The commands a beginner reaches for first — paste, copy, print — are
+    ; worth the width: a picture has to be learnt and a word does not, and a
+    ; strip where the four or five most-used buttons say what they are is a
+    ; strip somebody can use on the first day. The rest stay icon-only,
+    ; because a band where EVERYTHING is labelled is as unreadable as one
+    ; where nothing is.
+    def showLabel:boolean false
+    ; What the caption measures at, filled in by the view — the strip has no
+    ; measurer of its own. See ToolTab.measuredW, same arrangement.
+    def labelW:int 0
+    ; A button that opens a list under itself instead of running something.
+    ; Its own `command` is empty: pressing it opens the list.
+    def isMenu:boolean false
+    ; For an entry IN such a list, the index of the button that owns it, or
+    ; -1. An entry takes no room on the strip while its list is shut, which
+    ; is the whole point — five border commands in one slot.
+    def menuOwner:int -1
 
     Constructor () {
     }
@@ -281,6 +305,8 @@ class EVGToolbar {
     ; tree, reads `x` and `w` off the item, so turning those around turns all
     ; three around together and none of them has to know.
     def rtl:boolean false
+    ; Which dropdown is showing its list, or -1.
+    def openMenu:int -1
     ; Which item the pointer is over, or -1. Only chrome, but it is the
     ; difference between a strip of shapes and something that looks clickable.
     def hot:int -1
@@ -324,6 +350,78 @@ class EVGToolbar {
     ; Start a named page. Everything added after this belongs to it, until the
     ; next one — which is why a strip is still built as one list of `add`
     ; calls, with the tabs marked off inside it rather than built separately.
+    ; A button that says what it is. The picture and the word, side by side.
+    fn addLabeled:ToolItem (command:string arg:string label:string icon:int) {
+        def t:ToolItem (this.add(command arg label icon))
+        t.showLabel = true
+        return t
+    }
+
+    ; A button that opens a list under itself. Everything added with
+    ; `addUnder` after it belongs to that list until the next one.
+    fn addDropdown:ToolItem (label:string icon:int) {
+        def t:ToolItem (this.add("" "" label icon))
+        t.isMenu = true
+        t.showLabel = true
+        return t
+    }
+
+    ; An entry in the last dropdown's list. It takes no room on the strip
+    ; while the list is shut.
+    fn addUnder:ToolItem (command:string arg:string label:string icon:int) {
+        def owner:int (this.lastMenuIndex())
+        def t:ToolItem (this.add(command arg label icon))
+        t.menuOwner = owner
+        t.showLabel = true
+        return t
+    }
+
+    fn lastMenuIndex:int () {
+        def i:int ((array_length items) - 1)
+        while (i >= 0) {
+            def t:ToolItem (itemAt items i)
+            if t.isMenu {
+                return i
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    ; A press on item `i`, as far as the STRIP is concerned. Answers true when
+    ; the strip dealt with it itself — opening or shutting a list — and false
+    ; when the owner should run the command. Keeping this here rather than in
+    ; three apps is what stops the three from drifting on what a dropdown does.
+    fn pressItem:boolean (i:int) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (array_length items)) {
+            return false
+        }
+        def t:ToolItem (itemAt items i)
+        if t.isMenu {
+            if (openMenu == i) {
+                openMenu = -1
+            } {
+                openMenu = i
+            }
+            return true
+        }
+        ; Choosing from a list shuts it. The command still runs — the caller
+        ; is told false so that it does.
+        if (t.menuOwner >= 0) {
+            openMenu = -1
+        } {
+            openMenu = -1
+        }
+        return false
+    }
+
+    fn closeMenu:void () {
+        openMenu = -1
+    }
+
     fn addTab:ToolTab (name:string) {
         this.closeTab()
         def t (new ToolTab)
@@ -467,12 +565,30 @@ class EVGToolbar {
                 i = (i + 1)
                 continue
             }
+            ; An entry in a dropdown's list takes no room on the strip. It is
+            ; laid out under its owner afterwards, and only while the list is
+            ; showing.
+            if (t.menuOwner >= 0) {
+                t.x = 0
+                t.y = 0
+                t.w = 0
+                t.h = 0
+                i = (i + 1)
+                continue
+            }
             def w:int iconW
             if t.isSeparator {
                 w = 9
             }
             if (t.textW > 0) {
                 w = t.textW
+            }
+            if t.showLabel {
+                w = ((iconW + (this.labelWidth(t))) + 6)
+            }
+            if t.isMenu {
+                ; Room for the chevron that says there is a list under it.
+                w = (w + 12)
             }
             if ((cx + w) > right) {
                 ; Wrap. A separator never starts a row — it would be a rule
@@ -503,10 +619,115 @@ class EVGToolbar {
         if (this.hasTabs()) {
             height = (height + tabH)
         }
+        this.layoutMenu()
         if rtl {
             this.mirrorRows(x0 width)
             this.mirrorTabs(x0 width)
         }
+    }
+
+    ; What a caption measures at: what the view said, or an estimate for a
+    ; strip with nothing measuring behind it.
+    fn labelWidth:int (t:ToolItem) {
+        if (t.labelW > 0) {
+            return t.labelW
+        }
+        return ((strlen t.label) * 7)
+    }
+
+    ; The open dropdown's entries, in a column under the button that owns
+    ; them. Laid out after the strip so they sit ON TOP of it — a list that
+    ; is laid out among the buttons is a list that pushes them around every
+    ; time it opens.
+    fn layoutMenu:void () {
+        if (openMenu < 0) {
+            return
+        }
+        if (openMenu >= (array_length items)) {
+            openMenu = -1
+            return
+        }
+        def owner:ToolItem (itemAt items openMenu)
+        if (owner.w <= 0) {
+            ; Its own button did not fit, or is on a page that is not
+            ; showing. A list hanging off nothing is worse than no list.
+            openMenu = -1
+            return
+        }
+        ; As wide as the widest entry, so the words do not wrap.
+        def wide:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.menuOwner == openMenu) {
+                def w:int ((iconW + (this.labelWidth(t))) + 12)
+                if (w > wide) {
+                    wide = w
+                }
+            }
+            i = (i + 1)
+        }
+        if (wide < owner.w) {
+            wide = owner.w
+        }
+        def y:int (owner.y + owner.h)
+        def j:int 0
+        while (j < (array_length items)) {
+            def e:ToolItem (itemAt items j)
+            if (e.menuOwner == openMenu) {
+                e.x = owner.x
+                e.y = y
+                e.w = wide
+                e.h = 26
+                y = (y + 26)
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; The rectangle the open list covers, as x,y,w,h — for the painter to put
+    ; a panel behind it. Empty when nothing is open.
+    fn menuBox:[int] () {
+        def out:[int]
+        if (openMenu < 0) {
+            return out
+        }
+        def x0:int 0
+        def y0:int 0
+        def x1:int 0
+        def y1:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.menuOwner == openMenu) {
+                if (t.w > 0) {
+                    if (any == false) {
+                        x0 = t.x
+                        y0 = t.y
+                        x1 = (t.x + t.w)
+                        y1 = (t.y + t.h)
+                        any = true
+                    } {
+                        if ((t.x + t.w) > x1) {
+                            x1 = (t.x + t.w)
+                        }
+                        if ((t.y + t.h) > y1) {
+                            y1 = (t.y + t.h)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return out
+        }
+        push out x0
+        push out y0
+        push out (x1 - x0)
+        push out (y1 - y0)
+        return out
     }
 
     ; The row of names. One line, left to right, in the order they were added

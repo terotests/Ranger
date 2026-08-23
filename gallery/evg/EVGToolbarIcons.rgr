@@ -38,6 +38,14 @@ class ToolIconPath {
 
     ; The silhouette for an icon, or "" when it is drawn some other way.
     sfn dataFor:string (k:int) {
+        ; --- the printer
+        ;
+        ; The paper going in on top, the body of the machine, the sheet
+        ; coming out at the front. That silhouette is forty years old and is
+        ; read instantly by people who have never owned a printer.
+        if (k == (ToolIcon.printDoc())) {
+            return "M6 2 h12 v5 h-12 z M2 8 h20 v8 h-4 v-4 h-12 v4 h-4 z M6 14 h12 v8 h-12 z"
+        }
         ; --- the direction switch
         ;
         ; Three lines of a paragraph, ragged on the LEFT rather than the
@@ -178,6 +186,11 @@ class ToolIconPath {
     ; its own sake — punching a hole in a solid shape is how a 20-pixel icon
     ; is drawn anyway, because a hairline ring at that size disappears.
     sfn holeFor:string (k:int) {
+        if (k == (ToolIcon.printDoc())) {
+            ; The paper hollowed out, top and bottom, and a slot in the body —
+            ; without them the printer is a solid block with a bite out of it.
+            return "M8 3 h8 v3 h-8 z M8 15 h8 v6 h-8 z M16 10 h4 v2 h-4 z"
+        }
         if (k == (ToolIcon.newFile())) {
             ; The folded corner, and the sheet hollowed out so it reads as
             ; paper rather than as a black block.

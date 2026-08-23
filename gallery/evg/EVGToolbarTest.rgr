@@ -325,6 +325,69 @@ class EVGToolbarTest {
         c.ok("turned around, the first page name is on the right" (m0.x > m1.x))
         c.ok("and it reaches the right-hand edge" (((m0.x + m0.w)) > 880))
 
+        print "-- buttons that say what they are, and lists that fold away --"
+        def lb (new EVGToolbar)
+        def plain:ToolItem (lb.add("edit.undo" "" "Undo" (ToolIcon.undo())))
+        def named:ToolItem (lb.addLabeled("file.print" "" "Print" (ToolIcon.printDoc())))
+        lb.layout(0 0 900)
+        c.ok("a labelled button says so" named.showLabel)
+        c.ok("a plain one does not" ((plain.showLabel) == false))
+        c.ok("and the label makes it wider" (named.w > plain.w))
+
+        def dd (new EVGToolbar)
+        def owner:ToolItem (dd.addDropdown("Borders" (ToolIcon.borderAll())))
+        dd.addUnder("format.border" "all" "All borders" (ToolIcon.borderAll()))
+        dd.addUnder("format.border" "none" "No border" (ToolIcon.borderNone()))
+        dd.addUnder("format.border" "outline" "Outline" (ToolIcon.borderOut()))
+        dd.addUnder("format.border" "" "More borders…" (ToolIcon.borderMore()))
+        dd.layout(0 0 900)
+        c.eqInt("the strip holds five buttons" (dd.count()) 5)
+        def e0:ToolItem (dd.at(1))
+        def e2:ToolItem (dd.at(4))
+        c.ok("the dropdown itself is on the strip" (owner.w > 0))
+        c.eqInt("and its entries take no room at all" e0.w 0)
+        c.eqInt("none of them" e2.w 0)
+        ; Four commands in one slot, which is where a dropdown starts paying
+        ; for itself. It is worth being exact about that rather than assuming
+        ; it: the folded button carries a NAME, and a name is about fifty
+        ; pixels, so against three icon-only buttons a dropdown is very
+        ; slightly WIDER. Past three it wins, and it goes on winning — which
+        ; is why the border commands are behind one and bold/italic are not.
+        def flat2 (new EVGToolbar)
+        flat2.add("format.border" "all" "All borders" (ToolIcon.borderAll()))
+        flat2.add("format.border" "none" "No border" (ToolIcon.borderNone()))
+        flat2.add("format.border" "outline" "Outline" (ToolIcon.borderOut()))
+        flat2.add("format.border" "" "More borders…" (ToolIcon.borderMore()))
+        flat2.layout(0 0 900)
+        def flatEnd:ToolItem (flat2.at(3))
+        c.ok("the folded list is narrower than the four buttons were"
+            ((owner.x + owner.w) < (flatEnd.x + flatEnd.w)))
+
+        ; Pressing the dropdown opens it, and the strip says it dealt with the
+        ; press itself so the owner does not also run an empty command.
+        c.ok("pressing it is handled by the strip" (dd.pressItem(0)))
+        c.eqInt("and the list is showing" dd.openMenu 0)
+        dd.layout(0 0 900)
+        def o0:ToolItem (dd.at(1))
+        def o1:ToolItem (dd.at(2))
+        c.ok("now the entries have rectangles" (o0.w > 0))
+        c.ok("stacked under the button" (o0.y >= (owner.y + owner.h)))
+        c.ok("one below the other" (o1.y > o0.y))
+        c.ok("all the same width" (o1.w == o0.w))
+        c.eqInt("and a click lands on one" (dd.hit((o1.x + 4) (o1.y + 4))) 2)
+        def box:[int] (dd.menuBox())
+        c.eqInt("the list has a box to draw a panel behind" (array_length box) 4)
+
+        ; Choosing an entry is NOT handled by the strip — the command has to
+        ; run — but it does put the list away.
+        c.ok("choosing an entry is left to the owner" ((dd.pressItem(2)) == false))
+        c.eqInt("and the list is shut again" dd.openMenu -1)
+        ; Pressing the dropdown twice shuts it, which is what a second click
+        ; on an open menu does everywhere.
+        dd.pressItem(0)
+        c.ok("pressing it again shuts it" (dd.pressItem(0)))
+        c.eqInt("shut" dd.openMenu -1)
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

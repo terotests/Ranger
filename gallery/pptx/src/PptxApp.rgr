@@ -50,7 +50,9 @@ class PptxToolbar extends EVGToolbar {
         clear tabs
         this.addTab("Home")
         this.add("file.open" "" "Open a deck" (ToolIcon.openFile()))
-        this.add("file.save" "" "Save the deck" (ToolIcon.save()))
+        ; The two a beginner reaches for first carry their names.
+        this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
+        this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
         this.addSeparator()
         this.add("slide.first" "" "First slide" (ToolIcon.navFirst()))
         this.add("slide.prev" "" "Previous slide" (ToolIcon.navPrev()))
@@ -588,6 +590,7 @@ class PptxApp {
         commands.add("slide.moveup" "Move slide earlier" "Slides" "")
         commands.add("slide.movedown" "Move slide later" "Slides" "")
         commands.add("view.rtl" "Right-to-left layout" "View" "")
+        commands.add("file.print" "Print" "File" "Ctrl+P")
     }
 
     ; A deck the caller already has, rather than one read from a file. The
@@ -890,6 +893,13 @@ class PptxApp {
 
     ; --- the command surface --------------------------------------------------
     fn runCommand:boolean (id:string arg:string) {
+        ; Printing is the host's: this program can lay a slide out and draw
+        ; it, and it has no idea what printers exist. `fileRequest` is the
+        ; same channel saving already goes out on.
+        if (id == "file.print") {
+            fileRequest = "print"
+            return true
+        }
         if (id == "view.rtl") {
             ; The latch goes down exactly when the reader turns the interface
             ; OFF, and lifts when they turn it back on. "The reader said no"
@@ -1042,6 +1052,10 @@ class PptxApp {
                 return true
             }
             if (toolbar.hot >= 0) {
+                ; A dropdown opens its list instead of running something.
+                if (toolbar.pressItem(toolbar.hot)) {
+                    return true
+                }
                 def t:ToolItem (toolbar.at(toolbar.hot))
                 return (this.runCommand(t.command t.arg))
             }
@@ -1404,6 +1418,11 @@ class PptxApp {
             label = ((label + "   ") + es)
         }
         toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
+
+        ; An open dropdown hangs BELOW the strip, so it is drawn after
+        ; everything the strip sits on top of and before the windows, which
+        ; are the only thing that belongs above it.
+        toolbarView.paintOverlay(framed toolbar)
 
         def wi:int 0
         while (wi < (array_length windows.windows)) {

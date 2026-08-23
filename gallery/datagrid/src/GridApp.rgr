@@ -1119,6 +1119,7 @@ class GridApp {
         commands.add("view.sheet.next" "Next sheet" "View" "")
         commands.add("view.sheet.prev" "Previous sheet" "View" "")
         commands.add("view.rtl" "Right-to-left layout" "View" "")
+        commands.add("file.print" "Print" "File" "Ctrl+P")
         commands.add("script.run" "Run the report script" "Script" "Ctrl+R")
         commands.addArg("script.open" "Run a named report script" "Script" "")
         commands.add("script.next" "Next script in this workbook" "Script" "")
@@ -1243,6 +1244,15 @@ class GridApp {
     }
 
     fn runCommand:boolean (id:string arg:string) {
+        ; Printing is the host's: this program can lay a sheet out and draw
+        ; it, and it has no idea what printers exist. `fileRequest` is the
+        ; same channel saving already goes out on, and a host that does not
+        ; answer it simply has no Print — which is honest, and better than a
+        ; button that appears to work.
+        if (id == "file.print") {
+            fileRequest = "print"
+            return true
+        }
         if (id == "view.rtl") {
             ; The latch goes down exactly when the reader turns the interface
             ; OFF, and lifts when they turn it back on. "The reader said no"
@@ -5225,6 +5235,11 @@ class GridApp {
     }
 
     fn runToolbarItem:boolean (i:int) {
+        ; A dropdown opens its list instead of running something. The strip
+        ; settles that itself so the three apps cannot drift on what one does.
+        if (view.toolbar.pressItem(i)) {
+            return true
+        }
         def t:ToolItem (view.toolbar.at(i))
         if ((strlen t.command) == 0) {
             return false

@@ -48,8 +48,12 @@ class GridToolbar extends EVGToolbar {
         this.addTab("Home")
         this.add("file.new" "" "New workbook" (ToolIcon.newFile()))
         this.add("file.open" "" "Open a workbook" (ToolIcon.openFile()))
-        this.add("file.save" "" "Save" (ToolIcon.save()))
+        ; The handful a beginner reaches for first carry their names. The rest
+        ; stay pictures — a band where everything is labelled is as unreadable
+        ; as one where nothing is.
+        this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
         this.add("file.saveAs" "" "Save As…" (ToolIcon.save()))
+        this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
         this.add("edit.formatPainter" "" "Format painter" (ToolIcon.paint()))
@@ -78,10 +82,15 @@ class GridToolbar extends EVGToolbar {
         this.addSeparator()
 
         this.addTab("Format")
-        this.add("format.border" "" "Borders…" (ToolIcon.borderMore()))
-        this.add("format.border" "all" "All borders" (ToolIcon.borderAll()))
-        this.add("format.border" "outline" "Outline" (ToolIcon.borderOut()))
-        this.add("format.border" "none" "No border" (ToolIcon.borderNone()))
+        ; Four border commands in one slot. This is what a dropdown is FOR:
+        ; the four are one decision, they are rarely made, and spread across
+        ; four buttons they take as much of the strip as bold, italic,
+        ; underline and strike put together.
+        this.addDropdown("Borders" (ToolIcon.borderAll()))
+        this.addUnder("format.border" "all" "All borders" (ToolIcon.borderAll()))
+        this.addUnder("format.border" "outline" "Outline" (ToolIcon.borderOut()))
+        this.addUnder("format.border" "none" "No border" (ToolIcon.borderNone()))
+        this.addUnder("format.border" "" "More borders…" (ToolIcon.borderMore()))
         this.addSeparator()
 
         this.addToggle("format.numfmt" "currency" "Currency" (ToolIcon.currency()) "numfmt" "currency")
