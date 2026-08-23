@@ -39,6 +39,7 @@ Import "DemoData.rgr"
 Import "SchemaSheet.rgr"
 Import "DataSheet.rgr"
 Import "../forms/RecordForm.rgr"
+Import "../query/QuerySheet.rgr"
 Import "../../rangerforms/render/FormView.rgr"
 Import "../../rangerdb/src/schema/SchemaDiff.rgr"
 Import "../../rangerdb/src/schema/MigrationPlan.rgr"
@@ -87,6 +88,16 @@ class DbViewerToolbar extends EVGToolbar {
         this.addSeparator()
         this.add("data.pending" "" "What has been typed and not written" (ToolIcon.report()))
         this.add("data.revert" "" "Throw away the edits to this page" (ToolIcon.undo()))
+
+        this.addTab("Query")
+        this.addLarge("query.run" "" "Run it" (ToolIcon.play()))
+        this.addSeparator()
+        this.add("query.table" "" "Start from the selected table" (ToolIcon.database()))
+        this.add("query.join" "" "Join the selected table on, the way the database says" (ToolIcon.chart()))
+        this.add("query.all" "" "Add every column of the selected table" (ToolIcon.borderAll()))
+        this.addSeparator()
+        this.addLabeled("query.sql" "" "SQL" (ToolIcon.sqlBox()))
+        this.add("query.clear" "" "Start again" (ToolIcon.undo()))
 
         this.addTab("Forms")
         this.addLarge("view.form" "" "One record at a time" (ToolIcon.report()))
@@ -176,6 +187,23 @@ class DbViewerFrame {
     def formRow:int 0
     def formRows:int 0
     def formPage:DataChunk (new DataChunk)
+
+    ; The Query section: the tables at the top, the criteria grid under them,
+    ; and the answer under that. What it produces is a `QuerySpec` — never SQL
+    ; text — so the same execution path serves it and the Data panel, and the
+    ; capability-fallback engine covers the join RangerDB cannot do.
+    def query:QueryModel (QueryModel.on(""))
+    def querySheet:QuerySheet (new QuerySheet)
+    def queryResult:DataSheet (new DataSheet)
+    def queryStarted:boolean false
+    def queryRan:boolean false
+    def queryRows:int 0
+    def querySql:string ""
+    ; The relationships the query designer joins by. RangerDB cannot report a
+    ; foreign key, so the designer reads them from the schema the SQL gives —
+    ; see `DemoData.schemaFromSql`.
+    def queryDiagram:FlowEditor (new FlowEditor)
+    def queryDiagramReady:boolean false
     def note:string ""
     def hoverRow:int -1
     ; Which visible tree row is selected, so the list can show it.
@@ -342,6 +370,9 @@ class DbViewerFrame {
         if (DbViewerFrame.beginsWith(id "form.")) {
             toolbar.showTabFor(id)
         }
+        if (DbViewerFrame.beginsWith(id "query.")) {
+            toolbar.showTabFor(id)
+        }
         if (id == "db.refresh") {
             app.refresh()
             diagramReady = false
@@ -394,6 +425,35 @@ class DbViewerFrame {
             migrationText = ""
             this.syncSchemaSheet()
             note = "the schema panel is back to what the database says"
+            return true
+        }
+        if (id == "query.table") {
+            return (this.queryStartOn(app.selectedTable))
+        }
+        if (id == "query.join") {
+            return (this.queryJoinOn(app.selectedTable))
+        }
+        if (id == "query.all") {
+            return (this.queryAddColumns(app.selectedTable))
+        }
+        if (id == "query.run") {
+            return (this.runQuery())
+        }
+        if (id == "query.sql") {
+            this.startQuery()
+            querySheet.readBack(query)
+            querySql = (query.toSql())
+            note = "the SQL is generated from the query, and is not what runs"
+            app.showSection("query")
+            return true
+        }
+        if (id == "query.clear") {
+            queryStarted = false
+            queryRan = false
+            querySql = ""
+            query = (QueryModel.on(""))
+            this.startQuery()
+            note = "the query is empty"
             return true
         }
         if (id == "view.form") {
@@ -555,6 +615,12 @@ class DbViewerFrame {
                 return true
             }
         }
+        if (app.section == "query") {
+            this.startQuery()
+            if (querySheet.pane.pointerPicker(x y pressed down released)) {
+                return true
+            }
+        }
         ; An open value picker is a window over everything, including the
         ; object list, so it is asked before anything under it.
         if (this.sectionHasSheet()) {
@@ -589,6 +655,17 @@ class DbViewerFrame {
             }
             return false
         }
+        if (app.section == "query") {
+            if down {
+                if (querySheet.pane.containsPoint(x y)) {
+                    return (querySheet.pane.press(x y))
+                }
+                if (queryResult.pane.containsPoint(x y)) {
+                    return (queryResult.pane.selectAt(x y))
+                }
+            }
+            return false
+        }
         return false
     }
 
@@ -604,12 +681,62 @@ class DbViewerFrame {
         if (app.section == "form") {
             return (formView.typeText(s))
         }
+        if (app.section == "query") {
+            this.startQuery()
+            return (querySheet.pane.typeText(s))
+        }
         if ((this.sectionHasSheet()) == false) {
             return false
         }
         this.startSheets()
         def pane:GridPane (this.activePane())
         return (pane.typeText(s))
+    }
+
+    ; The keys a spreadsheet pane takes, in one place, because three sections
+    ; now embed one.
+    fn paneKey:boolean (pane:GridPane name:string) {
+        if (name == "Enter") {
+            if pane.editing {
+                if ((pane.commitEdit()) == false) {
+                    def rule:DataValidation (pane.model.validationAt(pane.sel.active.row pane.sel.active.col))
+                    note = ("refused: " + (rule.message()))
+                    return true
+                }
+                note = ""
+                return true
+            }
+            return (pane.moveSelection(1 0))
+        }
+        if (name == "Escape") {
+            if pane.editing {
+                pane.cancelEdit()
+                return true
+            }
+            return false
+        }
+        if (name == "Backspace") {
+            return (pane.backspace())
+        }
+        if (name == "ArrowUp") {
+            return (pane.moveSelection(-1 0))
+        }
+        if (name == "ArrowDown") {
+            return (pane.moveSelection(1 0))
+        }
+        if (name == "ArrowLeft") {
+            return (pane.moveSelection(0 -1))
+        }
+        if (name == "ArrowRight") {
+            return (pane.moveSelection(0 1))
+        }
+        if (name == "Tab") {
+            return (pane.moveSelection(0 1))
+        }
+        if (name == "F4") {
+            return (pane.openListPicker(pane.sel.active.row pane.sel.active.col))
+        }
+        return false
     }
 
     ; Named keys, by the codes the host already sends the other editors.
@@ -620,6 +747,10 @@ class DbViewerFrame {
                 note = formView.note
             }
             return handled
+        }
+        if (app.section == "query") {
+            this.startQuery()
+            return (this.paneKey(querySheet.pane name))
         }
         if ((this.sectionHasSheet()) == false) {
             return false
@@ -787,6 +918,15 @@ class DbViewerFrame {
         if (app.section == "form") {
             return (formView.scrollBy(dy))
         }
+        if (app.section == "query") {
+            this.startQuery()
+            if (queryRan) {
+                if (queryResult.pane.containsPoint((idiv W 2) (H - 80))) {
+                    return (queryResult.pane.scrollBy(dy))
+                }
+            }
+            return (querySheet.pane.scrollBy(dy))
+        }
         if (this.sectionHasSheet()) {
             this.startSheets()
             def pane:GridPane (this.activePane())
@@ -825,6 +965,9 @@ class DbViewerFrame {
         }
         if (app.section == "form") {
             formView.buildPickerInto(dl)
+        }
+        if (app.section == "query") {
+            querySheet.pane.buildPickerInto(dl)
         }
         return dl
     }
@@ -930,6 +1073,10 @@ class DbViewerFrame {
         }
         if (app.section == "form") {
             this.paintForm(dl x y w h)
+            return
+        }
+        if (app.section == "query") {
+            this.paintQuery(dl x y w h)
             return
         }
         this.paintColumns(dl x y w h)
@@ -1110,6 +1257,192 @@ class DbViewerFrame {
         dataSheet.pane.setHostSize(W H)
         dataSheet.pane.setBounds((x + 8) (y + sheetHeaderH) (w - 16) ((h - sheetHeaderH) - 8))
         dataSheet.pane.buildInto(dl)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The Query section
+    ; ------------------------------------------------------------------------
+    ;
+    ; Base's designer builds SQL and hands it to the engine, and the moment a
+    ; query outgrows what it can draw it switches to "native SQL mode" and the
+    ; graphical half stops meaning anything. This one builds a `QuerySpec`, so
+    ; there is no cliff: the SQL beside it is generated for a person to read.
+    fn startQuery:void () {
+        if queryStarted {
+            return
+        }
+        this.startSheets()
+        queryResult.pane.start((this.contentW()) (this.contentH()))
+        queryResult.pane.shareFontsWith(ctx)
+        queryResult.pane.readOnly = true
+        querySheet.pane.start((this.contentW()) (this.contentH()))
+        querySheet.pane.shareFontsWith(ctx)
+        querySheet.build(query (this.relationSchema()))
+        queryStarted = true
+    }
+
+    ; The schema WITH its relationships. RangerDB cannot report a foreign key,
+    ; so a designer that read only the introspected schema could never offer to
+    ; join anything on the one engine this page can run.
+    fn relationSchema:DatabaseSchema () {
+        if ((array_length app.schema.foreignKeys) > 0) {
+            return app.schema
+        }
+        return (DemoData.schemaFromSql())
+    }
+
+    fn queryStartOn:boolean (table:string) {
+        if ((strlen table) == 0) {
+            note = "select a table first"
+            return false
+        }
+        query = (QueryModel.on(table))
+        queryStarted = false
+        queryRan = false
+        querySql = ""
+        this.startQuery()
+        queryDiagramReady = false
+        app.showSection("query")
+        note = ("the query starts from " + table)
+        return true
+    }
+
+    fn queryJoinOn:boolean (table:string) {
+        this.startQuery()
+        if ((strlen query.base) == 0) {
+            return (this.queryStartOn(table))
+        }
+        if ((strlen table) == 0) {
+            note = "select the table to join on"
+            return false
+        }
+        querySheet.readBack(query)
+        ; From whichever table is already in the query and has a declared
+        ; relationship with this one. A designer that made somebody retype a
+        ; relationship the database has declared is asking them to get it wrong.
+        def schema:DatabaseSchema (this.relationSchema())
+        def have:[string] (query.tables())
+        def i:int 0
+        def n:int (array_length have)
+        while (i < n) {
+            def from:string (itemAt have i)
+            if (query.joinByKey(schema from table "inner")) {
+                querySheet.build(query schema)
+                queryDiagramReady = false
+                queryRan = false
+                app.showSection("query")
+                note = (from + " and " + table + " joined on the key the database declares")
+                return true
+            }
+            i = (i + 1)
+        }
+        note = ("no declared relationship between " + table + " and anything in the query")
+        return false
+    }
+
+    fn queryAddColumns:boolean (table:string) {
+        this.startQuery()
+        if ((strlen query.base) == 0) {
+            this.queryStartOn(table)
+        }
+        querySheet.readBack(query)
+        def schema:DatabaseSchema (this.relationSchema())
+        query.allOf(schema table)
+        querySheet.build(query schema)
+        app.showSection("query")
+        note = ("every column of " + table + " added")
+        return true
+    }
+
+    fn runQuery:boolean () {
+        this.startQuery()
+        app.showSection("query")
+        if ((strlen query.base) == 0) {
+            note = "the query has no table yet"
+            return false
+        }
+        querySheet.readBack(query)
+        if ((app.hasRows) == false) {
+            note = "this schema was read from SQL, so there is nothing to run it against"
+            return false
+        }
+        def spec:QuerySpec (query.toSpec())
+        if ((strlen query.errorText) > 0) {
+            note = query.errorText
+            return false
+        }
+        spec.limit = dataPageSize
+        def chunk:DataChunk (app.source.session.query(spec))
+        def err:string (app.source.session.lastError())
+        if ((strlen err) > 0) {
+            note = err
+            return false
+        }
+        ; The result is shown by the same component the Data panel uses, which
+        ; is why it can be scrolled and read without a second table painter.
+        def shape:DBTable (new DBTable)
+        queryResult.build(shape chunk 0)
+        queryResult.pane.readOnly = true
+        queryRows = chunk.rowCount
+        queryRan = true
+        querySql = (query.toSql())
+        def where:string ""
+        def fell:string app.source.session.lastFallback
+        if ((strlen fell) > 0) {
+            where = ("  ·  the engine did the " + fell + " itself")
+        }
+        note = ((to_string queryRows) + " rows" + where)
+        return true
+    }
+
+    fn paintQuery:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        this.startQuery()
+        def title:string "query"
+        if ((strlen query.base) > 0) {
+            title = (ObjectTree.joinNames((query.tables())))
+        } {
+            title = "no table yet — press the table button with one selected"
+        }
+        def detail:string (querySheet.summary())
+        if queryRan {
+            detail = (detail + "  ·  " + (to_string queryRows) + " rows")
+        }
+        this.paintSheetTitle(dl x y w title detail)
+
+        ; The grid takes the top half and the answer the bottom, which is the
+        ; arrangement every query tool has settled on for the same reason: you
+        ; are reading one while changing the other.
+        def top:int (y + sheetHeaderH)
+        def gridH:int (idiv (h - sheetHeaderH) 2)
+        if (gridH < 120) {
+            gridH = (h - sheetHeaderH)
+        }
+        querySheet.pane.setHostSize(W H)
+        querySheet.pane.setBounds((x + 8) top (w - 16) (gridH - 8))
+        querySheet.pane.buildInto(dl)
+
+        def below:int (top + gridH)
+        if (below < ((y + h) - 40)) {
+            dl.addRect((to_double (x + 8)) (to_double below) (to_double (w - 16)) 1.0 theme.line)
+            if queryRan {
+                queryResult.pane.setHostSize(W H)
+                queryResult.pane.setBounds((x + 8) (below + 8) (w - 16) (((y + h) - below) - 16))
+                queryResult.pane.buildInto(dl)
+            } {
+                if ((strlen querySql) > 0) {
+                    def lines:[string] (strsplit querySql "\n")
+                    def ry:int (below + 12)
+                    def li:int 0
+                    while (li < (array_length lines)) {
+                        toolbarView.pushText(dl (this.fitText((itemAt lines li) (to_double (w - 40)) 12.0)) (to_double (x + 16)) (to_double ry) 12.0 theme.ink)
+                        ry = (ry + 18)
+                        li = (li + 1)
+                    }
+                } {
+                    toolbarView.pushText(dl "press Run to see the answer, or SQL to read the statement" (to_double (x + 16)) (to_double (below + 12)) 12.0 theme.dim)
+                }
+            }
+        }
     }
 
     ; ------------------------------------------------------------------------

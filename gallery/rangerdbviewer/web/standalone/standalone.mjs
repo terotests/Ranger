@@ -283,6 +283,11 @@ async function boot() {
     web.run("view.schema", "");
   } else if (wanted === "data") {
     web.run("view.data", "");
+  } else if (wanted === "query") {
+    web.run("engine.rangerdb", "");
+    if (table) web.selectTable(table);
+    web.run("query.table", "");
+    web.run("query.all", "");
   } else if (wanted === "form") {
     // The Forms section needs a live database: a schema read from SQL has no
     // records to page through, and the section says so rather than showing an

@@ -1,0 +1,212 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; QuerySheet.rgr — the criteria grid, which is the spreadsheet again.
+; ============================================================================
+;
+;      A          B           C       D       E
+;   ┌──────────┬───────────┬───────┬───────┬────────────┐
+; 1 │ field    │ table     │ sort  │ show  │ criteria   │
+; 2 │ name    ▾│ customers▾│ asc  ▾│ yes  ▾│            │
+; 3 │ total   ▾│ orders   ▾│      ▾│ no   ▾│ > 100      │
+;   └──────────┴───────────┴───────┴───────┴────────────┘
+;
+; Base's criteria grid is a grid, and we have a spreadsheet that embeds
+; anywhere — so this is `GridPane` for the third time, after the schema panel
+; and the data panel. Four of the five columns are dropdowns, which is one
+; call each, and `field` offers the columns of whichever table the row names.
+;
+; The one thing worth saying about the layout: `field` and `table` are DEPENDENT.
+; Changing the table changes what `field` may be, so the field column's choices
+; are rebuilt whenever the sheet is read back — which is the same shape as a
+; questionnaire rule and, one floor down, the same reason `RangerForms` exists.
+; ============================================================================
+
+Import "../../datagrid/src/GridPane.rgr"
+Import "QueryModel.rgr"
+
+class QuerySheet {
+    def pane:GridPane (new GridPane)
+    def rows:int 0
+    ; The tables the query has, in order, so the `table` column can offer them.
+    def tableNames:[string]
+    ; Every column of every table in the query, as `table.column`, so the
+    ; `field` column can offer them without knowing which row it is on.
+    def fieldNames:[string]
+
+    Constructor () {
+    }
+
+    sfn colField:int () {
+        return 0
+    }
+    sfn colTable:int () {
+        return 1
+    }
+    sfn colSort:int () {
+        return 2
+    }
+    sfn colShow:int () {
+        return 3
+    }
+    sfn colCriteria:int () {
+        return 4
+    }
+
+    ; Enough blank rows under the fields for somebody to add more without the
+    ; sheet having to grow while they type.
+    sfn spareRows:int () {
+        return 6
+    }
+
+    sfn sortChoices:[string] () {
+        def out:[string]
+        push out ""
+        push out "asc"
+        push out "desc"
+        return out
+    }
+
+    sfn showChoices:[string] () {
+        def out:[string]
+        push out "yes"
+        push out "no"
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Building
+    ; ------------------------------------------------------------------------
+    fn build:void (model:QueryModel schema:DatabaseSchema) {
+        rows = (array_length model.fields)
+        clear tableNames
+        clear fieldNames
+        def used:[string] (model.tables())
+        def t:int 0
+        def nt:int (array_length used)
+        while (t < nt) {
+            def name:string (itemAt used t)
+            push tableNames name
+            def at:int (schema.indexOfTable(name))
+            if (at >= 0) {
+                def table:DBTable (itemAt schema.tables at)
+                def c:int 0
+                def nc:int (array_length table.columns)
+                while (c < nc) {
+                    def col:SchemaColumn (itemAt table.columns c)
+                    push fieldNames (name + "." + col.name)
+                    c = (c + 1)
+                }
+            }
+            t = (t + 1)
+        }
+
+        def total:int (rows + (QuerySheet.spareRows()))
+        def m:SpreadsheetModel (new SpreadsheetModel)
+        m.growTo((total + 2) 6)
+        m.setCell(0 (QuerySheet.colField()) "field")
+        m.setCell(0 (QuerySheet.colTable()) "table")
+        m.setCell(0 (QuerySheet.colSort()) "sort")
+        m.setCell(0 (QuerySheet.colShow()) "show")
+        m.setCell(0 (QuerySheet.colCriteria()) "criteria")
+        m.setColWidth((QuerySheet.colField()) 190)
+        m.setColWidth((QuerySheet.colTable()) 130)
+        m.setColWidth((QuerySheet.colSort()) 70)
+        m.setColWidth((QuerySheet.colShow()) 70)
+        m.setColWidth((QuerySheet.colCriteria()) 220)
+
+        def i:int 0
+        while (i < rows) {
+            def f:QueryField (itemAt model.fields i)
+            def r:int (i + 1)
+            m.setCell(r (QuerySheet.colField()) (f.qualified()))
+            m.setCell(r (QuerySheet.colTable()) f.table)
+            m.setCell(r (QuerySheet.colSort()) f.sort)
+            m.setCell(r (QuerySheet.colShow()) (QuerySheet.yesNo(f.shown)))
+            m.setCell(r (QuerySheet.colCriteria()) f.criteria)
+            i = (i + 1)
+        }
+        pane.adopt(m)
+
+        def last:int total
+        pane.listColumn((QuerySheet.colField()) 1 last fieldNames)
+        pane.listColumn((QuerySheet.colTable()) 1 last tableNames)
+        pane.listColumn((QuerySheet.colSort()) 1 last (QuerySheet.sortChoices()))
+        pane.listColumn((QuerySheet.colShow()) 1 last (QuerySheet.showChoices()))
+        ; The header names the columns of the grid, not of the database.
+        pane.lockRange(0 0 0 4 "this row names the columns of the grid")
+        pane.showAllListArrows(true)
+        pane.selectCell(1 0)
+        pane.refresh()
+    }
+
+    sfn yesNo:string (b:boolean) {
+        if b {
+            return "yes"
+        }
+        return "no"
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Reading it back
+    ; ------------------------------------------------------------------------
+    ;
+    ; A NEW list of fields, because the sheet is the truth once somebody has
+    ; typed in it — and because a model mutated in place would leave a differ
+    ; comparing something with itself, the same reason `SchemaSheet.readBack`
+    ; builds a new table.
+    fn readBack:void (model:QueryModel) {
+        clear model.fields
+        def total:int (rows + (QuerySheet.spareRows()))
+        def i:int 0
+        while (i < total) {
+            def r:int (i + 1)
+            def name:string (trim (pane.model.getCell(r (QuerySheet.colField()))))
+            if ((strlen name) > 0) {
+                def dot:int (QueryModel.indexOfChar(name 46))
+                def table:string (trim (pane.model.getCell(r (QuerySheet.colTable()))))
+                def column:string name
+                if (dot >= 0) {
+                    ; The field column carries `table.column`, so it names its
+                    ; own table and the table column follows it rather than
+                    ; the other way round — which is what stops the two from
+                    ; ever disagreeing.
+                    table = (substring name 0 dot)
+                    column = (substring name (dot + 1) (strlen name))
+                }
+                def f:QueryField (model.field(table column))
+                f.sort = (trim (pane.model.getCell(r (QuerySheet.colSort()))))
+                f.shown = ((trim (pane.model.getCell(r (QuerySheet.colShow())))) != "no")
+                f.criteria = (trim (pane.model.getCell(r (QuerySheet.colCriteria()))))
+            }
+            i = (i + 1)
+        }
+        rows = (array_length model.fields)
+    }
+
+    ; What the grid says, as one line, for a status bar.
+    fn summary:string () {
+        def shown:int 0
+        def filtered:int 0
+        def total:int (rows + (QuerySheet.spareRows()))
+        def i:int 0
+        while (i < total) {
+            def r:int (i + 1)
+            def name:string (trim (pane.model.getCell(r (QuerySheet.colField()))))
+            if ((strlen name) > 0) {
+                if ((trim (pane.model.getCell(r (QuerySheet.colShow())))) != "no") {
+                    shown = (shown + 1)
+                }
+                if ((strlen (trim (pane.model.getCell(r (QuerySheet.colCriteria()))))) > 0) {
+                    filtered = (filtered + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        def s:string ((to_string shown) + " columns")
+        if (filtered > 0) {
+            s = (s + ", " + (to_string filtered) + " with a criterion")
+        }
+        return s
+    }
+}

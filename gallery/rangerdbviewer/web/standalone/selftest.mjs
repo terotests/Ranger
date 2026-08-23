@@ -227,6 +227,49 @@ export async function selftest(web, draw) {
   ok("…and the form is clean again", web.formDirty() === false);
   ok("…holding what the database now says", web.formFieldText("email") === "a@b.fi");
 
+  // --- the Query section ----------------------------------------------------
+  //
+  // Base's designer builds SQL and hands it to the engine; this one builds a
+  // `QuerySpec`, so the same execution path serves it and the Data panel and
+  // the capability-fallback engine does the join RangerDB cannot. The SQL
+  // beside it is generated FROM the model, for a person to read.
+  web.run("engine.rangerdb", "");
+  web.selectTable("orders");
+  ok("a query starts from a table", web.run("query.table", "") && web.section() === "query");
+  ok("…with its columns", web.run("query.all", "") && web.queryFieldCount() === 4);
+  web.selectTable("customers");
+  ok("a second table joins on the declared key", web.run("query.join", "") && web.queryJoinCount() === 1);
+  web.run("query.all", "");
+  ok("…bringing its columns too", web.queryFieldCount() === 8);
+  ok("both tables are in it", web.queryTables() === "orders, customers");
+
+  ok("it runs", web.run("query.run", "") && web.queryRan());
+  draw();
+  ok("two orders, two customers", web.queryRowCount() === 2);
+  // RangerDB has no join, so the engine did it — and says so rather than
+  // pretending the backend could.
+  ok("the engine joined it itself", web.queryFallback() === "join");
+  ok("the answer is a spreadsheet too", web.queryCell(0, 0) === "orders.id");
+  ok("…with the other table's columns in it", web.queryCell(0, 5) === "customers.email");
+
+  // A criterion typed into the grid narrows it.
+  ok("a criterion can be typed", web.queryCriteria("orders.total", "> 100"));
+  ok("…and it narrows the answer", web.run("query.run", "") && web.queryRowCount() === 1);
+  ok("…to the right row", web.queryCell(1, 5) === "ada@example.com");
+
+  // The SQL says the same thing, generated from the same model.
+  const qsql = web.querySql();
+  ok("the SQL joins the tables", qsql.indexOf('INNER JOIN "customers"') > 0);
+  ok("…on the key the database declares", qsql.indexOf('"orders"."customer_id" = "customers"."id"') > 0);
+  ok("…and carries the criterion", qsql.indexOf('"orders"."total" > 100') > 0);
+
+  // A criterion nobody can read is reported, not dropped.
+  web.queryCriteria("orders.total", ">");
+  ok("a broken criterion refuses to run", web.run("query.run", "") === false);
+  ok("…naming the field", (web.note() || "").indexOf("orders.total") >= 0);
+  web.queryCriteria("orders.total", "");
+  web.run("query.run", "");
+
   // --- the honest refusal ---------------------------------------------------
   ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);
   ok("…and the refusal says why", (web.note() || "").indexOf("host") >= 0);

@@ -22,6 +22,15 @@
 Import "DataChunk.rgr"
 Import "DBQuery.rgr"
 
+; The right-hand rows that share one key. A plain map cannot hold a list, and
+; a join has to keep every match rather than the last one.
+class JoinBucket {
+    def rows:[int]
+
+    Constructor () {
+    }
+}
+
 class DBOps {
     ; ---------------------------------------------------------------- filter --
     sfn filterChunk:DataChunk (input:DataChunk f:DBFilter) {
@@ -247,6 +256,145 @@ class DBOps {
             i = (i + 1)
         }
         return key
+    }
+
+    ; ------------------------------------------------------------------ join --
+    ;
+    ; A hash join, done here because a backend that cannot join still has to
+    ; answer a two-table query. It is the same bargain as the filter and sort
+    ; fallbacks: slower than the engine doing it, and correct.
+    ;
+    ; Both sides arrive with their columns already named `table.column` — see
+    ; `qualifyChunk`. Two tables in one result nearly always share a column
+    ; name (`id`, at least), and a joined chunk whose columns collided would
+    ; make a criteria that says `orders.id` unanswerable.
+    sfn qualifyChunk:DataChunk (input:DataChunk prefix:string) {
+        def out:DataChunk (new DataChunk)
+        def n:int (array_length input.columns)
+        def i:int 0
+        while (i < n) {
+            def src:DBColumn (itemAt input.columns i)
+            def named:DBColumn (src.copy())
+            named.name = (prefix + "." + src.name)
+            out.shareColumn(named (itemAt input.vectors i))
+            i = (i + 1)
+        }
+        out.rowCount = input.rowCount
+        return out
+    }
+
+    ; `left` and `right` matched on the named columns. `keepUnmatched` is the
+    ; difference between an inner join and a left one: a left row with nothing
+    ; on the other side is kept, with nulls where the right columns are.
+    sfn joinChunks:DataChunk (left:DataChunk right:DataChunk leftCols:[string] rightCols:[string] keepUnmatched:boolean) {
+        def out:DataChunk (new DataChunk)
+        def nl:int (array_length left.columns)
+        def nr:int (array_length right.columns)
+        def li:int 0
+        while (li < nl) {
+            out.addColumn(((itemAt left.columns li).copy()))
+            li = (li + 1)
+        }
+        def ri:int 0
+        while (ri < nr) {
+            ; Anything from the right of a left join may be missing, whatever
+            ; the column said about itself.
+            def rc:DBColumn ((itemAt right.columns ri).copy())
+            if keepUnmatched {
+                rc.nullable = true
+            }
+            out.addColumn(rc)
+            ri = (ri + 1)
+        }
+
+        def leftAt:[int] (DBOps.columnIndexes(left leftCols))
+        def rightAt:[int] (DBOps.columnIndexes(right rightCols))
+        ; A join whose columns are not there matches nothing, and silently
+        ; returning every pair would be a cross product nobody asked for.
+        if ((array_length leftAt) == 0) {
+            return out
+        }
+        if ((array_length leftAt) != (array_length rightAt)) {
+            return out
+        }
+
+        ; The right side, by key.
+        def buckets:[JoinBucket]
+        def byKey:[string:int]
+        def r:int 0
+        while (r < right.rowCount) {
+            def key:string (DBOps.groupKeyOf(right r rightAt))
+            def found@(optional):int (get byKey key)
+            if (null? found) {
+                def fresh:JoinBucket (new JoinBucket)
+                push fresh.rows r
+                def at:int (array_length buckets)
+                push buckets fresh
+                set byKey key at
+            } {
+                def bucket:JoinBucket (itemAt buckets (unwrap found))
+                push bucket.rows r
+            }
+            r = (r + 1)
+        }
+
+        def l:int 0
+        while (l < left.rowCount) {
+            def lkey:string (DBOps.groupKeyOf(left l leftAt))
+            def hit@(optional):int (get byKey lkey)
+            if (null? hit) {
+                if keepUnmatched {
+                    DBOps.pushJoined(out left l nl right -1 nr)
+                }
+            } {
+                def b:JoinBucket (itemAt buckets (unwrap hit))
+                def k:int 0
+                def nk:int (array_length b.rows)
+                while (k < nk) {
+                    DBOps.pushJoined(out left l nl right (itemAt b.rows k) nr)
+                    k = (k + 1)
+                }
+            }
+            l = (l + 1)
+        }
+        return out
+    }
+
+    ; One output row: a left row, and a right row or nulls.
+    sfn pushJoined:void (out:DataChunk left:DataChunk leftRow:int nl:int right:DataChunk rightRow:int nr:int) {
+        def i:int 0
+        while (i < nl) {
+            def lv:ValueVector (out.vectorAt(i))
+            lv.appendFrom((left.vectorAt(i)) leftRow)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < nr) {
+            def rv:ValueVector (out.vectorAt((nl + k)))
+            if (rightRow < 0) {
+                rv.appendNull()
+            } {
+                rv.appendFrom((right.vectorAt(k)) rightRow)
+            }
+            k = (k + 1)
+        }
+        out.rowCount = (out.rowCount + 1)
+    }
+
+    sfn columnIndexes:[int] (chunk:DataChunk names:[string]) {
+        def out:[int]
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            def at:int (chunk.columnIndex((itemAt names i)))
+            if (at < 0) {
+                def none:[int]
+                return none
+            }
+            push out at
+            i = (i + 1)
+        }
+        return out
     }
 
     ; -------------------------------------------------------------- pipeline --

@@ -203,6 +203,64 @@ class RangerDbViewerWeb {
         return (frame.formView.summary())
     }
 
+    ; ------------------------------------------------------------------------
+    ; The Query section
+    ; ------------------------------------------------------------------------
+    ;
+    ; What the designer produces is a `QuerySpec`, never SQL text, so the same
+    ; execution path serves it and the Data panel — and the capability-fallback
+    ; engine does the join RangerDB cannot.
+    fn queryTables:string () {
+        return (ObjectTree.joinNames((frame.query.tables())))
+    }
+
+    fn queryFieldCount:int () {
+        return (array_length frame.query.fields)
+    }
+
+    fn queryJoinCount:int () {
+        return (array_length frame.query.joins)
+    }
+
+    fn queryRowCount:int () {
+        return frame.queryRows
+    }
+
+    fn queryRan:boolean () {
+        return frame.queryRan
+    }
+
+    fn querySql:string () {
+        return (frame.query.toSql())
+    }
+
+    fn queryError:string () {
+        return frame.query.errorText
+    }
+
+    ; What the engine had to do itself because the backend could not.
+    fn queryFallback:string () {
+        return frame.app.source.session.lastFallback
+    }
+
+    fn queryCell:string (row:int col:int) {
+        return (frame.queryResult.pane.model.getCell(row col))
+    }
+
+    ; Type a criterion into the grid, by the field's name.
+    fn queryCriteria:boolean (field:string text:string) {
+        def total:int (frame.querySheet.rows + (QuerySheet.spareRows()))
+        def i:int 0
+        while (i < total) {
+            def r:int (i + 1)
+            if ((frame.querySheet.pane.model.getCell(r (QuerySheet.colField()))) == field) {
+                return (frame.querySheet.pane.setCell(r (QuerySheet.colCriteria()) text))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn schemaEdited:boolean () {
         return (frame.schemaSheet.isDirty())
     }

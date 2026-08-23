@@ -22,6 +22,7 @@
 ; ============================================================================
 
 Import "DbSource.rgr"
+Import "../../rangerdb/src/schema/DdlToSchema.rgr"
 
 class DemoData {
     sfn ddl:[string] () {
@@ -149,6 +150,17 @@ class DemoData {
         DemoData.insertItem(session 1 2 1)
         DemoData.insertItem(session 2 3 1)
         return true
+    }
+
+    ; The demo schema WITH its relationships. RangerDB has no DDL, so its
+    ; introspector cannot report a foreign key — the same statements read
+    ; through RangerSQL can. Anything that needs the relationships (the
+    ; diagram, and the query designer's "join them the way the database says")
+    ; asks for this one rather than the introspected one.
+    sfn schemaFromSql:DatabaseSchema () {
+        def reader:DdlToSchema (DdlToSchema.of(""))
+        reader.applyScript((DemoData.ddlText()))
+        return reader.schema
     }
 
     sfn insertProduct:void (session:DBSession id:int sku:string name:string category:int price:double) {
