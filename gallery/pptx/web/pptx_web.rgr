@@ -161,12 +161,27 @@ class PptxWeb {
         return (app.suggestedName())
     }
 
-    ; The wheel, which the slide panel uses to scroll. The app decides whether
-    ; the pointer is over the panel at all.
+    ; The wheel, in NOTCHES — positive up, one per detent, the way a mouse
+    ; reports it. The app works in pixels of travel, so the conversion is
+    ; here, at the edge, where the unit is known.
+    ;
+    ; Both units have an entry point on purpose. When the app changed from
+    ; notches to pixels I changed one of the two hosts that call in here and
+    ; not the other, and the one I missed went on sending ±1 — which the app
+    ; then read as one PIXEL, negated. The panel crawled, backwards. A unit
+    ; that is only written down in a comment is a unit that will be got wrong
+    ; by the next caller; a unit in the method name cannot be.
     fn scroll:void (x:int y:int delta:int) {
+        this.scrollPixels(x y (0 - (delta * 40)))
+    }
+
+    ; The wheel or a swipe, in PIXELS of travel, positive downwards — what a
+    ; trackpad actually reports, and what a host should send if it has the
+    ; number.
+    fn scrollPixels:void (x:int y:int dy:int) {
         input.newFrame()
         input.setPointerPos(x y)
-        input.addScroll(delta)
+        input.addScroll(dy)
         app.update(input)
     }
 

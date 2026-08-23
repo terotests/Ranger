@@ -242,7 +242,17 @@ canvas.addEventListener("wheel", async (ev) => {
   // decided here.
   if (x >= (web.slidePanelWidth() | 0)) return;
   ev.preventDefault();
-  web.scroll(x, y, ev.deltaY > 0 ? -1 : 1);
+  // How far the gesture travelled, in pixels — not which way it went.
+  //
+  // This sent ±1 per event and the app used to read that as a notch. It reads
+  // pixels now, so ±1 meant one pixel, negated: the panel crawled, backwards.
+  // deltaMode says what the numbers are in — Firefox reports LINES for a
+  // mouse wheel where Chrome reports pixels, so a host that ignores it
+  // scrolls at completely different speeds in the two.
+  let dy = ev.deltaY;
+  if (ev.deltaMode === 1) dy *= 16;
+  else if (ev.deltaMode === 2) dy *= canvas.clientHeight;
+  web.scrollPixels(x, y, Math.round(dy));
   await draw();
 }, { passive: false });
 
