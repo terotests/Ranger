@@ -1,0 +1,24 @@
+{
+  "name": "calculate",
+  "note": "a calculation, and a condition that reads it",
+  "script": [
+    {
+      "height": 1.8
+    },
+    {
+      "weight": 81
+    },
+    {
+      "weight": 90
+    },
+    {
+      "height": 2.0
+    }
+  ],
+  "knownDifferences": [
+    {
+      "question": "bmi",
+      "reason": "empty is not zero: a calculation over an unanswered node is unanswered, where XPath makes it NaN"
+    }
+  ]
+}

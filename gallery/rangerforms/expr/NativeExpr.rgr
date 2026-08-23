@@ -1135,6 +1135,63 @@ class NativeExpr extends ExprHost {
         if (name == "allof") {
             return (this.overlap(node state first true))
         }
+        ; `selected(answer, value)` — was that box ticked?
+        ;
+        ; Not `contains`: a multi-choice answer stored as text is a
+        ; SPACE-DELIMITED list of codes, and `contains` on text is a substring
+        ; match, so `selected(q, 'ab')` would say yes to an answer of `abc`.
+        ; Every questionnaire format that stores a multi-select as a string
+        ; needs this distinction and none of them survive without it.
+        if (name == "selected") {
+            if (argc < 2) {
+                return (FormValue.ofError("selected needs an answer and a value"))
+            }
+            def want:FormValue (this.kidValue(node 1 state))
+            if (want.isError()) {
+                return want
+            }
+            def code:string (want.asText())
+            if (first.isList()) {
+                return (FormValue.ofBool((first.holds(code))))
+            }
+            if (first.isEmpty()) {
+                return (FormValue.ofBool(false))
+            }
+            return (FormValue.ofBool((NativeExpr.hasWord((first.asText()) code))))
+        }
+        ; The first argument that was answered.
+        if (name == "coalesce") {
+            def i2:int 0
+            while (i2 < argc) {
+                def v3:FormValue (this.kidValue(node i2 state))
+                if (v3.isError()) {
+                    return v3
+                }
+                if ((v3.isEmpty()) == false) {
+                    return v3
+                }
+                i2 = (i2 + 1)
+            }
+            return (FormValue.blank())
+        }
+        ; Everything, joined. An unanswered question contributes nothing
+        ; rather than making the whole result unanswerable — the point of
+        ; joining is usually to build a label out of whatever is there.
+        if (name == "concat") {
+            def out2:string ""
+            def c3:int 0
+            while (c3 < argc) {
+                def v4:FormValue (this.kidValue(node c3 state))
+                if (v4.isError()) {
+                    return v4
+                }
+                if ((v4.isEmpty()) == false) {
+                    out2 = (out2 + (v4.asText()))
+                }
+                c3 = (c3 + 1)
+            }
+            return (FormValue.ofText(out2))
+        }
         if (name == "avg") {
             def total:double 0.0
             def seen:int 0
@@ -1325,6 +1382,40 @@ class NativeExpr extends ExprHost {
             return (FormValue.blank())
         }
         return (FormValue.ofNumber(best))
+    }
+
+    ; One whole word of a space-delimited list. See `selected` above for why a
+    ; substring match is not the same question.
+    sfn hasWord:boolean (text:string want:string) {
+        def n:int (strlen text)
+        def start:int 0
+        def i:int 0
+        while (i <= n) {
+            def atEnd:boolean (i == n)
+            def isSpace:boolean false
+            if (atEnd == false) {
+                def ch:int (charAt text i)
+                if (ch == 32) {
+                    isSpace = true
+                }
+                if (ch == 9) {
+                    isSpace = true
+                }
+                if (ch == 10) {
+                    isSpace = true
+                }
+            }
+            if (atEnd || isSpace) {
+                if (i > start) {
+                    if ((substring text start i) == want) {
+                        return true
+                    }
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     sfn hasPart:boolean (text:string part:string) {

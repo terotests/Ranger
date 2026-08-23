@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">
+  <h:head>
+    <h:title>Operators</h:title>
+    <model>
+      <instance>
+        <data id="operators">
+          <a/>
+          <b/>
+          <name/>
+          <ratio/>
+          <rest/>
+          <both/>
+          <either/>
+          <different/>
+          <named/>
+          <picked/>
+          <fallback/>
+          <joined/>
+        </data>
+      </instance>
+      <bind nodeset="/data/a" type="int"/>
+      <bind nodeset="/data/b" type="int"/>
+      <bind nodeset="/data/name" type="string"/>
+      <bind nodeset="/data/ratio" type="decimal" calculate="/data/a div /data/b"/>
+      <bind nodeset="/data/rest" type="int" calculate="/data/a mod /data/b"/>
+      <bind nodeset="/data/both" type="string" relevant="/data/a &gt; 1 and /data/b &gt; 1"/>
+      <bind nodeset="/data/either" type="string" relevant="/data/a &gt; 5 or /data/b &gt; 5"/>
+      <bind nodeset="/data/different" type="string" relevant="/data/a != /data/b"/>
+      <bind nodeset="/data/named" type="string" relevant="string-length(/data/name) &gt; 0"/>
+      <bind nodeset="/data/picked" type="string" calculate="if(/data/a &gt; /data/b, 'a', 'b')"/>
+      <bind nodeset="/data/fallback" type="string" calculate="coalesce(/data/name, 'nobody')"/>
+      <bind nodeset="/data/joined" type="string" calculate="concat(/data/name, '-', /data/a)"/>
+    </model>
+  </h:head>
+  <h:body>
+    <input ref="/data/a"><label>A</label></input>
+    <input ref="/data/b"><label>B</label></input>
+    <input ref="/data/name"><label>Name</label></input>
+  </h:body>
+</h:html>

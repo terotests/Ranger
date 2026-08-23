@@ -81,6 +81,14 @@ can see is one fact and not two. The harness therefore asks both sides the
 question that matters — is it on screen — rather than comparing a flag that
 means different things.
 
+## The other two comparisons
+
+| | what it is | needs |
+|---|---|---|
+| `BENCHMARK.md` | the eight timings, beside SurveyJS | `survey-core` |
+| `XFORMS.md` | ODK XForms against Enketo's own XPath evaluator | `openrosa-xpath-evaluator`, `jsdom` |
+| `CONFORMANCE.md` | the same engine on es6 / python / go / cpp | nothing but the repository |
+
 ## What is not measured yet
 
 The eight timings from `PLAN_RANGERDBVIEWER_FORMS.md` (parse, initial
