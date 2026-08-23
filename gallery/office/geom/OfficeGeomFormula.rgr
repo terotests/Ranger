@@ -1,0 +1,374 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeGeomFormula — the guide evaluator DrawingML geometry is written in
+; ==============================================================================
+;
+; A preset shape is not a polygon. It is a list of named GUIDES computed from
+; the shape's box and its adjustment handles, followed by a path expressed in
+; terms of those guides. A rounded rectangle's corner radius is
+;
+;     */ ss adj 100000
+;
+; and not a constant, which is why every roundRect in the gallery had the same
+; corners whatever the file said, and why writing the 187 preset shapes by
+; hand would have meant writing this evaluator 187 times, badly.
+;
+; The same language appears in two places, which is the whole reason this is a
+; module and not a function inside the PowerPoint reader:
+;
+;     prstGeom ─┐
+;               ├─→ guides ─→ path ─→ points
+;     custGeom ─┘
+;
+; A custGeom in Word, Excel or PowerPoint carries its own `gdLst` written in
+; exactly this language. One evaluator, two sources.
+;
+; Seventeen operators, and the whole of the arithmetic is integer-flavoured
+; but computed in doubles — the specification's own examples divide before
+; they multiply and rely on it. Two details are easy to miss and both ruin a
+; shape silently:
+;
+;   * ANGLES ARE 1/60000 OF A DEGREE. `sin`, `cos`, `tan`, `at2`, `cat2` and
+;     `sat2` take and return them in that unit, so a shape whose evaluator
+;     treats them as degrees is out by a factor of sixty thousand and comes
+;     out as a dot.
+;   * `at2` returns an angle, so it comes BACK in 60000ths, and it is the one
+;     operator whose result is not a length.
+;
+; The built-in variables are the shape's own box: `w` and `h`, `l t r b` for
+; the edges, `hc` and `vc` for the centres, `wd2`/`hd2` for the half-extents,
+; and `ss` for the shorter side — which is what makes a corner radius scale
+; with the smaller dimension rather than with the width.
+;
+;   npm run office:geom:test
+; ==============================================================================
+
+Import "../../evg/EVGCodepoint.rgr"
+
+; A resolved set of guides: two parallel arrays rather than a map, because a
+; guide list is short, is read far more often than it is written, and is
+; evaluated strictly in order — a guide may only refer to the ones before it,
+; which is what makes a single pass correct.
+class GeomGuides {
+    def names:[string]
+    def values:[double]
+
+    Constructor () {
+    }
+
+    fn put:void (name:string v:double) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                set_at values i v
+                return
+            }
+            i = (i + 1)
+        }
+        push names name
+        push values v
+    }
+
+    fn has:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn get:double (name:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return (itemAt values i)
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+}
+
+class OfficeGeomFormula {
+
+    ; --- the angle unit -------------------------------------------------------
+
+    ; DrawingML states angles in sixtythousandths of a degree. Everything that
+    ; takes or returns an angle here goes through these two, so the unit lives
+    ; in one place instead of being remembered at fourteen call sites.
+    sfn toRadians:double (a:double) {
+        return ((a / 60000.0) * 0.017453292519943295)
+    }
+
+    sfn fromRadians:double (r:double) {
+        return ((r / 0.017453292519943295) * 60000.0)
+    }
+
+    ; --- the box --------------------------------------------------------------
+
+    ; The variables every shape starts with, in a box of `w` by `h` whose
+    ; top-left is the origin. A preset is always evaluated in its own box and
+    ; scaled afterwards, which is why nothing here takes an x or a y.
+    sfn boxGuides:GeomGuides (w:double h:double) {
+        def g (new GeomGuides)
+        g.put("w" w)
+        g.put("h" h)
+        g.put("l" 0.0)
+        g.put("t" 0.0)
+        g.put("r" w)
+        g.put("b" h)
+        g.put("hc" (w * 0.5))
+        g.put("vc" (h * 0.5))
+        g.put("wd2" (w * 0.5))
+        g.put("hd2" (h * 0.5))
+        ; The SHORTER side. A corner radius, an arrow's head and a bevel are
+        ; all stated against it, so that they scale with the smaller dimension
+        ; and a shape stretched wide keeps its corners round rather than oval.
+        def ss:double w
+        if (h < w) {
+            ss = h
+        }
+        g.put("ss" ss)
+        g.put("ssd2" (ss * 0.5))
+        g.put("ssd4" (ss * 0.25))
+        g.put("ssd6" (ss / 6.0))
+        g.put("ssd8" (ss * 0.125))
+        g.put("wd4" (w * 0.25))
+        g.put("wd8" (w * 0.125))
+        g.put("hd4" (h * 0.25))
+        g.put("hd8" (h * 0.125))
+        g.put("wd3" (w / 3.0))
+        g.put("hd3" (h / 3.0))
+        g.put("wd5" (w * 0.2))
+        g.put("hd5" (h * 0.2))
+        g.put("wd6" (w / 6.0))
+        g.put("hd6" (h / 6.0))
+        g.put("wd10" (w * 0.1))
+        g.put("hd10" (h * 0.1))
+        g.put("wd32" (w / 32.0))
+        g.put("hd32" (h / 32.0))
+        g.put("ssd16" (ss / 16.0))
+        g.put("ssd32" (ss / 32.0))
+        ; `3cd4` is three quarters of a circle and the rest of the family with
+        ; it. They are constants in the angle unit, and the names are the
+        ; specification's own — a shape says `3cd4` where a reader expects
+        ; 270 degrees.
+        g.put("cd2" 10800000.0)
+        g.put("cd4" 5400000.0)
+        g.put("cd8" 2700000.0)
+        g.put("3cd4" 16200000.0)
+        g.put("3cd8" 8100000.0)
+        g.put("5cd8" 13500000.0)
+        g.put("7cd8" 18900000.0)
+        return g
+    }
+
+    ; --- one term -------------------------------------------------------------
+
+    ; A term is a guide's name, an adjustment's name, or a literal number.
+    ; Which of the three it is need not be decided anywhere: a name that has
+    ; been given a value has one, and everything else is read as a number.
+    sfn valueOf:double (g:GeomGuides tok:string) {
+        if (g.has(tok)) {
+            return (g.get(tok))
+        }
+        return (OfficeGeomFormula.toDouble(tok))
+    }
+
+    ; A signed decimal, written out rather than taken from the standard
+    ; library so that it means exactly the same thing on both targets and
+    ; cannot throw on a name that reached here by mistake.
+    sfn toDouble:double (s:string) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return 0.0
+        }
+        def i:int 0
+        def sign:double 1.0
+        def c0:int (charAt s 0)
+        if (c0 == 45) {
+            sign = -1.0
+            i = 1
+        } {
+            if (c0 == 43) {
+                i = 1
+            }
+        }
+        def whole:double 0.0
+        def frac:double 0.0
+        def scale:double 1.0
+        def seenDot:boolean false
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 46) {
+                seenDot = true
+            } {
+                if ((c >= 48) && (c <= 57)) {
+                    def d:double (to_double (c - 48))
+                    if seenDot {
+                        scale = (scale * 0.1)
+                        frac = (frac + (d * scale))
+                    } {
+                        whole = ((whole * 10.0) + d)
+                    }
+                } {
+                    ; Not a number at all. A guide that does not exist is
+                    ; zero, which is what the specification does with an
+                    ; unresolved reference and is far better than a throw
+                    ; halfway through drawing a slide.
+                    return 0.0
+                }
+            }
+            i = (i + 1)
+        }
+        return (sign * (whole + frac))
+    }
+
+    ; --- one formula ----------------------------------------------------------
+
+    ; `fmla` is an operator and up to three terms, separated by spaces —
+    ; possibly several spaces, which the published definitions do contain.
+    sfn evalFormula:double (g:GeomGuides fmla:string) {
+        def parts:[string] (OfficeGeomFormula.words(fmla))
+        def n:int (array_length parts)
+        if (n < 1) {
+            return 0.0
+        }
+        def op:string (itemAt parts 0)
+        def a:double 0.0
+        def b:double 0.0
+        def c:double 0.0
+        if (n > 1) {
+            a = (OfficeGeomFormula.valueOf(g (itemAt parts 1)))
+        }
+        if (n > 2) {
+            b = (OfficeGeomFormula.valueOf(g (itemAt parts 2)))
+        }
+        if (n > 3) {
+            c = (OfficeGeomFormula.valueOf(g (itemAt parts 3)))
+        }
+
+        ; Multiply then divide. The order matters: the definitions scale by
+        ; ratios of a hundred thousand and doing the division first loses the
+        ; shape in rounding.
+        if (op == "*/") {
+            if (c == 0.0) {
+                return 0.0
+            }
+            return ((a * b) / c)
+        }
+        if (op == "+-") {
+            return ((a + b) - c)
+        }
+        if (op == "+/") {
+            if (c == 0.0) {
+                return 0.0
+            }
+            return ((a + b) / c)
+        }
+        if (op == "val") {
+            return a
+        }
+        ; Clamp `b` to the range the shape allows. This is what keeps an
+        ; adjustment handle inside its shape, and it is the reason a preset
+        ; with a wild adjustment in the file still draws.
+        if (op == "pin") {
+            if (b < a) {
+                return a
+            }
+            if (b > c) {
+                return c
+            }
+            return b
+        }
+        if (op == "?:") {
+            if (a > 0.0) {
+                return b
+            }
+            return c
+        }
+        if (op == "abs") {
+            return (fabs a)
+        }
+        if (op == "min") {
+            if (a < b) {
+                return a
+            }
+            return b
+        }
+        if (op == "max") {
+            if (a > b) {
+                return a
+            }
+            return b
+        }
+        if (op == "sqrt") {
+            if (a <= 0.0) {
+                return 0.0
+            }
+            return (sqrt a)
+        }
+        if (op == "mod") {
+            return (sqrt (((a * a) + (b * b)) + (c * c)))
+        }
+        ; `sin x angle` is x times the sine of the angle — a scaling, not a
+        ; bare trigonometric function, which is why it takes two terms.
+        if (op == "sin") {
+            return (a * (sin (OfficeGeomFormula.toRadians(b))))
+        }
+        if (op == "cos") {
+            return (a * (cos (OfficeGeomFormula.toRadians(b))))
+        }
+        if (op == "tan") {
+            return (a * (tan (OfficeGeomFormula.toRadians(b))))
+        }
+        ; The arc tangent of y over x, and the one operator whose answer is an
+        ; ANGLE — so it comes back in the same sixtythousandths the others
+        ; take. A shape that gets this unit wrong is not slightly off; it is a
+        ; dot.
+        if (op == "at2") {
+            return (OfficeGeomFormula.fromRadians((atan2 b a)))
+        }
+        ; The cosine and sine of an arc tangent, scaled — these exist so a
+        ; definition can find a point on an ellipse without naming the angle.
+        if (op == "cat2") {
+            def ang:double (atan2 c b)
+            return (a * (cos ang))
+        }
+        if (op == "sat2") {
+            def ang:double (atan2 c b)
+            return (a * (sin ang))
+        }
+        return 0.0
+    }
+
+    ; Split on runs of spaces. `split` on a single space would hand back empty
+    ; strings for the double spaces the published definitions contain, and an
+    ; empty term reads as zero — which turns `*/ vc  vf 100000` into nothing.
+    sfn words:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c == 32) || (c == 9)) {
+                if ((strlen cur) > 0) {
+                    push out cur
+                    cur = ""
+                }
+            } {
+                cur = (cur + (EVGCodepoint.toStr(c)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+}
