@@ -325,6 +325,32 @@ export async function loadImages(doc, opts = {}) {
  * every object is new and every glyph was rasterized and uploaded again. Sixty
  * times a second.
  */
+
+/**
+ * A run of display-list text, wrapped so the browser lays it out verbatim.
+ *
+ * `fillText` is not a glyph blitter: it runs the bidirectional algorithm over
+ * whatever it is given. That is right for logical text and wrong for ours —
+ * the display list is in VISUAL order already, reordered and shaped by
+ * OfficeText on the way in, so the browser reordered a second time and put
+ * every right-to-left line back into the order it was stored in. Letters
+ * joined correctly (shaped once) and words ran backwards (reordered twice),
+ * which is exactly how it was reported.
+ *
+ * The producer has to own the ordering because it is the only party that sees
+ * a LINE: a line that changes colour partway along becomes several text
+ * commands at computed x positions, and a browser asked to lay out each of
+ * them on its own would reorder each in isolation — the same bug one level
+ * down. So the fix is to stop the browser reordering: U+202D LEFT-TO-RIGHT
+ * OVERRIDE forces every character to level 0, and U+202C pops it.
+ *
+ * Applied to every run, not only the ones with Arabic in them. It is a no-op
+ * for Latin, it keeps measurement and rasterization on identical strings, and
+ * an unconditional rule is one a future backend cannot half-implement.
+ */
+const LRO = "\u202D", PDF = "\u202C";
+export const verbatim = (t) => LRO + t + PDF;
+
 function runKey(c, dpr) {
   return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
 }
@@ -345,7 +371,7 @@ function buildTextAtlas(cmds, dpr) {
   const ctx = canvas.getContext("2d");
   const measured = runs.map((c) => {
     ctx.font = `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${c.font}", sans-serif`;
-    const m = ctx.measureText(c.text);
+    const m = ctx.measureText(verbatim(c.text));
     // Two different ascents, and the difference between them is the whole of
     // where a run sits. `actualBoundingBox*` is the INK of these particular
     // letters — "moon" has no ascender and no descender, "Ãg" has both — and
@@ -379,7 +405,7 @@ function buildTextAtlas(cmds, dpr) {
   const slots = new Map();
   for (const m of measured) {
     c2.font = `${m.c.italic ? "italic " : ""}${m.c.weight ? m.c.weight + " " : ""}${m.c.size * dpr}px "${m.c.font}", sans-serif`;
-    c2.fillText(m.c.text, m.x + pad, m.y + pad + m.asc);
+    c2.fillText(verbatim(m.c.text), m.x + pad, m.y + pad + m.asc);
     slots.set(runKey(m.c, dpr), {
       u0: m.x / canvas.width, v0: m.y / canvas.height,
       u1: (m.x + m.w) / canvas.width, v1: (m.y + m.h) / canvas.height,

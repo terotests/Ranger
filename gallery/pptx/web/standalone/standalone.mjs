@@ -10,7 +10,7 @@
  * here rather than being fetched from a server — which is also why pictures
  * appear in the GL path at all now.
  */
-import { renderDisplayList, loadImages, markColoredSlots } from "./gl/evg-webgl.js";
+import { renderDisplayList, loadImages, markColoredSlots, verbatim } from "./gl/evg-webgl.js";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -439,6 +439,53 @@ async function selftest() {
     await draw();
     ok("delete takes the inserted shape away", web.run("edit.delete", "") || (web.selectionCount() | 0) === 0);
     ok("editing is still on at the end of it", web.editing() === true);
+  }
+
+
+  // The display list is in VISUAL order, and the browser must leave it alone.
+  //
+  // `fillText` is not a glyph blitter: it runs the bidirectional algorithm
+  // over whatever it is handed. Our text has already been through it —
+  // OfficeText reorders and shapes on the way into the list — so the browser
+  // reordered a second time and put every right-to-left line back into the
+  // order it is stored in. Letters joined correctly and words ran backwards.
+  //
+  // The producer has to own the ordering, because it is the only party that
+  // sees a LINE: a line that changes colour becomes several text commands at
+  // computed x positions, and a browser laying out each on its own would
+  // reorder each in isolation — the same bug one level down.
+  //
+  // So the check is that a wrapped run is laid out in the order it is given.
+  // Order-preserving means the result cannot depend on the base direction,
+  // and that is measurable without identifying a single glyph: draw it twice,
+  // once in each direction, and compare the pixels.
+  {
+    const shot = (text, dir) => {
+      const c = document.createElement("canvas");
+      c.width = 320; c.height = 48;
+      const x = c.getContext("2d");
+      x.clearRect(0, 0, 320, 48);
+      x.direction = dir; x.textAlign = "left"; x.textBaseline = "alphabetic";
+      x.fillStyle = "#000"; x.font = "24px sans-serif";
+      x.fillText(text, 8, 34);
+      const d = x.getImageData(0, 0, 320, 48).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i + 3]) | 0;
+      return h;
+    };
+    // Arabic beside Latin: the base direction decides which side the Latin
+    // ends up on, so this string is the one that moves.
+    const mixed = "\u0645\u0631\u062D\u0628\u0627 Ranger";
+    ok("an unwrapped run is laid out by the browser, not by us",
+       shot(mixed, "ltr") !== shot(mixed, "rtl"));
+    ok("a wrapped run is laid out in the order it was given",
+       shot(verbatim(mixed), "ltr") === shot(verbatim(mixed), "rtl"));
+    // And the wrap changes what is drawn — it is doing something.
+    ok("so the wrap is what holds the order", shot(mixed, "rtl") !== shot(verbatim(mixed), "rtl"));
+    // Latin has nothing to reorder, so it is untouched either way. Without
+    // this the three checks above could pass on a canvas that ignored text.
+    ok("and Latin is unaffected by any of it",
+       shot("Ranger", "ltr") === shot(verbatim("Ranger"), "rtl"));
   }
 
   // A colour emoji is not a glyph the run's colour applies to.

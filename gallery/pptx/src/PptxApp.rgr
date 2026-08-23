@@ -1752,7 +1752,19 @@ class PptxApp {
                 def para:PptxParagraph (itemAt s0.notes.text.paragraphs line.para)
                 def full:string (PptxTextLayout.paraText(para))
                 def piece:string (substring full line.startCol line.endCol)
-                toolbarView.pushText(dl piece line.x line.y 13.0 (EVGColor.rgb(215 220 232)))
+                ; Reordered and shaped on the way into the list, like every
+                ; other string that goes into it.
+                ;
+                ; This one was not, and it was the only text in the deck
+                ; viewer that was not. It looked RIGHT in the browser, because
+                ; `fillText` runs the bidirectional algorithm itself and was
+                ; doing the work for us, and it was wrong everywhere else —
+                ; the software canvas draws the string it is handed, so the
+                ; notes came out in the order they are stored in. One rule,
+                ; broken in one place, hidden by a backend that happened to
+                ; paper over it.
+                def shown:string (OfficeText.forDisplayDir(piece para.rtl))
+                toolbarView.pushText(dl shown line.x line.y 13.0 (EVGColor.rgb(215 220 232)))
                 li = (li + 1)
             }
             dl.addClipEnd()
@@ -4206,7 +4218,9 @@ class PptxApp {
                         prev = (editor.sectionOfSlide((i - 1)))
                     }
                     if (sec != prev) {
-                        toolbarView.pushText(dl (editor.sectionNameAt(sec)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
+                        ; A section name is the deck's text, not ours.
+                        def secName:string (editor.sectionNameAt(sec))
+                        toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
                     }
                 }
             }
@@ -4314,9 +4328,15 @@ class PptxApp {
         while (li < (array_length lines)) {
             def line:PptxTextLine (itemAt lines li)
             if (line.y < ((r.y + r.h) - 4.0)) {
-                def text:string (PptxTextLayout.paraText((itemAt sh.text.paragraphs line.para)))
+                def npara:PptxParagraph (itemAt sh.text.paragraphs line.para)
+                def text:string (PptxTextLayout.paraText(npara))
                 def piece:string (substring text line.startCol line.endCol)
-                toolbarView.pushText(dl piece line.x line.y line.size (EVGColor.rgb(40 44 58)))
+                ; Reordered and shaped on the way in, like every other string
+                ; that goes into the list. See `paintNotes` above: this is the
+                ; second of the two places the notes are drawn, and it was raw
+                ; for the same reason.
+                def nshown:string (OfficeText.forDisplayDir(piece npara.rtl))
+                toolbarView.pushText(dl nshown line.x line.y line.size (EVGColor.rgb(40 44 58)))
             }
             li = (li + 1)
         }

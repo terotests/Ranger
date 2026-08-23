@@ -95,6 +95,48 @@ class PptxFrameTest {
         }
     }
 
+    ; Decimal codepoints to a string, so a test reads as what it tests and
+    ; encodes the same way on both targets.
+    sfn cps:string (spec:string) {
+        def out:string ""
+        def cur:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (strlen spec)) {
+            def ch:int (charAt spec i)
+            if (ch == 32) {
+                if any {
+                    out = (out + (EVGCodepoint.toStr(cur)))
+                }
+                cur = 0
+                any = false
+            } {
+                cur = ((cur * 10) + (ch - 48))
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            out = (out + (EVGCodepoint.toStr(cur)))
+        }
+        return out
+    }
+
+    sfn countText:int (dl:EVGDisplayList want:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                if (cmd.text == want) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     sfn indexOfCommand:int (app:PptxApp id:string) {
         def i:int 0
         while (i < (app.toolbar.count())) {
@@ -382,6 +424,30 @@ class PptxFrameTest {
         def off:boolean (hv.pointer(hx (hv.H - 4) false false false))
         c.ok("moving off asks for a repaint too" off)
         c.eqInt("and nothing is hot" hv.toolbar.hot -1)
+
+        print "-- the notes strip goes through the shared core like everything else --"
+        ; It was the one string in the deck viewer that did not.
+        ;
+        ; The slide's text is reordered and shaped on the way into the display
+        ; list; the notes went in raw. That looked RIGHT in the browser,
+        ; because `fillText` runs the bidirectional algorithm itself and was
+        ; quietly doing the work — and it was wrong everywhere else, because
+        ; the software canvas draws the string it is handed. One rule, broken
+        ; in one place, hidden by the backend that papered over it.
+        ;
+        ; Reading a screenshot could not find this: the browser build showed
+        ; correct notes over a scrambled slide, and the desktop build the
+        ; other way round, so each looked like a different bug.
+        def nv:PptxApp (PptxFrameTest.build())
+        def note:string (PptxFrameTest.cps("1605 1585 1581 1576 1575"))
+        nv.runCommand("notes.set" note)
+        def ndl:EVGDisplayList (nv.buildFrame())
+        def want:string (OfficeText.forDisplayDir(note -1))
+        c.ok("the note is not stored the way it is drawn" ((want == note) == false))
+        def raw:int (PptxFrameTest.countText(ndl note))
+        def done:int (PptxFrameTest.countText(ndl want))
+        c.eqInt("the notes strip draws the reordered text" done 1)
+        c.eqInt("and never the stored text" raw 0)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
