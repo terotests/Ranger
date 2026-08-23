@@ -1,0 +1,214 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; DbViewerTest — the workbench, driven with no window attached.
+; ==============================================================================
+;
+; Every assertion here goes through the same methods a button calls, which is
+; what makes a headless run worth anything: if the test can open a database,
+; walk the object tree, select a table, page its rows and lay out its diagram,
+; then so can the page and so can the SDL window, because there is no second
+; code path for them to take.
+; ==============================================================================
+
+Import "../app/DbViewerApp.rgr"
+Import "../app/DemoData.rgr"
+
+class ViewerCheck {
+    def passed:int 0
+    def failed:int 0
+    def label:string ""
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label + ": " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+}
+
+class DbViewerTest {
+
+    sfn runEngine:int (engine:string check:ViewerCheck) {
+        def probe:DbSource (DbSource.inMemory(engine))
+        if ((probe.isAvailable()) == false) {
+            print ("== viewer: " + engine + " not installed, skipped ==")
+            return 0
+        }
+        print ("== viewer: " + engine + " ==")
+        check.label = engine
+
+        def src:DbSource (DemoData.openSeeded(engine))
+        def app:DbViewerApp (new DbViewerApp)
+        def opened:boolean (app.openSource(src))
+        check.ok((engine + ": opens") opened)
+        if (opened == false) {
+            return 0
+        }
+
+        def sqlEngine:boolean (engine != "rangerdb")
+
+        ; --- what the introspection found ------------------------------------
+        check.eqInt((engine + ": five tables") (app.tree.tableCount) 5)
+        check.ok((engine + ": status names the engine") ((strlen app.status) > 0))
+
+        ; --- the object tree -------------------------------------------------
+        def visible:[TreeRow] (app.tree.visibleRows())
+        check.ok((engine + ": tree has rows") ((array_length visible) > 0))
+        ; row 0 is the schema, and collapsing it must hide everything below.
+        def toggled:boolean (app.tree.toggleAt(0))
+        check.ok((engine + ": the schema row collapses") toggled)
+        def collapsed:[TreeRow] (app.tree.visibleRows())
+        check.eqInt((engine + ": collapsed to one row") (array_length collapsed) 1)
+        app.tree.toggleAt(0)
+        def reopened:[TreeRow] (app.tree.visibleRows())
+        check.eqInt((engine + ": expanding restores every row") (array_length reopened) (array_length visible))
+
+        ; --- selection -------------------------------------------------------
+        def picked:boolean (app.selectTable("orders"))
+        check.ok((engine + ": orders can be selected") picked)
+        def missing:boolean (app.selectTable("no_such_table"))
+        check.ok((engine + ": a table that is not there cannot be") (missing == false))
+        def current:DBTable (app.currentTable())
+        check.eqStr((engine + ": the selection sticks") current.name "orders")
+        check.eqInt((engine + ": orders has 4 columns") (array_length current.columns) 4)
+
+        ; --- the composite primary key ---------------------------------------
+        def itemsIdx:int (app.schema.indexOfTable("order_items"))
+        check.ok((engine + ": order_items found") (itemsIdx >= 0))
+        if (itemsIdx >= 0) {
+            def items:DBTable (itemAt app.schema.tables itemsIdx)
+            def pks:[string] (items.primaryKeyColumns())
+            check.eqInt((engine + ": order_items has a 2-column PK") (array_length pks) 2)
+            if ((array_length pks) == 2) {
+                ; PRIMARY KEY (order_id, product_id) — the ORDER is part of the
+                ; key, so a viewer that returns them the other way round has
+                ; described a different index.
+                check.eqStr((engine + ": PK column 1 is order_id") (itemAt pks 0) "order_id")
+                check.eqStr((engine + ": PK column 2 is product_id") (itemAt pks 1) "product_id")
+            }
+        }
+
+        ; --- rows ------------------------------------------------------------
+        app.selectTable("categories")
+        def page:DataChunk (app.pageOfRows(0 10))
+        check.ok((engine + ": categories returns rows") (page.rowCount > 0))
+        check.ok((engine + ": rows have columns") ((page.columnCount()) > 0))
+
+        ; --- the diagram -----------------------------------------------------
+        ; 0 = draw everything, which is what a five-table database wants.
+        def view:FlowView (app.buildDiagram(0))
+        def g:FlowGraph view.graph
+        check.ok((engine + ": the diagram has a node per table") ((g.nodeCount()) >= 5))
+
+        if sqlEngine {
+            ; --- things only a SQL engine describes --------------------------
+            check.eqInt((engine + ": one view") (app.tree.viewCount) 1)
+            check.eqInt((engine + ": two hand-written indexes") (app.tree.indexCount) 2)
+            check.eqInt((engine + ": five foreign keys") (array_length app.schema.foreignKeys) 5)
+            check.ok((engine + ": the diagram draws the relationships") ((g.edgeCount()) >= 5))
+
+            ; the self-reference: categories.parent_id → categories.id
+            def selfRefs:int 0
+            def k:int 0
+            def nk:int (array_length app.schema.foreignKeys)
+            while (k < nk) {
+                def fk:DBForeignKey (itemAt app.schema.foreignKeys k)
+                if (fk.fromTable == fk.toTable) {
+                    selfRefs = (selfRefs + 1)
+                }
+                k = (k + 1)
+            }
+            check.eqInt((engine + ": the self-reference survives") selfRefs 1)
+
+            ; --- subject areas ----------------------------------------------
+            ; orders touches customers and order_items, and nothing else.
+            def near:DatabaseSchema (SchemaDiagram.neighbourhood(app.schema "orders" 1))
+            check.eqInt((engine + ": orders' neighbourhood is 3 tables") (near.tableCount()) 3)
+            check.ok((engine + ": …and includes customers") ((near.indexOfTable("customers")) >= 0))
+            check.ok((engine + ": …and excludes categories") ((near.indexOfTable("categories")) < 0))
+
+            ; a subset must not keep an edge with one end off the page
+            def k2:int 0
+            def nk2:int (array_length near.foreignKeys)
+            def dangling:int 0
+            while (k2 < nk2) {
+                def fk2:DBForeignKey (itemAt near.foreignKeys k2)
+                if ((near.indexOfTable(fk2.toTable)) < 0) {
+                    dangling = (dangling + 1)
+                }
+                if ((near.indexOfTable(fk2.fromTable)) < 0) {
+                    dangling = (dangling + 1)
+                }
+                k2 = (k2 + 1)
+            }
+            check.eqInt((engine + ": no edge points off the page") dangling 0)
+
+            ; --- tables only -------------------------------------------------
+            def noViews:DatabaseSchema (SchemaDiagram.tablesOnly(app.schema))
+            check.eqInt((engine + ": tables-only drops the view") (noViews.tableCount()) 5)
+        } {
+            ; RangerDB cannot describe these, and must say so rather than
+            ; letting the viewer imply the database has none.
+            check.ok((engine + ": declares its foreign-key gap") (app.introspector.hasGap("foreign_keys")))
+            check.ok((engine + ": declares its index gap") (app.introspector.hasGap("indexes")))
+            check.ok((engine + ": declares its view gap") (app.introspector.hasGap("views")))
+            check.ok((engine + ": the status line reports the gaps") ((strlen (app.introspector.gapText())) > 0))
+        }
+
+        app.closeDb()
+        check.ok((engine + ": closes") ((app.opened) == false))
+        return 1
+    }
+
+    sfn runDetection:void (check:ViewerCheck) {
+        print "== engine detection =="
+        check.label = "detect"
+        ; The magic bytes, which is what actually decides.
+        check.eqStr("a SQLite header is SQLite" (DbSource.detectEngine("SQLite format 3 xxx")) "sqlite")
+        check.eqStr("a DuckDB header is DuckDB" (DbSource.detectEngine("12345678DUCK")) "duckdb")
+        check.eqStr("an unknown header decides nothing" (DbSource.detectEngine("not a database")) "")
+        check.eqStr("a short file decides nothing" (DbSource.detectEngine("SQL")) "")
+        ; The extension is the fallback, never the test.
+        check.eqStr(".sqlite falls back to SQLite" (DbSource.engineForExtension("/tmp/a.sqlite")) "sqlite")
+        check.eqStr(".duckdb falls back to DuckDB" (DbSource.engineForExtension("/tmp/a.duckdb")) "duckdb")
+        check.eqStr(".db falls back to SQLite" (DbSource.engineForExtension("/tmp/a.db")) "sqlite")
+        check.eqStr("an unknown extension decides nothing" (DbSource.engineForExtension("/tmp/a.zip")) "")
+    }
+
+    sfn main:void () {
+        def check:ViewerCheck (new ViewerCheck)
+        DbViewerTest.runDetection(check)
+        def ran:int 0
+        ran = (ran + (DbViewerTest.runEngine("rangerdb" check)))
+        ran = (ran + (DbViewerTest.runEngine("sqlite" check)))
+        ran = (ran + (DbViewerTest.runEngine("duckdb" check)))
+        print ("engines=" + (to_string ran) + " passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

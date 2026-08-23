@@ -33,6 +33,7 @@ compiler — the long-form writeups live here.
 | [`docx_viewer`](docx_viewer/README.md) | DOCX viewer + editing MVP: WordprocessingML → RichDocument → paginated layout → EVG; Word-style keyboard, multi-paragraph selection, and pastes a spreadsheet selection as a table |
 | [`rangerflow`](rangerflow/README.md) | React Flow-shaped interactive graph editor on EVG + WebGL, with a database ERD / UML class editor on top and PDF export |
 | [`datagrid`](datagrid/README.md) | EVG DataGrid / Excel-style spreadsheet viewer **and editor** (virtualized layout engine → display list → WebGL) |
+| [`rangerdbviewer`](rangerdbviewer/README.md) | A database workbench: open SQLite / DuckDB / RangerDB, introspect the real schema, browse it, draw it in RangerFlow and export it |
 | [`rangerdb`](rangerdb/README.md) | A database API with three engines behind it — a columnar engine written in Ranger, plus SQLite and DuckDB adapters — feeding the DataGrid |
 | [`rangersql`](rangersql/README.md) | SQL parser, generator and dialect transpiler, checked against SQLGlot's own identity corpus — and RangerDB's SQL front end |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |

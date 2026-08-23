@@ -1,0 +1,173 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; dbviewer_demo.rgr — open an in-memory database, describe it, draw it.
+; ============================================================================
+;
+;   npm run rangerdbviewer:demo                 the default engine (sqlite)
+;   npm run rangerdbviewer:demo -- --duckdb     …or DuckDB
+;   npm run rangerdbviewer:demo -- --rangerdb   …or the engine written in Ranger
+;   npm run rangerdbviewer:demo -- --all        every engine this host has
+;
+; It prints what a viewer would show — the object tree and the column detail —
+; and writes the ERD the diagram section renders, so the same run produces both
+; halves of the workbench.
+; ============================================================================
+
+Import "../app/DbViewerApp.rgr"
+Import "../app/DemoData.rgr"
+Import "../../rangerflow/export/FlowExport.rgr"
+
+class DbViewerDemo {
+    def outDir:string "gallery/rangerdbviewer/out"
+    def fontsDir:string "gallery/pdf_writer/assets/fonts"
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def d:DbViewerDemo (new DbViewerDemo)
+        def engine:string "sqlite"
+        def all:boolean false
+        def argCount:int (shell_arg_cnt)
+        def i:int 0
+        while (i < argCount) {
+            def a:string (shell_arg i)
+            if (a == "--duckdb") {
+                engine = "duckdb"
+            }
+            if (a == "--sqlite") {
+                engine = "sqlite"
+            }
+            if (a == "--rangerdb") {
+                engine = "rangerdb"
+            }
+            if (a == "--all") {
+                all = true
+            }
+            i = (i + 1)
+        }
+        if all {
+            d.run("rangerdb")
+            d.run("sqlite")
+            d.run("duckdb")
+            return
+        }
+        d.run(engine)
+    }
+
+    fn run:void (engine:string) {
+        def probe:DbSource (DbSource.inMemory(engine))
+        if ((probe.isAvailable()) == false) {
+            print ("== " + engine + " is not installed on this host, skipped ==")
+            return
+        }
+        print ("== RangerDBViewer on " + engine + " ==")
+        def src:DbSource (DemoData.openSeeded(engine))
+        def app:DbViewerApp (new DbViewerApp)
+        def ok:boolean (app.openSource(src))
+        if (ok == false) {
+            print ("  could not open: " + (src.errorText))
+            return
+        }
+        print ("  " + app.status)
+        this.printTree(app)
+        app.selectTable("orders")
+        this.printColumns(app)
+        this.writeDiagram(app engine)
+        app.closeDb()
+        print ""
+    }
+
+    fn printTree:void (app:DbViewerApp) {
+        print "  ── objects ──"
+        def rows:[TreeRow] (app.tree.visibleRows())
+        def i:int 0
+        def n:int (array_length rows)
+        while (i < n) {
+            def r:TreeRow (itemAt rows i)
+            def pad:string (DbViewerDemo.indent(r.depth))
+            def line:string ("  " + pad + r.label)
+            if ((strlen r.detail) > 0) {
+                def padded:string (DbViewerDemo.padTo(line 34))
+                line = (padded + r.detail)
+            }
+            print line
+            i = (i + 1)
+        }
+    }
+
+    fn printColumns:void (app:DbViewerApp) {
+        def t:DBTable (app.currentTable())
+        print ("  ── " + t.name + " ──")
+        def i:int 0
+        def n:int (array_length t.columns)
+        while (i < n) {
+            def c:SchemaColumn (itemAt t.columns i)
+            def badge:string "  "
+            if (c.isPrimaryKey) {
+                badge = "PK"
+            }
+            if (c.isForeignKey) {
+                badge = "FK"
+            }
+            def nullText:string "null"
+            if ((c.nullable) == false) {
+                nullText = "not null"
+            }
+            def line:string ("    " + badge + " " + c.name)
+            def padType:string (DbViewerDemo.padTo(line 24))
+            line = (padType + c.dataType)
+            def padNull:string (DbViewerDemo.padTo(line 42))
+            line = (padNull + nullText)
+            if (c.isUnique) {
+                line = (line + "  unique")
+            }
+            print line
+            i = (i + 1)
+        }
+    }
+
+    fn writeDiagram:void (app:DbViewerApp engine:string) {
+        if ((dir_exists outDir) == false) {
+            create_dir outDir
+        }
+        def v:FlowView (app.buildDiagram(0))
+        def ex:FlowExport (new FlowExport)
+        ex.loadFonts(fontsDir)
+        ex.mode = "page"
+        ex.pageWidth = 1190.0
+        ex.pageHeight = 842.0
+        ex.margin = 28.0
+        def stem:string (outDir + "/schema-" + engine)
+        def svgPath:string (stem + ".svg")
+        ex.writeSvg(v svgPath)
+        print ("  wrote " + svgPath)
+        def htmlPath:string (stem + ".html")
+        ex.writeHtml(v htmlPath ("RangerDBViewer — " + engine))
+        print ("  wrote " + htmlPath)
+        def pdfPath:string (stem + ".pdf")
+        ex.writePdf(v pdfPath)
+        print ("  wrote " + pdfPath)
+    }
+
+    sfn indent:string (depth:int) {
+        def out:string ""
+        def i:int 0
+        while (i < depth) {
+            out = (out + "  ")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn padTo:string (text:string width:int) {
+        def out:string text
+        def n:int (strlen out)
+        while (n < width) {
+            out = (out + " ")
+            n = (n + 1)
+        }
+        return out
+    }
+}

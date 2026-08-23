@@ -1,0 +1,122 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; GenericIntrospector.rgr — everything a backend must already answer, and no
+; more.
+; ============================================================================
+;
+; `DBBackend` requires `tableNames()` and `tableColumns()` of every engine, and
+; RangerDB's own column record carries a type, nullability and a key flag. That
+; is enough for a real, if thin, schema — so this introspector is written
+; against the CONTRACT rather than against any engine's catalog.
+;
+; Which means it serves two purposes:
+;
+;   - it is what RangerDB uses, having no catalog tables to query; and
+;   - it is the honest fallback for ANY engine that has no adapter yet. A new
+;     backend gets a table list and a column list on the day it is written,
+;     and its gaps say plainly what is not there.
+;
+; What it cannot know, it says: no foreign keys, no indexes, no views, no
+; check constraints. A caller reading `gaps` learns that those were never
+; asked for — as opposed to asked for and found absent, which is the
+; distinction the whole introspection layer exists to preserve.
+; ============================================================================
+
+Import "DBIntrospector.rgr"
+
+class GenericIntrospector {
+    Extends(DBIntrospector)
+
+    def engineLabel:string "generic"
+
+    Constructor () {
+    }
+
+    sfn over:GenericIntrospector (s:DBSession) {
+        def ins:GenericIntrospector (new GenericIntrospector)
+        ins.bindSession(s)
+        ins.engineLabel = (s.engineName())
+        return ins
+    }
+
+    fn engineName:string () {
+        return engineLabel
+    }
+
+    fn introspect:DatabaseSchema (schemaName:string) {
+        def schema:DatabaseSchema (new DatabaseSchema)
+        schema.engine = engineLabel
+        schema.name = schemaName
+
+        def names:[string] (session.tableNames())
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            def tn:string (itemAt names i)
+            def t:DBTable (schema.table(tn))
+            t.schema = schemaName
+            t.kind = "table"
+            this.readColumns(t)
+            i = (i + 1)
+        }
+        schema.resolve()
+        this.noteGap("foreign_keys" "foreign keys (not exposed by the backend contract)")
+        this.noteGap("indexes" "indexes (not exposed by the backend contract)")
+        this.noteGap("views" "views (not exposed by the backend contract)")
+        this.noteGap("checks" "check constraints (not exposed by the backend contract)")
+        return schema
+    }
+
+    fn readColumns:void (t:DBTable) {
+        def cols:[DBColumn] (session.tableColumns(t.name))
+        def i:int 0
+        def n:int (array_length cols)
+        def pk:int 0
+        while (i < n) {
+            def c:DBColumn (itemAt cols i)
+            def typeName:string (GenericIntrospector.sqlTypeOf(c.kind))
+            def sc:SchemaColumn (t.column(c.name typeName))
+            sc.nullable = c.nullable
+            if c.key {
+                pk = (pk + 1)
+                sc.isPrimaryKey = true
+                sc.pkPosition = pk
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A DBValue kind is how the ENGINE types a value; `dataType` on a schema
+    ; column is how a DATABASE spells a type, and those are different
+    ; vocabularies. Naming them here keeps a RangerDB schema readable beside a
+    ; SQLite one, and gives the DDL exporter something it can already write.
+    sfn sqlTypeOf:string (kind:int) {
+        if (kind == 1) {
+            return "BOOLEAN"
+        }
+        if (kind == 2) {
+            return "INTEGER"
+        }
+        if (kind == 3) {
+            return "DOUBLE"
+        }
+        if (kind == 4) {
+            return "VARCHAR"
+        }
+        if (kind == 5) {
+            return "DATE"
+        }
+        if (kind == 6) {
+            return "TIMESTAMP"
+        }
+        return "VARCHAR"
+    }
+
+    ; The backend contract can count, so this one is exact rather than an
+    ; estimate — and it is the same code path the grid already pages through.
+    fn exactRowCount:int (table:string) {
+        def spec:QuerySpec (QuerySpec.forTable(table))
+        return (session.countRows(spec))
+    }
+}

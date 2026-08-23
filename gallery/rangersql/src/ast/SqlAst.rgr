@@ -149,6 +149,47 @@ class SqlKind {
         return 50
     }
 
+    ; ------------------------------------------------------------------
+    ; DDL. A schema is what a migration changes and what a diagram draws, so
+    ; these are the kinds that turn RangerSQL from a query library into
+    ; something a viewer and a differ can both read.
+    ; ------------------------------------------------------------------
+    sfn createTable:int () {
+        return 70
+    }
+    sfn createView:int () {
+        return 71
+    }
+    sfn createIndex:int () {
+        return 72
+    }
+    sfn dropStatement:int () {
+        return 73
+    }
+    sfn alterTable:int () {
+        return 74
+    }
+    ; One column in a CREATE TABLE, or the column an ALTER adds. Its text is
+    ; the column's name.
+    sfn columnDef:int () {
+        return 75
+    }
+    ; PRIMARY KEY (a, b) written at the table level. Text is the kind of
+    ; constraint, spelled as SQL spells it.
+    sfn tableConstraint:int () {
+        return 76
+    }
+    ; NOT NULL, DEFAULT 0, REFERENCES t (id) — written after a column's type.
+    ; Kept as an ordered LIST rather than as booleans on the column, because
+    ; the order they were written in is the order they must come back out in.
+    sfn columnConstraint:int () {
+        return 77
+    }
+    ; One clause of an ALTER TABLE. There can be several, comma separated.
+    sfn alterAction:int () {
+        return 78
+    }
+
     sfn kindName:string (kind:int) {
         if (kind == 1) {
             return "null"
@@ -267,6 +308,33 @@ class SqlKind {
         if (kind == 50) {
             return "cte"
         }
+        if (kind == 70) {
+            return "createTable"
+        }
+        if (kind == 71) {
+            return "createView"
+        }
+        if (kind == 72) {
+            return "createIndex"
+        }
+        if (kind == 73) {
+            return "drop"
+        }
+        if (kind == 74) {
+            return "alterTable"
+        }
+        if (kind == 75) {
+            return "columnDef"
+        }
+        if (kind == 76) {
+            return "tableConstraint"
+        }
+        if (kind == 77) {
+            return "columnConstraint"
+        }
+        if (kind == 78) {
+            return "alterAction"
+        }
         return "unknown"
     }
 }
@@ -384,6 +452,26 @@ class SqlRole {
         return 35
     }
 
+    ; What a CREATE TABLE is made of: its columns and its table-level
+    ; constraints, in the order they were written.
+    sfn definition:int () {
+        return 36
+    }
+    ; The constraints written after a column's type, and the name a
+    ; CONSTRAINT clause gave a table constraint.
+    sfn constraintClause:int () {
+        return 37
+    }
+    ; The clauses of an ALTER TABLE.
+    sfn actionClause:int () {
+        return 38
+    }
+    ; The columns a REFERENCES points AT, kept apart from `columnList`, which
+    ; is already the columns it points FROM.
+    sfn referenceColumns:int () {
+        return 39
+    }
+
     sfn roleName:string (role:int) {
         if (role == 1) {
             return "this"
@@ -490,6 +578,18 @@ class SqlRole {
         if (role == 35) {
             return "prefix"
         }
+        if (role == 36) {
+            return "definition"
+        }
+        if (role == 37) {
+            return "constraint"
+        }
+        if (role == 38) {
+            return "action"
+        }
+        if (role == 39) {
+            return "references"
+        }
         return "child"
     }
 }
@@ -544,6 +644,32 @@ class SqlFlag {
     ; A comment written BEFORE the thing it belongs to rather than after it.
     sfn leadingCommentFlag:int () {
         return 8192
+    }
+
+    ; --- DDL ---------------------------------------------------------------
+    sfn ifExistsFlag:int () {
+        return 16384
+    }
+    sfn ifNotExistsFlag:int () {
+        return 32768
+    }
+    sfn uniqueFlag:int () {
+        return 65536
+    }
+    sfn temporaryFlag:int () {
+        return 131072
+    }
+    sfn orReplaceFlag:int () {
+        return 262144
+    }
+    sfn cascadeFlag:int () {
+        return 524288
+    }
+    sfn materializedFlag:int () {
+        return 1048576
+    }
+    sfn restrictFlag:int () {
+        return 2097152
     }
 
     sfn hasFlag:boolean (flags:int flag:int) {

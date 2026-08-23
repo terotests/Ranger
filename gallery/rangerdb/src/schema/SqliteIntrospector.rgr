@@ -1,0 +1,272 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SqliteIntrospector.rgr — SQLite describes itself through PRAGMA.
+; ============================================================================
+;
+;   sqlite_master              which tables and views exist, and their DDL
+;   PRAGMA table_info          columns, types, NOT NULL, defaults, PK position
+;   PRAGMA foreign_key_list    the relationships
+;   PRAGMA index_list          indexes, and whether each backs a constraint
+;   PRAGMA index_info          the columns of one index
+;
+; Two details here are easy to get wrong and both produce a diagram that is
+; quietly incorrect rather than visibly broken:
+;
+; 1. `foreign_key_list` returns NULL in `to` when the key targets the parent's
+;    PRIMARY KEY implicitly — `REFERENCES customers` with no column. Read that
+;    as "" and the edge points at a column that does not exist, so it is
+;    resolved against the parent's primary key in a second pass, once every
+;    table has been read.
+;
+; 2. `index_list` reports the indexes SQLite creates FOR a primary key or a
+;    UNIQUE constraint alongside the ones a person wrote. They are marked
+;    `origin` pk / u / c, and an analyzer that cannot tell them apart reports
+;    every primary key as a redundant duplicate index.
+;
+; CHECK constraints are not exposed by any PRAGMA — they exist only inside the
+; CREATE TABLE text, which is kept in `sourceSql`. That is recorded as a gap
+; rather than reported as "no check constraints".
+; ============================================================================
+
+Import "DBIntrospector.rgr"
+
+class SqliteIntrospector {
+    Extends(DBIntrospector)
+
+    Constructor () {
+    }
+
+    sfn over:SqliteIntrospector (s:DBSession) {
+        def ins:SqliteIntrospector (new SqliteIntrospector)
+        ins.bindSession(s)
+        return ins
+    }
+
+    fn engineName:string () {
+        return "sqlite"
+    }
+
+    fn schemaNames:[string] () {
+        def out:[string]
+        push out "main"
+        return out
+    }
+
+    fn introspect:DatabaseSchema (schemaName:string) {
+        def schema:DatabaseSchema (new DatabaseSchema)
+        schema.engine = "sqlite"
+        schema.name = schemaName
+
+        def q:string "SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def nrows:int rows.rowCount
+        while (r < nrows) {
+            def nm:string (DBIntrospector.textOf(rows r "name"))
+            def ty:string (DBIntrospector.textOf(rows r "type"))
+            def t:DBTable (schema.table(nm))
+            t.schema = schemaName
+            t.kind = ty
+            t.sourceSql = (DBIntrospector.textOf(rows r "sql"))
+            r = (r + 1)
+        }
+
+        def ti:int 0
+        def ntab:int (array_length schema.tables)
+        while (ti < ntab) {
+            def t2:DBTable (itemAt schema.tables ti)
+            this.readColumns(t2)
+            this.readIndexes(t2)
+            this.readForeignKeys(schema t2)
+            ti = (ti + 1)
+        }
+
+        this.resolveImplicitTargets(schema)
+        schema.resolve()
+        this.noteGap("checks" "check constraints (SQLite keeps them only in the CREATE TABLE text)")
+        this.noteGap("comments" "column comments (SQLite has none)")
+        return schema
+    }
+
+    fn readColumns:void (t:DBTable) {
+        def lit:string (DBIntrospector.sqlLiteral(t.name))
+        def q:string ("PRAGMA table_info(" + lit + ")")
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def n:int rows.rowCount
+        while (r < n) {
+            def nm:string (DBIntrospector.textOf(rows r "name"))
+            def ty:string (DBIntrospector.textOf(rows r "type"))
+            def col:SchemaColumn (t.column(nm ty))
+            def nn:int (DBIntrospector.intOf(rows r "notnull"))
+            col.nullable = (nn == 0)
+            def pk:int (DBIntrospector.intOf(rows r "pk"))
+            col.pkPosition = pk
+            col.isPrimaryKey = (pk > 0)
+            ; SQLite reports notnull = 0 for an INTEGER PRIMARY KEY, because
+            ; such a column is an alias for the rowid and the engine really
+            ; will accept a NULL there and substitute one — a documented
+            ; long-standing quirk it keeps for compatibility.
+            ;
+            ; Reported verbatim it would mean every primary key describes
+            ; itself as nullable on SQLite and NOT NULL on every other engine,
+            ; so the same DDL introspected twice would differ, and the schema
+            ; differ would propose an ALTER on every key it ever compared.
+            ; The logical schema is what this model holds: a primary key
+            ; column is not nullable.
+            if (pk > 0) {
+                col.nullable = false
+            }
+            col.defaultValue = (DBIntrospector.textOf(rows r "dflt_value"))
+            r = (r + 1)
+        }
+    }
+
+    fn readIndexes:void (t:DBTable) {
+        def lit:string (DBIntrospector.sqlLiteral(t.name))
+        def q:string ("PRAGMA index_list(" + lit + ")")
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def n:int rows.rowCount
+        while (r < n) {
+            def idx:DBIndex (new DBIndex)
+            idx.name = (DBIntrospector.textOf(rows r "name"))
+            idx.unique = (DBIntrospector.boolOf(rows r "unique"))
+            def origin:string (DBIntrospector.textOf(rows r "origin"))
+            idx.origin = "index"
+            if (origin == "pk") {
+                idx.origin = "pk"
+            }
+            if (origin == "u") {
+                idx.origin = "unique"
+            }
+            this.readIndexColumns(idx)
+            ; A single-column unique index is what makes a column unique, and
+            ; the diagram badges the column rather than the index.
+            def ncols:int (array_length idx.columns)
+            if (idx.unique) {
+                if (ncols == 1) {
+                    def cname:string (itemAt idx.columns 0)
+                    def ci:int (t.columnIndex(cname))
+                    if (ci >= 0) {
+                        def col:SchemaColumn (itemAt t.columns ci)
+                        col.isUnique = true
+                    }
+                }
+            }
+            push t.indexes idx
+            r = (r + 1)
+        }
+    }
+
+    fn readIndexColumns:void (idx:DBIndex) {
+        def lit:string (DBIntrospector.sqlLiteral(idx.name))
+        def q:string ("PRAGMA index_info(" + lit + ")")
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def n:int rows.rowCount
+        while (r < n) {
+            ; NULL name = an indexed expression rather than a column.
+            def cn:string (DBIntrospector.textOf(rows r "name"))
+            if ((strlen cn) > 0) {
+                push idx.columns cn
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; PRAGMA foreign_key_list returns one row per COLUMN of a key, grouped by
+    ; `id` and ordered within a key by `seq`. Rather than hold a reference to
+    ; the key being built across rows, each distinct id is collected in a pass
+    ; of its own — a composite key is two rows, so this costs nothing.
+    fn readForeignKeys:void (schema:DatabaseSchema t:DBTable) {
+        def lit:string (DBIntrospector.sqlLiteral(t.name))
+        def q:string ("PRAGMA foreign_key_list(" + lit + ")")
+        def rows:DataChunk (this.runSql(q))
+        def n:int rows.rowCount
+        if (n == 0) {
+            return
+        }
+        def maxId:int 0
+        def r:int 0
+        while (r < n) {
+            def id:int (DBIntrospector.intOf(rows r "id"))
+            if (id > maxId) {
+                maxId = id
+            }
+            r = (r + 1)
+        }
+        def want:int 0
+        while (want <= maxId) {
+            def fk:DBForeignKey (new DBForeignKey)
+            fk.fromTable = t.name
+            def found:boolean false
+            def k:int 0
+            while (k < n) {
+                def id2:int (DBIntrospector.intOf(rows k "id"))
+                if (id2 == want) {
+                    if (found == false) {
+                        fk.toTable = (DBIntrospector.textOf(rows k "table"))
+                        fk.onDelete = (DBIntrospector.textOf(rows k "on_delete"))
+                        fk.onUpdate = (DBIntrospector.textOf(rows k "on_update"))
+                        found = true
+                    }
+                    push fk.fromColumns (DBIntrospector.textOf(rows k "from"))
+                    push fk.toColumns (DBIntrospector.textOf(rows k "to"))
+                }
+                k = (k + 1)
+            }
+            if found {
+                schema.addForeignKey(fk)
+            }
+            want = (want + 1)
+        }
+    }
+
+    ; `REFERENCES customers` with no column names the parent's primary key.
+    ; SQLite reports that as NULL, so it is filled in once every table is known.
+    fn resolveImplicitTargets:void (schema:DatabaseSchema) {
+        def i:int 0
+        def n:int (array_length schema.foreignKeys)
+        while (i < n) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys i)
+            def blank:boolean false
+            def c:int 0
+            def nc:int (array_length fk.toColumns)
+            while (c < nc) {
+                def tc:string (itemAt fk.toColumns c)
+                if ((strlen tc) == 0) {
+                    blank = true
+                }
+                c = (c + 1)
+            }
+            if blank {
+                def parentIdx:int (schema.indexOfTable(fk.toTable))
+                if (parentIdx >= 0) {
+                    def parent:DBTable (itemAt schema.tables parentIdx)
+                    def pks:[string] (parent.primaryKeyColumns())
+                    clear fk.toColumns
+                    def p:int 0
+                    def np:int (array_length pks)
+                    while (p < np) {
+                        push fk.toColumns (itemAt pks p)
+                        p = (p + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; SQLite will not estimate without ANALYZE having been run, so this is a
+    ; real count and the caller is expected to have decided it wants one.
+    fn exactRowCount:int (table:string) {
+        def q:string ("SELECT COUNT(*) AS n FROM " + (DBIntrospector.quoteIdent(table)))
+        def rows:DataChunk (this.runSql(q))
+        if (rows.rowCount == 0) {
+            return -1
+        }
+        return (DBIntrospector.intOf(rows 0 "n"))
+    }
+}

@@ -1,0 +1,260 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DBIntrospector.rgr — a connection in, a DatabaseSchema out.
+; ============================================================================
+;
+; This is the keystone of the viewer: everything downstream reads what an
+; introspector produces. The diagram, the exporters, the schema differ and the
+; metrics analyzer all consume a `DatabaseSchema` and none of them ever learns
+; which engine it came from.
+;
+;   SQLite / DuckDB / RangerDB / (Postgres, Mongo)
+;                    ↓  DBIntrospector, one per engine
+;              DatabaseSchema
+;
+; It is a contract BESIDE `DBBackend`, not inside it. An engine that can run
+; queries but cannot describe itself is still a useful engine, and the 65
+; assertions `DbContract` already runs should not grow a hundred new required
+; methods just because a viewer wants a diagram.
+;
+; ---------------------------------------------------------------------------
+; The rule that matters: say what you could not answer.
+; ---------------------------------------------------------------------------
+;
+; `dbstat` is a compile-time option in SQLite. DuckDB does not list the index
+; behind a PRIMARY KEY. RangerDB has no indexes at all. An introspector that
+; reports "0 indexes" in those cases is lying, and a metrics rule that then
+; says "this table has no index on its foreign key" is lying twice.
+;
+; So anything an engine cannot answer is pushed onto `gaps`, and the caller can
+; read it. Same rule the engine layer already follows for an uninstalled
+; driver: reported as skipped, never as failed.
+; ============================================================================
+
+Import "DatabaseSchema.rgr"
+Import "../DBBackend.rgr"
+
+; One thing an engine could not describe. The KEY is what callers branch on;
+; the detail is for a human reading a report. Matching on prose would mean
+; DuckDB's "indexes backing PRIMARY KEY" gap silently disabling every index
+; check, because the sentence happens to contain the word "indexes".
+class SchemaGap {
+    def key:string ""
+    def detail:string ""
+
+    Constructor () {
+    }
+
+    sfn of:SchemaGap (key:string detail:string) {
+        def g:SchemaGap (new SchemaGap)
+        g.key = key
+        g.detail = detail
+        return g
+    }
+}
+
+class DBIntrospector {
+    def session:DBSession (new DBSession)
+    ; What this engine could not answer on this database. Never silently empty
+    ; when something was missing.
+    def gaps:[SchemaGap]
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    fn engineName:string () {
+        return "none"
+    }
+
+    fn bindSession:void (s:DBSession) {
+        session = s
+    }
+
+    fn noteGap:void (key:string detail:string) {
+        push gaps (SchemaGap.of(key detail))
+    }
+
+    ; The question every caller actually asks: was this NOT LOOKED FOR, or
+    ; looked for and genuinely absent? Only the first is a gap.
+    fn hasGap:boolean (key:string) {
+        def i:int 0
+        def n:int (array_length gaps)
+        while (i < n) {
+            def g:SchemaGap (itemAt gaps i)
+            if (g.key == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn hasGaps:boolean () {
+        def n:int (array_length gaps)
+        return (n > 0)
+    }
+
+    fn gapText:string () {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length gaps)
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            def g:SchemaGap (itemAt gaps i)
+            out = (out + g.detail)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The contract. Defaults are the honest answers of an engine that can
+    ; describe nothing, so a half-written adapter fails visibly.
+    ; ------------------------------------------------------------------------
+
+    ; Namespaces this connection can see. An engine with no concept of one
+    ; returns a single empty name, and `introspect("")` then means "everything".
+    fn schemaNames:[string] () {
+        def out:[string]
+        push out ""
+        return out
+    }
+
+    fn introspect:DatabaseSchema (schemaName:string) {
+        return (new DatabaseSchema)
+    }
+
+    ; Rows, if the engine can say without counting them. -1 means "did not ask"
+    ; rather than "empty" — a table with no rows and a table the engine will not
+    ; estimate are different facts.
+    fn rowCountEstimate:int (schemaName:string table:string) {
+        return -1
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Shared helpers. Every SQL engine below builds statements the same way.
+    ; ------------------------------------------------------------------------
+
+    ; A value never enters SQL text unescaped, even a table name the catalog
+    ; just handed back — a table really can be called  o'brien.
+    sfn sqlLiteral:string (raw:string) {
+        def out:string "'"
+        def i:int 0
+        def n:int (strlen raw)
+        while (i < n) {
+            def c:int (charAt raw i)
+            if (c == 39) {
+                out = (out + "''")
+            } {
+                out = (out + (substring raw i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        def endq:string "'"
+        return (out + endq)
+    }
+
+    sfn quoteIdent:string (raw:string) {
+        def out:string "\""
+        def i:int 0
+        def n:int (strlen raw)
+        while (i < n) {
+            def c:int (charAt raw i)
+            if (c == 34) {
+                out = (out + "\"\"")
+            } {
+                out = (out + (substring raw i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        def endq:string "\""
+        return (out + endq)
+    }
+
+    fn runSql:DataChunk (sql:string) {
+        def chunk:DataChunk (session.execSql(sql))
+        def err:string (session.lastError())
+        if ((strlen err) > 0) {
+            errorText = err
+        }
+        return chunk
+    }
+
+    ; Column lookup is case-insensitive because `information_schema` and the
+    ; PRAGMA tables do not agree on case, and neither do two DuckDB versions.
+    sfn colIndex:int (chunk:DataChunk name:string) {
+        def want:string (to_lowercase name)
+        def i:int 0
+        def n:int (chunk.columnCount())
+        while (i < n) {
+            def c:DBColumn (chunk.columnAt(i))
+            def have:string (to_lowercase c.name)
+            if (have == want) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn textAt:string (chunk:DataChunk row:int col:int) {
+        if (col < 0) {
+            return ""
+        }
+        return (chunk.stringAt(row col))
+    }
+
+    sfn textOf:string (chunk:DataChunk row:int name:string) {
+        def ci:int (DBIntrospector.colIndex(chunk name))
+        return (DBIntrospector.textAt(chunk row ci))
+    }
+
+    sfn numOf:double (chunk:DataChunk row:int name:string) {
+        def ci:int (DBIntrospector.colIndex(chunk name))
+        if (ci < 0) {
+            return 0.0
+        }
+        return (chunk.doubleAt(row ci))
+    }
+
+    sfn intOf:int (chunk:DataChunk row:int name:string) {
+        def d:double (DBIntrospector.numOf(chunk row name))
+        return (to_int d)
+    }
+
+    sfn boolOf:boolean (chunk:DataChunk row:int name:string) {
+        def d:double (DBIntrospector.numOf(chunk row name))
+        return (d > 0.5)
+    }
+
+    ; "YES" / "NO", which is how information_schema spells a boolean.
+    sfn yesNoOf:boolean (chunk:DataChunk row:int name:string) {
+        def t:string (DBIntrospector.textOf(chunk row name))
+        def u:string (to_uppercase t)
+        return (u == "YES")
+    }
+
+    ; A comma-separated list back into its parts, skipping the empties a
+    ; trailing separator leaves behind.
+    sfn splitList:[string] (raw:string) {
+        def out:[string]
+        if ((strlen raw) == 0) {
+            return out
+        }
+        def parts:[string] (strsplit raw ",")
+        def i:int 0
+        def n:int (array_length parts)
+        while (i < n) {
+            def piece:string (trim (itemAt parts i))
+            if ((strlen piece) > 0) {
+                push out piece
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

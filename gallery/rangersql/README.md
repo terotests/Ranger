@@ -23,7 +23,28 @@ SQLite / Postgres / MySQL     RangerDB QuerySpec
 npm run rangersql:test       # the pieces: tokenizer, tree, generator, dialects
 npm run rangersql:identity   # SQLGlot's 980-statement identity corpus
 npm run rangersql:oracle     # …and what SQLGlot itself says about our output
+npm run rangerdb:ddl:test    # the DDL, applied to a schema and compared with SQLite
 ```
+
+## DDL
+
+`CREATE TABLE` / `VIEW` / `INDEX`, `ALTER TABLE`, `DROP` — the statements a
+schema is made of, and the largest single item this scoreboard has ever had.
+
+A column's constraints are an ordered **list** of small nodes whose text is the
+keyword phrase, rather than a set of booleans on the column. `INT NOT NULL
+DEFAULT 1` and `INT DEFAULT 1 NOT NULL` mean the same thing and are not the same
+text, and a formatter that cannot tell them apart cannot round-trip either.
+
+What reads it is [`DdlToSchema`](../rangerdb/src/schema/DdlToSchema.rgr), which
+lives in `rangerdb` rather than here: it needs a parser *and* a
+`DatabaseSchema`, and `rangerdb` already imports this library. The other way
+round would make the parser depend on the database layer that depends on the
+parser.
+
+`CREATE FUNCTION` is deliberately absent. Its body is a dialect's own
+procedural language, which is a different grammar rather than more of this one,
+and none of it describes the shape of a table.
 
 ## Where it is
 
@@ -32,20 +53,28 @@ Against [SQLGlot's own `tests/fixtures/identity.sql`](tests/fixtures/README.md)
 
 | | count | |
 | --- | ---: | --- |
-| **identical** | **519** | parsed and came back out the same |
+| **identical** | **611** | parsed and came back out the same |
 | differs | 3 | parsed, regenerated differently (2 are optimizer hints) |
-| unparsed | 458 | the grammar does not cover it yet |
+| unparsed | 366 | the grammar does not cover it yet |
 
 Cross-checked against SQLGlot itself — for the 522 statements RangerSQL parses,
 does SQLGlot read our output as the *same query*?
 
 ```text
-byte-identical output        519
-SQLGlot reads it the same    520
+byte-identical output        611
+SQLGlot reads it the same    609
 SQLGlot reads it DIFFERENTLY   2      (optimizer hints: we print the comment
                                        after the SELECT list, not before it)
 SQLGlot could not read ours    0
+(SQLGlot cannot read 3 of its own corpus lines either)
 ```
+
+That last line is not a footnote. `DROP TABLE a, b` is in SQLGlot's own
+`identity.sql` and sqlglot 30.x raises on it, so the oracle used to parse the
+original and our output inside one `try` and report a failure on the *original*
+as "could not read OURS". Our output there is byte-identical to the corpus, so
+a stated invariant looked broken by a change that had changed nothing. The two
+are parsed separately now, and the two facts are counted apart.
 
 That distinction is the point of the oracle: a different spelling is a
 formatting difference; a different tree would be a bug.
@@ -55,7 +84,9 @@ guessed:
 
 | lines | feature |
 | ---: | --- |
-| 175 | DDL: `CREATE TABLE` / `VIEW` / `FUNCTION` / `INDEX`, `ALTER`, `DROP` |
+| 35 | `(` after a statement: Teradata's index tails on `CREATE TABLE … AS` |
+| 13 | `CREATE FUNCTION` — a body in a dialect's own procedural language |
+| 7 | `GENERATED … AS IDENTITY` and its option list |
 | 32 | `(` after a statement: `VALUES` lists, `PIVOT`, table functions |
 | 9 | `INSERT OVERWRITE` |
 | 9 | `:` — struct / map / slice syntax |

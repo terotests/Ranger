@@ -1,0 +1,198 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DbViewerApp.rgr — the workbench, with no window anywhere in it.
+; ============================================================================
+;
+; LibreOffice Base's shape: a rail of object kinds down the left, a list of
+; objects beside it, and the work in the middle.
+;
+;   ┌────────┬──────────────────┬────────────────────────────────┐
+;   │ Schema │ ▸ main           │  customers                     │
+;   │ Data   │   ▾ tables       │  ┌──────────┬─────────┬──────┐ │
+;   │Diagram │     customers    │  │ column   │ type    │ null │ │
+;   │Metrics │     orders       │  │ PK id    │ INTEGER │  no  │ │
+;   │ Export │   ▸ views        │  └──────────┴─────────┴──────┘ │
+;   └────────┴──────────────────┴────────────────────────────────┘
+;
+; Every button in every host is one method on this class, so the same authoring
+; runs in a browser, in an SDL window and in a headless test — the rule
+; RangerFlow's toolbar already follows, and the reason its scenarios cannot rot
+; unnoticed.
+;
+; There is no I/O here. Opening a file, drawing a pixel and writing an export
+; are the host's job; this holds the state and answers questions about it.
+; ============================================================================
+
+Import "DbSource.rgr"
+Import "ObjectTree.rgr"
+Import "SchemaDiagram.rgr"
+
+class DbViewerApp {
+    ; "schema" | "data" | "diagram" | "metrics" | "migrations" | "export"
+    def section:string "schema"
+    def source:DbSource (new DbSource)
+    def introspector:DBIntrospector (new DBIntrospector)
+    def schema:DatabaseSchema (new DatabaseSchema)
+    def tree:ObjectTree (new ObjectTree)
+    def selectedTable:string ""
+    def status:string "no database open"
+    def opened:boolean false
+    ; A schema read from DDL text describes a database that is not running:
+    ; every relationship is there and not one row is. Kept apart from `opened`
+    ; because the Data section must say which of those it is looking at rather
+    ; than showing an empty grid.
+    def hasRows:boolean false
+    def origin:string ""
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Opening
+    ; ------------------------------------------------------------------------
+
+    ; The engine is decided by DbSource, never by this class — the app is not
+    ; supposed to know that SQLite exists.
+    fn openSource:boolean (src:DbSource) {
+        source = src
+        def ok:boolean (src.openSession())
+        if (ok == false) {
+            opened = false
+            status = ("could not open: " + (src.errorText))
+            return false
+        }
+        opened = true
+        hasRows = true
+        origin = ("live " + src.engine)
+        this.refresh()
+        return true
+    }
+
+    ; A schema from somewhere that is not a connection — a .sql file, a
+    ; migration replay, a JSON fixture. The tree and the diagram cannot tell
+    ; the difference, which is the whole point of DatabaseSchema being the
+    ; interface; the Data section can, and says so.
+    fn adoptSchema:void (s:DatabaseSchema label:string) {
+        schema = s
+        opened = false
+        hasRows = false
+        origin = label
+        introspector = (new DBIntrospector)
+        tree.rebuild(schema)
+        selectedTable = (tree.firstTableName())
+        def fks:int (array_length schema.foreignKeys)
+        status = (label + " · " + (to_string tree.tableCount) + " tables, " + (to_string fks) + " foreign keys")
+    }
+
+    ; Re-read the database. Everything the viewer shows is derived from this
+    ; one call, so a schema that changed under us is one button away.
+    fn refresh:void () {
+        if (opened == false) {
+            return
+        }
+        introspector = (Introspect.forSession(source.session))
+        schema = (Introspect.everythingWith(introspector source.session))
+        tree.rebuild(schema)
+        if ((strlen selectedTable) > 0) {
+            def still:int (schema.indexOfTable(selectedTable))
+            if (still < 0) {
+                selectedTable = ""
+            }
+        }
+        if ((strlen selectedTable) == 0) {
+            def firstTable:string (tree.firstTableName())
+            selectedTable = firstTable
+        }
+        status = (this.describe())
+    }
+
+    fn describe:string () {
+        def tables:int (tree.tableCount)
+        def views:int (tree.viewCount)
+        def fks:int (array_length schema.foreignKeys)
+        def out:string ((source.engine) + " · " + (to_string tables) + " tables")
+        if (views > 0) {
+            out = (out + ", " + (to_string views) + " views")
+        }
+        out = (out + ", " + (to_string fks) + " foreign keys")
+        def gapCount:int (array_length introspector.gaps)
+        if (gapCount > 0) {
+            out = (out + " · not described: " + (introspector.gapText()))
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Selection — what the host's list and rail drive
+    ; ------------------------------------------------------------------------
+
+    fn showSection:void (name:string) {
+        section = name
+    }
+
+    fn selectTable:boolean (name:string) {
+        def i:int (schema.indexOfTable(name))
+        if (i < 0) {
+            return false
+        }
+        selectedTable = name
+        return true
+    }
+
+    fn currentTable:DBTable () {
+        if ((strlen selectedTable) == 0) {
+            return (new DBTable)
+        }
+        return (schema.tableByName(selectedTable))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The diagram
+    ; ------------------------------------------------------------------------
+
+    ; The whole schema, or — when it is too large to read — the selected table
+    ; and its neighbours. `limit` is the point at which a diagram stops being a
+    ; picture; 0 means the caller wants everything regardless.
+    fn diagramSchema:DatabaseSchema (limit:int) {
+        def total:int (schema.tableCount())
+        if (limit <= 0) {
+            return schema
+        }
+        if (total <= limit) {
+            return schema
+        }
+        if ((strlen selectedTable) == 0) {
+            return (SchemaDiagram.tablesOnly(schema))
+        }
+        return (SchemaDiagram.neighbourhood(schema selectedTable 1))
+    }
+
+    fn buildDiagram:FlowView (limit:int) {
+        def sub:DatabaseSchema (this.diagramSchema(limit))
+        def d:SchemaDiagram (new SchemaDiagram)
+        return (d.buildView(sub))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Data — the rows of the selected table, through the same paging the
+    ; spreadsheet already uses.
+    ; ------------------------------------------------------------------------
+
+    fn pageOfRows:DataChunk (offset:int count:int) {
+        if ((strlen selectedTable) == 0) {
+            return (new DataChunk)
+        }
+        def spec:QuerySpec (QuerySpec.forTable(selectedTable))
+        spec.page(offset count)
+        return (source.session.query(spec))
+    }
+
+    fn closeDb:void () {
+        if opened {
+            source.closeSession()
+            opened = false
+            status = "closed"
+        }
+    }
+}

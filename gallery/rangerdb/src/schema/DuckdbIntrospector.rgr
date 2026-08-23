@@ -1,0 +1,257 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DuckdbIntrospector.rgr — DuckDB describes itself through its own catalog.
+; ============================================================================
+;
+;   duckdb_schemas()            namespaces in THIS database
+;   duckdb_tables()             tables, their DDL, and a row estimate
+;   duckdb_views()              views, and their DDL
+;   information_schema.columns  columns for both, in ordinal order
+;   duckdb_constraints()        PK, FK, UNIQUE and CHECK, structurally
+;   duckdb_indexes()            only the indexes someone wrote by hand
+;
+; Three things here were established against a live DuckDB rather than assumed,
+; because each one fails silently rather than loudly:
+;
+; 1. `main` is flagged `internal = true`, and a `WHERE NOT internal` filter on
+;    duckdb_schemas() therefore returns NO schemas at all on an ordinary
+;    database. The filter that is actually correct is
+;    `database_name = current_database()`, which also removes the duplicate
+;    `main` rows one gets per attached catalog.
+;
+; 2. `constraint_column_names` and `referenced_column_names` are LIST columns.
+;    They cross the host wire as something no scalar reader wants, so they are
+;    flattened with `array_to_string` in SQL and split back here.
+;
+; 3. `duckdb_indexes()` does NOT list the index behind a PRIMARY KEY or a
+;    UNIQUE constraint — only explicit CREATE INDEX. Uniqueness therefore comes
+;    from the constraint catalog, and the absence of a row here is not the
+;    absence of an index.
+; ============================================================================
+
+Import "DBIntrospector.rgr"
+
+class DuckdbIntrospector {
+    Extends(DBIntrospector)
+
+    Constructor () {
+    }
+
+    sfn over:DuckdbIntrospector (s:DBSession) {
+        def ins:DuckdbIntrospector (new DuckdbIntrospector)
+        ins.bindSession(s)
+        return ins
+    }
+
+    fn engineName:string () {
+        return "duckdb"
+    }
+
+    fn schemaNames:[string] () {
+        def out:[string]
+        def q:string "SELECT DISTINCT schema_name FROM duckdb_schemas() WHERE database_name = current_database() ORDER BY 1"
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def n:int rows.rowCount
+        while (r < n) {
+            def nm:string (DBIntrospector.textOf(rows r "schema_name"))
+            if ((strlen nm) > 0) {
+                push out nm
+            }
+            r = (r + 1)
+        }
+        if ((array_length out) == 0) {
+            push out "main"
+        }
+        return out
+    }
+
+    fn introspect:DatabaseSchema (schemaName:string) {
+        def schema:DatabaseSchema (new DatabaseSchema)
+        schema.engine = "duckdb"
+        schema.name = schemaName
+        def sname:string schemaName
+        if ((strlen sname) == 0) {
+            sname = "main"
+        }
+        def lit:string (DBIntrospector.sqlLiteral(sname))
+
+        def q:string ("SELECT table_name AS name, 'table' AS kind, sql AS ddl, estimated_size AS est FROM duckdb_tables() WHERE schema_name = " + lit + " AND database_name = current_database() AND NOT internal UNION ALL SELECT view_name, 'view', sql, 0 FROM duckdb_views() WHERE schema_name = " + lit + " AND database_name = current_database() AND NOT internal ORDER BY 1")
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def nrows:int rows.rowCount
+        while (r < nrows) {
+            def nm:string (DBIntrospector.textOf(rows r "name"))
+            def t:DBTable (schema.table(nm))
+            t.schema = sname
+            t.kind = (DBIntrospector.textOf(rows r "kind"))
+            t.sourceSql = (DBIntrospector.textOf(rows r "ddl"))
+            t.rowEstimate = (DBIntrospector.intOf(rows r "est"))
+            r = (r + 1)
+        }
+
+        this.readColumns(schema lit)
+        this.readConstraints(schema lit)
+        this.readIndexes(schema lit)
+        schema.resolve()
+        this.noteGap("constraint_indexes" "indexes backing PRIMARY KEY / UNIQUE (DuckDB does not list them)")
+        return schema
+    }
+
+    ; One query for every column in the schema, rather than one per table:
+    ; information_schema covers views as well, so a view arrives with its
+    ; column list already filled in.
+    fn readColumns:void (schema:DatabaseSchema schemaLit:string) {
+        def q:string ("SELECT table_name, column_name, data_type, is_nullable, COALESCE(column_default, '') AS column_default FROM information_schema.columns WHERE table_schema = " + schemaLit + " ORDER BY table_name, ordinal_position")
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def n:int rows.rowCount
+        while (r < n) {
+            def tn:string (DBIntrospector.textOf(rows r "table_name"))
+            def ti:int (schema.indexOfTable(tn))
+            if (ti >= 0) {
+                def t:DBTable (itemAt schema.tables ti)
+                def cn:string (DBIntrospector.textOf(rows r "column_name"))
+                def ty:string (DBIntrospector.textOf(rows r "data_type"))
+                def col:SchemaColumn (t.column(cn ty))
+                col.nullable = (DBIntrospector.yesNoOf(rows r "is_nullable"))
+                col.defaultValue = (DBIntrospector.textOf(rows r "column_default"))
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn readConstraints:void (schema:DatabaseSchema schemaLit:string) {
+        def q:string ("SELECT table_name, constraint_type, constraint_text, constraint_name, array_to_string(constraint_column_names, ',') AS cols, COALESCE(referenced_table, '') AS ref_table, array_to_string(referenced_column_names, ',') AS ref_cols FROM duckdb_constraints() WHERE schema_name = " + schemaLit + " AND database_name = current_database() ORDER BY table_name, constraint_index")
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def n:int rows.rowCount
+        while (r < n) {
+            def tn:string (DBIntrospector.textOf(rows r "table_name"))
+            def ti:int (schema.indexOfTable(tn))
+            if (ti >= 0) {
+                def t:DBTable (itemAt schema.tables ti)
+                def kind:string (DBIntrospector.textOf(rows r "constraint_type"))
+                def colsText:string (DBIntrospector.textOf(rows r "cols"))
+                def cols:[string] (DBIntrospector.splitList(colsText))
+                if (kind == "PRIMARY KEY") {
+                    this.applyPrimaryKey(t cols)
+                }
+                if (kind == "UNIQUE") {
+                    this.applyUnique(t cols rows r)
+                }
+                if (kind == "CHECK") {
+                    def ck:DBConstraint (new DBConstraint)
+                    ck.kind = "check"
+                    ck.name = (DBIntrospector.textOf(rows r "constraint_name"))
+                    ck.expression = (DBIntrospector.textOf(rows r "constraint_text"))
+                    push t.constraints ck
+                }
+                if (kind == "FOREIGN KEY") {
+                    this.applyForeignKey(schema tn cols rows r)
+                }
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn applyPrimaryKey:void (t:DBTable cols:[string]) {
+        def i:int 0
+        def n:int (array_length cols)
+        while (i < n) {
+            def cn:string (itemAt cols i)
+            def ci:int (t.columnIndex(cn))
+            if (ci >= 0) {
+                def col:SchemaColumn (itemAt t.columns ci)
+                col.isPrimaryKey = true
+                col.pkPosition = (i + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn applyUnique:void (t:DBTable cols:[string] rows:DataChunk r:int) {
+        def n:int (array_length cols)
+        if (n == 1) {
+            def cn:string (itemAt cols 0)
+            def ci:int (t.columnIndex(cn))
+            if (ci >= 0) {
+                def col:SchemaColumn (itemAt t.columns ci)
+                col.isUnique = true
+            }
+        }
+        def uq:DBConstraint (new DBConstraint)
+        uq.kind = "unique"
+        uq.name = (DBIntrospector.textOf(rows r "constraint_name"))
+        uq.expression = (DBIntrospector.textOf(rows r "constraint_text"))
+        push t.constraints uq
+    }
+
+    fn applyForeignKey:void (schema:DatabaseSchema fromTable:string cols:[string] rows:DataChunk r:int) {
+        def fk:DBForeignKey (new DBForeignKey)
+        fk.name = (DBIntrospector.textOf(rows r "constraint_name"))
+        fk.fromTable = fromTable
+        fk.toTable = (DBIntrospector.textOf(rows r "ref_table"))
+        def i:int 0
+        def n:int (array_length cols)
+        while (i < n) {
+            push fk.fromColumns (itemAt cols i)
+            i = (i + 1)
+        }
+        def refText:string (DBIntrospector.textOf(rows r "ref_cols"))
+        def refs:[string] (DBIntrospector.splitList(refText))
+        def k:int 0
+        def nr:int (array_length refs)
+        while (k < nr) {
+            push fk.toColumns (itemAt refs k)
+            k = (k + 1)
+        }
+        schema.addForeignKey(fk)
+    }
+
+    fn readIndexes:void (schema:DatabaseSchema schemaLit:string) {
+        def q:string ("SELECT index_name, table_name, is_unique, expressions FROM duckdb_indexes() WHERE schema_name = " + schemaLit + " AND database_name = current_database()")
+        def rows:DataChunk (this.runSql(q))
+        def r:int 0
+        def n:int rows.rowCount
+        while (r < n) {
+            def tn:string (DBIntrospector.textOf(rows r "table_name"))
+            def ti:int (schema.indexOfTable(tn))
+            if (ti >= 0) {
+                def t:DBTable (itemAt schema.tables ti)
+                def idx:DBIndex (new DBIndex)
+                idx.name = (DBIntrospector.textOf(rows r "index_name"))
+                idx.unique = (DBIntrospector.boolOf(rows r "is_unique"))
+                idx.origin = "index"
+                def raw:string (DBIntrospector.textOf(rows r "expressions"))
+                def inner:string (DuckdbIntrospector.stripBrackets(raw))
+                def cols:[string] (DBIntrospector.splitList(inner))
+                def c:int 0
+                def nc:int (array_length cols)
+                while (c < nc) {
+                    push idx.columns (itemAt cols c)
+                    c = (c + 1)
+                }
+                push t.indexes idx
+            }
+            r = (r + 1)
+        }
+    }
+
+    ; duckdb_indexes() spells its column list "[a, b]".
+    sfn stripBrackets:string (raw:string) {
+        def n:int (strlen raw)
+        if (n < 2) {
+            return raw
+        }
+        def firstCh:int (charAt raw 0)
+        def lastCh:int (charAt raw (n - 1))
+        if (firstCh == 91) {
+            if (lastCh == 93) {
+                return (substring raw 1 (n - 1))
+            }
+        }
+        return raw
+    }
+}

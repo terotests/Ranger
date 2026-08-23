@@ -1,0 +1,608 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DjangoReader.rgr — a Django migration's operations, as DDL.
+; ============================================================================
+;
+;   migrations.CreateModel(
+;       name='Order',
+;       fields=[
+;           ('id', models.AutoField(primary_key=True)),
+;           ('total', models.DecimalField(max_digits=8, null=True)),
+;       ],
+;   )
+;
+;              ↓
+;
+;   CREATE TABLE app_order (id INTEGER PRIMARY KEY, total DECIMAL NULL)
+;
+; ---------------------------------------------------------------------------
+; It reads. It does not run anything.
+; ---------------------------------------------------------------------------
+;
+; Executing the file would be the accurate way to learn what it does, and it
+; would also be arbitrary code execution against somebody's repository. The
+; operations list is structured and declarative — it is what Django's own
+; `makemigrations` diffs against — so it is read as data.
+;
+; That means this is a READER of a subset, and the subset has an edge. When it
+; meets an operation it does not know — `RunPython`, `RunSQL` with a lambda,
+; a custom operation — it says so and marks the step not understood, because a
+; schema replayed from a partly-read history is not a schema and everything
+; downstream has to be able to tell.
+;
+; The table name is `<app>_<model>` lowercased, which is Django's default. A
+; model with `db_table` set says so in its Meta, and that is honoured where it
+; appears in the operation.
+; ============================================================================
+
+class DjangoField {
+    def name:string ""
+    def sqlType:string "VARCHAR"
+    def nullable:boolean true
+    def primaryKey:boolean false
+    def unique:boolean false
+    def defaultText:string ""
+    def references:string ""
+
+    Constructor () {
+    }
+}
+
+class DjangoReader {
+    def app:string ""
+    def understood:boolean true
+    def note:string ""
+    def statements:[string]
+
+    Constructor () {
+    }
+
+    fn toSql:string (source:string) {
+        clear statements
+        understood = true
+        note = ""
+        this.readOperations(source)
+        def out:string ""
+        def i:int 0
+        def n:int (array_length statements)
+        while (i < n) {
+            out = (out + (itemAt statements i) + ";\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The operations list, walked by finding each `migrations.X(` and taking
+    ; the balanced parentheses after it. A brace counter rather than a Python
+    ; parser: the shape is regular, and what is not regular is refused.
+    fn readOperations:void (source:string) {
+        def i:int 0
+        def n:int (strlen source)
+        def marker:string "migrations."
+        def mn:int (strlen marker)
+        while (i < n) {
+            def at:int (DjangoReader.findFrom(source marker i))
+            if (at < 0) {
+                return
+            }
+            def nameStart:int (at + mn)
+            ; The name must be followed IMMEDIATELY by `(`. Searching for the
+            ; next `(` anywhere matches `class Migration(migrations.Migration):`
+            ; — the declaration, not an operation — and then swallows
+            ; everything up to the first real call as if it were the name.
+            def nameEnd:int (DjangoReader.identEnd(source nameStart))
+            if (nameEnd <= nameStart) {
+                i = nameStart
+                continue
+            }
+            if (nameEnd >= n) {
+                return
+            }
+            if ((charAt source nameEnd) != 40) {
+                i = nameEnd
+                continue
+            }
+            def open:int nameEnd
+            def opName:string (substring source nameStart nameEnd)
+            def close:int (DjangoReader.matchParen(source open))
+            if (close < 0) {
+                this.refuse(("unbalanced parentheses after migrations." + opName))
+                return
+            }
+            def body:string (substring source (open + 1) close)
+            this.applyOperation(opName body)
+            i = (close + 1)
+        }
+    }
+
+    fn refuse:void (why:string) {
+        understood = false
+        if ((strlen note) == 0) {
+            note = why
+        } {
+            note = (note + "; " + why)
+        }
+    }
+
+    fn applyOperation:void (op:string body:string) {
+        if (op == "CreateModel") {
+            this.createModel(body)
+            return
+        }
+        if (op == "DeleteModel") {
+            def name:string (DjangoReader.argText(body "name"))
+            push statements ("DROP TABLE " + (this.tableName(name)))
+            return
+        }
+        if (op == "RenameModel") {
+            def from:string (DjangoReader.argText(body "old_name"))
+            def to:string (DjangoReader.argText(body "new_name"))
+            push statements ("ALTER TABLE " + (this.tableName(from)) + " RENAME TO " + (this.tableName(to)))
+            return
+        }
+        if (op == "AddField") {
+            def model:string (DjangoReader.argText(body "model_name"))
+            def fname:string (DjangoReader.argText(body "name"))
+            def f:DjangoField (this.fieldFrom(fname (DjangoReader.argRaw(body "field"))))
+            push statements ("ALTER TABLE " + (this.tableName(model)) + " ADD COLUMN " + (this.columnSql(f)))
+            return
+        }
+        if (op == "RemoveField") {
+            def model2:string (DjangoReader.argText(body "model_name"))
+            def fname2:string (DjangoReader.argText(body "name"))
+            push statements ("ALTER TABLE " + (this.tableName(model2)) + " DROP COLUMN " + fname2)
+            return
+        }
+        if (op == "RenameField") {
+            def model3:string (DjangoReader.argText(body "model_name"))
+            def oldn:string (DjangoReader.argText(body "old_name"))
+            def newn:string (DjangoReader.argText(body "new_name"))
+            push statements ("ALTER TABLE " + (this.tableName(model3)) + " RENAME COLUMN " + oldn + " TO " + newn)
+            return
+        }
+        if (op == "AlterField") {
+            def model4:string (DjangoReader.argText(body "model_name"))
+            def fname4:string (DjangoReader.argText(body "name"))
+            def f4:DjangoField (this.fieldFrom(fname4 (DjangoReader.argRaw(body "field"))))
+            push statements ("ALTER TABLE " + (this.tableName(model4)) + " ALTER COLUMN " + fname4 + " SET DATA TYPE " + f4.sqlType)
+            return
+        }
+        if (op == "RunSQL") {
+            ; Raw SQL in a migration is the one case where the file already
+            ; says exactly what it does. Taking it is more accurate than
+            ; refusing it — but only when it is a plain string, not a call.
+            def raw:string (DjangoReader.argText(body "sql"))
+            if ((strlen raw) > 0) {
+                push statements raw
+                return
+            }
+            this.refuse("RunSQL whose statement is not a plain string")
+            return
+        }
+        if (op == "swappable_dependency") {
+            return
+        }
+        if (op == "AlterUniqueTogether") {
+            ; Expressible, but as an index whose name Django computes; getting
+            ; that name wrong is worse than admitting it.
+            this.refuse("AlterUniqueTogether names an index this reader cannot predict")
+            return
+        }
+        if (op == "RunPython") {
+            ; Data, not shape — it changes rows and this reads shape. Not a
+            ; refusal, because ignoring it leaves the schema correct.
+            return
+        }
+        this.refuse(("an operation this reader does not know: " + op))
+    }
+
+    fn createModel:void (body:string) {
+        def model:string (DjangoReader.argText(body "name"))
+        def fieldsRaw:string (DjangoReader.argRaw(body "fields"))
+        def fields:[DjangoField] (this.fieldsFrom(fieldsRaw))
+        def out:string ("CREATE TABLE " + (this.tableName(model)) + " (")
+        def i:int 0
+        def n:int (array_length fields)
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (this.columnSql((itemAt fields i))))
+            i = (i + 1)
+        }
+        push statements (out + ")")
+    }
+
+    ; `fields=[('id', models.AutoField(...)), ('total', models.DecimalField(...))]`
+    fn fieldsFrom:[DjangoField] (raw:string) {
+        def out:[DjangoField]
+        def i:int 0
+        def n:int (strlen raw)
+        while (i < n) {
+            def open:int (DjangoReader.findFrom(raw "(" i))
+            if (open < 0) {
+                return out
+            }
+            def close:int (DjangoReader.matchParen(raw open))
+            if (close < 0) {
+                this.refuse("unbalanced parentheses in a field list")
+                return out
+            }
+            def pair:string (substring raw (open + 1) close)
+            def comma:int (DjangoReader.findFrom(pair "," 0))
+            if (comma > 0) {
+                def name:string (DjangoReader.unquote((trim (substring pair 0 comma))))
+                def spec:string (trim (substring pair (comma + 1) (strlen pair)))
+                push out (this.fieldFrom(name spec))
+            }
+            i = (close + 1)
+        }
+        return out
+    }
+
+    ; `models.CharField(max_length=100, null=True)` → a column.
+    fn fieldFrom:DjangoField (name:string spec:string) {
+        def f:DjangoField (new DjangoField)
+        f.name = name
+        def dot:int (DjangoReader.findFrom(spec "models." 0))
+        def kind:string ""
+        if (dot >= 0) {
+            def afterDot:int (dot + 7)
+            def open:int (DjangoReader.findFrom(spec "(" afterDot))
+            if (open > 0) {
+                kind = (trim (substring spec afterDot open))
+            }
+        }
+        f.sqlType = (DjangoReader.sqlTypeOf(kind))
+        if (kind == "AutoField") {
+            f.primaryKey = true
+            f.nullable = false
+        }
+        if (kind == "BigAutoField") {
+            f.primaryKey = true
+            f.nullable = false
+        }
+        if (DjangoReader.hasFlagArg(spec "primary_key")) {
+            f.primaryKey = true
+            f.nullable = false
+        }
+        if (DjangoReader.hasFlagArg(spec "unique")) {
+            f.unique = true
+        }
+        if (DjangoReader.hasFlagArg(spec "null")) {
+            f.nullable = true
+        } {
+            if ((f.primaryKey) == false) {
+                ; Django's default is NOT NULL, and a field that did not say
+                ; null=True is one.
+                f.nullable = false
+            }
+        }
+        if (kind == "ForeignKey") {
+            def target:string (DjangoReader.argText(spec "to"))
+            f.references = target
+            f.name = (name + "_id")
+        }
+        return f
+    }
+
+    fn columnSql:string (f:DjangoField) {
+        def out:string (f.name + " " + f.sqlType)
+        if (f.primaryKey) {
+            out = (out + " PRIMARY KEY")
+        } {
+            if ((f.nullable) == false) {
+                out = (out + " NOT NULL")
+            }
+        }
+        if (f.unique) {
+            if ((f.primaryKey) == false) {
+                out = (out + " UNIQUE")
+            }
+        }
+        if ((strlen f.references) > 0) {
+            out = (out + " REFERENCES " + (this.tableName((DjangoReader.modelPart(f.references)))) + " (id)")
+        }
+        return out
+    }
+
+    ; Django's default table name is `<app>_<model>`, lowercased.
+    fn tableName:string (model:string) {
+        def lower:string (to_lowercase model)
+        if ((strlen app) == 0) {
+            return lower
+        }
+        return (app + "_" + lower)
+    }
+
+    ; `'shop.Category'` → `Category`; a bare `'Category'` stays as it is.
+    sfn modelPart:string (target:string) {
+        def at:int (DjangoReader.findFrom(target "." 0))
+        if (at < 0) {
+            return target
+        }
+        return (substring target (at + 1) (strlen target))
+    }
+
+    sfn sqlTypeOf:string (kind:string) {
+        if (kind == "AutoField") {
+            return "INTEGER"
+        }
+        if (kind == "BigAutoField") {
+            return "BIGINT"
+        }
+        if (kind == "IntegerField") {
+            return "INTEGER"
+        }
+        if (kind == "BigIntegerField") {
+            return "BIGINT"
+        }
+        if (kind == "SmallIntegerField") {
+            return "SMALLINT"
+        }
+        if (kind == "PositiveIntegerField") {
+            return "INTEGER"
+        }
+        if (kind == "FloatField") {
+            return "DOUBLE"
+        }
+        if (kind == "DecimalField") {
+            return "DECIMAL"
+        }
+        if (kind == "BooleanField") {
+            return "BOOLEAN"
+        }
+        if (kind == "CharField") {
+            return "VARCHAR"
+        }
+        if (kind == "SlugField") {
+            return "VARCHAR"
+        }
+        if (kind == "EmailField") {
+            return "VARCHAR"
+        }
+        if (kind == "URLField") {
+            return "VARCHAR"
+        }
+        if (kind == "TextField") {
+            return "TEXT"
+        }
+        if (kind == "DateField") {
+            return "DATE"
+        }
+        if (kind == "DateTimeField") {
+            return "TIMESTAMP"
+        }
+        if (kind == "TimeField") {
+            return "TIME"
+        }
+        if (kind == "UUIDField") {
+            return "VARCHAR"
+        }
+        if (kind == "JSONField") {
+            return "JSON"
+        }
+        if (kind == "ForeignKey") {
+            return "INTEGER"
+        }
+        if (kind == "OneToOneField") {
+            return "INTEGER"
+        }
+        return "VARCHAR"
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Text helpers — a keyword argument's value, quoted or raw
+    ; ------------------------------------------------------------------------
+    ; How far an identifier runs from `at`: letters, digits and underscores.
+    sfn identEnd:int (text:string at:int) {
+        def i:int at
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            def isWord:boolean false
+            if (c >= 97) {
+                if (c <= 122) {
+                    isWord = true
+                }
+            }
+            if (c >= 65) {
+                if (c <= 90) {
+                    isWord = true
+                }
+            }
+            if (c >= 48) {
+                if (c <= 57) {
+                    isWord = true
+                }
+            }
+            if (c == 95) {
+                isWord = true
+            }
+            if (isWord == false) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn argText:string (body:string key:string) {
+        return (DjangoReader.unquote((DjangoReader.argRaw(body key))))
+    }
+
+    ; `key=<value>` where the value runs to the matching bracket or the comma
+    ; that ends it at depth zero.
+    sfn argRaw:string (body:string key:string) {
+        def want:string (key + "=")
+        def at:int (DjangoReader.findKeyword(body want))
+        if (at < 0) {
+            return ""
+        }
+        def i:int (at + (strlen want))
+        def n:int (strlen body)
+        def depth:int 0
+        def start:int i
+        while (i < n) {
+            def c:int (charAt body i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 91) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                if (depth == 0) {
+                    break
+                }
+                depth = (depth - 1)
+            }
+            if (c == 93) {
+                if (depth == 0) {
+                    break
+                }
+                depth = (depth - 1)
+            }
+            if (c == 44) {
+                if (depth == 0) {
+                    break
+                }
+            }
+            i = (i + 1)
+        }
+        return (trim (substring body start i))
+    }
+
+    ; A keyword must start a word: `to=` must not match `into=`.
+    sfn findKeyword:int (body:string want:string) {
+        def n:int (strlen body)
+        def wn:int (strlen want)
+        def i:int 0
+        def last:int (n - wn)
+        while (i <= last) {
+            if ((substring body i (i + wn)) == want) {
+                def okBefore:boolean true
+                if (i > 0) {
+                    def prev:int (charAt body (i - 1))
+                    def isLetter:boolean false
+                    if (prev >= 97) {
+                        if (prev <= 122) {
+                            isLetter = true
+                        }
+                    }
+                    if (prev >= 65) {
+                        if (prev <= 90) {
+                            isLetter = true
+                        }
+                    }
+                    if (prev == 95) {
+                        isLetter = true
+                    }
+                    if isLetter {
+                        okBefore = false
+                    }
+                }
+                if okBefore {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `null=True` present and true.
+    sfn hasFlagArg:boolean (spec:string key:string) {
+        def raw:string (DjangoReader.argRaw(spec key))
+        return (raw == "True")
+    }
+
+    sfn unquote:string (text:string) {
+        def t:string (trim text)
+        def n:int (strlen t)
+        if (n < 2) {
+            return t
+        }
+        def first:int (charAt t 0)
+        def last:int (charAt t (n - 1))
+        if (first == 39) {
+            if (last == 39) {
+                return (substring t 1 (n - 1))
+            }
+        }
+        if (first == 34) {
+            if (last == 34) {
+                return (substring t 1 (n - 1))
+            }
+        }
+        return t
+    }
+
+    sfn findFrom:int (text:string want:string from:int) {
+        def wn:int (strlen want)
+        def n:int (strlen text)
+        if (wn == 0) {
+            return -1
+        }
+        def i:int from
+        if (i < 0) {
+            i = 0
+        }
+        def last:int (n - wn)
+        while (i <= last) {
+            if ((substring text i (i + wn)) == want) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The `)` matching the `(` at `open`, skipping over string literals so a
+    ; bracket inside `default='a)b'` does not close anything.
+    sfn matchParen:int (text:string open:int) {
+        def depth:int 0
+        def i:int open
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 39) {
+                i = (DjangoReader.skipString(text i 39))
+                continue
+            }
+            if (c == 34) {
+                i = (DjangoReader.skipString(text i 34))
+                continue
+            }
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn skipString:int (text:string start:int quote:int) {
+        def i:int (start + 1)
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 92) {
+                i = (i + 2)
+                continue
+            }
+            if (c == quote) {
+                return (i + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}

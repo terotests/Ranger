@@ -15,7 +15,7 @@
 ; all: nothing else in a plain node graph needs them.
 ; ============================================================================
 
-Import "DatabaseSchema.rgr"
+Import "../../../rangerdb/src/schema/DatabaseSchema.rgr"
 Import "../../core/GraphModel.rgr"
 Import "../../../evg/EVGTextMeasurer.rgr"
 
@@ -88,7 +88,7 @@ class SchemaToGraph {
         def widest:double (this.textWidth(t.name headerFontSize))
         def i:int 0
         while (i < (array_length t.columns)) {
-            def c:DBColumn (itemAt t.columns i)
+            def c:SchemaColumn (itemAt t.columns i)
             def keep:boolean true
             if keysOnly {
                 keep = false
@@ -153,7 +153,7 @@ class SchemaToGraph {
         return n
     }
 
-    fn columnRow:FlowRow (t:DBTable c:DBColumn) {
+    fn columnRow:FlowRow (t:DBTable c:SchemaColumn) {
         def badge:string ""
         if c.isPrimaryKey { badge = "pk" }
         if (c.isPrimaryKey == false) {
