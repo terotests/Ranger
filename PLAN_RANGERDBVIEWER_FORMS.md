@@ -362,21 +362,33 @@ the failures named rather than rounded away.
 Each phase ends with something measurable, and no phase ends with "the UI looks
 right".
 
-| # | Phase | Exit criterion |
-|---|---|---|
-| **F0** | Model + `NativeExpr` + dependency graph | A hand-written 20-question form with visibility, requirement and one calculation evaluates correctly; a cyclic form is refused and the cycle is named |
-| **F1** | Evaluator with incremental settle | Q3: changing one answer in a 10 000-question form touches only its dependents — asserted by counting rule evaluations, not by timing |
-| **F2** | Validation + submission semantics | A hidden required question does not block submission; a hidden question's value is withheld from the submitted answers and from calculations |
-| **F3** | `JsExpr` over ComponentEngine + SurveyJS reader | N of M SurveyJS example forms reach the same answer state as SurveyJS on the same answer script |
-| **F4** | Renderer: `FormLayout` + `FormView` + the Forms section in RangerDBViewer | The demo form fills in, in the browser, in the serverless page, with the page's own checks reading answers back |
-| **F5** | Database binding | A form bound to a table reads a row, writes changes back as an addressed `DBMutation`, and refuses a row no key can name — the same discipline `DataSheet.changes()` already has |
-| **F6** | The benchmark harness, Q1–Q8, against SurveyJS and Enketo | A table in the repository, reproducible with one command |
-| **F7** | Cross-target conformance | The corpus runs identically on ES6 / Go / Rust / C++ / Kotlin / Python, or the divergences are named |
-| **F8** | `XPathExpr` + XForms reader | A documented subset of ODK's test forms, scored |
-| **Q1–Q3** | The query designer (section 7), in parallel from F4 | A join built in the graph runs on SQLite, DuckDB and RangerDB, and round-trips through RangerSQL |
+| # | Phase | Exit criterion | |
+|---|---|---|---|
+| **F0** | Model + `NativeExpr` + dependency graph | A hand-written form with visibility, requirement and one calculation evaluates correctly; a cyclic form is refused and the cycle is named | **done** |
+| **F1** | Evaluator with incremental settle | Changing one answer in a 10 000-question form touches only its dependents — **4 rule evaluations**, asserted by counting | **done** |
+| **F2** | Validation + submission semantics | A hidden required question does not block submission; its value is withheld from the answers and from calculations | **done** |
+| **F3** | SurveyJS reader + comparison | 5 of 8 identical, 3 differ for a reason the corpus names, 0 unexplained | **done** |
+| **F4** | Renderer + the Forms section in RangerDBViewer | The demo form fills in, in the browser, in the serverless page | **done** |
+| **F5** | Database binding | A form bound to a table reads a row, writes it back as an addressed `DBMutation`, and refuses a row no key can name | **done** |
+| **F6** | The benchmark harness, Q1–Q8 | A table in the repository, reproducible with one command | **done** |
+| **F7** | Cross-target conformance | Byte-identical on es6, python, go and cpp. Rust's reasons are recorded rather than worked around | **4 of 5** |
+| **F8** | `XPathExpr` + XForms reader | 3 of 5 identical against Enketo's own XPath evaluator, 2 by design, 0 unexplained, 1 refused | **done** |
+| **Q1–Q3** | The query designer | A join built in the designer runs on RangerDB through the capability-fallback engine, and round-trips as SQL | **done** |
 
-F0–F2 are the engine and are worth doing even if nothing else here happens. F3 is the
-first phase that produces a number somebody outside the project would care about.
+Where the numbers live:
+
+| | |
+|---|---|
+| `gallery/rangerforms/bench/README.md` | the SurveyJS comparison |
+| `gallery/rangerforms/bench/BENCHMARK.md` | the eight timings |
+| `gallery/rangerforms/bench/XFORMS.md` | ODK XForms against Enketo |
+| `gallery/rangerforms/bench/CONFORMANCE.md` | the same engine on five targets |
+
+What is left is Rust — the same one-level-inheritance gap that was fixed for
+the Go writer, in a writer that walks `extends_classes` in about twenty places
+rather than four, plus the ownership model meeting a class that owns a trait
+object — and the two engines that were always Phase 7 of the database plan,
+PostgreSQL and MongoDB.
 
 ---
 
