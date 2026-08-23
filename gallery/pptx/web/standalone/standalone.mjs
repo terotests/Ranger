@@ -10,7 +10,7 @@
  * here rather than being fetched from a server — which is also why pictures
  * appear in the GL path at all now.
  */
-import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+import { renderDisplayList, loadImages, markColoredSlots } from "./gl/evg-webgl.js";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -440,6 +440,38 @@ async function selftest() {
     ok("delete takes the inserted shape away", web.run("edit.delete", "") || (web.selectionCount() | 0) === 0);
     ok("editing is still on at the end of it", web.editing() === true);
   }
+
+  // A colour emoji is not a glyph the run's colour applies to.
+  //
+  // Every atlas cell is drawn with fillStyle "#fff", so a glyph comes back
+  // white with its shape in the alpha, and the text shader masks that with the
+  // run's colour. A colour emoji ignores the fill style — the browser paints
+  // its own sticker, and its alpha is the whole opaque face. Masked, 😊 is a
+  // solid disc in the text colour, which is exactly how it was reported.
+  //
+  // Whether a given string comes out coloured depends on the platform's font
+  // stack, so this drives the DECISION with a canvas we control rather than
+  // hoping this machine has an emoji font: a white cell stays a mask, a
+  // coloured one is marked to keep its own pixels.
+  {
+    const probe = document.createElement("canvas");
+    probe.width = 40; probe.height = 20;
+    const pc = probe.getContext("2d");
+    pc.clearRect(0, 0, 40, 20);
+    pc.fillStyle = "#fff";
+    pc.fillRect(0, 0, 20, 20);          // a glyph, as the atlas draws one
+    pc.fillStyle = "#e8402a";
+    pc.fillRect(20, 0, 20, 20);         // a sticker the browser coloured itself
+    const slots = new Map([
+      ["mask",  { _px: 0,  _py: 0, _pw: 20, _ph: 20, colored: false }],
+      ["color", { _px: 20, _py: 0, _pw: 20, _ph: 20, colored: false }],
+    ]);
+    markColoredSlots(pc, slots);
+    ok("a white cell stays a coverage mask", slots.get("mask").colored === false);
+    ok("and a cell the browser coloured keeps its own pixels", slots.get("color").colored === true);
+    ok("the probe fields are cleaned up", slots.get("mask")._px === undefined);
+  }
+
 
   // Typing into a shape: F2 puts a caret in the selected shape, and what is
   // typed goes in at the caret rather than at the end of the text.
