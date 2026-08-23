@@ -1,2 +1,12 @@
+# Compiled output of the Ranger sources here. Regenerate with:
+#   npm run rangerdbviewer:test / rangerdbviewer:demo
 bin/
+
+# Exported diagrams from `npm run rangerdbviewer:demo` — megabytes of PDF that
+# say nothing a re-run would not.
 out/
+
+# …except the one the README shows. The root .gitignore drops every *.png, so
+# this directory has to be let back in explicitly.
+!artifacts/
+!artifacts/**
