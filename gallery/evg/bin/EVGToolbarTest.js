@@ -13595,6 +13595,88 @@ OfficeBidi.reorder = function(levels) {
   };
   return order;
 };
+OfficeBidi.mirrorOf = function(cp) {
+  if ( cp == 40 ) {
+    return 41;
+  }
+  if ( cp == 41 ) {
+    return 40;
+  }
+  if ( cp == 60 ) {
+    return 62;
+  }
+  if ( cp == 62 ) {
+    return 60;
+  }
+  if ( cp == 91 ) {
+    return 93;
+  }
+  if ( cp == 93 ) {
+    return 91;
+  }
+  if ( cp == 123 ) {
+    return 125;
+  }
+  if ( cp == 125 ) {
+    return 123;
+  }
+  if ( cp == 171 ) {
+    return 187;
+  }
+  if ( cp == 187 ) {
+    return 171;
+  }
+  if ( cp == 8249 ) {
+    return 8250;
+  }
+  if ( cp == 8250 ) {
+    return 8249;
+  }
+  if ( cp == 8804 ) {
+    return 8805;
+  }
+  if ( cp == 8805 ) {
+    return 8804;
+  }
+  if ( cp == 8918 ) {
+    return 8919;
+  }
+  if ( cp == 8919 ) {
+    return 8918;
+  }
+  if ( cp == 12296 ) {
+    return 12297;
+  }
+  if ( cp == 12297 ) {
+    return 12296;
+  }
+  return cp;
+};
+OfficeBidi.mirrorGlyphs = function(cps, levels) {
+  let out = [];
+  const n = cps.length;
+  let i = 0;
+  while (i < n) {
+    const cp = cps[i];
+    let lv = 0;
+    if ( i < (levels.length) ) {
+      lv = levels[i];
+    }
+    if ( (lv % 2) == 1 ) {
+      out.push(OfficeBidi.mirrorOf(cp));
+    } else {
+      out.push(cp);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+OfficeBidi.levelsOf = function(cps, override) {
+  const para = OfficeBidi.paragraphLevel(cps, override);
+  const levels = OfficeBidi.resolveLevels(cps, para);
+  OfficeBidi.applyL1(cps, levels, para);
+  return levels;
+};
 OfficeBidi.visualOrder = function(cps, override) {
   const para = OfficeBidi.paragraphLevel(cps, override);
   const levels = OfficeBidi.resolveLevels(cps, para);
@@ -14194,6 +14276,8 @@ OfficeText.forDisplayDir = function(s, dir) {
   if ( OfficeArabic.hasArabic(cps) ) {
     glyphs = OfficeArabic.shape(cps);
   }
+  const levels = OfficeBidi.levelsOf(cps, dir);
+  glyphs = OfficeBidi.mirrorGlyphs(glyphs, levels);
   const order = OfficeBidi.visualOrder(cps, dir);
   const visual = OfficeText.reattachMarks(cps, order);
   let out = "";
@@ -14220,6 +14304,8 @@ OfficeText.visualRuns = function(s, dir, styleIds) {
   }
   let visual = [];
   if ( OfficeBidi.hasRtl(cps) ) {
+    const levels = OfficeBidi.levelsOf(cps, dir);
+    glyphs = OfficeBidi.mirrorGlyphs(glyphs, levels);
     const order = OfficeBidi.visualOrder(cps, dir);
     visual = OfficeText.reattachMarks(cps, order);
   } else {

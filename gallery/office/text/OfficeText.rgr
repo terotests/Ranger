@@ -195,6 +195,11 @@ class OfficeText {
         if (OfficeArabic.hasArabic(cps)) {
             glyphs = (OfficeArabic.shape(cps))
         }
+        ; Rule L4, after shaping and before ordering: a bracket at a
+        ; right-to-left level is DRAWN as its mirror. Reordering puts it in
+        ; the right place and leaves it pointing the wrong way.
+        def levels:[int] (OfficeBidi.levelsOf(cps dir))
+        glyphs = (OfficeBidi.mirrorGlyphs(glyphs levels))
         def order:[int] (OfficeBidi.visualOrder(cps dir))
         def visual:[int] (OfficeText.reattachMarks(cps order))
         def out:string ""
@@ -249,6 +254,9 @@ class OfficeText {
         ; there is nothing to permute.
         def visual:[int]
         if (OfficeBidi.hasRtl(cps)) {
+            ; Rule L4: a bracket at a right-to-left level is drawn mirrored.
+            def levels:[int] (OfficeBidi.levelsOf(cps dir))
+            glyphs = (OfficeBidi.mirrorGlyphs(glyphs levels))
             def order:[int] (OfficeBidi.visualOrder(cps dir))
             visual = (OfficeText.reattachMarks(cps order))
         } {

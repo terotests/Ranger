@@ -387,5 +387,55 @@ class OfficeTextTest {
         def only:OfficeVisualRun (itemAt one 0)
         c.eqStr("holding the line" only.text plain)
 
+        print "-- L4: a bracket at a right-to-left level is drawn mirrored --"
+        ; Reordering puts a bracket in the right PLACE and leaves it pointing
+        ; the wrong way. An opening parenthesis at a right-to-left level opens
+        ; to the left, so it has to be DRAWN as ")" — the codepoint stored is
+        ; the semantic one, the glyph shown is its mirror.
+        ;
+        ; The line that caught this is a credit on an Arabic slide: an Arabic
+        ; sentence with a bracketed web address in the middle of it. It came
+        ; out as ") ingez-ppt.com (", brackets turned away from the thing they
+        ; enclose. Everything else about the line — the run order, the Latin
+        ; island, where the brackets sat — was already right, which is why it
+        ; took comparing against a reference implementation to see.
+        def rtlOpen:string ((OfficeTextTest.str("1605 1585 1581 1576 1575 32 40 32")) + "abc" + (OfficeTextTest.str("32 41 32 1576 1575 1604")))
+        def shown:string (OfficeText.forDisplayDir(rtlOpen 1))
+        def openAt:int (indexOf shown "(")
+        def closeAt:int (indexOf shown ")")
+        def latinAt:int (indexOf shown "abc")
+        c.ok("both brackets are drawn" ((openAt >= 0) && (closeAt >= 0)))
+        c.ok("the opening bracket is drawn left of the name it encloses" (openAt < latinAt))
+        c.ok("and the closing one right of it" (closeAt > latinAt))
+
+        ; And nothing is mirrored in a left-to-right line, whatever `dir` says
+        ; — the fast path returns the string untouched, and text with no
+        ; right-to-left character in it has no right-to-left level to be at.
+        def ltr:string "a (b) c"
+        c.eqStr("a left-to-right line keeps its brackets" (OfficeText.forDisplayDir(ltr 1)) ltr)
+
+        ; The mirror table is a table of PAIRS: applying it twice is the
+        ; identity, and a character with no mirror is returned as it stands.
+        c.eqInt("the parentheses are a pair" (OfficeBidi.mirrorOf((OfficeBidi.mirrorOf(40)))) 40)
+        c.eqInt("so are the square brackets" (OfficeBidi.mirrorOf(91)) 93)
+        c.eqInt("and the braces" (OfficeBidi.mirrorOf(125)) 123)
+        c.eqInt("a letter has no mirror" (OfficeBidi.mirrorOf(1605)) 1605)
+        c.eqInt("nor has a full stop" (OfficeBidi.mirrorOf(46)) 46)
+
+        ; The other route through this module has to mirror too: a painter
+        ; that draws a line one style-run at a time goes through `visualRuns`,
+        ; and a bracket does not stop being a bracket because the word beside
+        ; it changed colour.
+        def bids:[int]
+        k = 0
+        while (k < (array_length (EVGCodepoint.toArray(rtlOpen)))) {
+            push bids 0
+            k = (k + 1)
+        }
+        def one:[OfficeVisualRun] (OfficeText.visualRuns(rtlOpen 1 bids))
+        def onlyRun:OfficeVisualRun (itemAt one 0)
+        c.eqStr("the run-wise route mirrors the same way" onlyRun.text shown)
+
+
     }
 }
