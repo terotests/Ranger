@@ -1,0 +1,41 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CorpusData.rgr — GENERATED. Do not edit.
+; ============================================================================
+;
+;     npm run rangerforms:corpus
+;
+; The SurveyJS comparison corpus, compiled in, so the cross-target conformance
+; run has no inputs but its own source. See `Conformance.rgr`.
+; ============================================================================
+
+class CorpusData {
+    sfn names:[string] () {
+        def out:[string]
+        push out "branching"
+        push out "calculated"
+        push out "choices"
+        push out "logic"
+        push out "enable-readonly"
+        push out "pages"
+        push out "numbers"
+        push out "text"
+        push out "unsupported"
+        return out
+    }
+
+    sfn cases:[string] () {
+        def out:[string]
+        push out "{\"name\":\"branching\",\"survey\":{\"elements\":[{\"type\":\"text\",\"name\":\"age\",\"inputType\":\"number\",\"isRequired\":true},{\"type\":\"text\",\"name\":\"guardian\",\"visibleIf\":\"{age} < 18\",\"requiredIf\":\"{age} < 18\"},{\"type\":\"text\",\"name\":\"note\"}]},\"script\":[{\"age\":12},{\"guardian\":\"Ada\"},{\"age\":40},{\"age\":17}]}"
+        push out "{\"name\":\"calculated\",\"survey\":{\"elements\":[{\"type\":\"text\",\"name\":\"height\",\"inputType\":\"number\"},{\"type\":\"text\",\"name\":\"weight\",\"inputType\":\"number\"},{\"type\":\"expression\",\"name\":\"bmi\",\"expression\":\"{weight} / ({height} * {height})\"},{\"type\":\"text\",\"name\":\"advice\",\"visibleIf\":\"{bmi} > 25\"}]},\"script\":[{\"height\":1.8},{\"weight\":81},{\"weight\":90},{\"height\":2}]}"
+        push out "{\"name\":\"choices\",\"survey\":{\"elements\":[{\"type\":\"radiogroup\",\"name\":\"country\",\"choices\":[\"FI\",\"SE\",\"NO\",\"PT\"]},{\"type\":\"text\",\"name\":\"nordic_note\",\"visibleIf\":\"{country} anyof ['FI','SE','NO']\"},{\"type\":\"checkbox\",\"name\":\"symptoms\",\"choices\":[\"cough\",\"fever\",\"ache\"]},{\"type\":\"text\",\"name\":\"urgent\",\"visibleIf\":\"{symptoms} contains 'fever'\"},{\"type\":\"text\",\"name\":\"both\",\"visibleIf\":\"{symptoms} allof ['cough','fever']\"}]},\"script\":[{\"country\":\"SE\"},{\"country\":\"PT\"},{\"symptoms\":[\"cough\"]},{\"symptoms\":[\"cough\",\"fever\"]},{\"symptoms\":[]}]}"
+        push out "{\"name\":\"logic\",\"survey\":{\"elements\":[{\"type\":\"text\",\"name\":\"a\",\"inputType\":\"number\"},{\"type\":\"text\",\"name\":\"b\",\"inputType\":\"number\"},{\"type\":\"text\",\"name\":\"andBoth\",\"visibleIf\":\"{a} > 1 && {b} > 1\"},{\"type\":\"text\",\"name\":\"orEither\",\"visibleIf\":\"{a} > 5 || {b} > 5\"},{\"type\":\"text\",\"name\":\"notEqual\",\"visibleIf\":\"{a} <> {b}\"},{\"type\":\"text\",\"name\":\"filled\",\"visibleIf\":\"{a} notempty\"},{\"type\":\"text\",\"name\":\"blank\",\"visibleIf\":\"{b} empty\"},{\"type\":\"expression\",\"name\":\"picked\",\"expression\":\"iif({a} > {b}, {a}, {b})\"}]},\"script\":[{\"a\":2},{\"b\":3},{\"a\":9},{\"b\":9}]}"
+        push out "{\"name\":\"enable-readonly\",\"survey\":{\"elements\":[{\"type\":\"boolean\",\"name\":\"wants_post\"},{\"type\":\"text\",\"name\":\"address\",\"enableIf\":\"{wants_post} = true\",\"isRequired\":true},{\"type\":\"text\",\"name\":\"secret\",\"visible\":false,\"isRequired\":true},{\"type\":\"text\",\"name\":\"always\"}]},\"script\":[{\"wants_post\":true},{\"address\":\"Somewhere 1\"},{\"wants_post\":false}]}"
+        push out "{\"name\":\"pages\",\"survey\":{\"pages\":[{\"name\":\"p1\",\"elements\":[{\"type\":\"boolean\",\"name\":\"has_children\"}]},{\"name\":\"p2\",\"visibleIf\":\"{has_children} = true\",\"elements\":[{\"type\":\"text\",\"name\":\"count\",\"inputType\":\"number\"},{\"type\":\"text\",\"name\":\"eldest\",\"visibleIf\":\"{count} > 0\"}]}]},\"script\":[{\"has_children\":true},{\"count\":2},{\"has_children\":false}]}"
+        push out "{\"name\":\"numbers\",\"survey\":{\"elements\":[{\"type\":\"text\",\"name\":\"x\",\"inputType\":\"number\"},{\"type\":\"text\",\"name\":\"y\",\"inputType\":\"number\"},{\"type\":\"text\",\"name\":\"z\",\"inputType\":\"number\"},{\"type\":\"expression\",\"name\":\"total\",\"expression\":\"sum({x}, {y}, {z})\"},{\"type\":\"expression\",\"name\":\"biggest\",\"expression\":\"max({x}, {y}, {z})\"},{\"type\":\"expression\",\"name\":\"smallest\",\"expression\":\"min({x}, {y}, {z})\"},{\"type\":\"expression\",\"name\":\"mean\",\"expression\":\"avg({x}, {y}, {z})\"},{\"type\":\"expression\",\"name\":\"rounded\",\"expression\":\"round({x} / 3)\"}]},\"script\":[{\"x\":10},{\"y\":4},{\"z\":7},{\"x\":1}]}"
+        push out "{\"name\":\"text\",\"survey\":{\"elements\":[{\"type\":\"text\",\"name\":\"first\"},{\"type\":\"text\",\"name\":\"last\"},{\"type\":\"expression\",\"name\":\"full\",\"expression\":\"{first} + ' ' + {last}\"},{\"type\":\"text\",\"name\":\"same\",\"visibleIf\":\"{first} = {last}\"},{\"type\":\"text\",\"name\":\"hasA\",\"visibleIf\":\"{first} contains 'a'\"}]},\"script\":[{\"first\":\"Ada\"},{\"last\":\"Ada\"},{\"last\":\"Lovelace\"}]}"
+        push out "{\"name\":\"unsupported\",\"survey\":{\"elements\":[{\"type\":\"text\",\"name\":\"born\",\"inputType\":\"date\"},{\"type\":\"expression\",\"name\":\"years\",\"expression\":\"age({born})\"},{\"type\":\"paneldynamic\",\"name\":\"children\",\"templateElements\":[{\"type\":\"text\",\"name\":\"cname\"}]}]},\"script\":[{\"born\":\"2000-01-01\"}]}"
+        return out
+    }
+}

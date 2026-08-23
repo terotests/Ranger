@@ -36885,6 +36885,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           }
                           wr.out("", true);
                         };
+                        goAncestors (cl, ctx) {
+                          let out = [];
+                          let seen = {};
+                          let pending = [];
+                          for ( let si = 0; si < cl.extends_classes.length; si++) {
+                            var seedName = cl.extends_classes[si];
+                            pending.push(seedName);
+                          };
+                          let at = 0;
+                          while (at < (pending.length)) {
+                            const pName = pending[at];
+                            at = at + 1;
+                            if ( ( typeof(seen[pName] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, pName) ) ) {
+                              continue;
+                            }
+                            seen[pName] = true;
+                            out.push(pName);
+                            const pC = ctx.findClass(pName);
+                            for ( let ui = 0; ui < pC.extends_classes.length; ui++) {
+                              var upName = pC.extends_classes[ui];
+                              pending.push(upName);
+                            };
+                          };
+                          return out;
+                        };
                         async writeStructField (node, ctx, wr) {
                           if ( node.hasParamDesc ) {
                             const nn = node.children[1];
@@ -37738,27 +37763,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             await this.writeStructField(pvar.node, ctx, wr);
                             declaredVariable[pvar.name] = true;
                           };
-                          if ( (cl.extends_classes.length) > 0 ) {
-                            for ( let i_1 = 0; i_1 < cl.extends_classes.length; i_1++) {
-                              var pName = cl.extends_classes[i_1];
-                              const pC = ctx.findClass(pName);
-                              wr.out("// inherited from parent class " + pName, true);
-                              for ( let i_2 = 0; i_2 < pC.variables.length; i_2++) {
-                                var pvar_1 = pC.variables[i_2];
-                                if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
-                                  continue;
-                                }
-                                await this.writeStructField(pvar_1.node, ctx, wr);
-                              };
+                          for ( let ai = 0; ai < this.goAncestors((cl), ctx).length; ai++) {
+                            var pName = this.goAncestors((cl), ctx)[ai];
+                            const pC = ctx.findClass(pName);
+                            wr.out("// inherited from parent class " + pName, true);
+                            for ( let i_1 = 0; i_1 < pC.variables.length; i_1++) {
+                              var pvar_1 = pC.variables[i_1];
+                              if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
+                                continue;
+                              }
+                              declaredVariable[pvar_1.name] = true;
+                              await this.writeStructField(pvar_1.node, ctx, wr);
                             };
-                          }
+                          };
                           wr.indent(-1);
                           wr.out("}", true);
                           if ( cl.doesInherit() || ((cl.extends_classes.length) > 0) ) {
                             wr.out(("type IFACE_" + cl.name) + " interface { ", true);
                             wr.indent(1);
-                            for ( let i_3 = 0; i_3 < cl.variables.length; i_3++) {
-                              var p = cl.variables[i_3];
+                            for ( let i_2 = 0; i_2 < cl.variables.length; i_2++) {
+                              var p = cl.variables[i_2];
                               wr.out("Get_", false);
                               wr.out(p.compiledName + "() ", false);
                               if ( p.nameNode.hasFlag("optional") ) {
@@ -37776,11 +37800,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                               wr.out(") ", true);
                             };
-                            for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
-                              var fnVar = cl.defined_variants[i_4];
+                            for ( let i_3 = 0; i_3 < cl.defined_variants.length; i_3++) {
+                              var fnVar = cl.defined_variants[i_3];
                               const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
-                              for ( let i_5 = 0; i_5 < mVs.variants.length; i_5++) {
-                                var variant = mVs.variants[i_5];
+                              for ( let i_4 = 0; i_4 < mVs.variants.length; i_4++) {
+                                var variant = mVs.variants[i_4];
                                 if ( ( typeof(declaredIfFunction[variant.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredIfFunction, variant.name) ) ) {
                                   continue;
                                 }
@@ -37805,8 +37829,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( cl.has_constructor ) {
                             const constr = cl.constructor_fn;
                             let written = 0;
-                            for ( let i_6 = 0; i_6 < constr.params.length; i_6++) {
-                              var arg = constr.params[i_6];
+                            for ( let i_5 = 0; i_5 < constr.params.length; i_5++) {
+                              var arg = constr.params[i_5];
                               if ( arg.nameNode.hasFlag("keyword") ) {
                                 continue;
                               }
@@ -37822,60 +37846,63 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.indent(1);
                           wr.newline();
                           wr.out(("me := new(" + cl.name) + ")", true);
-                          if ( (cl.extends_classes.length) > 0 ) {
-                            for ( let i_7 = 0; i_7 < cl.extends_classes.length; i_7++) {
-                              var pName_1 = cl.extends_classes[i_7];
-                              const pC_1 = ctx.findClass(pName_1);
-                              for ( let i_8 = 0; i_8 < pC_1.variables.length; i_8++) {
-                                var pvar_2 = pC_1.variables[i_8];
-                                const nn = pvar_2.node;
-                                if ( (nn.children.length) > 2 ) {
-                                  const valueNode = nn.children[2];
+                          let initedVariable = {};
+                          for ( let ai_1 = 0; ai_1 < this.goAncestors((cl), ctx).length; ai_1++) {
+                            var pName_1 = this.goAncestors((cl), ctx)[ai_1];
+                            const pC_1 = ctx.findClass(pName_1);
+                            for ( let i_6 = 0; i_6 < pC_1.variables.length; i_6++) {
+                              var pvar_2 = pC_1.variables[i_6];
+                              if ( ( typeof(initedVariable[pvar_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(initedVariable, pvar_2.name) ) ) {
+                                continue;
+                              }
+                              initedVariable[pvar_2.name] = true;
+                              const nn = pvar_2.node;
+                              if ( (nn.children.length) > 2 ) {
+                                const valueNode = nn.children[2];
+                                wr.out(("me." + pvar_2.compiledName) + " = ", false);
+                                let fldTypeName = "";
+                                if ( (typeof(pvar_2.nameNode) !== "undefined" && pvar_2.nameNode != null )  ) {
+                                  fldTypeName = pvar_2.nameNode.type_name;
+                                }
+                                let wroteFld = false;
+                                if ( (fldTypeName.length) > 0 ) {
+                                  wroteFld = await this.goWriteUnionValue(fldTypeName, valueNode, ctx, wr);
+                                }
+                                if ( wroteFld == false ) {
+                                  await this.WalkNode(valueNode, ctx, wr);
+                                }
+                                wr.out("", true);
+                              } else {
+                                const pNameN = pvar_2.nameNode;
+                                if ( pNameN.value_type == 6 ) {
                                   wr.out(("me." + pvar_2.compiledName) + " = ", false);
-                                  let fldTypeName = "";
-                                  if ( (typeof(pvar_2.nameNode) !== "undefined" && pvar_2.nameNode != null )  ) {
-                                    fldTypeName = pvar_2.nameNode.type_name;
-                                  }
-                                  let wroteFld = false;
-                                  if ( (fldTypeName.length) > 0 ) {
-                                    wroteFld = await this.goWriteUnionValue(fldTypeName, valueNode, ctx, wr);
-                                  }
-                                  if ( wroteFld == false ) {
-                                    await this.WalkNode(valueNode, ctx, wr);
-                                  }
-                                  wr.out("", true);
-                                } else {
-                                  const pNameN = pvar_2.nameNode;
-                                  if ( pNameN.value_type == 6 ) {
-                                    wr.out(("me." + pvar_2.compiledName) + " = ", false);
-                                    wr.out("make(", false);
-                                    await this.writeTypeDef(pvar_2.nameNode, ctx, wr);
-                                    wr.out(",0)", true);
-                                  }
-                                  if ( pNameN.value_type == 7 ) {
-                                    wr.out(("me." + pvar_2.compiledName) + " = ", false);
-                                    wr.out("make(", false);
-                                    await this.writeTypeDef(pvar_2.nameNode, ctx, wr);
-                                    wr.out(")", true);
-                                  }
+                                  wr.out("make(", false);
+                                  await this.writeTypeDef(pvar_2.nameNode, ctx, wr);
+                                  wr.out(",0)", true);
                                 }
-                              };
-                              for ( let i_9 = 0; i_9 < pC_1.variables.length; i_9++) {
-                                var pvar_3 = pC_1.variables[i_9];
-                                if ( pvar_3.nameNode.hasFlag("optional") ) {
-                                  wr.out(("me." + pvar_3.compiledName) + " = new(GoNullable);", true);
+                                if ( pNameN.value_type == 7 ) {
+                                  wr.out(("me." + pvar_2.compiledName) + " = ", false);
+                                  wr.out("make(", false);
+                                  await this.writeTypeDef(pvar_2.nameNode, ctx, wr);
+                                  wr.out(")", true);
                                 }
-                              };
-                              if ( pC_1.has_constructor ) {
-                                const constr_1 = pC_1.constructor_fn;
-                                const subCtx = constr_1.fnCtx;
-                                subCtx.is_function = true;
-                                await this.WalkNode(constr_1.fnBody, subCtx, wr);
                               }
                             };
-                          }
-                          for ( let i_10 = 0; i_10 < cl.variables.length; i_10++) {
-                            var pvar_4 = cl.variables[i_10];
+                            for ( let i_7 = 0; i_7 < pC_1.variables.length; i_7++) {
+                              var pvar_3 = pC_1.variables[i_7];
+                              if ( pvar_3.nameNode.hasFlag("optional") ) {
+                                wr.out(("me." + pvar_3.compiledName) + " = new(GoNullable);", true);
+                              }
+                            };
+                            if ( pC_1.has_constructor ) {
+                              const constr_1 = pC_1.constructor_fn;
+                              const subCtx = constr_1.fnCtx;
+                              subCtx.is_function = true;
+                              await this.WalkNode(constr_1.fnBody, subCtx, wr);
+                            }
+                          };
+                          for ( let i_8 = 0; i_8 < cl.variables.length; i_8++) {
+                            var pvar_4 = cl.variables[i_8];
                             const nn_1 = pvar_4.node;
                             if ( (nn_1.children.length) > 2 ) {
                               const valueNode_1 = nn_1.children[2];
@@ -37908,8 +37935,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               }
                             }
                           };
-                          for ( let i_11 = 0; i_11 < cl.variables.length; i_11++) {
-                            var pvar_5 = cl.variables[i_11];
+                          for ( let i_9 = 0; i_9 < cl.variables.length; i_9++) {
+                            var pvar_5 = cl.variables[i_9];
                             if ( pvar_5.nameNode.hasFlag("optional") ) {
                               wr.out(("me." + pvar_5.compiledName) + " = new(GoNullable);", true);
                             }
@@ -37927,8 +37954,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           if ( cl.isSingletonClass() ) {
                             await this.writeSingletonAccessor(cl, ctx, wr);
                           }
-                          for ( let i_12 = 0; i_12 < cl.static_methods.length; i_12++) {
-                            var variant_1 = cl.static_methods[i_12];
+                          for ( let i_10 = 0; i_10 < cl.static_methods.length; i_10++) {
+                            var variant_1 = cl.static_methods[i_10];
                             if ( variant_1.nameNode.hasFlag("main") ) {
                               continue;
                             }
@@ -37955,11 +37982,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.out("}", true);
                           };
                           let declaredFn = {};
-                          for ( let i_13 = 0; i_13 < cl.defined_variants.length; i_13++) {
-                            var fnVar_1 = cl.defined_variants[i_13];
+                          for ( let i_11 = 0; i_11 < cl.defined_variants.length; i_11++) {
+                            var fnVar_1 = cl.defined_variants[i_11];
                             const mVs_1 = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar_1) ? cl.method_variants[fnVar_1] : undefined );
-                            for ( let i_14 = 0; i_14 < mVs_1.variants.length; i_14++) {
-                              var variant_2 = mVs_1.variants[i_14];
+                            for ( let i_12 = 0; i_12 < mVs_1.variants.length; i_12++) {
+                              var variant_2 = mVs_1.variants[i_12];
                               if ( ( typeof(declaredFunction[variant_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFunction, variant_2.name) ) ) {
                                 continue;
                               }
@@ -37984,44 +38011,43 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               wr.out("}", true);
                             };
                           };
-                          if ( (cl.extends_classes.length) > 0 ) {
-                            for ( let i_15 = 0; i_15 < cl.extends_classes.length; i_15++) {
-                              var pName_2 = cl.extends_classes[i_15];
-                              const pC_2 = ctx.findClass(pName_2);
-                              wr.out("// inherited methods from parent class " + pName_2, true);
-                              for ( let i_16 = 0; i_16 < pC_2.defined_variants.length; i_16++) {
-                                var fnVar_2 = pC_2.defined_variants[i_16];
-                                const mVs_2 = ( Object.prototype.hasOwnProperty.call(pC_2.method_variants, fnVar_2) ? pC_2.method_variants[fnVar_2] : undefined );
-                                for ( let i_17 = 0; i_17 < mVs_2.variants.length; i_17++) {
-                                  var variant_3 = mVs_2.variants[i_17];
-                                  if ( ( typeof(declaredFn[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFn, variant_3.name) ) ) {
-                                    continue;
-                                  }
-                                  wr.out(((("func (this *" + cl.name) + ") ") + variant_3.compiledName) + " (", false);
-                                  await this.writeArgsDef(variant_3, ctx, wr);
-                                  wr.out(") ", false);
-                                  if ( variant_3.nameNode.hasFlag("optional") ) {
-                                    wr.out("*GoNullable", false);
-                                  } else {
-                                    await this.writeTypeDef(variant_3.nameNode, ctx, wr);
-                                  }
-                                  wr.out(" {", true);
-                                  wr.indent(1);
-                                  wr.newline();
-                                  const subCtx_4 = variant_3.fnCtx;
-                                  subCtx_4.is_function = true;
-                                  await this.WalkNode(variant_3.fnBody, subCtx_4, wr);
-                                  wr.newline();
-                                  wr.indent(-1);
-                                  wr.out("}", true);
-                                };
+                          for ( let ai_2 = 0; ai_2 < this.goAncestors((cl), ctx).length; ai_2++) {
+                            var pName_2 = this.goAncestors((cl), ctx)[ai_2];
+                            const pC_2 = ctx.findClass(pName_2);
+                            wr.out("// inherited methods from parent class " + pName_2, true);
+                            for ( let i_13 = 0; i_13 < pC_2.defined_variants.length; i_13++) {
+                              var fnVar_2 = pC_2.defined_variants[i_13];
+                              const mVs_2 = ( Object.prototype.hasOwnProperty.call(pC_2.method_variants, fnVar_2) ? pC_2.method_variants[fnVar_2] : undefined );
+                              for ( let i_14 = 0; i_14 < mVs_2.variants.length; i_14++) {
+                                var variant_3 = mVs_2.variants[i_14];
+                                if ( ( typeof(declaredFn[variant_3.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredFn, variant_3.name) ) ) {
+                                  continue;
+                                }
+                                declaredFn[variant_3.name] = true;
+                                wr.out(((("func (this *" + cl.name) + ") ") + variant_3.compiledName) + " (", false);
+                                await this.writeArgsDef(variant_3, ctx, wr);
+                                wr.out(") ", false);
+                                if ( variant_3.nameNode.hasFlag("optional") ) {
+                                  wr.out("*GoNullable", false);
+                                } else {
+                                  await this.writeTypeDef(variant_3.nameNode, ctx, wr);
+                                }
+                                wr.out(" {", true);
+                                wr.indent(1);
+                                wr.newline();
+                                const subCtx_4 = variant_3.fnCtx;
+                                subCtx_4.is_function = true;
+                                await this.WalkNode(variant_3.fnBody, subCtx_4, wr);
+                                wr.newline();
+                                wr.indent(-1);
+                                wr.out("}", true);
                               };
                             };
-                          }
+                          };
                           let declaredGetter = {};
                           if ( cl.doesInherit() || ((cl.extends_classes.length) > 0) ) {
-                            for ( let i_18 = 0; i_18 < cl.variables.length; i_18++) {
-                              var p_1 = cl.variables[i_18];
+                            for ( let i_15 = 0; i_15 < cl.variables.length; i_15++) {
+                              var p_1 = cl.variables[i_15];
                               declaredGetter[p_1.name] = true;
                               wr.newline();
                               wr.out("// getter for variable " + p_1.name, true);
@@ -38055,53 +38081,52 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               wr.indent(-1);
                               wr.out("}", true);
                             };
-                            if ( (cl.extends_classes.length) > 0 ) {
-                              for ( let i_19 = 0; i_19 < cl.extends_classes.length; i_19++) {
-                                var pName_3 = cl.extends_classes[i_19];
-                                const pC_3 = ctx.findClass(pName_3);
-                                wr.out("// inherited getters and setters from the parent class " + pName_3, true);
-                                for ( let i_20 = 0; i_20 < pC_3.variables.length; i_20++) {
-                                  var p_2 = pC_3.variables[i_20];
-                                  if ( ( typeof(declaredGetter[p_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredGetter, p_2.name) ) ) {
-                                    continue;
-                                  }
-                                  wr.newline();
-                                  wr.out("// getter for variable " + p_2.name, true);
-                                  wr.out(("func (this *" + cl.name) + ") ", false);
-                                  wr.out("Get_", false);
-                                  wr.out(p_2.compiledName + "() ", false);
-                                  if ( p_2.nameNode.hasFlag("optional") ) {
-                                    wr.out("*GoNullable", false);
-                                  } else {
-                                    await this.writeTypeDef(p_2.nameNode, ctx, wr);
-                                  }
-                                  wr.out(" {", true);
-                                  wr.indent(1);
-                                  wr.out("return this." + p_2.compiledName, true);
-                                  wr.indent(-1);
-                                  wr.out("}", true);
-                                  wr.newline();
-                                  wr.out("// getter for variable " + p_2.name, true);
-                                  wr.out(("func (this *" + cl.name) + ") ", false);
-                                  wr.out("Set_", false);
-                                  wr.out(p_2.compiledName + "( value ", false);
-                                  if ( p_2.nameNode.hasFlag("optional") ) {
-                                    wr.out("*GoNullable", false);
-                                  } else {
-                                    await this.writeTypeDef(p_2.nameNode, ctx, wr);
-                                  }
-                                  wr.out(") ", false);
-                                  wr.out(" {", true);
-                                  wr.indent(1);
-                                  wr.out(("this." + p_2.compiledName) + " = value ", true);
-                                  wr.indent(-1);
-                                  wr.out("}", true);
-                                };
+                            for ( let ai_3 = 0; ai_3 < this.goAncestors((cl), ctx).length; ai_3++) {
+                              var pName_3 = this.goAncestors((cl), ctx)[ai_3];
+                              const pC_3 = ctx.findClass(pName_3);
+                              wr.out("// inherited getters and setters from the parent class " + pName_3, true);
+                              for ( let i_16 = 0; i_16 < pC_3.variables.length; i_16++) {
+                                var p_2 = pC_3.variables[i_16];
+                                if ( ( typeof(declaredGetter[p_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredGetter, p_2.name) ) ) {
+                                  continue;
+                                }
+                                wr.newline();
+                                wr.out("// getter for variable " + p_2.name, true);
+                                wr.out(("func (this *" + cl.name) + ") ", false);
+                                wr.out("Get_", false);
+                                wr.out(p_2.compiledName + "() ", false);
+                                if ( p_2.nameNode.hasFlag("optional") ) {
+                                  wr.out("*GoNullable", false);
+                                } else {
+                                  await this.writeTypeDef(p_2.nameNode, ctx, wr);
+                                }
+                                wr.out(" {", true);
+                                wr.indent(1);
+                                wr.out("return this." + p_2.compiledName, true);
+                                wr.indent(-1);
+                                wr.out("}", true);
+                                wr.newline();
+                                wr.out("// getter for variable " + p_2.name, true);
+                                wr.out(("func (this *" + cl.name) + ") ", false);
+                                wr.out("Set_", false);
+                                wr.out(p_2.compiledName + "( value ", false);
+                                if ( p_2.nameNode.hasFlag("optional") ) {
+                                  wr.out("*GoNullable", false);
+                                } else {
+                                  await this.writeTypeDef(p_2.nameNode, ctx, wr);
+                                }
+                                wr.out(") ", false);
+                                wr.out(" {", true);
+                                wr.indent(1);
+                                wr.out(("this." + p_2.compiledName) + " = value ", true);
+                                wr.indent(-1);
+                                wr.out("}", true);
+                                declaredGetter[p_2.name] = true;
                               };
-                            }
+                            };
                           }
-                          for ( let i_21 = 0; i_21 < cl.static_methods.length; i_21++) {
-                            var variant_4 = cl.static_methods[i_21];
+                          for ( let i_17 = 0; i_17 < cl.static_methods.length; i_17++) {
+                            var variant_4 = cl.static_methods[i_17];
                             if ( variant_4.nameNode.hasFlag("main") && (variant_4.nameNode.code.filename == ctx.getRootFile()) ) {
                               wr.out("func main() {", true);
                               wr.indent(1);

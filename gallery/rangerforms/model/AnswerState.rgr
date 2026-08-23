@@ -183,6 +183,8 @@ class AnswerState {
     ; ------------------------------------------------------------------------
     ; Per-question state
     ; ------------------------------------------------------------------------
+    ; The stored state, made if it is not there yet. The engine writes
+    ; through this.
     fn stateOf:QuestionState (name:string) {
         def found@(optional):QuestionState (get states name)
         if (null? found) {
@@ -193,18 +195,30 @@ class AnswerState {
         return (unwrap found)
     }
 
+    ; The state, WITHOUT making one. Everything that only reads goes through
+    ; here: an accessor that quietly inserted would make "what does the engine
+    ; believe about q" change what the engine believes, and on a target where
+    ; the compiler tracks mutation it makes every read borrow mutably.
+    fn readState:QuestionState (name:string) {
+        def found@(optional):QuestionState (get states name)
+        if (null? found) {
+            return (QuestionState.of(name))
+        }
+        return (unwrap found)
+    }
+
     fn isVisible:boolean (name:string) {
-        def st:QuestionState (this.stateOf(name))
+        def st:QuestionState (this.readState(name))
         return st.visible
     }
 
     fn isRequired:boolean (name:string) {
-        def st:QuestionState (this.stateOf(name))
+        def st:QuestionState (this.readState(name))
         return st.required
     }
 
     fn isValid:boolean (name:string) {
-        def st:QuestionState (this.stateOf(name))
+        def st:QuestionState (this.readState(name))
         return (st.isValid())
     }
 

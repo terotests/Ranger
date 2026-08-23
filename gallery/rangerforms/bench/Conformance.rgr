@@ -1,0 +1,63 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Conformance.rgr — the same engine, on every target, over the same forms.
+; ============================================================================
+;
+;   Ranger source
+;      ├── ES6     → node
+;      ├── Go      → native
+;      ├── Rust    → native
+;      ├── C++     → native
+;      └── Python
+;
+; Each of them runs this file and prints the same report. Every line of every
+; run must be identical, and the script that drives it diffs them. A
+; divergence is a bug in the transpiler or in the engine, and either way it is
+; worth finding — which is the scoreboard only this project can keep.
+;
+; ---------------------------------------------------------------------------
+; No I/O, on purpose
+; ---------------------------------------------------------------------------
+;
+; The corpus is COMPILED IN, from `CorpusData.rgr`, which a script generates
+; from the same `corpus/*.json` files the SurveyJS comparison uses. Reading a
+; file means a host, and a host means five different host contracts and five
+; chances for the difference to be about the file system rather than about the
+; engine. A program with no inputs but its own source cannot diverge for any
+; reason except the one being measured.
+;
+; It also means the numbers printed here are the engine's own formatting on
+; each target, which is the part most likely to disagree — and the part a
+; questionnaire's answers travel as.
+; ============================================================================
+
+Import "BenchRunner.rgr"
+Import "CorpusData.rgr"
+
+class Conformance {
+
+    ; The same day everywhere. A conformance run that read a clock would
+    ; diverge for a reason that has nothing to do with the compiler.
+    sfn todayDays:int () {
+        return 20454
+    }
+
+    sfn main:void () {
+        def names:[string] (CorpusData.names())
+        def bodies:[string] (CorpusData.cases())
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            def r:BenchRunner (new BenchRunner)
+            if ((r.load((itemAt bodies i) (Conformance.todayDays()))) == false) {
+                print ("case " + (itemAt names i))
+                print ("error " + r.errorText)
+            } {
+                print (r.report())
+            }
+            i = (i + 1)
+        }
+        print "-- end"
+    }
+}

@@ -168,7 +168,7 @@ class FormView {
         def n:int (array_length engine.form.questions)
         while (i < n) {
             def q:Question (itemAt engine.form.questions i)
-            def st:QuestionState (state.stateOf(q.name))
+            def st:QuestionState (state.readState(q.name))
             if st.visible {
                 y = (this.paintField(dl q st y))
             }
@@ -436,7 +436,7 @@ class FormView {
             return false
         }
         def q:Question (engine.form.find(box.name))
-        def st:QuestionState (state.stateOf(box.name))
+        def st:QuestionState (state.readState(box.name))
         ; A field the rules have switched off, or one the form works out
         ; itself, is shown and not typed into.
         if ((st.enabled) == false) {
@@ -486,7 +486,7 @@ class FormView {
         if ((engine.form.has(name)) == false) {
             return false
         }
-        def st:QuestionState (state.stateOf(name))
+        def st:QuestionState (state.readState(name))
         if ((st.visible) == false) {
             return false
         }
@@ -542,7 +542,7 @@ class FormView {
         editing = ""
         editBuf = ""
         engine.answerText(state name typed)
-        def st:QuestionState (state.stateOf(name))
+        def st:QuestionState (state.readState(name))
         if ((st.isValid()) == false) {
             note = (name + ": " + st.message)
         } {
@@ -586,7 +586,7 @@ class FormView {
         def n:int (array_length engine.form.questions)
         while (i < n) {
             def q:Question (itemAt engine.form.questions i)
-            def st:QuestionState (state.stateOf(q.name))
+            def st:QuestionState (state.readState(q.name))
             if st.visible {
                 if st.enabled {
                     if ((st.readOnly) == false) {

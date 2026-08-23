@@ -395,7 +395,7 @@ class FormEngine {
         def n:int (array_length form.questions)
         while (i < n) {
             def q:Question (itemAt form.questions i)
-            def st:QuestionState (state.stateOf(q.name))
+            def st:QuestionState (state.readState(q.name))
             if st.visible {
                 if st.required {
                     if ((q.isComputed()) == false) {
@@ -416,7 +416,7 @@ class FormEngine {
         def n:int (array_length form.questions)
         while (i < n) {
             def q:Question (itemAt form.questions i)
-            def st:QuestionState (state.stateOf(q.name))
+            def st:QuestionState (state.readState(q.name))
             if st.visible {
                 if ((st.isValid()) == false) {
                     push out q.name
@@ -442,7 +442,7 @@ class FormEngine {
         def n:int (array_length form.questions)
         while (i < n) {
             def q:Question (itemAt form.questions i)
-            def st:QuestionState (state.stateOf(q.name))
+            def st:QuestionState (state.readState(q.name))
             if st.visible {
                 def v:FormValue (state.rawValueOf(q.name))
                 if ((v.isEmpty()) == false) {
@@ -533,7 +533,7 @@ class FormEngine {
         def n:int (array_length form.questions)
         while (i < n) {
             def q:Question (itemAt form.questions i)
-            def st:QuestionState (state.stateOf(q.name))
+            def st:QuestionState (state.readState(q.name))
             if st.visible {
                 push out q.name
             }

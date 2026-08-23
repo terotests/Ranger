@@ -252,6 +252,8 @@
     "rangerdb:introspect:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/tests/IntrospectTest.rgr -d=./gallery/rangerdb/bin -o=IntrospectTest.js -nodecli && node ./gallery/rangerdb/bin/IntrospectTest.js",
     "rangerdb:ddl:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/tests/DdlSchemaTest.rgr -d=./gallery/rangerdb/bin -o=DdlSchemaTest.js -nodecli && node ./gallery/rangerdb/bin/DdlSchemaTest.js",
     "rangerforms:engine:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerforms/tests/EngineTest.rgr -d=./gallery/rangerforms/bin -o=EngineTest.js -nodecli && node ./gallery/rangerforms/bin/EngineTest.js",
+    "rangerforms:corpus": "node scripts/rangerforms-corpus.mjs",
+    "rangerforms:conformance": "bash scripts/rangerforms-conformance.sh",
     "rangerforms:bench:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/rangerforms/bench/BenchRunner.rgr -d=./gallery/rangerforms/bin -o=bench_runner.cjs",
     "rangerforms:bench": "npm run rangerforms:bench:build && node gallery/rangerforms/bench/bench.mjs",
     "rangerforms:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerforms/tests/FormsTest.rgr -d=./gallery/rangerforms/bin -o=FormsTest.js -nodecli && node ./gallery/rangerforms/bin/FormsTest.js",

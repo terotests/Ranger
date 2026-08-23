@@ -54,7 +54,11 @@ class ExprNode {
         return e
     }
 
-    sfn text:ExprNode (s:string) {
+    ; Named `ofText`, not `text`: this class already has a FIELD called
+    ; `text`, and a language whose members share one namespace — C++ among
+    ; them — cannot have both. Found by the cross-target conformance run,
+    ; which is what it is for.
+    sfn ofText:ExprNode (s:string) {
         def e:ExprNode (new ExprNode)
         e.kind = 2
         e.text = s

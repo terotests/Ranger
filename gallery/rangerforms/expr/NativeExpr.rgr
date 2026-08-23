@@ -642,7 +642,7 @@ class NativeExpr extends ExprHost {
         }
         if (t.kind == 2) {
             this.take()
-            return (ExprNode.text(t.text))
+            return (ExprNode.ofText(t.text))
         }
         if (t.kind == 3) {
             this.take()

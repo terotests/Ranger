@@ -192,7 +192,7 @@ class BenchRunner {
         def n:int (array_length engine.form.questions)
         while (i < n) {
             def q:Question (itemAt engine.form.questions i)
-            def st:QuestionState (state.stateOf(q.name))
+            def st:QuestionState (state.readState(q.name))
             def line:string (q.name + " visible=" + (BenchRunner.yesNo(st.visible)))
             line = (line + " required=" + (BenchRunner.yesNo(st.required)))
             line = (line + " value=" + (BenchRunner.shown(state q.name st)))
