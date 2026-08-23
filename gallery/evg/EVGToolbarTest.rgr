@@ -44,6 +44,21 @@ class BarCheck {
 }
 
 class EVGToolbarTest {
+    sfn countText:int (dl:EVGDisplayList want:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 3) {
+                if (c.text == want) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     ; A strip an editor that is not a spreadsheet might want.
     sfn build:EVGToolbar () {
         def bar:EVGToolbar (new EVGToolbar)
@@ -174,6 +189,80 @@ class EVGToolbarTest {
             ti = (ti + 1)
         }
         c.ok("including text" (texts > 3))
+
+        print "-- the hover pill and the tooltip --"
+        ; Reported as missing from the strip entirely, and it was two things.
+        ;
+        ; The pill was drawn, in 232,236,242 on a 236,240,246 strip — four
+        ; steps of grey, which is not a highlight, it is a rounding error. A
+        ; hover has to be seen without being looked for.
+        def hbg:EVGColor (view.theme.hotBg)
+        def sbg:EVGColor (view.theme.bg)
+        def dr:int ((sbg.red()) - (hbg.red()))
+        c.ok(("the hover pill is a step you can see (" + (to_string dr) + " of grey)") (dr >= 12))
+        c.ok("and still lighter than the strip's own hairline" ((hbg.red()) > (view.theme.line.red())))
+
+        ; And the tip went into the list WITH the band, so the slide, the page
+        ; or the sheet was painted over it — it hangs below the strip, and the
+        ; app draws next. It belongs in the overlay pass, beside the dropdown
+        ; that was lost the same way.
+        def band:EVGDisplayList (new EVGDisplayList)
+        bar.hot = 4
+        view.paint(band bar 0 0 900 (bar.heightFor(900)))
+        c.eqInt("the band alone carries no tooltip" (EVGToolbarTest.countText(band "Bold")) 0)
+        def over:EVGDisplayList (new EVGDisplayList)
+        view.paintOverlay(over bar)
+        c.eqInt("the overlay carries it" (EVGToolbarTest.countText(over "Bold")) 1)
+        c.ok("with a chip behind it" ((array_length over.cmds) > 1))
+        ; Dark chip, light letters — a white one on a white page is a
+        ; rectangle you have to find.
+        def chip:EVGDrawCmd (itemAt over.cmds 0)
+        def word:EVGDrawCmd (itemAt over.cmds 1)
+        c.ok("the chip is dark" (chip.r < 90))
+        c.ok("and the letters on it are not" (word.r > 200))
+        ; It is under the button it names, not over it.
+        def hb:ToolItem (bar.at(4))
+        c.ok("the tip hangs below the button" (chip.y > (to_double (hb.y + hb.h))))
+        ; Nothing hot, nothing drawn.
+        def none:EVGDisplayList (new EVGDisplayList)
+        bar.hot = -1
+        view.paintOverlay(none bar)
+        c.eqInt("and nothing is hot, nothing is drawn" (array_length none.cmds) 0)
+
+        ; A tip on the last button on the row is pulled back inside the
+        ; window rather than hanging off the end of it.
+        def edge (new EVGToolbar)
+        def ei:int 0
+        while (ei < 6) {
+            edge.add("a" "" "A" (ToolIcon.bold()))
+            ei = (ei + 1)
+        }
+        def last:ToolItem (edge.at(5))
+        last.label = "Insert a text box"
+        view.paint((new EVGDisplayList) edge 0 0 240 (edge.heightFor(240)))
+        edge.hot = 5
+        def eover:EVGDisplayList (new EVGDisplayList)
+        view.paintOverlay(eover edge)
+        def echip:EVGDrawCmd (itemAt eover.cmds 0)
+        def ehb:ToolItem (edge.at(5))
+        c.ok("the last button really is near the right-hand edge" (ehb.x > 150))
+        c.ok("a tip at the right-hand edge is pulled back inside"
+             (((echip.x + echip.w) <= 240.0) && (echip.x >= 0.0)))
+        c.ok("which is left of where the button would have put it"
+             (echip.x < (to_double ehb.x)))
+        ; A tip WIDER than the whole window cannot fit, and the one thing it
+        ; must still do is start inside it rather than off the left edge —
+        ; clamping to the right and then not clamping to the left would put
+        ; the beginning of the words where nobody can read them.
+        def tiny (new EVGToolbar)
+        tiny.add("a" "" "A tooltip long enough to be wider than the window it is in" (ToolIcon.bold()))
+        view.paint((new EVGDisplayList) tiny 0 0 120 (tiny.heightFor(120)))
+        tiny.hot = 0
+        def tover:EVGDisplayList (new EVGDisplayList)
+        view.paintOverlay(tover tiny)
+        def tchip:EVGDrawCmd (itemAt tover.cmds 0)
+        c.ok("a tip wider than the window still starts inside it" (tchip.x >= 0.0))
+
 
         print "-- and the same strip, turned around --"
         ; The switch, on the part of the interface that does not go through

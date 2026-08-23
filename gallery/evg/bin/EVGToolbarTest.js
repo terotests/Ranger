@@ -6466,12 +6466,14 @@ class EVGToolbarTheme  {
     this.ink = EVGColor.rgb(30, 36, 48);
     this.dim = EVGColor.rgb(80, 92, 110);
     this.glyph = EVGColor.rgb(140, 152, 170);
-    this.hotBg = EVGColor.rgb(232, 236, 242);
+    this.hotBg = EVGColor.rgb(218, 225, 236);
     this.pressedBg = EVGColor.rgba(50, 120, 220, 0.22);
     this.accent = EVGColor.rgb(40, 100, 210);
     this.warn = EVGColor.rgb(214, 69, 65);
     this.link = EVGColor.rgb(21, 78, 172);
     this.tipBg = EVGColor.rgb(255, 255, 255);
+    this.tooltipBg = EVGColor.rgb(38, 43, 54);
+    this.tooltipInk = EVGColor.rgb(246, 248, 251);
   }
 }
 class ToolIcon  {
@@ -6774,6 +6776,8 @@ class EVGToolbar  {
     this.rtl = false;
     this.openMenu = -1;
     this.hot = -1;
+    this.lastX = 0;
+    this.lastW = 0;
   }
   add (command, arg, label, icon) {
     const t = new ToolItem();
@@ -6971,6 +6975,8 @@ class EVGToolbar  {
     return i < (t.first + t.count);
   };
   layout (x0, y0, width) {
+    this.lastX = x0;
+    this.lastW = width;
     this.closeTab();
     let buttonsY = y0;
     if ( this.hasTabs() ) {
@@ -14088,6 +14094,14 @@ OfficeArabic.shape = function(cps) {
   };
   return out;
 };
+class OfficeVisualRun  {
+  constructor() {
+    this.style = 0;
+    this.start = 0;
+    this.end = 0;
+    this.text = "";
+  }
+}
 class OfficeText  {
   constructor() {
   }
@@ -14192,6 +14206,78 @@ OfficeText.forDisplayDir = function(s, dir) {
     i = i + 1;
   };
   return out;
+};
+OfficeText.visualRuns = function(s, dir, styleIds) {
+  let out = [];
+  const cps = EVGCodepoint.toArray(s);
+  const n = cps.length;
+  if ( n < 1 ) {
+    return out;
+  }
+  let glyphs = cps;
+  if ( OfficeArabic.hasArabic(cps) ) {
+    glyphs = OfficeArabic.shape(cps);
+  }
+  let visual = [];
+  if ( OfficeBidi.hasRtl(cps) ) {
+    const order = OfficeBidi.visualOrder(cps, dir);
+    visual = OfficeText.reattachMarks(cps, order);
+  } else {
+    let k = 0;
+    while (k < n) {
+      visual.push(k);
+      k = k + 1;
+    };
+  }
+  let i = 0;
+  while (i < n) {
+    const li = visual[i];
+    const sid = OfficeText.styleAt(styleIds, li);
+    let lo = li;
+    let hi = li + 1;
+    let text = "";
+    let j = i;
+    let more = true;
+    while (more) {
+      if ( j >= n ) {
+        more = false;
+      } else {
+        const lj = visual[j];
+        if ( OfficeText.styleAt(styleIds, lj) != sid ) {
+          more = false;
+        } else {
+          const g = glyphs[lj];
+          if ( g > 0 ) {
+            text = text + EVGCodepoint.toStr(g);
+          }
+          if ( lj < lo ) {
+            lo = lj;
+          }
+          if ( (lj + 1) > hi ) {
+            hi = lj + 1;
+          }
+          j = j + 1;
+        }
+      }
+    };
+    const vr = new OfficeVisualRun();
+    vr.style = sid;
+    vr.start = lo;
+    vr.end = hi;
+    vr.text = text;
+    out.push(vr);
+    i = j;
+  };
+  return out;
+};
+OfficeText.styleAt = function(styleIds, i) {
+  if ( i < 0 ) {
+    return 0;
+  }
+  if ( i >= (styleIds.length) ) {
+    return 0;
+  }
+  return styleIds[i];
 };
 OfficeText.forMetrics = function(s) {
   const cps = EVGCodepoint.toArray(s);
@@ -15675,23 +15761,33 @@ class EVGToolbarView  {
       }
       i = i + 1;
     };
-    if ( bar.hot >= 0 ) {
-      const tip = bar.hotLabel();
-      if ( (tip.length) > 0 ) {
-        const ht = (bar).at(bar.hot);
-        this.applyFace(false);
-        const tw = Math.floor( (this.ctx.tr.measureWidth(tip, 12.0) + 12.0));
-        const th = 20;
-        let tx = ht.x;
-        const ty = (ht.y + ht.h) + 4;
-        if ( (tx + tw) > (x0 + width) ) {
-          tx = ((x0 + width) - tw) - 4;
-        }
-        this.pushRect(dl, tx, ty, tw, th, this.theme.tipBg);
-        this.pushBorder(dl, tx, ty, tw, th, 1.0, this.theme.accent);
-        this.pushText(dl, tip, (tx + 6), (ty + 3), 12.0, this.theme.ink);
-      }
+  };
+  paintTooltip (dl, bar) {
+    if ( bar.hot < 0 ) {
+      return;
     }
+    if ( bar.openMenu >= 0 ) {
+      return;
+    }
+    const tip = bar.hotLabel();
+    if ( (tip.length) < 1 ) {
+      return;
+    }
+    const ht = (bar).at(bar.hot);
+    this.applyFace(false);
+    const tw = Math.floor( (this.ctx.tr.measureWidth(tip, 12.0) + 16.0));
+    const th = 22;
+    let tx = (ht.x + (((ht.w / 2) | 0))) - (((tw / 2) | 0));
+    const ty = (ht.y + ht.h) + 6;
+    const right = bar.lastX + bar.lastW;
+    if ( (tx + tw) > (right - 4) ) {
+      tx = (right - tw) - 4;
+    }
+    if ( tx < (bar.lastX + 4) ) {
+      tx = bar.lastX + 4;
+    }
+    this.pushRect(dl, tx, ty, tw, th, this.theme.tooltipBg);
+    this.pushText(dl, tip, (tx + 8), (ty + 4), 12.0, this.theme.tooltipInk);
   };
   paintChipLabel (dl, t, iconW) {
     this.applyFace(false);
@@ -15723,6 +15819,7 @@ class EVGToolbarView  {
   };
   paintOverlay (dl, bar) {
     this.paintMenu(dl, bar);
+    this.paintTooltip(dl, bar);
   };
   paintMenu (dl, bar) {
     const box = bar.menuBox();
@@ -16282,6 +16379,20 @@ class EVGToolbarTest  {
   constructor() {
   }
 }
+EVGToolbarTest.countText = function(dl, want) {
+  let n = 0;
+  let i = 0;
+  while (i < (dl.cmds.length)) {
+    const c = dl.cmds[i];
+    if ( c.kind == 3 ) {
+      if ( c.text == want ) {
+        n = n + 1;
+      }
+    }
+    i = i + 1;
+  };
+  return n;
+};
 EVGToolbarTest.build = function() {
   const bar = new EVGToolbar();
   bar.add("file.save", "", "Save", ToolIcon.save());
@@ -16393,6 +16504,55 @@ function __js_main() {
     ti = ti + 1;
   };
   c.ok("including text", texts > 3);
+  console.log("-- the hover pill and the tooltip --");
+  const hbg = view.theme.hotBg;
+  const sbg = view.theme.bg;
+  const dr = sbg.red() - hbg.red();
+  c.ok(("the hover pill is a step you can see (" + ((dr.toString()))) + " of grey)", dr >= 12);
+  c.ok("and still lighter than the strip's own hairline", hbg.red() > view.theme.line.red());
+  const band = new EVGDisplayList();
+  bar.hot = 4;
+  view.paint(band, bar, 0, 0, 900, bar.heightFor(900));
+  c.eqInt("the band alone carries no tooltip", EVGToolbarTest.countText(band, "Bold"), 0);
+  const over_2 = new EVGDisplayList();
+  view.paintOverlay(over_2, bar);
+  c.eqInt("the overlay carries it", EVGToolbarTest.countText(over_2, "Bold"), 1);
+  c.ok("with a chip behind it", (over_2.cmds.length) > 1);
+  const chip = over_2.cmds[0];
+  const word = over_2.cmds[1];
+  c.ok("the chip is dark", chip.r < 90);
+  c.ok("and the letters on it are not", word.r > 200);
+  const hb = (bar).at(4);
+  c.ok("the tip hangs below the button", chip.y > ((hb.y + hb.h)));
+  const none = new EVGDisplayList();
+  bar.hot = -1;
+  view.paintOverlay(none, bar);
+  c.eqInt("and nothing is hot, nothing is drawn", none.cmds.length, 0);
+  const edge = new EVGToolbar();
+  let ei = 0;
+  while (ei < 6) {
+    edge.add("a", "", "A", ToolIcon.bold());
+    ei = ei + 1;
+  };
+  const last = (edge).at(5);
+  last.label = "Insert a text box";
+  view.paint(new EVGDisplayList(), edge, 0, 0, 240, edge.heightFor(240));
+  edge.hot = 5;
+  const eover = new EVGDisplayList();
+  view.paintOverlay(eover, edge);
+  const echip = eover.cmds[0];
+  const ehb = (edge).at(5);
+  c.ok("the last button really is near the right-hand edge", ehb.x > 150);
+  c.ok("a tip at the right-hand edge is pulled back inside", ((echip.x + echip.w) <= 240.0) && (echip.x >= 0.0));
+  c.ok("which is left of where the button would have put it", echip.x < (ehb.x));
+  const tiny = new EVGToolbar();
+  tiny.add("a", "", "A tooltip long enough to be wider than the window it is in", ToolIcon.bold());
+  view.paint(new EVGDisplayList(), tiny, 0, 0, 120, tiny.heightFor(120));
+  tiny.hot = 0;
+  const tover = new EVGDisplayList();
+  view.paintOverlay(tover, tiny);
+  const tchip = tover.cmds[0];
+  c.ok("a tip wider than the window still starts inside it", tchip.x >= 0.0);
   console.log("-- and the same strip, turned around --");
   const rbar = new EVGToolbar();
   rbar.add("edit.undo", "", "Undo", ToolIcon.undo());

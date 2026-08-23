@@ -53,14 +53,26 @@ class EVGToolbarTheme {
     ; column, delete row, no-border — came out as a pale smudge you had to
     ; know was there. A fill needs a fill's contrast.
     def glyph:EVGColor (EVGColor.rgb(140 152 170))
-    def hotBg:EVGColor (EVGColor.rgb(232 236 242))
+    ; The pill under the pointer. This was 232,236,242 on a 236,240,246
+    ; strip — FOUR steps of grey, which is the same mistake `glyph` above is
+    ; there to explain, and the reason the strip was reported as having no
+    ; hover at all. A hover has to be seen without being looked for.
+    def hotBg:EVGColor (EVGColor.rgb(218 225 236))
     def pressedBg:EVGColor (EVGColor.rgba(50 120 220 0.22))
     def accent:EVGColor (EVGColor.rgb(40 100 210))
     def warn:EVGColor (EVGColor.rgb(214 69 65))
     ; A link is its own colour everywhere it is drawn, and a toolbar icon that
     ; means "hyperlink" is drawn in it too.
     def link:EVGColor (EVGColor.rgb(21 78 172))
+    ; The panel a dropdown's list is drawn on.
     def tipBg:EVGColor (EVGColor.rgb(255 255 255))
+    ; The tooltip chip, which is NOT the same thing and used to borrow the
+    ; panel's white and an accent border. A white chip on a white page is a
+    ; rectangle you have to find; every toolbar worth copying draws this dark
+    ; and reversed out, which reads as a label about something rather than
+    ; another piece of the page.
+    def tooltipBg:EVGColor (EVGColor.rgb(38 43 54))
+    def tooltipInk:EVGColor (EVGColor.rgb(246 248 251))
 
     Constructor () {
     }
@@ -319,6 +331,11 @@ class EVGToolbar {
     ; Which item the pointer is over, or -1. Only chrome, but it is the
     ; difference between a strip of shapes and something that looks clickable.
     def hot:int -1
+    ; Where the strip was last laid out. The overlay is drawn in a second
+    ; pass, after the app has drawn everything else, and it has to be able to
+    ; keep a tooltip inside the window without being told twice.
+    def lastX:int 0
+    def lastW:int 0
 
     Constructor () {
     }
@@ -578,6 +595,8 @@ class EVGToolbar {
     }
 
     fn layout:void (x0:int y0:int width:int) {
+        lastX = x0
+        lastW = width
         this.closeTab()
         def buttonsY:int y0
         if (this.hasTabs()) {

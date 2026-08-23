@@ -39,6 +39,10 @@ class FrameCheck {
     fn eqInt:void (name:string got:int want:int) {
         this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
     }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
 }
 
 class PptxFrameTest {
@@ -339,6 +343,45 @@ class PptxFrameTest {
         c.eqInt("a hand scroll moves it" f.panelScroll 120)
         f.buildFrame()
         c.eqInt("and the next frame leaves it where the reader put it" f.panelScroll 120)
+
+        print "-- a hover asks for the frame to be drawn again --"
+        ; The hosts redraw when `pointer` says true, and a bare move over the
+        ; strip said false. The hot item changed, the pill and the tooltip
+        ; were computed correctly from it, and nothing ever painted them: the
+        ; strip read as having no hover and no tooltips at all.
+        def hv:PptxApp (PptxFrameTest.build())
+        hv.buildFrame()
+        def hbi:int (PptxFrameTest.indexOfCommand(hv "slide.next"))
+        def hb:ToolItem (hv.toolbar.at(hbi))
+        def hx:int (hb.x + (idiv hb.w 2))
+        def hy:int (hb.y + (idiv hb.h 2))
+        c.eqInt("nothing is hot to begin with" hv.toolbar.hot -1)
+        def moved:boolean (hv.pointer(hx hy false false false))
+        c.ok("moving onto a button asks for a repaint" moved)
+        c.ok("and lights it up" (hv.toolbar.hot >= 0))
+        c.eqStr("the tooltip is that button's name" (hv.toolbar.hotLabel()) hb.label)
+        ; Staying on it does not ask again — a repaint per mouse move over one
+        ; button is a frame per pixel for nothing.
+        def again:boolean (hv.pointer((hx + 1) hy false false false))
+        c.ok("staying on it does not ask again" (again == false))
+        ; And the tip is in the overlay, so it survives the slide being drawn.
+        def hdl:EVGDisplayList (hv.buildFrame())
+        def tips:int 0
+        def hi:int 0
+        while (hi < (array_length hdl.cmds)) {
+            def hc:EVGDrawCmd (itemAt hdl.cmds hi)
+            if (hc.kind == 3) {
+                if (hc.text == hb.label) {
+                    tips = (tips + 1)
+                }
+            }
+            hi = (hi + 1)
+        }
+        c.eqInt("and the frame carries the tooltip" tips 1)
+        ; Moving off asks once more, so the pill goes out again.
+        def off:boolean (hv.pointer(hx (hv.H - 4) false false false))
+        c.ok("moving off asks for a repaint too" off)
+        c.eqInt("and nothing is hot" hv.toolbar.hot -1)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

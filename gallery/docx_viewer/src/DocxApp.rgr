@@ -627,12 +627,32 @@ class DocxApp {
     ; A press goes to the windows first, then the strip, then the page. Same
     ; order as the spreadsheet, for the same reason: a dialog that is open is
     ; in front of everything, and a button is in front of the paper.
+    ; The pointer, and whether the frame has to be drawn again because of it.
+    ;
+    ; The hosts redraw when this says true, and a bare hover over the strip
+    ; said false: the hot item changed, the highlight and the tooltip were
+    ; computed correctly, and nothing ever painted them. It read as a toolbar
+    ; with no hover and no tooltips at all, which is what it was reported as.
+    ;
+    ; The hover is settled HERE rather than inside the routing below, so that
+    ; it is right whoever ends up taking the event — moving off a button and
+    ; onto the notes strip used to leave the button lit, because the notes
+    ; took the move before the strip was asked.
     fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean extend:boolean) {
+        def wasHot:int toolbar.hot
+        toolbar.hot = (toolbar.hit(px py))
+        def took:boolean (this.routePointer(px py pressed down released extend))
+        if (wasHot != toolbar.hot) {
+            return true
+        }
+        return took
+    }
+
+    fn routePointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean extend:boolean) {
         if (windows.handlePointer(px py pressed down released)) {
             this.pollDialogs()
             return true
         }
-        toolbar.hot = (toolbar.hit(px py))
         if pressed {
             ; A press on a page name shows that page. Checked before the
             ; buttons, because the two rows are one strip and the names sit

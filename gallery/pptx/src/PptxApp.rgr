@@ -1056,7 +1056,28 @@ class PptxApp {
 
     ; --- input ----------------------------------------------------------------
     ; Windows, then the strip, then the slide. Same order as everywhere else.
+    ; The pointer, and whether the frame has to be drawn again because of it.
+    ;
+    ; The hosts redraw when this says true, and a bare hover over the strip
+    ; said false: the hot item changed, the highlight and the tooltip were
+    ; computed correctly, and nothing ever painted them. It read as a toolbar
+    ; with no hover and no tooltips at all, which is what it was reported as.
+    ;
+    ; The hover is settled HERE rather than inside the routing below, so that
+    ; it is right whoever ends up taking the event — moving off a button and
+    ; onto the notes strip used to leave the button lit, because the notes
+    ; took the move before the strip was asked.
     fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        def wasHot:int toolbar.hot
+        toolbar.hot = (toolbar.hit(px py))
+        def took:boolean (this.routePointer(px py pressed down released))
+        if (wasHot != toolbar.hot) {
+            return true
+        }
+        return took
+    }
+
+    fn routePointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
         ; While the deck is being shown there is nothing else on screen to
         ; press, and the click means what it means to an audience: go on.
         if presenting {
@@ -1074,7 +1095,6 @@ class PptxApp {
         if (this.panelPointer(px py pressed down released)) {
             return true
         }
-        toolbar.hot = (toolbar.hit(px py))
         if pressed {
             ; A press on a page name shows that page. Checked before the
             ; buttons, because the two rows are one strip and the names sit
