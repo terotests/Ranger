@@ -1,0 +1,374 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FormEngine.rgr — evaluate the rules, and re-evaluate as little as possible.
+; ============================================================================
+;
+;   load(form, host)   parse every rule, build the graph, refuse a cycle
+;   start()            an AnswerState with the initial values and a full pass
+;   answer(name, v)    store it, then settle ONLY what depends on it
+;
+; ---------------------------------------------------------------------------
+; `settle` is the whole engine
+; ---------------------------------------------------------------------------
+;
+; A full pass over a 10 000-question form is cheap enough that an engine can
+; get away with doing one on every keystroke, right up until somebody builds a
+; real questionnaire — and then it is a fifth of a second per character.
+;
+; So `answer` runs exactly the rules that depend, transitively, on the name
+; that changed, in topological order, once each. One pass reaches a fixed
+; point because the order is topological; a form that needed a second pass
+; would be a form with a cycle, and those do not load.
+;
+; The measurement is `AnswerState.evaluations` — a COUNT, not a time. "That
+; answer re-ran four rules" is a fact about the engine that holds on every
+; target and every machine; "it took 0.3 ms" is a fact about the machine.
+;
+; ---------------------------------------------------------------------------
+; Hidden, required, and submitted
+; ---------------------------------------------------------------------------
+;
+; Three separate questions that engines routinely conflate:
+;
+;   visible     is it on screen
+;   required    must it be answered before the form is finished
+;   submitted   does its value go out with the answers
+;
+; A hidden question is never required in practice — `isComplete` skips it —
+; because a required field nobody can see blocks a form nobody can submit, and
+; that is the single most common bug in this whole category of software. A
+; hidden question is also not submitted, and reads as unanswered to every
+; expression, which is `AnswerState.valueOf`'s doing.
+; ============================================================================
+
+Import "DependencyGraph.rgr"
+Import "../expr/ExprHost.rgr"
+
+class FormEngine {
+    def form:Questionnaire (new Questionnaire)
+    def graph:DependencyGraph (new DependencyGraph)
+    def host:ExprHost (new ExprHost)
+    def ready:boolean false
+    def errorText:string ""
+    ; How many rules would not parse. The form still loads — see
+    ; `Questionnaire.compile`.
+    def badRules:int 0
+
+    Constructor () {
+    }
+
+    ; A form that does not load says why and stays unready. The two reasons
+    ; are a cycle (refused, section 5 of the plan) and nothing else: a rule
+    ; that will not parse is a gap, not a failure.
+    sfn load:FormEngine (form:Questionnaire host:ExprHost) {
+        def e:FormEngine (new FormEngine)
+        e.form = form
+        e.host = host
+        e.badRules = (form.compile(host))
+        e.graph = (DependencyGraph.of(form))
+        if ((e.graph.ok) == false) {
+            e.errorText = e.graph.errorText
+            return e
+        }
+        e.ready = true
+        return e
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Starting
+    ; ------------------------------------------------------------------------
+    fn start:AnswerState (todayDays:int) {
+        def state:AnswerState (new AnswerState)
+        state.todayDays = todayDays
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            ; Every question gets a state up front, so a caller asking about
+            ; one that has no rules gets the defaults rather than nothing.
+            def st:QuestionState (state.stateOf(q.name))
+            if ((strlen q.initial) > 0) {
+                state.answer(q.name (FormValue.ofText(q.initial)))
+            }
+            i = (i + 1)
+        }
+        this.evaluateAll(state)
+        return state
+    }
+
+    ; Every rule, once, in order. The initial pass, and the thing `settle`
+    ; exists to avoid repeating.
+    fn evaluateAll:void (state:AnswerState) {
+        def i:int 0
+        def n:int (array_length graph.order)
+        while (i < n) {
+            this.runNode(state (itemAt graph.order i))
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Answering
+    ; ------------------------------------------------------------------------
+    fn answer:boolean (state:AnswerState name:string value:FormValue) {
+        if ((form.has(name)) == false) {
+            return false
+        }
+        state.answer(name value)
+        this.settle(state name)
+        return true
+    }
+
+    fn answerText:boolean (state:AnswerState name:string text:string) {
+        return (this.answer(state name (FormValue.ofText(text))))
+    }
+
+    fn answerNumber:boolean (state:AnswerState name:string n:double) {
+        return (this.answer(state name (FormValue.ofNumber(n))))
+    }
+
+    fn clear:boolean (state:AnswerState name:string) {
+        if ((form.has(name)) == false) {
+            return false
+        }
+        state.clearAnswer(name)
+        this.settle(state name)
+        return true
+    }
+
+    ; Exactly the rules that depend on `name`, in topological order, once each.
+    fn settle:void (state:AnswerState name:string) {
+        def touched:[int] (graph.dependentsOf(form name))
+        def i:int 0
+        def n:int (array_length touched)
+        while (i < n) {
+            this.runNode(state (itemAt touched i))
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; One rule
+    ; ------------------------------------------------------------------------
+    fn runNode:void (state:AnswerState index:int) {
+        def node:GraphNode (graph.nodeAt(index))
+        def q:Question (form.find(node.question))
+        def rule:Rule (q.ruleFor(node.role))
+        def value:FormValue (host.evaluate(rule.program state))
+        state.evaluations = (state.evaluations + 1)
+        def st:QuestionState (state.stateOf(node.question))
+        if (node.role == "calculated") {
+            ; A calculation is not an answer. It never satisfies `required`,
+            ; because a form whose computed fields counted as answers could be
+            ; submitted with every question a person was actually asked left
+            ; blank.
+            state.compute(node.question value)
+            return
+        }
+        if (node.role == "validate") {
+            ; A rule that could not be worked out does not condemn the answer.
+            ; Showing "invalid" because our own expression failed would send
+            ; somebody hunting for a mistake they did not make.
+            if (value.isError()) {
+                st.valid = true
+                st.message = ""
+                return
+            }
+            def okNow:boolean (value.truthy())
+            st.valid = okNow
+            if okNow {
+                st.message = ""
+            } {
+                st.message = rule.message
+            }
+            return
+        }
+        def flag:boolean (value.truthy())
+        if (node.role == "visible") {
+            st.visible = flag
+            return
+        }
+        if (node.role == "enabled") {
+            st.enabled = flag
+            return
+        }
+        if (node.role == "required") {
+            st.required = flag
+            return
+        }
+        if (node.role == "readonly") {
+            st.readOnly = flag
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Is it finished, and what goes out
+    ; ------------------------------------------------------------------------
+    ;
+    ; A question blocks submission when it is SHOWING, required, and nobody
+    ; has answered it. Hidden ones never block — see the header.
+    fn missingAnswers:[string] (state:AnswerState) {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            def st:QuestionState (state.stateOf(q.name))
+            if st.visible {
+                if st.required {
+                    if ((q.isComputed()) == false) {
+                        if ((state.wasAnswered(q.name)) == false) {
+                            push out q.name
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn invalidAnswers:[string] (state:AnswerState) {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            def st:QuestionState (state.stateOf(q.name))
+            if st.visible {
+                if ((st.valid) == false) {
+                    push out q.name
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn isComplete:boolean (state:AnswerState) {
+        if ((array_length (this.missingAnswers(state))) > 0) {
+            return false
+        }
+        return ((array_length (this.invalidAnswers(state))) == 0)
+    }
+
+    ; The names whose values go out with the form. A hidden question is not
+    ; among them, whatever is stored against it.
+    fn submittedNames:[string] (state:AnswerState) {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            def st:QuestionState (state.stateOf(q.name))
+            if st.visible {
+                def v:FormValue (state.rawValueOf(q.name))
+                if ((v.isEmpty()) == false) {
+                    push out q.name
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The submitted answers as JSON. Deliberately here rather than in
+    ; `AnswerState`: what goes out is a decision about the FORM (which
+    ; questions are showing), not about the answers on their own.
+    fn submissionJson:string (state:AnswerState) {
+        def names:[string] (this.submittedNames(state))
+        def out:string "{"
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            def name:string (itemAt names i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            def v:FormValue (state.rawValueOf(name))
+            out = (out + (FormEngine.jsonString(name)) + ":" + (FormEngine.jsonValue(v)))
+            i = (i + 1)
+        }
+        return (out + "}")
+    }
+
+    sfn jsonValue:string (v:FormValue) {
+        if (v.isNumber()) {
+            return (FormValue.numberText(v.n))
+        }
+        if (v.kind == 1) {
+            if v.b {
+                return "true"
+            }
+            return "false"
+        }
+        if (v.isList()) {
+            def out:string "["
+            def i:int 0
+            def n:int (array_length v.items)
+            while (i < n) {
+                if (i > 0) {
+                    out = (out + ",")
+                }
+                out = (out + (FormEngine.jsonString((itemAt v.items i))))
+                i = (i + 1)
+            }
+            return (out + "]")
+        }
+        return (FormEngine.jsonString((v.asText())))
+    }
+
+    sfn jsonString:string (s:string) {
+        def out:string "\""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 34) {
+                out = (out + "\\\"")
+            } {
+                if (ch == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (ch == 10) {
+                        out = (out + "\\n")
+                    } {
+                        out = (out + (substring s i (i + 1)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (out + "\"")
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Reading the result
+    ; ------------------------------------------------------------------------
+    fn visibleNames:[string] (state:AnswerState) {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            def st:QuestionState (state.stateOf(q.name))
+            if st.visible {
+                push out q.name
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn numberOf:double (state:AnswerState name:string) {
+        def v:FormValue (state.rawValueOf(name))
+        def num:FormValue (v.asNumber())
+        return num.n
+    }
+
+    fn textOf:string (state:AnswerState name:string) {
+        def v:FormValue (state.rawValueOf(name))
+        return (v.asText())
+    }
+}

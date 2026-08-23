@@ -1,0 +1,409 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; FormsTest — the model, the expression language, and the graph.
+; ==============================================================================
+;
+; The form at the top of the plan, built here, and three claims about it:
+;
+;   1. the evaluation order puts a calculation after the things it reads
+;   2. changing `age` marks exactly `guardian.visible` and `guardian.required`
+;      dirty, and nothing else — asserted by COUNTING, because a timing
+;      assertion would pass on a slow machine that re-ran everything
+;   3. a form whose rules refer to each other in a circle is refused, and both
+;      names are in the message
+;
+; Plus the part that makes any of it safe to build on: the expression language
+; is TOTAL. Nothing below throws. A division by zero, a missing answer, a word
+; where a number belongs and a rule that will not parse all come back as
+; values, because a questionnaire's first screen has none of its answers yet
+; and that is not an exceptional condition.
+; ==============================================================================
+
+Import "../engine/DependencyGraph.rgr"
+Import "../expr/NativeExpr.rgr"
+
+class FormCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def good:boolean (d < 0.000001)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class FormsTest {
+
+    ; --------------------------------------------------------------------------
+    ; The form from the plan
+    ; --------------------------------------------------------------------------
+    sfn clinicForm:Questionnaire () {
+        def f:Questionnaire (Questionnaire.of("clinic"))
+        f.title = "Intake"
+
+        def age:Question (f.question("age" (QuestionKind.integer()) "How old are you?"))
+        age.requiredWhen("true")
+        age.validWhen("age >= 0 and age <= 120" "an age is between 0 and 120")
+
+        def guardian:Question (f.question("guardian" (QuestionKind.text()) "Name of a parent or guardian"))
+        guardian.visibleWhen("age < 18")
+        guardian.requiredWhen("age < 18")
+
+        def height:Question (f.question("height" (QuestionKind.decimal()) "Height in metres"))
+        def weight:Question (f.question("weight" (QuestionKind.decimal()) "Weight in kilograms"))
+
+        def bmi:Question (f.question("bmi" (QuestionKind.decimal()) "Body mass index"))
+        bmi.calculated("weight / (height * height)")
+
+        ; A rule that reads a CALCULATED value. This is what makes the order
+        ; matter: `advice.visible` must be worked out after `bmi.calculated`,
+        ; and the graph is the only thing that knows that.
+        def advice:Question (f.question("advice" (QuestionKind.text()) "What we suggest"))
+        advice.visibleWhen("bmi > 25")
+
+        return f
+    }
+
+    sfn runModel:void (c:FormCheck) {
+        print "-- the form, compiled --"
+        def host:NativeExpr (new NativeExpr)
+        def f:Questionnaire (FormsTest.clinicForm())
+        def bad:int (f.compile(host))
+        c.eqInt("every rule parsed" bad 0)
+        c.eqInt("six questions" (f.questionCount()) 6)
+        c.ok("and they can be found by name" (f.has("guardian")))
+        c.ok("…and a name nobody used cannot" ((f.has("guardain")) == false))
+
+        ; What a rule reads is what the graph is built from, so it is worth
+        ; asserting directly rather than only through the graph.
+        def g:Question (f.find("guardian"))
+        def vis:Rule (g.ruleFor("visible"))
+        c.eqInt("the visibility rule reads one question" (array_length vis.program.names) 1)
+        c.ok("and it is age" (vis.program.reads("age")))
+        def bmiQ:Question (f.find("bmi"))
+        def bmiRule:Rule (bmiQ.ruleFor("calculated"))
+        c.eqInt("the calculation reads two" (array_length bmiRule.program.names) 2)
+        c.ok("height" (bmiRule.program.reads("height")))
+        c.ok("and weight" (bmiRule.program.reads("weight")))
+        c.eqInt("nothing refers to a question that is not there" (array_length (f.unknownReferences())) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The graph
+    ; --------------------------------------------------------------------------
+    sfn runGraph:void (c:FormCheck) {
+        print "-- the dependency graph --"
+        def host:NativeExpr (new NativeExpr)
+        def f:Questionnaire (FormsTest.clinicForm())
+        f.compile(host)
+        def g:DependencyGraph (DependencyGraph.of(f))
+        c.ok("the graph sorted" g.ok)
+        c.eqStr("with nothing to report" g.errorText "")
+        ; One node per rule: age has 2, guardian 2, bmi 1, advice 1.
+        c.eqInt("one node per rule" (g.nodeCount()) 6)
+        c.eqInt("and every one of them is in the order" (array_length g.order) 6)
+
+        ; The claim the order exists to make: a rule that reads a calculated
+        ; value comes after the calculation.
+        def calc:GraphNode (g.nodeAt((g.indexOf("bmi" "calculated"))))
+        def adv:GraphNode (g.nodeAt((g.indexOf("advice" "visible"))))
+        c.ok("bmi is calculated before the advice that reads it" (calc.rank < adv.rank))
+        c.ok("and the advice knows where it came from" (DependencyGraph.intHas(adv.reads (g.indexOf("bmi" "calculated")))))
+
+        ; --- what one answer touches -----------------------------------------
+        ; Three, not two: `age.validate` reads `age` as well. A rule that
+        ; checks a question is a dependent of that question like any other,
+        ; and an engine that forgot it would leave a stale error message on
+        ; screen after somebody corrected the answer.
+        def touched:[int] (g.dependentsOf(f "age"))
+        c.eqInt("changing age touches three rules" (array_length touched) 3)
+        def names:string ""
+        def i:int 0
+        while (i < (array_length touched)) {
+            def node:GraphNode (g.nodeAt((itemAt touched i)))
+            if (i > 0) {
+                names = (names + " ")
+            }
+            names = (names + (node.key()))
+            i = (i + 1)
+        }
+        c.eqStr("and they are the three that read it" names "age.validate guardian.visible guardian.required")
+
+        ; A change to something a calculation reads reaches the rules that
+        ; read the CALCULATION — one hop further than a naive engine goes.
+        def viaCalc:[int] (g.dependentsOf(f "weight"))
+        c.eqInt("changing weight touches the calculation and what reads it" (array_length viaCalc) 2)
+        def first:GraphNode (g.nodeAt((itemAt viaCalc 0)))
+        def second:GraphNode (g.nodeAt((itemAt viaCalc 1)))
+        c.eqStr("the calculation first" (first.key()) "bmi.calculated")
+        c.eqStr("then what reads it" (second.key()) "advice.visible")
+
+        ; And a question nothing depends on touches nothing.
+        c.eqInt("an answer nothing reads touches nothing" (array_length (g.dependentsOf(f "advice"))) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A cycle is refused
+    ; --------------------------------------------------------------------------
+    sfn runCycle:void (c:FormCheck) {
+        print "-- a form that refers to itself --"
+        def host:NativeExpr (new NativeExpr)
+        def f:Questionnaire (Questionnaire.of("circular"))
+        ; Two calculations that read each other. Neither has a first value, so
+        ; there is no order in which this is right — see the header.
+        def a:Question (f.question("a" (QuestionKind.decimal()) "A"))
+        a.calculated("b + 1")
+        def b:Question (f.question("b" (QuestionKind.decimal()) "B"))
+        b.calculated("a + 1")
+        f.compile(host)
+        def g:DependencyGraph (DependencyGraph.of(f))
+        c.ok("the graph refuses it" ((g.ok) == false))
+        c.ok("the message names the first rule" (FormsTest.holds(g.errorText "a.calculated")))
+        c.ok("and the second" (FormsTest.holds(g.errorText "b.calculated")))
+        c.eqInt("both are in the cycle" (array_length g.cycle) 2)
+
+        ; A rule that reads the question it computes is a cycle of one, and is
+        ; refused for the same reason rather than being silently dropped.
+        def f2:Questionnaire (Questionnaire.of("self"))
+        def s:Question (f2.question("total" (QuestionKind.decimal()) "Total"))
+        s.calculated("total + 1")
+        f2.compile(host)
+        def g2:DependencyGraph (DependencyGraph.of(f2))
+        c.ok("a rule that reads itself is refused too" ((g2.ok) == false))
+        c.eqInt("as a cycle of one" (array_length g2.cycle) 1)
+
+        ; A form that is merely long is not a cycle.
+        def chain:Questionnaire (Questionnaire.of("chain"))
+        def head:Question (chain.question("q0" (QuestionKind.decimal()) "0"))
+        def k:int 1
+        while (k < 40) {
+            def q:Question (chain.question(("q" + (to_string k)) (QuestionKind.decimal()) (to_string k)))
+            q.calculated(("q" + (to_string (k - 1)) + " + 1"))
+            k = (k + 1)
+        }
+        chain.compile(host)
+        def g3:DependencyGraph (DependencyGraph.of(chain))
+        c.ok("a chain of thirty-nine calculations sorts" g3.ok)
+        ; Changing the head reaches every one of them, in order.
+        c.eqInt("and changing the first touches all of them" (array_length (g3.dependentsOf(chain "q0"))) 39)
+        ; …while changing the last touches none.
+        c.eqInt("changing the last touches nothing" (array_length (g3.dependentsOf(chain "q39"))) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The expression language
+    ; --------------------------------------------------------------------------
+    sfn evalOf:FormValue (host:NativeExpr src:string state:AnswerState) {
+        def p:ExprProgram (host.parse(src))
+        return (host.evaluate(p state))
+    }
+
+    ; The number an expression comes out as, and whether it comes out true.
+    ; Bound to locals rather than chained, because Ranger will not call a
+    ; method on a parenthesised receiver in the middle of a statement.
+    sfn numOf:double (host:NativeExpr src:string state:AnswerState) {
+        def v:FormValue (FormsTest.evalOf(host src state))
+        return v.n
+    }
+
+    sfn truthOf:boolean (host:NativeExpr src:string state:AnswerState) {
+        def v:FormValue (FormsTest.evalOf(host src state))
+        return (v.truthy())
+    }
+
+    sfn runExpr:void (c:FormCheck) {
+        print "-- the expression language --"
+        def host:NativeExpr (new NativeExpr)
+        def st:AnswerState (new AnswerState)
+        st.todayDays = 20000
+
+        ; --- arithmetic and precedence ---------------------------------------
+        c.eqNum("multiplication binds tighter" (FormsTest.numOf(host "1 + 2 * 3" st)) 7.0)
+        c.eqNum("and brackets win" (FormsTest.numOf(host "(1 + 2) * 3" st)) 9.0)
+        c.eqNum("unary minus" (FormsTest.numOf(host "0 - 4 * -2" st)) 8.0)
+        c.eqNum("remainder" (FormsTest.numOf(host "7 % 3" st)) 1.0)
+
+        ; --- comparison and logic --------------------------------------------
+        c.ok("and short-circuits" ((FormsTest.truthOf(host "false and 1 / 0 > 0" st)) == false))
+        c.ok("or short-circuits" (FormsTest.truthOf(host "true or 1 / 0 > 0" st)))
+        c.ok("not" (FormsTest.truthOf(host "not false" st)))
+        c.ok("a single = means ==" (FormsTest.truthOf(host "2 = 2" st)))
+        c.ok("text compares as text" (FormsTest.truthOf(host "'abc' < 'abd'" st)))
+
+        ; --- lists ------------------------------------------------------------
+        st.answer("country" (FormValue.ofText("SE")))
+        c.ok("in a list" (FormsTest.truthOf(host "country in ('FI', 'SE', 'NO')" st)))
+        c.ok("and not in one" ((FormsTest.truthOf(host "country in ('FI', 'NO')" st)) == false))
+        st.answer("symptoms" (FormValue.ofList((FormsTest.three()))))
+        c.eqNum("count of a multi-choice" (FormsTest.numOf(host "count(symptoms)" st)) 3.0)
+        c.ok("a chosen value is in it" (FormsTest.truthOf(host "'cough' in symptoms" st)))
+
+        ; --- the empty rule ---------------------------------------------------
+        ; Arithmetic on an unanswered question is unanswered, not zero.
+        def bmi:FormValue (FormsTest.evalOf(host "weight / (height * height)" st))
+        c.ok("a calculation with nothing answered is empty" (bmi.isEmpty()))
+        c.ok("…and not an error" ((bmi.isError()) == false))
+        st.answer("height" (FormValue.ofNumber(1.8)))
+        def half:FormValue (FormsTest.evalOf(host "weight / (height * height)" st))
+        c.ok("half answered is still empty" (half.isEmpty()))
+        st.answer("weight" (FormValue.ofNumber(81.0)))
+        def full:FormValue (FormsTest.evalOf(host "weight / (height * height)" st))
+        c.eqNum("and answered is a number" full.n 25.0)
+
+        ; A comparison against an unanswered question is FALSE, so a
+        ; follow-up question stays hidden until somebody says otherwise.
+        c.ok("age < 18 with no age is false" ((FormsTest.truthOf(host "age < 18" st)) == false))
+        c.ok("…and so is age >= 18" ((FormsTest.truthOf(host "age >= 18" st)) == false))
+
+        ; --- text answers that are numbers ------------------------------------
+        ; An answer arrives from a text box as text; a form that refused to add
+        ; two text boxes because of where the value came from would be useless.
+        st.answer("typed" (FormValue.ofText("42")))
+        c.eqNum("text that is a number counts as one" (FormsTest.numOf(host "typed + 1" st)) 43.0)
+        def words:FormValue (FormsTest.evalOf(host "'lots' + 1" st))
+        c.ok("text that is not a number is an error" (words.isError()))
+        c.ok("…that says which text" (FormsTest.holds(words.err "lots")))
+
+        ; --- functions --------------------------------------------------------
+        c.eqNum("len" (FormsTest.numOf(host "len('hello')" st)) 5.0)
+        c.eqNum("sum skips what is unanswered" (FormsTest.numOf(host "sum(height, weight, missing)" st)) 82.8)
+        c.eqNum("today is data" (FormsTest.numOf(host "today()" st)) 20000.0)
+        st.answer("born" (FormValue.ofNumber(10000.0)))
+        c.eqNum("age_of is whole days" (FormsTest.numOf(host "age_of(born)" st)) 10000.0)
+        c.ok("matches finds a part" (FormsTest.truthOf(host "matches('SKU-100', 'SKU-')" st)))
+        c.eqNum("max" (FormsTest.numOf(host "max(1, 9, 4)" st)) 9.0)
+        c.eqNum("min ignores the unanswered" (FormsTest.numOf(host "min(missing, 4, 9)" st)) 4.0)
+        c.ok("answered() sees an answer" (FormsTest.truthOf(host "answered(height)" st)))
+        c.ok("…and its absence" ((FormsTest.truthOf(host "answered(missing)" st)) == false))
+
+        ; --- errors are values ------------------------------------------------
+        def divzero:FormValue (FormsTest.evalOf(host "height / 0" st))
+        c.ok("division by zero is an error value" (divzero.isError()))
+        def nofn:FormValue (FormsTest.evalOf(host "wobble(1)" st))
+        c.ok("an unknown function is an error value" (nofn.isError()))
+        c.ok("…that names it" (FormsTest.holds(nofn.err "wobble")))
+
+        ; --- a rule that will not parse ---------------------------------------
+        ; It is kept, with its error on it. One bad expression in a
+        ; 500-question form must not take the form down.
+        def broken:ExprProgram (host.parse("age < "))
+        c.ok("an incomplete expression does not parse" ((broken.ok) == false))
+        c.ok("and says what it wanted" ((strlen broken.errorText) > 0))
+        def evaluated:FormValue (host.evaluate(broken st))
+        c.ok("evaluating it is an error value, not a crash" (evaluated.isError()))
+        def junk:ExprProgram (host.parse("age #! 3"))
+        c.ok("and so is nonsense" ((junk.ok) == false))
+        def unclosed:ExprProgram (host.parse("len('abc"))
+        c.ok("an unterminated string is caught" ((unclosed.ok) == false))
+        def trailing:ExprProgram (host.parse("1 + 2 3"))
+        c.ok("and so is a value with nothing joining it" ((trailing.ok) == false))
+    }
+
+    sfn three:[string] () {
+        def out:[string]
+        push out "cough"
+        push out "fever"
+        push out "ache"
+        return out
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A form with a rule that will not compile still loads
+    ; --------------------------------------------------------------------------
+    sfn runBadRule:void (c:FormCheck) {
+        print "-- one bad rule --"
+        def host:NativeExpr (new NativeExpr)
+        def f:Questionnaire (Questionnaire.of("mixed"))
+        def a:Question (f.question("a" (QuestionKind.integer()) "A"))
+        def b:Question (f.question("b" (QuestionKind.integer()) "B"))
+        b.visibleWhen("a >= ")
+        def d:Question (f.question("d" (QuestionKind.integer()) "D"))
+        d.visibleWhen("a > 3")
+        def bad:int (f.compile(host))
+        c.eqInt("one rule failed" bad 1)
+        c.eqInt("and the form says which" (array_length f.gaps) 1)
+        c.ok("naming the question and the role" (FormsTest.holds((itemAt f.gaps 0) "b.visible")))
+        ; The rest of the form is unaffected, and still sorts.
+        def g:DependencyGraph (DependencyGraph.of(f))
+        c.ok("the graph still sorts" g.ok)
+        c.eqInt("changing a still reaches the rule that reads it" (array_length (g.dependentsOf(f "a"))) 1)
+
+        ; A rule that refers to a question nobody defined is reported, not
+        ; refused: a host may supply the value, and the usual cause is a typo.
+        def f2:Questionnaire (Questionnaire.of("typo"))
+        def q:Question (f2.question("q" (QuestionKind.integer()) "Q"))
+        q.visibleWhen("agee < 18")
+        f2.compile(host)
+        def unknown:[string] (f2.unknownReferences())
+        c.eqInt("one unknown reference" (array_length unknown) 1)
+        c.eqStr("named" (itemAt unknown 0) "agee")
+    }
+
+    sfn holds:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if (n == 0) {
+            return false
+        }
+        def last:int ((strlen text) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring text i (i + n)) == part) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def c:FormCheck (new FormCheck)
+        FormsTest.runModel(c)
+        FormsTest.runGraph(c)
+        FormsTest.runCycle(c)
+        FormsTest.runExpr(c)
+        FormsTest.runBadRule(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

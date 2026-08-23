@@ -1,0 +1,372 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EngineTest — filling the form in, and re-running as little as possible.
+; ==============================================================================
+;
+; The exit criterion for this phase is a COUNT, not a time:
+;
+;     changing one answer in a 10 000-question form must run only the rules
+;     that depend on it
+;
+; A timing assertion would pass on a fast machine that re-ran everything. So
+; every claim below is counted — `AnswerState.evaluations` — and the big form
+; at the end is built with ten thousand questions precisely so that "ran two
+; rules" and "ran ten thousand rules" cannot be confused with each other.
+;
+; The rest is the semantics that decide whether a real questionnaire behaves:
+; a hidden question is not required, is not submitted, and reads as unanswered
+; to everything that would otherwise have counted it.
+; ==============================================================================
+
+Import "../engine/FormEngine.rgr"
+Import "../expr/NativeExpr.rgr"
+
+class EngCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def good:boolean (d < 0.000001)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EngineTest {
+
+    ; --------------------------------------------------------------------------
+    ; The clinic form, filled in
+    ; --------------------------------------------------------------------------
+    sfn clinic:Questionnaire () {
+        def f:Questionnaire (Questionnaire.of("clinic"))
+        def age:Question (f.question("age" (QuestionKind.integer()) "How old are you?"))
+        age.requiredWhen("true")
+        age.validWhen("age >= 0 and age <= 120" "an age is between 0 and 120")
+
+        def guardian:Question (f.question("guardian" (QuestionKind.text()) "Guardian"))
+        guardian.visibleWhen("age < 18")
+        guardian.requiredWhen("age < 18")
+
+        def height:Question (f.question("height" (QuestionKind.decimal()) "Height in metres"))
+        def weight:Question (f.question("weight" (QuestionKind.decimal()) "Weight in kilograms"))
+        def bmi:Question (f.question("bmi" (QuestionKind.decimal()) "Body mass index"))
+        bmi.calculated("weight / (height * height)")
+        def advice:Question (f.question("advice" (QuestionKind.text()) "What we suggest"))
+        advice.visibleWhen("bmi > 25")
+        return f
+    }
+
+    sfn runFilling:void (c:EngCheck) {
+        print "-- filling the clinic form in --"
+        def host:NativeExpr (new NativeExpr)
+        def engine:FormEngine (FormEngine.load((EngineTest.clinic()) host))
+        c.ok("the form loaded" engine.ready)
+        c.eqInt("with no unparseable rules" engine.badRules 0)
+
+        def st:AnswerState (engine.start(20000))
+
+        ; Nothing answered: the follow-up is hidden, because `age < 18` on an
+        ; unanswered age is false, and hiding is the safe direction.
+        c.ok("guardian starts hidden" ((st.isVisible("guardian")) == false))
+        c.ok("and is therefore not required" ((st.isRequired("guardian")) == false))
+        c.ok("the advice starts hidden too" ((st.isVisible("advice")) == false))
+        ; …but the form is not finished, because age is required and blank.
+        c.ok("the form is not complete" ((engine.isComplete(st)) == false))
+        def missing:[string] (engine.missingAnswers(st))
+        c.eqInt("one answer is missing" (array_length missing) 1)
+        c.eqStr("and it is age" (itemAt missing 0) "age")
+
+        ; --- a child ----------------------------------------------------------
+        engine.answerNumber(st "age" 12.0)
+        c.ok("a child sees the guardian question" (st.isVisible("guardian")))
+        c.ok("and has to answer it" (st.isRequired("guardian")))
+        c.ok("so the form is still not complete" ((engine.isComplete(st)) == false))
+        engine.answerText(st "guardian" "Ada")
+        c.ok("and now it is" (engine.isComplete(st)))
+
+        ; --- an adult ---------------------------------------------------------
+        ; The guardian's answer is KEPT, and withheld. Deleting it would lose
+        ; the answer of somebody who mistyped their age and corrected it.
+        engine.answerNumber(st "age" 40.0)
+        c.ok("an adult does not see it" ((st.isVisible("guardian")) == false))
+        c.eqStr("but the answer is still there" (engine.textOf(st "guardian")) "Ada")
+        c.ok("and the form is complete without it" (engine.isComplete(st)))
+        ; …and it does not go out with the answers.
+        def sent:[string] (engine.submittedNames(st))
+        c.ok("a hidden answer is not submitted" ((EngineTest.listHas(sent "guardian")) == false))
+        c.ok("an answered one is" (EngineTest.listHas(sent "age")))
+        c.ok("the JSON says the same" ((EngineTest.holds((engine.submissionJson(st)) "guardian")) == false))
+
+        ; Correcting the age back brings it, and its answer, back.
+        engine.answerNumber(st "age" 12.0)
+        c.ok("correcting the age brings the question back" (st.isVisible("guardian")))
+        c.eqStr("with what was typed into it" (engine.textOf(st "guardian")) "Ada")
+
+        ; --- the calculation --------------------------------------------------
+        c.eqNum("bmi is unanswered until both parts are" (engine.numberOf(st "bmi")) 0.0)
+        engine.answerNumber(st "height" 1.8)
+        engine.answerNumber(st "weight" 81.0)
+        c.eqNum("and then it is a number" (engine.numberOf(st "bmi")) 25.0)
+        c.ok("which is not over 25, so no advice" ((st.isVisible("advice")) == false))
+        engine.answerNumber(st "weight" 90.0)
+        c.ok("a heavier answer shows the advice" (st.isVisible("advice")))
+        ; The chain worked: weight → bmi → advice.visible, in one pass.
+
+        ; --- validation -------------------------------------------------------
+        engine.answerNumber(st "age" 200.0)
+        c.ok("an impossible age is invalid" ((st.isValid("age")) == false))
+        def bad:QuestionState (st.stateOf("age"))
+        c.eqStr("and says why, in the form's words" bad.message "an age is between 0 and 120")
+        c.ok("so the form is not complete" ((engine.isComplete(st)) == false))
+        engine.answerNumber(st "age" 40.0)
+        c.ok("a possible one is valid again" (st.isValid("age")))
+        def good:QuestionState (st.stateOf("age"))
+        c.eqStr("with nothing left to say" good.message "")
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Counting the work
+    ; --------------------------------------------------------------------------
+    sfn runCounting:void (c:EngCheck) {
+        print "-- how much work one answer causes --"
+        def host:NativeExpr (new NativeExpr)
+        def engine:FormEngine (FormEngine.load((EngineTest.clinic()) host))
+        def st:AnswerState (engine.start(20000))
+
+        ; The initial pass runs every rule once. Six rules, six evaluations.
+        c.eqInt("the initial pass runs every rule once" st.evaluations 6)
+
+        ; Answering `age` runs only the rules that read it: its own
+        ; validation, and the guardian's two.
+        st.resetCounters()
+        engine.answerNumber(st "age" 12.0)
+        c.eqInt("answering age runs three rules" st.evaluations 3)
+
+        ; Answering `height` runs the calculation and what reads it.
+        st.resetCounters()
+        engine.answerNumber(st "height" 1.8)
+        c.eqInt("answering height runs two" st.evaluations 2)
+
+        ; Answering something nothing reads runs nothing at all.
+        st.resetCounters()
+        engine.answerText(st "guardian" "Ada")
+        c.eqInt("answering a leaf runs none" st.evaluations 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The exit criterion: ten thousand questions
+    ; --------------------------------------------------------------------------
+    ;
+    ; Two thousand independent branches — `q1..q2000`, each with a follow-up
+    ; whose visibility and requirement read it, plus a calculation and a
+    ; validation. Ten thousand questions in all. Changing one answer must run
+    ; the four rules of ITS branch and nothing else.
+    sfn bigForm:Questionnaire (branches:int) {
+        def f:Questionnaire (Questionnaire.of("big"))
+        def i:int 0
+        while (i < branches) {
+            def tag:string (to_string i)
+            def q:Question (f.question(("q" + tag) (QuestionKind.integer()) tag))
+            def follow:Question (f.question(("f" + tag) (QuestionKind.text()) tag))
+            follow.visibleWhen(("q" + tag + " > 10"))
+            follow.requiredWhen(("q" + tag + " > 10"))
+            def doubled:Question (f.question(("d" + tag) (QuestionKind.integer()) tag))
+            doubled.calculated(("q" + tag + " * 2"))
+            def checked:Question (f.question(("c" + tag) (QuestionKind.integer()) tag))
+            checked.validWhen(("d" + tag + " < 100") "too big")
+            def spare:Question (f.question(("s" + tag) (QuestionKind.text()) tag))
+            i = (i + 1)
+        }
+        return f
+    }
+
+    sfn runBig:void (c:EngCheck) {
+        print "-- ten thousand questions --"
+        def host:NativeExpr (new NativeExpr)
+        def form:Questionnaire (EngineTest.bigForm(2000))
+        c.eqInt("ten thousand questions" (form.questionCount()) 10000)
+        def engine:FormEngine (FormEngine.load(form host))
+        c.ok("it loads" engine.ready)
+        c.eqInt("with eight thousand rules" (engine.graph.nodeCount()) 8000)
+
+        def st:AnswerState (engine.start(20000))
+        c.eqInt("the initial pass runs all of them" st.evaluations 8000)
+
+        ; THE measurement. One answer, in the middle of the form.
+        st.resetCounters()
+        engine.answerNumber(st "q1000" 50.0)
+        c.eqInt("one answer runs four rules" st.evaluations 4)
+        c.ok("its follow-up is showing" (st.isVisible("f1000")))
+        c.eqNum("its calculation ran" (engine.numberOf(st "d1000")) 100.0)
+        c.ok("and its check caught it" ((st.isValid("c1000")) == false))
+
+        ; And nothing else moved.
+        c.ok("the branch beside it is untouched" ((st.isVisible("f1001")) == false))
+        c.eqNum("and so is its calculation" (engine.numberOf(st "d1001")) 0.0)
+
+        ; A second answer costs the same as the first — the work is
+        ; proportional to the branch, not to how much of the form is filled.
+        st.resetCounters()
+        engine.answerNumber(st "q1999" 50.0)
+        c.eqInt("and so does the next one" st.evaluations 4)
+
+        ; Clearing an answer is the same amount of work, backwards.
+        st.resetCounters()
+        engine.clear(st "q1000")
+        c.eqInt("clearing one costs the same" st.evaluations 4)
+        c.ok("and the follow-up goes away" ((st.isVisible("f1000")) == false))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Hidden questions are withheld from calculations
+    ; --------------------------------------------------------------------------
+    sfn runWithheld:void (c:EngCheck) {
+        print "-- what a hidden question contributes --"
+        def host:NativeExpr (new NativeExpr)
+        def f:Questionnaire (Questionnaire.of("order"))
+        def wantsGift:Question (f.question("gift" (QuestionKind.yesNo()) "Gift wrap?"))
+        def giftFee:Question (f.question("gift_fee" (QuestionKind.decimal()) "Gift wrapping"))
+        giftFee.visibleWhen("gift == 'yes'")
+        def goods:Question (f.question("goods" (QuestionKind.decimal()) "Goods"))
+        def total:Question (f.question("total" (QuestionKind.decimal()) "Total"))
+        total.calculated("sum(goods, gift_fee)")
+
+        def engine:FormEngine (FormEngine.load(f host))
+        c.ok("the form loaded" engine.ready)
+        def st:AnswerState (engine.start(20000))
+        engine.answerNumber(st "goods" 100.0)
+        engine.answerText(st "gift" "yes")
+        engine.answerNumber(st "gift_fee" 5.0)
+        c.eqNum("the fee counts while it is showing" (engine.numberOf(st "total")) 105.0)
+
+        ; Changing their mind hides the fee. The total must stop counting it,
+        ; and it must do so without anybody clearing the answer.
+        engine.answerText(st "gift" "no")
+        c.ok("the fee is hidden" ((st.isVisible("gift_fee")) == false))
+        c.eqNum("and the total drops it" (engine.numberOf(st "total")) 100.0)
+        c.eqNum("though the answer is still stored" (EngineTest.storedNumber(st "gift_fee")) 5.0)
+
+        ; …and comes back when they change their mind again.
+        engine.answerText(st "gift" "yes")
+        c.eqNum("and it comes back" (engine.numberOf(st "total")) 105.0)
+    }
+
+    sfn storedNumber:double (st:AnswerState name:string) {
+        def v:FormValue (st.rawValueOf(name))
+        def n:FormValue (v.asNumber())
+        return n.n
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A form that does not load
+    ; --------------------------------------------------------------------------
+    sfn runRefused:void (c:EngCheck) {
+        print "-- a form the engine refuses --"
+        def host:NativeExpr (new NativeExpr)
+        def f:Questionnaire (Questionnaire.of("circular"))
+        def a:Question (f.question("a" (QuestionKind.decimal()) "A"))
+        a.calculated("b + 1")
+        def b:Question (f.question("b" (QuestionKind.decimal()) "B"))
+        b.calculated("a + 1")
+        def engine:FormEngine (FormEngine.load(f host))
+        c.ok("it is not ready" ((engine.ready) == false))
+        c.ok("and says it is a cycle" (EngineTest.holds(engine.errorText "cycle")))
+
+        ; A form with one rule that will not parse still loads, and the rest
+        ; of it still works.
+        def f2:Questionnaire (Questionnaire.of("mixed"))
+        def x:Question (f2.question("x" (QuestionKind.integer()) "X"))
+        def y:Question (f2.question("y" (QuestionKind.text()) "Y"))
+        y.visibleWhen("x >= ")
+        def z:Question (f2.question("z" (QuestionKind.text()) "Z"))
+        z.visibleWhen("x > 3")
+        def e2:FormEngine (FormEngine.load(f2 host))
+        c.ok("a form with one bad rule still loads" e2.ready)
+        c.eqInt("and says how many" e2.badRules 1)
+        def st2:AnswerState (e2.start(20000))
+        e2.answerNumber(st2 "x" 5.0)
+        c.ok("the good rule works" (st2.isVisible("z")))
+        ; The broken one evaluates to an error, which is not true, so the
+        ; question stays hidden rather than the form falling over.
+        c.ok("and the broken one hides its question" ((st2.isVisible("y")) == false))
+    }
+
+    sfn listHas:boolean (list:[string] want:string) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn holds:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if (n == 0) {
+            return false
+        }
+        def last:int ((strlen text) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring text i (i + n)) == part) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def c:EngCheck (new EngCheck)
+        EngineTest.runFilling(c)
+        EngineTest.runCounting(c)
+        EngineTest.runWithheld(c)
+        EngineTest.runRefused(c)
+        EngineTest.runBig(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

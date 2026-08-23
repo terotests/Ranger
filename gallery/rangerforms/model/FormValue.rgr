@@ -1,0 +1,333 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FormValue.rgr — the one value an expression can produce.
+; ============================================================================
+;
+; A questionnaire's arithmetic runs on answers people typed, which means it
+; runs on missing values, on text where a number was expected, and on
+; divisions by a zero somebody has not filled in yet. None of those are
+; exceptional. All of them happen on the first screen of every form.
+;
+; So this type is TOTAL: every operation on it returns a `FormValue`, and the
+; ones that cannot be done return an ERROR value rather than throwing. An
+; expression engine that threw would have to be wrapped in a catch at every
+; call site, and the catch would have to invent what to show — which is how a
+; form ends up displaying "NaN" to somebody who simply has not answered
+; question three yet.
+;
+;   empty     nobody has answered. Not zero and not "" — see below.
+;   bool      true / false
+;   number    one double. Dates are days, see `AnswerState.todayDays`.
+;   text      a string
+;   list      a multi-choice answer's selected values
+;   error     the operation could not be done, and says why
+;
+; ---------------------------------------------------------------------------
+; Empty is not zero
+; ---------------------------------------------------------------------------
+;
+; `weight / (height * height)` on a form where nothing is filled in must not
+; produce a division by zero and must not produce 0 — it must produce EMPTY,
+; because the honest answer to "what is their BMI" before anybody has said
+; anything is "we do not know yet". Arithmetic on empty is empty, all the way
+; up the expression. That single rule is what stops a fresh form from filling
+; itself with zeroes and error text.
+;
+; Comparisons are the exception, and deliberately: `age < 18` on an empty age
+; is FALSE, not empty, because a rule has to decide something. A question that
+; is visible only when `age < 18` stays hidden until somebody says otherwise,
+; which is the safe direction — showing a question too early is a smaller
+; wrong than requiring an answer to one nobody can see.
+; ============================================================================
+
+class FormValue {
+    ; 0 empty · 1 bool · 2 number · 3 text · 4 list · 5 error
+    def kind:int 0
+    def b:boolean false
+    def n:double 0.0
+    def s:string ""
+    def items:[string]
+    def err:string ""
+
+    Constructor () {
+    }
+
+    sfn emptyKind:int () {
+        return 0
+    }
+    sfn boolKind:int () {
+        return 1
+    }
+    sfn numberKind:int () {
+        return 2
+    }
+    sfn textKind:int () {
+        return 3
+    }
+    sfn listKind:int () {
+        return 4
+    }
+    sfn errorKind:int () {
+        return 5
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Making one
+    ; ------------------------------------------------------------------------
+    sfn blank:FormValue () {
+        def v:FormValue (new FormValue)
+        return v
+    }
+
+    sfn ofBool:FormValue (b:boolean) {
+        def v:FormValue (new FormValue)
+        v.kind = 1
+        v.b = b
+        return v
+    }
+
+    sfn ofNumber:FormValue (n:double) {
+        def v:FormValue (new FormValue)
+        v.kind = 2
+        v.n = n
+        return v
+    }
+
+    sfn ofInt:FormValue (n:int) {
+        return (FormValue.ofNumber((to_double n)))
+    }
+
+    sfn ofText:FormValue (s:string) {
+        def v:FormValue (new FormValue)
+        v.kind = 3
+        v.s = s
+        return v
+    }
+
+    sfn ofList:FormValue (items:[string]) {
+        def v:FormValue (new FormValue)
+        v.kind = 4
+        def i:int 0
+        def n:int (array_length items)
+        while (i < n) {
+            push v.items (itemAt items i)
+            i = (i + 1)
+        }
+        return v
+    }
+
+    sfn ofError:FormValue (why:string) {
+        def v:FormValue (new FormValue)
+        v.kind = 5
+        v.err = why
+        return v
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Asking
+    ; ------------------------------------------------------------------------
+    fn isEmpty:boolean () {
+        return (kind == 0)
+    }
+
+    fn isError:boolean () {
+        return (kind == 5)
+    }
+
+    fn isNumber:boolean () {
+        return (kind == 2)
+    }
+
+    fn isText:boolean () {
+        return (kind == 3)
+    }
+
+    fn isList:boolean () {
+        return (kind == 4)
+    }
+
+    ; What a rule reads when it needs a yes or a no. Empty and error are both
+    ; NO: a rule whose condition could not be worked out must not turn a
+    ; question on, because the visible half of a wrong guess is the half
+    ; somebody has to answer.
+    fn truthy:boolean () {
+        if (kind == 1) {
+            return b
+        }
+        if (kind == 2) {
+            return ((n == 0.0) == false)
+        }
+        if (kind == 3) {
+            return ((strlen s) > 0)
+        }
+        if (kind == 4) {
+            return ((array_length items) > 0)
+        }
+        return false
+    }
+
+    ; The number this is, when it is one. Text that looks like a number counts
+    ; — an answer arrives as text from a text box, and a form that refused to
+    ; add up two text boxes because of where the value came from would be
+    ; useless. Anything else is not a number and says so.
+    fn asNumber:FormValue () {
+        if (kind == 2) {
+            return this
+        }
+        if (kind == 0) {
+            return this
+        }
+        if (kind == 5) {
+            return this
+        }
+        if (kind == 1) {
+            if b {
+                return (FormValue.ofNumber(1.0))
+            }
+            return (FormValue.ofNumber(0.0))
+        }
+        if (kind == 3) {
+            def trimmed:string (FormValue.trimText(s))
+            if ((strlen trimmed) == 0) {
+                return (FormValue.blank())
+            }
+            def parsed@(optional):double (to_double trimmed)
+            if (null? parsed) {
+                return (FormValue.ofError((trimmed + " is not a number")))
+            }
+            return (FormValue.ofNumber((unwrap parsed)))
+        }
+        return (FormValue.ofError("a list is not a number"))
+    }
+
+    ; How this reads to a person. Used by validation messages and by the
+    ; renderer, never by arithmetic.
+    fn asText:string () {
+        if (kind == 3) {
+            return s
+        }
+        if (kind == 1) {
+            if b {
+                return "true"
+            }
+            return "false"
+        }
+        if (kind == 2) {
+            return (FormValue.numberText(n))
+        }
+        if (kind == 4) {
+            def out:string ""
+            def i:int 0
+            def ln:int (array_length items)
+            while (i < ln) {
+                if (i > 0) {
+                    out = (out + ", ")
+                }
+                out = (out + (itemAt items i))
+                i = (i + 1)
+            }
+            return out
+        }
+        if (kind == 5) {
+            return err
+        }
+        return ""
+    }
+
+    ; A whole number prints without a decimal point. A questionnaire is full
+    ; of counts and ages, and "3.0 children" is the kind of detail that makes
+    ; a form look like a debugger.
+    sfn numberText:string (n:double) {
+        def whole:double (to_double (to_int n))
+        if (whole == n) {
+            return (to_string (to_int n))
+        }
+        return (to_string n)
+    }
+
+    fn sameAs:boolean (other:FormValue) {
+        if (kind != other.kind) {
+            ; A number and the text of that number are the same answer. They
+            ; differ only in which widget produced them.
+            def a:FormValue (this.asNumber())
+            def b2:FormValue (other.asNumber())
+            if (a.kind == 2) {
+                if (b2.kind == 2) {
+                    return (a.n == b2.n)
+                }
+            }
+            return false
+        }
+        if (kind == 1) {
+            return (b == other.b)
+        }
+        if (kind == 2) {
+            return (n == other.n)
+        }
+        if (kind == 3) {
+            return (s == other.s)
+        }
+        if (kind == 4) {
+            def na:int (array_length items)
+            if (na != (array_length other.items)) {
+                return false
+            }
+            def i:int 0
+            while (i < na) {
+                if (((itemAt items i) == (itemAt other.items i)) == false) {
+                    return false
+                }
+                i = (i + 1)
+            }
+            return true
+        }
+        if (kind == 5) {
+            return (err == other.err)
+        }
+        return true
+    }
+
+    fn holds:boolean (want:string) {
+        if (kind == 4) {
+            def i:int 0
+            def n2:int (array_length items)
+            while (i < n2) {
+                if ((itemAt items i) == want) {
+                    return true
+                }
+                i = (i + 1)
+            }
+            return false
+        }
+        if (kind == 3) {
+            return (s == want)
+        }
+        return false
+    }
+
+    sfn trimText:string (s:string) {
+        def n:int (strlen s)
+        def a:int 0
+        while (a < n) {
+            def ch:int (charAt s a)
+            if (ch != 32) {
+                if (ch != 9) {
+                    break
+                }
+            }
+            a = (a + 1)
+        }
+        def b:int n
+        while (b > a) {
+            def ch2:int (charAt s (b - 1))
+            if (ch2 != 32) {
+                if (ch2 != 9) {
+                    break
+                }
+            }
+            b = (b - 1)
+        }
+        return (substring s a b)
+    }
+}
