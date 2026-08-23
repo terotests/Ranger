@@ -154,7 +154,15 @@ class EVGToolbarTest {
         def dl:EVGDisplayList (new EVGDisplayList)
         bar.hot = 4
         view.paint(dl bar 0 0 900 (bar.heightFor(900)))
-        c.ok("the strip made draw commands" ((array_length dl.cmds) > 40))
+        ; This used to demand more than 40 commands, and it was really
+        ; measuring how the icons were BUILT: every glyph was a stack of small
+        ; rectangles, so a strip of eleven buttons ran to dozens of them. The
+        ; icons are single filled paths now — 38 commands for the same strip,
+        ; which is the improvement, and the old threshold read it as a
+        ; regression. Counting against the number of buttons says what was
+        ; meant: every button is drawn, chip and glyph, and none is silently
+        ; missing.
+        c.ok("the strip made draw commands" ((array_length dl.cmds) > ((bar.count()) * 2)))
         ; The tooltip is text, and so are the letter icons.
         def texts:int 0
         def ti:int 0

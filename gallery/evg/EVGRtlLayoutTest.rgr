@@ -1,0 +1,319 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGRtlLayoutTest — one switch, and the whole interface turns around
+; ==============================================================================
+;
+; Mirroring a user interface for Arabic and Hebrew is not a job for the three
+; editors. They all draw through the same layout engine, so the direction
+; belongs in that engine, once, as the property CSS already has for it — and
+; then every panel, strip, toolbar and grid built on it turns around together
+; and anything built later turns around the day it lands.
+;
+; It is done by reflecting each container's children about its content box
+; after they have been placed. That choice is the reason this is thirty lines
+; rather than a rewrite of two engines, and it is worth stating why it is not
+; a shortcut: every way a container can place a child horizontally — flex row,
+; row-reverse, wrapping, every value of justify-content, gap, grid tracks,
+; named grid lines, dense packing — ends with children at x positions inside a
+; content box. Reflect those and all of it is right at once.
+;
+; The cases below are the ones that separate that from something that merely
+; reverses a list:
+;
+;   * the ORDER reverses and the packing end changes with it
+;   * a nested container turns around too, because the property inherits —
+;     that is what makes it one switch rather than one per panel
+;   * an island can opt back out, which is what a left-to-right code block or
+;     a phone number inside an Arabic page needs
+;   * grid column 1 becomes the RIGHTMOST column
+;   * absolutely positioned children do NOT move: `left: 0` is the left edge
+;     in any direction
+;   * `margin-left` stays physically on the left, which is CSS's rule and the
+;     one of the two readings that is easy to get wrong
+;   * and the older `direction: row` still means the flow axis, because two
+;     properties share that name and only the VALUE tells them apart
+;
+;   npm run evg:rtl:test
+; ==============================================================================
+
+Import "EVGLayout.rgr"
+
+class RtlCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (d < 0.5))
+    }
+}
+
+class EVGRtlLayoutTest {
+    def c:RtlCheck (new RtlCheck)
+
+    sfn main:void () {
+        def t (new EVGRtlLayoutTest())
+        t.run()
+    }
+
+    ; A fixed-size box with an id, which is all these cases need.
+    sfn box:EVGElement (id:string w:double h:double) {
+        def e (new EVGElement())
+        e.id = id
+        e.width = (EVGUnit.px(w))
+        e.height = (EVGUnit.px(h))
+        return e
+    }
+
+    ; A 300-wide row with no padding, holding three boxes of 40, 60 and 20.
+    ; Their widths differ on purpose: equal boxes would look mirrored even if
+    ; the reflection were wrong by a constant.
+    sfn strip:EVGElement (rtl:boolean) {
+        def root (new EVGElement())
+        root.id = "root"
+        root.width = (EVGUnit.px(300.0))
+        root.height = (EVGUnit.px(50.0))
+        root.display = "flex"
+        root.flexDirection = "row"
+        if rtl {
+            root.setAttribute("direction" "rtl")
+        }
+        root.addChild((EVGRtlLayoutTest.box("a" 40.0 20.0)))
+        root.addChild((EVGRtlLayoutTest.box("b" 60.0 20.0)))
+        root.addChild((EVGRtlLayoutTest.box("c" 20.0 20.0)))
+        return root
+    }
+
+    sfn childX:double (parent:EVGElement i:int) {
+        def ch:EVGElement (parent.getChild(i))
+        return ch.calculatedX
+    }
+
+    fn laidOut:EVGElement (root:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(300.0 200.0)
+        lay.layout(root)
+        return root
+    }
+
+    fn run:void () {
+        print "=== EVGRtlLayoutTest ==="
+        this.testOrder()
+        this.testGrid()
+        this.testInheritance()
+        this.testIsland()
+        this.testAbsolute()
+        this.testMargins()
+        this.testLegacyDirection()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testOrder:void () {
+        print "--- the order, and which end it packs against ---"
+        def ltr:EVGElement (this.laidOut((EVGRtlLayoutTest.strip(false))))
+        c.eqNum("a starts at the left edge" (EVGRtlLayoutTest.childX(ltr 0)) 0.0)
+        c.eqNum("b follows it" (EVGRtlLayoutTest.childX(ltr 1)) 40.0)
+        c.eqNum("and c follows b" (EVGRtlLayoutTest.childX(ltr 2)) 100.0)
+
+        ; Reflected about a 300-wide box: a's right edge was at 40, so its
+        ; left edge is now at 260; b spanned 40..100 and now spans 200..260;
+        ; c spanned 100..120 and now spans 180..200.
+        def rtl:EVGElement (this.laidOut((EVGRtlLayoutTest.strip(true))))
+        c.eqNum("a is now against the RIGHT edge" (EVGRtlLayoutTest.childX(rtl 0)) 260.0)
+        c.eqNum("b sits to its left" (EVGRtlLayoutTest.childX(rtl 1)) 200.0)
+        c.eqNum("and c to the left of b" (EVGRtlLayoutTest.childX(rtl 2)) 180.0)
+        ; The children are still in their authored order in the tree — only
+        ; where they are DRAWN changed. Anything that walks the tree to read a
+        ; document, an accessibility tree included, still reads it in the
+        ; order it was written.
+        c.ok("the tree order is untouched" (((ltr.getChild(0)).id) == "a"))
+        c.ok("in the mirrored one too" (((rtl.getChild(0)).id) == "a"))
+        ; And nothing left the box.
+        c.ok("nothing was pushed off the left edge" ((EVGRtlLayoutTest.childX(rtl 2)) >= 0.0))
+    }
+
+    fn testGrid:void () {
+        print "--- and the grid turns with it ---"
+        ; A grid is placed by a different engine entirely — tracks, spans,
+        ; named lines, dense packing — and none of it had to be touched. The
+        ; children still end up at x positions inside a content box, and
+        ; reflecting those makes column 1 the RIGHTMOST column, which is what
+        ; a grid in a right-to-left page is.
+        def g (new EVGElement())
+        g.id = "grid"
+        g.width = (EVGUnit.px(300.0))
+        g.height = (EVGUnit.px(60.0))
+        g.display = "grid"
+        g.setAttribute("grid-template-columns" "100px 200px")
+        g.setAttribute("direction" "rtl")
+        def one:EVGElement (EVGRtlLayoutTest.box("one" 100.0 20.0))
+        def two:EVGElement (EVGRtlLayoutTest.box("two" 200.0 20.0))
+        g.addChild(one)
+        g.addChild(two)
+        this.laidOut(g)
+        ; Column 1 is 100 wide and spans 200..300 mirrored; column 2 is 200
+        ; wide and spans 0..200.
+        c.eqNum("the first column is on the right" one.calculatedX 200.0)
+        c.eqNum("and the second beside it" two.calculatedX 0.0)
+
+        ; The same grid the other way round, so the numbers above are read as
+        ; a mirror rather than as whatever the engine happened to produce.
+        def g2 (new EVGElement())
+        g2.id = "grid2"
+        g2.width = (EVGUnit.px(300.0))
+        g2.height = (EVGUnit.px(60.0))
+        g2.display = "grid"
+        g2.setAttribute("grid-template-columns" "100px 200px")
+        def one2:EVGElement (EVGRtlLayoutTest.box("one" 100.0 20.0))
+        def two2:EVGElement (EVGRtlLayoutTest.box("two" 200.0 20.0))
+        g2.addChild(one2)
+        g2.addChild(two2)
+        this.laidOut(g2)
+        c.eqNum("left to right, the first column is on the left" one2.calculatedX 0.0)
+        c.eqNum("and the second follows it" two2.calculatedX 100.0)
+    }
+
+    fn testInheritance:void () {
+        print "--- one switch, not one per panel ---"
+        ; The direction is set ONCE, on the page. The strip inside it is never
+        ; told anything, and turns around because `direction` inherits — which
+        ; is the whole point: an interface is mirrored by saying so at the top,
+        ; not by finding every container in it.
+        def page (new EVGElement())
+        page.id = "page"
+        page.width = (EVGUnit.px(300.0))
+        page.height = (EVGUnit.px(200.0))
+        page.display = "flex"
+        page.flexDirection = "column"
+        page.setAttribute("direction" "rtl")
+        def strip (new EVGElement())
+        strip.id = "strip"
+        strip.width = (EVGUnit.px(300.0))
+        strip.height = (EVGUnit.px(50.0))
+        strip.display = "flex"
+        strip.flexDirection = "row"
+        strip.addChild((EVGRtlLayoutTest.box("a" 40.0 20.0)))
+        strip.addChild((EVGRtlLayoutTest.box("b" 60.0 20.0)))
+        page.addChild(strip)
+        this.laidOut(page)
+        c.ok("the nested strip inherited the direction" strip.resolvedRtl)
+        c.eqNum("so its first button is on the right" (EVGRtlLayoutTest.childX(strip 0)) 260.0)
+        c.eqNum("and its second is beside it" (EVGRtlLayoutTest.childX(strip 1)) 200.0)
+    }
+
+    fn testIsland:void () {
+        print "--- and an island can opt back out ---"
+        ; A code block, a formula bar, a phone number: things that read left to
+        ; right inside a page that does not. Without this, a switch at the top
+        ; would be a blunt instrument nobody could use on a real document.
+        def page (new EVGElement())
+        page.id = "page"
+        page.width = (EVGUnit.px(300.0))
+        page.height = (EVGUnit.px(200.0))
+        page.display = "flex"
+        page.flexDirection = "column"
+        page.setAttribute("direction" "rtl")
+        def code (new EVGElement())
+        code.id = "code"
+        code.width = (EVGUnit.px(300.0))
+        code.height = (EVGUnit.px(50.0))
+        code.display = "flex"
+        code.flexDirection = "row"
+        code.setAttribute("direction" "ltr")
+        code.addChild((EVGRtlLayoutTest.box("a" 40.0 20.0)))
+        code.addChild((EVGRtlLayoutTest.box("b" 60.0 20.0)))
+        page.addChild(code)
+        this.laidOut(page)
+        c.ok("the island is left to right" ((code.resolvedRtl) == false))
+        c.eqNum("so its first box is on the left" (EVGRtlLayoutTest.childX(code 0)) 0.0)
+        c.eqNum("and the second follows it" (EVGRtlLayoutTest.childX(code 1)) 40.0)
+    }
+
+    fn testAbsolute:void () {
+        print "--- what must NOT move ---"
+        ; `left: 0` is the left edge in any direction. An absolutely
+        ; positioned child was placed against the edge it named, and mirroring
+        ; it would send a close button to the wrong corner.
+        def page (new EVGElement())
+        page.id = "page"
+        page.width = (EVGUnit.px(300.0))
+        page.height = (EVGUnit.px(200.0))
+        page.display = "flex"
+        page.flexDirection = "row"
+        page.setAttribute("direction" "rtl")
+        def pinned:EVGElement (EVGRtlLayoutTest.box("pinned" 30.0 30.0))
+        pinned.isAbsolute = true
+        pinned.left = (EVGUnit.px(0.0))
+        pinned.top = (EVGUnit.px(0.0))
+        page.addChild(pinned)
+        this.laidOut(page)
+        c.eqNum("an absolute child stays where it was pinned" pinned.calculatedX 0.0)
+    }
+
+    fn testMargins:void () {
+        print "--- margins stay physical ---"
+        ; CSS's rule, and the half of it that is easy to get wrong. What a
+        ; right-to-left container reverses is the ORDER of its children and
+        ; the end they pack against — not which side of a child its own
+        ; `margin-left` sits on. An author who wants the margin to follow the
+        ; direction says `margin-inline-start`.
+        ;
+        ; With symmetric margins the two readings agree, which is why picking
+        ; the wrong one would have survived a long time before anything looked
+        ; a pixel out. So this uses a margin on ONE side only.
+        def root (new EVGElement())
+        root.id = "root"
+        root.width = (EVGUnit.px(300.0))
+        root.height = (EVGUnit.px(50.0))
+        root.display = "flex"
+        root.flexDirection = "row"
+        root.setAttribute("direction" "rtl")
+        def only:EVGElement (EVGRtlLayoutTest.box("only" 40.0 20.0))
+        only.box.marginLeft = (EVGUnit.px(10.0))
+        root.addChild(only)
+        this.laidOut(root)
+        ; Its margin box spans 0..50 (10 of margin, then 40 of box). Mirrored
+        ; about 0..300 that margin box lands at 250..300, and the border box
+        ; sits at its own margin-left inside it: 260.
+        c.eqNum("the left margin is still on the left of the box" only.calculatedX 260.0)
+    }
+
+    fn testLegacyDirection:void () {
+        print "--- and the property that already had the name ---"
+        ; `direction` here has always meant the flow AXIS, and still does for
+        ; those values. Two properties cannot share a name, so the VALUE
+        ; decides — and a page that says `direction: row` must not quietly
+        ; become a right-to-left one.
+        def e (new EVGElement())
+        e.setAttribute("direction" "row")
+        c.ok("row is still the axis" (e.direction == "row"))
+        c.ok("and says nothing about handedness" (e.textDir == ""))
+        def e2 (new EVGElement())
+        e2.setAttribute("direction" "column")
+        c.ok("so is column" (e2.direction == "column"))
+        def e3 (new EVGElement())
+        e3.setAttribute("direction" "rtl")
+        c.ok("rtl is the handedness" (e3.textDir == "rtl"))
+        c.ok("and leaves the axis alone" (e3.direction == "row"))
+    }
+}

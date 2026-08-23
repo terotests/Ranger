@@ -80,6 +80,24 @@ class EVGElement {
     def bgImagePath:string ""
 
     ; Layout properties
+
+    ; CSS `direction`, which is NOT the `direction` below it.
+    ;
+    ; The property under that name here has always meant the flow AXIS —
+    ; "row" or "column" — which predates this and is still what those two
+    ; values mean. CSS's own `direction` takes "ltr" and "rtl" and means
+    ; something else entirely: which end of a container its children start
+    ; from. Two properties cannot share a name, and renaming the older one
+    ; would break every element that sets it, so `setStyle` decides by VALUE:
+    ; "ltr" and "rtl" land here, everything else lands on the axis.
+    ;
+    ; "" means the element said nothing and inherits, which is what `direction`
+    ; does in CSS and what makes one setting on the root turn a whole UI
+    ; around.
+    def textDir:string ""
+    ; What that resolves to after inheritance. This is what the layout reads.
+    def resolvedRtl:boolean false
+
     def direction:string "row"
     def align:string "left"
     def verticalAlign:string "top"
@@ -666,6 +684,20 @@ class EVGElement {
         fontSizeBase = parentEl.inheritedFontSize
         rootFontSize = parentEl.rootFontSize
         this.applyOwnFontSize()
+        this.applyOwnDirection(parentEl.resolvedRtl)
+    }
+
+    ; Settle this element's direction against the one it inherits. Inherited
+    ; like `color`, and for the same reason: a UI is turned around by saying so
+    ; ONCE, on the root, rather than by marking every panel in it.
+    fn applyOwnDirection:void (inherited:boolean) {
+        resolvedRtl = inherited
+        if (textDir == "rtl") {
+            resolvedRtl = true
+        }
+        if (textDir == "ltr") {
+            resolvedRtl = false
+        }
     }
 
     ; Settle this element's font-size against the one it inherits, and publish
@@ -1116,7 +1148,13 @@ class EVGElement {
         }
         
         ; Layout
+        ; `direction` is two properties sharing a name; the value says which.
+        ; See the note on `textDir`.
         if (name == "direction") {
+            if ((value == "rtl") || (value == "ltr")) {
+                textDir = value
+                return
+            }
             direction = value
             return
         }
