@@ -1,53 +1,14 @@
 # Preset shape coverage
 
-`ST_ShapeType` in `dml-shapeGeometry.xsd` enumerates 187 preset
-geometries. Ranger draws 34 of them; the other 153 fall back to a
-rectangle, silently — a shape we do not know comes out as a filled box
-in the shape's own colour rather than as an error or a gap, which is why
-`star7` read as a deliberate red square.
+`ST_ShapeType` in `dml-shapeGeometry.xsd` enumerates 187 preset geometries.
+Ranger draws all 187, from the specification's own definitions rather than
+from hand-written polygons — see `PRESET_SHAPES.md` for how, and
+`gallery/office/geom/assets/presets.txt` for the catalogue itself.
 
-The plan for closing this is in `PRESET_SHAPES.md` beside this file.
-This list is the inventory it is measured against; regenerate it by
-diffing `PptxGeom.presetPath` against the enumeration.
+This file is the inventory the sweep in `PptxGeomTest` is measured against.
+Regenerate it by diffing that catalogue against the enumeration.
 
-## Drawn (34)
-
-- `chevron`
-- `diamond`
-- `downArrow`
-- `ellipse`
-- `flowChartConnector`
-- `flowChartDecision`
-- `flowChartExtract`
-- `flowChartInputOutput`
-- `flowChartManualInput`
-- `flowChartManualOperation`
-- `flowChartMerge`
-- `flowChartPreparation`
-- `flowChartTerminator`
-- `hexagon`
-- `homePlate`
-- `leftArrow`
-- `leftBrace`
-- `leftBracket`
-- `line`
-- `octagon`
-- `parallelogram`
-- `pentagon`
-- `plus`
-- `rect`
-- `rightArrow`
-- `rightBrace`
-- `rightBracket`
-- `roundRect`
-- `rtTriangle`
-- `star5`
-- `straightConnector1`
-- `trapezoid`
-- `triangle`
-- `upArrow`
-
-## Not drawn (153)
+## Drawn (187 of 187)
 
 - `accentBorderCallout1`
 - `accentBorderCallout2`
@@ -88,6 +49,7 @@ diffing `PptxGeom.presetPath` against the enumeration.
 - `chartPlus`
 - `chartStar`
 - `chartX`
+- `chevron`
 - `chord`
 - `circularArrow`
 - `cloud`
@@ -105,32 +67,44 @@ diffing `PptxGeom.presetPath` against the enumeration.
 - `curvedUpArrow`
 - `decagon`
 - `diagStripe`
+- `diamond`
 - `dodecagon`
 - `donut`
 - `doubleWave`
+- `downArrow`
 - `downArrowCallout`
+- `ellipse`
 - `ellipseRibbon`
 - `ellipseRibbon2`
 - `flowChartAlternateProcess`
 - `flowChartCollate`
+- `flowChartConnector`
+- `flowChartDecision`
 - `flowChartDelay`
 - `flowChartDisplay`
 - `flowChartDocument`
+- `flowChartExtract`
+- `flowChartInputOutput`
 - `flowChartInternalStorage`
 - `flowChartMagneticDisk`
 - `flowChartMagneticDrum`
 - `flowChartMagneticTape`
+- `flowChartManualInput`
+- `flowChartManualOperation`
+- `flowChartMerge`
 - `flowChartMultidocument`
 - `flowChartOfflineStorage`
 - `flowChartOffpageConnector`
 - `flowChartOnlineStorage`
 - `flowChartOr`
 - `flowChartPredefinedProcess`
+- `flowChartPreparation`
 - `flowChartProcess`
 - `flowChartPunchedCard`
 - `flowChartPunchedTape`
 - `flowChartSort`
 - `flowChartSummingJunction`
+- `flowChartTerminator`
 - `foldedCorner`
 - `frame`
 - `funnel`
@@ -139,10 +113,15 @@ diffing `PptxGeom.presetPath` against the enumeration.
 - `halfFrame`
 - `heart`
 - `heptagon`
+- `hexagon`
+- `homePlate`
 - `horizontalScroll`
 - `irregularSeal1`
 - `irregularSeal2`
+- `leftArrow`
 - `leftArrowCallout`
+- `leftBrace`
+- `leftBracket`
 - `leftCircularArrow`
 - `leftRightArrow`
 - `leftRightArrowCallout`
@@ -151,6 +130,7 @@ diffing `PptxGeom.presetPath` against the enumeration.
 - `leftRightUpArrow`
 - `leftUpArrow`
 - `lightningBolt`
+- `line`
 - `lineInv`
 - `mathDivide`
 - `mathEqual`
@@ -162,18 +142,28 @@ diffing `PptxGeom.presetPath` against the enumeration.
 - `noSmoking`
 - `nonIsoscelesTrapezoid`
 - `notchedRightArrow`
+- `octagon`
+- `parallelogram`
+- `pentagon`
 - `pie`
 - `pieWedge`
 - `plaque`
 - `plaqueTabs`
+- `plus`
 - `quadArrow`
 - `quadArrowCallout`
+- `rect`
 - `ribbon`
 - `ribbon2`
+- `rightArrow`
 - `rightArrowCallout`
+- `rightBrace`
+- `rightBracket`
 - `round1Rect`
 - `round2DiagRect`
 - `round2SameRect`
+- `roundRect`
+- `rtTriangle`
 - `smileyFace`
 - `snip1Rect`
 - `snip2DiagRect`
@@ -186,13 +176,18 @@ diffing `PptxGeom.presetPath` against the enumeration.
 - `star24`
 - `star32`
 - `star4`
+- `star5`
 - `star6`
 - `star7`
 - `star8`
+- `straightConnector1`
 - `stripedRightArrow`
 - `sun`
 - `swooshArrow`
 - `teardrop`
+- `trapezoid`
+- `triangle`
+- `upArrow`
 - `upArrowCallout`
 - `upDownArrow`
 - `upDownArrowCallout`

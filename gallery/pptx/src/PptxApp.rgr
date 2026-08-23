@@ -309,22 +309,18 @@ class PptxApp {
 
     fn init:void (fontDir:string) {
         view.init(W H fontDir)
-        this.loadPresetsFrom("gallery/office/geom/assets")
+        ; The converter would find the catalogue on its own at the first
+        ; shape it draws; doing it here means an app that has initialised has
+        ; a catalogue, rather than one that acquires it at a moment nothing
+        ; can name.
+        view.converter.ensurePresets()
         this.initFrame()
     }
 
-    ; The 187 preset geometries, from the asset beside the module that reads
-    ; them. A host that cannot reach the filesystem — the browser — fetches
-    ; the file and calls `loadPresets` with its bytes instead; a converter
-    ; with no catalogue falls back to the hand-written table, so a host that
-    ; forgets draws the shapes it always drew rather than nothing.
-    fn loadPresetsFrom:void (dir:string) {
-        def buf:buffer (buffer_read_file dir "presets.txt")
-        if ((buffer_length buf) > 0) {
-            view.converter.loadPresets((buffer_to_string buf))
-        }
-    }
-
+    ; The 187 preset geometries. The converter finds the asset on its own
+    ; wherever there is a filesystem; this is for the host that has no
+    ; filesystem and the bytes instead — the browser fetches the file and
+    ; hands them over here, before anything is drawn.
     fn loadPresets:void (text:string) {
         view.converter.loadPresets(text)
     }

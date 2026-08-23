@@ -26,6 +26,15 @@ Import "../src/PptxApp.rgr"
 class PptxGeomTest {
     def passed:int 0
     def failed:int 0
+    ; The catalogue, opened once. Every shape question in this file is now
+    ; asked of it, because it is what answers them in the painter.
+    def cat:OfficePresetShapes (new OfficePresetShapes)
+    ; The converter the painting checks draw through — the app's, with the
+    ; catalogue in it. A bare `new PptxToEvg` has no catalogue and correctly
+    ; falls back to a rectangle for every preset, which is the right answer
+    ; for a host that never loaded one and the wrong subject for a test about
+    ; how shapes are painted.
+    def conv:PptxToEvg (new PptxToEvg())
 
     sfn main:void () {
         def t (new PptxGeomTest())
@@ -44,6 +53,11 @@ class PptxGeomTest {
 
     fn run:void () {
         print "=== PptxGeomTest ==="
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        cat = app.view.converter.presets
+        conv = app.view.converter
+        this.check("the preset catalogue is open" cat.ready)
         this.testEllipse()
         this.testPresets()
         this.testOutlineFollowsThePath()
@@ -54,6 +68,7 @@ class PptxGeomTest {
         this.testOpenPathIsAStroke()
         this.testEveryPresetDraws()
         this.testPresetPaintRules()
+        this.testCatalogueAgreesWithTheHandTable()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -65,7 +80,9 @@ class PptxGeomTest {
 
     fn testEllipse:void () {
         print "--- the ellipse is an ellipse ---"
-        def pts:[double] (PptxGeom.unitPreset("ellipse"))
+        def epaths:[GeomPath] (this.unitPaths("ellipse"))
+        def ep:GeomPath (itemAt epaths 0)
+        def pts:[double] ep.pts
         def n:int (idiv (array_length pts) 2)
         this.check("it has enough points to be round" (n >= 32))
         ; Every point sits on the unit circle about (0.5, 0.5), to within a
@@ -140,7 +157,6 @@ class PptxGeomTest {
         sh.lineWidthPt = 1.0
         def slide (new PptxSlide())
         push slide.shapes sh
-        def conv (new PptxToEvg())
         def dl:EVGDisplayList (conv.slideToDisplayList(slide))
         return dl
     }
@@ -174,14 +190,16 @@ class PptxGeomTest {
 
     fn testPresets:void () {
         print "--- the presets ---"
-        def names:[string] ([] _:string ( "triangle" "rtTriangle" "diamond" "parallelogram" "trapezoid" "pentagon" "hexagon" "octagon" "chevron" "homePlate" "star5" "rightArrow" "leftArrow" "upArrow" "downArrow" "plus" "flowChartTerminator" "flowChartMerge" "flowChartExtract" "flowChartDecision" "flowChartConnector" "flowChartInputOutput" "flowChartData" "flowChartPreparation" "flowChartManualOperation" "flowChartManualInput" ))
+        def names:[string] ([] _:string ( "triangle" "rtTriangle" "diamond" "parallelogram" "trapezoid" "pentagon" "hexagon" "octagon" "chevron" "homePlate" "star5" "rightArrow" "leftArrow" "upArrow" "downArrow" "plus" "flowChartTerminator" "flowChartMerge" "flowChartExtract" "flowChartDecision" "flowChartConnector" "flowChartInputOutput" "flowChartPreparation" "flowChartManualOperation" "flowChartManualInput" ))
         def allInside:boolean true
         def allClosed:boolean true
         def i:int 0
         while (i < (array_length names)) {
             def nm:string (itemAt names i)
-            this.check((nm + " is a path shape") (PptxGeom.needsPath(nm)))
-            def pts:[double] (PptxGeom.unitPreset(nm))
+            this.check((nm + " is a shape the catalogue knows") (cat.has(nm)))
+            def nps:[GeomPath] (this.unitPaths(nm))
+            def np:GeomPath (itemAt nps 0)
+            def pts:[double] np.pts
             def n:int (idiv (array_length pts) 2)
             if (n < 3) {
                 allClosed = false
@@ -217,14 +235,23 @@ class PptxGeomTest {
         ; missing. Falling back to a rectangle is the right thing to do with a
         ; preset nobody has drawn yet and a terrible answer when the shape IS
         ; the picture.
-        def merge:[double] (PptxGeom.unitPreset("flowChartMerge"))
+        def mergePaths:[GeomPath] (this.unitPaths("flowChartMerge"))
+        def mp:GeomPath (itemAt mergePaths 0)
+        def merge:[double] mp.pts
         this.check("merge is three corners" ((array_length merge) == 6))
-        this.check("with its point at the bottom" ((fabs ((itemAt merge 5) - 1.0)) < 0.001))
-        this.check("and centred" ((fabs ((itemAt merge 4) - 0.5)) < 0.001))
-        def extract:[double] (PptxGeom.unitPreset("flowChartExtract"))
+        ; Which corner the definition starts at is its own business, so the
+        ; check is on the shape: one vertex alone at the bottom, centred, and
+        ; the other two along the top.
+        this.check("with its point at the bottom" ((PptxGeomTest.countAtY(merge 1.0)) == 1))
+        this.check("and centred" (PptxGeomTest.hasVertex(merge 0.5 1.0)))
+        this.check("with its base along the top" ((PptxGeomTest.countAtY(merge 0.0)) == 2))
+        def extractPaths:[GeomPath] (this.unitPaths("flowChartExtract"))
+        def xp:GeomPath (itemAt extractPaths 0)
+        def extract:[double] xp.pts
         this.check("extract is three corners" ((array_length extract) == 6))
-        this.check("with its point at the top" ((fabs (itemAt extract 1)) < 0.001))
-        this.check("and centred too" ((fabs ((itemAt extract 0) - 0.5)) < 0.001))
+        this.check("with its point at the top" ((PptxGeomTest.countAtY(extract 0.0)) == 1))
+        this.check("and centred too" (PptxGeomTest.hasVertex(extract 0.5 0.0)))
+        this.check("with its base along the bottom" ((PptxGeomTest.countAtY(extract 1.0)) == 2))
         ; They point OPPOSITE ways, which is the whole difference between the
         ; two symbols and the sort of thing that is easy to copy wrong. A
         ; downward triangle has its two corners along the TOP edge and one
@@ -534,6 +561,393 @@ class PptxGeomTest {
                 return true
             }
             i = (i + 1)
+        }
+        return false
+    }
+
+
+    ; What the hand-written table drew, and what the specification draws.
+    ;
+    ; This is the check that has to pass before the table can be deleted, and
+    ; it is a comparison rather than a snapshot: the two do not agree point
+    ; for point and should not. A hand-written ellipse is a Bezier flattened
+    ; one way and the specification's is an arc flattened another, so they
+    ; differ by a vertex here and a fraction of a percent there.
+    ;
+    ; What has to agree is the SHAPE — where it sits in its box and how much
+    ; of the box it covers. A preset that came out of the catalogue a
+    ; different size, in a different place, or the wrong way up would be a
+    ; regression hidden behind 153 new shapes that all look plausible.
+    fn testCatalogueAgreesWithTheHandTable:void () {
+        print "--- the catalogue draws what the hand table drew ---"
+        ; Split by whether the shape has an adjustment, because the two
+        ; groups mean different things.
+        ;
+        ; A shape with NO adjustment is pure geometry — a diamond, an
+        ; ellipse, the flowchart set. The two drawings of it must agree, and a
+        ; disagreement is a regression.
+        ;
+        ; A shape WITH one is where the hand table had to guess a proportion.
+        ; Nine of them guessed differently from the file's own default, and
+        ; the file is right: `plus` was drawn with arms a third of the box and
+        ; the specification says a quarter of the SHORTER SIDE, which is also
+        ; why the hand-drawn one had a fat bar when the box was wide. Those
+        ; are expected to differ and are checked for still being the same
+        ; shape rather than the same size.
+        def fixedCompared:int 0
+        def fixedDiffer:int 0
+        def fixedWorstName:string ""
+        def fixedWorst:double 0.0
+        def adjCompared:int 0
+        def adjDiffer:int 0
+        def adjWorstName:string ""
+        def adjWorst:double 0.0
+        def noAdjN:[string]
+        def noAdjV:[double]
+        def i:int 0
+        while (i < (cat.count())) {
+            def nm:string (cat.nameAt(i))
+            def old:string (PptxGeomTest.handTable(nm))
+            if ((strlen old) > 0) {
+                def a:[double] (PptxGeom.flattenData(old))
+                def paths:[GeomPath] (cat.pathsFor(nm 200.0 200.0 noAdjN noAdjV))
+                def b:[double]
+                if ((array_length paths) > 0) {
+                    def p0:GeomPath (itemAt paths 0)
+                    b = p0.pts
+                }
+                def d:double (PptxGeomTest.shapeDistance(a b))
+                def adjustable:boolean ((array_length (cat.adjNamesOf(nm))) > 0)
+                if adjustable {
+                    adjCompared = (adjCompared + 1)
+                    if (d > adjWorst) {
+                        adjWorst = d
+                        adjWorstName = nm
+                    }
+                    if (d > 0.3) {
+                        adjDiffer = (adjDiffer + 1)
+                        print (("    " + nm) + " is a different shape, not just different proportions: " + (to_string d))
+                    }
+                } {
+                    fixedCompared = (fixedCompared + 1)
+                    if (d > fixedWorst) {
+                        fixedWorst = d
+                        fixedWorstName = nm
+                    }
+                    ; Five percent of the box. Two flattenings of the same
+                    ; outline sit far inside that; a shape that moved, turned
+                    ; or changed size does not.
+                    if (d > 0.05) {
+                        fixedDiffer = (fixedDiffer + 1)
+                        print (("    " + nm) + " differs by " + (to_string d))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.check(("shapes with no adjustment were compared (" + (to_string fixedCompared) + ")") (fixedCompared > 10))
+        this.check(("and every one of them draws the same shape (worst: " + fixedWorstName + " " + (to_string fixedWorst) + ")") (fixedDiffer == 0))
+        this.check(("adjustable shapes were compared (" + (to_string adjCompared) + ")") (adjCompared > 10))
+        this.check(("and stay in their own box (worst: " + adjWorstName + " " + (to_string adjWorst) + ")") (adjDiffer == 0))
+
+        ; The improvement, stated rather than implied. `plus` was a fixed
+        ; outline with its arms a third of the box, whatever the box was. The
+        ; specification gives it an adjustment whose default insets the corners
+        ; by a quarter of the SHORTER side — so a wide plus keeps square
+        ; notches instead of stretching them, and a deck can change the
+        ; thickness. The hand table could do neither.
+        def wideBox:[GeomPath] (cat.pathsFor("plus" 400.0 100.0 noAdjN noAdjV))
+        def wp:GeomPath (itemAt wideBox 0)
+        def wideInset:double (PptxGeomTest.leftInsetOf(wp.pts))
+        ; The short side is 100, a quarter of it is 25, and 25 of 400 is a
+        ; sixteenth of the width.
+        this.check(("a wide plus insets by the short side, not the width (" + (to_string wideInset) + ")")
+                   ((fabs (wideInset - 0.0625)) < 0.002))
+        def sqBox:[GeomPath] (cat.pathsFor("plus" 200.0 200.0 noAdjN noAdjV))
+        def sp:GeomPath (itemAt sqBox 0)
+        def sqInset:double (PptxGeomTest.leftInsetOf(sp.pts))
+        this.check(("and in a square box that is a quarter of it (" + (to_string sqInset) + ")")
+                   ((fabs (sqInset - 0.25)) < 0.002))
+        ; And the deck's own value reaches the shape — the whole point of
+        ; reading adjustments at all.
+        def fat:[string]
+        def fatV:[double]
+        push fat "adj"
+        push fatV 45000.0
+        def fatter:[GeomPath] (cat.pathsFor("plus" 200.0 200.0 fat fatV))
+        def fp:GeomPath (itemAt fatter 0)
+        def fatInset:double (PptxGeomTest.leftInsetOf(fp.pts))
+        this.check(("a deck can thicken its arms (" + (to_string sqInset) + " -> " + (to_string fatInset) + ")")
+                   (fatInset > (sqInset + 0.1)))
+    }
+
+    ; How far the outline is inset from the left edge of its box: the
+    ; rightmost vertex still in the left half. For a plus that is the depth of
+    ; its corner notch, which is the number its adjustment controls.
+    sfn leftInsetOf:double (p:[double]) {
+        def left:double 0.0
+        def i:int 0
+        while ((i + 1) < (array_length p)) {
+            def x:double (itemAt p i)
+            if (x < 0.5) {
+                if (x > left) {
+                    left = x
+                }
+            }
+            i = (i + 2)
+        }
+        return left
+    }
+
+    ; How far apart two flattened outlines are, as a fraction of the box: the
+    ; largest disagreement among the four edges of the bounding box and the
+    ; area enclosed. Zero is identical, and it does not care how many points
+    ; either one used to say it.
+    sfn shapeDistance:double (a:[double] b:[double]) {
+        if ((array_length a) < 4) {
+            return 9.0
+        }
+        if ((array_length b) < 4) {
+            return 9.0
+        }
+        def ba:[double] (PptxGeomTest.boundsOf(a))
+        def bb:[double] (PptxGeomTest.boundsOf(b))
+        def worst:double 0.0
+        def i:int 0
+        while (i < 4) {
+            def diff:double ((itemAt ba i) - (itemAt bb i))
+            def d:double (fabs diff)
+            if (d > worst) {
+                worst = d
+            }
+            i = (i + 1)
+        }
+        def rawA:double (PptxGeomTest.areaOf(a))
+        def rawB:double (PptxGeomTest.areaOf(b))
+        def areaA:double (fabs rawA)
+        def areaB:double (fabs rawB)
+        def gap:double (areaA - areaB)
+        def da:double (fabs gap)
+        if (da > worst) {
+            worst = da
+        }
+        return worst
+    }
+
+    sfn boundsOf:[double] (p:[double]) {
+        def out:[double]
+        def minX:double 9.0
+        def minY:double 9.0
+        def maxX:double -9.0
+        def maxY:double -9.0
+        def i:int 0
+        while ((i + 1) < (array_length p)) {
+            def x:double (itemAt p i)
+            def y:double (itemAt p (i + 1))
+            if (x < minX) {
+                minX = x
+            }
+            if (x > maxX) {
+                maxX = x
+            }
+            if (y < minY) {
+                minY = y
+            }
+            if (y > maxY) {
+                maxY = y
+            }
+            i = (i + 2)
+        }
+        push out minX
+        push out minY
+        push out maxX
+        push out maxY
+        return out
+    }
+
+    ; The shoelace area of a closed outline. Signed, so the callers take the
+    ; magnitude — a shape wound the other way is the same shape.
+    sfn areaOf:double (p:[double]) {
+        def n:int (idiv (array_length p) 2)
+        if (n < 3) {
+            return 0.0
+        }
+        def sum:double 0.0
+        def i:int 0
+        while (i < n) {
+            def j:int ((i + 1) % n)
+            def x1:double (itemAt p (i * 2))
+            def y1:double (itemAt p ((i * 2) + 1))
+            def x2:double (itemAt p (j * 2))
+            def y2:double (itemAt p ((j * 2) + 1))
+            sum = (sum + ((x1 * y2) - (x2 * y1)))
+            i = (i + 1)
+        }
+        return (sum * 0.5)
+    }
+
+    ; The thirty-four presets that used to be written out by hand in
+    ; `PptxGeom`, frozen here.
+    ;
+    ; They are deleted from the source: all 187 come from the specification's
+    ; own definitions now, and keeping thirty-four hand-drawn ones would have
+    ; been thirty-four standing opportunities to disagree with it. But that is
+    ; exactly what makes them worth keeping HERE — an independent drawing of
+    ; the same shapes, by a different hand, that the catalogue has to keep
+    ; agreeing with. A guard that outlives the thing it was extracted from.
+    ;
+    ; Frozen means frozen: nothing here is ever adjusted to make a comparison
+    ; pass. If the catalogue disagrees, either the catalogue is wrong or the
+    ; hand-drawn one always was, and the answer is in the specification.
+    sfn handTable:string (preset:string) {
+        if (preset == "ellipse") {
+            return "M 1,0.5 A 0.5,0.5 0 1 1 0,0.5 A 0.5,0.5 0 1 1 1,0.5 Z"
+        }
+        if (preset == "triangle") {
+            return "M 0.5,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "rtTriangle") {
+            return "M 0,0 L 0,1 L 1,1 Z"
+        }
+        if (preset == "diamond") {
+            return "M 0.5,0 L 1,0.5 L 0.5,1 L 0,0.5 Z"
+        }
+        if (preset == "parallelogram") {
+            return "M 0.25,0 L 1,0 L 0.75,1 L 0,1 Z"
+        }
+        if (preset == "trapezoid") {
+            return "M 0.25,0 L 0.75,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "pentagon") {
+            return "M 0.5,0 L 1,0.38 L 0.81,1 L 0.19,1 L 0,0.38 Z"
+        }
+        if (preset == "hexagon") {
+            return "M 0.25,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0.25,1 L 0,0.5 Z"
+        }
+        if (preset == "octagon") {
+            return "M 0.29,0 L 0.71,0 L 1,0.29 L 1,0.71 L 0.71,1 L 0.29,1 L 0,0.71 L 0,0.29 Z"
+        }
+        if (preset == "chevron") {
+            return "M 0,0 L 0.65,0 L 1,0.5 L 0.65,1 L 0,1 L 0.35,0.5 Z"
+        }
+        if (preset == "homePlate") {
+            return "M 0,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0,1 Z"
+        }
+        if (preset == "star5") {
+            return "M 0.5,0 L 0.62,0.35 L 1,0.38 L 0.7,0.62 L 0.81,1 L 0.5,0.78 L 0.19,1 L 0.3,0.62 L 0,0.38 L 0.38,0.35 Z"
+        }
+        if (preset == "rightArrow") {
+            return "M 0,0.3 L 0.6,0.3 L 0.6,0.05 L 1,0.5 L 0.6,0.95 L 0.6,0.7 L 0,0.7 Z"
+        }
+        if (preset == "leftArrow") {
+            return "M 1,0.3 L 0.4,0.3 L 0.4,0.05 L 0,0.5 L 0.4,0.95 L 0.4,0.7 L 1,0.7 Z"
+        }
+        if (preset == "upArrow") {
+            return "M 0.3,1 L 0.3,0.4 L 0.05,0.4 L 0.5,0 L 0.95,0.4 L 0.7,0.4 L 0.7,1 Z"
+        }
+        if (preset == "downArrow") {
+            return "M 0.3,0 L 0.3,0.6 L 0.05,0.6 L 0.5,1 L 0.95,0.6 L 0.7,0.6 L 0.7,0 Z"
+        }
+        if (preset == "plus") {
+            return "M 0.35,0 L 0.65,0 L 0.65,0.35 L 1,0.35 L 1,0.65 L 0.65,0.65 L 0.65,1 L 0.35,1 L 0.35,0.65 L 0,0.65 L 0,0.35 L 0.35,0.35 Z"
+        }
+        ; --- the flowchart set ---------------------------------------------
+        ;
+        ; Not decoration: these are how a deck draws a funnel, a decision tree
+        ; or a process. A real deck came in with a seven-stage funnel built
+        ; from `flowChartMerge`, and every stage of it fell back to a plain
+        ; rectangle — so the funnel was a stack of boxes and nothing said
+        ; anything was missing. An unknown preset drawing as a rectangle is
+        ; the right FALLBACK and a terrible answer when the shape is the
+        ; picture.
+        ;
+        ; The paths are the ECMA-376 definitions in the unit box.
+
+        ; A triangle pointing down: the flowchart "merge" symbol, and the
+        ; layer of every funnel ever drawn.
+        if (preset == "flowChartMerge") {
+            return "M 0,0 L 1,0 L 0.5,1 Z"
+        }
+        ; And pointing up: "extract".
+        if (preset == "flowChartExtract") {
+            return "M 0.5,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "flowChartDecision") {
+            return "M 0,0.5 L 0.5,0 L 1,0.5 L 0.5,1 Z"
+        }
+        if (preset == "flowChartConnector") {
+            return "M 1,0.5 A 0.5,0.5 0 1 1 0,0.5 A 0.5,0.5 0 1 1 1,0.5 Z"
+        }
+        ; Input/output is a parallelogram slanted by a fifth — not the same
+        ; slant as the `parallelogram` preset, which is a quarter.
+        if ((preset == "flowChartInputOutput") || (preset == "flowChartData")) {
+            return "M 0.2,0 L 1,0 L 0.8,1 L 0,1 Z"
+        }
+        if (preset == "flowChartPreparation") {
+            return "M 0.2,0 L 0.8,0 L 1,0.5 L 0.8,1 L 0.2,1 L 0,0.5 Z"
+        }
+        if (preset == "flowChartManualOperation") {
+            return "M 0,0 L 1,0 L 0.8,1 L 0.2,1 Z"
+        }
+        if (preset == "flowChartManualInput") {
+            return "M 0,0.2 L 1,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "flowChartTerminator") {
+            return "M 0.17,0 L 0.83,0 A 0.17,0.5 0 0 1 0.83,1 L 0.17,1 A 0.17,0.5 0 0 1 0.17,0 Z"
+        }
+        ; Brackets and braces are OPEN paths — they are a stroke, not a filled
+        ; area, which is what a shape with `noFill` and a line is.
+        if (preset == "leftBracket") {
+            return "M 1,0 L 0.25,0 L 0,0.12 L 0,0.88 L 0.25,1 L 1,1"
+        }
+        if (preset == "rightBracket") {
+            return "M 0,0 L 0.75,0 L 1,0.12 L 1,0.88 L 0.75,1 L 0,1"
+        }
+        if (preset == "leftBrace") {
+            return "M 1,0 L 0.62,0.06 L 0.62,0.44 L 0,0.5 L 0.62,0.56 L 0.62,0.94 L 1,1"
+        }
+        if (preset == "rightBrace") {
+            return "M 0,0 L 0.38,0.06 L 0.38,0.44 L 1,0.5 L 0.38,0.56 L 0.38,0.94 L 0,1"
+        }
+        if (preset == "line") {
+            return "M 0,0 L 1,1"
+        }
+        if (preset == "roundRect") {
+            return ""
+        }
+        return ""
+    }
+
+    ; A shape's paths in a square unit box, which is what the geometry checks
+    ; in this file are written against.
+    fn unitPaths:[GeomPath] (name:string) {
+        def n:[string]
+        def v:[double]
+        return (cat.pathsFor(name 200.0 200.0 n v))
+    }
+
+    sfn countAtY:int (p:[double] y:double) {
+        def n:int 0
+        def i:int 1
+        while (i < (array_length p)) {
+            def d:double ((itemAt p i) - y)
+            if ((fabs d) < 0.002) {
+                n = (n + 1)
+            }
+            i = (i + 2)
+        }
+        return n
+    }
+
+    sfn hasVertex:boolean (p:[double] x:double y:double) {
+        def i:int 0
+        while ((i + 1) < (array_length p)) {
+            def dx:double ((itemAt p i) - x)
+            def dy:double ((itemAt p (i + 1)) - y)
+            if (((fabs dx) < 0.002) && ((fabs dy) < 0.002)) {
+                return true
+            }
+            i = (i + 2)
         }
         return false
     }

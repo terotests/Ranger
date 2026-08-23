@@ -1,11 +1,14 @@
 # A geometry engine, not 153 shapes
 
-`ST_ShapeType` enumerates 187 preset geometries. `PptxGeom.presetPath` draws
-34 of them. The other 153 reach the painter as `rect`, which fails quietly —
-a shape we do not know is a filled box in the shape's own colour, not an
-error and not a gap. That is why `star7` read as a deliberate red square.
+**Done.** All 187 preset geometries draw, from the specification's own
+definitions. What follows is the plan as it was written and how each phase
+turned out; the inventory is in `PRESET_SHAPE_COVERAGE.md`.
 
-The inventory, per shape, is in `PRESET_SHAPE_COVERAGE.md`.
+The problem it started from: `ST_ShapeType` enumerates 187 preset geometries
+and `PptxGeom.presetPath` drew 34. The other 153 reached the painter as
+`rect`, which fails quietly — a shape we do not know is a filled box in the
+shape's own colour, not an error and not a gap. That is why `star7` read as a
+deliberate red square.
 
 ## Why this is not a list of 153 tasks
 
@@ -130,3 +133,47 @@ nearly for free — both are guides, evaluated by the same evaluator:
   bubble.
 - **Connection sites.** `cxnLst` is where a connector attaches. Without it
   every connector meets a bounding box rather than the shape.
+
+## How it went
+
+Phases 1 and 3 were done together. The staging was about risk and the risk is
+in the units, not the operator count — the twelve "later" operators are where
+the angle unit lives, so implementing five of seventeen would have deferred
+exactly the part worth testing.
+
+Two things the published copy of the definitions needed: it lists
+`upDownArrow` twice, and it has no `upArrow`. The duplicate is dropped and
+`upArrow` is `downArrow` mirrored about the horizontal axis — an exact
+transformation, marked as such in the generator.
+
+Phase 6's comparison found nine disagreements, and the catalogue was right
+about all nine. Each is an adjustable shape whose proportion the hand table
+had to guess: `plus` was drawn with its corners inset a third of the box
+whatever the box was, and the specification says a quarter of the SHORTER
+side — which is also why the hand-drawn one stretched when the box was wide.
+The thirteen shapes with no adjustment agree to four thousandths of the box.
+
+The hand table is deleted from `PptxGeom` and frozen into `PptxGeomTest`,
+where it is worth more: an independent drawing of the same shapes, by a
+different hand, that the catalogue has to keep agreeing with.
+
+Two rules were learned from looking at a rendered slide rather than at the
+file. A shape's own `<a:noFill/>` outranks anything its preset says about
+paths. And `stroke="true"` on a path is permission rather than an
+instruction — it says the path takes part in the shape's outline, and a
+shape with no outline has none to take part in. Reading it as an order drew a
+black box round every text frame in a real deck, and no test saw it.
+
+## Still to do
+
+The two named above as nearly free, now that the evaluator exists:
+
+- **The text rectangle.** `textRectFor` returns it and nothing consumes it
+  yet, so a callout's words still sit in its bounding box rather than in its
+  bubble.
+- **Connection sites.** `cxnLst` is not in the catalogue yet; connectors meet
+  a bounding box rather than the shape.
+
+And `custGeom` still carries its own `gdLst`, which this evaluator could
+resolve and currently does not — a document's own guides are read as literal
+numbers. That is the last place the two sources have not met.

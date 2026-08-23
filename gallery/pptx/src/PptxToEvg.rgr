@@ -406,9 +406,32 @@ class PptxToEvg {
     ; falls back to the hand-written table exactly as before — which is what
     ; lets this be wired in one editor at a time without a flag day.
     def presets:OfficePresetShapes (new OfficePresetShapes)
+    def presetsTried:boolean false
 
     fn loadPresets:void (text:string) {
         presets.load(text)
+        presetsTried = true
+    }
+
+    ; The catalogue, found on its own if nobody handed one over.
+    ;
+    ; A host that loads it is the normal case and this never runs. A converter
+    ; built directly — a test, an embedder — used to draw every preset as a
+    ; rectangle instead, silently, which is the exact failure this whole piece
+    ; of work exists to end and would have been a fine way to reintroduce it
+    ; one call site at a time.
+    ;
+    ; Once only, and a failure is not an error: a browser has no filesystem
+    ; and gets its catalogue from a fetch before anything is drawn.
+    fn ensurePresets:void () {
+        if presetsTried {
+            return
+        }
+        presetsTried = true
+        def buf:buffer (buffer_read_file "gallery/office/geom/assets" "presets.txt")
+        if ((buffer_length buf) > 0) {
+            presets.load((buffer_to_string buf))
+        }
     }
 
     fn presetsReady:boolean () {
@@ -1333,6 +1356,7 @@ class PptxToEvg {
             ; table could not express.
             def usedCatalogue:boolean false
             if (shape.hasPath == false) {
+                this.ensurePresets()
                 ; A plain rectangle and a rounded one stay on the rounded-rect
                 ; primitive, which knows about gradients, shadows and corner
                 ; radii in a way a polygon does not — and between them they
