@@ -148,6 +148,8 @@ class DbViewerFrame {
     ; the sheet reaches the database through something a person has read.
     def migrationText:string ""
     def sheetHeaderH:int 44
+    ; Kept so a pane rebuilt for another table is given the same rules.
+    def cellRules:CellRuleHost (new CellRuleHost)
     def note:string ""
     def hoverRow:int -1
     ; Which visible tree row is selected, so the list can show it.
@@ -866,6 +868,17 @@ class DbViewerFrame {
         sheetsStarted = true
     }
 
+    ; Rules a person wrote, for columns whose constraint is not a range and
+    ; not a list. The frame takes the HOST rather than the engine that runs
+    ; it: a `CellScripts` pulls in ComponentEngine and the TypeScript parser,
+    ; and a build that does not want them should not carry them.
+    fn useCellRules:void (host:CellRuleHost) {
+        this.startSheets()
+        schemaSheet.pane.useRules(host)
+        dataSheet.pane.useRules(host)
+        cellRules = host
+    }
+
     ; The pane the pointer and the keyboard are talking to, or none.
     fn activePane:GridPane () {
         if (app.section == "data") {
@@ -891,6 +904,7 @@ class DbViewerFrame {
             }
         }
         schemaSheet.build(t)
+        schemaSheet.pane.useRules(cellRules)
         schemaSheetFor = t.name
     }
 
@@ -909,6 +923,7 @@ class DbViewerFrame {
         def t:DBTable (app.currentTable())
         def chunk:DataChunk (app.pageOfRows(dataOffset dataPageSize))
         dataSheet.build(t chunk dataOffset)
+        dataSheet.pane.useRules(cellRules)
         dataSheetFor = name
         dataSheetAt = dataOffset
     }

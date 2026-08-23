@@ -22,6 +22,7 @@
 ; ==============================================================================
 
 Import "../app/DbViewerFrame.rgr"
+Import "../../datagrid/src/script/CellScripts.rgr"
 
 class RangerDbViewerWeb {
     def frame:DbViewerFrame (new DbViewerFrame)
@@ -88,6 +89,50 @@ class RangerDbViewerWeb {
             return ""
         }
         return (GridPane.plainList((rule.listValues())))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Rules a person wrote, in the page
+    ; ------------------------------------------------------------------------
+    ;
+    ; A column whose constraint is neither a range nor a list — an SKU shape,
+    ; a date that must not precede another one, a discount that needs
+    ; approval — is a function, and the function is JavaScript run by
+    ; ComponentEngine. The page can hand one in at any time, which is the
+    ; whole point: changing what a column will accept is editing a script,
+    ; not rebuilding the viewer.
+    def scripts:CellScripts (new CellScripts)
+    def scriptsOn:boolean false
+
+    fn useCellScript:boolean (src:string) {
+        def ok:boolean (scripts.load(src))
+        frame.useCellRules(scripts)
+        scriptsOn = true
+        return ok
+    }
+
+    fn scriptError:string () {
+        return scripts.errorText
+    }
+
+    ; Attach a rule to a column of the Data panel, by the column's name.
+    fn ruleOnDataColumn:boolean (column:string ruleName:string why:string) {
+        def at:int (frame.dataSheet.columnIndex(column))
+        if (at < 0) {
+            return false
+        }
+        frame.dataSheet.pane.scriptColumn(at 1 frame.dataSheet.rows ruleName why)
+        return true
+    }
+
+    ; Would the Data panel take that, in that cell? What the page's own checks
+    ; ask, and what a host writing its own editor would ask.
+    fn dataAccepts:boolean (row:int col:int text:string) {
+        return (frame.dataSheet.pane.accepts(row col text))
+    }
+
+    fn dataRefusal:string (row:int col:int) {
+        return (frame.dataSheet.pane.refusalMessage(row col))
     }
 
     ; Put the cursor on a cell without a pointer — what a keyboard-only

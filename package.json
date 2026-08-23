@@ -265,6 +265,7 @@
     "rangersql:identity": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangersql/tests/IdentityTest.rgr -d=./gallery/rangersql/bin -o=IdentityTest.js -nodecli && node ./gallery/rangersql/bin/IdentityTest.js",
     "rangersql:oracle": "npm run rangersql:identity && python3 gallery/rangersql/tools/sqlglot_oracle.py",
     "rangerdb:bench": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/bench/db_bench.rgr -d=./gallery/rangerdb/bin -o=db_bench.js -nodecli && node ./gallery/rangerdb/bin/db_bench.js",
+    "datagrid:pane:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridPaneTest.rgr -d=./gallery/datagrid/bin -o=GridPaneTest.js -nodecli && node ./gallery/datagrid/bin/GridPaneTest.js",
     "datagrid:db:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridDbTest.rgr -d=./gallery/datagrid/bin -o=GridDbTest.js -nodecli && node ./gallery/datagrid/bin/GridDbTest.js",
     "datagrid:db:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/src/db_demo.rgr -d=./gallery/datagrid/bin -o=db_demo.js -nodecli && node ./gallery/datagrid/bin/db_demo.js",
     "datagrid:textfit:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/tests/GridTextFitTest.rgr -d=./gallery/datagrid/bin -o=GridTextFitTest.js -nodecli && node ./gallery/datagrid/bin/GridTextFitTest.js",

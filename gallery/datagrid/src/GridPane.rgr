@@ -46,6 +46,7 @@ Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "SheetView.rgr"
 Import "DataValidation.rgr"
+Import "CellRuleHost.rgr"
 Import "../../evg/EVGWindow.rgr"
 
 class GridPane {
@@ -65,6 +66,11 @@ class GridPane {
     ; A pane whose cells the host does not want changed. The grid still
     ; selects, scrolls and copies; it just refuses to begin an edit.
     def readOnly:boolean false
+
+    ; Where a `script` rule's verdict comes from. The base class accepts
+    ; everything, so a pane that was never given one behaves exactly as it
+    ; did before script rules existed — see `CellRuleHost`.
+    def rules:CellRuleHost (new CellRuleHost)
 
     ; The value picker a list-validated cell opens. It is `EVGWindow` — the
     ; same dialog the spreadsheet, the deck editor and the document editor put
@@ -254,9 +260,31 @@ class GridPane {
     ; The value a caller is about to commit, checked against whatever rule
     ; covers the cell. A pane refuses rather than storing something the
     ; column's own validation says is not allowed.
+    ;
+    ; A `script` rule is answered by the host, because `DataValidation` has to
+    ; stay answerable from an .xlsx alone — see `CellRuleHost`. With no host
+    ; installed a script rule accepts, which is what a sheet opened away from
+    ; its script should do.
     fn accepts:boolean (row:int col:int text:string) {
         def rule:DataValidation (model.validationAt(row col))
+        if (rule.isScript()) {
+            return (rules.accepts((rule.scriptName()) text row col))
+        }
         return (rule.accepts(text))
+    }
+
+    ; Why the last refusal happened, in the words whoever wrote the rule
+    ; chose. A script that returned a string said it itself; everything else
+    ; falls back to the validation's own message.
+    fn refusalMessage:string (row:int col:int) {
+        def rule:DataValidation (model.validationAt(row col))
+        if (rule.isScript()) {
+            def why:string (rules.reason())
+            if ((strlen why) > 0) {
+                return why
+            }
+        }
+        return (rule.message())
     }
 
     fn commitEdit:boolean () {
@@ -527,6 +555,27 @@ class GridPane {
         sel.anchor.col = col
         grid.updateVisible(model)
         return true
+    }
+
+    ; A column judged by a function rather than by a bound. `name` is a
+    ; function in whatever script the host installed; see `CellScripts`.
+    fn scriptColumn:DataValidation (col:int firstRow:int lastRow:int name:string why:string) {
+        def v:DataValidation (new DataValidation)
+        v.kind = "script"
+        v.c0 = col
+        v.c1 = col
+        v.r0 = firstRow
+        v.r1 = lastRow
+        v.f1 = name
+        v.allowBlank = false
+        v.errorTitle = "Not allowed here"
+        v.errorText = why
+        model.addValidation(v)
+        return v
+    }
+
+    fn useRules:void (host:CellRuleHost) {
+        rules = host
     }
 
     fn wholeColumn:DataValidation (col:int firstRow:int lastRow:int low:string high:string) {

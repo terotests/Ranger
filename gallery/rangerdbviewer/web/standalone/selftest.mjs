@@ -141,6 +141,39 @@ export async function selftest(web, draw) {
   ok("the data panel is a spreadsheet too", web.dataCell(0, 0).length > 0);
   ok("…with rows in it", web.dataCell(1, 0).length > 0);
 
+  // --- a column rule somebody wrote in JavaScript ---------------------------
+  //
+  // Not a range and not a list: a function, run by ComponentEngine — the same
+  // evaluator the report scripts use — reached through the same `accepts`
+  // every other rule goes through. Changing what a column will take is
+  // editing this string, not rebuilding the viewer.
+  const rules = [
+    "function email(cell) {",
+    "  if (cell.blank) { return 'an email address is required' }",
+    "  if (cell.value.indexOf('@') < 0) { return 'that is not an email address' }",
+    "  return true",
+    "}",
+    "function nordic(cell) {",
+    "  return ['Finland', 'Sweden', 'Norway', 'Denmark'].indexOf(cell.value) >= 0",
+    "}",
+  ].join("\n");
+  ok("the page can install cell rules", web.useCellScript(rules) && web.scriptError() === "");
+  web.selectTable("customers");
+  web.run("view.data", "");
+  draw();
+  ok("a rule can be put on a column by name", web.ruleOnDataColumn("email", "email", "an email address"));
+  const emailCol = 1;
+  ok("…and it refuses what it should", web.dataAccepts(1, emailCol, "not-an-address") === false);
+  ok("…in the words the rule's author wrote", web.dataRefusal(1, emailCol) === "that is not an email address");
+  ok("…and accepts what it should", web.dataAccepts(1, emailCol, "ada@example.com"));
+  ok("a rule with no message still refuses",
+     web.ruleOnDataColumn("country", "nordic", "Nordic countries only") &&
+     web.dataAccepts(1, 3, "Portugal") === false);
+  ok("…and accepts", web.dataAccepts(1, 3, "Norway"));
+  // A rule nobody wrote must not make the column unfillable.
+  ok("a rule nobody wrote refuses nothing",
+     web.ruleOnDataColumn("name", "noSuchRule", "") && web.dataAccepts(1, 2, "anything"));
+
   // --- the honest refusal ---------------------------------------------------
   ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);
   ok("…and the refusal says why", (web.note() || "").indexOf("host") >= 0);

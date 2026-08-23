@@ -180,6 +180,18 @@ class DataSheet {
     ; ------------------------------------------------------------------------
     ; Reading the sheet back
     ; ------------------------------------------------------------------------
+    fn columnIndex:int (name:string) {
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if ((itemAt names i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     fn textAt:string (row:int col:int) {
         return (pane.model.getCell((row + 1) col))
     }
