@@ -29,6 +29,10 @@ Import "../../evg/EVGSelectChrome.rgr"
 ; component the spreadsheet's and the document's are — and this is the only
 ; part that is about slides.
 class PptxToolbar extends EVGToolbar {
+    ; What the direction switch is showing. The strip needs it to draw the
+    ; button pressed; the app owns the decision.
+    def uiRtl:boolean false
+
     ; The strip cannot work out whether the deck is being edited any more than
     ; it can work out which slide you are on; the app sets it before paint.
     def editOn:boolean false
@@ -36,61 +40,79 @@ class PptxToolbar extends EVGToolbar {
     Constructor () {
     }
 
+    ; The strip, in named pages. A deck viewer's commands split cleanly:
+    ; Home is moving around the deck, Insert puts a shape or a picture on the
+    ; slide, Arrange is what you do to the shapes once they are there, and
+    ; Slides is about the deck itself. Thirty buttons in one band made all
+    ; four look like one undifferentiated wall of pictures.
     fn build:void () {
         clear items
+        clear tabs
+        this.addTab("Home")
         this.add("file.open" "" "Open a deck" (ToolIcon.openFile()))
-        this.add("file.save" "" "Save the deck" (ToolIcon.save()))
+        ; The two a beginner reaches for first carry their names.
+        this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
+        this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
         this.addSeparator()
-        this.add("slide.first" "" "First slide" (ToolIcon.alignLeft()))
-        this.add("slide.prev" "" "Previous slide" (ToolIcon.undo()))
-        this.add("slide.next" "" "Next slide" (ToolIcon.redo()))
-        this.add("slide.last" "" "Last slide" (ToolIcon.alignRight()))
+        this.add("slide.first" "" "First slide" (ToolIcon.navFirst()))
+        this.add("slide.prev" "" "Previous slide" (ToolIcon.navPrev()))
+        this.add("slide.next" "" "Next slide" (ToolIcon.navNext()))
+        this.add("slide.last" "" "Last slide" (ToolIcon.navLast()))
         this.addSeparator()
         this.addText("slide.pick" "" "1 / 1" 88)
         this.addSeparator()
         ; The editing half of the strip. It is always here — the buttons are
         ; live only while `edit.toggle` is pressed, which is what tells you
         ; the deck can be changed at all.
-        this.add("edit.toggle" "" "Edit the slide" (ToolIcon.paint()))
+        this.add("edit.toggle" "" "Edit the slide" (ToolIcon.editMode()))
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+
+        this.addTab("Insert")
+        ; The text box is what somebody opens Insert to do, so it is drawn as
+        ; the thing on the page rather than as one of four identical squares.
+        this.addLarge("text.add" "" "Text Box" (ToolIcon.textBox()))
         this.addSeparator()
-        this.add("shape.rect" "" "Insert a box" (ToolIcon.borderAll()))
-        this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.cond()))
-        this.add("text.add" "" "Insert a text box" (ToolIcon.textColor()))
-        this.add("picture.add" "" "Insert a picture" (ToolIcon.report()))
-        this.addSeparator()
-        this.add("edit.copy" "" "Copy" (ToolIcon.paint()))
-        this.add("edit.paste" "" "Paste" (ToolIcon.clearFmt()))
-        this.add("edit.lock" "" "Lock or unlock" (ToolIcon.freeze()))
-        this.add("edit.flip.h" "" "Flip across" (ToolIcon.borderOut()))
-        this.add("edit.flip.v" "" "Flip down" (ToolIcon.borderMore()))
-        this.add("edit.duplicate" "" "Duplicate" (ToolIcon.merge()))
-        this.add("edit.delete" "" "Delete" (ToolIcon.deleteRow()))
-        this.add("edit.front" "" "Bring to front" (ToolIcon.valignTop()))
-        this.add("edit.back" "" "Send to back" (ToolIcon.valignBot()))
-        this.add("edit.group" "" "Group" (ToolIcon.freeze()))
-        this.add("edit.ungroup" "" "Ungroup" (ToolIcon.borderNone()))
-        this.addSeparator()
+        this.add("shape.rect" "" "Insert a box" (ToolIcon.shapeRect()))
+        this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.shapeEllipse()))
+        this.add("picture.add" "" "Insert a picture" (ToolIcon.picture()))
+
+        this.addTab("Arrange")
+        this.add("edit.copy" "" "Copy" (ToolIcon.copy()))
+        this.add("edit.paste" "" "Paste" (ToolIcon.paste()))
+        this.add("edit.lock" "" "Lock or unlock" (ToolIcon.lock()))
+        this.add("edit.flip.h" "" "Flip across" (ToolIcon.flipH()))
+        this.add("edit.flip.v" "" "Flip down" (ToolIcon.flipV()))
+        this.add("edit.duplicate" "" "Duplicate" (ToolIcon.duplicate()))
+        this.add("edit.delete" "" "Delete" (ToolIcon.trash()))
+        this.add("edit.front" "" "Bring to front" (ToolIcon.bringFront()))
+        this.add("edit.back" "" "Send to back" (ToolIcon.sendBack()))
+        this.add("edit.group" "" "Group" (ToolIcon.group()))
+        this.add("edit.ungroup" "" "Ungroup" (ToolIcon.ungroup()))
+
+        this.addTab("Format")
         this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
         this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
         this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
         this.add("format.copy" "" "Pick up the formatting" (ToolIcon.paint()))
-        this.add("format.paste" "" "Paint it on" (ToolIcon.borderAll()))
+        this.add("format.paste" "" "Paint it on" (ToolIcon.formatPaste()))
         this.add("edit.bold" "" "Bold text" (ToolIcon.bold()))
         this.add("edit.italic" "" "Italic text" (ToolIcon.italic()))
         this.add("text.bullet" "" "Bulleted list" (ToolIcon.bulletList()))
         this.add("text.number" "" "Numbered list" (ToolIcon.numberList()))
         this.add("text.outdent" "" "Outdent the list" (ToolIcon.indentLess()))
         this.add("text.indent" "" "Indent the list" (ToolIcon.indentMore()))
-        this.addSeparator()
+
+        this.addTab("Slides")
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
-        this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.cond()))
-        this.add("slide.add" "" "New slide" (ToolIcon.newFile()))
-        this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.insertRow()))
-        this.add("slide.delete" "" "Delete slide" (ToolIcon.deleteRow()))
+        this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.palette()))
+        this.add("slide.add" "" "New slide" (ToolIcon.slideAdd()))
+        this.add("slide.duplicate" "" "Duplicate slide" (ToolIcon.slideCopy()))
+        this.add("slide.delete" "" "Delete slide" (ToolIcon.slideDel()))
         this.addSeparator()
         this.add("show.start" "" "Show the deck" (ToolIcon.play()))
+        this.addSeparator()
+        this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
     }
 
     ; The one button that shows a value rather than a picture. The strip
@@ -105,6 +127,9 @@ class PptxToolbar extends EVGToolbar {
             }
             if (t.command == "edit.toggle") {
                 t.pressed = editOn
+            }
+            if (t.command == "view.rtl") {
+                t.pressed = uiRtl
             }
             i = (i + 1)
         }
@@ -125,6 +150,15 @@ class PptxApp {
     ; The frame: the shared strip, the shared window layer, the shared command
     ; table. A slide viewer used to draw its own dark band with a string in it,
     ; which was a third toolbar in a third style that nothing else could use.
+    ; Whether the interface is mirrored. Not the deck's direction — that is
+    ; the file's business and is read from `a:pPr rtl` — this is which way the
+    ; PROGRAM is laid out around it.
+    def uiRtl:boolean false
+    ; Has the reader turned the interface back to left-to-right by hand?
+    ; While they have, the automatic half stays quiet: a program that keeps
+    ; undoing a deliberate choice every time a file is opened is worse than
+    ; one that never guessed.
+    def uiRtlChosen:boolean false
     def toolbar:PptxToolbar (new PptxToolbar)
     def toolbarView:EVGToolbarView (new EVGToolbarView)
     def windows:EVGWindowManager (new EVGWindowManager)
@@ -145,9 +179,23 @@ class PptxApp {
     ; editor behind a toolbar toggle, which meant the first thing anyone did —
     ; click the slide — turned the page instead of picking a shape up.
     def editMode:boolean true
-    def dragMode:int 0          ; 0 none, 1 move, 2 resize, 3 marquee, 4 rotate
+    def dragMode:int 0          ; 0 none, 1 move, 2 resize, 3 marquee, 4 rotate, 5 placing
     ; The rubber band, in slide points, while a drag over empty canvas is
     ; happening.
+    ; A tool waiting to be put down: "" for none, "text" for a text box.
+    ;
+    ; Inserting used to drop a box at a fixed fraction of the slide, so two of
+    ; them landed at EXACTLY the same place and the second hid the first; the
+    ; caret was not in it, so typing did nothing until you found and
+    ; double-clicked it; and it arrived carrying the literal word "Text",
+    ; which you then had to select and delete. Four steps and a collision to
+    ; write one label.
+    ;
+    ; This is how every drawing program has done it for thirty years: pick the
+    ; tool, drag out the box, type. The pointer says the tool is armed, a
+    ; click without a drag gives a sensible default box, and Escape puts the
+    ; tool down again.
+    def pendingTool:string ""
     def marqueeX:double 0.0
     def marqueeY:double 0.0
     def marqueeW:double 0.0
@@ -558,6 +606,8 @@ class PptxApp {
         commands.add("slide.delete" "Delete slide" "Slides" "")
         commands.add("slide.moveup" "Move slide earlier" "Slides" "")
         commands.add("slide.movedown" "Move slide later" "Slides" "")
+        commands.add("view.rtl" "Right-to-left layout" "View" "")
+        commands.add("file.print" "Print" "File" "Ctrl+P")
     }
 
     ; A deck the caller already has, rather than one read from a file. The
@@ -816,8 +866,68 @@ class PptxApp {
         view.resize(W H)
     }
 
+    ; Turn the interface around, or back. One flag: the strip mirrors itself
+    ; and anything drawn through EVGLayout mirrors because `direction`
+    ; inherits from the root. The DECK's own direction is a separate question
+    ; — `a:pPr rtl` says which way a paragraph runs and that is not the
+    ; reader's to override.
+    fn setUiRtl:void (on:boolean) {
+        uiRtl = on
+        toolbar.rtl = on
+        toolbar.uiRtl = on
+    }
+
+    ; A right-to-left deck opens with the interface already turned around.
+    ; Only ever turns it ON: a reader who turned it off is not overruled by
+    ; the next deck they open.
+    fn adoptDeckDirection:void () {
+        if uiRtlChosen {
+            return
+        }
+        if uiRtl {
+            return
+        }
+        def si:int 0
+        while (si < (array_length presentation.slides)) {
+            def sl:PptxSlide (itemAt presentation.slides si)
+            def shi:int 0
+            while (shi < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes shi)
+                def pi:int 0
+                while (pi < (array_length sh.text.paragraphs)) {
+                    def pa:PptxParagraph (itemAt sh.text.paragraphs pi)
+                    if (pa.rtl == 1) {
+                        this.setUiRtl(true)
+                        return
+                    }
+                    pi = (pi + 1)
+                }
+                shi = (shi + 1)
+            }
+            si = (si + 1)
+        }
+    }
+
     ; --- the command surface --------------------------------------------------
     fn runCommand:boolean (id:string arg:string) {
+        ; Printing is the host's: this program can lay a slide out and draw
+        ; it, and it has no idea what printers exist. `fileRequest` is the
+        ; same channel saving already goes out on.
+        if (id == "file.print") {
+            fileRequest = "print"
+            return true
+        }
+        if (id == "view.rtl") {
+            ; The latch goes down exactly when the reader turns the interface
+            ; OFF, and lifts when they turn it back on. "The reader said no"
+            ; is the only thing the automatic half has to respect — it never
+            ; turns the switch off, so a reader who turned it on by hand has
+            ; nothing to be overruled about.
+            def next:boolean (uiRtl == false)
+            uiRtlChosen = (next == false)
+            this.setUiRtl(next)
+            return true
+        }
         if (id == "file.open") {
             fileRequest = "open"
             return true
@@ -950,7 +1060,19 @@ class PptxApp {
         }
         toolbar.hot = (toolbar.hit(px py))
         if pressed {
+            ; A press on a page name shows that page. Checked before the
+            ; buttons, because the two rows are one strip and the names sit
+            ; where a button never does.
+            def tb:int (toolbar.hitTab(px py))
+            if (tb >= 0) {
+                toolbar.selectTab(tb)
+                return true
+            }
             if (toolbar.hot >= 0) {
+                ; A dropdown opens its list instead of running something.
+                if (toolbar.pressItem(toolbar.hot)) {
+                    return true
+                }
                 def t:ToolItem (toolbar.at(toolbar.hot))
                 return (this.runCommand(t.command t.arg))
             }
@@ -1212,6 +1334,15 @@ class PptxApp {
                     slideDialog.close()
                     taken = true
                 }
+                ; Escape puts an armed tool down. Before the dialog check
+                ; would be wrong — a dialog over the slide is the nearer
+                ; thing — and after everything else would mean a reader with
+                ; a tool armed could not get out of it without using it.
+                if (taken == false) {
+                    if (this.cancelPendingTool()) {
+                        taken = true
+                    }
+                }
             }
             if editMode {
                 taken = (this.editKey(k input.shiftDown))
@@ -1246,9 +1377,13 @@ class PptxApp {
                 }
             }
         }
+        ; PIXELS of travel, positive downwards — the unit the gesture arrives
+        ; in, rather than notches. See `scrollPanelPixels`: a trackpad swipe is
+        ; dozens of small wheel events, and counting each of them as a whole
+        ; notch scrolled a hundred slides past in one flick.
         if (input.scrollDelta != 0) {
             if (input.pointerX < (this.panelWidth())) {
-                this.scrollPanel(input.scrollDelta)
+                this.scrollPanelPixels(input.scrollDelta)
             }
         }
         this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
@@ -1286,6 +1421,16 @@ class PptxApp {
         }
         toolbarView.attach(view.ctx view.fontFamily)
         toolbarView.theme = theme
+        ; A right-to-left deck opens turned around. Checked here because this
+        ; app has no single load hook, and it costs one walk of the deck per
+        ; frame only while the answer is still no — once turned around this
+        ; returns on its first line.
+        this.adoptDeckDirection()
+        ; The band is as tall as the page showing on it needs, and pages
+        ; differ — one with a big button on it is taller than one without.
+        ; Settling this only on resize left the strip short after a page
+        ; change, with the bottom of the button drawn over the slide.
+        toolbarH = (toolbar.heightFor(W))
         toolbar.refresh(index (this.slideCount()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 
@@ -1304,6 +1449,11 @@ class PptxApp {
             label = ((label + "   ") + es)
         }
         toolbarView.pushText(framed label 8.0 (to_double (sy + 4)) 12.0 theme.dim)
+
+        ; An open dropdown hangs BELOW the strip, so it is drawn after
+        ; everything the strip sits on top of and before the windows, which
+        ; are the only thing that belongs above it.
+        toolbarView.paintOverlay(framed toolbar)
 
         def wi:int 0
         while (wi < (array_length windows.windows)) {
@@ -2044,8 +2194,22 @@ class PptxApp {
 
     ; The rotation handle stands off the top of the box, where every editor
     ; puts it.
+    ; Where the rotation handle stands: above the top edge of the selection,
+    ; and never underneath the toolbar.
+    ;
+    ; The clamp is the whole point of this being a function. A shape near the
+    ; top of the slide put its handle at y=67 with a toolbar 68 tall, and
+    ; `editPointer` rejects everything above `toolbarH` as a click on the
+    ; strip — so the handle was DRAWN, `handleAt` found it, and pressing it
+    ; did nothing at all. A control you can see and cannot use is worse than
+    ; one that is not there, because the reader keeps trying.
     fn rotateHandleY:double (y0:double) {
-        return (y0 - 18.0)
+        def y:double (y0 - 18.0)
+        def floorY:double (to_double (toolbarH + 8))
+        if (y < floorY) {
+            return floorY
+        }
+        return y
     }
 
     ; One shape, turned: its selection turns with it. Several shapes, or none
@@ -2208,6 +2372,20 @@ class PptxApp {
         def sy:double (this.screenToSlideY(py))
         if pressed {
             this.syncEditor()
+            ; An armed tool takes the press before anything else on the slide:
+            ; the whole point of arming one is that the next drag means "put
+            ; it here" and not "select what is under here".
+            if ((strlen pendingTool) > 0) {
+                dragMode = 5
+                marqueeX = sx
+                marqueeY = sy
+                marqueeW = 0.0
+                marqueeH = 0.0
+                dragLastX = sx
+                dragLastY = sy
+                dragMoved = false
+                return true
+            }
             ; While a caret is in a shape, a click inside that shape moves the
             ; caret rather than picking the shape up again.
             if (editor.isEditingText()) {
@@ -2277,6 +2455,13 @@ class PptxApp {
         }
         if released {
             if (dragMode > 0) {
+                if (dragMode == 5) {
+                    this.placePendingTool()
+                    marqueeW = 0.0
+                    marqueeH = 0.0
+                    dragMode = 0
+                    return true
+                }
                 if (dragMode == 3) {
                     ; A band that never moved is a click on empty canvas, and
                     ; that already cleared the selection.
@@ -2350,12 +2535,31 @@ class PptxApp {
                     marqueeW = (sx - marqueeX)
                     marqueeH = (sy - marqueeY)
                 }
+                ; Placing a tool draws the same rectangle a rubber band does,
+                ; and for the same reason: the reader has to see the shape of
+                ; the thing before they let go of it.
+                if (dragMode == 5) {
+                    marqueeW = (sx - marqueeX)
+                    marqueeH = (sy - marqueeY)
+                }
                 if (dragMode == 4) {
-                    ; The pointer's angle about the centre of the selection,
-                    ; with the handle standing at twelve o'clock.
-                    def b2:PptxEditRect (editor.selectionBounds())
-                    def cx:double (b2.midX())
-                    def cy:double (b2.midY())
+                    ; The pointer's angle about the point the turn STARTED
+                    ; from, with the handle standing at twelve o'clock.
+                    ;
+                    ; It used to recompute the centre from the selection's
+                    ; bounds every frame, and for a group that is a centre
+                    ; that MOVES: `spinAbout` carries each shape around the
+                    ; pivot, so the bounding box of the selection swings as
+                    ; the group turns. Measured over a full turn of two
+                    ; shapes the recomputed centre wandered from (360,135) to
+                    ; (450,22) and back — a hundred and forty points away
+                    ; from where the turn began. The group still ended up
+                    ; rotated about the right point, because `applyRotate`
+                    ; uses the captured pivot; what was wrong was the ANGLE,
+                    ; so the group did not follow the pointer and the handle
+                    ; felt like it was fighting the hand holding it.
+                    def cx:double editor.rotPivotX
+                    def cy:double editor.rotPivotY
                     def ang:double (atan2 (sy - cy) (sx - cx))
                     def deg:double (((ang * 180.0) / 3.141592653589793) + 90.0)
                     if modShift {
@@ -2368,6 +2572,74 @@ class PptxApp {
             }
         }
         return false
+    }
+
+    ; Put the armed tool down where it was dragged.
+    ;
+    ; A drag gives the box its rectangle. A CLICK — a drag that never moved —
+    ; gives a sensible default box centred on where the reader clicked, which
+    ; is what somebody who does not know the tool wants a drag to be, and it
+    ; still lands where they pointed rather than at a fixed spot on the slide.
+    ;
+    ; The box arrives EMPTY and with the caret in it. It used to arrive
+    ; carrying the word "Text", which every reader then had to select and
+    ; delete before writing their own — a placeholder is only kind when the
+    ; program cannot put the caret where the words go, and it can.
+    fn placePendingTool:void () {
+        if ((strlen pendingTool) == 0) {
+            return
+        }
+        pendingTool = ""
+        view.status = ""
+        def x0:double marqueeX
+        def y0:double marqueeY
+        def w0:double marqueeW
+        def h0:double marqueeH
+        if (w0 < 0.0) {
+            x0 = (x0 + w0)
+            w0 = (0.0 - w0)
+        }
+        if (h0 < 0.0) {
+            y0 = (y0 + h0)
+            h0 = (0.0 - h0)
+        }
+        ; Too small to have been meant as a rectangle: treat it as a click.
+        def minW:double ((this.slideW()) * 0.04)
+        def minH:double ((this.slideH()) * 0.04)
+        if (w0 < minW) {
+            w0 = ((this.slideW()) * 0.34)
+            x0 = (x0 - (w0 * 0.5))
+        }
+        if (h0 < minH) {
+            h0 = ((this.slideH()) * 0.1)
+            y0 = (y0 - (h0 * 0.5))
+        }
+        if (x0 < 0.0) {
+            x0 = 0.0
+        }
+        if (y0 < 0.0) {
+            y0 = 0.0
+        }
+        def newId:int (editor.addTextBox(x0 y0 w0 h0 ""))
+        if (newId > 0) {
+            editor.beginTextEdit(newId)
+            view.status = ""
+        }
+    }
+
+    ; Put the tool down without using it. Escape, and a click on the strip.
+    fn cancelPendingTool:boolean () {
+        if ((strlen pendingTool) == 0) {
+            return false
+        }
+        pendingTool = ""
+        view.status = ""
+        if (dragMode == 5) {
+            dragMode = 0
+            marqueeW = 0.0
+            marqueeH = 0.0
+        }
+        return true
     }
 
     fn setMods:void (shift:boolean ctrl:boolean) {
@@ -2887,11 +3159,13 @@ class PptxApp {
             return (newId2 > 0)
         }
         if (id == "text.add") {
-            def w3:double ((this.slideW()) * 0.4)
-            def h3:double ((this.slideH()) * 0.12)
-            def newId3:int (editor.addTextBox(((this.slideW()) * 0.3) ((this.slideH()) * 0.44) w3 h3 "Text"))
+            ; Arm the tool; the next drag on the slide says where and how big.
             this.setEditMode(true)
-            return (newId3 > 0)
+            editor.endTextEdit()
+            editor.clearSelection()
+            pendingTool = "text"
+            view.status = "drag on the slide to place a text box"
+            return true
         }
         if (id == "picture.add") {
             fileRequest = "image"
@@ -3055,8 +3329,10 @@ class PptxApp {
                 }
             }
         }
-        ; The rubber band, while one is being dragged.
-        if (dragMode == 3) {
+        ; The rubber band, while one is being dragged — and the box being
+        ; placed, which is the same rectangle drawn the same way, because it
+        ; means the same thing to the hand holding it.
+        if ((dragMode == 3) || (dragMode == 5)) {
             def mx:double marqueeX
             def my:double marqueeY
             def mw:double marqueeW
@@ -3586,21 +3862,58 @@ class PptxApp {
         return idx
     }
 
-    fn scrollPanel:void (delta:int) {
-        def n:int (this.slideCount())
-        def total:int (n * (this.panelStep()))
+    ; How far down the panel can go before it runs out of thumbnails.
+    fn panelMaxScroll:int () {
+        def total:int ((this.slideCount()) * (this.panelStep()))
         def visible:int ((H - toolbarH) - statusH)
         def maxScroll:int (total - visible)
         if (maxScroll < 0) {
-            maxScroll = 0
+            return 0
         }
-        panelScroll = (panelScroll - (delta * 40))
-        if (panelScroll < 0) {
-            panelScroll = 0
-        }
+        return maxScroll
+    }
+
+    ; Bring the panel back inside what there is to show.
+    ;
+    ; This is called before the panel is PAINTED rather than only when it is
+    ; scrolled, and that is the whole point of it. `panelScroll` outlives the
+    ; deck: open a long deck, scroll to the end of it, open a short one, and
+    ; the offset from the long deck is still there — the new deck's thumbnails
+    ; are laid out two thousand pixels above the top of the panel, and the
+    ; panel comes up EMPTY. It reads as thumbnails that failed to be made,
+    ; which is what makes it so hard to place: nothing is wrong with the
+    ; thumbnails or with the cache that holds them.
+    ;
+    ; Clamping where the panel is drawn rather than where it is scrolled
+    ; covers every way the deck can get shorter under a scrolled panel —
+    ; opening another deck, deleting slides, undoing an insert, or a window
+    ; that just got taller — instead of one of them.
+    fn clampPanelScroll:void () {
+        def maxScroll:int (this.panelMaxScroll())
         if (panelScroll > maxScroll) {
             panelScroll = maxScroll
         }
+        if (panelScroll < 0) {
+            panelScroll = 0
+        }
+    }
+
+    ; A wheel or a swipe over the panel, in PIXELS of travel, positive
+    ; downwards — the same unit the gesture arrives in.
+    ;
+    ; It used to take notches and multiply by 40, and the web host sent one
+    ; notch per wheel EVENT. A mouse fires one event per notch, so that was
+    ; right for a mouse and wrong by a factor of thirty for a trackpad: one
+    ; two-finger swipe is dozens of small events, each of which became a full
+    ; 40-pixel notch. A hundred slides went past in one flick.
+    fn scrollPanelPixels:void (dy:int) {
+        panelScroll = (panelScroll + dy)
+        this.clampPanelScroll()
+    }
+
+    ; The same, in wheel notches, for hosts that speak notches.
+    fn scrollPanel:void (delta:int) {
+        this.scrollPanelPixels((0 - (delta * 40)))
     }
 
     fn ensureSlideVisible:void () {
@@ -3748,6 +4061,7 @@ class PptxApp {
         if (panelVisible == false) {
             return
         }
+        this.clampPanelScroll()
         def w:int (this.panelWidth())
         def top:double (to_double toolbarH)
         def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))

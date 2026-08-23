@@ -22,15 +22,38 @@ Import "GridFormat.rgr"
 Import "../../evg/EVGToolbar.rgr"
 
 class GridToolbar extends EVGToolbar {
+    ; What the direction switch is showing. The strip needs it to draw the
+    ; button pressed; the app owns the decision.
+    def uiRtl:boolean false
+
     Constructor () {
     }
 
+    ; The strip, in named pages.
+    ;
+    ; Fifty-odd commands in one band is a wall: everything is present and
+    ; nothing is findable, and at any window narrower than a desk the last
+    ; dozen wrap onto a second row or fall off the end — which are exactly the
+    ; ones a beginner is hunting for. The names are the ones an office suite
+    ; has taught everybody: Home is what you use on the text in a cell, Insert
+    ; puts something new in the sheet, Data is about the numbers, Review is
+    ; the tools you reach for once rather than all day.
+    ;
+    ; The order inside a page is the order it was already in, and the
+    ; separators that grouped it are kept — a page is a coarser grouping laid
+    ; over the fine one, not a replacement for it.
     fn build:void () {
         clear items
+        clear tabs
+        this.addTab("Home")
         this.add("file.new" "" "New workbook" (ToolIcon.newFile()))
         this.add("file.open" "" "Open a workbook" (ToolIcon.openFile()))
-        this.add("file.save" "" "Save" (ToolIcon.save()))
+        ; The handful a beginner reaches for first carry their names. The rest
+        ; stay pictures — a band where everything is labelled is as unreadable
+        ; as one where nothing is.
+        this.addLabeled("file.save" "" "Save" (ToolIcon.save()))
         this.add("file.saveAs" "" "Save As…" (ToolIcon.save()))
+        this.addLabeled("file.print" "" "Print" (ToolIcon.printDoc()))
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
         this.add("edit.formatPainter" "" "Format painter" (ToolIcon.paint()))
@@ -58,10 +81,16 @@ class GridToolbar extends EVGToolbar {
         this.add("format.merge" "" "Merge cells" (ToolIcon.merge()))
         this.addSeparator()
 
-        this.add("format.border" "" "Borders…" (ToolIcon.borderMore()))
-        this.add("format.border" "all" "All borders" (ToolIcon.borderAll()))
-        this.add("format.border" "outline" "Outline" (ToolIcon.borderOut()))
-        this.add("format.border" "none" "No border" (ToolIcon.borderNone()))
+        this.addTab("Format")
+        ; Four border commands in one slot. This is what a dropdown is FOR:
+        ; the four are one decision, they are rarely made, and spread across
+        ; four buttons they take as much of the strip as bold, italic,
+        ; underline and strike put together.
+        this.addDropdown("Borders" (ToolIcon.borderAll()))
+        this.addUnder("format.border" "all" "All borders" (ToolIcon.borderAll()))
+        this.addUnder("format.border" "outline" "Outline" (ToolIcon.borderOut()))
+        this.addUnder("format.border" "none" "No border" (ToolIcon.borderNone()))
+        this.addUnder("format.border" "" "More borders…" (ToolIcon.borderMore()))
         this.addSeparator()
 
         this.addToggle("format.numfmt" "currency" "Currency" (ToolIcon.currency()) "numfmt" "currency")
@@ -72,6 +101,7 @@ class GridToolbar extends EVGToolbar {
         this.add("format.clear" "" "Clear formatting" (ToolIcon.clearFmt()))
         this.addSeparator()
 
+        this.addTab("Insert")
         this.add("insert.row.above" "" "Insert row" (ToolIcon.insertRow()))
         this.add("insert.column.left" "" "Insert column" (ToolIcon.insertCol()))
         this.add("delete.rows" "" "Delete rows" (ToolIcon.deleteRow()))
@@ -82,13 +112,19 @@ class GridToolbar extends EVGToolbar {
 
         this.add("insert.chart" "" "Chart" (ToolIcon.chart()))
         this.add("insert.link" "" "Link" (ToolIcon.link()))
-        this.add("edit.find" "" "Find" (ToolIcon.search()))
+
+        this.addTab("Data")
         this.add("format.conditional" "" "Conditional formatting" (ToolIcon.cond()))
         this.add("data.validation" "" "Data validation" (ToolIcon.validate()))
         this.addSeparator()
         this.add("script.run" "" "Run the report script" (ToolIcon.report()))
         this.add("db.connection" "" "Database connection" (ToolIcon.database()))
         this.add("db.sql.dialog" "" "SQL query" (ToolIcon.sqlBox()))
+
+        this.addTab("Review")
+        this.add("edit.find" "" "Find" (ToolIcon.search()))
+        this.addSeparator()
+        this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
     }
 
     fn isPressed:boolean (i:int model:SpreadsheetModel sel:GridSelection) {
@@ -111,6 +147,9 @@ class GridToolbar extends EVGToolbar {
                 t.pressed = (GridFormat.activeIsOn(model sel t.toggleOp t.toggleArg))
             } {
                 t.pressed = false
+            }
+            if (t.command == "view.rtl") {
+                t.pressed = uiRtl
             }
             i = (i + 1)
         }

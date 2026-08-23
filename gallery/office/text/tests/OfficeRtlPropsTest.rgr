@@ -1,0 +1,209 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeRtlPropsTest — the direction the AUTHOR stated, in all three formats
+; ==============================================================================
+;
+; The bidirectional algorithm works out a direction from the text, and for
+; most documents that is right. It is wrong exactly where it matters most:
+;
+;   "ACME‑2000 شركة"
+;
+; opens with a strong left-to-right character, so the algorithm says the line
+; reads left to right — and the author, who wrote an Arabic sentence with a
+; product code at the front of it, says otherwise. That is why all three
+; formats store a direction, and none of the three readers here read it:
+;
+;   Word         <w:pPr><w:bidi/></w:pPr>       and w:jc val="start"/"end"
+;   PowerPoint   <a:pPr rtl="1">
+;   Excel        <alignment readingOrder="2"/>
+;
+; Each carries a second consequence that a reader notices before it notices
+; anything about ordering: an unaligned right-to-left paragraph belongs
+; against the RIGHT margin, and none of the three formats writes an alignment
+; to say so — the direction IS the alignment. A reader that looks only at
+; w:jc / algn / horizontal puts every Arabic paragraph in the document hard
+; against the left margin.
+;
+; All three are read as THREE states, not two. A style can say right-to-left
+; and a paragraph say nothing, and "nothing" has to stay distinguishable from
+; "explicitly left-to-right" or the style could never be inherited at all.
+;
+;   npm run office:rtl:props:test
+; ==============================================================================
+
+Import "../../../docx_viewer/src/WordStyleResolver.rgr"
+Import "../../../pptx/src/PptxParser.rgr"
+Import "../../../datagrid/src/xlsx/XlsxStyles.rgr"
+
+class PropsCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class OfficeRtlPropsTest {
+    def c:PropsCheck (new PropsCheck)
+
+    sfn main:void () {
+        def t (new OfficeRtlPropsTest())
+        t.run()
+    }
+
+    fn run:void () {
+        print "=== OfficeRtlPropsTest ==="
+        this.testWord()
+        this.testWordStyles()
+        this.testPowerPoint()
+        this.testExcel()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; A paragraph with the given pPr, resolved the way the reader resolves it.
+    fn para:Paragraph (pPr:string) {
+        def res (new WordStyleResolver())
+        res.parseStylesXml("<w:styles></w:styles>")
+        def p (new Paragraph)
+        p.styleId = "Normal"
+        res.resolveParagraph(p pPr)
+        return p
+    }
+
+    fn testWord:void () {
+        print "--- Word ---"
+        def plain:Paragraph (this.para("<w:pPr></w:pPr>"))
+        c.eqInt("a paragraph that says nothing stays unset" plain.bidi -1)
+        c.eqInt("and is aligned left" plain.align 0)
+
+        def rtl:Paragraph (this.para("<w:pPr><w:bidi/></w:pPr>"))
+        c.eqInt("a bare w:bidi means right to left" rtl.bidi 1)
+        c.eqInt("and with no w:jc it goes against the right margin" rtl.align 2)
+
+        ; The toggle turned off explicitly. This is not the same as absent:
+        ; it exists to cancel a right-to-left STYLE, and reading it as "unset"
+        ; would leave the style's direction in force.
+        def off:Paragraph (this.para("<w:pPr><w:bidi w:val=\"0\"/></w:pPr>"))
+        c.eqInt("w:val=\"0\" is an explicit left to right" off.bidi 0)
+        c.eqInt("and it is aligned left again" off.align 0)
+
+        ; An explicit alignment wins over the direction's default: an author
+        ; who centred a right-to-left paragraph meant centred.
+        def centred:Paragraph (this.para("<w:pPr><w:bidi/><w:jc w:val=\"center\"/></w:pPr>"))
+        c.eqInt("still right to left" centred.bidi 1)
+        c.eqInt("but centred, because it says so" centred.align 1)
+
+        ; "start" and "end" are the direction-relative names Word writes in
+        ; the strict flavour of the format. Reading them as left and right
+        ; puts every right-to-left paragraph against the wrong margin — and
+        ; the paragraph looks deliberately aligned, so nobody suspects a bug.
+        def startLtr:Paragraph (this.para("<w:pPr><w:jc w:val=\"start\"/></w:pPr>"))
+        c.eqInt("start is the left margin in a left-to-right paragraph" startLtr.align 0)
+        def startRtl:Paragraph (this.para("<w:pPr><w:bidi/><w:jc w:val=\"start\"/></w:pPr>"))
+        c.eqInt("and the RIGHT one in a right-to-left paragraph" startRtl.align 2)
+        def endRtl:Paragraph (this.para("<w:pPr><w:bidi/><w:jc w:val=\"end\"/></w:pPr>"))
+        c.eqInt("end is the left margin there" endRtl.align 0)
+    }
+
+    fn testWordStyles:void () {
+        print "--- Word, from the style ---"
+        ; A whole Arabic document is normally written by making the style
+        ; right-to-left, not by marking every paragraph — so a reader that
+        ; only looks at direct formatting finds nothing at all in it.
+        def res (new WordStyleResolver())
+        res.parseStylesXml("<w:styles><w:style w:type=\"paragraph\" w:styleId=\"Normal\"><w:pPr><w:bidi/></w:pPr></w:style></w:styles>")
+        def p (new Paragraph)
+        p.styleId = "Normal"
+        res.resolveParagraph(p "<w:pPr></w:pPr>")
+        c.eqInt("the style's direction reaches the paragraph" p.bidi 1)
+        c.eqInt("and takes the right margin with it" p.align 2)
+
+        ; And the paragraph can cancel it, which is the whole reason the
+        ; toggle has three states.
+        def p2 (new Paragraph)
+        p2.styleId = "Normal"
+        res.resolveParagraph(p2 "<w:pPr><w:bidi w:val=\"false\"/></w:pPr>")
+        c.eqInt("a paragraph can turn the style's direction off" p2.bidi 0)
+        c.eqInt("and comes back to the left margin" p2.align 0)
+    }
+
+    ; The first paragraph of a text body parsed from XML.
+    fn slidePara:PptxParagraph (pPr:string) {
+        def xp (new PptxXmlParser())
+        def doc@(optional):PptxXmlNode (xp.parse((("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p>" + pPr) + "<a:r><a:rPr lang=\"ar\"/><a:t>x</a:t></a:r></a:p></p:txBody>")))
+        def parser (new PptxParser())
+        def body:PptxTextBody (parser.parseTextBody((unwrap doc)))
+        return (itemAt body.paragraphs 0)
+    }
+
+    fn testPowerPoint:void () {
+        print "--- PowerPoint ---"
+        def plain:PptxParagraph (this.slidePara("<a:pPr/>"))
+        c.eqInt("a paragraph that says nothing stays unset" plain.rtl -1)
+        c.eqStr("and is set against the left edge" plain.align "l")
+
+        def rtl:PptxParagraph (this.slidePara("<a:pPr rtl=\"1\"/>"))
+        c.eqInt("rtl=\"1\" is read" rtl.rtl 1)
+        c.eqStr("and with no algn it goes against the right edge" rtl.align "r")
+
+        def off:PptxParagraph (this.slidePara("<a:pPr rtl=\"0\"/>"))
+        c.eqInt("rtl=\"0\" is an explicit left to right" off.rtl 0)
+        c.eqStr("and stays on the left" off.align "l")
+
+        def centred:PptxParagraph (this.slidePara("<a:pPr rtl=\"1\" algn=\"ctr\"/>"))
+        c.eqInt("still right to left" centred.rtl 1)
+        c.eqStr("but centred, because it says so" centred.align "ctr")
+    }
+
+    ; The cell style at index 1 of a styles part with one alignment on it.
+    fn cellStyle:CellStyle (alignAttrs:string) {
+        def xs (new XlsxStyles())
+        xs.parse((("<styleSheet><cellXfs count=\"2\"><xf/><xf applyAlignment=\"1\"><alignment" + alignAttrs) + "/></xf></cellXfs></styleSheet>"))
+        return (itemAt xs.styles 1)
+    }
+
+    fn testExcel:void () {
+        print "--- Excel ---"
+        def plain:CellStyle (this.cellStyle(" horizontal=\"left\""))
+        c.eqInt("a cell that says nothing has no reading order" plain.readingOrder 0)
+
+        def rtl:CellStyle (this.cellStyle(" readingOrder=\"2\""))
+        c.eqInt("readingOrder 2 is right to left" rtl.readingOrder 2)
+        def ltr:CellStyle (this.cellStyle(" readingOrder=\"1\""))
+        c.eqInt("and 1 is an explicit left to right" ltr.readingOrder 1)
+
+        ; Excel's own numbering is kept rather than translated, so what is
+        ; read is what gets written back — but the painter needs the same
+        ; three states everything else here uses.
+        c.eqInt("2 becomes right to left for the painter" (rtl.textDirection()) 1)
+        c.eqInt("1 becomes left to right" (ltr.textDirection()) 0)
+        c.eqInt("and 0 means work it out from the text" (plain.textDirection()) -1)
+
+        ; Two cells that differ only in reading order are two styles. Folding
+        ; them into one would apply whichever was interned first to both.
+        c.ok("reading order makes two styles different"
+            ((rtl.sameAs(ltr)) == false))
+    }
+}

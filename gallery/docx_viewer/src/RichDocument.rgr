@@ -91,6 +91,17 @@ class Paragraph {
     def indentFirstLinePt:double 0.0
     def images:[DocImage]
     def pageBreakBefore:boolean false
+    ; Which way the paragraph runs, from `w:bidi`: -1 nobody said, 0 left to
+    ; right, 1 right to left. Three states rather than two because a style can
+    ; say one thing and the paragraph the other, and "unset" has to be
+    ; distinguishable from "explicitly left to right" for the style to be
+    ; overridable at all.
+    ;
+    ; It decides two things a reader sees immediately: which margin an
+    ; unaligned paragraph sits against, and — for a line that opens with a
+    ; Latin brand name and is otherwise Arabic — which direction the line
+    ; reads in, because the text alone would say the wrong one.
+    def bidi:int -1
 
     Constructor () {
     }

@@ -1,0 +1,159 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; DocxScrollTest — a document you can read down, and a panel that stays put
+; ==============================================================================
+;
+; A scroll gesture over a Word page only ever TURNED PAGES. There was no
+; position within a page at all: a trackpad flick jumped a whole page and
+; everything between the two positions went past unseen. That is not slow
+; scrolling, it is no scrolling — and on a trackpad, which sends a stream of
+; small deltas rather than one notch, it is also unpredictable, because
+; whether a page turned depended on how many of those deltas the host had
+; managed to deliver.
+;
+; What has to be true, and is checked here:
+;
+;   * a gesture moves the page by the pixels it travelled
+;   * a page taller than the window can be read to its bottom edge and no
+;     further — the paper does not float up off the screen
+;   * running past the bottom turns the page, and the travel that was left
+;     over carries into the top of the next one rather than being thrown away
+;   * running back past the top turns back and lands at the BOTTOM of the
+;     previous page, which is where a reader going backwards is looking
+;   * a page shorter than the window has nowhere to scroll and turns instead,
+;     which was the old behaviour and is still right for that case
+;   * the first page does not scroll off upwards and the last does not scroll
+;     off downwards
+;
+;   npm run docx_viewer:scroll:test
+; ==============================================================================
+
+Import "../src/DocxViewer.rgr"
+
+class ScrollCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+}
+
+class DocxScrollTest {
+    def c:ScrollCheck (new ScrollCheck)
+
+    sfn main:void () {
+        def t (new DocxScrollTest())
+        t.run()
+    }
+
+    ; A viewer on a many-page fixture, with a window shorter than the paper so
+    ; there is something to scroll.
+    fn open:DocxViewer (viewportH:int) {
+        def v (new DocxViewer)
+        v.init("gallery/pdf_writer/assets/fonts")
+        if ((v.openFile("gallery/docx_viewer/fixtures" "08-pages.docx")) == false) {
+            print ("  could not open the fixture: " + v.lastError)
+        }
+        v.renderPage(0)
+        v.viewportH = viewportH
+        return v
+    }
+
+    fn run:void () {
+        print "=== DocxScrollTest ==="
+        this.testWithinAPage()
+        this.testAcrossPages()
+        this.testEnds()
+        this.testShortPage()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testWithinAPage:void () {
+        print "--- reading down a page ---"
+        def v:DocxViewer (this.open(400))
+        c.ok("the page is taller than the window" ((v.maxScrollY()) > 0))
+        c.eqInt("it starts at the top" v.scrollY 0)
+
+        c.ok("a small gesture moves something" (v.scrollBy(60)))
+        c.eqInt("by exactly what it travelled" v.scrollY 60)
+        c.ok("and another adds to it" (v.scrollBy(40)))
+        c.eqInt("cumulatively" v.scrollY 100)
+        c.eqInt("without turning the page" (v.currentPage) 0)
+
+        c.ok("and it goes back" (v.scrollBy(-70)))
+        c.eqInt("by what it travelled back" v.scrollY 30)
+    }
+
+    fn testAcrossPages:void () {
+        print "--- and on to the next one ---"
+        def v:DocxViewer (this.open(400))
+        def maxY:int (v.maxScrollY())
+        ; Right to the bottom of the paper and no further: a page does not
+        ; float up off the window.
+        v.scrollBy(maxY)
+        c.eqInt("the page stops at its bottom edge" v.scrollY maxY)
+        c.eqInt("still on the first page" (v.currentPage) 0)
+
+        ; One more gesture and the next page begins.
+        c.ok("past the bottom turns the page" (v.scrollBy(80)))
+        c.eqInt("now on the second" (v.currentPage) 1)
+        ; The travel that was left over is spent on the new page rather than
+        ; thrown away, so a long flick crosses the boundary without stopping
+        ; dead at it. One pixel of the gesture pays for the turn itself.
+        c.eqInt("and the leftover travel carried into it" v.scrollY 79)
+
+        ; Backwards over the boundary lands at the BOTTOM of the page before,
+        ; which is where a reader going backwards is looking — not its top.
+        c.ok("back past the top turns back" (v.scrollBy(-200)))
+        c.eqInt("to the first page" (v.currentPage) 0)
+        def m0:int (v.maxScrollY())
+        c.eqInt("at its bottom, not its top" v.scrollY (m0 - 120))
+    }
+
+    fn testEnds:void () {
+        print "--- and stops at the ends ---"
+        def v:DocxViewer (this.open(400))
+        c.ok("scrolling up on the first page does nothing" ((v.scrollBy(-500)) == false))
+        c.eqInt("it is still at the very top" v.scrollY 0)
+        c.eqInt("and still on page one" (v.currentPage) 0)
+
+        ; All the way to the end of the document.
+        def guard:int 0
+        while (guard < 400) {
+            v.scrollBy(500)
+            guard = (guard + 1)
+        }
+        c.eqInt("the end is the last page" (v.currentPage) ((v.pageCount()) - 1))
+        c.eqInt("at its bottom edge" v.scrollY (v.maxScrollY()))
+        c.ok("and it will not go past it" ((v.scrollBy(500)) == false))
+    }
+
+    fn testShortPage:void () {
+        print "--- a page shorter than the window ---"
+        ; Nowhere to scroll, so the gesture turns the page — which is what the
+        ; viewer always did, and is still right for this case.
+        def v:DocxViewer (this.open(20000))
+        c.eqInt("there is nothing to scroll" (v.maxScrollY()) 0)
+        c.ok("so the gesture turns the page" (v.scrollBy(60)))
+        c.eqInt("to the second" (v.currentPage) 1)
+        c.eqInt("at its top" v.scrollY 0)
+    }
+}

@@ -110,6 +110,10 @@ class EVGLayout {
         ; afterwards.
         root.applyOwnFontSize()
         root.rootFontSize = root.inheritedFontSize
+        ; The root has no parent to inherit a direction from, so it settles
+        ; its own. This is the switch: `direction: rtl` here and every
+        ; container below turns around with it.
+        root.applyOwnDirection(false)
 
         ; Explicitly set root position to (0, 0)
         ; This is important when re-laying out a page that was previously 
@@ -279,6 +283,20 @@ class EVGLayout {
         
         if (childCount > 0) {
             contentHeight = (this.layoutChildren(element))
+            ; Right to left, after the fact.
+            ;
+            ; Doing it this way rather than inside the placement loops is a
+            ; deliberate choice and it is the reason this is ~30 lines instead
+            ; of a rewrite of both engines. Every way a container can place a
+            ; child along the horizontal axis — flex row, flex row-reverse,
+            ; wrapping, `justify-content` in all its values, `gap`, grid
+            ; tracks, named grid lines, `dense` packing — ends with children
+            ; sitting at x positions inside a content box. Reflecting those
+            ; positions about that box turns ALL of it around at once, and
+            ; correctly: reversed order, packed from the right, the first grid
+            ; column rightmost. Anything added to either engine later is
+            ; mirrored the day it lands, without knowing this exists.
+            this.mirrorChildren(element)
         } {
             ; No children - check if element has text content
             def textContent:string element.textContent
@@ -1336,6 +1354,43 @@ class EVGLayout {
     }
     
     ; Move a finished subtree, keeping everything inside it in step.
+    ; Reflect this container's children about its content box.
+    ;
+    ; What is reflected is each child's MARGIN box, and the border box is then
+    ; put back at its own margin-left inside it. That is CSS's rule and it is
+    ; worth being exact about, because the other reading is tempting and
+    ; wrong: `margin-left` stays physically on the left in a right-to-left
+    ; container. What reverses is the ORDER and the end the children pack
+    ; against, not which side of a child its own left margin is on. An author
+    ; who wants the margin to follow the direction says `margin-inline-start`.
+    ; With symmetric margins — nearly every toolbar and panel — the two
+    ; readings agree, which is exactly why picking the wrong one would have
+    ; survived a long time before something looked a pixel out.
+    ;
+    ; Absolutely positioned children are left alone: they were placed against
+    ; the edges they name, and `left: 0` means the left edge in any direction.
+    fn mirrorChildren:void (parent:EVGElement) {
+        if ((parent.resolvedRtl) == false) {
+            return
+        }
+        def left:double ((parent.calculatedX + parent.box.borderWidthPx) + parent.box.paddingLeftPx)
+        def right:double (left + parent.calculatedInnerWidth)
+        def span:double (left + right)
+        def n:int (parent.getChildCount())
+        def i:int 0
+        while (i < n) {
+            def ch:EVGElement (parent.getChild(i))
+            if (ch.isAbsolute == false) {
+                def mL:double ch.box.marginLeftPx
+                def mR:double ch.box.marginRightPx
+                def marginRightEdge:double ((ch.calculatedX + ch.calculatedWidth) + mR)
+                def nx:double ((span - marginRightEdge) + mL)
+                this.translateSubtree(ch (nx - ch.calculatedX) 0.0)
+            }
+            i = (i + 1)
+        }
+    }
+
     fn translateSubtree:void (element:EVGElement dx:double dy:double) {
         element.calculatedX = (element.calculatedX + dx)
         element.calculatedY = (element.calculatedY + dy)

@@ -142,11 +142,27 @@ def p(
     spacing_after=None,
     underline=False,
     sect_pr_xml=None,
+    bidi=False,
+    rtl_runs=False,
+    cs_font=None,
 ):
-    """Build a w:p. text_runs: list of (text, bold, italic, sz, color) or 6-tuples with underline."""
+    """Build a w:p. text_runs: list of (text, bold, italic, sz, color) or 6-tuples with underline.
+
+    bidi:     emit <w:bidi/> — the paragraph runs right to left. Word writes no
+              w:jc for such a paragraph: the direction IS the alignment.
+    rtl_runs: emit <w:rtl/> on every run, which is how Word marks the text
+              inside a right-to-left paragraph as complex-script.
+    cs_font:  the complex-script face, <w:rFonts w:cs="…">. Word keeps the
+              Latin and the Arabic face on a run separately, which is why an
+              Arabic run in a document set in Calibri still comes out in an
+              Arabic face rather than in boxes.
+    """
     ppr = []
     if pstyle:
         ppr.append(f'<w:pStyle w:val="{pstyle}"/>')
+    # Schema order (CT_PPrBase): bidi comes after numPr and before jc.
+    if bidi:
+        ppr.append("<w:bidi/>")
     if jc:
         ppr.append(f'<w:jc w:val="{jc}"/>')
     if numId is not None:
@@ -180,6 +196,8 @@ def p(
         else:
             t, bold, italic, sz, color, ul = item
         rpr = []
+        if cs_font:
+            rpr.append(f'<w:rFonts w:cs="{cs_font}" w:ascii="{cs_font}" w:hAnsi="{cs_font}"/>')
         if bold:
             rpr.append("<w:b/>")
         if italic:
@@ -190,6 +208,8 @@ def p(
             rpr.append(f'<w:sz w:val="{sz}"/>')
         if color:
             rpr.append(f'<w:color w:val="{color}"/>')
+        if rtl_runs:
+            rpr.append("<w:rtl/>")
         rpr_xml = f'<w:rPr>{"".join(rpr)}</w:rPr>' if rpr else ""
         runs.append(f'<w:r>{rpr_xml}<w:t xml:space="preserve">{t}</w:t></w:r>')
     if drawing_rid:

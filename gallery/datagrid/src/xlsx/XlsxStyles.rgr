@@ -588,6 +588,17 @@ class XlsxStyles {
                                     if ((strlen rot) > 0) {
                                         st.textRotation = (XlsxStyles.parseInt0(rot))
                                     }
+                                    ; Which way the cell reads. Excel's own
+                                    ; numbering: 1 left to right, 2 right to
+                                    ; left, 0 or absent "work it out from the
+                                    ; text". Nothing read this, so a cell an
+                                    ; author had explicitly marked right to
+                                    ; left was drawn whichever way its own
+                                    ; characters happened to suggest.
+                                    def ro:string (at.attr("readingOrder"))
+                                    if ((strlen ro) > 0) {
+                                        st.readingOrder = (XlsxStyles.parseInt0(ro))
+                                    }
                                 }
                             }
                         }

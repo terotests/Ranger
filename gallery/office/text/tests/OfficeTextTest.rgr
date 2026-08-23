@@ -1,0 +1,269 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeTextTest — the seam between codepoints and strings, on both targets
+; ==============================================================================
+;
+; OfficeBidi and OfficeArabic are checked on their own, on integers. What is
+; checked here is the part that is NOT the same on both targets: the string
+; that goes in and the string that comes back. A string is UTF-16 code units
+; on JavaScript and bytes in C++, so "the same text" is a different array of
+; numbers in the two, and a decode or encode that is wrong on one of them
+; produces a string that is the right length and the wrong characters — the
+; kind of failure that a test written on one target alone never sees.
+;
+; So every case here is written as codepoints, encoded to a string, run
+; through the facade, and compared against a string encoded the same way. If
+; the two targets agree on all of them, the seam holds.
+;
+; The three properties that matter to the callers:
+;
+;   * text with no right-to-left character comes back IDENTICAL — the fast
+;     path, which is almost every string these editors draw;
+;   * text with Arabic comes back shaped AND reordered, in that order;
+;   * a combining mark stays on the letter it was typed on, which the
+;     reordering on its own would move to the neighbouring letter.
+;
+;   npm run office:text:test
+; ==============================================================================
+
+Import "../OfficeText.rgr"
+
+class TextCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+}
+
+class OfficeTextTest {
+    def c:TextCheck (new TextCheck)
+
+    sfn main:void () {
+        def t (new OfficeTextTest())
+        t.run()
+    }
+
+    ; Decimal codepoints to a string, so a test reads as what it tests and
+    ; encodes the same way on both targets.
+    sfn str:string (spec:string) {
+        def out:string ""
+        def cur:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (strlen spec)) {
+            def ch:int (charAt spec i)
+            if (ch == 32) {
+                if any {
+                    out = (out + (EVGCodepoint.toStr(cur)))
+                }
+                cur = 0
+                any = false
+            } {
+                cur = ((cur * 10) + (ch - 48))
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            out = (out + (EVGCodepoint.toStr(cur)))
+        }
+        return out
+    }
+
+    ; The codepoints of a string, back as decimals — so a failure prints
+    ; something a reader can compare, rather than reversed Arabic in a log.
+    sfn dump:string (s:string) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length cps)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (to_string (itemAt cps i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Run `input` through the facade and compare the RESULT'S CODEPOINTS
+    ; against `want`. Comparing codepoints rather than strings is what makes
+    ; a failure readable and makes the two targets comparable line for line.
+    fn display:void (name:string input:string want:string) {
+        def got:string (OfficeText.forDisplay((OfficeTextTest.str(input))))
+        c.eqStr(name (OfficeTextTest.dump(got)) want)
+    }
+
+    fn run:void () {
+        print "=== OfficeTextTest ==="
+        this.testFastPath()
+        this.testShapedAndOrdered()
+        this.testMarks()
+        this.testDirection()
+        this.testMetrics()
+        this.testRoundTrip()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testFastPath:void () {
+        print "--- what must come back untouched ---"
+        ; "Hello" — not one character of it may change, and it must not even
+        ; be rebuilt: this is the string almost every draw call passes.
+        def latin:string (OfficeTextTest.str("72 101 108 108 111"))
+        c.eqStr("Latin is returned as itself" (OfficeText.forDisplay(latin)) latin)
+        c.ok("and nothing here needs doing" ((OfficeText.needsWork(latin)) == false))
+        c.eqStr("an empty string survives" (OfficeText.forDisplay("")) "")
+        c.ok("nor does an empty one need doing" ((OfficeText.needsWork("")) == false))
+        ; A paragraph the document marked right-to-left, with nothing
+        ; right-to-left in it: the direction decides where the line SITS, not
+        ; what it says, so the text is unchanged.
+        c.eqStr("an RTL paragraph of Latin still reads left to right"
+            (OfficeText.forDisplayDir(latin 1)) latin)
+        ; But Arabic does need doing.
+        c.ok("Arabic needs doing" (OfficeText.needsWork((OfficeTextTest.str("1605 1585")))))
+    }
+
+    fn testShapedAndOrdered:void () {
+        print "--- shaped, then reordered ---"
+        ; مرحبا. Shaped: meem initial, reh final, hah initial, beh medial,
+        ; alef final. Reordered: the meem is drawn at the RIGHT-hand end, so
+        ; it comes last in the display string.
+        this.display("مرحبا is shaped and then reversed" "1605 1585 1581 1576 1575"
+            "65166 65170 65187 65198 65251")
+        ; Two Arabic words: the space between them stays between them.
+        this.display("a space between two Arabic words stays put" "1576 1576 32 1576 1576"
+            "65168 65169 32 65168 65169")
+        ; لا — one glyph out of two codepoints, so the display string is
+        ; SHORTER than the source. That is the whole reason the source
+        ; indices are not the display indices.
+        def lig:string (OfficeText.forDisplay((OfficeTextTest.str("1604 1575"))))
+        c.eqStr("lam-alef is one glyph" (OfficeTextTest.dump(lig)) "65275")
+        c.eqInt("so the display string is shorter than the source"
+            (array_length (EVGCodepoint.toArray(lig))) 1)
+        ; Digits beside Arabic keep their own order — "12" is not "21" — and
+        ; that is bidi, not shaping: the number is a left-to-right island
+        ; inside a right-to-left line.
+        this.display("a number inside Arabic is not reversed" "1605 1585 32 49 50"
+            "49 50 32 65198 65251")
+    }
+
+    fn testMarks:void () {
+        print "--- the marks stay on their letters ---"
+        ; U+064E FATHA on the FIRST letter of a two-letter word. Reordering
+        ; alone would carry it to the far side of that letter and a renderer
+        ; would compose it onto the other one — a different word, not a
+        ; smudged one. The base must still come first in the display string.
+        def got:[int] (EVGCodepoint.toArray((OfficeText.forDisplay((OfficeTextTest.str("1576 1614 1576"))))))
+        c.eqInt("the second letter is drawn leftmost" (itemAt got 0) 65168)
+        c.eqInt("then the first letter" (itemAt got 1) 65169)
+        c.eqInt("and its fatha AFTER it, not before" (itemAt got 2) 1614)
+        ; Two marks on one letter keep their own order as well.
+        this.display("two marks on one letter keep their order" "1576 1614 1617 1576"
+            "65168 65169 1614 1617")
+    }
+
+    fn testDirection:void () {
+        print "--- which way a paragraph runs ---"
+        c.ok("Arabic runs right to left" (OfficeText.isRtl((OfficeTextTest.str("1605 1585")))))
+        c.ok("Hebrew too" (OfficeText.isRtl((OfficeTextTest.str("1488 1489")))))
+        c.ok("English does not" ((OfficeText.isRtl((OfficeTextTest.str("72 105")))) == false))
+        ; A line that opens with a Latin brand name and is otherwise Arabic
+        ; runs left to right unless the document says otherwise — which is
+        ; exactly why the formats store a direction and why it is read.
+        def mixed:string (OfficeTextTest.str("65 66 32 1605 1585"))
+        c.ok("a Latin-first mixed line reads left to right on its own"
+            ((OfficeText.isRtl(mixed)) == false))
+        def forced:string (OfficeText.forDisplayDir(mixed 1))
+        def auto:string (OfficeText.forDisplayDir(mixed -1))
+        c.ok("and the document's direction changes what is drawn" ((forced == auto) == false))
+    }
+
+    fn testMetrics:void () {
+        print "--- measuring is shaped but not reordered ---"
+        ; A width does not depend on the order of the glyphs, so measuring
+        ; skips the reordering — but not the shaping: a joined letter is
+        ; narrower than an isolated one, and measuring the stored codepoints
+        ; makes every Arabic line come out wider than it is drawn.
+        def m:string (OfficeText.forMetrics((OfficeTextTest.str("1605 1585 1581 1576 1575"))))
+        c.eqStr("shaped, in the order it was stored"
+            (OfficeTextTest.dump(m)) "65251 65198 65187 65170 65166")
+        ; Latin is untouched here too — this is on the hot path of every
+        ; measurement in all three editors.
+        def latin:string (OfficeTextTest.str("72 101 108 108 111"))
+        c.eqStr("Latin is returned as itself" (OfficeText.forMetrics(latin)) latin)
+        ; Hebrew is right-to-left but not cursive: nothing to shape, so the
+        ; metrics path leaves it alone even though the display path reverses it.
+        def heb:string (OfficeTextTest.str("1488 1489"))
+        c.eqStr("Hebrew needs no shaping" (OfficeText.forMetrics(heb)) heb)
+        ; And the property the whole arrangement rests on: measuring a display
+        ; string and measuring the source it came from give the same glyphs.
+        ; That is what lets the layout measure one and the painter the other
+        ; without the two disagreeing about where a line ends.
+        def src:string (OfficeTextTest.str("1605 1585 1581 1576 1575"))
+        def disp:string (OfficeText.forDisplay(src))
+        def a:string (OfficeTextTest.dump((OfficeText.forMetrics(src))))
+        def b:string (OfficeTextTest.dump((OfficeText.forMetrics(disp))))
+        c.eqInt("the same glyph count either way"
+            (array_length (EVGCodepoint.toArray((OfficeText.forMetrics(disp)))))
+            (array_length (EVGCodepoint.toArray((OfficeText.forMetrics(src))))))
+        c.ok("shaping a display string changes nothing" (b == (OfficeTextTest.dump(disp))))
+        c.ok("and the source shapes to the same glyphs, in the other order"
+            ((a == b) == false))
+    }
+
+    fn testRoundTrip:void () {
+        print "--- the string boundary itself ---"
+        ; The point of running this on both targets: the same codepoints have
+        ; to survive the trip through a string, whether a string is UTF-16
+        ; code units or bytes.
+        def s:string (OfficeTextTest.str("1605 1585 32 65 66"))
+        c.eqStr("codepoints survive encoding and decoding"
+            (OfficeTextTest.dump(s)) "1605 1585 32 65 66")
+        c.eqInt("and the count is the count"
+            (array_length (EVGCodepoint.toArray(s))) 5)
+        ; The visual order is a permutation of the source indices — every
+        ; index present exactly once, which is what a caret mapping needs.
+        def order:[int] (OfficeText.visualOrderOf(s -1))
+        c.eqInt("the visual order covers every character" (array_length order) 5)
+        def seen:int 0
+        def i:int 0
+        while (i < 5) {
+            def j:int 0
+            def found:boolean false
+            while (j < 5) {
+                if ((itemAt order j) == i) {
+                    found = true
+                }
+                j = (j + 1)
+            }
+            if found {
+                seen = (seen + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("exactly once each" seen 5)
+    }
+}

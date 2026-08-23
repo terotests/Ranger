@@ -1,0 +1,234 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeText — the one call that turns stored text into text you can draw
+; ==============================================================================
+;
+; OfficeBidi knows the order and OfficeArabic knows the shapes, and both of
+; them work on codepoint arrays because that is the only way to write an
+; algorithm that means the same thing on both targets. Nothing that paints
+; holds a codepoint array: the display list holds a string, the canvas takes a
+; string, the measurer takes a string. This is the seam between the two, and
+; the reason it is one function rather than three lines repeated at every
+; painting site is that the three lines have an order and a fast path that are
+; easy to get subtly wrong:
+;
+;   1. shape in LOGICAL order — a letter's form depends on the letters it is
+;      stored beside, not on the ones it ends up drawn beside;
+;   2. reorder the RESULT, using levels computed from the SOURCE;
+;   3. put the combining marks back after their bases, because reordering
+;      moves a mark to the far side of the letter it belongs to.
+;
+; And the fast path: text with no right-to-left character in it comes back as
+; the identical string, untouched, without allocating anything. That is almost
+; every string these three editors ever draw, and it must not pay for this.
+;
+; What this deliberately does NOT do is renumber anything. The string that
+; comes back is for painting and measuring; it is not a text buffer. Every
+; caret offset, selection range and run boundary in the three editors indexes
+; the SOURCE text, and they still do. `visualOrderOf` is here for the callers
+; that need to map between the two — a caret in right-to-left text belongs
+; between two glyphs that are not adjacent in memory, and that mapping is the
+; next piece of work, not something this can paper over.
+;
+; Two notes on the boundary this sits on. A string is UTF-16 code units on
+; JavaScript and bytes in C++, which is exactly why the decode and encode go
+; through EVGCodepoint rather than through `charAt`: the codepoint algorithms
+; below are identical on both targets, and this is the only part that is not.
+; And the width of a line does not depend on the order of its glyphs, so
+; measuring a display string and measuring the source give the same answer as
+; long as both are shaped — which is why measurement can call this too.
+;
+;   npm run office:text:test
+; ==============================================================================
+
+Import "OfficeBidi.rgr"
+Import "OfficeArabic.rgr"
+Import "../../evg/EVGCodepoint.rgr"
+
+class OfficeText {
+
+    ; Is there anything here that this module would change? A single
+    ; right-to-left character is enough; Arabic letters are right-to-left, so
+    ; this covers the shaping too.
+    sfn needsWork:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        return (OfficeBidi.hasRtl((EVGCodepoint.toArray(s))))
+    }
+
+    ; Which way does this text run on its own? For the default alignment of a
+    ; paragraph the format did not state — Word, PowerPoint and Excel all
+    ; align a right-to-left paragraph to the right, and a reader who sees
+    ; Arabic hard against the left margin knows immediately that the program
+    ; does not understand what it is showing.
+    sfn isRtl:boolean (s:string) {
+        if ((strlen s) == 0) {
+            return false
+        }
+        return ((OfficeBidi.paragraphLevel((EVGCodepoint.toArray(s)) -1)) == 1)
+    }
+
+    ; Is this a combining mark — something that sits ON the glyph before it
+    ; rather than beside it?
+    sfn isMark:boolean (cp:int) {
+        return ((OfficeBidi.classOf(cp)) == (BidiClass.NSM()))
+    }
+
+    ; Put the combining marks back on the correct side of their bases.
+    ;
+    ; A mark takes its base's level, so the reordering carries the two along
+    ; together — and reverses them. "base + fatha" comes out of the reorder as
+    ; "fatha + base", and a renderer that composes a mark onto the glyph
+    ; before it then puts the fatha on the WRONG LETTER: the one to the right
+    ; of the one the author typed it on. It is not a small error in vowelled
+    ; text; it changes the word.
+    ;
+    ; So: inside each descending stretch of the visual order — the stretches
+    ; that the reorder actually reversed — every cluster of marks-then-base is
+    ; flipped back to base-then-marks. Left-to-right text has no descending
+    ; stretch longer than one and comes through untouched.
+    sfn reattachMarks:[int] (cps:[int] order:[int]) {
+        def n:int (array_length order)
+        def out:[int]
+        def i:int 0
+        while (i < n) {
+            push out (itemAt order i)
+            i = (i + 1)
+        }
+        def v:int 0
+        while (v < n) {
+            ; How far does the reversed stretch starting here go?
+            def run:int 1
+            def more:boolean true
+            while more {
+                def w:int (v + run)
+                more = false
+                if (w < n) {
+                    if ((itemAt order w) == ((itemAt order (w - 1)) - 1)) {
+                        more = true
+                    }
+                }
+                if more {
+                    run = (run + 1)
+                }
+            }
+            def stop:int (v + run)
+            def s:int v
+            while (s < stop) {
+                ; A cluster is any number of marks followed by their base.
+                def e:int s
+                def scanning:boolean true
+                while scanning {
+                    scanning = false
+                    if (e < (stop - 1)) {
+                        if (OfficeText.isMark((itemAt cps (itemAt order e)))) {
+                            e = (e + 1)
+                            scanning = true
+                        }
+                    }
+                }
+                if (e > s) {
+                    def a:int s
+                    def b:int e
+                    while (a < b) {
+                        def t:int (itemAt out a)
+                        set_at out a (itemAt out b)
+                        set_at out b t
+                        a = (a + 1)
+                        b = (b - 1)
+                    }
+                }
+                s = (e + 1)
+            }
+            v = stop
+        }
+        return out
+    }
+
+    ; The visual position of each glyph, as logical indices — visual[0] is the
+    ; leftmost. For callers that have to place a caret or hit-test a click;
+    ; the display string below is built from exactly this.
+    sfn visualOrderOf:[int] (s:string dir:int) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        def order:[int] (OfficeBidi.visualOrder(cps dir))
+        return (OfficeText.reattachMarks(cps order))
+    }
+
+    ; The whole of it. `dir` is -1 for "work it out from the text", 0 for a
+    ; paragraph the document marked left-to-right, 1 for one it marked
+    ; right-to-left — because an author who marked a paragraph RTL meant it,
+    ; even where the first strong character is a Latin brand name.
+    sfn forDisplayDir:string (s:string dir:int) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        def n:int (array_length cps)
+        if (n < 1) {
+            return s
+        }
+        ; The fast path, which is almost every string in almost every
+        ; document. Note it ignores `dir`: a paragraph marked right-to-left
+        ; that contains no right-to-left character is drawn in the order it is
+        ; stored — the direction changes where the line sits, not what it says.
+        if ((OfficeBidi.hasRtl(cps)) == false) {
+            return s
+        }
+        def glyphs:[int] cps
+        if (OfficeArabic.hasArabic(cps)) {
+            glyphs = (OfficeArabic.shape(cps))
+        }
+        def order:[int] (OfficeBidi.visualOrder(cps dir))
+        def visual:[int] (OfficeText.reattachMarks(cps order))
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def g:int (itemAt glyphs (itemAt visual i))
+            ; 0 is the second half of a lam-alef: one glyph, two codepoints.
+            if (g > 0) {
+                out = (out + (EVGCodepoint.toStr(g)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The same text shaped but NOT reordered, for measuring.
+    ;
+    ; A line is exactly as wide whichever order its glyphs are drawn in, so
+    ; reordering for a measurement is pure waste — but SHAPING for one is not.
+    ; A joined Arabic letter is narrower than the isolated form of the same
+    ; letter, often by a third, so measuring the stored codepoints makes every
+    ; Arabic line come out wider than it is drawn: line breaks land early,
+    ; centred text sits left of centre, and a right-aligned cell has a gap.
+    ;
+    ; This is safe to apply to text that has already been through
+    ; `forDisplay`. Shaping a presentation form does nothing — it is not a
+    ; letter this knows — so a measurement of a display string and a
+    ; measurement of the source it came from give the same answer. That is
+    ; what lets the layout measure one and the painter the other.
+    sfn forMetrics:string (s:string) {
+        def cps:[int] (EVGCodepoint.toArray(s))
+        if ((array_length cps) < 1) {
+            return s
+        }
+        if ((OfficeArabic.hasArabic(cps)) == false) {
+            return s
+        }
+        def glyphs:[int] (OfficeArabic.shape(cps))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length glyphs)) {
+            def g:int (itemAt glyphs i)
+            if (g > 0) {
+                out = (out + (EVGCodepoint.toStr(g)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The common case: no direction stated, work it out from the text.
+    sfn forDisplay:string (s:string) {
+        return (OfficeText.forDisplayDir(s -1))
+    }
+}

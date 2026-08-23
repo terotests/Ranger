@@ -104,7 +104,12 @@ class PptxFrameTest {
         def ni:int (PptxFrameTest.indexOfCommand(app "slide.next"))
         c.ok("next is one of them" (ni >= 0))
         def nt:ToolItem (app.toolbar.at(ni))
-        c.eqInt("drawn with a shared icon" nt.icon (ToolIcon.redo()))
+        ; It used to be enough to say "the same icon as Redo": every arrow in
+        ; the catalogue WAS the redo arrow, which is exactly the reason the
+        ; strip was hard to read. Now that Next has its own, the check says
+        ; what it always meant — the button draws from the shared catalogue
+        ; rather than from a picture the deck viewer keeps to itself.
+        c.eqInt("drawn with the shared next-slide icon" nt.icon (ToolIcon.navNext()))
         c.ok("the strip is as tall as it needs" (app.toolbarH == (app.toolbar.heightFor(960))))
         ; And the slide is given the room that is left, not the whole window —
         ; the strip and the status line above and below it, the notes strip

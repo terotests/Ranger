@@ -79,6 +79,10 @@ class LaidLine {
     def boxX:int 0
     def boxW:int 0
     def align:int 0
+    ; The paragraph's direction, carried down so the painter does not have to
+    ; go back to the model for it. -1 nobody said, 0 left to right, 1 right
+    ; to left.
+    def bidi:int -1
     def listPrefix:string ""
     def kind:int (LaidLineKind.text())
     def imageIndex:int 0
@@ -394,6 +398,7 @@ class DocxLayout {
             line.y = y
             line.fontSizePx = fontPx
             line.align = p.align
+            line.bidi = p.bidi
             if ((array_length p.spans) > 0) {
                 def sp:TextSpan (itemAt p.spans 0)
                 line.bold = sp.bold
@@ -636,6 +641,7 @@ class DocxLayout {
                 line.y = y
                 line.baseline = (y + (to_int (fontPx * 0.8)))
                 line.align = p.align
+                line.bidi = p.bidi
                 line.bold = bold
                 line.underline = underline
                 line.fontSizePx = fontPx
@@ -690,6 +696,7 @@ class DocxLayout {
             emptyLine.y = y
             emptyLine.baseline = (y + (to_int (fontPx * 0.8)))
             emptyLine.align = p.align
+            emptyLine.bidi = p.bidi
             emptyLine.fontSizePx = fontPx
             emptyLine.x = (ml + indent)
             emptyLine.width = 4
@@ -729,6 +736,7 @@ class DocxLayout {
             iline.height = ih
             iline.width = iw
             iline.align = p.align
+            iline.bidi = p.bidi
             if (p.align == 1) {
                 iline.x = (ml + (to_int ((contentW - iw) / 2)))
             }
@@ -948,6 +956,7 @@ class DocxLayout {
             line.y = y
             line.fontSizePx = fontPx
             line.align = p.align
+            line.bidi = p.bidi
             if ((array_length p.spans) > 0) {
                 def sp:TextSpan (itemAt p.spans 0)
                 line.bold = sp.bold

@@ -84,6 +84,20 @@ class DocxView {
         ; fallback all along, and these two faces are what give it something to
         ; fall back TO. Neither becomes the face anything is drawn in.
         ctx.tr.addFace("Noto_Sans/NotoSans-Regular.ttf")
+        ; Arabic. Nothing loaded here had a single Arabic glyph in it, so a
+        ; paragraph in Arabic drew a row of .notdef boxes — and it would have
+        ; gone on doing that however correct the bidirectional algorithm and
+        ; the shaper above it were. El Messiri carries the base block AND the
+        ; joining forms the shaper emits, which is why it is the one chosen:
+        ; without a GSUB shaper here, a face with only the base block would
+        ; still have drawn every letter unjoined.
+        ;
+        ; It joins the fallback pool per CODEPOINT, like the emoji and the
+        ; bullets, so it never becomes the face Latin text is drawn in — a
+        ; mixed line takes its Latin from the document's own face and its
+        ; Arabic from here, which is what a reader expects and what Word does.
+        ctx.tr.addFace("El_Messiri/ElMessiri-Regular.ttf")
+        ctx.tr.addFace("El_Messiri/ElMessiri-Bold.ttf")
         ctx.tr.addFace("Noto_Emoji/NotoEmoji-Regular.ttf")
     }
 
@@ -439,6 +453,10 @@ class DocxView {
     ; Paint a visual line using paragraph TextSpan runs (bold/color/underline).
     ; Layout still wraps with the line's primary size; run styles drive glyphs.
     fn paintStyledLine:void (line:LaidLine lx:int ly:int) {
+        ; The paragraph's direction, before anything is drawn. Every ink call
+        ; below is a piece of the same paragraph, so this is set once here
+        ; rather than passed down through each of them.
+        ink.dir = line.bidi
         def size:double line.fontSizePx
         if (size < 8.0) {
             size = 8.0

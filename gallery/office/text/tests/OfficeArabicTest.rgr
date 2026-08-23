@@ -1,0 +1,259 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeArabicTest — the cases where a plausible shaper is wrong
+; ==============================================================================
+;
+; A shaper that handles "join to both sides in the middle of a word" is easy
+; and covers maybe half of real Arabic. The cases below are the other half —
+; the ones that separate a shaper from something that merely looks like one:
+;
+;   * a right-joining letter in the middle of a word BREAKS it visually, and
+;     the letter after the break starts again in its isolated shape
+;   * a two-shape letter surrounded by joins takes its FINAL form, because it
+;     has no medial one to take
+;   * a harakat between two letters must not stop them joining
+;   * hamza joins on neither side, so its neighbours stay isolated too
+;   * lam + alef is one glyph, not two, and it has a final form of its own
+;   * the tatweel joins; the zero-width non-joiner deliberately does not
+;   * a letter that joins on neither side comes back as ITSELF, because the
+;     isolated shape is the glyph the base codepoint already maps to and the
+;     Presentation Forms-B duplicate of it is missing from most Arabic fonts
+;
+; And one that is about the architecture rather than about Arabic: the array
+; that comes out is the same length as the one that went in, because every
+; caret and selection in the three editors indexes the source text.
+;
+; Compiled twice, like everything else in this layer. The shaping itself is
+; integer arithmetic on codepoints and identical on both targets — what is
+; not identical is the string the callers decode into these ints, UTF-16 on
+; JavaScript and bytes in C++, so the core is checked on both to keep that
+; boundary honest.
+;
+;   npm run office:arabic:test
+; ==============================================================================
+
+Import "../OfficeArabic.rgr"
+Import "../OfficeBidi.rgr"
+
+class ArabicCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
+    }
+}
+
+class OfficeArabicTest {
+    def c:ArabicCheck (new ArabicCheck)
+
+    sfn main:void () {
+        def t (new OfficeArabicTest())
+        t.run()
+    }
+
+    ; Codepoints written out in decimal, so a test reads as what it tests
+    ; rather than as a string literal nobody can see the direction of.
+    sfn cps:[int] (spec:string) {
+        def out:[int]
+        def cur:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (strlen spec)) {
+            def ch:int (charAt spec i)
+            if (ch == 32) {
+                if any {
+                    push out cur
+                }
+                cur = 0
+                any = false
+            } {
+                cur = ((cur * 10) + (ch - 48))
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            push out cur
+        }
+        return out
+    }
+
+    ; A codepoint array back as decimals, so a failure prints what it got.
+    sfn text:string (arr:[int]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length arr)) {
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + (to_string (itemAt arr i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; shape() and compare against a written-out expectation, in one step.
+    fn shaped:void (name:string input:string want:string) {
+        def got:[int] (OfficeArabic.shape((OfficeArabicTest.cps(input))))
+        c.eqStr(name (OfficeArabicTest.text(got)) want)
+    }
+
+    fn run:void () {
+        print "=== OfficeArabicTest ==="
+        this.testJoining()
+        this.testWordShapes()
+        this.testBreaks()
+        this.testMarks()
+        this.testLigature()
+        this.testUntouched()
+        this.testWithBidi()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testJoining:void () {
+        print "--- which letters join which way ---"
+        ; U+0628 BEH is dual-joining; U+062F DAL and U+0627 ALEF are not.
+        c.ok("beh joins the letter after it" (OfficeArabic.joinsForward(1576)))
+        c.ok("dal does not" ((OfficeArabic.joinsForward(1583)) == false))
+        c.ok("alef does not" ((OfficeArabic.joinsForward(1575)) == false))
+        c.ok("but alef still accepts a join from before it" (OfficeArabic.joinsBackward(1575)))
+        c.ok("the tatweel joins both ways" (OfficeArabic.joinsForward(1600)))
+        ; U+0621 HAMZA is joining type U — neither side.
+        c.ok("hamza joins nothing after it" ((OfficeArabic.joinsForward(1569)) == false))
+        c.ok("and accepts nothing before it" ((OfficeArabic.joinsBackward(1569)) == false))
+        c.ok("a space is not a joining letter" ((OfficeArabic.joinsBackward(32)) == false))
+
+        c.ok("there is Arabic here" (OfficeArabic.hasArabic((OfficeArabicTest.cps("65 32 1576")))))
+        c.ok("and none here" ((OfficeArabic.hasArabic((OfficeArabicTest.cps("65 66 32 52")))) == false))
+    }
+
+    fn testWordShapes:void () {
+        print "--- the four shapes ---"
+        ; U+FE8F..FE92 are beh isolated, final, initial, medial in that order.
+        ; A letter that joins on neither side comes back as ITSELF, not as its
+        ; isolated presentation form. That is not laziness: the isolated shape
+        ; is the glyph a font maps the base codepoint to, and both Arabic
+        ; faces in this repository carry every joining form and not one of the
+        ; 36 isolated ones. FE8F for a lone beh would draw a .notdef box.
+        this.shaped("one letter alone stays the letter it was" "1576" "1576")
+        this.shaped("two letters are initial then final" "1576 1576" "65169 65168")
+        this.shaped("three put a medial in the middle" "1576 1576 1576" "65169 65170 65168")
+        this.shaped("a space starts a new word" "1576 1576 32 1576" "65169 65168 32 1576")
+
+        ; مرحبا — a real word, with a break after the reh and a two-shape
+        ; letter at each end of it.
+        this.shaped("مرحبا comes out shaped" "1605 1585 1581 1576 1575"
+            "65251 65198 65187 65170 65166")
+    }
+
+    fn testBreaks:void () {
+        print "--- where a word breaks ---"
+        ; U+062F DAL is right-joining: it takes the join from the beh before
+        ; it and gives none to the beh after, which therefore starts over in
+        ; its isolated shape. A shaper that treats "in the middle of a word"
+        ; as "medial" gets this wrong and produces a word joined straight
+        ; through a letter that cannot join.
+        this.shaped("a right-joining letter breaks the word" "1576 1583 1576"
+            "65169 65194 1576")
+        ; U+0648 WAW has only two shapes. In the middle of joins it takes the
+        ; FINAL one, because there is no medial waw to take.
+        this.shaped("a two-shape letter in the middle takes its final form"
+            "1576 1608 1576" "65169 65262 1576")
+        ; Hamza joins on neither side, so all three letters stand alone.
+        this.shaped("hamza leaves its neighbours isolated" "1576 1569 1576"
+            "1576 1569 1576")
+    }
+
+    fn testMarks:void () {
+        print "--- the marks that must not get in the way ---"
+        ; U+064E FATHA sits ON the beh. Looking for a neighbour must look
+        ; straight through it — this is the single most common way a
+        ; hand-written shaper gets vowelled text wrong, and vowelled text is
+        ; most of what a document that bothers with Arabic contains.
+        this.shaped("a fatha between two letters does not break the join"
+            "1576 1614 1576" "65169 1614 65168")
+        ; The tatweel is the opposite: it is not transparent, it is a joining
+        ; character in its own right, and it stays as itself.
+        this.shaped("the tatweel joins and stays" "1576 1600 1576"
+            "65169 1600 65168")
+        ; ZWNJ is the author saying "do not join these", and it is honoured.
+        this.shaped("the zero-width non-joiner breaks the join" "1576 8204 1576"
+            "1576 8204 1576")
+    }
+
+    fn testLigature:void () {
+        print "--- lam and alef are one glyph ---"
+        ; U+FEFB is the isolated lam-alef, U+FEFC the final one. The 0 is the
+        ; alef's slot: it has no glyph of its own, it is inside the ligature.
+        ; The array keeps its length so the caret indices around it survive.
+        this.shaped("lam + alef ligate" "1604 1575" "65275 0")
+        this.shaped("and take the final form when the lam is joined to"
+            "1576 1604 1575" "65169 65276 0")
+        ; U+0622 ALEF WITH MADDA has its own ligature, U+FEF5.
+        this.shaped("alef madda has its own ligature" "1604 1570" "65269 0")
+        ; A lam followed by anything else is just a lam.
+        this.shaped("a lam before another letter is only a lam" "1604 1576"
+            "65247 65168")
+        ; And the harakat rule applies here too: a mark between the two does
+        ; not stop them ligating.
+        this.shaped("a mark between lam and alef does not stop the ligature"
+            "1604 1614 1575" "65275 1614 0")
+
+        def out:[int] (OfficeArabic.shape((OfficeArabicTest.cps("1604 1575 1576"))))
+        c.eqInt("the length survives the ligature" (array_length out) 3)
+    }
+
+    fn testUntouched:void () {
+        print "--- what must come out exactly as it went in ---"
+        this.shaped("Latin is left alone" "65 66 67" "65 66 67")
+        this.shaped("digits are left alone" "52 46 50" "52 46 50")
+        ; Hebrew is right-to-left but not cursive: no shaping at all.
+        this.shaped("Hebrew is not shaped" "1488 1489" "1488 1489")
+        this.shaped("nothing in, nothing out" "" "")
+    }
+
+    fn testWithBidi:void () {
+        print "--- shaping and ordering are different questions ---"
+        ; The order of operations, pinned: shape in LOGICAL order, because a
+        ; letter's form depends on the letters stored beside it, and then
+        ; permute the result into visual order. Doing it the other way round
+        ; shapes each letter against its opposite neighbour and produces a
+        ; word that is joined the wrong way along its whole length.
+        def src:[int] (OfficeArabicTest.cps("1605 1585 1581 1576 1575"))
+        def glyphs:[int] (OfficeArabic.shape(src))
+        def order:[int] (OfficeBidi.visualOrder(src -1))
+        c.eqInt("the meem is drawn at the right-hand end"
+            (itemAt glyphs (itemAt order 4)) 65251)
+        c.eqInt("and it is in its INITIAL form there"
+            (OfficeArabic.formOf(1605 false true)) 65251)
+        c.eqInt("the alef is drawn leftmost"
+            (itemAt glyphs (itemAt order 0)) 65166)
+        c.eqInt("in its final form" (OfficeArabic.formOf(1575 true false)) 65166)
+        ; The presentation forms a shaper produces are themselves AL, so text
+        ; that already contains them still reorders correctly.
+        c.eqInt("a presentation form is still Arabic to the bidi algorithm"
+            (OfficeBidi.classOf(65251)) (BidiClass.AL()))
+    }
+}

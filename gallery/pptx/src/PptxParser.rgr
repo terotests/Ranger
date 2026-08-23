@@ -517,6 +517,25 @@ class PptxParser {
                     para.align = algn
                     para.alignSet = true
                 }
+                ; The direction, read before the alignment default below
+                ; because it decides what "unaligned" means.
+                def rtlS:string (pp.attr("rtl"))
+                if ((strlen rtlS) > 0) {
+                    para.rtl = 0
+                    if ((rtlS == "1") || (rtlS == "true")) {
+                        para.rtl = 1
+                    }
+                }
+                ; A right-to-left paragraph with no `algn` on it is set
+                ; against the RIGHT edge of its box. PowerPoint does not write
+                ; an alignment for that — the direction IS the alignment — so
+                ; a reader that only looks at `algn` puts every Arabic
+                ; paragraph in the deck against the left edge.
+                if (para.rtl == 1) {
+                    if (para.alignSet == false) {
+                        para.align = "r"
+                    }
+                }
                 def lvlS:string (pp.attr("lvl"))
                 if ((strlen lvlS) > 0) {
                     def lv@(optional):int (str2int lvlS)

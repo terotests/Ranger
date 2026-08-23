@@ -27,6 +27,7 @@ Import "../../game_engine/ui/UIContext.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "DocxTextMetrics.rgr"
+Import "../../office/text/OfficeText.rgr"
 
 class DocxInk {
     def ctx:UIContext (new UIContext)
@@ -35,6 +36,17 @@ class DocxInk {
     ; true:  append to the display list instead.
     def toList:boolean false
     def fontFamily:string "Open Sans"
+    ; Which way the paragraph being painted runs: -1 work it out from the
+    ; text, 0 left to right, 1 right to left. It is state on the ink rather
+    ; than an argument on every call for the same reason `fontFamily` is —
+    ; it belongs to the paragraph, not to the run, and threading it through
+    ; every `text`, `textStyled` and prefix call would be the same value
+    ; written eight times.
+    ;
+    ; It matters where the text alone would answer wrongly: a line that opens
+    ; with a Latin brand name and is otherwise Arabic reads left to right by
+    ; the algorithm's own rule, and right to left because the author said so.
+    def dir:int -1
 
     Constructor () {
     }
@@ -105,22 +117,33 @@ class DocxInk {
     ; The slant reaches the face here. It used to stop at the model: a span
     ; carried `italic`, the toolbar toggled it, Ctrl+I set it — and this took
     ; only `bold`, so nothing italic in any document was ever drawn slanted.
+    ; This is the one place a run of Word text becomes marks, on either path,
+    ; which makes it the one place the bidirectional algorithm and the Arabic
+    ; shaper have to run. Before this, a right-to-left document was drawn in
+    ; the order it was stored — every Arabic and Hebrew line reversed, and
+    ; every Arabic letter in the isolated shape it has when it stands alone.
+    ; That is not a degraded rendering of the document, it is different text.
+    ;
+    ; `forDisplay` is applied HERE and nowhere below: the canvas painter and
+    ; the display-list backends both draw whatever string reaches them, so
+    ; doing it twice would reverse the line back again.
     fn textStyled:void (s:string x:int y:int size:double col:EVGColor bold:boolean italic:boolean) {
         if ((strlen s) == 0) {
             return
         }
+        def shown:string (OfficeText.forDisplayDir(s dir))
         DocxTextMetrics.applyStyle(ctx.tr bold italic)
         if (toList == false) {
-            ctx.text(s x y size col)
+            ctx.text(shown x y size col)
             return
         }
         def c (new EVGDrawCmd)
         c.kind = 3
         c.x = (to_double x)
         c.y = (to_double y)
-        c.w = (ctx.tr.measureWidth(s size))
+        c.w = (ctx.tr.measureWidth(shown size))
         c.h = (ctx.tr.lineHeight(size))
-        c.text = s
+        c.text = shown
         c.fontFamily = fontFamily
         c.fontSize = size
         if bold {

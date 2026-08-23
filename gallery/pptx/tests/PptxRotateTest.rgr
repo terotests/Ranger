@@ -1,0 +1,229 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxRotateTest — the handle you can reach, turning about the point you grabbed
+; ==============================================================================
+;
+; Two bugs, both of which a reader meets before they meet anything else about
+; rotation, and neither of which had a test.
+;
+; THE HANDLE UNDER THE TOOLBAR. It stands eighteen pixels above the top of the
+; selection, and nothing stopped that from being eighteen pixels inside the
+; strip above the slide. A shape near the top of the slide put its handle at
+; y=67 with a toolbar 68 tall — and `editPointer` rejects everything above
+; `toolbarH` as a click on the strip. So the handle was drawn, `handleAt`
+; found it, and pressing it did nothing whatever. A control you can see and
+; cannot use is worse than one that is not there, because the reader keeps
+; trying it and concludes the program is broken rather than the button.
+;
+; THE CENTRE THAT MOVED. The pointer's angle was measured about the centre of
+; the selection's bounds RECOMPUTED EVERY FRAME. For one shape that is stable,
+; because turning it does not change its box. For a GROUP it is not: the
+; shapes orbit the pivot, so the box that contains them swings as they go.
+; Measured over a full turn of two shapes the recomputed centre wandered a
+; hundred and forty points away from where the turn began and back. The group
+; ended up rotated about the right point — `applyRotate` uses the pivot it
+; captured — but the ANGLE it was given did not match where the pointer was,
+; so the group would not follow the hand holding it.
+;
+;   npm run pptx:rotate:test
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+
+class RotCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (fabs (got - want))
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (d <= tol))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+}
+
+class PptxRotateTest {
+    def c:RotCheck (new RotCheck)
+
+    sfn main:void () {
+        def t (new PptxRotateTest())
+        t.run()
+    }
+
+    sfn app:PptxApp () {
+        def a (new PptxApp)
+        a.init("gallery/pdf_writer/assets/fonts")
+        a.resize(960 720)
+        a.loadParts("gallery/pptx/fixtures" "02-shapes.pptx")
+        return a
+    }
+
+    fn run:void () {
+        print "=== PptxRotateTest ==="
+        this.testHandleReachable()
+        this.testSingle()
+        this.testGroupPivot()
+        this.testGroupFollowsPointer()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testHandleReachable:void () {
+        print "--- the handle can actually be pressed ---"
+        def a:PptxApp (PptxRotateTest.app())
+        def all:[PptxShape] (a.editor.editableShapes())
+        c.ok("the fixture has shapes" ((array_length all) >= 2))
+        def one:PptxShape (itemAt all 0)
+        a.editor.select(one.editId)
+        def sb:PptxEditRect (a.shapeScreenBox(one))
+        def rotX:int (to_int (sb.x + (sb.w * 0.5)))
+        def rotY:int (to_int (a.rotateHandleY(sb.y)))
+        ; This shape sits near the top of the slide, which is the case that
+        ; used to put the handle inside the strip.
+        c.ok("the shape is near the top" (sb.y < (to_double (a.toolbarH + 40))))
+        c.ok("but the handle is below the toolbar" (rotY >= a.toolbarH))
+        c.eqInt("and it is still the rotation handle" (a.handleAt(rotX rotY)) 8)
+        ; The one that matters: pressing it starts a rotation rather than
+        ; being swallowed as a click on the strip.
+        def took:boolean (a.pointer(rotX rotY true true false))
+        c.ok("the press is taken" took)
+        c.eqInt("and it is a rotation, not a resize" a.dragMode 4)
+    }
+
+    fn testSingle:void () {
+        print "--- one shape turns to face the pointer ---"
+        def a:PptxApp (PptxRotateTest.app())
+        def all:[PptxShape] (a.editor.editableShapes())
+        def one:PptxShape (itemAt all 0)
+        a.editor.select(one.editId)
+        def sb:PptxEditRect (a.shapeScreenBox(one))
+        def rotX:int (to_int (sb.x + (sb.w * 0.5)))
+        def rotY:int (to_int (a.rotateHandleY(sb.y)))
+        a.pointer(rotX rotY true true false)
+        ; Straight out to the right of the shape's own centre is three
+        ; o'clock, which is a quarter turn.
+        def sideX:int (to_int ((sb.x + sb.w) + 60.0))
+        def sideY:int (to_int (sb.y + (sb.h * 0.5)))
+        a.pointer(sideX sideY false true false)
+        a.pointer(sideX sideY false false true)
+        def got@(optional):PptxShape (a.editor.findShape(one.editId))
+        if (!null? got) {
+            def g:PptxShape (unwrap got)
+            c.near("a quarter turn" g.rotation 90.0 6.0)
+        }
+    }
+
+    fn testGroupPivot:void () {
+        print "--- and the centre stays where it was grabbed ---"
+        def a:PptxApp (PptxRotateTest.app())
+        def all:[PptxShape] (a.editor.editableShapes())
+        def s1:PptxShape (itemAt all 0)
+        def s2:PptxShape (itemAt all 1)
+        a.editor.select(s1.editId)
+        a.editor.addToSelection(s2.editId)
+        c.eqInt("two shapes are selected" (a.editor.selectionCount()) 2)
+
+        def b0:PptxEditRect (a.editor.selectionBounds())
+        def startCx:double (b0.midX())
+        def startCy:double (b0.midY())
+        a.editor.beginRotate()
+        c.near("the pivot is the centre it was grabbed at" a.editor.rotPivotX startCx 0.001)
+        c.near("in both axes" a.editor.rotPivotY startCy 0.001)
+
+        ; Turn it a long way. The recomputed bounds swing as the group goes
+        ; round — that is the whole bug — and the pivot must not.
+        a.editor.applyRotate(90.0)
+        def b1:PptxEditRect (a.editor.selectionBounds())
+        c.ok("the bounds really do move as it turns"
+            ((fabs ((b1.midX()) - startCx)) > 1.0))
+        c.near("but the pivot did not" a.editor.rotPivotX startCx 0.001)
+        c.near("nor in y" a.editor.rotPivotY startCy 0.001)
+
+        ; And the turn is measured from the start every frame rather than
+        ; compounded, so going back to zero puts the group back exactly.
+        a.editor.applyRotate(0.0)
+        def b2:PptxEditRect (a.editor.selectionBounds())
+        c.near("back to zero is back where it started" (b2.midX()) startCx 0.001)
+        c.near("in both axes" (b2.midY()) startCy 0.001)
+    }
+
+    fn testGroupFollowsPointer:void () {
+        print "--- a group follows the hand holding it ---"
+        def a:PptxApp (PptxRotateTest.app())
+        def all:[PptxShape] (a.editor.editableShapes())
+        def s1:PptxShape (itemAt all 0)
+        def s2:PptxShape (itemAt all 1)
+        a.editor.select(s1.editId)
+        a.editor.addToSelection(s2.editId)
+        def r1:double s1.rotation
+        def r2:double s2.rotation
+
+        def b:PptxEditRect (a.editor.selectionBounds())
+        def sc:double (a.ptScale())
+        def pivotSx:double (((b.midX()) * sc) + (a.slideOriginX()))
+        def pivotSy:double (((b.midY()) * sc) + (a.slideOriginY()))
+
+        ; Grab the handle...
+        def sbx0:double (((b.x) * sc) + (a.slideOriginX()))
+        def sby0:double (((b.y) * sc) + (a.slideOriginY()))
+        def sbw:double ((b.w) * sc)
+        def rotX:int (to_int (sbx0 + (sbw * 0.5)))
+        def rotY:int (to_int (a.rotateHandleY(sby0)))
+        c.eqInt("the group has a rotation handle" (a.handleAt(rotX rotY)) 8)
+        a.pointer(rotX rotY true true false)
+        c.eqInt("and grabbing it rotates" a.dragMode 4)
+
+        ; ...and carry it round to three o'clock OF THE PIVOT, through the
+        ; intermediate positions a real drag passes through.
+        ;
+        ; The steps are the point. A single jump would not catch anything:
+        ; on the first frame of a drag nothing has moved yet, so a centre
+        ; recomputed from the bounds still agrees with the captured one. The
+        ; bug is in every frame AFTER that, once the group has swung and
+        ; taken its bounding box with it — which is exactly how a drag
+        ; arrives from a real pointer, a few pixels at a time.
+        def steps:int 12
+        def st:int 1
+        while (st <= steps) {
+            def frac:double ((to_double st) / (to_double steps))
+            def ang:double (((frac * 90.0) - 90.0) * (3.141592653589793 / 180.0))
+            def dx:double (200.0 * (cos ang))
+            def dy:double (200.0 * (sin ang))
+            a.pointer((to_int (pivotSx + dx)) (to_int (pivotSy + dy)) false true false)
+            st = (st + 1)
+        }
+        def toX:int (to_int (pivotSx + 200.0))
+        def toY:int (to_int pivotSy)
+        a.pointer(toX toY false true false)
+        a.pointer(toX toY false false true)
+
+        def g1@(optional):PptxShape (a.editor.findShape(s1.editId))
+        def g2@(optional):PptxShape (a.editor.findShape(s2.editId))
+        if (!null? g1) {
+            def h1:PptxShape (unwrap g1)
+            c.near("the first shape took the quarter turn" h1.rotation (r1 + 90.0) 4.0)
+        }
+        if (!null? g2) {
+            def h2:PptxShape (unwrap g2)
+            c.near("and so did the second" h2.rotation (r2 + 90.0) 4.0)
+        }
+    }
+}

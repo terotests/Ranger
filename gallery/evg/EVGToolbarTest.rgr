@@ -154,7 +154,15 @@ class EVGToolbarTest {
         def dl:EVGDisplayList (new EVGDisplayList)
         bar.hot = 4
         view.paint(dl bar 0 0 900 (bar.heightFor(900)))
-        c.ok("the strip made draw commands" ((array_length dl.cmds) > 40))
+        ; This used to demand more than 40 commands, and it was really
+        ; measuring how the icons were BUILT: every glyph was a stack of small
+        ; rectangles, so a strip of eleven buttons ran to dozens of them. The
+        ; icons are single filled paths now — 38 commands for the same strip,
+        ; which is the improvement, and the old threshold read it as a
+        ; regression. Counting against the number of buttons says what was
+        ; meant: every button is drawn, chip and glyph, and none is silently
+        ; missing.
+        c.ok("the strip made draw commands" ((array_length dl.cmds) > ((bar.count()) * 2)))
         ; The tooltip is text, and so are the letter icons.
         def texts:int 0
         def ti:int 0
@@ -166,6 +174,219 @@ class EVGToolbarTest {
             ti = (ti + 1)
         }
         c.ok("including text" (texts > 3))
+
+        print "-- and the same strip, turned around --"
+        ; The switch, on the part of the interface that does not go through
+        ; EVGLayout: a toolbar computes its own geometry, so it mirrors
+        ; itself, with the same reflection and for the same reason.
+        def rbar (new EVGToolbar)
+        rbar.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        rbar.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        rbar.add("format.bold" "" "Bold" (ToolIcon.bold()))
+        rbar.layout(0 0 900)
+        def lx0:int ((rbar.at(0)).x)
+        def lx1:int ((rbar.at(1)).x)
+        def lx2:int ((rbar.at(2)).x)
+        c.ok("left to right, Undo is leftmost" (lx0 < lx1))
+        c.ok("and Bold is rightmost" (lx1 < lx2))
+
+        def mbar (new EVGToolbar)
+        mbar.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        mbar.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        mbar.add("format.bold" "" "Bold" (ToolIcon.bold()))
+        mbar.rtl = true
+        mbar.layout(0 0 900)
+        def rx0:int ((mbar.at(0)).x)
+        def rx1:int ((mbar.at(1)).x)
+        def rx2:int ((mbar.at(2)).x)
+        c.ok("turned around, Undo is rightmost" (rx0 > rx1))
+        c.ok("and Bold is leftmost" (rx1 > rx2))
+        ; The widths are unchanged and the strip still starts where it did:
+        ; this reflects the buttons, it does not restretch the band.
+        c.eqInt("the strip is the same height" mbar.height rbar.height)
+
+        def undoItem:ToolItem (rbar.at(0))
+        def boldItem:ToolItem (mbar.at(2))
+        def undoW:int undoItem.w
+        def boldW:int boldItem.w
+
+        ; WHERE THE STRIP SITS, not only the order inside it.
+        ;
+        ; This is the check that was missing, and its absence let a mirroring
+        ; that reversed every button and moved the block of them nowhere pass
+        ; a full green suite: the buttons came out in the right order, still
+        ; packed against the LEFT edge with the empty space still on the
+        ; right. Every button had moved and the strip had not. A screenshot
+        ; said so in a second; the tests did not, because each of them asked
+        ; about a button relative to another button.
+        ;
+        ; So: the first command must reach the right-hand edge, and the last
+        ; must not begin at the left one.
+        def firstEnd:int (rx0 + undoW)
+        c.ok("the strip is packed against the right edge" (firstEnd > 880))
+        c.ok("and is not still hugging the left one" (rx2 > 700))
+        ; The padding survives the reflection at both ends: a row that began
+        ; `pad` from the left edge ends `pad` from the right one.
+        c.eqInt("the padding is the same at the far end" (900 - firstEnd) lx0)
+        ; Bold was leftmost-but-two on the left-hand strip; mirrored it is
+        ; the leftmost button, and its left edge is the mirror of Undo's
+        ; right edge — the outermost button on each side is the same distance
+        ; in from its own edge.
+        c.eqInt("Bold's left edge mirrors Undo's right edge" rx2 (900 - (lx2 + boldW)))
+
+        ; The click follows, because it reads the same rectangle the painter
+        ; does. This is the check that would fail if mirroring had been done
+        ; in the PAINTER instead — the strip would look right and every
+        ; button would run its opposite number's command.
+        def firstItem:ToolItem (mbar.at(0))
+        def firstY:int firstItem.y
+        def hitR:int (mbar.hit((rx0 + 2) (firstY + 2)))
+        c.eqInt("clicking the rightmost button hits Undo" hitR 0)
+        def lastY:int boldItem.y
+        def hitL:int (mbar.hit((rx2 + 2) (lastY + 2)))
+        c.eqInt("and the leftmost hits Bold" hitL 2)
+        ; The order in the model is untouched, so a screen reader still reads
+        ; the strip as Undo, Redo, Bold — which is the order it was built in
+        ; and the order it is spoken in, whichever way it is drawn.
+        def firstCmd:string firstItem.command
+        c.eqStr("the model order is untouched" firstCmd "edit.undo")
+
+        print "-- and the same strip in named pages --"
+        ; Tabs group a wall of commands into words a reader can read. What
+        ; matters is that they are an ADDITION: everything above this line is
+        ; a strip with no tabs on it and behaves exactly as it always did.
+        def tb (new EVGToolbar)
+        tb.addTab("Home")
+        tb.add("file.save" "" "Save" (ToolIcon.save()))
+        tb.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        tb.addTab("Insert")
+        tb.add("insert.chart" "" "Chart" (ToolIcon.chart()))
+        tb.add("insert.link" "" "Link" (ToolIcon.link()))
+        tb.add("picture.add" "" "Picture" (ToolIcon.picture()))
+        tb.layout(0 0 900)
+
+        c.ok("the strip has pages" (tb.hasTabs()))
+        c.eqInt("two of them" (tb.tabCount()) 2)
+        c.eqInt("and every button is still in the one list" (tb.count()) 5)
+        c.eqInt("Home is found by name" (tb.tabNamed("Home")) 0)
+        c.eqInt("and Insert" (tb.tabNamed("Insert")) 1)
+        c.eqInt("a name nobody used is not found" (tb.tabNamed("Nowhere")) -1)
+
+        ; The showing page has geometry; the other has none at all. That is
+        ; what lets the painter, the click and the accessibility tree stay
+        ; ignorant of tabs — they already skip an item with no width, because
+        ; that is how a button that did not fit has always been marked.
+        def home0:ToolItem (tb.at(0))
+        def ins0:ToolItem (tb.at(2))
+        c.ok("a button on the showing page has a rectangle" (home0.w > 0))
+        c.ok("one on the other page has none" (ins0.w == 0))
+        c.eqInt("so a click where it would be hits nothing"
+            (tb.hit((home0.x + 2) (home0.y + 2))) 0)
+
+        ; The names sit above the buttons, and the buttons start below them.
+        def t0:ToolTab (tb.tabAt(0))
+        def t1:ToolTab (tb.tabAt(1))
+        c.ok("the first name is at the left" (t0.x < t1.x))
+        c.ok("the names are on their own row" (t0.y < home0.y))
+        c.ok("and the buttons start under them" (home0.y >= tb.tabH))
+        c.eqInt("clicking a name finds it" (tb.hitTab((t1.x + 2) (t1.y + 2))) 1)
+        c.eqInt("and clicking where a button is finds no name"
+            (tb.hitTab((home0.x + 2) (home0.y + 2))) -1)
+
+        ; Switching pages swaps which buttons exist.
+        c.ok("selecting the other page changes something" (tb.selectTab(1)))
+        c.ok("selecting it again changes nothing" ((tb.selectTab(1)) == false))
+        c.ok("and a page that is not there is refused" ((tb.selectTab(7)) == false))
+        tb.layout(0 0 900)
+        def home0b:ToolItem (tb.at(0))
+        def ins0b:ToolItem (tb.at(2))
+        c.ok("now Insert has the rectangles" (ins0b.w > 0))
+        c.ok("and Home has none" (home0b.w == 0))
+        c.eqInt("the click lands on the Insert button"
+            (tb.hit((ins0b.x + 2) (ins0b.y + 2))) 2)
+
+        ; The strip is taller by exactly the row of names.
+        def flat (new EVGToolbar)
+        flat.add("file.save" "" "Save" (ToolIcon.save()))
+        flat.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        c.eqInt("the pages cost exactly one row of names"
+            ((tb.heightFor(900)) - (flat.heightFor(900))) tb.tabH)
+
+        ; And they turn around with everything else.
+        def mtb (new EVGToolbar)
+        mtb.addTab("Home")
+        mtb.add("file.save" "" "Save" (ToolIcon.save()))
+        mtb.addTab("Insert")
+        mtb.add("insert.chart" "" "Chart" (ToolIcon.chart()))
+        mtb.rtl = true
+        mtb.layout(0 0 900)
+        def m0:ToolTab (mtb.tabAt(0))
+        def m1:ToolTab (mtb.tabAt(1))
+        c.ok("turned around, the first page name is on the right" (m0.x > m1.x))
+        c.ok("and it reaches the right-hand edge" (((m0.x + m0.w)) > 880))
+
+        print "-- buttons that say what they are, and lists that fold away --"
+        def lb (new EVGToolbar)
+        def plain:ToolItem (lb.add("edit.undo" "" "Undo" (ToolIcon.undo())))
+        def named:ToolItem (lb.addLabeled("file.print" "" "Print" (ToolIcon.printDoc())))
+        lb.layout(0 0 900)
+        c.ok("a labelled button says so" named.showLabel)
+        c.ok("a plain one does not" ((plain.showLabel) == false))
+        c.ok("and the label makes it wider" (named.w > plain.w))
+
+        def dd (new EVGToolbar)
+        def owner:ToolItem (dd.addDropdown("Borders" (ToolIcon.borderAll())))
+        dd.addUnder("format.border" "all" "All borders" (ToolIcon.borderAll()))
+        dd.addUnder("format.border" "none" "No border" (ToolIcon.borderNone()))
+        dd.addUnder("format.border" "outline" "Outline" (ToolIcon.borderOut()))
+        dd.addUnder("format.border" "" "More borders…" (ToolIcon.borderMore()))
+        dd.layout(0 0 900)
+        c.eqInt("the strip holds five buttons" (dd.count()) 5)
+        def e0:ToolItem (dd.at(1))
+        def e2:ToolItem (dd.at(4))
+        c.ok("the dropdown itself is on the strip" (owner.w > 0))
+        c.eqInt("and its entries take no room at all" e0.w 0)
+        c.eqInt("none of them" e2.w 0)
+        ; Four commands in one slot, which is where a dropdown starts paying
+        ; for itself. It is worth being exact about that rather than assuming
+        ; it: the folded button carries a NAME, and a name is about fifty
+        ; pixels, so against three icon-only buttons a dropdown is very
+        ; slightly WIDER. Past three it wins, and it goes on winning — which
+        ; is why the border commands are behind one and bold/italic are not.
+        def flat2 (new EVGToolbar)
+        flat2.add("format.border" "all" "All borders" (ToolIcon.borderAll()))
+        flat2.add("format.border" "none" "No border" (ToolIcon.borderNone()))
+        flat2.add("format.border" "outline" "Outline" (ToolIcon.borderOut()))
+        flat2.add("format.border" "" "More borders…" (ToolIcon.borderMore()))
+        flat2.layout(0 0 900)
+        def flatEnd:ToolItem (flat2.at(3))
+        c.ok("the folded list is narrower than the four buttons were"
+            ((owner.x + owner.w) < (flatEnd.x + flatEnd.w)))
+
+        ; Pressing the dropdown opens it, and the strip says it dealt with the
+        ; press itself so the owner does not also run an empty command.
+        c.ok("pressing it is handled by the strip" (dd.pressItem(0)))
+        c.eqInt("and the list is showing" dd.openMenu 0)
+        dd.layout(0 0 900)
+        def o0:ToolItem (dd.at(1))
+        def o1:ToolItem (dd.at(2))
+        c.ok("now the entries have rectangles" (o0.w > 0))
+        c.ok("stacked under the button" (o0.y >= (owner.y + owner.h)))
+        c.ok("one below the other" (o1.y > o0.y))
+        c.ok("all the same width" (o1.w == o0.w))
+        c.eqInt("and a click lands on one" (dd.hit((o1.x + 4) (o1.y + 4))) 2)
+        def box:[int] (dd.menuBox())
+        c.eqInt("the list has a box to draw a panel behind" (array_length box) 4)
+
+        ; Choosing an entry is NOT handled by the strip — the command has to
+        ; run — but it does put the list away.
+        c.ok("choosing an entry is left to the owner" ((dd.pressItem(2)) == false))
+        c.eqInt("and the list is shut again" dd.openMenu -1)
+        ; Pressing the dropdown twice shuts it, which is what a second click
+        ; on an open menu does everywhere.
+        dd.pressItem(0)
+        c.ok("pressing it again shuts it" (dd.pressItem(0)))
+        c.eqInt("shut" dd.openMenu -1)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

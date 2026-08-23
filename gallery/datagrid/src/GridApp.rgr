@@ -38,6 +38,15 @@ class GridApp {
     def engine:FormulaEngine (new FormulaEngine)
     def sel:GridSelection (new GridSelection)
     def grid:DataGrid (new DataGrid)
+    ; Whether the interface is mirrored. Not the workbook's reading order —
+    ; that is the file's business and is read from `readingOrder`; this is
+    ; which way the PROGRAM is laid out around it.
+    def uiRtl:boolean false
+    ; Has the reader turned the interface back to left-to-right by hand?
+    ; While they have, the automatic half stays quiet: a program that keeps
+    ; undoing a deliberate choice every time a file is opened is worse than
+    ; one that never guessed.
+    def uiRtlChosen:boolean false
     def view:GridView (new GridView)
     def W:int 900
     def H:int 560
@@ -1109,6 +1118,8 @@ class GridApp {
         commands.add("view.theme.next" "Next colour theme" "View" "Ctrl+Shift+T")
         commands.add("view.sheet.next" "Next sheet" "View" "")
         commands.add("view.sheet.prev" "Previous sheet" "View" "")
+        commands.add("view.rtl" "Right-to-left layout" "View" "")
+        commands.add("file.print" "Print" "File" "Ctrl+P")
         commands.add("script.run" "Run the report script" "Script" "Ctrl+R")
         commands.addArg("script.open" "Run a named report script" "Script" "")
         commands.add("script.next" "Next script in this workbook" "Script" "")
@@ -1195,7 +1206,64 @@ class GridApp {
 
     ; Run one command by name. Returns false for a name the table does not
     ; have, so a host can tell a typo from a no-op.
+    ; Turn the interface around, or back. One flag: the strip mirrors itself,
+    ; and anything drawn through EVGLayout mirrors because `direction`
+    ; inherits from the root. The SHEET's own reading order is a separate
+    ; question — `readingOrder` on a cell says which way its text runs and
+    ; that is not the reader's to override.
+    fn setUiRtl:void (on:boolean) {
+        uiRtl = on
+        view.toolbar.rtl = on
+        view.toolbar.uiRtl = on
+    }
+
+    ; A workbook with right-to-left cells in it opens with the interface
+    ; already turned around. Only ever turns it ON: a reader who turned it off
+    ; is not overruled by the next file they open.
+    ;
+    ; It asks the STYLE table rather than walking the cells, which is both
+    ; cheaper and more faithful — a workbook's reading order is set as a
+    ; format, so one style with it on is the whole answer however many cells
+    ; wear that style.
+    fn adoptWorkbookDirection:void () {
+        if uiRtlChosen {
+            return
+        }
+        if uiRtl {
+            return
+        }
+        def i:int 0
+        while (i < (array_length model.styles)) {
+            def st:CellStyle (itemAt model.styles i)
+            if (st.readingOrder == 2) {
+                this.setUiRtl(true)
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
     fn runCommand:boolean (id:string arg:string) {
+        ; Printing is the host's: this program can lay a sheet out and draw
+        ; it, and it has no idea what printers exist. `fileRequest` is the
+        ; same channel saving already goes out on, and a host that does not
+        ; answer it simply has no Print — which is honest, and better than a
+        ; button that appears to work.
+        if (id == "file.print") {
+            fileRequest = "print"
+            return true
+        }
+        if (id == "view.rtl") {
+            ; The latch goes down exactly when the reader turns the interface
+            ; OFF, and lifts when they turn it back on. "The reader said no"
+            ; is the only thing the automatic half has to respect — it never
+            ; turns the switch off, so a reader who turned it on by hand has
+            ; nothing to be overruled about.
+            def next:boolean (uiRtl == false)
+            uiRtlChosen = (next == false)
+            this.setUiRtl(next)
+            return true
+        }
         this.buildCommands()
         def cmd:GridCommand (commands.find(id))
         if ((strlen cmd.id) == 0) {
@@ -3131,7 +3199,7 @@ class GridApp {
     }
 
     sfn fontNameCount:int () {
-        return 10
+        return 11
     }
 
     sfn fontNameAt:string (i:int) {
@@ -3145,6 +3213,11 @@ class GridApp {
         if (i == 7) { return "Helvetica" }
         if (i == 8) { return "Droid Serif" }
         if (i == 9) { return "Josefin Sans" }
+        ; The Arabic face. It is in the fallback pool already, so a cell
+        ; holding Arabic draws correctly whichever font is set on it — but a
+        ; workbook whose whole point is Arabic should be able to say so, and
+        ; the picker is the only place a user can.
+        if (i == 10) { return "El Messiri" }
         return "Calibri"
     }
 
@@ -5155,13 +5228,27 @@ class GridApp {
         if (py < (grid.toolbarY())) {
             return -1
         }
+        ; An open dropdown hangs BELOW the band, over the formula bar and the
+        ; first rows of the sheet, so the band guard has to let those through
+        ; — otherwise the list is drawn, and drawn over the sheet, and none of
+        ; it can be clicked. It worked before this only by accident: the band
+        ; height was settled once at startup and happened to be tall enough to
+        ; contain the list, and it stopped being so the moment the height
+        ; started tracking the page being shown.
         if (py >= ((grid.toolbarY()) + grid.toolbarH)) {
-            return -1
+            if ((view.toolbar.openMenu) < 0) {
+                return -1
+            }
         }
         return (view.toolbar.hit(px py))
     }
 
     fn runToolbarItem:boolean (i:int) {
+        ; A dropdown opens its list instead of running something. The strip
+        ; settles that itself so the three apps cannot drift on what one does.
+        if (view.toolbar.pressItem(i)) {
+            return true
+        }
         def t:ToolItem (view.toolbar.at(i))
         if ((strlen t.command) == 0) {
             return false
@@ -7832,6 +7919,16 @@ class GridApp {
         if (this.toolbarHit(px py) >= 0) {
             return (GridCursor.pointing())
         }
+        ; A page name is as clickable as a button, and the pointer has to say
+        ; so — a row of words that does not answer the cursor reads as a
+        ; heading rather than as something to press.
+        if (py >= (grid.toolbarY())) {
+            if (py < ((grid.toolbarY()) + grid.toolbarH)) {
+                if ((view.toolbar.hitTab(px py)) >= 0) {
+                    return (GridCursor.pointing())
+                }
+            }
+        }
         def hit:CellPos (grid.hitTest(model px py))
         ; The formula bar is a text field.
         if ((hit.row == -3) && (hit.col == -3)) {
@@ -8136,6 +8233,19 @@ class GridApp {
                     return
                 }
                 this.closeHeaderMenu()
+            }
+            ; A press on a page name shows that page. Checked before the
+            ; buttons, because the two rows are one strip and the names sit
+            ; where a button never does.
+            if (input.pointerY >= (grid.toolbarY())) {
+                if (input.pointerY < ((grid.toolbarY()) + grid.toolbarH)) {
+                    def tb:int (view.toolbar.hitTab(input.pointerX input.pointerY))
+                    if (tb >= 0) {
+                        view.focused = true
+                        view.toolbar.selectTab(tb)
+                        return
+                    }
+                }
             }
             def hitTool:int (this.toolbarHit(input.pointerX input.pointerY))
             if (hitTool >= 0) {
@@ -8583,6 +8693,16 @@ class GridApp {
         view.editInFormulaBar = editInFormulaBar
         view.windows = windows
         this.refreshFormulaHilites()
+        ; A workbook with right-to-left cells in it opens turned around.
+        ; Checked here because a workbook arrives by several routes — a file,
+        ; a paste, a script — and this is the one place they all reach; it
+        ; costs a walk of the STYLE table, not the cells, and only while the
+        ; answer is still no.
+        this.adoptWorkbookDirection()
+        ; The band is as tall as the page showing on it needs, and pages
+        ; differ. Settling this only on resize leaves the strip short after a
+        ; page change.
+        grid.toolbarH = (view.toolbar.heightFor(W))
         view.render(model sel grid editing editBuf book)
     }
 

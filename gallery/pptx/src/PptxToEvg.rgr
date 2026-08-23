@@ -20,6 +20,7 @@ Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
+Import "../../office/text/OfficeText.rgr"
 
 class PptxToEvg {
     def scale:double 1.0        ; extra zoom on top of pt→px
@@ -289,7 +290,11 @@ class PptxToEvg {
         c.y = y
         c.w = boxW
         c.h = size
-        c.text = text
+        ; Reordered and shaped on the way into the display list, and nowhere
+        ; after: every backend — the software painter, the GL painter, the
+        ; browser — draws the string it is handed, so a second pass anywhere
+        ; below would reverse a right-to-left line back again.
+        c.text = (OfficeText.forDisplay(text))
         c.fontFamily = fontFamily
         c.fontSize = size
         c.textAlign = align
@@ -535,6 +540,13 @@ class PptxToEvg {
                             piece = (to_string slideNumber)
                         }
                     }
+                    ; The bidirectional algorithm and the Arabic shaper, on
+                    ; the way from the model to the marks. A slide's runs are
+                    ; still laid out left to right by `penX`, so a paragraph
+                    ; that changes face mid-sentence still puts its runs in
+                    ; logical order — but each run now reads correctly, which
+                    ; is the whole of an ordinary Arabic slide.
+                    piece = (OfficeText.forDisplayDir(piece para.rtl))
                     def fontSize:double (run.fontSizePt * s)
                     def pieceW:double (measure.widthOf(piece fontSize run.bold run.italic))
                     def drawX:double penX

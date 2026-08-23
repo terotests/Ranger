@@ -376,7 +376,10 @@ class PptxTest {
             def brPara:PptxParagraph (itemAt brBody.paragraphs 0)
             this.check("a closing-tag br is read" ((array_length brPara.runs) == 5))
             ; And it survives being written back out.
-            def brXml:string (PptxWriter.paraXml(brPara))
+            ; `false` is "do not write down what the master would have said"
+            ; — this checks the break, not the inheritance, and the flat form
+            ; would bury it in resolved properties.
+            def brXml:string (PptxWriter.paraXml(brPara false))
             this.check("and it is written back as a br" ((indexOf brXml "<a:br/>") > 0))
             this.check("not as whitespace in a run" ((indexOf brXml ">\n<") < 0))
         }

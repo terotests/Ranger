@@ -77,6 +77,20 @@ class PptxView {
         ; when it runs out of circles), and joins the fallback pool without
         ; becoming the face anything is drawn in.
         ctx.tr.addFace("Noto_Sans/NotoSans-Regular.ttf")
+        ; Arabic. Nothing loaded here had a single Arabic glyph in it, so a
+        ; slide in Arabic drew a row of .notdef boxes — and it would have
+        ; gone on doing that however correct the bidirectional algorithm and
+        ; the shaper above it were. El Messiri carries the base block AND the
+        ; joining forms the shaper emits, which is why it is the one chosen:
+        ; without a GSUB shaper here, a face with only the base block would
+        ; still have drawn every letter unjoined.
+        ;
+        ; It joins the fallback pool per CODEPOINT, like the emoji and the
+        ; bullets, so it never becomes the face Latin text is drawn in — a
+        ; mixed line takes its Latin from the document's own face and its
+        ; Arabic from here, which is what a reader expects and what Word does.
+        ctx.tr.addFace("El_Messiri/ElMessiri-Regular.ttf")
+        ctx.tr.addFace("El_Messiri/ElMessiri-Bold.ttf")
         ctx.tr.fontFamily = fontFamily
         ctx.tr.applyFace()
         this.attachMeasurer()

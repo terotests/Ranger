@@ -1,0 +1,173 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeRtlSwitchTest — one switch, three programs
+; ==============================================================================
+;
+; The mirroring itself is checked where it lives: EVGRtlLayoutTest for the
+; layout engine, EVGToolbarTest for the strip. What is checked here is that
+; the three editors are WIRED to it — that there is a switch a reader can
+; reach, that it turns the interface around, and that it turns itself on for a
+; document that needs it.
+;
+; The automatic half is the part worth being careful about, so it is stated as
+; a rule rather than as a behaviour: it only ever turns the switch ON. A
+; reader who has turned the interface back the way they want it must not be
+; overruled by the next file they open — a program that keeps undoing a
+; deliberate choice is worse than one that never made it.
+;
+; And the switch is the INTERFACE's, not the document's. A Word file says
+; which way its paragraphs run, and that is not the reader's to override by
+; pressing a button on a toolbar; the two are separate settings that happen
+; to agree most of the time.
+;
+;   npm run office:rtl:switch:test
+; ==============================================================================
+
+Import "../../../docx_viewer/src/DocxApp.rgr"
+Import "../../../pptx/src/PptxApp.rgr"
+Import "../../../datagrid/src/GridApp.rgr"
+
+class SwitchCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+}
+
+class OfficeRtlSwitchTest {
+    def c:SwitchCheck (new SwitchCheck)
+
+    sfn main:void () {
+        def t (new OfficeRtlSwitchTest())
+        t.run()
+    }
+
+    fn run:void () {
+        print "=== OfficeRtlSwitchTest ==="
+        this.testWord()
+        this.testPowerPoint()
+        this.testSpreadsheet()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; Every strip has the button, every app answers the command, and pressing
+    ; it turns the strip around. Written once and run three times, because the
+    ; whole claim is that this is ONE mechanism.
+    fn strip:void (who:string bar:EVGToolbar) {
+        def found:boolean false
+        def i:int 0
+        while (i < (bar.count())) {
+            def t:ToolItem (bar.at(i))
+            if (t.command == "view.rtl") {
+                found = true
+            }
+            i = (i + 1)
+        }
+        c.ok((who + ": the strip has the switch on it") found)
+    }
+
+    fn testWord:void () {
+        print "--- Word ---"
+        def app (new DocxApp)
+        app.toolbar.build()
+        this.strip("Word" app.toolbar)
+        c.ok("Word: it starts left to right" ((app.uiRtl) == false))
+        c.ok("Word: and so does its strip" ((app.toolbar.rtl) == false))
+
+        def ran:boolean (app.runCommand("view.rtl" ""))
+        c.ok("Word: the command is answered" ran)
+        c.ok("Word: the interface is turned around" app.uiRtl)
+        c.ok("Word: and the strip with it" app.toolbar.rtl)
+        ; The same button is the way back — it is a switch, not a one-way trip.
+        app.runCommand("view.rtl" "")
+        c.ok("Word: pressing it again turns it back" ((app.uiRtl) == false))
+
+        ; The automatic half, in a fresh program — which is the situation it
+        ; is for: a reader opens a file and the interface is already the way
+        ; the file needs it.
+        def doc (new RichDocument)
+        def p (new Paragraph)
+        p.id = 1
+        p.bidi = 1
+        push doc.paragraphs p
+        def app2 (new DocxApp)
+        app2.toolbar.build()
+        app2.adoptDocumentDirection(doc)
+        c.ok("Word: an RTL document turns it on by itself" app2.uiRtl)
+        c.ok("Word: and the strip came with it" app2.toolbar.rtl)
+
+        ; And having been turned OFF by the reader, it stays off. This is the
+        ; rule that keeps the automatic half from being a nuisance, and it is
+        ; the one thing about it that has to be exactly right: a reader whose
+        ; deliberate choice is undone by the next file they open will not try
+        ; the switch a third time.
+        app2.runCommand("view.rtl" "")
+        c.ok("Word: the reader can turn it back off" ((app2.uiRtl) == false))
+        app2.adoptDocumentDirection(doc)
+        c.ok("Word: and the same document does not turn it on again"
+            ((app2.uiRtl) == false))
+        ; Turning it back on by hand lifts the latch — the reader has said
+        ; yes again, and there is nothing left to protect them from.
+        app2.runCommand("view.rtl" "")
+        c.ok("Word: and saying yes again lifts the latch"
+            ((app2.uiRtlChosen) == false))
+    }
+
+    fn testPowerPoint:void () {
+        print "--- PowerPoint ---"
+        def app (new PptxApp)
+        app.toolbar.build()
+        this.strip("PowerPoint" app.toolbar)
+        c.ok("PowerPoint: it starts left to right" ((app.uiRtl) == false))
+        def ran:boolean (app.runCommand("view.rtl" ""))
+        c.ok("PowerPoint: the command is answered" ran)
+        c.ok("PowerPoint: the interface is turned around" app.uiRtl)
+        c.ok("PowerPoint: and the strip with it" app.toolbar.rtl)
+        app.runCommand("view.rtl" "")
+        c.ok("PowerPoint: and back" ((app.uiRtl) == false))
+    }
+
+    fn testSpreadsheet:void () {
+        print "--- the spreadsheet ---"
+        def app (new GridApp)
+        app.view.toolbar.build()
+        this.strip("Sheet" app.view.toolbar)
+        c.ok("Sheet: it starts left to right" ((app.uiRtl) == false))
+        def ran:boolean (app.runCommand("view.rtl" ""))
+        c.ok("Sheet: the command is answered" ran)
+        c.ok("Sheet: the interface is turned around" app.uiRtl)
+        c.ok("Sheet: and the strip with it" app.view.toolbar.rtl)
+        app.runCommand("view.rtl" "")
+        c.ok("Sheet: and back" ((app.uiRtl) == false))
+
+        ; The automatic half asks the STYLE table, not the cells: a workbook's
+        ; reading order is a format, so one style with it on is the answer
+        ; however many cells wear that style.
+        def app2 (new GridApp)
+        app2.view.toolbar.build()
+        def st (new CellStyle)
+        st.readingOrder = 2
+        push app2.model.styles st
+        app2.adoptWorkbookDirection()
+        c.ok("Sheet: a right-to-left style turns it on by itself" app2.uiRtl)
+        app2.runCommand("view.rtl" "")
+        app2.adoptWorkbookDirection()
+        c.ok("Sheet: and does not undo the reader's choice"
+            ((app2.uiRtl) == false))
+    }
+}

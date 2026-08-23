@@ -2270,16 +2270,55 @@ class GridEditTest {
         ; A narrow window wraps rather than dropping the last buttons.
         def tallness:int (bar.heightFor(420))
         c.ok("a narrow strip grows instead of losing buttons" (tallness > 30))
-        def visible:int 0
+
+        ; The strip is in named pages now, so "all of them are laid out" is
+        ; the wrong question — one page is showing and the rest are not, which
+        ; is the entire point of pages. The question that still matters is the
+        ; one the old check was really asking: is any button LOST? A button on
+        ; no page at all would never be reachable by any means, and nothing
+        ; else would ever notice.
+        bar.layout(0 0 900)
+        def onSome:int 0
+        def orphan:string ""
         def bk:int 0
         while (bk < (bar.count())) {
             def it3:ToolItem (bar.at(bk))
-            if (it3.w > 0) {
-                visible = (visible + 1)
+            def owned:boolean false
+            def tt:int 0
+            while (tt < (bar.tabCount())) {
+                def tab:ToolTab (bar.tabAt(tt))
+                if (bk >= tab.first) {
+                    if (bk < (tab.first + tab.count)) {
+                        owned = true
+                    }
+                }
+                tt = (tt + 1)
+            }
+            if owned {
+                onSome = (onSome + 1)
+            } {
+                if (it3.isSeparator == false) {
+                    orphan = it3.command
+                }
             }
             bk = (bk + 1)
         }
-        c.ok("all of them are still laid out" (visible > 30))
+        c.eqStr("no button is on a page nobody can reach" orphan "")
+        c.eqInt("every button belongs to a page" onSome (bar.count()))
+
+        ; And the showing page is laid out in full — the pages divide the
+        ; strip, they do not truncate it.
+        def shown:int 0
+        def bl:int 0
+        while (bl < (bar.count())) {
+            def it4:ToolItem (bar.at(bl))
+            if (it4.w > 0) {
+                shown = (shown + 1)
+            }
+            bl = (bl + 1)
+        }
+        def homeTab:ToolTab (bar.tabAt(bar.activeTab))
+        c.eqInt("and the showing page is laid out in full" shown homeTab.count)
         bar.layout(0 0 900)
 
         print "== clicking a button formats the selection =="
@@ -2851,10 +2890,24 @@ class GridEditTest {
         tb.sheetView.markDirty()
         tb.sheetView.rebuild()
         tb.render()
+        ; Borders are on the Format page and inside a dropdown now, so this
+        ; has to walk the same path a reader does: open the page, open the
+        ; list, then press the entry. Neither the page nor the list has a
+        ; rectangle for anything it is not showing.
+        def fmtTab:int (tb.view.toolbar.tabNamed("Format"))
+        c.ok("there is a Format page" (fmtTab >= 0))
+        tb.view.toolbar.selectTab(fmtTab)
+        tb.render()
+        def menuIdx:int -1
         def bdIdx:int -1
         def bi:int 0
         while (bi < (tb.view.toolbar.count())) {
             def bt:ToolItem (tb.view.toolbar.at(bi))
+            if bt.isMenu {
+                if (bt.label == "Borders") {
+                    menuIdx = bi
+                }
+            }
             if (bt.command == "format.border") {
                 if (bt.arg == "all") {
                     bdIdx = bi
@@ -2862,6 +2915,12 @@ class GridEditTest {
             }
             bi = (bi + 1)
         }
+        c.ok("there is a Borders dropdown" (menuIdx >= 0))
+        def shutItem:ToolItem (tb.view.toolbar.at(bdIdx))
+        c.eqInt("its entries take no room while it is shut" shutItem.w 0)
+        c.ok("pressing it opens the list rather than running anything"
+            (tb.view.toolbar.pressItem(menuIdx)))
+        tb.render()
         c.ok("the toolbar has an All borders button" (bdIdx >= 0))
         def bItem:ToolItem (tb.view.toolbar.at(bdIdx))
         def bx:int (bItem.x + (idiv bItem.w 2))
@@ -2894,7 +2953,11 @@ class GridEditTest {
         rs.resize(620 560)
         rs.render()
         c.eqInt("still right after narrowing" rs.grid.toolbarH rs.view.toolbar.height)
-        c.ok("which needed another row" (rs.view.toolbar.rows > 2))
+        ; One page at a time is fewer buttons than the whole strip used to
+        ; be, so narrowing costs a second row rather than a third. What is
+        ; being checked is that the strip GREW and that `toolbarH` followed
+        ; it, which is the bug this was written for.
+        c.ok("which needed another row" (rs.view.toolbar.rows > 1))
         def narrowRows:int rs.view.toolbar.rows
         rs.resize(1400 560)
         rs.render()

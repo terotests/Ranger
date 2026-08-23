@@ -82,6 +82,10 @@ class DocxAppTest {
 
         print "-- the strip is the shared one --"
         c.ok("it has buttons" ((app.toolbar.count()) > 10))
+        ; `page.prev` and `page.next` used to draw the undo and redo arrows,
+        ; on a strip that also has undo and redo.
+        def dup:int (app.toolbar.duplicateIcon())
+        c.ok(("no two commands share an icon (found " + ((to_string dup) + ")")) (dup == 0))
         c.ok("Bold is one of them" ((DocxAppTest.indexOfCommand(app "format.bold")) >= 0))
         c.ok("so is the font" ((DocxAppTest.indexOfCommand(app "format.font")) >= 0))
         c.ok("and the colour" ((DocxAppTest.indexOfCommand(app "format.color")) >= 0))
@@ -182,6 +186,14 @@ class DocxAppTest {
         def inside:boolean (p.pointer((p.colorDialog.x + 10) (p.colorDialog.y + 10) true true false false))
         c.ok("a press inside a window is taken by the window" inside)
         p.colorDialog.close()
+        ; Page turning lives on the View page now, so the click has to get
+        ; there first — which is what a reader does too. A button on a page
+        ; that is not showing has no rectangle at all, so clicking where it
+        ; would have been lands on the paper.
+        def vt:int (p.toolbar.tabNamed("View"))
+        c.ok("there is a View page" (vt >= 0))
+        p.toolbar.selectTab(vt)
+        p.buildDisplayList()
         def ti:int (DocxAppTest.indexOfCommand(p "page.next"))
         def tt:ToolItem (p.toolbar.at(ti))
         c.eqInt("still on the first page" p.viewer.currentPage 0)

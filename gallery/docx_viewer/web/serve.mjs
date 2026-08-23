@@ -236,9 +236,15 @@ async function handleRequest(req, res) {
       else if (dir === "home") viewer.keyHome(shift, ctrl);
       else if (dir === "end") viewer.keyEnd(shift, ctrl);
     } else if (type === "scroll") {
-      // A wheel notch or a swipe, in scene pixels. The viewer decides when
-      // that adds up to a page — accumulating there rather than here is what
-      // keeps the window host and the serverless page feeling the same.
+      // A wheel notch or a swipe, in scene pixels.
+      //
+      // This host ships a PNG of a whole page and the browser scrolls it in
+      // its own frame, so there is nothing for the viewer to scroll WITHIN a
+      // page here: `viewportH` is left at zero, which is the viewer's way of
+      // saying "no room", and every gesture that reaches this point turns a
+      // page. The client only sends one when its frame is already at the end
+      // it is being pushed against, so the two halves add up to the same
+      // behaviour a display-list host gets from `scrollBy` alone.
       viewer.scrollBy(ev.dy | 0);
     } else if (type === "tab") {
       viewer.keyTab(!!ev.shift);

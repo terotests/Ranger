@@ -1,0 +1,241 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxTextBoxTest — putting a text box on a slide, in one gesture
+; ==============================================================================
+;
+; Inserting a text box used to be four steps and a collision. The command
+; dropped a box at a fixed fraction of the slide, so two of them landed at
+; EXACTLY the same place and the second hid the first; the caret was not put
+; in it, so typing did nothing until you found and double-clicked the thing;
+; and it arrived carrying the literal word "Text", which every reader then had
+; to select and delete before writing their own.
+;
+; Click the tool, drag out the box, type. That is how every drawing program
+; has worked for thirty years, and the cases below are what it takes to
+; actually be that:
+;
+;   * arming the tool does not put anything on the slide — the next drag says
+;     where, and a reader who changes their mind has changed nothing
+;   * the box lands where it was dragged, at the size it was dragged
+;   * a CLICK is not a mistake: it makes a sensible box centred where the
+;     reader clicked, which is what somebody who does not know the tool
+;     expects, and it still lands where they pointed
+;   * the box arrives EMPTY with the caret in it, so the next thing typed is
+;     the text
+;   * two boxes do not land on top of each other
+;   * Escape puts the tool down without using it
+;
+;   npm run pptx:textbox:test
+; ==============================================================================
+
+Import "../src/PptxApp.rgr"
+
+class TbCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
+
+    fn near:void (name:string got:double want:double tol:double) {
+        def d:double (fabs (got - want))
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (d <= tol))
+    }
+}
+
+class PptxTextBoxTest {
+    def c:TbCheck (new TbCheck)
+
+    sfn main:void () {
+        def t (new PptxTextBoxTest())
+        t.run()
+    }
+
+    sfn app:PptxApp () {
+        def a (new PptxApp)
+        a.init("gallery/pdf_writer/assets/fonts")
+        a.resize(960 720)
+        a.loadParts("gallery/pptx/fixtures" "01-text.pptx")
+        return a
+    }
+
+    sfn sx:int (a:PptxApp xPt:double) {
+        def sc:double (a.ptScale())
+        return (to_int ((xPt * sc) + (a.slideOriginX())))
+    }
+
+    sfn sy:int (a:PptxApp yPt:double) {
+        def sc:double (a.ptScale())
+        return (to_int ((yPt * sc) + (a.slideOriginY())))
+    }
+
+    fn run:void () {
+        print "=== PptxTextBoxTest ==="
+        this.testArming()
+        this.testDragPlaces()
+        this.testClickPlaces()
+        this.testTwoBoxes()
+        this.testCancel()
+        this.testToolbar()
+        print ""
+        print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testArming:void () {
+        print "--- arming the tool changes nothing on the slide ---"
+        def a:PptxApp (PptxTextBoxTest.app())
+        def before:int (array_length (a.editor.editableShapes()))
+        c.ok("the command is answered" (a.runCommand("text.add" "")))
+        c.eqInt("and nothing was put on the slide yet"
+            (array_length (a.editor.editableShapes())) before)
+        c.ok("the tool is armed" (a.pendingTool == "text"))
+        ; And it says so, because an armed tool that looks like nothing is a
+        ; program that has stopped responding as far as the reader knows.
+        c.ok("and the status line says what to do" ((strlen a.view.status) > 0))
+    }
+
+    fn testDragPlaces:void () {
+        print "--- the box lands where it was dragged ---"
+        def a:PptxApp (PptxTextBoxTest.app())
+        def before:int (array_length (a.editor.editableShapes()))
+        a.runCommand("text.add" "")
+        a.pointer((PptxTextBoxTest.sx(a 100.0)) (PptxTextBoxTest.sy(a 80.0)) true true false)
+        c.eqInt("the press starts a placement, not a selection" a.dragMode 5
+        )
+        a.pointer((PptxTextBoxTest.sx(a 340.0)) (PptxTextBoxTest.sy(a 150.0)) false true false)
+        a.pointer((PptxTextBoxTest.sx(a 340.0)) (PptxTextBoxTest.sy(a 150.0)) false false true)
+        c.eqInt("one box was added"
+            (array_length (a.editor.editableShapes())) (before + 1))
+        c.ok("and the tool is put down again" (a.pendingTool == ""))
+        def got@(optional):PptxShape (a.editor.firstSelected())
+        c.ok("it is selected" (!null? got))
+        if (!null? got) {
+            def s:PptxShape (unwrap got)
+            c.near("at the x it was dragged from" s.x 100.0 2.0)
+            c.near("and the y" s.y 80.0 2.0)
+            c.near("as wide as the drag" s.width 240.0 2.0)
+            c.near("and as tall" s.height 70.0 2.0)
+            ; EMPTY, with the caret in it. A placeholder is only kind when the
+            ; program cannot put the caret where the words go, and it can.
+            c.eqInt("and it is empty" (strlen (s.text.plainText())) 0)
+        }
+        c.ok("the caret is in it, so typing is the next thing"
+            (a.editor.isEditingText()))
+    }
+
+    fn testClickPlaces:void () {
+        print "--- and a click is not a mistake ---"
+        def a:PptxApp (PptxTextBoxTest.app())
+        a.runCommand("text.add" "")
+        def px:int (PptxTextBoxTest.sx(a 200.0))
+        def py:int (PptxTextBoxTest.sy(a 300.0))
+        a.pointer(px py true true false)
+        a.pointer(px py false false true)
+        def got@(optional):PptxShape (a.editor.firstSelected())
+        c.ok("a click still makes a box" (!null? got))
+        if (!null? got) {
+            def s:PptxShape (unwrap got)
+            c.ok("of a usable width" (s.width > 100.0))
+            c.ok("and a usable height" (s.height > 20.0))
+            ; Centred on the click: a default box that lands somewhere else
+            ; is a box the reader has to move, which is the thing this was
+            ; supposed to stop.
+            def cx:double (s.x + (s.width * 0.5))
+            def cy:double (s.y + (s.height * 0.5))
+            c.near("centred on where they clicked, across" cx 200.0 3.0)
+            c.near("and down" cy 300.0 3.0)
+        }
+    }
+
+    fn testTwoBoxes:void () {
+        print "--- and two of them do not land on top of each other ---"
+        def a:PptxApp (PptxTextBoxTest.app())
+        a.runCommand("text.add" "")
+        a.pointer((PptxTextBoxTest.sx(a 60.0)) (PptxTextBoxTest.sy(a 60.0)) true true false)
+        a.pointer((PptxTextBoxTest.sx(a 200.0)) (PptxTextBoxTest.sy(a 110.0)) false false true)
+        def one@(optional):PptxShape (a.editor.firstSelected())
+        def x1:double 0.0
+        def y1:double 0.0
+        if (!null? one) {
+            def s1:PptxShape (unwrap one)
+            x1 = s1.x
+            y1 = s1.y
+        }
+        a.runCommand("text.add" "")
+        a.pointer((PptxTextBoxTest.sx(a 300.0)) (PptxTextBoxTest.sy(a 260.0)) true true false)
+        a.pointer((PptxTextBoxTest.sx(a 440.0)) (PptxTextBoxTest.sy(a 310.0)) false false true)
+        def two@(optional):PptxShape (a.editor.firstSelected())
+        if (!null? two) {
+            def s2:PptxShape (unwrap two)
+            c.ok("the second is somewhere else across" ((fabs (s2.x - x1)) > 50.0))
+            c.ok("and somewhere else down" ((fabs (s2.y - y1)) > 50.0))
+        }
+    }
+
+    fn testCancel:void () {
+        print "--- and Escape puts the tool down ---"
+        def a:PptxApp (PptxTextBoxTest.app())
+        def before:int (array_length (a.editor.editableShapes()))
+        a.runCommand("text.add" "")
+        c.ok("armed" (a.pendingTool == "text"))
+        c.ok("Escape is taken" (a.cancelPendingTool()))
+        c.ok("and the tool is down" (a.pendingTool == ""))
+        c.eqInt("with nothing added"
+            (array_length (a.editor.editableShapes())) before)
+        c.ok("a second Escape has nothing to do" ((a.cancelPendingTool()) == false))
+        ; And with the tool down, a press on the slide selects again rather
+        ; than placing something.
+        a.pointer((PptxTextBoxTest.sx(a 100.0)) (PptxTextBoxTest.sy(a 80.0)) true true false)
+        c.ok("a press is a selection again" (a.dragMode != 5))
+    }
+
+    fn testToolbar:void () {
+        print "--- and it is the button on the Insert page ---"
+        def a:PptxApp (PptxTextBoxTest.app())
+        def ti:int (a.toolbar.tabNamed("Insert"))
+        c.ok("there is an Insert page" (ti >= 0))
+        a.toolbar.selectTab(ti)
+        a.toolbar.layout(0 0 960)
+        def big:int -1
+        def other:int -1
+        def i:int 0
+        while (i < (a.toolbar.count())) {
+            def t:ToolItem (a.toolbar.at(i))
+            if (t.command == "text.add") {
+                big = i
+            }
+            if (t.command == "shape.rect") {
+                other = i
+            }
+            i = (i + 1)
+        }
+        c.ok("the text box is on it" (big >= 0))
+        def bt:ToolItem (a.toolbar.at(big))
+        def ot:ToolItem (a.toolbar.at(other))
+        c.ok("drawn large" bt.isLarge)
+        c.ok("with its name on it" bt.showLabel)
+        c.ok("taller than the ordinary buttons" (bt.h > ot.h))
+        c.ok("and wider" (bt.w > ot.w))
+        ; The band grows to hold it. Leaving the height settled at whatever
+        ; the last page needed drew the bottom of the button over the slide.
+        c.eqInt("and the band is as tall as the page needs"
+            (a.toolbar.heightFor(960)) a.toolbar.height)
+    }
+}

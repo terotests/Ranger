@@ -1054,6 +1054,8 @@ class EVGElement  {
     this.glowIntensity = 0.0;
     this.bgImageSet = false;
     this.bgImagePath = "";
+    this.textDir = "";
+    this.resolvedRtl = false;
     this.direction = "row";
     this.align = "left";
     this.verticalAlign = "top";
@@ -1369,6 +1371,16 @@ class EVGElement  {
     this.fontSizeBase = parentEl.inheritedFontSize;
     this.rootFontSize = parentEl.rootFontSize;
     this.applyOwnFontSize();
+    this.applyOwnDirection(parentEl.resolvedRtl);
+  };
+  applyOwnDirection (inherited) {
+    this.resolvedRtl = inherited;
+    if ( this.textDir == "rtl" ) {
+      this.resolvedRtl = true;
+    }
+    if ( this.textDir == "ltr" ) {
+      this.resolvedRtl = false;
+    }
   };
   applyOwnFontSize () {
     let authored = this.fontSize.isSet;
@@ -1673,6 +1685,10 @@ class EVGElement  {
       return;
     }
     if ( name == "direction" ) {
+      if ( (value == "rtl") || (value == "ltr") ) {
+        this.textDir = value;
+        return;
+      }
       this.direction = value;
       return;
     }
@@ -5140,12 +5156,12 @@ class EVGDrawCmd  {
     this.textAlign = "";
     this.fontWeight = "";
     this.maxWidth = 0.0;     /** note: unused */
-    this.hasGrad = false;     /** note: unused */
-    this.gradDir = 0;     /** note: unused */
-    this.r2 = 0;     /** note: unused */
-    this.g2 = 0;     /** note: unused */
-    this.b2 = 0;     /** note: unused */
-    this.a2 = 1.0;     /** note: unused */
+    this.hasGrad = false;
+    this.gradDir = 0;
+    this.r2 = 0;
+    this.g2 = 0;
+    this.b2 = 0;
+    this.a2 = 1.0;
     this.hasShadow = false;     /** note: unused */
     this.shadowX = 0.0;     /** note: unused */
     this.shadowY = 0.0;     /** note: unused */
@@ -5155,6 +5171,8 @@ class EVGDrawCmd  {
     this.shadowB = 0;     /** note: unused */
     this.shadowA = 0.35;     /** note: unused */
     this.src = "";
+    this.flipH = false;
+    this.flipV = false;
     this.pts = [];
     this.ringEnds = [];
     this.evenOdd = false;
@@ -5259,6 +5277,110 @@ class EVGDisplayList  {
     c.w = w;
     c.h = h;
     this.cmds.push(c);
+  };
+  addPolyline (pts, thickness, col) {
+    if ( (pts.length) < 4 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 7;
+    c.thickness = thickness;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    let i = 0;
+    while (i < (pts.length)) {
+      c.pts.push(pts[i]);
+      i = i + 1;
+    };
+    c.ringEnds.push(c.pts.length);
+    this.setPolyBounds(c);
+    this.cmds.push(c);
+  };
+  addPolyRings (rings, col, evenOddFill) {
+    if ( (rings.length) == 0 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 6;
+    c.evenOdd = evenOddFill;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    let i = 0;
+    while (i < (rings.length)) {
+      const ring = rings[i];
+      let j = 0;
+      while (j < (ring.pts.length)) {
+        c.pts.push(ring.pts[j]);
+        j = j + 1;
+      };
+      c.ringEnds.push(c.pts.length);
+      i = i + 1;
+    };
+    if ( (c.pts.length) < 6 ) {
+      return;
+    }
+    this.setPolyBounds(c);
+    this.cmds.push(c);
+  };
+  addPolygon (pts, col) {
+    if ( (pts.length) < 6 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 6;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    let i = 0;
+    while (i < (pts.length)) {
+      c.pts.push(pts[i]);
+      i = i + 1;
+    };
+    c.ringEnds.push(c.pts.length);
+    this.setPolyBounds(c);
+    this.cmds.push(c);
+  };
+  setPolyBounds (c) {
+    let minX = 0.0;
+    let minY = 0.0;
+    let maxX = 0.0;
+    let maxY = 0.0;
+    const n = (((c.pts.length) / 2) | 0);
+    let i = 0;
+    while (i < n) {
+      const x = c.pts[(i * 2)];
+      const yat = (i * 2) + 1;
+      const y = c.pts[yat];
+      if ( i == 0 ) {
+        minX = x;
+        maxX = x;
+        minY = y;
+        maxY = y;
+      } else {
+        if ( x < minX ) {
+          minX = x;
+        }
+        if ( x > maxX ) {
+          maxX = x;
+        }
+        if ( y < minY ) {
+          minY = y;
+        }
+        if ( y > maxY ) {
+          maxY = y;
+        }
+      }
+      i = i + 1;
+    };
+    c.x = minX;
+    c.y = minY;
+    c.w = maxX - minX;
+    c.h = maxY - minY;
   };
   addClipEnd () {
     const c = new EVGDrawCmd();
@@ -5562,6 +5684,11 @@ class EVGDisplayList  {
       }
       out = (((out + ",\"c\":[") + ((c.r.toString()))) + ",") + ((c.g.toString()));
       out = ((((out + ",") + ((c.b.toString()))) + ",") + EVGDisplayList.num(c.a)) + "]";
+      if ( c.hasGrad ) {
+        out = (out + ",\"gd\":") + ((c.gradDir.toString()));
+        out = (((out + ",\"c2\":[") + ((c.r2.toString()))) + ",") + ((c.g2.toString()));
+        out = ((((out + ",") + ((c.b2.toString()))) + ",") + EVGDisplayList.num(c.a2)) + "]";
+      }
       if ( (c.text.length) > 0 ) {
         out = (out + ",\"text\":") + EVGDisplayList.jsonString(c.text);
         out = (out + ",\"font\":") + EVGDisplayList.jsonString(c.fontFamily);
@@ -5576,10 +5703,16 @@ class EVGDisplayList  {
       if ( (c.src.length) > 0 ) {
         out = (out + ",\"src\":") + EVGDisplayList.jsonString(c.src);
       }
+      if ( c.flipH ) {
+        out = out + ",\"fx\":true";
+      }
+      if ( c.flipV ) {
+        out = out + ",\"fy\":true";
+      }
       if ( c.rotate != 0.0 ) {
         out = (out + ",\"rot\":") + EVGDisplayList.num(c.rotate);
       }
-      if ( (c.ringEnds.length) > 0 ) {
+      if ( (c.pts.length) > 0 ) {
         out = out + ",\"pts\":[";
         let pi = 0;
         while (pi < (c.pts.length)) {
@@ -5590,14 +5723,18 @@ class EVGDisplayList  {
           pi = pi + 1;
         };
         out = out + "],\"ends\":[";
-        let ei = 0;
-        while (ei < (c.ringEnds.length)) {
-          if ( ei > 0 ) {
-            out = out + ",";
-          }
-          out = out + (((c.ringEnds[ei]).toString()));
-          ei = ei + 1;
-        };
+        if ( (c.ringEnds.length) == 0 ) {
+          out = out + (((c.pts.length).toString()));
+        } else {
+          let ei = 0;
+          while (ei < (c.ringEnds.length)) {
+            if ( ei > 0 ) {
+              out = out + ",";
+            }
+            out = out + (((c.ringEnds[ei]).toString()));
+            ei = ei + 1;
+          };
+        }
         out = out + "]";
         if ( c.evenOdd ) {
           out = out + ",\"eo\":1";
@@ -5608,6 +5745,34 @@ class EVGDisplayList  {
     };
     out = out + "]}";
     return out;
+  };
+  offsetBy (dx, dy) {
+    let i = 0;
+    while (i < (this.cmds.length)) {
+      const c = this.cmds[i];
+      if ( c.kind != 5 ) {
+        c.x = c.x + dx;
+        c.y = c.y + dy;
+        let pi = 0;
+        while (pi < (c.pts.length)) {
+          const even = (pi % 2) == 0;
+          if ( even ) {
+            c.pts[pi] = (c.pts[pi]) + dx;
+          } else {
+            c.pts[pi] = (c.pts[pi]) + dy;
+          }
+          pi = pi + 1;
+        };
+      }
+      i = i + 1;
+    };
+  };
+  appendFrom (src) {
+    let i = 0;
+    while (i < (src.cmds.length)) {
+      this.cmds.push(src.cmds[i]);
+      i = i + 1;
+    };
   };
   summary () {
     let rects = 0;
@@ -6300,6 +6465,7 @@ class EVGToolbarTheme  {
     this.line = EVGColor.rgb(210, 216, 224);
     this.ink = EVGColor.rgb(30, 36, 48);
     this.dim = EVGColor.rgb(80, 92, 110);
+    this.glyph = EVGColor.rgb(140, 152, 170);
     this.hotBg = EVGColor.rgb(232, 236, 242);
     this.pressedBg = EVGColor.rgba(50, 120, 220, 0.22);
     this.accent = EVGColor.rgb(40, 100, 210);
@@ -6459,6 +6625,105 @@ ToolIcon.database = function() {
 ToolIcon.sqlBox = function() {
   return 48;
 };
+ToolIcon.play = function() {
+  return 49;
+};
+ToolIcon.bulletList = function() {
+  return 50;
+};
+ToolIcon.numberList = function() {
+  return 51;
+};
+ToolIcon.indentMore = function() {
+  return 52;
+};
+ToolIcon.indentLess = function() {
+  return 53;
+};
+ToolIcon.navFirst = function() {
+  return 54;
+};
+ToolIcon.navPrev = function() {
+  return 55;
+};
+ToolIcon.navNext = function() {
+  return 56;
+};
+ToolIcon.navLast = function() {
+  return 57;
+};
+ToolIcon.editMode = function() {
+  return 58;
+};
+ToolIcon.copy = function() {
+  return 59;
+};
+ToolIcon.paste = function() {
+  return 60;
+};
+ToolIcon.shapeRect = function() {
+  return 61;
+};
+ToolIcon.shapeEllipse = function() {
+  return 62;
+};
+ToolIcon.textBox = function() {
+  return 63;
+};
+ToolIcon.picture = function() {
+  return 64;
+};
+ToolIcon.lock = function() {
+  return 65;
+};
+ToolIcon.flipH = function() {
+  return 66;
+};
+ToolIcon.flipV = function() {
+  return 67;
+};
+ToolIcon.duplicate = function() {
+  return 68;
+};
+ToolIcon.trash = function() {
+  return 69;
+};
+ToolIcon.bringFront = function() {
+  return 70;
+};
+ToolIcon.sendBack = function() {
+  return 71;
+};
+ToolIcon.group = function() {
+  return 72;
+};
+ToolIcon.ungroup = function() {
+  return 73;
+};
+ToolIcon.palette = function() {
+  return 74;
+};
+ToolIcon.slideAdd = function() {
+  return 75;
+};
+ToolIcon.slideCopy = function() {
+  return 76;
+};
+ToolIcon.slideDel = function() {
+  return 77;
+};
+ToolIcon.formatPaste = function() {
+  return 78;
+};
+ToolIcon.textRtl = function() {
+  return 79;
+};
+ToolIcon.printDoc = function() {
+  return 80;
+};
+ToolIcon.caret = function() {
+  return 81;
+};
 class ToolItem  {
   constructor() {
     this.command = "";
@@ -6475,16 +6740,39 @@ class ToolItem  {
     this.isSeparator = false;
     this.pressed = false;
     this.textW = 0;
+    this.showLabel = false;
+    this.labelW = 0;
+    this.isMenu = false;
+    this.menuOwner = -1;
+    this.isLarge = false;
+  }
+}
+class ToolTab  {
+  constructor() {
+    this.name = "";
+    this.first = 0;
+    this.count = 0;
+    this.x = 0;
+    this.y = 0;
+    this.w = 0;
+    this.h = 0;
+    this.measuredW = 0;
   }
 }
 class EVGToolbar  {
   constructor() {
     this.items = [];
-    this.rowH = 30;
+    this.tabs = [];
+    this.activeTab = 0;
+    this.tabH = 28;
+    this.rowH = 34;
     this.rows = 1;
-    this.height = 32;
+    this.height = 36;
     this.pad = 5;
-    this.iconW = 26;
+    this.iconW = 30;
+    this.largeH = 54;
+    this.rtl = false;
+    this.openMenu = -1;
     this.hot = -1;
   }
   add (command, arg, label, icon) {
@@ -6513,19 +6801,226 @@ class EVGToolbar  {
     t.isSeparator = true;
     this.items.push(t);
   };
+  addLarge (command, arg, label, icon) {
+    const t = this.add(command, arg, label, icon);
+    t.isLarge = true;
+    t.showLabel = true;
+    return t;
+  };
+  hasLargeShowing () {
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.isLarge ) {
+        if ( t.menuOwner < 0 ) {
+          if ( this.itemOnActiveTab(i) ) {
+            return true;
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  addLabeled (command, arg, label, icon) {
+    const t = this.add(command, arg, label, icon);
+    t.showLabel = true;
+    return t;
+  };
+  addDropdown (label, icon) {
+    const t = this.add("", "", label, icon);
+    t.isMenu = true;
+    t.showLabel = true;
+    return t;
+  };
+  addUnder (command, arg, label, icon) {
+    const owner = this.lastMenuIndex();
+    const t = this.add(command, arg, label, icon);
+    t.menuOwner = owner;
+    t.showLabel = true;
+    return t;
+  };
+  lastMenuIndex () {
+    let i = (this.items.length) - 1;
+    while (i >= 0) {
+      const t = this.items[i];
+      if ( t.isMenu ) {
+        return i;
+      }
+      i = i - 1;
+    };
+    return -1;
+  };
+  pressItem (i) {
+    if ( i < 0 ) {
+      return false;
+    }
+    if ( i >= (this.items.length) ) {
+      return false;
+    }
+    const t = this.items[i];
+    if ( t.isMenu ) {
+      if ( this.openMenu == i ) {
+        this.openMenu = -1;
+      } else {
+        this.openMenu = i;
+      }
+      return true;
+    }
+    if ( t.menuOwner >= 0 ) {
+      this.openMenu = -1;
+    } else {
+      this.openMenu = -1;
+    }
+    return false;
+  };
+  closeMenu () {
+    this.openMenu = -1;
+  };
+  addTab (name) {
+    this.closeTab();
+    const t = new ToolTab();
+    t.name = name;
+    t.first = this.items.length;
+    t.count = 0;
+    this.tabs.push(t);
+    return t;
+  };
+  closeTab () {
+    const n = this.tabs.length;
+    if ( n == 0 ) {
+      return;
+    }
+    const last = this.tabs[(n - 1)];
+    last.count = (this.items.length) - last.first;
+  };
+  hasTabs () {
+    return (this.tabs.length) > 0;
+  };
+  tabCount () {
+    return this.tabs.length;
+  };
+  tabAt (i) {
+    return this.tabs[i];
+  };
+  tabLabelW (t) {
+    if ( t.measuredW > 0 ) {
+      return t.measuredW + 22;
+    }
+    return ((t.name.length) * 8) + 22;
+  };
+  hitTab (px, py) {
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      if ( t.w > 0 ) {
+        if ( px >= t.x ) {
+          if ( px < (t.x + t.w) ) {
+            if ( py >= t.y ) {
+              if ( py < (t.y + t.h) ) {
+                return i;
+              }
+            }
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  selectTab (i) {
+    if ( i < 0 ) {
+      return false;
+    }
+    if ( i >= (this.tabs.length) ) {
+      return false;
+    }
+    if ( i == this.activeTab ) {
+      return false;
+    }
+    this.activeTab = i;
+    this.hot = -1;
+    this.openMenu = -1;
+    return true;
+  };
+  tabNamed (name) {
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      if ( t.name == name ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  itemOnActiveTab (i) {
+    if ( (this.tabs.length) == 0 ) {
+      return true;
+    }
+    if ( this.activeTab < 0 ) {
+      return false;
+    }
+    if ( this.activeTab >= (this.tabs.length) ) {
+      return false;
+    }
+    const t = this.tabs[this.activeTab];
+    if ( i < t.first ) {
+      return false;
+    }
+    return i < (t.first + t.count);
+  };
   layout (x0, y0, width) {
+    this.closeTab();
+    let buttonsY = y0;
+    if ( this.hasTabs() ) {
+      this.layoutTabs(x0, y0, width);
+      buttonsY = y0 + this.tabH;
+    }
     const right = (x0 + width) - this.pad;
     let cx = x0 + this.pad;
+    let useRowH = this.rowH;
+    if ( this.hasLargeShowing() ) {
+      useRowH = this.largeH;
+    }
     let row = 0;
     let i = 0;
     while (i < (this.items.length)) {
       const t = this.items[i];
+      if ( this.itemOnActiveTab(i) == false ) {
+        t.x = 0;
+        t.y = 0;
+        t.w = 0;
+        t.h = 0;
+        i = i + 1;
+        continue;
+      }
+      if ( t.menuOwner >= 0 ) {
+        t.x = 0;
+        t.y = 0;
+        t.w = 0;
+        t.h = 0;
+        i = i + 1;
+        continue;
+      }
       let w = this.iconW;
       if ( t.isSeparator ) {
         w = 9;
       }
       if ( t.textW > 0 ) {
         w = t.textW;
+      }
+      if ( t.showLabel ) {
+        w = (this.iconW + this.labelWidth(t)) + 6;
+      }
+      if ( t.isLarge ) {
+        w = this.labelWidth(t) + 12;
+        if ( w < (this.iconW + 16) ) {
+          w = this.iconW + 16;
+        }
+      }
+      if ( t.isMenu ) {
+        w = w + 12;
       }
       if ( (cx + w) > right ) {
         row = row + 1;
@@ -6540,9 +7035,13 @@ class EVGToolbar  {
         }
       }
       t.x = cx;
-      t.y = (y0 + (row * this.rowH)) + 3;
+      t.y = (buttonsY + (row * useRowH)) + 3;
       t.w = w;
-      t.h = this.rowH - 6;
+      t.h = useRowH - 6;
+      if ( t.isLarge == false ) {
+        t.h = this.rowH - 6;
+        t.y = t.y + ((((useRowH - this.rowH) / 2) | 0));
+      }
       cx = cx + w;
       if ( t.isSeparator == false ) {
         cx = cx + 2;
@@ -6550,13 +7049,172 @@ class EVGToolbar  {
       i = i + 1;
     };
     this.rows = row + 1;
-    this.height = this.rows * this.rowH;
+    this.height = this.rows * useRowH;
+    if ( this.hasTabs() ) {
+      this.height = this.height + this.tabH;
+    }
+    this.layoutMenu();
+    if ( this.rtl ) {
+      this.mirrorRows(x0, width);
+      this.mirrorTabs(x0, width);
+    }
+  };
+  labelWidth (t) {
+    if ( t.labelW > 0 ) {
+      return t.labelW;
+    }
+    return (t.label.length) * 7;
+  };
+  layoutMenu () {
+    if ( this.openMenu < 0 ) {
+      return;
+    }
+    if ( this.openMenu >= (this.items.length) ) {
+      this.openMenu = -1;
+      return;
+    }
+    const owner = this.items[this.openMenu];
+    if ( owner.w <= 0 ) {
+      this.openMenu = -1;
+      return;
+    }
+    let wide = 0;
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.menuOwner == this.openMenu ) {
+        const w = (this.iconW + this.labelWidth(t)) + 12;
+        if ( w > wide ) {
+          wide = w;
+        }
+      }
+      i = i + 1;
+    };
+    if ( wide < owner.w ) {
+      wide = owner.w;
+    }
+    let y = owner.y + owner.h;
+    let j = 0;
+    while (j < (this.items.length)) {
+      const e = this.items[j];
+      if ( e.menuOwner == this.openMenu ) {
+        e.x = owner.x;
+        e.y = y;
+        e.w = wide;
+        e.h = 26;
+        y = y + 26;
+      }
+      j = j + 1;
+    };
+  };
+  menuBox () {
+    let out = [];
+    if ( this.openMenu < 0 ) {
+      return out;
+    }
+    let x0 = 0;
+    let y0 = 0;
+    let x1 = 0;
+    let y1 = 0;
+    let any = false;
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.menuOwner == this.openMenu ) {
+        if ( t.w > 0 ) {
+          if ( any == false ) {
+            x0 = t.x;
+            y0 = t.y;
+            x1 = t.x + t.w;
+            y1 = t.y + t.h;
+            any = true;
+          } else {
+            if ( (t.x + t.w) > x1 ) {
+              x1 = t.x + t.w;
+            }
+            if ( (t.y + t.h) > y1 ) {
+              y1 = t.y + t.h;
+            }
+          }
+        }
+      }
+      i = i + 1;
+    };
+    if ( any == false ) {
+      return out;
+    }
+    out.push(x0);
+    out.push(y0);
+    out.push(x1 - x0);
+    out.push(y1 - y0);
+    return out;
+  };
+  layoutTabs (x0, y0, width) {
+    const right = (x0 + width) - this.pad;
+    let cx = x0 + this.pad;
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      const w = this.tabLabelW(t);
+      if ( (cx + w) > right ) {
+        t.x = 0;
+        t.y = 0;
+        t.w = 0;
+        t.h = 0;
+      } else {
+        t.x = cx;
+        t.y = y0 + 2;
+        t.w = w;
+        t.h = this.tabH - 2;
+        cx = cx + w;
+      }
+      i = i + 1;
+    };
+  };
+  mirrorTabs (x0, width) {
+    const span = (x0 + x0) + width;
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      if ( t.w > 0 ) {
+        t.x = span - (t.x + t.w);
+      }
+      i = i + 1;
+    };
+  };
+  mirrorRows (x0, width) {
+    const span = (x0 + x0) + width;
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.w > 0 ) {
+        t.x = span - (t.x + t.w);
+      }
+      i = i + 1;
+    };
   };
   a11y (t, parentId, idPrefix, bx, by, bw, bh) {
     const barId = idPrefix + "/toolbar";
     const bar = t.node(barId, parentId, EVGA11yRole.toolbar());
     bar.name = "Toolbar";
     t.place(bar, bx, by, bw, bh);
+    if ( this.hasTabs() ) {
+      const listId = barId + "/tabs";
+      const list = t.node(listId, barId, EVGA11yRole.tabList());
+      list.name = "Toolbar pages";
+      t.place(list, bx, by, bw, this.tabH);
+      let ti = 0;
+      while (ti < (this.tabs.length)) {
+        const tb = this.tabs[ti];
+        if ( tb.w > 0 ) {
+          const tn = t.node(((listId + "/") + tb.name), listId, EVGA11yRole.tab());
+          tn.name = tb.name;
+          t.place(tn, tb.x, tb.y, tb.w, tb.h);
+          tn.selected = ti == this.activeTab;
+        }
+        ti = ti + 1;
+      };
+    }
     let i = 0;
     while (i < (this.items.length)) {
       const it = this.items[i];
@@ -6588,6 +7246,34 @@ class EVGToolbar  {
       }
       i = i + 1;
     };
+  };
+  duplicateIcon () {
+    let i = 0;
+    while (i < (this.items.length)) {
+      const a = this.items[i];
+      if ( a.isSeparator == false ) {
+        if ( a.icon > 0 ) {
+          if ( a.textW == 0 ) {
+            let j = i + 1;
+            while (j < (this.items.length)) {
+              const b = this.items[j];
+              if ( b.isSeparator == false ) {
+                if ( b.textW == 0 ) {
+                  if ( b.icon == a.icon ) {
+                    if ( b.command != a.command ) {
+                      return a.icon;
+                    }
+                  }
+                }
+              }
+              j = j + 1;
+            };
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return 0;
   };
   heightFor (width) {
     this.layout(0, 0, width);
@@ -8259,6 +8945,82 @@ class SoftCanvas  {
       hb = 255;
     }
     this.fillRectRotatedC(sx, sy, studSize, studSize, angleDeg, hr, hg, hb);
+  };
+  blitImageRectScaledFlipped (src, sx, sy, sw, sh, dx, dy, dw, dh, flipH, flipV) {
+    if ( sw <= 0 ) {
+      return;
+    }
+    if ( sh <= 0 ) {
+      return;
+    }
+    if ( dw <= 0 ) {
+      return;
+    }
+    if ( dh <= 0 ) {
+      return;
+    }
+    if ( flipH == false ) {
+      if ( flipV == false ) {
+        this.blitImageRectScaled(src, sx, sy, sw, sh, dx, dy, dw, dh);
+        return;
+      }
+    }
+    const srcW = src.width;
+    let y = 0;
+    while (y < dh) {
+      const dstY = dy + y;
+      if ( dstY < 0 ) {
+        y = y + 1;
+      } else {
+        if ( dstY >= this.h ) {
+          y = y + 1;
+        } else {
+          let readY = y;
+          if ( flipV ) {
+            readY = (dh - 1) - y;
+          }
+          let syOff = sy + (Math.floor( (((readY * sh)) / (dh))));
+          if ( syOff >= src.height ) {
+            syOff = src.height - 1;
+          }
+          let x = 0;
+          while (x < dw) {
+            const dstX = dx + x;
+            if ( dstX < 0 ) {
+              x = x + 1;
+            } else {
+              if ( dstX >= this.w ) {
+                x = x + 1;
+              } else {
+                let readX = x;
+                if ( flipH ) {
+                  readX = (dw - 1) - x;
+                }
+                let sxOff = sx + (Math.floor( (((readX * sw)) / (dw))));
+                if ( sxOff >= srcW ) {
+                  sxOff = srcW - 1;
+                }
+                const sOff = ((syOff * srcW) + sxOff) * 4;
+                const srcA = src.pixels._view.getUint8((sOff + 3));
+                if ( srcA > 0 ) {
+                  const dOff = ((dstY * this.w) + dstX) * 4;
+                  if ( srcA >= 255 ) {
+                    this.px._view.setUint8(dOff, src.pixels._view.getUint8(sOff));
+                    this.px._view.setUint8(dOff + 1, src.pixels._view.getUint8((sOff + 1)));
+                    this.px._view.setUint8(dOff + 2, src.pixels._view.getUint8((sOff + 2)));
+                    this.px._view.setUint8(dOff + 3, 255);
+                  } else {
+                    this.blitter.blendOverBytes(this.px, dOff, src.pixels._view.getUint8(sOff), src.pixels._view.getUint8((sOff + 1)), src.pixels._view.getUint8((sOff + 2)), srcA);
+                  }
+                }
+                x = x + 1;
+              }
+            }
+          };
+          y = y + 1;
+        }
+      }
+    };
   };
   blitImageRectScaledRotated (src, sx, sy, sw, sh, pivotX, pivotY, dw, dh, angleDeg) {
     if ( sw <= 0 ) {
@@ -11487,7 +12249,11 @@ class FontManager  {
     let first = true;
     while (i < n) {
       const end = EVGGrapheme.clusterEnd(cps, i);
-      const face = this.faceForClusterFrom(font, cps, i, end);
+      const found = this.faceForClusterFrom(font, cps, i, end);
+      let face = font;
+      if ( found.isLoaded() ) {
+        face = found;
+      }
       const isPrimary = face.fontPath == font.fontPath;
       if ( isPrimary ) {
         let c = i;
@@ -12076,7 +12842,10 @@ class RasterText  {
       const ch = cps[i];
       let face = this.font;
       if ( this.hasFallbackManager ) {
-        face = this.fallbackManager.faceForClusterFrom((this.font), cps, i, end);
+        const found = this.fallbackManager.faceForClusterFrom((this.font), cps, i, end);
+        if ( found.isLoaded() ) {
+          face = found;
+        }
       }
       const isPrimary = face.fontPath == this.font.fontPath;
       if ( isPrimary ) {
@@ -12186,6 +12955,1267 @@ class RasterText  {
     return (((((b1 * 256) + b2) * 256) + b3) * 256) + b4;
   };
 }
+class BidiClass  {
+  constructor() {
+  }
+}
+BidiClass.L = function() {
+  return 0;
+};
+BidiClass.R = function() {
+  return 1;
+};
+BidiClass.AL = function() {
+  return 2;
+};
+BidiClass.EN = function() {
+  return 3;
+};
+BidiClass.ES = function() {
+  return 4;
+};
+BidiClass.ET = function() {
+  return 5;
+};
+BidiClass.AN = function() {
+  return 6;
+};
+BidiClass.CS = function() {
+  return 7;
+};
+BidiClass.NSM = function() {
+  return 8;
+};
+BidiClass.BN = function() {
+  return 9;
+};
+BidiClass.B = function() {
+  return 10;
+};
+BidiClass.S = function() {
+  return 11;
+};
+BidiClass.WS = function() {
+  return 12;
+};
+BidiClass.ON = function() {
+  return 13;
+};
+BidiClass.isRtl = function(c) {
+  if ( c == 1 ) {
+    return true;
+  }
+  return c == 2;
+};
+BidiClass.isNeutral = function(c) {
+  if ( c == 10 ) {
+    return true;
+  }
+  if ( c == 11 ) {
+    return true;
+  }
+  if ( c == 12 ) {
+    return true;
+  }
+  return c == 13;
+};
+class OfficeBidi  {
+  constructor() {
+  }
+}
+OfficeBidi.classOf = function(cp) {
+  if ( cp < 128 ) {
+    return OfficeBidi.asciiClass(cp);
+  }
+  if ( cp >= 1425 ) {
+    if ( cp <= 1479 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 1552 ) {
+    if ( cp <= 1562 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 1611 ) {
+    if ( cp <= 1631 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 1750 ) {
+    if ( cp <= 1756 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 1759 ) {
+    if ( cp <= 1764 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 1767 ) {
+    if ( cp <= 1768 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 1770 ) {
+    if ( cp <= 1773 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 1632 ) {
+    if ( cp <= 1641 ) {
+      return BidiClass.AN();
+    }
+  }
+  if ( cp >= 1776 ) {
+    if ( cp <= 1785 ) {
+      return BidiClass.AN();
+    }
+  }
+  if ( cp == 1548 ) {
+    return BidiClass.CS();
+  }
+  if ( cp >= 1642 ) {
+    if ( cp <= 1645 ) {
+      return BidiClass.AN();
+    }
+  }
+  if ( cp >= 1424 ) {
+    if ( cp <= 1535 ) {
+      return BidiClass.R();
+    }
+  }
+  if ( cp >= 1536 ) {
+    if ( cp <= 1791 ) {
+      return BidiClass.AL();
+    }
+  }
+  if ( cp >= 1792 ) {
+    if ( cp <= 1871 ) {
+      return BidiClass.AL();
+    }
+  }
+  if ( cp >= 1872 ) {
+    if ( cp <= 1919 ) {
+      return BidiClass.AL();
+    }
+  }
+  if ( cp >= 1920 ) {
+    if ( cp <= 1983 ) {
+      return BidiClass.R();
+    }
+  }
+  if ( cp >= 1984 ) {
+    if ( cp <= 2047 ) {
+      return BidiClass.R();
+    }
+  }
+  if ( cp >= 2048 ) {
+    if ( cp <= 2111 ) {
+      return BidiClass.AL();
+    }
+  }
+  if ( cp >= 2112 ) {
+    if ( cp <= 2303 ) {
+      return BidiClass.AL();
+    }
+  }
+  if ( cp >= 64336 ) {
+    if ( cp <= 65023 ) {
+      return BidiClass.AL();
+    }
+  }
+  if ( cp >= 65136 ) {
+    if ( cp <= 65279 ) {
+      return BidiClass.AL();
+    }
+  }
+  if ( cp >= 64285 ) {
+    if ( cp <= 64335 ) {
+      return BidiClass.R();
+    }
+  }
+  if ( cp == 8206 ) {
+    return BidiClass.L();
+  }
+  if ( cp == 8207 ) {
+    return BidiClass.R();
+  }
+  if ( cp == 8203 ) {
+    return BidiClass.BN();
+  }
+  if ( cp >= 8204 ) {
+    if ( cp <= 8205 ) {
+      return BidiClass.BN();
+    }
+  }
+  if ( cp == 8232 ) {
+    return BidiClass.WS();
+  }
+  if ( cp == 8233 ) {
+    return BidiClass.B();
+  }
+  if ( cp >= 768 ) {
+    if ( cp <= 879 ) {
+      return BidiClass.NSM();
+    }
+  }
+  if ( cp >= 8352 ) {
+    if ( cp <= 8399 ) {
+      return BidiClass.ET();
+    }
+  }
+  if ( cp == 176 ) {
+    return BidiClass.ET();
+  }
+  if ( cp == 160 ) {
+    return BidiClass.CS();
+  }
+  if ( cp >= 8192 ) {
+    if ( cp <= 8202 ) {
+      return BidiClass.WS();
+    }
+  }
+  if ( cp >= 8208 ) {
+    if ( cp <= 8231 ) {
+      return BidiClass.ON();
+    }
+  }
+  return BidiClass.L();
+};
+OfficeBidi.asciiClass = function(cp) {
+  if ( cp >= 48 ) {
+    if ( cp <= 57 ) {
+      return BidiClass.EN();
+    }
+  }
+  if ( cp >= 65 ) {
+    if ( cp <= 90 ) {
+      return BidiClass.L();
+    }
+  }
+  if ( cp >= 97 ) {
+    if ( cp <= 122 ) {
+      return BidiClass.L();
+    }
+  }
+  if ( cp == 10 ) {
+    return BidiClass.B();
+  }
+  if ( cp == 13 ) {
+    return BidiClass.B();
+  }
+  if ( cp == 9 ) {
+    return BidiClass.S();
+  }
+  if ( cp == 32 ) {
+    return BidiClass.WS();
+  }
+  if ( cp == 43 ) {
+    return BidiClass.ES();
+  }
+  if ( cp == 45 ) {
+    return BidiClass.ES();
+  }
+  if ( cp == 35 ) {
+    return BidiClass.ET();
+  }
+  if ( cp == 36 ) {
+    return BidiClass.ET();
+  }
+  if ( cp == 37 ) {
+    return BidiClass.ET();
+  }
+  if ( cp == 44 ) {
+    return BidiClass.CS();
+  }
+  if ( cp == 46 ) {
+    return BidiClass.CS();
+  }
+  if ( cp == 58 ) {
+    return BidiClass.CS();
+  }
+  if ( cp == 47 ) {
+    return BidiClass.CS();
+  }
+  return BidiClass.ON();
+};
+OfficeBidi.paragraphLevel = function(cps, override) {
+  if ( override == 0 ) {
+    return 0;
+  }
+  if ( override == 1 ) {
+    return 1;
+  }
+  let i = 0;
+  while (i < (cps.length)) {
+    const c = OfficeBidi.classOf((cps[i]));
+    if ( c == BidiClass.L() ) {
+      return 0;
+    }
+    if ( BidiClass.isRtl(c) ) {
+      return 1;
+    }
+    i = i + 1;
+  };
+  return 0;
+};
+OfficeBidi.dirOf = function(c) {
+  if ( c == BidiClass.L() ) {
+    return BidiClass.L();
+  }
+  return BidiClass.R();
+};
+OfficeBidi.resolveLevels = function(cps, paraLevel) {
+  const n = cps.length;
+  let cls = [];
+  let levels = [];
+  let i = 0;
+  while (i < n) {
+    cls.push(OfficeBidi.classOf((cps[i])));
+    levels.push(paraLevel);
+    i = i + 1;
+  };
+  if ( n == 0 ) {
+    return levels;
+  }
+  let prev = BidiClass.L();
+  if ( paraLevel == 1 ) {
+    prev = BidiClass.R();
+  }
+  i = 0;
+  while (i < n) {
+    if ( (cls[i]) == BidiClass.NSM() ) {
+      cls[i] = prev;
+    } else {
+      prev = cls[i];
+    }
+    i = i + 1;
+  };
+  let lastStrong = BidiClass.L();
+  if ( paraLevel == 1 ) {
+    lastStrong = BidiClass.R();
+  }
+  i = 0;
+  while (i < n) {
+    const c2 = cls[i];
+    if ( c2 == BidiClass.L() ) {
+      lastStrong = c2;
+    }
+    if ( c2 == BidiClass.R() ) {
+      lastStrong = c2;
+    }
+    if ( c2 == BidiClass.AL() ) {
+      lastStrong = c2;
+    }
+    if ( c2 == BidiClass.EN() ) {
+      if ( lastStrong == BidiClass.AL() ) {
+        cls[i] = BidiClass.AN();
+      }
+    }
+    i = i + 1;
+  };
+  i = 0;
+  while (i < n) {
+    if ( (cls[i]) == BidiClass.AL() ) {
+      cls[i] = BidiClass.R();
+    }
+    i = i + 1;
+  };
+  i = 1;
+  while ((i + 1) < n) {
+    const c4 = cls[i];
+    const before = cls[(i - 1)];
+    const after = cls[(i + 1)];
+    if ( c4 == BidiClass.ES() ) {
+      if ( before == BidiClass.EN() ) {
+        if ( after == BidiClass.EN() ) {
+          cls[i] = BidiClass.EN();
+        }
+      }
+    }
+    if ( c4 == BidiClass.CS() ) {
+      if ( before == BidiClass.EN() ) {
+        if ( after == BidiClass.EN() ) {
+          cls[i] = BidiClass.EN();
+        }
+      }
+      if ( before == BidiClass.AN() ) {
+        if ( after == BidiClass.AN() ) {
+          cls[i] = BidiClass.AN();
+        }
+      }
+    }
+    i = i + 1;
+  };
+  i = 0;
+  while (i < n) {
+    if ( (cls[i]) != BidiClass.ET() ) {
+      i = i + 1;
+    } else {
+      let j = i;
+      while (j < n) {
+        if ( (cls[j]) == BidiClass.ET() ) {
+          j = j + 1;
+        } else {
+          break;
+        }
+      };
+      let joins = false;
+      if ( i > 0 ) {
+        if ( (cls[(i - 1)]) == BidiClass.EN() ) {
+          joins = true;
+        }
+      }
+      if ( j < n ) {
+        if ( (cls[j]) == BidiClass.EN() ) {
+          joins = true;
+        }
+      }
+      if ( joins ) {
+        let k = i;
+        while (k < j) {
+          cls[k] = BidiClass.EN();
+          k = k + 1;
+        };
+      }
+      i = j;
+    }
+  };
+  i = 0;
+  while (i < n) {
+    const c6 = cls[i];
+    if ( c6 == BidiClass.ES() ) {
+      cls[i] = BidiClass.ON();
+    }
+    if ( c6 == BidiClass.ET() ) {
+      cls[i] = BidiClass.ON();
+    }
+    if ( c6 == BidiClass.CS() ) {
+      cls[i] = BidiClass.ON();
+    }
+    if ( c6 == BidiClass.BN() ) {
+      cls[i] = BidiClass.ON();
+    }
+    i = i + 1;
+  };
+  let strong7 = BidiClass.L();
+  if ( paraLevel == 1 ) {
+    strong7 = BidiClass.R();
+  }
+  i = 0;
+  while (i < n) {
+    const c7 = cls[i];
+    if ( c7 == BidiClass.L() ) {
+      strong7 = c7;
+    }
+    if ( c7 == BidiClass.R() ) {
+      strong7 = c7;
+    }
+    if ( c7 == BidiClass.EN() ) {
+      if ( strong7 == BidiClass.L() ) {
+        cls[i] = BidiClass.L();
+      }
+    }
+    i = i + 1;
+  };
+  let paraDir = BidiClass.L();
+  if ( paraLevel == 1 ) {
+    paraDir = BidiClass.R();
+  }
+  i = 0;
+  while (i < n) {
+    if ( BidiClass.isNeutral((cls[i])) == false ) {
+      i = i + 1;
+    } else {
+      let j2 = i;
+      while (j2 < n) {
+        if ( BidiClass.isNeutral((cls[j2])) ) {
+          j2 = j2 + 1;
+        } else {
+          break;
+        }
+      };
+      let before_1 = paraDir;
+      if ( i > 0 ) {
+        before_1 = OfficeBidi.dirOf((cls[(i - 1)]));
+      }
+      let after_1 = paraDir;
+      if ( j2 < n ) {
+        after_1 = OfficeBidi.dirOf((cls[j2]));
+      }
+      let take = paraDir;
+      if ( before_1 == after_1 ) {
+        take = before_1;
+      }
+      let k2 = i;
+      while (k2 < j2) {
+        cls[k2] = take;
+        k2 = k2 + 1;
+      };
+      i = j2;
+    }
+  };
+  i = 0;
+  while (i < n) {
+    const c = cls[i];
+    let lvl = paraLevel;
+    if ( paraLevel == 0 ) {
+      if ( c == BidiClass.R() ) {
+        lvl = 1;
+      }
+      if ( c == BidiClass.AN() ) {
+        lvl = 2;
+      }
+      if ( c == BidiClass.EN() ) {
+        lvl = 2;
+      }
+    } else {
+      if ( c == BidiClass.L() ) {
+        lvl = 2;
+      }
+      if ( c == BidiClass.AN() ) {
+        lvl = 2;
+      }
+      if ( c == BidiClass.EN() ) {
+        lvl = 2;
+      }
+    }
+    levels[i] = lvl;
+    i = i + 1;
+  };
+  return levels;
+};
+OfficeBidi.applyL1 = function(cps, levels, paraLevel) {
+  const n = cps.length;
+  let i = n - 1;
+  while (i >= 0) {
+    const c = OfficeBidi.classOf((cps[i]));
+    if ( c == BidiClass.WS() ) {
+      levels[i] = paraLevel;
+      i = i - 1;
+    } else {
+      if ( c == BidiClass.S() ) {
+        levels[i] = paraLevel;
+        i = i - 1;
+      } else {
+        if ( c == BidiClass.B() ) {
+          levels[i] = paraLevel;
+          i = i - 1;
+        } else {
+          i = 0 - 1;
+        }
+      }
+    }
+  };
+  let j = 0;
+  while (j < n) {
+    const c2 = OfficeBidi.classOf((cps[j]));
+    if ( c2 == BidiClass.S() ) {
+      levels[j] = paraLevel;
+      let k = j - 1;
+      while (k >= 0) {
+        if ( OfficeBidi.classOf((cps[k])) == BidiClass.WS() ) {
+          levels[k] = paraLevel;
+          k = k - 1;
+        } else {
+          k = 0 - 1;
+        }
+      };
+    }
+    if ( c2 == BidiClass.B() ) {
+      levels[j] = paraLevel;
+    }
+    j = j + 1;
+  };
+};
+OfficeBidi.reorder = function(levels) {
+  const n = levels.length;
+  let order = [];
+  let i = 0;
+  while (i < n) {
+    order.push(i);
+    i = i + 1;
+  };
+  if ( n == 0 ) {
+    return order;
+  }
+  let highest = 0;
+  let lowestOdd = 99;
+  i = 0;
+  while (i < n) {
+    const lv = levels[i];
+    if ( lv > highest ) {
+      highest = lv;
+    }
+    if ( (lv % 2) == 1 ) {
+      if ( lv < lowestOdd ) {
+        lowestOdd = lv;
+      }
+    }
+    i = i + 1;
+  };
+  if ( lowestOdd > highest ) {
+    return order;
+  }
+  let lvl = highest;
+  while (lvl >= lowestOdd) {
+    let a = 0;
+    while (a < n) {
+      if ( (levels[(order[a])]) >= lvl ) {
+        let b = a;
+        while (b < n) {
+          if ( (levels[(order[b])]) >= lvl ) {
+            b = b + 1;
+          } else {
+            break;
+          }
+        };
+        let lo = a;
+        let hi = b - 1;
+        while (lo < hi) {
+          const t = order[lo];
+          order[lo] = order[hi];
+          order[hi] = t;
+          lo = lo + 1;
+          hi = hi - 1;
+        };
+        a = b;
+      } else {
+        a = a + 1;
+      }
+    };
+    lvl = lvl - 1;
+  };
+  return order;
+};
+OfficeBidi.visualOrder = function(cps, override) {
+  const para = OfficeBidi.paragraphLevel(cps, override);
+  const levels = OfficeBidi.resolveLevels(cps, para);
+  OfficeBidi.applyL1(cps, levels, para);
+  return OfficeBidi.reorder(levels);
+};
+OfficeBidi.hasRtl = function(cps) {
+  let i = 0;
+  while (i < (cps.length)) {
+    if ( BidiClass.isRtl(OfficeBidi.classOf((cps[i]))) ) {
+      return true;
+    }
+    i = i + 1;
+  };
+  return false;
+};
+class OfficeArabic  {
+  constructor() {
+  }
+}
+OfficeArabic.isDual = function(cp) {
+  if ( cp == 1574 ) {
+    return true;
+  }
+  if ( cp == 1576 ) {
+    return true;
+  }
+  if ( cp == 1578 ) {
+    return true;
+  }
+  if ( cp == 1579 ) {
+    return true;
+  }
+  if ( cp == 1580 ) {
+    return true;
+  }
+  if ( cp == 1581 ) {
+    return true;
+  }
+  if ( cp == 1582 ) {
+    return true;
+  }
+  if ( cp == 1587 ) {
+    return true;
+  }
+  if ( cp == 1588 ) {
+    return true;
+  }
+  if ( cp == 1589 ) {
+    return true;
+  }
+  if ( cp == 1590 ) {
+    return true;
+  }
+  if ( cp == 1591 ) {
+    return true;
+  }
+  if ( cp == 1592 ) {
+    return true;
+  }
+  if ( cp == 1593 ) {
+    return true;
+  }
+  if ( cp == 1594 ) {
+    return true;
+  }
+  if ( cp == 1601 ) {
+    return true;
+  }
+  if ( cp == 1602 ) {
+    return true;
+  }
+  if ( cp == 1603 ) {
+    return true;
+  }
+  if ( cp == 1604 ) {
+    return true;
+  }
+  if ( cp == 1605 ) {
+    return true;
+  }
+  if ( cp == 1606 ) {
+    return true;
+  }
+  if ( cp == 1607 ) {
+    return true;
+  }
+  if ( cp == 1609 ) {
+    return true;
+  }
+  if ( cp == 1610 ) {
+    return true;
+  }
+  if ( cp == 1600 ) {
+    return true;
+  }
+  return false;
+};
+OfficeArabic.isLetter = function(cp) {
+  return OfficeArabic.isoFormOf(cp) > 0;
+};
+OfficeArabic.isTransparent = function(cp) {
+  if ( cp >= 1552 ) {
+    if ( cp <= 1562 ) {
+      return true;
+    }
+  }
+  if ( cp >= 1611 ) {
+    if ( cp <= 1631 ) {
+      return true;
+    }
+  }
+  if ( cp == 1648 ) {
+    return true;
+  }
+  if ( cp >= 1750 ) {
+    if ( cp <= 1756 ) {
+      return true;
+    }
+  }
+  if ( cp >= 1759 ) {
+    if ( cp <= 1764 ) {
+      return true;
+    }
+  }
+  if ( cp >= 1767 ) {
+    if ( cp <= 1768 ) {
+      return true;
+    }
+  }
+  if ( cp >= 1770 ) {
+    if ( cp <= 1773 ) {
+      return true;
+    }
+  }
+  return false;
+};
+OfficeArabic.isoFormOf = function(cp) {
+  if ( cp == 1569 ) {
+    return 65152;
+  }
+  if ( cp == 1570 ) {
+    return 65153;
+  }
+  if ( cp == 1571 ) {
+    return 65155;
+  }
+  if ( cp == 1572 ) {
+    return 65157;
+  }
+  if ( cp == 1573 ) {
+    return 65159;
+  }
+  if ( cp == 1574 ) {
+    return 65161;
+  }
+  if ( cp == 1575 ) {
+    return 65165;
+  }
+  if ( cp == 1576 ) {
+    return 65167;
+  }
+  if ( cp == 1577 ) {
+    return 65171;
+  }
+  if ( cp == 1578 ) {
+    return 65173;
+  }
+  if ( cp == 1579 ) {
+    return 65177;
+  }
+  if ( cp == 1580 ) {
+    return 65181;
+  }
+  if ( cp == 1581 ) {
+    return 65185;
+  }
+  if ( cp == 1582 ) {
+    return 65189;
+  }
+  if ( cp == 1583 ) {
+    return 65193;
+  }
+  if ( cp == 1584 ) {
+    return 65195;
+  }
+  if ( cp == 1585 ) {
+    return 65197;
+  }
+  if ( cp == 1586 ) {
+    return 65199;
+  }
+  if ( cp == 1587 ) {
+    return 65201;
+  }
+  if ( cp == 1588 ) {
+    return 65205;
+  }
+  if ( cp == 1589 ) {
+    return 65209;
+  }
+  if ( cp == 1590 ) {
+    return 65213;
+  }
+  if ( cp == 1591 ) {
+    return 65217;
+  }
+  if ( cp == 1592 ) {
+    return 65221;
+  }
+  if ( cp == 1593 ) {
+    return 65225;
+  }
+  if ( cp == 1594 ) {
+    return 65229;
+  }
+  if ( cp == 1601 ) {
+    return 65233;
+  }
+  if ( cp == 1602 ) {
+    return 65237;
+  }
+  if ( cp == 1603 ) {
+    return 65241;
+  }
+  if ( cp == 1604 ) {
+    return 65245;
+  }
+  if ( cp == 1605 ) {
+    return 65249;
+  }
+  if ( cp == 1606 ) {
+    return 65253;
+  }
+  if ( cp == 1607 ) {
+    return 65257;
+  }
+  if ( cp == 1608 ) {
+    return 65261;
+  }
+  if ( cp == 1609 ) {
+    return 65263;
+  }
+  if ( cp == 1610 ) {
+    return 65265;
+  }
+  return 0;
+};
+OfficeArabic.formCountOf = function(cp) {
+  if ( cp == 1569 ) {
+    return 1;
+  }
+  if ( cp == 1570 ) {
+    return 2;
+  }
+  if ( cp == 1571 ) {
+    return 2;
+  }
+  if ( cp == 1572 ) {
+    return 2;
+  }
+  if ( cp == 1573 ) {
+    return 2;
+  }
+  if ( cp == 1574 ) {
+    return 4;
+  }
+  if ( cp == 1575 ) {
+    return 2;
+  }
+  if ( cp == 1576 ) {
+    return 4;
+  }
+  if ( cp == 1577 ) {
+    return 2;
+  }
+  if ( cp == 1578 ) {
+    return 4;
+  }
+  if ( cp == 1579 ) {
+    return 4;
+  }
+  if ( cp == 1580 ) {
+    return 4;
+  }
+  if ( cp == 1581 ) {
+    return 4;
+  }
+  if ( cp == 1582 ) {
+    return 4;
+  }
+  if ( cp == 1583 ) {
+    return 2;
+  }
+  if ( cp == 1584 ) {
+    return 2;
+  }
+  if ( cp == 1585 ) {
+    return 2;
+  }
+  if ( cp == 1586 ) {
+    return 2;
+  }
+  if ( cp == 1587 ) {
+    return 4;
+  }
+  if ( cp == 1588 ) {
+    return 4;
+  }
+  if ( cp == 1589 ) {
+    return 4;
+  }
+  if ( cp == 1590 ) {
+    return 4;
+  }
+  if ( cp == 1591 ) {
+    return 4;
+  }
+  if ( cp == 1592 ) {
+    return 4;
+  }
+  if ( cp == 1593 ) {
+    return 4;
+  }
+  if ( cp == 1594 ) {
+    return 4;
+  }
+  if ( cp == 1601 ) {
+    return 4;
+  }
+  if ( cp == 1602 ) {
+    return 4;
+  }
+  if ( cp == 1603 ) {
+    return 4;
+  }
+  if ( cp == 1604 ) {
+    return 4;
+  }
+  if ( cp == 1605 ) {
+    return 4;
+  }
+  if ( cp == 1606 ) {
+    return 4;
+  }
+  if ( cp == 1607 ) {
+    return 4;
+  }
+  if ( cp == 1608 ) {
+    return 2;
+  }
+  if ( cp == 1609 ) {
+    return 2;
+  }
+  if ( cp == 1610 ) {
+    return 4;
+  }
+  return 0;
+};
+OfficeArabic.prevIndex = function(cps, i) {
+  let k = i - 1;
+  while (k >= 0) {
+    if ( OfficeArabic.isTransparent((cps[k])) == false ) {
+      return k;
+    }
+    k = k - 1;
+  };
+  return -1;
+};
+OfficeArabic.nextIndex = function(cps, i) {
+  const n = cps.length;
+  let k = i + 1;
+  while (k < n) {
+    if ( OfficeArabic.isTransparent((cps[k])) == false ) {
+      return k;
+    }
+    k = k + 1;
+  };
+  return -1;
+};
+OfficeArabic.cpAt = function(cps, i) {
+  if ( i < 0 ) {
+    return 0;
+  }
+  return cps[i];
+};
+OfficeArabic.joinsForward = function(cp) {
+  if ( cp == 8205 ) {
+    return true;
+  }
+  return OfficeArabic.isDual(cp);
+};
+OfficeArabic.joinsBackward = function(cp) {
+  if ( cp == 8205 ) {
+    return true;
+  }
+  if ( cp == 1600 ) {
+    return true;
+  }
+  if ( OfficeArabic.formCountOf(cp) < 2 ) {
+    return false;
+  }
+  return OfficeArabic.isLetter(cp);
+};
+OfficeArabic.formOf = function(cp, joinsPrev, joinsNext) {
+  const base = OfficeArabic.isoFormOf(cp);
+  if ( base == 0 ) {
+    return cp;
+  }
+  const count = OfficeArabic.formCountOf(cp);
+  if ( count < 2 ) {
+    return cp;
+  }
+  if ( joinsPrev ) {
+    if ( joinsNext ) {
+      if ( count == 4 ) {
+        return base + 3;
+      }
+      return base + 1;
+    }
+    return base + 1;
+  }
+  if ( joinsNext ) {
+    if ( count == 4 ) {
+      return base + 2;
+    }
+    return cp;
+  }
+  return cp;
+};
+OfficeArabic.ligatureOf = function(alef) {
+  if ( alef == 1570 ) {
+    return 65269;
+  }
+  if ( alef == 1571 ) {
+    return 65271;
+  }
+  if ( alef == 1573 ) {
+    return 65273;
+  }
+  if ( alef == 1575 ) {
+    return 65275;
+  }
+  return 0;
+};
+OfficeArabic.hasArabic = function(cps) {
+  const n = cps.length;
+  let i = 0;
+  while (i < n) {
+    if ( OfficeArabic.isLetter((cps[i])) ) {
+      return true;
+    }
+    i = i + 1;
+  };
+  return false;
+};
+OfficeArabic.shape = function(cps) {
+  const n = cps.length;
+  let out = [];
+  let i = 0;
+  while (i < n) {
+    out.push(cps[i]);
+    i = i + 1;
+  };
+  let at = 0;
+  while (at < n) {
+    const cp = cps[at];
+    const standing = out[at];
+    if ( standing > 0 ) {
+      if ( OfficeArabic.isLetter(cp) ) {
+        const pi = OfficeArabic.prevIndex(cps, at);
+        const ni = OfficeArabic.nextIndex(cps, at);
+        const pcp = OfficeArabic.cpAt(cps, pi);
+        const ncp = OfficeArabic.cpAt(cps, ni);
+        const jp = OfficeArabic.joinsForward(pcp);
+        let jn = false;
+        if ( OfficeArabic.joinsForward(cp) ) {
+          jn = OfficeArabic.joinsBackward(ncp);
+        }
+        let lig = 0;
+        if ( cp == 1604 ) {
+          lig = OfficeArabic.ligatureOf(ncp);
+        }
+        if ( lig > 0 ) {
+          let form = lig;
+          if ( jp ) {
+            form = lig + 1;
+          }
+          out[at] = form;
+          out[ni] = 0;
+        } else {
+          out[at] = OfficeArabic.formOf(cp, jp, jn);
+        }
+      }
+    }
+    at = at + 1;
+  };
+  return out;
+};
+class OfficeText  {
+  constructor() {
+  }
+}
+OfficeText.needsWork = function(s) {
+  if ( (s.length) == 0 ) {
+    return false;
+  }
+  return OfficeBidi.hasRtl(EVGCodepoint.toArray(s));
+};
+OfficeText.isRtl = function(s) {
+  if ( (s.length) == 0 ) {
+    return false;
+  }
+  return OfficeBidi.paragraphLevel(EVGCodepoint.toArray(s), -1) == 1;
+};
+OfficeText.isMark = function(cp) {
+  return OfficeBidi.classOf(cp) == BidiClass.NSM();
+};
+OfficeText.reattachMarks = function(cps, order) {
+  const n = order.length;
+  let out = [];
+  let i = 0;
+  while (i < n) {
+    out.push(order[i]);
+    i = i + 1;
+  };
+  let v = 0;
+  while (v < n) {
+    let run = 1;
+    let more = true;
+    while (more) {
+      const w = v + run;
+      more = false;
+      if ( w < n ) {
+        if ( (order[w]) == ((order[(w - 1)]) - 1) ) {
+          more = true;
+        }
+      }
+      if ( more ) {
+        run = run + 1;
+      }
+    };
+    const stop = v + run;
+    let s = v;
+    while (s < stop) {
+      let e = s;
+      let scanning = true;
+      while (scanning) {
+        scanning = false;
+        if ( e < (stop - 1) ) {
+          if ( OfficeText.isMark((cps[(order[e])])) ) {
+            e = e + 1;
+            scanning = true;
+          }
+        }
+      };
+      if ( e > s ) {
+        let a = s;
+        let b = e;
+        while (a < b) {
+          const t = out[a];
+          out[a] = out[b];
+          out[b] = t;
+          a = a + 1;
+          b = b - 1;
+        };
+      }
+      s = e + 1;
+    };
+    v = stop;
+  };
+  return out;
+};
+OfficeText.visualOrderOf = function(s, dir) {
+  const cps = EVGCodepoint.toArray(s);
+  const order = OfficeBidi.visualOrder(cps, dir);
+  return OfficeText.reattachMarks(cps, order);
+};
+OfficeText.forDisplayDir = function(s, dir) {
+  const cps = EVGCodepoint.toArray(s);
+  const n = cps.length;
+  if ( n < 1 ) {
+    return s;
+  }
+  if ( OfficeBidi.hasRtl(cps) == false ) {
+    return s;
+  }
+  let glyphs = cps;
+  if ( OfficeArabic.hasArabic(cps) ) {
+    glyphs = OfficeArabic.shape(cps);
+  }
+  const order = OfficeBidi.visualOrder(cps, dir);
+  const visual = OfficeText.reattachMarks(cps, order);
+  let out = "";
+  let i = 0;
+  while (i < n) {
+    const g = glyphs[(visual[i])];
+    if ( g > 0 ) {
+      out = out + EVGCodepoint.toStr(g);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+OfficeText.forMetrics = function(s) {
+  const cps = EVGCodepoint.toArray(s);
+  if ( (cps.length) < 1 ) {
+    return s;
+  }
+  if ( OfficeArabic.hasArabic(cps) == false ) {
+    return s;
+  }
+  const glyphs = OfficeArabic.shape(cps);
+  let out = "";
+  let i = 0;
+  while (i < (glyphs.length)) {
+    const g = glyphs[i];
+    if ( g > 0 ) {
+      out = out + EVGCodepoint.toStr(g);
+    }
+    i = i + 1;
+  };
+  return out;
+};
+OfficeText.forDisplay = function(s) {
+  return OfficeText.forDisplayDir(s, -1);
+};
 class UICachedLine  {
   constructor() {
     this.key = "";
@@ -12216,9 +14246,18 @@ class UITextRenderer  {
       this.fontFamily = family;
       const ttf = this.fm.getFont(family);
       this.rt.setFont(ttf);
+      this.rt.setFallbackManager(this.fm);
       const tm = new TTFTextMeasurer(this.fm);
       this.measurer = tm;
       this.hasFont = true;
+      this.clearCache();
+    }
+    return ok;
+  };
+  addFace (relativePath) {
+    const ok = this.fm.loadFont(relativePath);
+    if ( ok ) {
+      this.rt.setFallbackManager(this.fm);
       this.clearCache();
     }
     return ok;
@@ -12229,6 +14268,7 @@ class UITextRenderer  {
       this.fontFamily = family;
       const ttf = this.fm.getFont(family);
       this.rt.setFont(ttf);
+      this.rt.setFallbackManager(this.fm);
       const tm = new TTFTextMeasurer(this.fm);
       this.measurer = tm;
       this.hasFont = true;
@@ -12246,12 +14286,13 @@ class UITextRenderer  {
     this.cache.length = 0;
   };
   measureWidth (text, size) {
+    const shaped = OfficeText.forMetrics(text);
     this.applyFace();
     if ( this.hasFont ) {
-      return this.measurer.measureTextWidth(text, this.fontFamily, size);
+      return this.measurer.measureTextWidth(shaped, this.fontFamily, size);
     }
     const step = this.bmCharStep(size);
-    return ((text.length)) * step;
+    return ((shaped.length)) * step;
   };
   ascent (size) {
     this.applyFace();
@@ -12682,6 +14723,21 @@ class UITextRenderer  {
     return "000000000000000";
   };
 }
+UITextRenderer.faceName = function(family, bold, italic) {
+  if ( (family.length) == 0 ) {
+    return "";
+  }
+  if ( bold ) {
+    if ( italic ) {
+      return family + "-Bold Italic";
+    }
+    return family + "-Bold";
+  }
+  if ( italic ) {
+    return family + "-Italic";
+  }
+  return family;
+};
 class UITheme  {
   constructor() {
     this.panelBg = EVGColor.rgba(20, 24, 38, 0.85);     /** note: unused */
@@ -13235,6 +15291,208 @@ class UIContext  {
     return this.tr.lineHeight(size);
   };
 }
+class ToolIconPath  {
+  constructor() {
+  }
+}
+ToolIconPath.dataFor = function(k) {
+  if ( k == ToolIcon.printDoc() ) {
+    return "M6 2 h12 v5 h-12 z M2 8 h20 v8 h-4 v-4 h-12 v4 h-4 z M6 14 h12 v8 h-12 z";
+  }
+  if ( k == ToolIcon.textRtl() ) {
+    return "M4 3 h16 v3 h-16 z M8 8 h12 v3 h-12 z M4 13 h16 v3 h-16 z M9 21 l4 -4 v2.4 h8 v3.2 h-8 v2.4 z";
+  }
+  if ( k == ToolIcon.newFile() ) {
+    return "M5 2 h9 l5 5 v15 h-14 z";
+  }
+  if ( k == ToolIcon.openFile() ) {
+    return "M1 4 h8 l2 3 h12 v14 h-22 z";
+  }
+  if ( k == ToolIcon.save() ) {
+    return "M2 2 h15 l5 5 v15 h-20 z";
+  }
+  if ( k == ToolIcon.report() ) {
+    return "M5 2 h9 l5 5 v15 h-14 z";
+  }
+  if ( k == ToolIcon.navFirst() ) {
+    return "M4 4 h3 v16 h-3 z M21 4 v16 l-12 -8 z";
+  }
+  if ( k == ToolIcon.navPrev() ) {
+    return "M18 4 v16 l-12 -8 z";
+  }
+  if ( k == ToolIcon.navNext() ) {
+    return "M6 4 v16 l12 -8 z";
+  }
+  if ( k == ToolIcon.navLast() ) {
+    return "M17 4 h3 v16 h-3 z M3 4 v16 l12 -8 z";
+  }
+  if ( k == ToolIcon.play() ) {
+    return "M5 3 v18 l15 -9 z";
+  }
+  if ( k == ToolIcon.editMode() ) {
+    return "M5 2 l14 9 l-6 1 l3 7 l-3 2 l-4 -7 l-4 4 z";
+  }
+  if ( k == ToolIcon.copy() ) {
+    return "M3 1 h12 v3 h-9 v13 h-3 z M7 5 h14 v18 h-14 z";
+  }
+  if ( k == ToolIcon.paste() ) {
+    return "M9 1 h6 v2 h4 v20 h-14 v-20 h4 z";
+  }
+  if ( k == ToolIcon.trash() ) {
+    return "M9 1 h6 v2 h6 v3 h-18 v-3 h6 z M4 8 h16 l-2 15 h-12 z";
+  }
+  if ( k == ToolIcon.duplicate() ) {
+    return "M2 2 h13 v13 h-13 z M9 9 h13 v13 h-13 z";
+  }
+  if ( k == ToolIcon.lock() ) {
+    return "M12 1 a6 6 0 0 1 6 6 v3 h-3 v-3 a3 3 0 0 0 -6 0 v3 h-3 v-3 a6 6 0 0 1 6 -6 z M4 11 h16 v12 h-16 z";
+  }
+  if ( k == ToolIcon.shapeRect() ) {
+    return "M2 5 h20 v14 h-20 z";
+  }
+  if ( k == ToolIcon.shapeEllipse() ) {
+    return "M12 4 a10 8 0 0 1 0 16 a10 8 0 0 1 0 -16 z";
+  }
+  if ( k == ToolIcon.textBox() ) {
+    return "M2 3 h20 v18 h-20 z";
+  }
+  if ( k == ToolIcon.picture() ) {
+    return "M2 4 h20 v16 h-20 z";
+  }
+  if ( k == ToolIcon.chart() ) {
+    return "M3 21 h18 v2 h-20 v-22 h2 z M6 12 h3 v8 h-3 z M11 7 h3 v13 h-3 z M16 10 h3 v10 h-3 z";
+  }
+  if ( k == ToolIcon.search() ) {
+    return "M15 16 l2 -2 l6 6 l-2 2 z";
+  }
+  if ( k == ToolIcon.funnel() ) {
+    return "M2 3 h20 l-8 9 v9 l-4 2 v-11 z";
+  }
+  if ( k == ToolIcon.comment() ) {
+    return "M2 3 h20 v14 h-12 l-5 5 v-5 h-3 z";
+  }
+  if ( k == ToolIcon.palette() ) {
+    return "M2 2 h9 v9 h-9 z M13 2 h9 v9 h-9 z M2 13 h9 v9 h-9 z M13 13 h9 v9 h-9 z";
+  }
+  if ( k == ToolIcon.formatPaste() ) {
+    return "M3 2 h14 v6 h-14 z M9 8 h2 v4 h6 v10 h-10 v-10 h2 z";
+  }
+  if ( k == ToolIcon.flipH() ) {
+    return "M2 4 h8 v16 h-8 z M14 4 h8 v16 h-8 z";
+  }
+  if ( k == ToolIcon.flipV() ) {
+    return "M4 2 h16 v8 h-16 z M4 14 h16 v8 h-16 z";
+  }
+  if ( k == ToolIcon.bringFront() ) {
+    return "M2 2 h13 v13 h-13 z";
+  }
+  if ( k == ToolIcon.sendBack() ) {
+    return "M2 2 h13 v13 h-13 z";
+  }
+  if ( k == ToolIcon.group() ) {
+    return "M1 1 h22 v22 h-22 z";
+  }
+  if ( k == ToolIcon.ungroup() ) {
+    return "M1 1 h11 v11 h-11 z M12 12 h11 v11 h-11 z";
+  }
+  if ( k == ToolIcon.slideAdd() ) {
+    return "M1 3 h17 v13 h-17 z";
+  }
+  if ( k == ToolIcon.slideCopy() ) {
+    return "M1 2 h14 v11 h-14 z";
+  }
+  if ( k == ToolIcon.slideDel() ) {
+    return "M1 3 h17 v13 h-17 z";
+  }
+  if ( k == ToolIcon.database() ) {
+    return "M12 1 a9 4 0 0 1 0 8 a9 4 0 0 1 0 -8 z M3 8 a9 4 0 0 0 18 0 v4 a9 4 0 0 1 -18 0 z M3 15 a9 4 0 0 0 18 0 v4 a9 4 0 0 1 -18 0 z";
+  }
+  return "";
+};
+ToolIconPath.holeFor = function(k) {
+  if ( k == ToolIcon.printDoc() ) {
+    return "M8 3 h8 v3 h-8 z M8 15 h8 v6 h-8 z M16 10 h4 v2 h-4 z";
+  }
+  if ( k == ToolIcon.newFile() ) {
+    return "M14 2 v5 h5 z M7 4 h6 v5 h6 v11 h-12 z";
+  }
+  if ( k == ToolIcon.report() ) {
+    return "M14 2 v5 h5 z M8 11 h8 v2 h-8 z M8 15 h8 v2 h-8 z";
+  }
+  if ( k == ToolIcon.openFile() ) {
+    return "M3 9 h18 v10 h-18 z";
+  }
+  if ( k == ToolIcon.save() ) {
+    return "M7 4 h7 v5 h-7 z M6 13 h12 v9 h-12 z";
+  }
+  if ( k == ToolIcon.copy() ) {
+    return "M9 7 h10 v14 h-10 z";
+  }
+  if ( k == ToolIcon.paste() ) {
+    return "M11 2 h2 v2 h-2 z M9 7 h6 v2 h-6 z M9 11 h6 v2 h-6 z";
+  }
+  if ( k == ToolIcon.trash() ) {
+    return "M9 11 h2 v9 h-2 z M13 11 h2 v9 h-2 z";
+  }
+  if ( k == ToolIcon.duplicate() ) {
+    return "M4 4 h9 v9 h-9 z M11 11 h9 v9 h-9 z";
+  }
+  if ( k == ToolIcon.lock() ) {
+    return "M11 14 h2 v6 h-2 z";
+  }
+  if ( k == ToolIcon.shapeRect() ) {
+    return "M4 7 h16 v10 h-16 z";
+  }
+  if ( k == ToolIcon.shapeEllipse() ) {
+    return "M12 6 a8 6 0 0 1 0 12 a8 6 0 0 1 0 -12 z";
+  }
+  if ( k == ToolIcon.textBox() ) {
+    return "M4 5 h16 v14 h-16 z";
+  }
+  if ( k == ToolIcon.picture() ) {
+    return "M4 6 h16 v12 h-16 z";
+  }
+  if ( k == ToolIcon.formatPaste() ) {
+    return "M5 4 h10 v2 h-10 z M11 14 h4 v6 h-4 z";
+  }
+  if ( k == ToolIcon.flipH() ) {
+    return "M2 4 l0 16 l6 -4 v-8 z M22 4 l0 16 l-6 -4 v-8 z";
+  }
+  if ( k == ToolIcon.flipV() ) {
+    return "M4 2 h16 l-4 6 h-8 z M4 22 h16 l-4 -6 h-8 z";
+  }
+  if ( k == ToolIcon.bringFront() ) {
+    return "M4 4 h9 v9 h-9 z";
+  }
+  if ( k == ToolIcon.sendBack() ) {
+    return "M4 4 h9 v9 h-9 z";
+  }
+  if ( k == ToolIcon.group() ) {
+    return "M2 2 h20 v20 h-20 z";
+  }
+  if ( k == ToolIcon.ungroup() ) {
+    return "M2 2 h9 v9 h-9 z M13 13 h9 v9 h-9 z";
+  }
+  if ( k == ToolIcon.slideAdd() ) {
+    return "M3 5 h13 v9 h-13 z";
+  }
+  if ( k == ToolIcon.slideCopy() ) {
+    return "M3 4 h10 v7 h-10 z";
+  }
+  if ( k == ToolIcon.slideDel() ) {
+    return "M3 5 h13 v9 h-13 z";
+  }
+  if ( k == ToolIcon.search() ) {
+    return "";
+  }
+  if ( k == ToolIcon.comment() ) {
+    return "M4 5 h16 v10 h-16 z";
+  }
+  if ( k == ToolIcon.database() ) {
+    return "";
+  }
+  return "";
+};
 class EVGFace  {
   constructor() {
   }
@@ -13269,17 +15527,7 @@ EVGFace.family = function(name) {
 };
 EVGFace.apply = function(ctx, name, bold, italic) {
   const base = EVGFace.family(name);
-  let want = base;
-  if ( bold ) {
-    want = base + "-Bold";
-    if ( italic ) {
-      want = base + "-BoldItalic";
-    }
-  } else {
-    if ( italic ) {
-      want = base + "-Italic";
-    }
-  }
+  const want = UITextRenderer.faceName(base, bold, italic);
   if ( ctx.tr.fontFamily == want ) {
     return;
   }
@@ -13298,10 +15546,69 @@ class EVGToolbarView  {
     this.ctx = new UIContext();
     this.theme = new EVGToolbarTheme();
     this.fontFamily = "Open Sans";
+    this.glyphSize = 20;
   }
   attach (c, family) {
     this.ctx = c;
     this.fontFamily = family;
+  };
+  pushIndentIcon (dl, cx, cy, deeper) {
+    let row = 0;
+    while (row < 3) {
+      const ry = ((cy - 5) + (row * 4));
+      let x0 = (cx - 1);
+      if ( row == 1 ) {
+        x0 = (cx - 1);
+      }
+      this.pushRect(dl, x0, ry, 8.0, 2.0, this.theme.ink);
+      row = row + 1;
+    };
+    let step = 0;
+    while (step < 3) {
+      const half = (3 - step);
+      let ax = (cx - 7);
+      if ( deeper == false ) {
+        ax = ((cx - 7)) + (3.0 - half);
+      }
+      this.pushRect(dl, ax, ((cy - 3) + (step * 2)), half, 2.0, this.theme.accent);
+      step = step + 1;
+    };
+  };
+  pushIconPath (dl, d, cx, cy, size, col) {
+    const parser = new SVGPathParser();
+    parser.parse(d);
+    const b = parser.getBounds();
+    if ( b.width <= 0.0 ) {
+      return;
+    }
+    if ( b.height <= 0.0 ) {
+      return;
+    }
+    const k = (size) / 24.0;
+    const e = (cx) - (12.0 * k);
+    const f = (cy) - (12.0 * k);
+    const rings = parser.flattenRings(16, k, 0.0, 0.0, k, e, f);
+    dl.addPolyRings(rings, col, true);
+  };
+  pushCellFrame (dl, cx, cy) {
+    this.pushBorder(dl, (cx - 8), (cy - 8), 16.0, 16.0, 1.0, this.theme.line);
+  };
+  pushPlus (dl, cx, cy, arm, col) {
+    const n = ((arm * 2) + 1);
+    this.pushRect(dl, (cx - arm), cy, n, 2.0, col);
+    this.pushRect(dl, cx, (cy - arm), 2.0, n, col);
+  };
+  pushValignIcon (dl, cx, cy, where, col) {
+    this.pushBorder(dl, (cx - 8), (cy - 8), 16.0, 16.0, 1.0, this.theme.glyph);
+    let ty = cy - 5;
+    if ( where == 1 ) {
+      ty = cy - 2;
+    }
+    if ( where == 2 ) {
+      ty = cy + 1;
+    }
+    this.pushRect(dl, (cx - 5), ty, 10.0, 2.0, col);
+    this.pushRect(dl, (cx - 5), (ty + 3), 7.0, 2.0, col);
   };
   pushRect (dl, x, y, w, h, col) {
     dl.addRect(x, y, w, h, col);
@@ -13332,7 +15639,12 @@ class EVGToolbarView  {
   paint (dl, bar, x0, y0, width, height) {
     this.pushRect(dl, x0, y0, width, height, this.theme.bg);
     this.pushBorder(dl, x0, y0, width, height, 1.0, this.theme.line);
+    this.measureTabs(bar);
+    this.measureLabels(bar);
     bar.layout(x0, y0, width);
+    if ( bar.hasTabs() ) {
+      this.paintTabs(dl, bar, x0, y0, width);
+    }
     let i = 0;
     while (i < (bar).count()) {
       const t = (bar).at(i);
@@ -13351,7 +15663,13 @@ class EVGToolbarView  {
           if ( t.textW > 0 ) {
             this.paintTextButton(dl, t);
           } else {
-            this.paintToolIcon(dl, t);
+            this.paintToolIcon(dl, t, bar.iconW);
+            if ( t.showLabel ) {
+              this.paintChipLabel(dl, t, bar.iconW);
+            }
+            if ( t.isMenu ) {
+              this.paintChevron(dl, (t.x + t.w) - 9, t.y + (((t.h / 2) | 0)), this.theme.dim);
+            }
           }
         }
       }
@@ -13375,6 +15693,99 @@ class EVGToolbarView  {
       }
     }
   };
+  paintChipLabel (dl, t, iconW) {
+    this.applyFace(false);
+    if ( t.isLarge ) {
+      const lw = this.ctx.tr.measureWidth(t.label, 12.0);
+      const lx = (t.x) + (((t.w) - lw) * 0.5);
+      const ly = ((t.y + t.h) - 16);
+      this.pushText(dl, t.label, lx, ly, 12.0, this.theme.ink);
+      return;
+    }
+    const ty = (t.y) + (((t.h) - 12.0) * 0.5);
+    this.pushText(dl, t.label, (t.x + iconW), ty, 12.0, this.theme.ink);
+  };
+  paintChevron (dl, cx, cy, col) {
+    this.pushRect(dl, (cx - 3), (cy - 1), 7.0, 1.0, col);
+    this.pushRect(dl, (cx - 2), (cy + 1), 5.0, 1.0, col);
+    this.pushRect(dl, (cx - 1), (cy + 3), 3.0, 1.0, col);
+  };
+  measureLabels (bar) {
+    this.applyFace(false);
+    let i = 0;
+    while (i < (bar).count()) {
+      const t = (bar).at(i);
+      if ( t.showLabel ) {
+        t.labelW = Math.floor( (this.ctx.tr.measureWidth(t.label, 12.0) + 8.0));
+      }
+      i = i + 1;
+    };
+  };
+  paintOverlay (dl, bar) {
+    this.paintMenu(dl, bar);
+  };
+  paintMenu (dl, bar) {
+    const box = bar.menuBox();
+    if ( (box.length) < 4 ) {
+      return;
+    }
+    const bx = (box[0]);
+    const by = (box[1]);
+    const bw = (box[2]);
+    const bh = (box[3]);
+    this.pushRect(dl, bx, by, bw, bh, this.theme.tipBg);
+    this.pushBorder(dl, bx, by, bw, bh, 1.0, this.theme.line);
+    let i = 0;
+    while (i < (bar).count()) {
+      const t = (bar).at(i);
+      if ( t.menuOwner == bar.openMenu ) {
+        if ( t.w > 0 ) {
+          if ( bar.hot == i ) {
+            this.pushRect(dl, t.x, t.y, t.w, t.h, this.theme.hotBg);
+          }
+          this.paintToolIcon(dl, t, bar.iconW);
+          this.paintChipLabel(dl, t, bar.iconW);
+        }
+      }
+      i = i + 1;
+    };
+  };
+  measureTabs (bar) {
+    if ( bar.hasTabs() == false ) {
+      return;
+    }
+    this.applyFace(false);
+    let i = 0;
+    while (i < bar.tabCount()) {
+      const t = bar.tabAt(i);
+      t.measuredW = Math.floor( this.ctx.tr.measureWidth(t.name, 13.0));
+      i = i + 1;
+    };
+  };
+  paintTabs (dl, bar, x0, y0, width) {
+    const baseY = ((y0 + bar.tabH) - 1);
+    this.pushRect(dl, x0, baseY, width, 1.0, this.theme.line);
+    let i = 0;
+    while (i < bar.tabCount()) {
+      const t = bar.tabAt(i);
+      if ( t.w > 0 ) {
+        const active = i == bar.activeTab;
+        let col = this.theme.dim;
+        if ( active ) {
+          this.pushRect(dl, t.x, t.y, t.w, (t.h + 1), this.theme.tipBg);
+          this.pushBorder(dl, t.x, t.y, t.w, (t.h + 1), 1.0, this.theme.line);
+          this.pushRect(dl, (t.x + 1), t.y, (t.w - 2), 2.0, this.theme.accent);
+          this.pushRect(dl, (t.x + 1), baseY, (t.w - 2), 1.0, this.theme.tipBg);
+          col = this.theme.ink;
+        }
+        const tw = this.ctx.tr.measureWidth(t.name, 13.0);
+        const tx = (t.x) + (((t.w) - tw) * 0.5);
+        const ty = (t.y) + (((t.h) - 13.0) * 0.5);
+        this.pushText(dl, t.name, tx, ty, 13.0, col);
+      }
+      i = i + 1;
+    };
+  };
   paintTextButton (dl, t) {
     this.pushBorder(dl, t.x, t.y, t.w, t.h, 1.0, this.theme.line);
     this.pushText(dl, t.label, (t.x + 4), (t.y + 4), 11.0, this.theme.ink);
@@ -13384,12 +15795,116 @@ class EVGToolbarView  {
     this.pushRect(dl, (cx - 2), (cy + 1), 5.0, 1.0, this.theme.dim);
     this.pushRect(dl, (cx - 1), (cy + 3), 3.0, 1.0, this.theme.dim);
   };
-  paintToolIcon (dl, t) {
-    const cx = t.x + (((t.w / 2) | 0));
-    const cy = t.y + (((t.h / 2) | 0));
+  pushIconDetailPlus (dl, cx, cy, dx, dy, col) {
+    const s = (this.glyphSize) / 24.0;
+    const px = (cx) + ((dx) * s);
+    const py = (cy) + ((dy) * s);
+    this.pushRect(dl, px - (4.0 * s), py - (1.25 * s), 8.0 * s, 2.5 * s, col);
+    this.pushRect(dl, px - (1.25 * s), py - (4.0 * s), 2.5 * s, 8.0 * s, col);
+  };
+  paintIconDetail (dl, t, k, cx, cy, ink) {
+    if ( k == ToolIcon.textBox() ) {
+      this.pushToolText(dl, "A", cx, cy, 11.0, ink, true);
+      return;
+    }
+    if ( k == ToolIcon.picture() ) {
+      this.pushIconPath(dl, "M7 7 a2 2 0 0 1 0 4 a2 2 0 0 1 0 -4 z", cx, cy, this.glyphSize, EVGColor.rgb(240, 180, 40));
+      this.pushIconPath(dl, "M5 17 l5 -6 l3 3 l4 -5 l4 8 z", cx, cy, this.glyphSize, EVGColor.rgb(60, 150, 90));
+      return;
+    }
+    if ( k == ToolIcon.palette() ) {
+      const s2 = (this.glyphSize) / 24.0;
+      this.pushRect(dl, (cx) - (10.0 * s2), (cy) - (10.0 * s2), 9.0 * s2, 9.0 * s2, EVGColor.rgb(214, 69, 65));
+      this.pushRect(dl, (cx) + (1.0 * s2), (cy) - (10.0 * s2), 9.0 * s2, 9.0 * s2, EVGColor.rgb(240, 180, 40));
+      this.pushRect(dl, (cx) - (10.0 * s2), (cy) + (1.0 * s2), 9.0 * s2, 9.0 * s2, EVGColor.rgb(60, 150, 90));
+      this.pushRect(dl, (cx) + (1.0 * s2), (cy) + (1.0 * s2), 9.0 * s2, 9.0 * s2, EVGColor.rgb(40, 100, 210));
+      return;
+    }
+    if ( k == ToolIcon.slideAdd() ) {
+      this.pushIconDetailPlus(dl, cx, cy, 6, 5, this.theme.accent);
+      return;
+    }
+    if ( k == ToolIcon.slideDel() ) {
+      const sd = (this.glyphSize) / 24.0;
+      this.pushRect(dl, (cx) + (2.0 * sd), (cy) + (4.0 * sd), 8.0 * sd, 2.5 * sd, this.theme.warn);
+      return;
+    }
+    if ( k == ToolIcon.slideCopy() ) {
+      const sc = (this.glyphSize) / 24.0;
+      this.pushIconPath(dl, "M7 8 h16 v13 h-16 z", cx, cy, this.glyphSize, ink);
+      let under2 = this.theme.bg;
+      if ( t.pressed ) {
+        under2 = EVGColor.rgb(214, 226, 245);
+      }
+      this.pushIconPath(dl, "M9 10 h12 v9 h-12 z", cx, cy, this.glyphSize, under2);
+      return;
+    }
+    if ( k == ToolIcon.bringFront() ) {
+      this.pushIconPath(dl, "M9 9 h13 v13 h-13 z", cx, cy, this.glyphSize, this.theme.accent);
+      return;
+    }
+    if ( k == ToolIcon.sendBack() ) {
+      let ub = this.theme.bg;
+      if ( t.pressed ) {
+        ub = EVGColor.rgb(214, 226, 245);
+      }
+      this.pushIconPath(dl, "M9 9 h13 v13 h-13 z", cx, cy, this.glyphSize, ub);
+      this.pushIconPath(dl, "M9 9 h13 v13 h-13 z M11 11 h9 v9 h-9 z", cx, cy, this.glyphSize, this.theme.glyph);
+      return;
+    }
+    if ( k == ToolIcon.group() ) {
+      this.pushIconPath(dl, "M5 5 h6 v6 h-6 z", cx, cy, this.glyphSize, this.theme.accent);
+      this.pushIconPath(dl, "M13 13 h6 v6 h-6 z", cx, cy, this.glyphSize, this.theme.accent);
+      return;
+    }
+    if ( k == ToolIcon.search() ) {
+      const s3 = (this.glyphSize) / 24.0;
+      this.pushIconPath(dl, "M10 1 a9 9 0 0 1 0 18 a9 9 0 0 1 0 -18 z", cx, cy, this.glyphSize, ink);
+      let under = this.theme.bg;
+      if ( t.pressed ) {
+        under = EVGColor.rgb(214, 226, 245);
+      }
+      this.pushIconPath(dl, "M10 4 a6 6 0 0 1 0 12 a6 6 0 0 1 0 -12 z", cx, cy, this.glyphSize, under);
+      return;
+    }
+  };
+  paintToolIcon (dl, t, iconW) {
+    let cx = t.x + (((t.w / 2) | 0));
+    let cy = t.y + (((t.h / 2) | 0));
+    if ( t.showLabel ) {
+      cx = t.x + (((iconW / 2) | 0));
+    }
+    if ( t.isLarge ) {
+      cx = t.x + (((t.w / 2) | 0));
+      cy = (t.y + 4) + (((this.glyphSize / 2) | 0));
+    }
     const ink = this.theme.ink;
     const dim = this.theme.dim;
     const k = t.icon;
+    const d = ToolIconPath.dataFor(k);
+    if ( (d.length) > 0 ) {
+      let tone = ink;
+      if ( k == ToolIcon.link() ) {
+        tone = this.theme.link;
+      }
+      if ( k == ToolIcon.shapeRect() ) {
+        tone = this.theme.accent;
+      }
+      if ( k == ToolIcon.shapeEllipse() ) {
+        tone = this.theme.accent;
+      }
+      this.pushIconPath(dl, d, cx, cy, this.glyphSize, tone);
+      const hole = ToolIconPath.holeFor(k);
+      if ( (hole.length) > 0 ) {
+        let under = this.theme.bg;
+        if ( t.pressed ) {
+          under = EVGColor.rgb(214, 226, 245);
+        }
+        this.pushIconPath(dl, hole, cx, cy, this.glyphSize, under);
+      }
+      this.paintIconDetail(dl, t, k, cx, cy, ink);
+      return;
+    }
     if ( k == ToolIcon.bold() ) {
       this.pushToolText(dl, "B", cx, cy, 13.0, ink, true);
       return;
@@ -13485,8 +16000,12 @@ class EVGToolbarView  {
       return;
     }
     if ( k == ToolIcon.search() ) {
-      this.pushBorder(dl, (cx - 6), (cy - 7), 10.0, 10.0, 1.0, ink);
-      this.pushRect(dl, (cx + 3), (cy + 3), 4.0, 2.0, ink);
+      this.pushRect(dl, (cx - 6), (cy - 8), 8.0, 2.0, ink);
+      this.pushRect(dl, (cx - 6), (cy - 1), 8.0, 2.0, ink);
+      this.pushRect(dl, (cx - 8), (cy - 6), 2.0, 5.0, ink);
+      this.pushRect(dl, (cx + 2), (cy - 6), 2.0, 5.0, ink);
+      this.pushRect(dl, (cx + 3), (cy + 2), 2.0, 2.0, ink);
+      this.pushRect(dl, (cx + 5), (cy + 4), 3.0, 4.0, ink);
       return;
     }
     if ( k == ToolIcon.chart() ) {
@@ -13502,8 +16021,10 @@ class EVGToolbarView  {
       return;
     }
     if ( k == ToolIcon.cond() ) {
-      this.pushRect(dl, (cx - 6), (cy - 5), 12.0, 4.0, this.theme.warn);
-      this.pushRect(dl, (cx - 6), (cy + 1), 12.0, 4.0, EVGColor.rgb(120, 190, 120));
+      this.pushBorder(dl, (cx - 7), (cy - 8), 14.0, 16.0, 1.0, ink);
+      this.pushRect(dl, (cx - 5), (cy - 6), 10.0, 4.0, EVGColor.rgb(214, 69, 65));
+      this.pushRect(dl, (cx - 5), (cy - 2), 10.0, 4.0, EVGColor.rgb(240, 190, 60));
+      this.pushRect(dl, (cx - 5), (cy + 2), 10.0, 4.0, EVGColor.rgb(60, 150, 90));
       return;
     }
     if ( k == ToolIcon.validate() ) {
@@ -13521,6 +16042,46 @@ class EVGToolbarView  {
       this.pushRect(dl, (cx + 5), (cy - 4), 1.0, 2.0, dbInk);
       this.pushRect(dl, (cx - 6), (cy + 1), 1.0, 2.0, dbInk);
       this.pushRect(dl, (cx + 5), (cy + 1), 1.0, 2.0, dbInk);
+      return;
+    }
+    if ( k == ToolIcon.play() ) {
+      let row = 0;
+      while (row < 5) {
+        let half = 5 - row;
+        if ( row > 2 ) {
+          half = row - 1;
+        }
+        this.pushRect(dl, (cx - 4), ((cy - 5) + (row * 2)), half, 2.0, this.theme.accent);
+        row = row + 1;
+      };
+      return;
+    }
+    if ( k == ToolIcon.bulletList() ) {
+      let row_1 = 0;
+      while (row_1 < 3) {
+        const ry = ((cy - 5) + (row_1 * 4));
+        this.pushRect(dl, (cx - 7), ry, 2.0, 2.0, this.theme.accent);
+        this.pushRect(dl, (cx - 3), ry, 10.0, 2.0, this.theme.ink);
+        row_1 = row_1 + 1;
+      };
+      return;
+    }
+    if ( k == ToolIcon.numberList() ) {
+      let row2 = 0;
+      while (row2 < 3) {
+        const ry2 = ((cy - 5) + (row2 * 4));
+        this.pushToolText(dl, ((row2 + 1).toString()), cx - 6, (cy - 4) + (row2 * 4), 7.0, this.theme.accent, false);
+        this.pushRect(dl, (cx - 3), ry2, 10.0, 2.0, this.theme.ink);
+        row2 = row2 + 1;
+      };
+      return;
+    }
+    if ( k == ToolIcon.indentMore() ) {
+      this.pushIndentIcon(dl, cx, cy, true);
+      return;
+    }
+    if ( k == ToolIcon.indentLess() ) {
+      this.pushIndentIcon(dl, cx, cy, false);
       return;
     }
     if ( k == ToolIcon.sqlBox() ) {
@@ -13541,29 +16102,33 @@ class EVGToolbarView  {
       return;
     }
     if ( k == ToolIcon.funnel() ) {
-      this.pushRect(dl, (cx - 6), (cy - 5), 12.0, 2.0, ink);
-      this.pushRect(dl, (cx - 3), (cy - 1), 6.0, 2.0, ink);
-      this.pushRect(dl, (cx - 1), (cy + 3), 2.0, 2.0, ink);
+      this.pushIconPath(dl, "M3 4 h18 l-7 8 v7 l-4 2 v-9 z", cx, cy, 18, ink);
       return;
     }
     if ( k == ToolIcon.insertRow() ) {
-      this.pushRect(dl, (cx - 7), (cy + 2), 14.0, 5.0, this.theme.line);
-      this.pushToolText(dl, "+", cx, cy - 4, 12.0, ink, false);
+      this.pushCellFrame(dl, cx, cy);
+      this.pushRect(dl, (cx - 8), (cy + 2), 16.0, 4.0, this.theme.glyph);
+      this.pushPlus(dl, cx, cy - 4, 4, this.theme.accent);
       return;
     }
     if ( k == ToolIcon.insertCol() ) {
-      this.pushRect(dl, (cx + 2), (cy - 7), 5.0, 14.0, this.theme.line);
-      this.pushToolText(dl, "+", cx - 4, cy, 12.0, ink, false);
+      this.pushCellFrame(dl, cx, cy);
+      this.pushRect(dl, (cx + 2), (cy - 8), 4.0, 16.0, this.theme.glyph);
+      this.pushPlus(dl, cx - 4, cy, 4, this.theme.accent);
       return;
     }
     if ( k == ToolIcon.deleteRow() ) {
-      this.pushRect(dl, (cx - 7), (cy - 2), 14.0, 5.0, this.theme.line);
-      this.pushToolText(dl, "-", cx, cy + 4, 12.0, this.theme.warn, false);
+      this.pushCellFrame(dl, cx, cy);
+      this.pushRect(dl, (cx - 8), (cy + 2), 16.0, 4.0, this.theme.glyph);
+      this.pushRect(dl, (cx - 4), (cy - 5), 8.0, 2.0, this.theme.warn);
       return;
     }
     if ( k == ToolIcon.merge() ) {
-      this.pushBorder(dl, (cx - 8), (cy - 5), 16.0, 10.0, 1.0, ink);
-      this.pushRect(dl, (cx - 1), (cy - 4), 2.0, 8.0, this.theme.bg);
+      this.pushBorder(dl, (cx - 8), (cy - 6), 16.0, 12.0, 1.0, ink);
+      this.pushRect(dl, (cx - 5), (cy - 1), 4.0, 2.0, this.theme.accent);
+      this.pushRect(dl, (cx + 1), (cy - 1), 4.0, 2.0, this.theme.accent);
+      this.pushRect(dl, (cx - 2), (cy - 3), 1.0, 6.0, this.theme.accent);
+      this.pushRect(dl, (cx + 1), (cy - 3), 1.0, 6.0, this.theme.accent);
       return;
     }
     if ( k == ToolIcon.fill() ) {
@@ -13597,7 +16162,16 @@ class EVGToolbarView  {
       return;
     }
     if ( k == ToolIcon.borderNone() ) {
-      this.pushBorder(dl, (cx - 7), (cy - 7), 14.0, 14.0, 1.0, this.theme.line);
+      const bx = cx - 7;
+      const by = cy - 7;
+      let d_2 = 0;
+      while (d_2 < 14) {
+        this.pushRect(dl, (bx + d_2), by, 2.0, 1.0, this.theme.glyph);
+        this.pushRect(dl, (bx + d_2), (by + 13), 2.0, 1.0, this.theme.glyph);
+        this.pushRect(dl, bx, (by + d_2), 1.0, 2.0, this.theme.glyph);
+        this.pushRect(dl, (bx + 13), (by + d_2), 1.0, 2.0, this.theme.glyph);
+        d_2 = d_2 + 4;
+      };
       return;
     }
     if ( k == ToolIcon.alignLeft() ) {
@@ -13613,25 +16187,26 @@ class EVGToolbarView  {
       return;
     }
     if ( k == ToolIcon.valignTop() ) {
-      this.pushRect(dl, (cx - 7), (cy - 7), 14.0, 2.0, ink);
-      this.pushRect(dl, (cx - 4), (cy - 3), 8.0, 2.0, dim);
+      this.pushValignIcon(dl, cx, cy, 0, ink);
       return;
     }
     if ( k == ToolIcon.valignMid() ) {
-      this.pushRect(dl, (cx - 7), (cy - 1), 14.0, 2.0, ink);
-      this.pushRect(dl, (cx - 4), (cy - 6), 8.0, 2.0, dim);
-      this.pushRect(dl, (cx - 4), (cy + 4), 8.0, 2.0, dim);
+      this.pushValignIcon(dl, cx, cy, 1, ink);
       return;
     }
     if ( k == ToolIcon.valignBot() ) {
-      this.pushRect(dl, (cx - 7), (cy + 5), 14.0, 2.0, ink);
-      this.pushRect(dl, (cx - 4), (cy + 1), 8.0, 2.0, dim);
+      this.pushValignIcon(dl, cx, cy, 2, ink);
       return;
     }
     if ( k == ToolIcon.wrapCell() ) {
-      this.pushRect(dl, (cx - 7), (cy - 5), 14.0, 2.0, ink);
-      this.pushRect(dl, (cx - 7), (cy + 1), 9.0, 2.0, ink);
-      this.pushRect(dl, (cx + 4), (cy + 1), 3.0, 2.0, dim);
+      this.pushRect(dl, (cx - 8), (cy - 6), 16.0, 2.0, ink);
+      this.pushRect(dl, (cx - 8), (cy - 1), 11.0, 2.0, ink);
+      this.pushRect(dl, (cx + 6), (cy - 1), 2.0, 6.0, this.theme.accent);
+      this.pushRect(dl, (cx - 3), (cy + 3), 11.0, 2.0, this.theme.accent);
+      this.pushRect(dl, (cx - 3), (cy + 1), 2.0, 2.0, this.theme.accent);
+      this.pushRect(dl, (cx - 1), (cy + 2), 2.0, 1.0, this.theme.accent);
+      this.pushRect(dl, (cx - 3), (cy + 5), 2.0, 2.0, this.theme.accent);
+      this.pushRect(dl, (cx - 1), (cy + 5), 2.0, 1.0, this.theme.accent);
       return;
     }
     if ( (t.label.length) > 0 ) {
@@ -13807,7 +16382,7 @@ function __js_main() {
   const dl = new EVGDisplayList();
   bar.hot = 4;
   view.paint(dl, bar, 0, 0, 900, bar.heightFor(900));
-  c.ok("the strip made draw commands", (dl.cmds.length) > 40);
+  c.ok("the strip made draw commands", (dl.cmds.length) > ((bar).count() * 2));
   let texts = 0;
   let ti = 0;
   while (ti < (dl.cmds.length)) {
@@ -13818,6 +16393,145 @@ function __js_main() {
     ti = ti + 1;
   };
   c.ok("including text", texts > 3);
+  console.log("-- and the same strip, turned around --");
+  const rbar = new EVGToolbar();
+  rbar.add("edit.undo", "", "Undo", ToolIcon.undo());
+  rbar.add("edit.redo", "", "Redo", ToolIcon.redo());
+  rbar.add("format.bold", "", "Bold", ToolIcon.bold());
+  rbar.layout(0, 0, 900);
+  const lx0 = ((rbar).at(0)).x;
+  const lx1 = ((rbar).at(1)).x;
+  const lx2 = ((rbar).at(2)).x;
+  c.ok("left to right, Undo is leftmost", lx0 < lx1);
+  c.ok("and Bold is rightmost", lx1 < lx2);
+  const mbar = new EVGToolbar();
+  mbar.add("edit.undo", "", "Undo", ToolIcon.undo());
+  mbar.add("edit.redo", "", "Redo", ToolIcon.redo());
+  mbar.add("format.bold", "", "Bold", ToolIcon.bold());
+  mbar.rtl = true;
+  mbar.layout(0, 0, 900);
+  const rx0 = ((mbar).at(0)).x;
+  const rx1 = ((mbar).at(1)).x;
+  const rx2 = ((mbar).at(2)).x;
+  c.ok("turned around, Undo is rightmost", rx0 > rx1);
+  c.ok("and Bold is leftmost", rx1 > rx2);
+  c.eqInt("the strip is the same height", mbar.height, rbar.height);
+  const undoItem = (rbar).at(0);
+  const boldItem = (mbar).at(2);
+  const undoW = undoItem.w;
+  const boldW = boldItem.w;
+  const firstEnd = rx0 + undoW;
+  c.ok("the strip is packed against the right edge", firstEnd > 880);
+  c.ok("and is not still hugging the left one", rx2 > 700);
+  c.eqInt("the padding is the same at the far end", 900 - firstEnd, lx0);
+  c.eqInt("Bold's left edge mirrors Undo's right edge", rx2, 900 - (lx2 + boldW));
+  const firstItem = (mbar).at(0);
+  const firstY = firstItem.y;
+  const hitR = mbar.hit((rx0 + 2), (firstY + 2));
+  c.eqInt("clicking the rightmost button hits Undo", hitR, 0);
+  const lastY = boldItem.y;
+  const hitL = mbar.hit((rx2 + 2), (lastY + 2));
+  c.eqInt("and the leftmost hits Bold", hitL, 2);
+  const firstCmd = firstItem.command;
+  c.eqStr("the model order is untouched", firstCmd, "edit.undo");
+  console.log("-- and the same strip in named pages --");
+  const tb = new EVGToolbar();
+  tb.addTab("Home");
+  tb.add("file.save", "", "Save", ToolIcon.save());
+  tb.add("edit.undo", "", "Undo", ToolIcon.undo());
+  tb.addTab("Insert");
+  tb.add("insert.chart", "", "Chart", ToolIcon.chart());
+  tb.add("insert.link", "", "Link", ToolIcon.link());
+  tb.add("picture.add", "", "Picture", ToolIcon.picture());
+  tb.layout(0, 0, 900);
+  c.ok("the strip has pages", tb.hasTabs());
+  c.eqInt("two of them", tb.tabCount(), 2);
+  c.eqInt("and every button is still in the one list", (tb).count(), 5);
+  c.eqInt("Home is found by name", tb.tabNamed("Home"), 0);
+  c.eqInt("and Insert", tb.tabNamed("Insert"), 1);
+  c.eqInt("a name nobody used is not found", tb.tabNamed("Nowhere"), -1);
+  const home0 = (tb).at(0);
+  const ins0 = (tb).at(2);
+  c.ok("a button on the showing page has a rectangle", home0.w > 0);
+  c.ok("one on the other page has none", ins0.w == 0);
+  c.eqInt("so a click where it would be hits nothing", tb.hit((home0.x + 2), (home0.y + 2)), 0);
+  const t0 = tb.tabAt(0);
+  const t1 = tb.tabAt(1);
+  c.ok("the first name is at the left", t0.x < t1.x);
+  c.ok("the names are on their own row", t0.y < home0.y);
+  c.ok("and the buttons start under them", home0.y >= tb.tabH);
+  c.eqInt("clicking a name finds it", tb.hitTab((t1.x + 2), (t1.y + 2)), 1);
+  c.eqInt("and clicking where a button is finds no name", tb.hitTab((home0.x + 2), (home0.y + 2)), -1);
+  c.ok("selecting the other page changes something", tb.selectTab(1));
+  c.ok("selecting it again changes nothing", tb.selectTab(1) == false);
+  c.ok("and a page that is not there is refused", tb.selectTab(7) == false);
+  tb.layout(0, 0, 900);
+  const home0b = (tb).at(0);
+  const ins0b = (tb).at(2);
+  c.ok("now Insert has the rectangles", ins0b.w > 0);
+  c.ok("and Home has none", home0b.w == 0);
+  c.eqInt("the click lands on the Insert button", tb.hit((ins0b.x + 2), (ins0b.y + 2)), 2);
+  const flat = new EVGToolbar();
+  flat.add("file.save", "", "Save", ToolIcon.save());
+  flat.add("edit.undo", "", "Undo", ToolIcon.undo());
+  c.eqInt("the pages cost exactly one row of names", tb.heightFor(900) - flat.heightFor(900), tb.tabH);
+  const mtb = new EVGToolbar();
+  mtb.addTab("Home");
+  mtb.add("file.save", "", "Save", ToolIcon.save());
+  mtb.addTab("Insert");
+  mtb.add("insert.chart", "", "Chart", ToolIcon.chart());
+  mtb.rtl = true;
+  mtb.layout(0, 0, 900);
+  const m0 = mtb.tabAt(0);
+  const m1 = mtb.tabAt(1);
+  c.ok("turned around, the first page name is on the right", m0.x > m1.x);
+  c.ok("and it reaches the right-hand edge", (m0.x + m0.w) > 880);
+  console.log("-- buttons that say what they are, and lists that fold away --");
+  const lb = new EVGToolbar();
+  const plain = lb.add("edit.undo", "", "Undo", ToolIcon.undo());
+  const named = lb.addLabeled("file.print", "", "Print", ToolIcon.printDoc());
+  lb.layout(0, 0, 900);
+  c.ok("a labelled button says so", named.showLabel);
+  c.ok("a plain one does not", plain.showLabel == false);
+  c.ok("and the label makes it wider", named.w > plain.w);
+  const dd = new EVGToolbar();
+  const owner = dd.addDropdown("Borders", ToolIcon.borderAll());
+  dd.addUnder("format.border", "all", "All borders", ToolIcon.borderAll());
+  dd.addUnder("format.border", "none", "No border", ToolIcon.borderNone());
+  dd.addUnder("format.border", "outline", "Outline", ToolIcon.borderOut());
+  dd.addUnder("format.border", "", "More borders…", ToolIcon.borderMore());
+  dd.layout(0, 0, 900);
+  c.eqInt("the strip holds five buttons", (dd).count(), 5);
+  const e0 = (dd).at(1);
+  const e2 = (dd).at(4);
+  c.ok("the dropdown itself is on the strip", owner.w > 0);
+  c.eqInt("and its entries take no room at all", e0.w, 0);
+  c.eqInt("none of them", e2.w, 0);
+  const flat2 = new EVGToolbar();
+  flat2.add("format.border", "all", "All borders", ToolIcon.borderAll());
+  flat2.add("format.border", "none", "No border", ToolIcon.borderNone());
+  flat2.add("format.border", "outline", "Outline", ToolIcon.borderOut());
+  flat2.add("format.border", "", "More borders…", ToolIcon.borderMore());
+  flat2.layout(0, 0, 900);
+  const flatEnd = (flat2).at(3);
+  c.ok("the folded list is narrower than the four buttons were", (owner.x + owner.w) < (flatEnd.x + flatEnd.w));
+  c.ok("pressing it is handled by the strip", dd.pressItem(0));
+  c.eqInt("and the list is showing", dd.openMenu, 0);
+  dd.layout(0, 0, 900);
+  const o0 = (dd).at(1);
+  const o1 = (dd).at(2);
+  c.ok("now the entries have rectangles", o0.w > 0);
+  c.ok("stacked under the button", o0.y >= (owner.y + owner.h));
+  c.ok("one below the other", o1.y > o0.y);
+  c.ok("all the same width", o1.w == o0.w);
+  c.eqInt("and a click lands on one", dd.hit((o1.x + 4), (o1.y + 4)), 2);
+  const box = dd.menuBox();
+  c.eqInt("the list has a box to draw a panel behind", box.length, 4);
+  c.ok("choosing an entry is left to the owner", dd.pressItem(2) == false);
+  c.eqInt("and the list is shut again", dd.openMenu, -1);
+  dd.pressItem(0);
+  c.ok("pressing it again shuts it", dd.pressItem(0));
+  c.eqInt("shut", dd.openMenu, -1);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed == 0 ) {

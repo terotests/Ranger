@@ -108,6 +108,15 @@ class CellStyle {
     ; is not loaded.
     def fontName:string ""
     def align:string "left"
+    ; `<alignment readingOrder="…">`: 0 or absent is "work it out from the
+    ; text", 1 is left to right, 2 is right to left. Excel's own numbering,
+    ; kept rather than translated, so the value that was read is the value
+    ; that gets written back.
+    ;
+    ; It is what an author sets on a cell whose text alone would answer
+    ; wrongly — a cell of Arabic that opens with a Latin product code, which
+    ; reads left to right by the algorithm and right to left by intent.
+    def readingOrder:int 0
     def valign:string "bottom"
     def wrapText:boolean false
     ; Excel's textRotation, as OOXML writes it: 0..90 turns the text
@@ -149,6 +158,22 @@ class CellStyle {
         return (new CellStyle)
     }
 
+    ; The reading order as the three states everything that PAINTS uses:
+    ; -1 work it out from the text, 0 left to right, 1 right to left.
+    ;
+    ; Excel's own numbering is kept in the field rather than translated, so
+    ; that the value read out of a file is the value written back into it;
+    ; this is the translation, in one place, at the boundary.
+    fn textDirection:int () {
+        if (readingOrder == 1) {
+            return 0
+        }
+        if (readingOrder == 2) {
+            return 1
+        }
+        return -1
+    }
+
     fn copy:CellStyle () {
         def o:CellStyle (new CellStyle)
         o.fillRgb = fillRgb
@@ -160,6 +185,7 @@ class CellStyle {
         o.fontSizePt = fontSizePt
         o.fontName = fontName
         o.align = align
+        o.readingOrder = readingOrder
         o.valign = valign
         o.wrapText = wrapText
         o.textRotation = textRotation
@@ -199,6 +225,12 @@ class CellStyle {
             return false
         }
         if (align != o.align) {
+            return false
+        }
+        ; Two cells that differ only in reading order are two styles. Leaving
+        ; it out here would fold them into one and the direction of whichever
+        ; was interned first would be applied to both.
+        if (readingOrder != o.readingOrder) {
             return false
         }
         if (valign != o.valign) {
