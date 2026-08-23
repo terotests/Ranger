@@ -1470,6 +1470,36 @@ class DocxTest {
         }
         hv.setEditMode(false)
 
+
+        print "-- Enter in a right-to-left paragraph keeps it right-to-left --"
+        ; The split copied thirteen of the paragraph's fields by hand and not
+        ; `bidi`, so pressing Enter in an Arabic paragraph gave a
+        ; left-to-right one — and in Word the direction IS the alignment when
+        ; no `w:jc` was written, so the new paragraph also jumped to the left
+        ; margin. A hand-written copy list that had gone stale, which is the
+        ; failure `copyFormatTo` exists to end.
+        def rd (new RichDocument)
+        def rp:Paragraph (rd.addParagraph())
+        rp.text = "one two"
+        rp.bidi = 1
+        rp.align = 2
+        rp.listKind = 1
+        rp.listLevel = 2
+        rp.indentLeftPt = 36.0
+        def rEdit (new RichDocumentEdit)
+        rEdit.doc = rd
+        def newId:int (rEdit.splitParagraph(rp.id 3))
+        def idx:int (rEdit.findParagraphIndex(newId))
+        c.ok("the split made a paragraph" (idx >= 0))
+        if (idx >= 0) {
+            def np2:Paragraph (rd.paragraphAt(idx))
+            c.ok("which is still right-to-left" (np2.bidi == 1))
+            c.ok("still against the right margin" (np2.align == 2))
+            c.ok("still in the list" (np2.listKind == 1))
+            c.ok("at the same level" (np2.listLevel == 2))
+            c.ok("and still indented" ((fabs (np2.indentLeftPt - 36.0)) < 0.001))
+        }
+
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

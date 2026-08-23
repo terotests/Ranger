@@ -407,17 +407,20 @@ class SoftPainter {
         return out
     }
 
+    ; Every contour at once, under the even-odd rule.
+    ;
+    ; This used to fill each ring on its own, which draws an inner contour
+    ; SOLID on top of the outer one instead of subtracting it — so a hole is
+    ; impossible: a donut is a disc, a ring is a blob, and a glyph cut out of
+    ; a face is invisible. `fillPolygonRings` closes each contour on itself
+    ; and pairs the crossings across all of them, which is the even-odd rule
+    ; and is what makes an inner contour a hole.
     fn fillRings:void (c:EVGDrawCmd) {
         def alpha:int (to_int (c.a * 255.0))
         if (alpha <= 0) {
             return
         }
-        def i:int 0
-        while (i < (array_length c.ringEnds)) {
-            def ring:[double] (this.ringAt(c i))
-            ctx.fillPolygon(ring c.r c.g c.b alpha)
-            i = (i + 1)
-        }
+        ctx.fillPolygonRings(c.pts c.ringEnds c.r c.g c.b alpha)
     }
 
     ; A stroke becomes a quad per segment — the same expansion the WebGL

@@ -224,23 +224,16 @@ class RichDocumentEdit {
         def right:string (substring p.text offset len)
         ; New paragraph after p in blocks + paragraphs list
         def np:Paragraph (doc.addParagraphWithId(keepId))
-        np.styleId = p.styleId
-        np.align = p.align
-        np.spaceBeforePt = p.spaceBeforePt
-        np.spaceAfterPt = p.spaceAfterPt
-        np.lineSpacing = p.lineSpacing
-        np.indentLeftPt = p.indentLeftPt
-        np.indentRightPt = p.indentRightPt
-        np.indentFirstLinePt = p.indentFirstLinePt
-        ; Carry the list membership too, or Enter inside a list drops out of it
-        ; and leaves a blank line between the items. The marker itself is not
-        ; copied: DocxLayout renumbers from listNumId as it lays the list out,
-        ; so the new paragraph gets the next number and the ones after it shift.
-        np.listKind = p.listKind
-        np.listLevel = p.listLevel
-        np.listNumId = p.listNumId
-        np.listFmt = p.listFmt
-        np.listText = p.listText
+        ; ALL of the paragraph's formatting, not the thirteen fields somebody
+        ; remembered — see Paragraph.copyFormatTo. The list membership comes
+        ; with it, or Enter inside a list drops out of it and leaves a blank
+        ; line between the items; the marker itself is not copied, because
+        ; DocxLayout renumbers from listNumId as it lays the list out. And so
+        ; does the DIRECTION, which the hand-written list had missed: Enter in
+        ; an Arabic paragraph gave a left-to-right one, and in Word the
+        ; direction is the alignment when no `w:jc` was written, so it also
+        ; jumped to the left margin.
+        p.copyFormatTo(np)
         np.text = right
         ; Split spans
         clear np.spans

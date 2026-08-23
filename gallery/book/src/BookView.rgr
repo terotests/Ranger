@@ -284,7 +284,11 @@ class BookView {
                 this.paintImageCmd(c)
             }
             if (c.kind == 6) {
-                ctx.fillPolygon(c.pts c.r c.g c.b (to_int (c.a * 255.0)))
+                ; Through the rings, not the flat list. A shape with more
+                ; than one contour filled as a single polygon gains an edge
+                ; from the end of one contour to the start of the next, and a
+                ; wedge of it comes out unfilled — and a hole is impossible.
+                ctx.fillPolygonRings(c.pts c.ringEnds c.r c.g c.b (to_int (c.a * 255.0)))
             }
             i = (i + 1)
         }

@@ -186,6 +186,7 @@ class GridFormat {
         }
         if (op == "align") {
             st.align = arg
+            st.alignSet = true
             return
         }
         if (op == "valign") {
@@ -261,6 +262,7 @@ class GridFormat {
             st.fontSizePt = 11.0
             st.fontName = ""
             st.align = "left"
+            st.alignSet = false
             st.valign = "bottom"
             st.wrapText = false
             st.textRotation = 0
