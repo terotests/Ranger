@@ -130,6 +130,16 @@ class GridPane {
         grid.updateVisible(model)
     }
 
+    ; The model changed underneath in a way that moves things — a column
+    ; width, a row height, a merge. The cached render view holds its own
+    ; geometry, so a caller that resizes a column after `adopt` has to say so
+    ; or the header strip and the cells disagree about where column C is.
+    fn refresh:void () {
+        sheetView.markDirty()
+        sheetView.rebuild()
+        grid.updateVisible(model)
+    }
+
     ; The furniture an application wants and a pane does not. Set once, here,
     ; so no caller has to remember three field names.
     fn setBounds:void (x:int y:int w:int h:int) {

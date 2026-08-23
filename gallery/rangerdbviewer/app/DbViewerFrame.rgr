@@ -326,6 +326,22 @@ class DbViewerFrame {
     ; Commands — every button, and nothing a button cannot reach
     ; ------------------------------------------------------------------------
     fn runCommand:boolean (id:string arg:string) {
+        ; A command that changes which section is showing also brings its own
+        ; page of the strip to the front. Without this, opening the Forms
+        ; section from a link leaves the strip on Schema, describing buttons
+        ; that have nothing to do with what is now on screen.
+        if (DbViewerFrame.beginsWith(id "view.")) {
+            toolbar.showTabFor(id)
+        }
+        if (DbViewerFrame.beginsWith(id "metrics.")) {
+            toolbar.showTabFor(id)
+        }
+        if (DbViewerFrame.beginsWith(id "diagram.")) {
+            toolbar.showTabFor(id)
+        }
+        if (DbViewerFrame.beginsWith(id "form.")) {
+            toolbar.showTabFor(id)
+        }
         if (id == "db.refresh") {
             app.refresh()
             diagramReady = false

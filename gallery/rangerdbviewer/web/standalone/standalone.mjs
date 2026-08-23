@@ -269,13 +269,27 @@ async function boot() {
   web.run("db.sql", "");
   // `?section=` opens straight onto one of the pages, which is what a link to
   // a particular view needs and what a screenshot of one needs too.
-  const wanted = new URLSearchParams(location.search).get("section") || "diagram";
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get("section") || "diagram";
+  const table = params.get("table");
+  // `?engine=rangerdb` opens the live in-tab database instead of the schema
+  // read from SQL — the two show different true things, so which one a link
+  // wants has to be said rather than guessed.
+  if (params.get("engine") === "rangerdb") web.run("engine.rangerdb", "");
+  if (table) web.selectTable(table);
   if (wanted === "metrics") {
     web.run("metrics.run", "");
   } else if (wanted === "schema") {
     web.run("view.schema", "");
   } else if (wanted === "data") {
     web.run("view.data", "");
+  } else if (wanted === "form") {
+    // The Forms section needs a live database: a schema read from SQL has no
+    // records to page through, and the section says so rather than showing an
+    // empty form.
+    web.run("engine.rangerdb", "");
+    if (table) web.selectTable(table);
+    web.run("view.form", "");
   } else {
     web.run("view.diagram", "");
   }

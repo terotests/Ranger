@@ -174,7 +174,39 @@ class DataSheet {
         if (cols > 0) {
             pane.lockRange(0 0 0 (cols - 1) "column names are changed in the Schema panel, not here")
         }
+        ; A column as wide as what is actually in it. Measured from the values
+        ; on THIS page rather than from the declared type, because a VARCHAR
+        ; column holding country codes should not be as wide as a VARCHAR
+        ; column holding addresses.
+        def w:int 0
+        while (w < cols) {
+            pane.model.setColWidth(w (this.widthFor(w)))
+            w = (w + 1)
+        }
+        pane.refresh()
         pane.selectCell(1 0)
+    }
+
+    ; Roughly seven pixels a character, bounded so one long value does not
+    ; push every other column off the screen.
+    fn widthFor:int (col:int) {
+        def longest:int (strlen (itemAt names col))
+        def r:int 0
+        while (r < rows) {
+            def n:int (strlen (this.loadedAt(r col)))
+            if (n > longest) {
+                longest = n
+            }
+            r = (r + 1)
+        }
+        def px:int (28 + (longest * 8))
+        if (px < 64) {
+            return 64
+        }
+        if (px > 260) {
+            return 260
+        }
+        return px
     }
 
     ; ------------------------------------------------------------------------

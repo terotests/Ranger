@@ -102,6 +102,7 @@ class FormView {
     def viewW:int 600
     def viewH:int 400
     def labelW:int 200
+    def maxFieldW:int 420
     def rowH:int 30
     def gap:int 10
     def scrollY:int 0
@@ -187,6 +188,12 @@ class FormView {
         }
         def boxX:int ((viewX + labelW) + 8)
         def boxW:int ((viewW - labelW) - 24)
+        ; A field as wide as the window is a field nobody can read the end of,
+        ; and an answer that is four characters long looks lost in it. Every
+        ; paper form ever printed sizes its boxes to what goes in them.
+        if (boxW > maxFieldW) {
+            boxW = maxFieldW
+        }
         if (boxW < 80) {
             boxW = 80
         }
