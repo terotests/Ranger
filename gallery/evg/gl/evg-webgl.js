@@ -64,7 +64,13 @@ const KIND = {
 };
 
 // aShape.z — what the fragment shader should do with this instance.
-const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2 };
+// TEXT paints the atlas as a coverage mask in the run's own colour, which is
+// right for a glyph and wrong for a colour emoji: the browser draws 😊 in its
+// own colours, and its ALPHA is the whole opaque face, so masking it with the
+// run's colour gives a solid disc in the text colour. COLORTEXT samples the
+// atlas's own pixels instead. Which one a run gets is decided by looking at
+// what the browser actually drew — see `atlasIsColored`.
+const MODE = { SHAPE: 0, TEXT: 1, IMAGE: 2, COLORTEXT: 3 };
 
 const VERT = `#version 300 es
 in vec2 aCorner;          // unit quad, 0..1
@@ -147,6 +153,15 @@ float boxCoverage(out float d) {
 }
 
 void main() {
+  if (vMode > 2.5) {
+    // Text the browser drew in colours of its own — a colour emoji. The atlas
+    // holds the finished pixels, so they are sampled rather than reduced to a
+    // coverage mask; only the run's opacity still applies.
+    vec4 glyph = texture(uAtlas, vUV);
+    if (glyph.a <= 0.001) discard;
+    outColor = vec4(glyph.rgb, glyph.a * vColor.a);
+    return;
+  }
   if (vMode > 1.5) {
     // Image: the UV rectangle already carries the object-fit crop, so this is
     // a plain sample. The radius still applies — a photo in a rounded box is
@@ -310,6 +325,32 @@ export async function loadImages(doc, opts = {}) {
  * every object is new and every glyph was rasterized and uploaded again. Sixty
  * times a second.
  */
+
+/**
+ * A run of display-list text, wrapped so the browser lays it out verbatim.
+ *
+ * `fillText` is not a glyph blitter: it runs the bidirectional algorithm over
+ * whatever it is given. That is right for logical text and wrong for ours —
+ * the display list is in VISUAL order already, reordered and shaped by
+ * OfficeText on the way in, so the browser reordered a second time and put
+ * every right-to-left line back into the order it was stored in. Letters
+ * joined correctly (shaped once) and words ran backwards (reordered twice),
+ * which is exactly how it was reported.
+ *
+ * The producer has to own the ordering because it is the only party that sees
+ * a LINE: a line that changes colour partway along becomes several text
+ * commands at computed x positions, and a browser asked to lay out each of
+ * them on its own would reorder each in isolation — the same bug one level
+ * down. So the fix is to stop the browser reordering: U+202D LEFT-TO-RIGHT
+ * OVERRIDE forces every character to level 0, and U+202C pops it.
+ *
+ * Applied to every run, not only the ones with Arabic in them. It is a no-op
+ * for Latin, it keeps measurement and rasterization on identical strings, and
+ * an unconditional rule is one a future backend cannot half-implement.
+ */
+const LRO = "\u202D", PDF = "\u202C";
+export const verbatim = (t) => LRO + t + PDF;
+
 function runKey(c, dpr) {
   return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
 }
@@ -330,7 +371,7 @@ function buildTextAtlas(cmds, dpr) {
   const ctx = canvas.getContext("2d");
   const measured = runs.map((c) => {
     ctx.font = `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${c.font}", sans-serif`;
-    const m = ctx.measureText(c.text);
+    const m = ctx.measureText(verbatim(c.text));
     // Two different ascents, and the difference between them is the whole of
     // where a run sits. `actualBoundingBox*` is the INK of these particular
     // letters — "moon" has no ascender and no descender, "Ãg" has both — and
@@ -364,15 +405,66 @@ function buildTextAtlas(cmds, dpr) {
   const slots = new Map();
   for (const m of measured) {
     c2.font = `${m.c.italic ? "italic " : ""}${m.c.weight ? m.c.weight + " " : ""}${m.c.size * dpr}px "${m.c.font}", sans-serif`;
-    c2.fillText(m.c.text, m.x + pad, m.y + pad + m.asc);
+    c2.fillText(verbatim(m.c.text), m.x + pad, m.y + pad + m.asc);
     slots.set(runKey(m.c, dpr), {
       u0: m.x / canvas.width, v0: m.y / canvas.height,
       u1: (m.x + m.w) / canvas.width, v1: (m.y + m.h) / canvas.height,
       w: m.w / dpr, h: m.h / dpr, asc: m.asc / dpr, pad: pad / dpr,
       faceAsc: m.faceAsc / dpr,
+      colored: false,
+      _px: m.x, _py: m.y, _pw: m.w, _ph: m.h,
     });
   }
+  markColoredSlots(c2, slots);
   return { canvas, slots };
+}
+
+
+/**
+ * Which atlas cells the browser drew in colours of its own.
+ *
+ * Everything here is drawn with `fillStyle = "#fff"`, so a glyph comes out
+ * white with the shape carried in the alpha — a coverage mask, which is what
+ * the text shader expects. A colour emoji ignores the fill style: the browser
+ * paints its own bitmap, and its alpha is the whole opaque sticker. Masked
+ * with the run's colour that is a solid blob — a red disc where a smiling
+ * face should be, which is exactly how this was reported.
+ *
+ * There is no reliable way to ask ahead of time whether a string will come out
+ * coloured: it depends on the codepoints, the font stack and the platform, and
+ * the emoji ranges alone get it wrong in both directions. So this reads back
+ * what was actually drawn. One `getImageData` over the whole atlas, on the
+ * rare frames that build one, and every fourth pixel of each cell — enough to
+ * catch a sticker, cheap enough not to matter.
+ */
+export function markColoredSlots(c2, slots) {
+  let img;
+  try {
+    img = c2.getImageData(0, 0, c2.canvas.width, c2.canvas.height);
+  } catch (_) {
+    return;                       // a tainted or zero-sized canvas: leave them all as masks
+  }
+  const data = img.data, W = img.width;
+  for (const s of slots.values()) {
+    const x0 = s._px | 0, y0 = s._py | 0;
+    const x1 = Math.min(W, x0 + Math.ceil(s._pw));
+    const y1 = Math.min(img.height, y0 + Math.ceil(s._ph));
+    let colored = false;
+    for (let y = y0; y < y1 && !colored; y += 2) {
+      for (let x = x0; x < x1; x += 2) {
+        const i = (y * W + x) * 4;
+        if (data[i + 3] < 24) continue;
+        // White is what a masked glyph is. Anything meaningfully off it was
+        // painted by the browser and has to keep its own pixels.
+        if (data[i] < 232 || data[i + 1] < 232 || data[i + 2] < 232) {
+          colored = true;
+          break;
+        }
+      }
+    }
+    s.colored = colored;
+    delete s._px; delete s._py; delete s._pw; delete s._ph;
+  }
 }
 
 const nextPow2 = (n) => { let p = 1; while (p < n) p *= 2; return p; };
@@ -669,7 +761,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
       // whichever backend drew it.
       rects.push(c.x - s.pad, c.y + s.faceAsc - (s.pad + s.asc), s.w, s.h);
       uvs.push(s.u0, s.v0, s.u1, s.v1);
-      shapes.push(0, 0, MODE.TEXT);
+      shapes.push(0, 0, s.colored ? MODE.COLORTEXT : MODE.TEXT);
     } else {
       rects.push(c.x, c.y, c.w, c.h);
       uvs.push(0, 0, 0, 0);

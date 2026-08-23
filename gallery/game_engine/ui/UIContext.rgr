@@ -431,6 +431,103 @@ class UIContext {
         }
     }
 
+    ; The same scanline, over a shape made of SEVERAL contours.
+    ;
+    ; `fillPolygon` above is already an even-odd fill — it pairs the crossings
+    ; on each row — but it closes ONE ring, wrapping the last point back to
+    ; the first. Handed a shape with two contours as one flat list it invents
+    ; an edge from the end of the first to the start of the second, and fills
+    ; a wedge that is not in the shape. An action button's face came out with
+    ; a pale triangle across it for exactly that reason.
+    ;
+    ; Closing each ring on itself instead gives holes for nothing: the
+    ; crossing pairs already implement the even-odd rule, so a contour drawn
+    ; inside another subtracts from it. That is a donut's hole, a block arc's
+    ; inside, the ring of `noSmoking`, and the triangular cut-out an action
+    ; button's glyph sits in.
+    ;
+    ; `ringEnds` is exclusive and cumulative — the same convention
+    ; `EVGDrawCmd` carries — so ring i runs from ringEnds[i-1] to ringEnds[i].
+    fn fillPolygonRings:void (pts:[double] ringEnds:[int] r:int g:int b:int a:int) {
+        def rn:int (array_length ringEnds)
+        if (rn < 2) {
+            this.fillPolygon(pts r g b a)
+            return
+        }
+        def m:int (array_length pts)
+        if (m < 6) {
+            return
+        }
+        def minY:double (itemAt pts 1)
+        def maxY:double (itemAt pts 1)
+        def k:int 1
+        while (k < m) {
+            def yv:double (itemAt pts k)
+            if (yv < minY) { minY = yv }
+            if (yv > maxY) { maxY = yv }
+            k = (k + 2)
+        }
+        def y:int (to_int minY)
+        def yEnd:int (to_int maxY)
+        while (y <= yEnd) {
+            def sy:double ((to_double y) + 0.5)
+            def xs:[double]
+            def ri:int 0
+            while (ri < rn) {
+                def from:int 0
+                if (ri > 0) {
+                    from = (itemAt ringEnds (ri - 1))
+                }
+                def stop:int (itemAt ringEnds ri)
+                def count:int (idiv (stop - from) 2)
+                if (count >= 2) {
+                    def e:int 0
+                    while (e < count) {
+                        def ai:int (from + (e * 2))
+                        def ni:int (e + 1)
+                        if (ni >= count) { ni = 0 }
+                        def bi:int (from + (ni * 2))
+                        def ay:double (itemAt pts (ai + 1))
+                        def by:double (itemAt pts (bi + 1))
+                        def cross:boolean false
+                        if ((ay <= sy) && (by > sy)) { cross = true }
+                        if ((by <= sy) && (ay > sy)) { cross = true }
+                        if cross {
+                            def ax:double (itemAt pts ai)
+                            def bx:double (itemAt pts bi)
+                            push xs (ax + (((sy - ay) / (by - ay)) * (bx - ax)))
+                        }
+                        e = (e + 1)
+                    }
+                }
+                ri = (ri + 1)
+            }
+            def i:int 1
+            while (i < (array_length xs)) {
+                def key:double (itemAt xs i)
+                def j:int (i - 1)
+                while ((j >= 0) && ((itemAt xs j) > key)) {
+                    set xs (j + 1) (itemAt xs j)
+                    j = (j - 1)
+                }
+                set xs (j + 1) key
+                i = (i + 1)
+            }
+            def p:int 0
+            while ((p + 1) < (array_length xs)) {
+                def x0:int (to_int (itemAt xs p))
+                def x1:int (to_int (itemAt xs (p + 1)))
+                def xx:int x0
+                while (xx <= x1) {
+                    this.blendPixel(xx y r g b a)
+                    xx = (xx + 1)
+                }
+                p = (p + 2)
+            }
+            y = (y + 1)
+        }
+    }
+
     ; --- text ------------------------------------------------------------------
     fn text:void (s:string x:int y:int size:double col:EVGColor) {
         tr.drawLine(canvas s x y size (col.red()) (col.green()) (col.blue()) (to_int ((col.alpha()) * 255.0)))

@@ -277,25 +277,46 @@ class EVGToolbarView {
             }
             i = (i + 1)
         }
-        ; A real helper tip next to the hot icon — a status bar alone is easy
-        ; to miss, and icon-only buttons need a name under the pointer.
-        if (bar.hot >= 0) {
-            def tip:string (bar.hotLabel())
-            if ((strlen tip) > 0) {
-                def ht:ToolItem (bar.at(bar.hot))
-                this.applyFace(false)
-                def tw:int (to_int ((ctx.tr.measureWidth(tip 12.0)) + 12.0))
-                def th:int 20
-                def tx:int ht.x
-                def ty:int ((ht.y + ht.h) + 4)
-                if ((tx + tw) > (x0 + width)) {
-                    tx = (((x0 + width) - tw) - 4)
-                }
-                this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) theme.tipBg)
-                this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.accent)
-                this.pushText(dl tip (to_double (tx + 6)) (to_double (ty + 3)) 12.0 theme.ink)
-            }
+    }
+
+    ; A real helper tip next to the hot icon — a status bar alone is easy to
+    ; miss, and icon-only buttons need a name under the pointer.
+    ;
+    ; Drawn from `paintOverlay`, not from `paint`. It hangs BELOW the strip,
+    ; over whatever the app draws next, and the app draws next — so drawn with
+    ; the band it went into the list first and the slide, the page or the
+    ; sheet was painted straight over it. That is the same way the dropdown
+    ; menu was lost, and it is the same fix.
+    fn paintTooltip:void (dl:EVGDisplayList bar:EVGToolbar) {
+        if (bar.hot < 0) {
+            return
         }
+        ; A dropdown that is open explains itself; a tip over its own list is
+        ; noise on top of the thing it names.
+        if (bar.openMenu >= 0) {
+            return
+        }
+        def tip:string (bar.hotLabel())
+        if ((strlen tip) < 1) {
+            return
+        }
+        def ht:ToolItem (bar.at(bar.hot))
+        this.applyFace(false)
+        def tw:int (to_int ((ctx.tr.measureWidth(tip 12.0)) + 16.0))
+        def th:int 22
+        ; Centred under the button it names, which is where a reader looks for
+        ; it, and pulled back inside the window at either edge.
+        def tx:int ((ht.x + (idiv ht.w 2)) - (idiv tw 2))
+        def ty:int ((ht.y + ht.h) + 6)
+        def right:int (bar.lastX + bar.lastW)
+        if ((tx + tw) > (right - 4)) {
+            tx = ((right - tw) - 4)
+        }
+        if (tx < (bar.lastX + 4)) {
+            tx = (bar.lastX + 4)
+        }
+        this.pushRect(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) theme.tooltipBg)
+        this.pushText(dl tip (to_double (tx + 8)) (to_double (ty + 4)) 12.0 theme.tooltipInk)
     }
 
     ; The word beside the picture on a labelled button, or under it on a big
@@ -345,6 +366,7 @@ class EVGToolbarView {
     ; find by looking at the picture.
     fn paintOverlay:void (dl:EVGDisplayList bar:EVGToolbar) {
         this.paintMenu(dl bar)
+        this.paintTooltip(dl bar)
     }
 
     fn paintMenu:void (dl:EVGDisplayList bar:EVGToolbar) {

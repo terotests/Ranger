@@ -39,6 +39,10 @@ class FrameCheck {
     fn eqInt:void (name:string got:int want:int) {
         this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
     }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
 }
 
 class PptxFrameTest {
@@ -73,6 +77,64 @@ class PptxFrameTest {
         def para:PptxParagraph (itemAt sh.text.paragraphs 0)
         def run:PptxTextRun (itemAt para.runs 0)
         run.fontFamily = fam
+    }
+
+    ; Lengthen the open deck until it has `want` slides, by repeating the ones
+    ; it already has. The panel only scrolls when there are more thumbnails
+    ; than fit, and the fixtures are all short.
+    sfn padSlides:void (app:PptxApp want:int) {
+        def have:int (array_length app.presentation.slides)
+        if (have <= 0) {
+            return
+        }
+        def i:int have
+        while (i < want) {
+            def src:PptxSlide (itemAt app.presentation.slides (i % have))
+            push app.presentation.slides src
+            i = (i + 1)
+        }
+    }
+
+    ; Decimal codepoints to a string, so a test reads as what it tests and
+    ; encodes the same way on both targets.
+    sfn cps:string (spec:string) {
+        def out:string ""
+        def cur:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (strlen spec)) {
+            def ch:int (charAt spec i)
+            if (ch == 32) {
+                if any {
+                    out = (out + (EVGCodepoint.toStr(cur)))
+                }
+                cur = 0
+                any = false
+            } {
+                cur = ((cur * 10) + (ch - 48))
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            out = (out + (EVGCodepoint.toStr(cur)))
+        }
+        return out
+    }
+
+    sfn countText:int (dl:EVGDisplayList want:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                if (cmd.text == want) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     sfn indexOfCommand:int (app:PptxApp id:string) {
@@ -259,6 +321,133 @@ class PptxFrameTest {
         probe.addText(("a" + emoji + "b" + weird) 10.0 40.0 32.0 (EVGColor.rgb(0 0 0)) "Open Sans" false false 400.0 40.0)
         d.view.paintSoftCanvas(probe)
         c.ok("and drawing it does not fall over" true)
+
+        print "-- the panel follows the slide the reader is on --"
+        ; Twenty slides into the Varusteleka deck the panel was still showing
+        ; the first seven: `gotoSlide` asked the panel to scroll itself, and
+        ; `nextSlide`/`prevSlide` — the arrow keys and the two buttons on the
+        ; strip — did not. The reader turned pages and the left edge sat
+        ; still, so the highlighted thumbnail was somewhere off the bottom.
+        ;
+        ; The fix does not patch the three call sites; it records which slide
+        ; the panel last scrolled itself to and checks that where the panel is
+        ; PAINTED, which covers every way the index can change. These checks
+        ; are written against `nextSlide` for that reason: it is the path that
+        ; never asked.
+        def f:PptxApp (PptxFrameTest.build())
+        PptxFrameTest.padSlides(f 24)
+        c.ok("a deck long enough to scroll the panel" ((f.slideCount()) >= 24))
+        def bottom:int (f.H - f.statusH)
+        c.ok("and longer than the panel is tall" ((f.panelMaxScroll()) > 0))
+        f.buildFrame()
+        c.eqInt("the panel starts at the top" f.panelScroll 0)
+
+        def steps:int 0
+        while (steps < 18) {
+            f.nextSlide()
+            steps = (steps + 1)
+        }
+        c.eqInt("eighteen presses of Next" f.index 18)
+        ; Before the frame is built nothing has scrolled — the panel follows
+        ; when it is painted, not when the index moves.
+        def hidden:int (f.panelThumbY(18))
+        c.ok("and slide 19's thumbnail is off the bottom" ((hidden + (f.panelThumbH())) > bottom))
+        f.buildFrame()
+        def shown:int (f.panelThumbY(18))
+        c.ok("painting the frame brought it into view" (shown >= f.toolbarH))
+        c.ok("wholly into view" ((shown + (f.panelThumbH())) <= bottom))
+
+        ; Going back up follows too — the thumbnail above the viewport is as
+        ; invisible as the one below it. Sending the panel to its very bottom
+        ; first is what makes this check mean something: slide 3's thumbnail
+        ; is then well above the top edge, so only a panel that actually
+        ; scrolls itself back can show it.
+        f.scrollPanelPixels(10000)
+        c.eqInt("the panel is at its bottom" f.panelScroll (f.panelMaxScroll()))
+        def back:int 0
+        while (back < 16) {
+            f.prevSlide()
+            back = (back + 1)
+        }
+        f.buildFrame()
+        def upper:int (f.panelThumbY(2))
+        c.ok("and Previous brings the panel back up" (upper >= f.toolbarH))
+        c.ok("with the thumbnail whole" ((upper + (f.panelThumbH())) <= bottom))
+
+        ; But a reader who scrolls the panel BY HAND is left alone. Scrolling
+        ; does not change the index, so nothing pulls the panel back to the
+        ; selected slide on the next frame — which is what calling
+        ; `ensureSlideVisible` on every frame would have done, and would have
+        ; made the panel impossible to browse.
+        f.scrollPanelPixels((0 - 10000))
+        c.eqInt("from the top of the panel" f.panelScroll 0)
+        f.scrollPanelPixels(120)
+        c.eqInt("a hand scroll moves it" f.panelScroll 120)
+        f.buildFrame()
+        c.eqInt("and the next frame leaves it where the reader put it" f.panelScroll 120)
+
+        print "-- a hover asks for the frame to be drawn again --"
+        ; The hosts redraw when `pointer` says true, and a bare move over the
+        ; strip said false. The hot item changed, the pill and the tooltip
+        ; were computed correctly from it, and nothing ever painted them: the
+        ; strip read as having no hover and no tooltips at all.
+        def hv:PptxApp (PptxFrameTest.build())
+        hv.buildFrame()
+        def hbi:int (PptxFrameTest.indexOfCommand(hv "slide.next"))
+        def hb:ToolItem (hv.toolbar.at(hbi))
+        def hx:int (hb.x + (idiv hb.w 2))
+        def hy:int (hb.y + (idiv hb.h 2))
+        c.eqInt("nothing is hot to begin with" hv.toolbar.hot -1)
+        def moved:boolean (hv.pointer(hx hy false false false))
+        c.ok("moving onto a button asks for a repaint" moved)
+        c.ok("and lights it up" (hv.toolbar.hot >= 0))
+        c.eqStr("the tooltip is that button's name" (hv.toolbar.hotLabel()) hb.label)
+        ; Staying on it does not ask again — a repaint per mouse move over one
+        ; button is a frame per pixel for nothing.
+        def again:boolean (hv.pointer((hx + 1) hy false false false))
+        c.ok("staying on it does not ask again" (again == false))
+        ; And the tip is in the overlay, so it survives the slide being drawn.
+        def hdl:EVGDisplayList (hv.buildFrame())
+        def tips:int 0
+        def hi:int 0
+        while (hi < (array_length hdl.cmds)) {
+            def hc:EVGDrawCmd (itemAt hdl.cmds hi)
+            if (hc.kind == 3) {
+                if (hc.text == hb.label) {
+                    tips = (tips + 1)
+                }
+            }
+            hi = (hi + 1)
+        }
+        c.eqInt("and the frame carries the tooltip" tips 1)
+        ; Moving off asks once more, so the pill goes out again.
+        def off:boolean (hv.pointer(hx (hv.H - 4) false false false))
+        c.ok("moving off asks for a repaint too" off)
+        c.eqInt("and nothing is hot" hv.toolbar.hot -1)
+
+        print "-- the notes strip goes through the shared core like everything else --"
+        ; It was the one string in the deck viewer that did not.
+        ;
+        ; The slide's text is reordered and shaped on the way into the display
+        ; list; the notes went in raw. That looked RIGHT in the browser,
+        ; because `fillText` runs the bidirectional algorithm itself and was
+        ; quietly doing the work — and it was wrong everywhere else, because
+        ; the software canvas draws the string it is handed. One rule, broken
+        ; in one place, hidden by the backend that papered over it.
+        ;
+        ; Reading a screenshot could not find this: the browser build showed
+        ; correct notes over a scrambled slide, and the desktop build the
+        ; other way round, so each looked like a different bug.
+        def nv:PptxApp (PptxFrameTest.build())
+        def note:string (PptxFrameTest.cps("1605 1585 1581 1576 1575"))
+        nv.runCommand("notes.set" note)
+        def ndl:EVGDisplayList (nv.buildFrame())
+        def want:string (OfficeText.forDisplayDir(note -1))
+        c.ok("the note is not stored the way it is drawn" ((want == note) == false))
+        def raw:int (PptxFrameTest.countText(ndl note))
+        def done:int (PptxFrameTest.countText(ndl want))
+        c.eqInt("the notes strip draws the reordered text" done 1)
+        c.eqInt("and never the stored text" raw 0)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

@@ -51,6 +51,10 @@ class RtlCheck {
     fn eqStr:void (name:string got:string want:string) {
         this.ok(((((name + " (got '") + got) + "' want '") + (want + "')")) (got == want))
     }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok(((((name + " (got ") + (to_string got)) + " want ") + ((to_string want) + ")")) (got == want))
+    }
 }
 
 class OfficeRtlEditorsTest {
@@ -135,6 +139,7 @@ class OfficeRtlEditorsTest {
         print "=== OfficeRtlEditorsTest ==="
         this.testDocx()
         this.testPptx()
+        this.testPptxBody()
         this.testGrid()
         this.testGlyphsExist()
         print ""
@@ -181,6 +186,117 @@ class OfficeRtlEditorsTest {
             (EVGColor.rgb(0 0 0)) "Calibri" 0.0 "left" 200.0 false 0.0)
         c.eqStr("and English is left exactly alone"
             (OfficeRtlEditorsTest.lastText(dl2)) "Hello")
+    }
+
+
+    ; The other place in PowerPoint where a string becomes marks, and the one
+    ; that draws the SLIDE.
+    ;
+    ; `pushTextCmd` above puts a whole string into the list in one go, which is
+    ; what the notes strip does, and that was right from the start. A shape's
+    ; body does not: it is laid out into lines, and each line is cut into the
+    ; runs that hold it — a colour here, a bold word there. Handed one run at
+    ; a time, the painter reordered each run on its own and laid the results
+    ; out left to right, and the reader saw a line whose letters were right and
+    ; whose WORDS were backwards.
+    ;
+    ; That is exactly the shape of the report this was written for: Arabic
+    ; renders, the notes strip is right, and the slide is scrambled. Both
+    ; halves are checked here, because the notes strip being right is what
+    ; made it look like a font problem when it was a layout one.
+    fn testPptxBody:void () {
+        print "--- and a slide's own text body ---"
+        def conv (new PptxToEvg)
+        def shape (new PptxShape())
+        shape.width = 400.0
+        shape.height = 80.0
+        shape.hasText = true
+        def para (new PptxParagraph())
+        para.rtl = 1
+        def src:string (OfficeRtlEditorsTest.source())
+        push para.runs (OfficeRtlEditorsTest.arabicRun(src false))
+        push para.runs (OfficeRtlEditorsTest.arabicRun("Office" true))
+        push shape.text.paragraphs para
+        def dl (new EVGDisplayList)
+        conv.emitTextBody(dl shape 0.0 0.0 400.0 80.0)
+
+        def texts:[string] (OfficeRtlEditorsTest.allTexts(dl))
+        c.eqInt("two runs are drawn with two commands" (array_length texts) 2)
+        ; Leftmost first, because that is the order they go into the list and
+        ; the order the pen advances in. In a right-to-left paragraph the
+        ; Latin run written SECOND is drawn on the LEFT — this is the check
+        ; that fails when each run is reordered on its own.
+        c.eqStr("the Latin run written second is drawn leftmost"
+            (itemAt texts 0) "Office")
+        c.eqStr("and the Arabic run written first is drawn rightmost"
+            (OfficeRtlEditorsTest.dump((itemAt texts 1))) (OfficeRtlEditorsTest.wanted()))
+        ; The pen agrees with the order: command 0 really is to the left of
+        ; command 1, so this is about where they are drawn and not only about
+        ; which order they were listed in.
+        def cmds:[EVGDrawCmd] (OfficeRtlEditorsTest.textCmds(dl))
+        def left:EVGDrawCmd (itemAt cmds 0)
+        def right:EVGDrawCmd (itemAt cmds 1)
+        c.ok("and it is drawn further left" (left.x < right.x))
+        c.ok("with the two not on top of each other" ((right.x - left.x) > 4.0))
+
+        ; The notes strip, which was right the whole time and has to stay
+        ; right: one string, one command, reordered once.
+        def ndl (new EVGDisplayList)
+        conv.pushTextCmd(ndl (OfficeRtlEditorsTest.source()) 10.0 20.0 18.0
+            (EVGColor.rgb(0 0 0)) "Calibri" 0.0 "left" 200.0 false 0.0)
+        c.eqStr("the notes strip still reorders in one pass"
+            (OfficeRtlEditorsTest.dump((OfficeRtlEditorsTest.lastText(ndl)))) (OfficeRtlEditorsTest.wanted()))
+
+        ; And an ordinary English body is drawn in the order it is stored,
+        ; runs and all — the fast path has to stay a fast path.
+        def eshape (new PptxShape())
+        eshape.width = 400.0
+        eshape.height = 80.0
+        eshape.hasText = true
+        def epara (new PptxParagraph())
+        push epara.runs (OfficeRtlEditorsTest.arabicRun("Hello " false))
+        push epara.runs (OfficeRtlEditorsTest.arabicRun("world" true))
+        push eshape.text.paragraphs epara
+        def edl (new EVGDisplayList)
+        conv.emitTextBody(edl eshape 0.0 0.0 400.0 80.0)
+        def etexts:[string] (OfficeRtlEditorsTest.allTexts(edl))
+        c.eqInt("an English body is two commands too" (array_length etexts) 2)
+        c.eqStr("in the order it is stored" (itemAt etexts 0) "Hello ")
+        c.eqStr("all of it" (itemAt etexts 1) "world")
+    }
+
+    sfn arabicRun:PptxTextRun (t:string bold:boolean) {
+        def r (new PptxTextRun())
+        r.text = t
+        r.fontSizePt = 18.0
+        r.fontFamily = "El Messiri"
+        r.bold = bold
+        return r
+    }
+
+    sfn textCmds:[EVGDrawCmd] (dl:EVGDisplayList) {
+        def out:[EVGDrawCmd]
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 3) {
+                push out c
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn allTexts:[string] (dl:EVGDisplayList) {
+        def out:[string]
+        def cmds:[EVGDrawCmd] (OfficeRtlEditorsTest.textCmds(dl))
+        def i:int 0
+        while (i < (array_length cmds)) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            push out c.text
+            i = (i + 1)
+        }
+        return out
     }
 
     ; None of the above would be visible without glyphs to draw.

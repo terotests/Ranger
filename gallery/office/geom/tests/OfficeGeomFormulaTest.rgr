@@ -1,0 +1,162 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeGeomFormulaTest — the seventeen operators, and the two units
+; ==============================================================================
+;
+; Everything a preset shape is made of goes through `evalFormula`, so a wrong
+; operator here is 187 wrong shapes and a plausible-looking slide. The checks
+; that matter most are not the arithmetic ones — those are obvious — but the
+; two units that are easy to get wrong and impossible to see afterwards:
+; angles in sixtythousandths of a degree, and `at2` returning one.
+;
+;   npm run office:geom:test
+; ==============================================================================
+
+Import "../OfficeGeomFormula.rgr"
+
+class GeomCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    ; Geometry is doubles, so equality is a tolerance. A thousandth of a unit
+    ; is far finer than a pixel on any slide and far coarser than the noise.
+    fn near:void (name:string got:double want:double) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")")
+                ((fabs (got - want)) < 0.001))
+    }
+}
+
+class OfficeGeomFormulaTest {
+    sfn main:void () {
+        def c (new GeomCheck)
+        print "=== OfficeGeomFormulaTest ==="
+
+        def g:GeomGuides (OfficeGeomFormula.boxGuides(400.0 200.0))
+
+        print "-- the box a shape starts in --"
+        c.near("the width is the width" (g.get("w")) 400.0)
+        c.near("the right edge is the width" (g.get("r")) 400.0)
+        c.near("the bottom is the height" (g.get("b")) 200.0)
+        c.near("the centre is halfway across" (g.get("hc")) 200.0)
+        c.near("and halfway down" (g.get("vc")) 100.0)
+        ; The one that carries real meaning: `ss` is the SHORTER side, which
+        ; is what makes a corner radius scale with the smaller dimension. A
+        ; reader that used the width here gives a wide shape oval corners.
+        c.near("the short side is the short side" (g.get("ss")) 200.0)
+        def tall:GeomGuides (OfficeGeomFormula.boxGuides(100.0 900.0))
+        c.near("whichever side that is" (tall.get("ss")) 100.0)
+        ; A quarter turn, in the unit the specification states angles in.
+        c.near("a quarter circle is 5400000" (g.get("cd4")) 5400000.0)
+        c.near("and three quarters is three of them" (g.get("3cd4")) 16200000.0)
+
+        print "-- arithmetic --"
+        ; Multiply THEN divide. The definitions scale by ratios of a hundred
+        ; thousand, and dividing first loses the shape in rounding.
+        c.near("*/ multiplies before it divides" (OfficeGeomFormula.evalFormula(g "*/ w 25000 100000")) 100.0)
+        c.near("+- adds then subtracts" (OfficeGeomFormula.evalFormula(g "+- hc 10 4")) 206.0)
+        c.near("+/ adds then divides" (OfficeGeomFormula.evalFormula(g "+/ w h 2")) 300.0)
+        c.near("val is a constant" (OfficeGeomFormula.evalFormula(g "val 12345")) 12345.0)
+        c.near("and a negative one" (OfficeGeomFormula.evalFormula(g "val -8333")) -8333.0)
+        ; Division by zero is a shape that still draws. A preset with a
+        ; degenerate box must not take the slide down with it.
+        c.near("dividing by zero is zero, not a throw" (OfficeGeomFormula.evalFormula(g "*/ w h 0")) 0.0)
+
+        print "-- pin, which is what an adjustment handle is --"
+        c.near("a value inside the range is itself" (OfficeGeomFormula.evalFormula(g "pin 0 25000 50000")) 25000.0)
+        c.near("below it is the floor" (OfficeGeomFormula.evalFormula(g "pin 0 -5000 50000")) 0.0)
+        c.near("above it is the ceiling" (OfficeGeomFormula.evalFormula(g "pin 0 90000 50000")) 50000.0)
+
+        print "-- the rest --"
+        c.near("?: takes the second when the first is positive" (OfficeGeomFormula.evalFormula(g "?: 1 7 9")) 7.0)
+        c.near("and the third when it is not" (OfficeGeomFormula.evalFormula(g "?: 0 7 9")) 9.0)
+        c.near("?: on a negative takes the third" (OfficeGeomFormula.evalFormula(g "?: -3 7 9")) 9.0)
+        c.near("abs" (OfficeGeomFormula.evalFormula(g "abs -42")) 42.0)
+        c.near("min" (OfficeGeomFormula.evalFormula(g "min 3 8")) 3.0)
+        c.near("max" (OfficeGeomFormula.evalFormula(g "max 3 8")) 8.0)
+        c.near("sqrt" (OfficeGeomFormula.evalFormula(g "sqrt 144")) 12.0)
+        c.near("sqrt of a negative is zero, not a NaN" (OfficeGeomFormula.evalFormula(g "sqrt -1")) 0.0)
+        ; `mod` is the length of a 3-vector, not a remainder — the name is the
+        ; specification's and it has caught readers out.
+        c.near("mod is a vector length" (OfficeGeomFormula.evalFormula(g "mod 3 4 0")) 5.0)
+        c.near("in three dimensions" (OfficeGeomFormula.evalFormula(g "mod 2 3 6")) 7.0)
+
+        print "-- angles are sixtythousandths of a degree --"
+        ; The unit that ruins a shape silently. 5400000 is a quarter turn, so
+        ; its sine is one and its cosine is zero; a reader treating the number
+        ; as degrees is out by a factor of sixty thousand and draws a dot.
+        c.near("sin of a quarter turn scales by one" (OfficeGeomFormula.evalFormula(g "sin 100 5400000")) 100.0)
+        c.near("cos of a quarter turn scales by nothing" (OfficeGeomFormula.evalFormula(g "cos 100 5400000")) 0.0)
+        c.near("cos of no turn is the whole of it" (OfficeGeomFormula.evalFormula(g "cos 100 0")) 100.0)
+        c.near("sin of half a turn is nothing" (OfficeGeomFormula.evalFormula(g "sin 100 10800000")) 0.0)
+        c.near("tan of an eighth turn is one" (OfficeGeomFormula.evalFormula(g "tan 100 2700000")) 100.0)
+        ; And the one whose ANSWER is an angle, so it comes back in the same
+        ; unit rather than in radians or degrees.
+        c.near("at2 answers in the same unit" (OfficeGeomFormula.evalFormula(g "at2 1 1")) 2700000.0)
+        c.near("at2 straight up is a quarter turn" (OfficeGeomFormula.evalFormula(g "at2 0 1")) 5400000.0)
+        ; cat2 and sat2 find a point without naming the angle: with y and x
+        ; equal the angle is an eighth turn, so both scale by root a half.
+        c.near("cat2 is a cosine of an arc tangent" (OfficeGeomFormula.evalFormula(g "cat2 100 1 1")) 70.71067811865476)
+        c.near("sat2 is its sine" (OfficeGeomFormula.evalFormula(g "sat2 100 1 1")) 70.71067811865476)
+
+        print "-- terms are guides, adjustments or numbers, and it need not care which --"
+        def gg (new GeomGuides)
+        gg.put("w" 400.0)
+        gg.put("adj" 25000.0)
+        c.near("a guide by name" (OfficeGeomFormula.evalFormula(gg "*/ w 1 2")) 200.0)
+        c.near("an adjustment by name" (OfficeGeomFormula.evalFormula(gg "*/ w adj 100000")) 100.0)
+        ; A guide that does not exist is zero, which is what an unresolved
+        ; reference has to be: a shape that half-draws beats a slide that
+        ; stops drawing.
+        c.near("a name nothing defined is zero" (OfficeGeomFormula.evalFormula(gg "*/ w nosuch 100000")) 0.0)
+        ; Guides are evaluated in order and may refer to the ones before them,
+        ; which is what makes a single pass correct.
+        gg.put("half" (OfficeGeomFormula.evalFormula(gg "*/ w 1 2")))
+        c.near("and a later guide can use an earlier one" (OfficeGeomFormula.evalFormula(gg "+- half 0 50")) 150.0)
+
+        print "-- the spacing the published definitions actually contain --"
+        ; `*/ vc  vf 100000` — two spaces, in the file, in star7. Splitting on
+        ; a single space hands back an empty term, an empty term reads as
+        ; zero, and the shape collapses.
+        def sp (new GeomGuides)
+        sp.put("vc" 100.0)
+        sp.put("vf" 105210.0)
+        c.near("a double space is not an empty term" (OfficeGeomFormula.evalFormula(sp "*/ vc  vf 100000")) 105.21)
+        c.ok("and words() drops them" ((array_length (OfficeGeomFormula.words("a  b   c"))) == 3))
+
+        print "-- a real preset's arithmetic, end to end --"
+        ; roundRect at the default adjustment: a corner of a sixth of the
+        ; shorter side. This is the shape whose corners were all the same
+        ; whatever the file said, because nothing evaluated this line.
+        def rr:GeomGuides (OfficeGeomFormula.boxGuides(300.0 120.0))
+        rr.put("adj" 16667.0)
+        def a:double (OfficeGeomFormula.evalFormula(rr "pin 0 adj 50000"))
+        rr.put("a" a)
+        def x1:double (OfficeGeomFormula.evalFormula(rr "*/ ss a 100000"))
+        c.near("a roundRect's corner is a sixth of the short side" x1 20.0004)
+        ; And at a quarter, it is a quarter of it — the value the file states
+        ; is the value that reaches the corner.
+        rr.put("adj" 25000.0)
+        def a2:double (OfficeGeomFormula.evalFormula(rr "pin 0 adj 50000"))
+        rr.put("a" a2)
+        c.near("and at 25000 it is a quarter of it" (OfficeGeomFormula.evalFormula(rr "*/ ss a 100000")) 30.0)
+
+        print ""
+        print ("passed = " + (to_string c.passed) + "  failed = " + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

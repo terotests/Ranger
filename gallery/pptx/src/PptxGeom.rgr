@@ -37,85 +37,26 @@ class PptxGeom {
         return 16
     }
 
-    ; A preset as SVG path data in the unit box. An empty string means "this is
-    ; not a path shape" — `rect` and `roundRect` are drawn by the rounded-rect
-    ; primitive, which knows about gradients and shadows in a way a polygon
-    ; does not.
+    ; A preset as SVG path data in the unit box — the hand-written thirty-four.
+    ;
+    ; They are gone. `OfficePresetShapes` resolves all 187 from the
+    ; specification's own definitions, so keeping these would be thirty-four
+    ; standing opportunities to disagree with it — and nine of them already
+    ; did. Each of those nine is an adjustable shape whose proportion somebody
+    ; had to guess: `plus` was drawn with its corners inset a third of the box
+    ; whatever the box was, and the file says a quarter of the SHORTER side,
+    ; which is why the hand-drawn one stretched when the box was wide.
+    ;
+    ; What is left is the empty answer, because the painter still asks: a
+    ; converter with no catalogue loaded falls back through here, and a host
+    ; that has not loaded one draws rectangles rather than nothing. `rect` and
+    ; `roundRect` are drawn by the rounded-rect primitive, which knows about
+    ; gradients, shadows and corner radii in a way a polygon does not.
+    ;
+    ; The comparison that had to pass before this could be deleted is in
+    ; PptxGeomTest: every shape here drawn both ways, the thirteen with no
+    ; adjustment agreeing to four thousandths of the box.
     sfn presetPath:string (preset:string) {
-        if (preset == "ellipse") {
-            return "M 1,0.5 A 0.5,0.5 0 1 1 0,0.5 A 0.5,0.5 0 1 1 1,0.5 Z"
-        }
-        if (preset == "triangle") {
-            return "M 0.5,0 L 1,1 L 0,1 Z"
-        }
-        if (preset == "rtTriangle") {
-            return "M 0,0 L 0,1 L 1,1 Z"
-        }
-        if (preset == "diamond") {
-            return "M 0.5,0 L 1,0.5 L 0.5,1 L 0,0.5 Z"
-        }
-        if (preset == "parallelogram") {
-            return "M 0.25,0 L 1,0 L 0.75,1 L 0,1 Z"
-        }
-        if (preset == "trapezoid") {
-            return "M 0.25,0 L 0.75,0 L 1,1 L 0,1 Z"
-        }
-        if (preset == "pentagon") {
-            return "M 0.5,0 L 1,0.38 L 0.81,1 L 0.19,1 L 0,0.38 Z"
-        }
-        if (preset == "hexagon") {
-            return "M 0.25,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0.25,1 L 0,0.5 Z"
-        }
-        if (preset == "octagon") {
-            return "M 0.29,0 L 0.71,0 L 1,0.29 L 1,0.71 L 0.71,1 L 0.29,1 L 0,0.71 L 0,0.29 Z"
-        }
-        if (preset == "chevron") {
-            return "M 0,0 L 0.65,0 L 1,0.5 L 0.65,1 L 0,1 L 0.35,0.5 Z"
-        }
-        if (preset == "homePlate") {
-            return "M 0,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0,1 Z"
-        }
-        if (preset == "star5") {
-            return "M 0.5,0 L 0.62,0.35 L 1,0.38 L 0.7,0.62 L 0.81,1 L 0.5,0.78 L 0.19,1 L 0.3,0.62 L 0,0.38 L 0.38,0.35 Z"
-        }
-        if (preset == "rightArrow") {
-            return "M 0,0.3 L 0.6,0.3 L 0.6,0.05 L 1,0.5 L 0.6,0.95 L 0.6,0.7 L 0,0.7 Z"
-        }
-        if (preset == "leftArrow") {
-            return "M 1,0.3 L 0.4,0.3 L 0.4,0.05 L 0,0.5 L 0.4,0.95 L 0.4,0.7 L 1,0.7 Z"
-        }
-        if (preset == "upArrow") {
-            return "M 0.3,1 L 0.3,0.4 L 0.05,0.4 L 0.5,0 L 0.95,0.4 L 0.7,0.4 L 0.7,1 Z"
-        }
-        if (preset == "downArrow") {
-            return "M 0.3,0 L 0.3,0.6 L 0.05,0.6 L 0.5,1 L 0.95,0.6 L 0.7,0.6 L 0.7,0 Z"
-        }
-        if (preset == "plus") {
-            return "M 0.35,0 L 0.65,0 L 0.65,0.35 L 1,0.35 L 1,0.65 L 0.65,0.65 L 0.65,1 L 0.35,1 L 0.35,0.65 L 0,0.65 L 0,0.35 L 0.35,0.35 Z"
-        }
-        if (preset == "flowChartTerminator") {
-            return "M 0.17,0 L 0.83,0 A 0.17,0.5 0 0 1 0.83,1 L 0.17,1 A 0.17,0.5 0 0 1 0.17,0 Z"
-        }
-        ; Brackets and braces are OPEN paths — they are a stroke, not a filled
-        ; area, which is what a shape with `noFill` and a line is.
-        if (preset == "leftBracket") {
-            return "M 1,0 L 0.25,0 L 0,0.12 L 0,0.88 L 0.25,1 L 1,1"
-        }
-        if (preset == "rightBracket") {
-            return "M 0,0 L 0.75,0 L 1,0.12 L 1,0.88 L 0.75,1 L 0,1"
-        }
-        if (preset == "leftBrace") {
-            return "M 1,0 L 0.62,0.06 L 0.62,0.44 L 0,0.5 L 0.62,0.56 L 0.62,0.94 L 1,1"
-        }
-        if (preset == "rightBrace") {
-            return "M 0,0 L 0.38,0.06 L 0.38,0.44 L 1,0.5 L 0.38,0.56 L 0.38,0.94 L 0,1"
-        }
-        if (preset == "line") {
-            return "M 0,0 L 1,1"
-        }
-        if (preset == "roundRect") {
-            return ""
-        }
         return ""
     }
 

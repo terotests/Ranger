@@ -741,6 +741,83 @@ class OfficeBidi {
     ;
     ; `override` is the document's own direction property: -1 none, 0 LTR,
     ; 1 RTL. Returns the logical index to draw at each visual position.
+
+    ; --- L4: mirroring ---------------------------------------------------------
+
+    ; The mirrored form of a character, or the character itself.
+    ;
+    ; Rule L4 of UAX #9, and the last thing the algorithm does. Reordering puts
+    ; a bracket in the right PLACE; it does not turn it round. An opening
+    ; parenthesis at a right-to-left level opens to the left, so it has to be
+    ; DRAWN as ")" — the codepoint stored is the semantic one and the glyph
+    ; shown is its mirror.
+    ;
+    ; Skipping this is not subtle once you see it. A line of Arabic with a
+    ; bracketed Latin name in it — "( ingez-ppt.com )", which is what caught
+    ; this — comes out as ") ingez-ppt.com (", brackets pointing away from the
+    ; thing they enclose.
+    ;
+    ; Unicode marks about 380 characters Bidi_Mirrored, nearly all of them
+    ; mathematical. What a document actually contains is here: the brackets,
+    ; the braces, the angle and guillemet quotes, and the ordinary inequalities.
+    ; Anything else is returned unchanged, which is the right failure — an
+    ; unmirrored integral sign is a much smaller wrong than a table of 380
+    ; entries nobody checks.
+    sfn mirrorOf:int (cp:int) {
+        if (cp == 40)  { return 41 }      ; ( )
+        if (cp == 41)  { return 40 }
+        if (cp == 60)  { return 62 }      ; < >
+        if (cp == 62)  { return 60 }
+        if (cp == 91)  { return 93 }      ; [ ]
+        if (cp == 93)  { return 91 }
+        if (cp == 123) { return 125 }     ; { }
+        if (cp == 125) { return 123 }
+        if (cp == 171) { return 187 }     ; « »
+        if (cp == 187) { return 171 }
+        if (cp == 8249) { return 8250 }   ; ‹ ›
+        if (cp == 8250) { return 8249 }
+        if (cp == 8804) { return 8805 }   ; ≤ ≥
+        if (cp == 8805) { return 8804 }
+        if (cp == 8918) { return 8919 }   ; ⋖ ⋗
+        if (cp == 8919) { return 8918 }
+        if (cp == 12296) { return 12297 } ; 〈 〉
+        if (cp == 12297) { return 12296 }
+        return cp
+    }
+
+    ; The glyphs to draw for `cps`, with every character that sits at a
+    ; right-to-left level replaced by its mirror. Levels as `levelsOf` returns
+    ; them, so a caller does not resolve them twice.
+    sfn mirrorGlyphs:[int] (cps:[int] levels:[int]) {
+        def out:[int]
+        def n:int (array_length cps)
+        def i:int 0
+        while (i < n) {
+            def cp:int (itemAt cps i)
+            def lv:int 0
+            if (i < (array_length levels)) {
+                lv = (itemAt levels i)
+            }
+            if ((lv % 2) == 1) {
+                push out (OfficeBidi.mirrorOf(cp))
+            } {
+                push out cp
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The resolved embedding level of every character — what `visualOrder`
+    ; works out on the way to the order, handed back so a caller that also
+    ; needs to mirror does not compute it a second time.
+    sfn levelsOf:[int] (cps:[int] override:int) {
+        def para:int (OfficeBidi.paragraphLevel(cps override))
+        def levels:[int] (OfficeBidi.resolveLevels(cps para))
+        OfficeBidi.applyL1(cps levels para)
+        return levels
+    }
+
     sfn visualOrder:[int] (cps:[int] override:int) {
         def para:int (OfficeBidi.paragraphLevel(cps override))
         def levels:[int] (OfficeBidi.resolveLevels(cps para))

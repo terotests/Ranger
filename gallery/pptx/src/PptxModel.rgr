@@ -178,6 +178,7 @@ class PptxLineStyle {
     def widthPt:double 1.0
     def color:PptxColor (new PptxColor())
 
+
     Constructor () {
     }
 }
@@ -226,6 +227,34 @@ class PptxTextRun {
     def italicSet:boolean false
     def italic:boolean false
     def color:PptxColor (new PptxColor())
+    ; Every style property of this run, onto another one — the whole of it,
+    ; and neither the text nor the field.
+    ;
+    ; Splitting a run used to copy eight of the fourteen fields by hand and
+    ; drop the rest, and the three it dropped were the RESOLUTION SIGNATURES:
+    ; the record of what this run's size, colour and font were derived from.
+    ; A half with no signature is a half the resolver reads as never having
+    ; been resolved, so it inherits from the layout again — and a body
+    ; placeholder's layout size is not the size the run was showing. Toggling
+    ; bold on part of a line split the run and the text jumped to another
+    ; size.
+    ;
+    ; A hand-written list of fields goes stale the first time somebody adds
+    ; one, and it had: the signatures were added to make the writer able to
+    ; tell an inherited value from an authored one, and nothing taught this
+    ; about them. One method, next to the fields.
+    fn copyStyleTo:void (o:PptxTextRun) {
+        o.fontFamily = fontFamily
+        o.fontSizePt = fontSizePt
+        o.sizeSet = sizeSet
+        o.boldSet = boldSet
+        o.bold = bold
+        o.italicSet = italicSet
+        o.italic = italic
+        o.resolvedFontSig = resolvedFontSig
+        o.resolvedColorSig = resolvedColorSig
+        o.resolvedSizeSig = resolvedSizeSig
+    }
 
     Constructor () {
     }
@@ -276,6 +305,53 @@ class PptxParagraph {
     def bulletSizePt:double 0.0
     def bulletFont:string ""
     def runs:[PptxTextRun]
+
+    ; Every formatting property of this paragraph, onto another one — the
+    ; whole of it, and none of the text.
+    ;
+    ; Splitting a paragraph used to copy seven of these by hand and drop the
+    ; rest, so pressing Enter at the end of a bulleted line gave a paragraph
+    ; that had lost its bullet COLOUR — the dash went from the deck's white to
+    ; a default black — along with its bullet font, its indent, its numbering
+    ; scheme and its direction.
+    ;
+    ; A hand-written list of fields is a list that goes stale the first time
+    ; somebody adds one, and it had: `rtl` was added for right-to-left
+    ; paragraphs and was never copied, so splitting an Arabic paragraph turned
+    ; the second half around. One method, next to the fields, is the only
+    ; version of this that stays true.
+    fn copyFormatTo:void (o:PptxParagraph) {
+        o.align = align
+        o.alignSet = alignSet
+        o.rtl = rtl
+        o.spaceBeforePt = spaceBeforePt
+        o.spaceAfterPt = spaceAfterPt
+        o.lineSpacingPct = lineSpacingPct
+        o.level = level
+        o.hasBullet = hasBullet
+        o.bulletAutoNum = bulletAutoNum
+        o.bulletScheme = bulletScheme
+        o.bulletStartAt = bulletStartAt
+        o.bulletChar = bulletChar
+        o.marginLeftPt = marginLeftPt
+        o.marginSet = marginSet
+        o.indentPt = indentPt
+        o.indentSet = indentSet
+        o.bulletSet = bulletSet
+        ; The colour is copied field by field rather than by reference: two
+        ; paragraphs sharing one colour object means recolouring one bullet
+        ; recolours the other, which is a bug that only shows up later and
+        ; somewhere else.
+        o.bulletColor.isSet = bulletColor.isSet
+        o.bulletColor.isScheme = bulletColor.isScheme
+        o.bulletColor.scheme = bulletColor.scheme
+        o.bulletColor.srgb = bulletColor.srgb
+        o.bulletColor.alpha = bulletColor.alpha
+        o.bulletColor.copyModsFrom(bulletColor)
+        o.bulletSizePct = bulletSizePct
+        o.bulletSizePt = bulletSizePt
+        o.bulletFont = bulletFont
+    }
 
     Constructor () {
         def r:[PptxTextRun]
@@ -635,6 +711,15 @@ class PptxShape {
     ; side, which is why every roundRect used to have the same corners
     ; whatever the file said.
     def adj:double (0.0 - 1.0)
+    ; Every adjustment the file states, by name.
+    ;
+    ; `adj` above is one value under one name, which is what the reader used
+    ; to keep, and it is enough for exactly the shapes that have one
+    ; adjustment. A callout has four. An arrow has two — head length and
+    ; shaft width — and reading only the first gives every arrow in a deck
+    ; the author's head with the default shaft.
+    def adjNames:[string]
+    def adjValues:[double]
     ; `<p:style>`: which theme fill, line, effect and font this shape asks for,
     ; and the colour each reference names. Zero means the shape said nothing.
     ; `<a:noFill/>` stated on the shape itself, which beats whatever the
@@ -747,6 +832,13 @@ class PptxShape {
     ; Custom / flattened path in shape-local unit coords (optional)
     def hasPath:boolean false
     def pathUnit:[double]
+    ; Whether that path ends with `<a:close/>`, and so encloses an area.
+    ;
+    ; Only meaningful when `hasPath`. Flattening the path to points throws
+    ; the answer away, and it is the difference between a shape and a stroke:
+    ; a hand-drawn line is a custom path with no close under it, and filling
+    ; one draws a solid blob over half the slide.
+    def pathClosed:boolean false
     ; Table (kind 4)
     def tableRows:int 0
     ; The grid the file states, in points. Equal division is what a table looks

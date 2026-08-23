@@ -1,0 +1,533 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficePresetShapes — the 187 preset geometries, as data rather than as code
+; ==============================================================================
+;
+; `prstGeom prst="star7"` names one of 187 shapes the specification defines,
+; and it defines them in the same guide-and-path language a `custGeom` is
+; written in. So both go one way:
+;
+;     prstGeom ─→ this ─┐
+;                       ├─→ guides ─→ path ─→ points
+;     custGeom ─────────┘
+;
+; Thirty-four of the 187 used to be hand-written polygons in `PptxGeom`, and
+; the other 153 came out as rectangles — silently, because a shape nobody knows
+; is a filled box in the shape's own colour rather than an error or a gap. That
+; is why a `star7` read as a deliberate red square.
+;
+; The catalogue is `assets/presets.txt`, generated from the published
+; definitions by `tools/make_preset_asset.py`. It is one record per line
+; because the alternative is 559 KB of namespaced XML and a tree walk at
+; startup, for something that is read with string splitting and nothing else:
+;
+;     #name                     a shape begins
+;     A name value              an adjustment's default
+;     G name op a b c           a guide, in the order it must be evaluated
+;     R l t r b                 the text rectangle, as four expressions
+;     P w h fill stroke         a path begins; w/h 0 means "the shape's box"
+;     m / l / c / q / a / z     the path itself
+;
+; Scale-independence is what lets this answer in a unit box. Every formula is
+; linear in the lengths and every adjustment is a ratio, so evaluating in a box
+; of the shape's own PROPORTIONS and dividing through gives the same numbers as
+; evaluating at the shape's real size. What it is NOT independent of is the
+; aspect ratio: `ss` is the shorter side, so a preset evaluated in a square box
+; and then stretched is a different shape from the one the file asked for.
+; That is why `pathsFor` takes a width and a height and not a scale.
+;
+;   npm run office:geom:test
+; ==============================================================================
+
+Import "OfficeGeomFormula.rgr"
+Import "../../evg/SVGPathParser.rgr"
+
+; One path of a shape, flattened, in the unit box — plus how the file said to
+; paint it. A preset may state several, and they are not all filled the same
+; way: that is how a cube gets a shaded side and a donut gets its hole.
+class GeomPath {
+    ; The contours, each flattened, each in 0..1 of the shape's box.
+    ;
+    ; One `<a:path>` may hold several, and 44 of the 187 do: a chart marker's
+    ; plus is two strokes, a block arc is an outer and an inner sweep, an
+    ; action button's glyph is drawn inside its face. Flattening them into one
+    ; list joins the end of each contour to the start of the next with a line
+    ; that is not in the file — a diagonal across a plus sign — and makes a
+    ; hole impossible to express.
+    def rings:[PathRing]
+    ; Every point of every contour, for callers that only want the extent.
+    ; Drawing goes through `rings`.
+    def pts:[double]
+    ; `norm`, `none`, `darken`, `darkenLess`, `lighten` or `lightenLess`.
+    def fill:string "norm"
+    def stroke:boolean true
+    def closed:boolean false
+
+    Constructor () {
+    }
+}
+
+class OfficePresetShapes {
+    ; The asset, split once. Shapes are found by a scan rather than by a map
+    ; because there are 187 of them and a deck asks for a handful.
+    def lines:[string]
+    def names:[string]
+    def starts:[int]
+    def ends:[int]
+    def ready:boolean false
+
+    Constructor () {
+    }
+
+    fn load:void (text:string) {
+        lines = (OfficePresetShapes.splitLines(text))
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            def ln:string (itemAt lines i)
+            if ((strlen ln) > 0) {
+                if ((charAt ln 0) == 35) {
+                    if ((array_length starts) > 0) {
+                        set_at ends ((array_length ends) - 1) i
+                    }
+                    push names (substring ln 1 (strlen ln))
+                    push starts (i + 1)
+                    push ends n
+                }
+            }
+            i = (i + 1)
+        }
+        ready = ((array_length names) > 0)
+    }
+
+    fn count:int () {
+        return (array_length names)
+    }
+
+    fn nameAt:string (i:int) {
+        return (itemAt names i)
+    }
+
+    fn indexOfName:int (name:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn has:boolean (name:string) {
+        return ((this.indexOfName(name)) >= 0)
+    }
+
+    ; --- resolving a shape ----------------------------------------------------
+
+    ; The guides of one shape, in a box of `w` by `h`, with the file's own
+    ; adjustments overridden by whatever the document stated.
+    ;
+    ; The defaults come from the shape's `avLst` and the overrides from the
+    ; document's; a document states only the ones it changed, and by NAME —
+    ; several shapes have four. Reading one adjustment called `adj`, which is
+    ; what the reader did before, gets a callout's tail wrong every time.
+    fn guidesFor:GeomGuides (name:string w:double h:double adjNames:[string] adjValues:[double]) {
+        def g:GeomGuides (OfficeGeomFormula.boxGuides(w h))
+        def idx:int (this.indexOfName(name))
+        if (idx < 0) {
+            return g
+        }
+        def i:int (itemAt starts idx)
+        def stop:int (itemAt ends idx)
+        ; Pass one: the shape's own defaults.
+        while (i < stop) {
+            def ln:string (itemAt lines i)
+            if ((OfficePresetShapes.isKind(ln 65)) == true) {
+                def w2:[string] (OfficeGeomFormula.words(ln))
+                if ((array_length w2) >= 3) {
+                    g.put((itemAt w2 1) (OfficeGeomFormula.toDouble((itemAt w2 2))))
+                }
+            }
+            i = (i + 1)
+        }
+        ; Pass two: what the document said, over the top.
+        def a:int 0
+        while (a < (array_length adjNames)) {
+            if (a < (array_length adjValues)) {
+                g.put((itemAt adjNames a) (itemAt adjValues a))
+            }
+            a = (a + 1)
+        }
+        ; Pass three: the guides, strictly in order — a guide may refer to the
+        ; ones before it, which is what makes a single pass correct.
+        i = (itemAt starts idx)
+        while (i < stop) {
+            def ln:string (itemAt lines i)
+            if ((OfficePresetShapes.isKind(ln 71)) == true) {
+                def gw:[string] (OfficeGeomFormula.words(ln))
+                if ((array_length gw) >= 3) {
+                    def gname:string (itemAt gw 1)
+                    def fmla:string (OfficePresetShapes.after(ln (itemAt gw 1)))
+                    g.put(gname (OfficeGeomFormula.evalFormula(g fmla)))
+                }
+            }
+            i = (i + 1)
+        }
+        return g
+    }
+
+    ; The shape's paths, flattened, in the unit box.
+    fn pathsFor:[GeomPath] (name:string w:double h:double adjNames:[string] adjValues:[double]) {
+        def out:[GeomPath]
+        def idx:int (this.indexOfName(name))
+        if (idx < 0) {
+            return out
+        }
+        if (w <= 0.0) {
+            return out
+        }
+        if (h <= 0.0) {
+            return out
+        }
+        def g:GeomGuides (this.guidesFor(name w h adjNames adjValues))
+        def i:int (itemAt starts idx)
+        def stop:int (itemAt ends idx)
+        def data:string ""
+        def fill:string "norm"
+        def stroke:boolean true
+        def closed:boolean false
+        def open:boolean false
+        ; A path may state a coordinate space of its own, and fifty of them
+        ; do — 21600 by 21600 is the common one. Points are then in THAT space
+        ; and have to be brought into the shape's box before anything else.
+        def sx:double 1.0
+        def sy:double 1.0
+        def curX:double 0.0
+        def curY:double 0.0
+        while (i < stop) {
+            def ln:string (itemAt lines i)
+            def tk:[string] (OfficeGeomFormula.words(ln))
+            def nt:int (array_length tk)
+            if (nt > 0) {
+                def op:string (itemAt tk 0)
+                if (op == "P") {
+                    if open {
+                        OfficePresetShapes.pushPath(out data fill stroke closed)
+                    }
+                    open = true
+                    data = ""
+                    closed = false
+                    fill = "norm"
+                    stroke = true
+                    sx = 1.0
+                    sy = 1.0
+                    if (nt >= 5) {
+                        def pw:double (OfficeGeomFormula.toDouble((itemAt tk 1)))
+                        def ph:double (OfficeGeomFormula.toDouble((itemAt tk 2)))
+                        if (pw > 0.0) {
+                            sx = (w / pw)
+                        }
+                        if (ph > 0.0) {
+                            sy = (h / ph)
+                        }
+                        fill = (itemAt tk 3)
+                        stroke = ((itemAt tk 4) == "1")
+                    }
+                }
+                if (op == "m") {
+                    if (nt >= 3) {
+                        curX = (OfficePresetShapes.coord(g (itemAt tk 1) sx))
+                        curY = (OfficePresetShapes.coord(g (itemAt tk 2) sy))
+                        data = (((data + " M ") + (OfficePresetShapes.num((curX / w)))) + "," + (OfficePresetShapes.num((curY / h))))
+                    }
+                }
+                if (op == "l") {
+                    if (nt >= 3) {
+                        curX = (OfficePresetShapes.coord(g (itemAt tk 1) sx))
+                        curY = (OfficePresetShapes.coord(g (itemAt tk 2) sy))
+                        data = (((data + " L ") + (OfficePresetShapes.num((curX / w)))) + "," + (OfficePresetShapes.num((curY / h))))
+                    }
+                }
+                if (op == "c") {
+                    if (nt >= 7) {
+                        def c1x:double (OfficePresetShapes.coord(g (itemAt tk 1) sx))
+                        def c1y:double (OfficePresetShapes.coord(g (itemAt tk 2) sy))
+                        def c2x:double (OfficePresetShapes.coord(g (itemAt tk 3) sx))
+                        def c2y:double (OfficePresetShapes.coord(g (itemAt tk 4) sy))
+                        curX = (OfficePresetShapes.coord(g (itemAt tk 5) sx))
+                        curY = (OfficePresetShapes.coord(g (itemAt tk 6) sy))
+                        data = (data + " C " + (OfficePresetShapes.num((c1x / w))) + "," + (OfficePresetShapes.num((c1y / h))) + " " + (OfficePresetShapes.num((c2x / w))) + "," + (OfficePresetShapes.num((c2y / h))) + " " + (OfficePresetShapes.num((curX / w))) + "," + (OfficePresetShapes.num((curY / h))))
+                    }
+                }
+                if (op == "q") {
+                    if (nt >= 5) {
+                        def qx:double (OfficePresetShapes.coord(g (itemAt tk 1) sx))
+                        def qy:double (OfficePresetShapes.coord(g (itemAt tk 2) sy))
+                        curX = (OfficePresetShapes.coord(g (itemAt tk 3) sx))
+                        curY = (OfficePresetShapes.coord(g (itemAt tk 4) sy))
+                        data = (data + " Q " + (OfficePresetShapes.num((qx / w))) + "," + (OfficePresetShapes.num((qy / h))) + " " + (OfficePresetShapes.num((curX / w))) + "," + (OfficePresetShapes.num((curY / h))))
+                    }
+                }
+                if (op == "a") {
+                    if (nt >= 5) {
+                        def wR:double (OfficePresetShapes.coord(g (itemAt tk 1) sx))
+                        def hR:double (OfficePresetShapes.coord(g (itemAt tk 2) sy))
+                        def stA:double (OfficeGeomFormula.valueOf(g (itemAt tk 3)))
+                        def swA:double (OfficeGeomFormula.valueOf(g (itemAt tk 4)))
+                        def seg:string (OfficePresetShapes.arcData(curX curY wR hR stA swA w h))
+                        data = (data + seg)
+                        def endPt:[double] (OfficePresetShapes.arcEnd(curX curY wR hR stA swA))
+                        curX = (itemAt endPt 0)
+                        curY = (itemAt endPt 1)
+                    }
+                }
+                if (op == "z") {
+                    data = (data + " Z")
+                    closed = true
+                }
+            }
+            i = (i + 1)
+        }
+        if open {
+            OfficePresetShapes.pushPath(out data fill stroke closed)
+        }
+        return out
+    }
+
+    ; The rectangle a preset says its text goes in, in the unit box. A callout
+    ; states one that is inside its bubble rather than inside its bounding box,
+    ; which is the difference between words in the balloon and words across the
+    ; tail. Four numbers — left, top, right, bottom — or an empty list when the
+    ; shape says nothing and the whole box is the answer.
+    fn textRectFor:[double] (name:string w:double h:double adjNames:[string] adjValues:[double]) {
+        def out:[double]
+        def idx:int (this.indexOfName(name))
+        if (idx < 0) {
+            return out
+        }
+        if (w <= 0.0) {
+            return out
+        }
+        if (h <= 0.0) {
+            return out
+        }
+        def g:GeomGuides (this.guidesFor(name w h adjNames adjValues))
+        def i:int (itemAt starts idx)
+        def stop:int (itemAt ends idx)
+        while (i < stop) {
+            def ln:string (itemAt lines i)
+            if ((OfficePresetShapes.isKind(ln 82)) == true) {
+                def tk:[string] (OfficeGeomFormula.words(ln))
+                if ((array_length tk) >= 5) {
+                    push out ((OfficeGeomFormula.valueOf(g (itemAt tk 1))) / w)
+                    push out ((OfficeGeomFormula.valueOf(g (itemAt tk 2))) / h)
+                    push out ((OfficeGeomFormula.valueOf(g (itemAt tk 3))) / w)
+                    push out ((OfficeGeomFormula.valueOf(g (itemAt tk 4))) / h)
+                    return out
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The names of a shape's adjustments, so a caller can tell which of the
+    ; document's `gd` entries belong to it and what they default to.
+    fn adjNamesOf:[string] (name:string) {
+        def out:[string]
+        def idx:int (this.indexOfName(name))
+        if (idx < 0) {
+            return out
+        }
+        def i:int (itemAt starts idx)
+        def stop:int (itemAt ends idx)
+        while (i < stop) {
+            def ln:string (itemAt lines i)
+            if ((OfficePresetShapes.isKind(ln 65)) == true) {
+                def tk:[string] (OfficeGeomFormula.words(ln))
+                if ((array_length tk) >= 3) {
+                    push out (itemAt tk 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- the small parts ------------------------------------------------------
+
+    sfn pushPath:void (out:[GeomPath] data:string fill:string stroke:boolean closed:boolean) {
+        if ((strlen data) < 3) {
+            return
+        }
+        def p (new GeomPath())
+        def parser (new SVGPathParser())
+        parser.parse(data)
+        def rings:[PathRing] (parser.flattenRingsPlain(16))
+        def kept:[PathRing]
+        def all:[double]
+        def i:int 0
+        while (i < (array_length rings)) {
+            def r:PathRing (itemAt rings i)
+            ; Two points is a real contour: `line`, `chord`,
+            ; `straightConnector1` and the leader of every callout are all one
+            ; segment. Demanding three drops them, and a dropped path is a
+            ; shape that falls back to a rectangle — the failure this exists
+            ; to end.
+            if ((array_length r.pts) >= 4) {
+                push kept r
+                def k:int 0
+                while (k < (array_length r.pts)) {
+                    push all (itemAt r.pts k)
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length kept) == 0) {
+            return
+        }
+        p.rings = kept
+        p.pts = all
+        p.fill = fill
+        p.stroke = stroke
+        p.closed = closed
+        push out p
+    }
+
+    ; A record's kind is its first character followed by a space. Checking the
+    ; space too is what keeps `A` from matching a path command and `P` from
+    ; matching a point.
+    sfn isKind:boolean (ln:string kind:int) {
+        if ((strlen ln) < 2) {
+            return false
+        }
+        if ((charAt ln 0) != kind) {
+            return false
+        }
+        return ((charAt ln 1) == 32)
+    }
+
+    ; A coordinate: a guide, an adjustment or a literal, brought into the
+    ; shape's box by the path's own scale.
+    sfn coord:double (g:GeomGuides tok:string scale:double) {
+        return ((OfficeGeomFormula.valueOf(g tok)) * scale)
+    }
+
+    ; The formula part of a `G name op a b c` record — everything after the
+    ; name. Taken by position rather than rejoined from the split, because the
+    ; published definitions contain double spaces and rejoining would change
+    ; what the evaluator sees.
+    sfn after:string (ln:string name:string) {
+        def at:int (indexOf ln (" " + name + " "))
+        if (at < 0) {
+            return ""
+        }
+        return (substring ln ((at + (strlen name)) + 2) (strlen ln))
+    }
+
+    ; A number the SVG path parser will read back as the same number.
+    ;
+    ; Rounded on the magnitude with the sign put back, because `to_int` FLOORS:
+    ; rounding a negative by adding a half rounds away from zero twice, and
+    ; -0.25 comes out -0.250001. The same shape of bug the JPEG quantizer had.
+    sfn num:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def mag:double v
+        if neg {
+            mag = (0.0 - v)
+        }
+        def r:int (to_int ((mag * 1000000.0) + 0.5))
+        def back:double ((to_double r) / 1000000.0)
+        if neg {
+            back = (0.0 - back)
+        }
+        return (to_string back)
+    }
+
+    ; DrawingML's arc is stated from where the pen IS, as two radii and two
+    ; angles; SVG states it as two radii and where the pen ENDS, plus which of
+    ; the four arcs between them is meant. This is that conversion, and it is
+    ; the same one the custGeom reader does — an arc that skips it comes out as
+    ; a straight line, which is a circle drawn as a polygon of one side.
+    sfn arcEnd:[double] (cx:double cy:double wR:double hR:double stAng:double swAng:double) {
+        def out:[double]
+        def st:double (OfficeGeomFormula.toRadians(stAng))
+        def en:double (OfficeGeomFormula.toRadians((stAng + swAng)))
+        def ccx:double (cx - (wR * (cos st)))
+        def ccy:double (cy - (hR * (sin st)))
+        push out (ccx + (wR * (cos en)))
+        push out (ccy + (hR * (sin en)))
+        return out
+    }
+
+    sfn arcData:string (cx:double cy:double wR:double hR:double stAng:double swAng:double w:double h:double) {
+        ; Cut into pieces of at most a quarter turn.
+        ;
+        ; A DrawingML arc may sweep a full circle — `a wd2 hd2 cd2 21600000`
+        ; is how a smiley face states its head — and an SVG arc whose start
+        ; and end are the same point draws NOTHING. So the face was missing,
+        ; the sun had no disc, and the scrolls came apart; nine shapes in all,
+        ; and each one still had points, so nothing counted them as broken.
+        ;
+        ; Splitting also disposes of the large-arc flag: no piece exceeds half
+        ; a turn, so it is always zero and only the direction has to be got
+        ; right.
+        def quarter:double 5400000.0
+        def span:double (fabs swAng)
+        def n:int 1
+        if (span > quarter) {
+            n = (to_int (span / quarter))
+            def used:double ((to_double n) * quarter)
+            if (span > (used + 0.0001)) {
+                n = (n + 1)
+            }
+        }
+        def step:double (swAng / (to_double n))
+        def st:double (OfficeGeomFormula.toRadians(stAng))
+        def ccx:double (cx - (wR * (cos st)))
+        def ccy:double (cy - (hR * (sin st)))
+        def rx:double ((fabs wR) / w)
+        def ry:double ((fabs hR) / h)
+        def sweep:string "0"
+        if (step > 0.0) {
+            sweep = "1"
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def a1:double (stAng + (step * (to_double (i + 1))))
+            def r1:double (OfficeGeomFormula.toRadians(a1))
+            def ex:double (ccx + (wR * (cos r1)))
+            def ey:double (ccy + (hR * (sin r1)))
+            out = (out + " A " + (OfficePresetShapes.num(rx)) + "," + (OfficePresetShapes.num(ry)) + " 0 0 " + sweep + " " + (OfficePresetShapes.num((ex / w))) + "," + (OfficePresetShapes.num((ey / h))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn splitLines:[string] (text:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                push out cur
+                cur = ""
+            } {
+                if (c != 13) {
+                    cur = (cur + (EVGCodepoint.toStr(c)))
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+}

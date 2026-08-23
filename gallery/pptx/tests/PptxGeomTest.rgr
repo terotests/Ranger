@@ -18,12 +18,23 @@
 
 Import "../src/PptxGeom.rgr"
 Import "../src/PptxXml.rgr"
+Import "../src/PptxToEvg.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxModel.rgr"
+Import "../src/PptxApp.rgr"
 
 class PptxGeomTest {
     def passed:int 0
     def failed:int 0
+    ; The catalogue, opened once. Every shape question in this file is now
+    ; asked of it, because it is what answers them in the painter.
+    def cat:OfficePresetShapes (new OfficePresetShapes)
+    ; The converter the painting checks draw through — the app's, with the
+    ; catalogue in it. A bare `new PptxToEvg` has no catalogue and correctly
+    ; falls back to a rectangle for every preset, which is the right answer
+    ; for a host that never loaded one and the wrong subject for a test about
+    ; how shapes are painted.
+    def conv:PptxToEvg (new PptxToEvg())
 
     sfn main:void () {
         def t (new PptxGeomTest())
@@ -42,12 +53,23 @@ class PptxGeomTest {
 
     fn run:void () {
         print "=== PptxGeomTest ==="
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        cat = app.view.converter.presets
+        conv = app.view.converter
+        this.check("the preset catalogue is open" cat.ready)
         this.testEllipse()
         this.testPresets()
+        this.testOutlineFollowsThePath()
         this.testNumbers()
         this.testCustGeomLines()
         this.testCustGeomCubic()
         this.testCustGeomArc()
+        this.testOpenPathIsAStroke()
+        this.testEveryPresetDraws()
+        this.testPresetPaintRules()
+        this.testCatalogueAgreesWithTheHandTable()
+        this.testAHoleIsAHole()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -59,7 +81,9 @@ class PptxGeomTest {
 
     fn testEllipse:void () {
         print "--- the ellipse is an ellipse ---"
-        def pts:[double] (PptxGeom.unitPreset("ellipse"))
+        def epaths:[GeomPath] (this.unitPaths("ellipse"))
+        def ep:GeomPath (itemAt epaths 0)
+        def pts:[double] ep.pts
         def n:int (idiv (array_length pts) 2)
         this.check("it has enough points to be round" (n >= 32))
         ; Every point sits on the unit circle about (0.5, 0.5), to within a
@@ -96,16 +120,87 @@ class PptxGeomTest {
         this.check("it fills the box down" ((minY < 0.001) && (maxY > 0.999)))
     }
 
+    ; How many of a path's corners sit on the given y.
+    sfn cornersAtY:int (pts:[double] want:double) {
+        def n:int 0
+        def i:int 0
+        while (i < (idiv (array_length pts) 2)) {
+            if ((fabs ((itemAt pts ((i * 2) + 1)) - want)) < 0.001) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; A shape with a preset path and a line, drawn, and what the display list
+    ; came out holding.
+    ;
+    ; `kind 1` is the FRAME primitive — an axis-aligned rectangle outline. A
+    ; triangle must not produce one: it was filled as a polygon and then
+    ; outlined as its bounding box, so every triangle, diamond and funnel
+    ; stage in every deck wore a rectangle it did not have. On a seven-stage
+    ; funnel that is seven boxes drawn over the thing they are supposed to be
+    ; tracing.
+    fn drawPreset:EVGDisplayList (preset:string) {
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.preset = preset
+        sh.x = 10.0
+        sh.y = 10.0
+        sh.width = 100.0
+        sh.height = 60.0
+        sh.hasXfrm = true
+        sh.fill.isSet = true
+        sh.fill.srgb = "C83C3C"
+        sh.line.isSet = true
+        sh.line.srgb = "000000"
+        sh.lineWidthPt = 1.0
+        def slide (new PptxSlide())
+        push slide.shapes sh
+        def dl:EVGDisplayList (conv.slideToDisplayList(slide))
+        return dl
+    }
+
+    sfn countKind:int (dl:EVGDisplayList k:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == k) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn testOutlineFollowsThePath:void () {
+        print "--- an outline follows the shape, not its box ---"
+        def tri:EVGDisplayList (this.drawPreset("triangle"))
+        this.check("a triangle draws no rectangle outline"
+            ((PptxGeomTest.countKind(tri 1)) == 0))
+        def fun:EVGDisplayList (this.drawPreset("flowChartMerge"))
+        this.check("nor does a funnel stage" ((PptxGeomTest.countKind(fun 1)) == 0))
+        ; A rectangle still gets the frame primitive, which is the whole point
+        ; of having one: it knows about square corners and costs one command.
+        def box:EVGDisplayList (this.drawPreset("rect"))
+        this.check("a rectangle still uses the frame primitive"
+            ((PptxGeomTest.countKind(box 1)) > 0))
+    }
+
     fn testPresets:void () {
         print "--- the presets ---"
-        def names:[string] ([] _:string ( "triangle" "rtTriangle" "diamond" "parallelogram" "trapezoid" "pentagon" "hexagon" "octagon" "chevron" "homePlate" "star5" "rightArrow" "leftArrow" "upArrow" "downArrow" "plus" "flowChartTerminator" ))
+        def names:[string] ([] _:string ( "triangle" "rtTriangle" "diamond" "parallelogram" "trapezoid" "pentagon" "hexagon" "octagon" "chevron" "homePlate" "star5" "rightArrow" "leftArrow" "upArrow" "downArrow" "plus" "flowChartTerminator" "flowChartMerge" "flowChartExtract" "flowChartDecision" "flowChartConnector" "flowChartInputOutput" "flowChartPreparation" "flowChartManualOperation" "flowChartManualInput" ))
         def allInside:boolean true
         def allClosed:boolean true
         def i:int 0
         while (i < (array_length names)) {
             def nm:string (itemAt names i)
-            this.check((nm + " is a path shape") (PptxGeom.needsPath(nm)))
-            def pts:[double] (PptxGeom.unitPreset(nm))
+            this.check((nm + " is a shape the catalogue knows") (cat.has(nm)))
+            def nps:[GeomPath] (this.unitPaths(nm))
+            def np:GeomPath (itemAt nps 0)
+            def pts:[double] np.pts
             def n:int (idiv (array_length pts) 2)
             if (n < 3) {
                 allClosed = false
@@ -132,6 +227,40 @@ class PptxGeomTest {
         def rect:[double] (PptxGeom.unitPreset("rect"))
         this.check("rect still answers four corners" ((array_length rect) == 8))
         this.check("an unknown preset falls back to the box" ((array_length (PptxGeom.unitPreset("smileyFace"))) == 8))
+
+        ; The funnel presets, by name and by shape.
+        ;
+        ; A real deck came in with a seven-stage funnel built entirely from
+        ; `flowChartMerge`, and every stage fell back to a rectangle — so the
+        ; funnel was a stack of boxes, and nothing anywhere said a shape was
+        ; missing. Falling back to a rectangle is the right thing to do with a
+        ; preset nobody has drawn yet and a terrible answer when the shape IS
+        ; the picture.
+        def mergePaths:[GeomPath] (this.unitPaths("flowChartMerge"))
+        def mp:GeomPath (itemAt mergePaths 0)
+        def merge:[double] mp.pts
+        this.check("merge is three corners" ((array_length merge) == 6))
+        ; Which corner the definition starts at is its own business, so the
+        ; check is on the shape: one vertex alone at the bottom, centred, and
+        ; the other two along the top.
+        this.check("with its point at the bottom" ((PptxGeomTest.countAtY(merge 1.0)) == 1))
+        this.check("and centred" (PptxGeomTest.hasVertex(merge 0.5 1.0)))
+        this.check("with its base along the top" ((PptxGeomTest.countAtY(merge 0.0)) == 2))
+        def extractPaths:[GeomPath] (this.unitPaths("flowChartExtract"))
+        def xp:GeomPath (itemAt extractPaths 0)
+        def extract:[double] xp.pts
+        this.check("extract is three corners" ((array_length extract) == 6))
+        this.check("with its point at the top" ((PptxGeomTest.countAtY(extract 0.0)) == 1))
+        this.check("and centred too" (PptxGeomTest.hasVertex(extract 0.5 0.0)))
+        this.check("with its base along the bottom" ((PptxGeomTest.countAtY(extract 1.0)) == 2))
+        ; They point OPPOSITE ways, which is the whole difference between the
+        ; two symbols and the sort of thing that is easy to copy wrong. A
+        ; downward triangle has its two corners along the TOP edge and one
+        ; below; an upward one is the other way about.
+        def mergeTop:int (PptxGeomTest.cornersAtY(merge 0.0))
+        def extractTop:int (PptxGeomTest.cornersAtY(extract 0.0))
+        this.check("merge has two corners along the top" (mergeTop == 2))
+        this.check("and extract only one" (extractTop == 1))
     }
 
     fn testNumbers:void () {
@@ -144,6 +273,787 @@ class PptxGeomTest {
         this.check("a tiny number has no exponent" ((indexOf tiny "e") < 0))
         def neg:string (PptxGeom.pathNum(0.0 - 0.25))
         this.check("negatives survive" (neg == "-0.25"))
+    }
+
+
+    ; A drawn line is a custom path that does not close, and a shape that
+    ; states `<a:noFill/>` is not asking to be filled. Both of those were
+    ; being ignored, and together they turned every hand-drawn stroke in a
+    ; deck into a solid grey blob over the slide it was drawn on.
+    fn testOpenPathIsAStroke:void () {
+        print "--- an open custom path is a stroke, not an area ---"
+        def openSh:PptxShape (this.parseGeom("<a:moveTo><a:pt x=\"0\" y=\"0\"/></a:moveTo><a:lnTo><a:pt x=\"100\" y=\"40\"/></a:lnTo><a:lnTo><a:pt x=\"40\" y=\"100\"/></a:lnTo>"))
+        this.check("a path with no close is a path" openSh.hasPath)
+        this.check("and it is recorded as open" (openSh.pathClosed == false))
+        def shut:PptxShape (this.parseGeom("<a:moveTo><a:pt x=\"0\" y=\"0\"/></a:moveTo><a:lnTo><a:pt x=\"100\" y=\"40\"/></a:lnTo><a:lnTo><a:pt x=\"40\" y=\"100\"/></a:lnTo><a:close/>"))
+        this.check("and one with a close is closed" shut.pathClosed)
+
+        ; The painter, which is where it went wrong.
+        ;
+        ; A stroke reaches the display list as polygons too — that is how a
+        ; thick line is drawn — so counting polygons cannot tell a fill from a
+        ; stroke. The COLOUR can: everything a stroke draws is the line's
+        ; colour, and a fill is by definition something else. So "nothing was
+        ; filled" is "nothing was drawn in any colour but the line's".
+        def line:PptxShape (this.strokeShape(openSh))
+        def dl:EVGDisplayList (this.emit(line))
+        this.check("an open path with a line draws something" ((array_length dl.cmds) > 0))
+        this.check("all of it in the line's own colour" ((PptxGeomTest.notColored(dl 19 56 54)) == 0))
+        ; The placeholder grey a path with no fill used to get. Named, because
+        ; it is the exact thing that was on the slide.
+        this.check("and none of it in the placeholder grey" ((PptxGeomTest.colored(dl 180 180 190)) == 0))
+
+        ; The same path, closed and filled, is an area again — this must not
+        ; have turned every filled freeform into an outline.
+        def area:PptxShape (this.strokeShape(shut))
+        area.noFill = false
+        area.fill.isSet = true
+        area.fill.srgb = "E8B8FA"
+        def adl:EVGDisplayList (this.emit(area))
+        this.check("a closed path with a fill is still filled" ((PptxGeomTest.colored(adl 232 184 250)) > 0))
+
+        ; A closed path that says `<a:noFill/>` is an outline: the border
+        ; follows the shape and the middle of it is left alone.
+        def ring:PptxShape (this.strokeShape(shut))
+        def rdl:EVGDisplayList (this.emit(ring))
+        this.check("a closed path with noFill is not filled" ((PptxGeomTest.notColored(rdl 19 56 54)) == 0))
+        this.check("but its outline is still drawn" ((array_length rdl.cmds) > 0))
+    }
+
+    ; The shape as a deck states a drawn line: no fill of its own, an explicit
+    ; noFill, and a 2.25pt dark teal line — which is what the deck this came
+    ; from actually contains.
+    fn strokeShape:PptxShape (src:PptxShape) {
+        def sh (new PptxShape())
+        sh.hasPath = src.hasPath
+        sh.pathUnit = src.pathUnit
+        sh.pathClosed = src.pathClosed
+        sh.width = 200.0
+        sh.height = 100.0
+        sh.noFill = true
+        sh.lineWidthPt = 2.25
+        sh.line.isSet = true
+        sh.line.srgb = "133836"
+        return sh
+    }
+
+    fn emit:EVGDisplayList (sh:PptxShape) {
+        def conv (new PptxToEvg)
+        def dl (new EVGDisplayList)
+        conv.emitShape(dl sh 0.0 0.0)
+        return dl
+    }
+
+    sfn colored:int (dl:EVGDisplayList r:int g:int b:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn notColored:int (dl:EVGDisplayList r:int g:int b:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+            } {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+
+    ; Every preset ST_ShapeType names, through the real converter.
+    ;
+    ; This is the check the whole preset-shape effort exists for, and it has
+    ; to be a sweep rather than a list, because the failure it guards against
+    ; is SILENT: a shape the reader does not know is drawn as a filled box in
+    ; the shape's own colour. Nothing errors, nothing is missing, and a
+    ; `star7` reads as a deliberate red square. Only counting finds that.
+    ;
+    ; 34 of the 187 used to be hand-written polygons and the other 153 were
+    ; rectangles. Now every one of them comes from the specification's own
+    ; definition, through the guide evaluator, and the two that are still
+    ; drawn by the rounded-rectangle primitive are drawn by it on purpose —
+    ; it knows about gradients, shadows and corner radii in a way a polygon
+    ; does not, and between them they are most of the shapes in most decks.
+    fn testEveryPresetDraws:void () {
+        print "--- every one of the 187 preset geometries draws ---"
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def conv:PptxToEvg app.view.converter
+        this.check("the catalogue is loaded" (conv.presetsReady()))
+        def cat:OfficePresetShapes conv.presets
+        this.check("with all 187 in it" ((cat.count()) == 187))
+
+        def flat:int 0
+        def firstFlat:string ""
+        def empty:int 0
+        def firstEmpty:string ""
+        def i:int 0
+        while (i < (cat.count())) {
+            def nm:string (cat.nameAt(i))
+            def sh (new PptxShape())
+            sh.preset = nm
+            sh.width = 200.0
+            sh.height = 120.0
+            sh.fill.isSet = true
+            sh.fill.srgb = "3366CC"
+            ; A line as well as a fill, because a third of these shapes are
+            ; lines: a connector, a bracket and every callout's leader have
+            ; nothing to fill, and a shape with no outline is correctly
+            ; invisible. The general case is a shape with both.
+            sh.line.isSet = true
+            sh.line.srgb = "223344"
+            sh.lineWidthPt = 1.0
+            def dl (new EVGDisplayList)
+            conv.emitShape(dl sh 0.0 0.0)
+            def polys:int 0
+            def k:int 0
+            while (k < (array_length dl.cmds)) {
+                def cm:EVGDrawCmd (itemAt dl.cmds k)
+                if (cm.kind == 6) {
+                    polys = (polys + 1)
+                }
+                k = (k + 1)
+            }
+            if ((array_length dl.cmds) == 0) {
+                empty = (empty + 1)
+                if ((strlen firstEmpty) == 0) {
+                    firstEmpty = nm
+                }
+            }
+            if (polys == 0) {
+                ; The two the primitive draws are not a failure; anything else
+                ; reaching the painter without a polygon is a shape that came
+                ; out as a box.
+                if ((PptxToEvg.drawnAsBox(nm)) == false) {
+                    flat = (flat + 1)
+                    if ((strlen firstFlat) == 0) {
+                        firstFlat = nm
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.check(("every preset draws something (first empty: " + firstEmpty + ")") (empty == 0))
+        this.check(("and none of them comes out as a plain box (first: " + firstFlat + ")") (flat == 0))
+
+        ; The shape that started this, checked for what makes it a star.
+        def star (new PptxShape())
+        star.preset = "star7"
+        star.width = 200.0
+        star.height = 200.0
+        star.fill.isSet = true
+        star.fill.srgb = "F6503C"
+        def sdl (new EVGDisplayList)
+        conv.emitShape(sdl star 0.0 0.0)
+        def sc:EVGDrawCmd (itemAt sdl.cmds 0)
+        this.check("star7 is a polygon" (sc.kind == 6))
+        this.check("with fourteen vertices" ((idiv (array_length sc.pts) 2) == 14))
+        this.check("in the colour the deck asked for" (((sc.r == 246) && (sc.g == 80)) && (sc.b == 60)))
+
+        ; And the two that stay on the primitive really do stay on it: a
+        ; rounded rectangle has to keep its corner radius, which a polygon
+        ; would have to approximate.
+        def rr (new PptxShape())
+        rr.preset = "roundRect"
+        rr.width = 200.0
+        rr.height = 100.0
+        rr.fill.isSet = true
+        rr.fill.srgb = "3366CC"
+        def rdl (new EVGDisplayList)
+        conv.emitShape(rdl rr 0.0 0.0)
+        def rc:EVGDrawCmd (itemAt rdl.cmds 0)
+        this.check("a roundRect is still a rounded rectangle" (rc.kind == 0))
+        this.check("with a corner radius" (rc.radius > 0.0))
+    }
+
+    ; A preset says how each of its paths is painted, and the deck's own
+    ; `<a:noFill/>` outranks all of it.
+    fn testPresetPaintRules:void () {
+        print "--- a preset's own fill and stroke instructions ---"
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def conv:PptxToEvg app.view.converter
+
+        ; A cube is one colour with one face darker and one lighter. Drawing
+        ; all three the same draws a hexagon.
+        def cube (new PptxShape())
+        cube.preset = "cube"
+        cube.width = 150.0
+        cube.height = 150.0
+        cube.fill.isSet = true
+        cube.fill.srgb = "808080"
+        def cdl (new EVGDisplayList)
+        conv.emitShape(cdl cube 0.0 0.0)
+        def shades:int (PptxGeomTest.distinctFills(cdl))
+        this.check(("a cube is drawn in more than one shade (" + (to_string shades) + ")") (shades >= 2))
+
+        ; A shape that states no fill is not filled, whatever its preset says
+        ; about the paths.
+        def hollow (new PptxShape())
+        hollow.preset = "star7"
+        hollow.width = 150.0
+        hollow.height = 150.0
+        hollow.noFill = true
+        hollow.line.isSet = true
+        hollow.line.srgb = "133836"
+        hollow.lineWidthPt = 2.0
+        def hdl (new EVGDisplayList)
+        conv.emitShape(hdl hollow 0.0 0.0)
+        this.check("a noFill star is drawn in its line colour only"
+                   ((PptxGeomTest.anyColored(hdl 246 80 60)) == false))
+        this.check("and it is drawn" ((array_length hdl.cmds) > 0))
+
+        ; A shape with no line of its own gets no outline, whatever the
+        ; preset's paths say — `stroke="true"` is permission, not an order.
+        ; This put a black box round every text frame in a deck.
+        def plain (new PptxShape())
+        plain.preset = "ellipse"
+        plain.width = 150.0
+        plain.height = 150.0
+        plain.fill.isSet = true
+        plain.fill.srgb = "3366CC"
+        def pdl (new EVGDisplayList)
+        conv.emitShape(pdl plain 0.0 0.0)
+        this.check("a shape with no line is drawn without one"
+                   ((PptxGeomTest.anyColored(pdl 60 60 70)) == false))
+    }
+
+    sfn distinctFills:int (dl:EVGDisplayList) {
+        def seen:[int]
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 6) {
+                def key:int (((c.r * 65536) + (c.g * 256)) + c.b)
+                def found:boolean false
+                def k:int 0
+                while (k < (array_length seen)) {
+                    if ((itemAt seen k) == key) {
+                        found = true
+                    }
+                    k = (k + 1)
+                }
+                if (found == false) {
+                    push seen key
+                }
+            }
+            i = (i + 1)
+        }
+        return (array_length seen)
+    }
+
+    sfn anyColored:boolean (dl:EVGDisplayList r:int g:int b:int) {
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+
+    ; What the hand-written table drew, and what the specification draws.
+    ;
+    ; This is the check that has to pass before the table can be deleted, and
+    ; it is a comparison rather than a snapshot: the two do not agree point
+    ; for point and should not. A hand-written ellipse is a Bezier flattened
+    ; one way and the specification's is an arc flattened another, so they
+    ; differ by a vertex here and a fraction of a percent there.
+    ;
+    ; What has to agree is the SHAPE — where it sits in its box and how much
+    ; of the box it covers. A preset that came out of the catalogue a
+    ; different size, in a different place, or the wrong way up would be a
+    ; regression hidden behind 153 new shapes that all look plausible.
+    fn testCatalogueAgreesWithTheHandTable:void () {
+        print "--- the catalogue draws what the hand table drew ---"
+        ; Split by whether the shape has an adjustment, because the two
+        ; groups mean different things.
+        ;
+        ; A shape with NO adjustment is pure geometry — a diamond, an
+        ; ellipse, the flowchart set. The two drawings of it must agree, and a
+        ; disagreement is a regression.
+        ;
+        ; A shape WITH one is where the hand table had to guess a proportion.
+        ; Nine of them guessed differently from the file's own default, and
+        ; the file is right: `plus` was drawn with arms a third of the box and
+        ; the specification says a quarter of the SHORTER SIDE, which is also
+        ; why the hand-drawn one had a fat bar when the box was wide. Those
+        ; are expected to differ and are checked for still being the same
+        ; shape rather than the same size.
+        def fixedCompared:int 0
+        def fixedDiffer:int 0
+        def fixedWorstName:string ""
+        def fixedWorst:double 0.0
+        def adjCompared:int 0
+        def adjDiffer:int 0
+        def adjWorstName:string ""
+        def adjWorst:double 0.0
+        def noAdjN:[string]
+        def noAdjV:[double]
+        def i:int 0
+        while (i < (cat.count())) {
+            def nm:string (cat.nameAt(i))
+            def old:string (PptxGeomTest.handTable(nm))
+            if ((strlen old) > 0) {
+                def a:[double] (PptxGeom.flattenData(old))
+                def paths:[GeomPath] (cat.pathsFor(nm 200.0 200.0 noAdjN noAdjV))
+                def b:[double]
+                if ((array_length paths) > 0) {
+                    def p0:GeomPath (itemAt paths 0)
+                    b = p0.pts
+                }
+                def d:double (PptxGeomTest.shapeDistance(a b))
+                def adjustable:boolean ((array_length (cat.adjNamesOf(nm))) > 0)
+                if adjustable {
+                    adjCompared = (adjCompared + 1)
+                    if (d > adjWorst) {
+                        adjWorst = d
+                        adjWorstName = nm
+                    }
+                    if (d > 0.3) {
+                        adjDiffer = (adjDiffer + 1)
+                        print (("    " + nm) + " is a different shape, not just different proportions: " + (to_string d))
+                    }
+                } {
+                    fixedCompared = (fixedCompared + 1)
+                    if (d > fixedWorst) {
+                        fixedWorst = d
+                        fixedWorstName = nm
+                    }
+                    ; Five percent of the box. Two flattenings of the same
+                    ; outline sit far inside that; a shape that moved, turned
+                    ; or changed size does not.
+                    if (d > 0.05) {
+                        fixedDiffer = (fixedDiffer + 1)
+                        print (("    " + nm) + " differs by " + (to_string d))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.check(("shapes with no adjustment were compared (" + (to_string fixedCompared) + ")") (fixedCompared > 10))
+        this.check(("and every one of them draws the same shape (worst: " + fixedWorstName + " " + (to_string fixedWorst) + ")") (fixedDiffer == 0))
+        this.check(("adjustable shapes were compared (" + (to_string adjCompared) + ")") (adjCompared > 10))
+        this.check(("and stay in their own box (worst: " + adjWorstName + " " + (to_string adjWorst) + ")") (adjDiffer == 0))
+
+        ; The improvement, stated rather than implied. `plus` was a fixed
+        ; outline with its arms a third of the box, whatever the box was. The
+        ; specification gives it an adjustment whose default insets the corners
+        ; by a quarter of the SHORTER side — so a wide plus keeps square
+        ; notches instead of stretching them, and a deck can change the
+        ; thickness. The hand table could do neither.
+        def wideBox:[GeomPath] (cat.pathsFor("plus" 400.0 100.0 noAdjN noAdjV))
+        def wp:GeomPath (itemAt wideBox 0)
+        def wideInset:double (PptxGeomTest.leftInsetOf(wp.pts))
+        ; The short side is 100, a quarter of it is 25, and 25 of 400 is a
+        ; sixteenth of the width.
+        this.check(("a wide plus insets by the short side, not the width (" + (to_string wideInset) + ")")
+                   ((fabs (wideInset - 0.0625)) < 0.002))
+        def sqBox:[GeomPath] (cat.pathsFor("plus" 200.0 200.0 noAdjN noAdjV))
+        def sp:GeomPath (itemAt sqBox 0)
+        def sqInset:double (PptxGeomTest.leftInsetOf(sp.pts))
+        this.check(("and in a square box that is a quarter of it (" + (to_string sqInset) + ")")
+                   ((fabs (sqInset - 0.25)) < 0.002))
+        ; And the deck's own value reaches the shape — the whole point of
+        ; reading adjustments at all.
+        def fat:[string]
+        def fatV:[double]
+        push fat "adj"
+        push fatV 45000.0
+        def fatter:[GeomPath] (cat.pathsFor("plus" 200.0 200.0 fat fatV))
+        def fp:GeomPath (itemAt fatter 0)
+        def fatInset:double (PptxGeomTest.leftInsetOf(fp.pts))
+        this.check(("a deck can thicken its arms (" + (to_string sqInset) + " -> " + (to_string fatInset) + ")")
+                   (fatInset > (sqInset + 0.1)))
+    }
+
+    ; How far the outline is inset from the left edge of its box: the
+    ; rightmost vertex still in the left half. For a plus that is the depth of
+    ; its corner notch, which is the number its adjustment controls.
+    sfn leftInsetOf:double (p:[double]) {
+        def left:double 0.0
+        def i:int 0
+        while ((i + 1) < (array_length p)) {
+            def x:double (itemAt p i)
+            if (x < 0.5) {
+                if (x > left) {
+                    left = x
+                }
+            }
+            i = (i + 2)
+        }
+        return left
+    }
+
+    ; How far apart two flattened outlines are, as a fraction of the box: the
+    ; largest disagreement among the four edges of the bounding box and the
+    ; area enclosed. Zero is identical, and it does not care how many points
+    ; either one used to say it.
+    sfn shapeDistance:double (a:[double] b:[double]) {
+        if ((array_length a) < 4) {
+            return 9.0
+        }
+        if ((array_length b) < 4) {
+            return 9.0
+        }
+        def ba:[double] (PptxGeomTest.boundsOf(a))
+        def bb:[double] (PptxGeomTest.boundsOf(b))
+        def worst:double 0.0
+        def i:int 0
+        while (i < 4) {
+            def diff:double ((itemAt ba i) - (itemAt bb i))
+            def d:double (fabs diff)
+            if (d > worst) {
+                worst = d
+            }
+            i = (i + 1)
+        }
+        def rawA:double (PptxGeomTest.areaOf(a))
+        def rawB:double (PptxGeomTest.areaOf(b))
+        def areaA:double (fabs rawA)
+        def areaB:double (fabs rawB)
+        def gap:double (areaA - areaB)
+        def da:double (fabs gap)
+        if (da > worst) {
+            worst = da
+        }
+        return worst
+    }
+
+    sfn boundsOf:[double] (p:[double]) {
+        def out:[double]
+        def minX:double 9.0
+        def minY:double 9.0
+        def maxX:double -9.0
+        def maxY:double -9.0
+        def i:int 0
+        while ((i + 1) < (array_length p)) {
+            def x:double (itemAt p i)
+            def y:double (itemAt p (i + 1))
+            if (x < minX) {
+                minX = x
+            }
+            if (x > maxX) {
+                maxX = x
+            }
+            if (y < minY) {
+                minY = y
+            }
+            if (y > maxY) {
+                maxY = y
+            }
+            i = (i + 2)
+        }
+        push out minX
+        push out minY
+        push out maxX
+        push out maxY
+        return out
+    }
+
+    ; The shoelace area of a closed outline. Signed, so the callers take the
+    ; magnitude — a shape wound the other way is the same shape.
+    sfn areaOf:double (p:[double]) {
+        def n:int (idiv (array_length p) 2)
+        if (n < 3) {
+            return 0.0
+        }
+        def sum:double 0.0
+        def i:int 0
+        while (i < n) {
+            def j:int ((i + 1) % n)
+            def x1:double (itemAt p (i * 2))
+            def y1:double (itemAt p ((i * 2) + 1))
+            def x2:double (itemAt p (j * 2))
+            def y2:double (itemAt p ((j * 2) + 1))
+            sum = (sum + ((x1 * y2) - (x2 * y1)))
+            i = (i + 1)
+        }
+        return (sum * 0.5)
+    }
+
+    ; The thirty-four presets that used to be written out by hand in
+    ; `PptxGeom`, frozen here.
+    ;
+    ; They are deleted from the source: all 187 come from the specification's
+    ; own definitions now, and keeping thirty-four hand-drawn ones would have
+    ; been thirty-four standing opportunities to disagree with it. But that is
+    ; exactly what makes them worth keeping HERE — an independent drawing of
+    ; the same shapes, by a different hand, that the catalogue has to keep
+    ; agreeing with. A guard that outlives the thing it was extracted from.
+    ;
+    ; Frozen means frozen: nothing here is ever adjusted to make a comparison
+    ; pass. If the catalogue disagrees, either the catalogue is wrong or the
+    ; hand-drawn one always was, and the answer is in the specification.
+    sfn handTable:string (preset:string) {
+        if (preset == "ellipse") {
+            return "M 1,0.5 A 0.5,0.5 0 1 1 0,0.5 A 0.5,0.5 0 1 1 1,0.5 Z"
+        }
+        if (preset == "triangle") {
+            return "M 0.5,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "rtTriangle") {
+            return "M 0,0 L 0,1 L 1,1 Z"
+        }
+        if (preset == "diamond") {
+            return "M 0.5,0 L 1,0.5 L 0.5,1 L 0,0.5 Z"
+        }
+        if (preset == "parallelogram") {
+            return "M 0.25,0 L 1,0 L 0.75,1 L 0,1 Z"
+        }
+        if (preset == "trapezoid") {
+            return "M 0.25,0 L 0.75,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "pentagon") {
+            return "M 0.5,0 L 1,0.38 L 0.81,1 L 0.19,1 L 0,0.38 Z"
+        }
+        if (preset == "hexagon") {
+            return "M 0.25,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0.25,1 L 0,0.5 Z"
+        }
+        if (preset == "octagon") {
+            return "M 0.29,0 L 0.71,0 L 1,0.29 L 1,0.71 L 0.71,1 L 0.29,1 L 0,0.71 L 0,0.29 Z"
+        }
+        if (preset == "chevron") {
+            return "M 0,0 L 0.65,0 L 1,0.5 L 0.65,1 L 0,1 L 0.35,0.5 Z"
+        }
+        if (preset == "homePlate") {
+            return "M 0,0 L 0.75,0 L 1,0.5 L 0.75,1 L 0,1 Z"
+        }
+        if (preset == "star5") {
+            return "M 0.5,0 L 0.62,0.35 L 1,0.38 L 0.7,0.62 L 0.81,1 L 0.5,0.78 L 0.19,1 L 0.3,0.62 L 0,0.38 L 0.38,0.35 Z"
+        }
+        if (preset == "rightArrow") {
+            return "M 0,0.3 L 0.6,0.3 L 0.6,0.05 L 1,0.5 L 0.6,0.95 L 0.6,0.7 L 0,0.7 Z"
+        }
+        if (preset == "leftArrow") {
+            return "M 1,0.3 L 0.4,0.3 L 0.4,0.05 L 0,0.5 L 0.4,0.95 L 0.4,0.7 L 1,0.7 Z"
+        }
+        if (preset == "upArrow") {
+            return "M 0.3,1 L 0.3,0.4 L 0.05,0.4 L 0.5,0 L 0.95,0.4 L 0.7,0.4 L 0.7,1 Z"
+        }
+        if (preset == "downArrow") {
+            return "M 0.3,0 L 0.3,0.6 L 0.05,0.6 L 0.5,1 L 0.95,0.6 L 0.7,0.6 L 0.7,0 Z"
+        }
+        if (preset == "plus") {
+            return "M 0.35,0 L 0.65,0 L 0.65,0.35 L 1,0.35 L 1,0.65 L 0.65,0.65 L 0.65,1 L 0.35,1 L 0.35,0.65 L 0,0.65 L 0,0.35 L 0.35,0.35 Z"
+        }
+        ; --- the flowchart set ---------------------------------------------
+        ;
+        ; Not decoration: these are how a deck draws a funnel, a decision tree
+        ; or a process. A real deck came in with a seven-stage funnel built
+        ; from `flowChartMerge`, and every stage of it fell back to a plain
+        ; rectangle — so the funnel was a stack of boxes and nothing said
+        ; anything was missing. An unknown preset drawing as a rectangle is
+        ; the right FALLBACK and a terrible answer when the shape is the
+        ; picture.
+        ;
+        ; The paths are the ECMA-376 definitions in the unit box.
+
+        ; A triangle pointing down: the flowchart "merge" symbol, and the
+        ; layer of every funnel ever drawn.
+        if (preset == "flowChartMerge") {
+            return "M 0,0 L 1,0 L 0.5,1 Z"
+        }
+        ; And pointing up: "extract".
+        if (preset == "flowChartExtract") {
+            return "M 0.5,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "flowChartDecision") {
+            return "M 0,0.5 L 0.5,0 L 1,0.5 L 0.5,1 Z"
+        }
+        if (preset == "flowChartConnector") {
+            return "M 1,0.5 A 0.5,0.5 0 1 1 0,0.5 A 0.5,0.5 0 1 1 1,0.5 Z"
+        }
+        ; Input/output is a parallelogram slanted by a fifth — not the same
+        ; slant as the `parallelogram` preset, which is a quarter.
+        if ((preset == "flowChartInputOutput") || (preset == "flowChartData")) {
+            return "M 0.2,0 L 1,0 L 0.8,1 L 0,1 Z"
+        }
+        if (preset == "flowChartPreparation") {
+            return "M 0.2,0 L 0.8,0 L 1,0.5 L 0.8,1 L 0.2,1 L 0,0.5 Z"
+        }
+        if (preset == "flowChartManualOperation") {
+            return "M 0,0 L 1,0 L 0.8,1 L 0.2,1 Z"
+        }
+        if (preset == "flowChartManualInput") {
+            return "M 0,0.2 L 1,0 L 1,1 L 0,1 Z"
+        }
+        if (preset == "flowChartTerminator") {
+            return "M 0.17,0 L 0.83,0 A 0.17,0.5 0 0 1 0.83,1 L 0.17,1 A 0.17,0.5 0 0 1 0.17,0 Z"
+        }
+        ; Brackets and braces are OPEN paths — they are a stroke, not a filled
+        ; area, which is what a shape with `noFill` and a line is.
+        if (preset == "leftBracket") {
+            return "M 1,0 L 0.25,0 L 0,0.12 L 0,0.88 L 0.25,1 L 1,1"
+        }
+        if (preset == "rightBracket") {
+            return "M 0,0 L 0.75,0 L 1,0.12 L 1,0.88 L 0.75,1 L 0,1"
+        }
+        if (preset == "leftBrace") {
+            return "M 1,0 L 0.62,0.06 L 0.62,0.44 L 0,0.5 L 0.62,0.56 L 0.62,0.94 L 1,1"
+        }
+        if (preset == "rightBrace") {
+            return "M 0,0 L 0.38,0.06 L 0.38,0.44 L 1,0.5 L 0.38,0.56 L 0.38,0.94 L 0,1"
+        }
+        if (preset == "line") {
+            return "M 0,0 L 1,1"
+        }
+        if (preset == "roundRect") {
+            return ""
+        }
+        return ""
+    }
+
+    ; A shape's paths in a square unit box, which is what the geometry checks
+    ; in this file are written against.
+    fn unitPaths:[GeomPath] (name:string) {
+        def n:[string]
+        def v:[double]
+        return (cat.pathsFor(name 200.0 200.0 n v))
+    }
+
+    sfn countAtY:int (p:[double] y:double) {
+        def n:int 0
+        def i:int 1
+        while (i < (array_length p)) {
+            def d:double ((itemAt p i) - y)
+            if ((fabs d) < 0.002) {
+                n = (n + 1)
+            }
+            i = (i + 2)
+        }
+        return n
+    }
+
+    sfn hasVertex:boolean (p:[double] x:double y:double) {
+        def i:int 0
+        while ((i + 1) < (array_length p)) {
+            def dx:double ((itemAt p i) - x)
+            def dy:double ((itemAt p (i + 1)) - y)
+            if (((fabs dx) < 0.002) && ((fabs dy) < 0.002)) {
+                return true
+            }
+            i = (i + 2)
+        }
+        return false
+    }
+
+
+    ; A hole is a hole, checked on the pixels.
+    ;
+    ; A shape with two contours — a donut, a block arc, the ring of
+    ; `noSmoking`, the glyph cut out of an action button's face — used to
+    ; reach the canvas as ONE flat point list, so the painter closed it as a
+    ; single polygon and invented an edge from the end of the first contour to
+    ; the start of the second. The middle got filled and a wedge that is in no
+    ; contour got left out; an action button came out with a pale triangle
+    ; across its face.
+    ;
+    ; Counting commands cannot see any of that — the commands were always
+    ; right. Only the pixels can.
+    fn testAHoleIsAHole:void () {
+        print "--- a hole is a hole ---"
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(200 200)
+        def sh (new PptxShape())
+        sh.preset = "donut"
+        sh.width = 120.0
+        sh.height = 120.0
+        sh.fill.isSet = true
+        sh.fill.srgb = "C83C3C"
+        def dl (new EVGDisplayList)
+        dl.addRect(0.0 0.0 200.0 200.0 (EVGColor.rgb(255 255 255)))
+        app.view.converter.emitShape(dl sh 20.0 20.0)
+        app.view.paintSoftCanvas(dl)
+        def px:buffer (app.view.raw())
+        ; The middle of a donut is its hole, so the page shows through.
+        def midR:int (PptxGeomTest.pixelAt(px 200 100 100))
+        this.check(("the middle of a donut is not filled (r=" + (to_string midR) + ")") (midR > 200))
+        ; And the ring itself is drawn, a third of the way out from the
+        ; centre — without this the check above would pass on a shape that
+        ; drew nothing at all.
+        def ringR:int (PptxGeomTest.pixelAt(px 200 100 30))
+        this.check(("but the ring around it is (r=" + (to_string ringR) + ")") (ringR < 220))
+
+        ; The shape the report was about: an action button's face, with its
+        ; glyph cut out of it as a second contour. The corner of the face has
+        ; to be painted — that is where the pale wedge appeared.
+        def btn (new PptxShape())
+        btn.preset = "actionButtonBackPrevious"
+        btn.width = 120.0
+        btn.height = 120.0
+        btn.fill.isSet = true
+        btn.fill.srgb = "C83C3C"
+        def bdl (new EVGDisplayList)
+        bdl.addRect(0.0 0.0 200.0 200.0 (EVGColor.rgb(255 255 255)))
+        app.view.converter.emitShape(bdl btn 20.0 20.0)
+        app.view.paintSoftCanvas(bdl)
+        def bpx:buffer (app.view.raw())
+        ; Counted rather than sampled. The missing wedge is a region, not a
+        ; point, and its position depends on which vertex each contour happens
+        ; to start at — so the test that catches it has to measure how much of
+        ; the face got painted, not whether one chosen pixel did.
+        ; The face is the shape's red and the glyph a darkened red, so
+        ; between them they cover the whole button. Counting anything that is
+        ; not the page behind it says that without depending on which of the
+        ; two a given pixel belongs to.
+        def painted:int (PptxGeomTest.countPainted(bpx 200 20 20 120 120))
+        def area:int (120 * 120)
+        ; Four fifths, not all of it: the shape's outline runs along the very
+        ; edge of the box and a scanline fill does not reach the outermost
+        ; row and column, so a whole button measures about nine tenths. With
+        ; the contours run together it measures about two thirds — the wedge
+        ; is a fifth of the face, which is why it was the thing anyone looked
+        ; at the picture noticed first.
+        this.check(("an action button's face is painted, wedge and all (" + (to_string painted) + " of " + (to_string area) + ")")
+                   (painted > (idiv (area * 8) 10)))
+    }
+
+    ; How many pixels of a rectangle are anything other than the white page
+    ; behind the shape. Enough to tell a face with a piece missing from a
+    ; whole one, whatever colour each piece of it is.
+    sfn countPainted:int (px:buffer w:int x0:int y0:int bw:int bh:int) {
+        def n:int 0
+        def y:int y0
+        while (y < (y0 + bh)) {
+            def x:int x0
+            while (x < (x0 + bw)) {
+                if ((PptxGeomTest.pixelAt(px w x y)) < 250) {
+                    n = (n + 1)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return n
+    }
+
+    ; The red channel of one pixel of an RGBA buffer.
+    sfn pixelAt:int (px:buffer w:int x:int y:int) {
+        def off:int (((y * w) + x) * 4)
+        if (off < 0) {
+            return 0
+        }
+        if ((off + 3) >= (buffer_length px)) {
+            return 0
+        }
+        return (buffer_get px off)
     }
 
     fn parseGeom:PptxShape (inner:string) {

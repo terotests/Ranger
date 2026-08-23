@@ -117,6 +117,12 @@ class PptxToolbar extends EVGToolbar {
 
     ; The one button that shows a value rather than a picture. The strip
     ; cannot work this out — it has never heard of a slide.
+    ; Whether the text under the caret is bold or italic. The strip cannot
+    ; work this out — it has never heard of a run — so the app puts the
+    ; answers here before the strip is painted, the same way `editOn` arrives.
+    def boldOn:boolean false
+    def italicOn:boolean false
+
     fn refresh:void (index:int count:int) {
         def i:int 0
         while (i < (array_length items)) {
@@ -130,6 +136,16 @@ class PptxToolbar extends EVGToolbar {
             }
             if (t.command == "view.rtl") {
                 t.pressed = uiRtl
+            }
+            ; Bold and Italic are toggles and have to LOOK like it. They were
+            ; plain buttons: pressing Bold made the text bold and the button
+            ; went on looking exactly as it had, so the only way to find out
+            ; whether bold was on was to look at the letters and guess.
+            if (t.command == "edit.bold") {
+                t.pressed = boldOn
+            }
+            if (t.command == "edit.italic") {
+                t.pressed = italicOn
             }
             i = (i + 1)
         }
@@ -293,7 +309,20 @@ class PptxApp {
 
     fn init:void (fontDir:string) {
         view.init(W H fontDir)
+        ; The converter would find the catalogue on its own at the first
+        ; shape it draws; doing it here means an app that has initialised has
+        ; a catalogue, rather than one that acquires it at a moment nothing
+        ; can name.
+        view.converter.ensurePresets()
         this.initFrame()
+    }
+
+    ; The 187 preset geometries. The converter finds the asset on its own
+    ; wherever there is a filesystem; this is for the host that has no
+    ; filesystem and the bytes instead — the browser fetches the file and
+    ; hands them over here, before anything is drawn.
+    fn loadPresets:void (text:string) {
+        view.converter.loadPresets(text)
     }
 
     ; The strip, the command table, and the room they take out of the window.
@@ -1040,7 +1069,28 @@ class PptxApp {
 
     ; --- input ----------------------------------------------------------------
     ; Windows, then the strip, then the slide. Same order as everywhere else.
+    ; The pointer, and whether the frame has to be drawn again because of it.
+    ;
+    ; The hosts redraw when this says true, and a bare hover over the strip
+    ; said false: the hot item changed, the highlight and the tooltip were
+    ; computed correctly, and nothing ever painted them. It read as a toolbar
+    ; with no hover and no tooltips at all, which is what it was reported as.
+    ;
+    ; The hover is settled HERE rather than inside the routing below, so that
+    ; it is right whoever ends up taking the event — moving off a button and
+    ; onto the notes strip used to leave the button lit, because the notes
+    ; took the move before the strip was asked.
     fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        def wasHot:int toolbar.hot
+        toolbar.hot = (toolbar.hit(px py))
+        def took:boolean (this.routePointer(px py pressed down released))
+        if (wasHot != toolbar.hot) {
+            return true
+        }
+        return took
+    }
+
+    fn routePointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
         ; While the deck is being shown there is nothing else on screen to
         ; press, and the click means what it means to an audience: go on.
         if presenting {
@@ -1058,7 +1108,6 @@ class PptxApp {
         if (this.panelPointer(px py pressed down released)) {
             return true
         }
-        toolbar.hot = (toolbar.hit(px py))
         if pressed {
             ; A press on a page name shows that page. Checked before the
             ; buttons, because the two rows are one strip and the names sit
@@ -1344,8 +1393,19 @@ class PptxApp {
                     }
                 }
             }
-            if editMode {
-                taken = (this.editKey(k input.shiftDown))
+            ; Only if nothing above has already dealt with the key.
+            ;
+            ; This assigned `taken` unconditionally, which meant every branch
+            ; above it ran AND THEN this one did. Typing in a text box, the
+            ; right arrow moved the caret and then nudged the shape a point to
+            ; the right — the box crept across the slide as you read back what
+            ; you had written. Enter started editing and then appended a
+            ; newline at the END of the text rather than at the caret. Escape
+            ; closed a dialog and then cleared the selection behind it.
+            if (taken == false) {
+                if editMode {
+                    taken = (this.editKey(k input.shiftDown))
+                }
             }
             if (taken == false) {
                 if (k == (UIKey.right())) {
@@ -1431,6 +1491,8 @@ class PptxApp {
         ; Settling this only on resize left the strip short after a page
         ; change, with the bottom of the button drawn over the slide.
         toolbarH = (toolbar.heightFor(W))
+        toolbar.boldOn = (this.selectionBold())
+        toolbar.italicOn = (this.selectionItalic())
         toolbar.refresh(index (this.slideCount()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 
@@ -1703,7 +1765,19 @@ class PptxApp {
                 def para:PptxParagraph (itemAt s0.notes.text.paragraphs line.para)
                 def full:string (PptxTextLayout.paraText(para))
                 def piece:string (substring full line.startCol line.endCol)
-                toolbarView.pushText(dl piece line.x line.y 13.0 (EVGColor.rgb(215 220 232)))
+                ; Reordered and shaped on the way into the list, like every
+                ; other string that goes into it.
+                ;
+                ; This one was not, and it was the only text in the deck
+                ; viewer that was not. It looked RIGHT in the browser, because
+                ; `fillText` runs the bidirectional algorithm itself and was
+                ; doing the work for us, and it was wrong everywhere else —
+                ; the software canvas draws the string it is handed, so the
+                ; notes came out in the order they are stored in. One rule,
+                ; broken in one place, hidden by a backend that happened to
+                ; paper over it.
+                def shown:string (OfficeText.forDisplayDir(piece para.rtl))
+                toolbarView.pushText(dl shown line.x line.y 13.0 (EVGColor.rgb(215 220 232)))
                 li = (li + 1)
             }
             dl.addClipEnd()
@@ -3202,6 +3276,17 @@ class PptxApp {
     ; --- keys -----------------------------------------------------------------
 
     fn editKey:boolean (k:int shift:boolean) {
+        ; Nothing here applies while the caret is in a text box. These keys
+        ; move, delete and deselect SHAPES, and every one of them means
+        ; something else entirely to somebody typing: the arrows move the
+        ; caret, Delete takes out a character rather than the box around it.
+        ;
+        ; The dispatch above already tries `textKey` first, but a guard that
+        ; lives only in the caller is a guard one edit away from being gone —
+        ; which is exactly what happened.
+        if (editor.isEditingText()) {
+            return false
+        }
         def step:double 1.0
         if shift {
             step = 10.0
@@ -3539,6 +3624,11 @@ class PptxApp {
         return (this.caretXOnLineAt(sh line col (this.ptScale())))
     }
 
+    ; The `scale` here is the host's, and it is NOT the one the slice is
+    ; measured at: the line carries the scale it was actually laid out and
+    ; drawn at, which is smaller whenever the body's face was substituted and
+    ; shrunk to fit. Measuring at the host's scale put the caret to the right
+    ; of the glyphs, further with every column along the line.
     fn caretXOnLineAt:double (sh:PptxShape line:PptxTextLine col:int scale:double) {
         def body:PptxTextBody sh.text
         if (line.para >= (array_length body.paragraphs)) {
@@ -3552,7 +3642,11 @@ class PptxApp {
         if (at > line.endCol) {
             at = line.endCol
         }
-        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure scale)))
+        def drawn:double line.scale
+        if (drawn <= 0.0) {
+            drawn = scale
+        }
+        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure drawn)))
     }
 
     fn caretRect:PptxEditRect (sh:PptxShape pos:PptxTextPos) {
@@ -3672,6 +3766,13 @@ class PptxApp {
         }
         if (k == (UIKey.del())) {
             return (editor.deleteAtCaret())
+        }
+        ; A newline goes where the caret is, not at the end of the box. It
+        ; used to fall through to `appendText`, so pressing Enter in the
+        ; middle of a paragraph put the break after the last word instead.
+        if (k == (UIKey.enter())) {
+            editor.typeAtCaret("\n")
+            return true
         }
         if (k == (UIKey.enter())) {
             return (editor.newlineAtCaret())
@@ -3898,6 +3999,28 @@ class PptxApp {
         }
     }
 
+    ; The slide the panel last scrolled itself to show. -1 means "never".
+    ;
+    ; The panel has to follow the SELECTION, and it was following only one of
+    ; the ways the selection moves: `gotoSlide` asked it to, and `nextSlide`
+    ; and `prevSlide` — the arrow keys and the buttons on the strip —
+    ; did not. Twenty slides in, the panel was still showing the first seven.
+    ;
+    ; Recording what it last followed, and checking that where the panel is
+    ; PAINTED, covers every way the index can change instead of the three
+    ; that existed when this was written. It also leaves a reader who scrolls
+    ; the panel by hand alone, which calling it on every frame would not:
+    ; scrolling does not change the index, so nothing pulls the panel back.
+    def panelFollowedIndex:int -1
+
+    fn followSelectionInPanel:void () {
+        if (panelFollowedIndex == index) {
+            return
+        }
+        panelFollowedIndex = index
+        this.ensureSlideVisible()
+    }
+
     ; A wheel or a swipe over the panel, in PIXELS of travel, positive
     ; downwards — the same unit the gesture arrives in.
     ;
@@ -4061,6 +4184,7 @@ class PptxApp {
         if (panelVisible == false) {
             return
         }
+        this.followSelectionInPanel()
         this.clampPanelScroll()
         def w:int (this.panelWidth())
         def top:double (to_double toolbarH)
@@ -4107,7 +4231,9 @@ class PptxApp {
                         prev = (editor.sectionOfSlide((i - 1)))
                     }
                     if (sec != prev) {
-                        toolbarView.pushText(dl (editor.sectionNameAt(sec)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
+                        ; A section name is the deck's text, not ours.
+                        def secName:string (editor.sectionNameAt(sec))
+                        toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
                     }
                 }
             }
@@ -4215,9 +4341,15 @@ class PptxApp {
         while (li < (array_length lines)) {
             def line:PptxTextLine (itemAt lines li)
             if (line.y < ((r.y + r.h) - 4.0)) {
-                def text:string (PptxTextLayout.paraText((itemAt sh.text.paragraphs line.para)))
+                def npara:PptxParagraph (itemAt sh.text.paragraphs line.para)
+                def text:string (PptxTextLayout.paraText(npara))
                 def piece:string (substring text line.startCol line.endCol)
-                toolbarView.pushText(dl piece line.x line.y line.size (EVGColor.rgb(40 44 58)))
+                ; Reordered and shaped on the way in, like every other string
+                ; that goes into the list. See `paintNotes` above: this is the
+                ; second of the two places the notes are drawn, and it was raw
+                ; for the same reason.
+                def nshown:string (OfficeText.forDisplayDir(piece npara.rtl))
+                toolbarView.pushText(dl nshown line.x line.y line.size (EVGColor.rgb(40 44 58)))
             }
             li = (li + 1)
         }

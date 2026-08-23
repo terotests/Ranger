@@ -246,13 +246,13 @@ class PptxTextEdit {
     sfn copyStyle:void (src:PptxTextRun dst:PptxTextRun) {
         ; Not the field: text typed beside a page number is text, not another
         ; page number.
-        dst.fontFamily = src.fontFamily
-        dst.fontSizePt = src.fontSizePt
-        dst.sizeSet = src.sizeSet
-        dst.boldSet = src.boldSet
-        dst.bold = src.bold
-        dst.italicSet = src.italicSet
-        dst.italic = src.italic
+        ;
+        ; Everything else goes through the model's own copy, including the
+        ; resolution signatures — see PptxTextRun.copyStyleTo. The list that
+        ; used to live here had gone stale and dropped them, and a run half
+        ; with no signature is one the resolver re-inherits from the layout,
+        ; which is how toggling bold on part of a line changed its size.
+        src.copyStyleTo(dst)
         dst.color = (PptxTextEdit.copyColor(src.color))
         ; The marker pen behind the run. Splitting a highlighted run used to
         ; hand back two halves with no highlight at all, so putting a caret in
@@ -493,14 +493,13 @@ class PptxTextEdit {
         def para:PptxParagraph (unwrap p)
         def at:int (PptxTextEdit.splitRunsAt(para pos.col))
         def tail (new PptxParagraph())
-        tail.align = para.align
-        tail.alignSet = para.alignSet
-        tail.spaceBeforePt = para.spaceBeforePt
-        tail.spaceAfterPt = para.spaceAfterPt
-        tail.lineSpacingPct = para.lineSpacingPct
-        tail.level = para.level
-        tail.hasBullet = para.hasBullet
-        tail.bulletChar = para.bulletChar
+        ; ALL of the paragraph's formatting, not the seven fields somebody
+        ; remembered. See PptxParagraph.copyFormatTo: the hand-written list
+        ; this replaces had gone stale, and pressing Enter on a bulleted line
+        ; gave a paragraph that had lost its bullet colour — the dash went
+        ; from the deck's white to a default black — along with its bullet
+        ; font, its indent, its numbering scheme and its direction.
+        para.copyFormatTo(tail)
         def keep:[PptxTextRun]
         def i:int 0
         while (i < (array_length para.runs)) {

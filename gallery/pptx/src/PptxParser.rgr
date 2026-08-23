@@ -1001,6 +1001,9 @@ class PptxParser {
         if ((array_length pts) >= 6) {
             shape.hasPath = true
             shape.pathUnit = pts
+            ; Kept, because the flattening below is about to lose it and the
+            ; painter cannot tell a filled shape from a drawn line without it.
+            shape.pathClosed = ((indexOf data "Z") >= 0)
         }
     }
 
@@ -1030,14 +1033,26 @@ class PptxParser {
                 def gi:int 0
                 while (gi < (array_length gds)) {
                     def gd:PptxXmlNode (itemAt gds gi)
-                    if ((gd.attr("name")) == "adj") {
-                        def fmla:string (gd.attr("fmla"))
-                        def sp:int (indexOf fmla " ")
-                        if (sp >= 0) {
-                            def num:string (substring fmla (sp + 1) (strlen fmla))
-                            def nv@(optional):double (str2double num)
-                            if (!null? nv) {
-                                shape.adj = ((unwrap nv) / 100000.0)
+                    def gname:string (gd.attr("name"))
+                    def fmla:string (gd.attr("fmla"))
+                    def sp:int (indexOf fmla " ")
+                    if (sp >= 0) {
+                        def num:string (substring fmla (sp + 1) (strlen fmla))
+                        def nv@(optional):double (str2double num)
+                        if (!null? nv) {
+                            def raw:double (unwrap nv)
+                            ; EVERY adjustment, under its own name, in the
+                            ; unit the formulas use — hundred-thousandths.
+                            ;
+                            ; Only the one called `adj` was read before, and
+                            ; only as a fraction for the rounded rectangle.
+                            ; A callout states four and an arrow two, so a
+                            ; deck's arrows came out with the author's head
+                            ; length and the default shaft width.
+                            push shape.adjNames gname
+                            push shape.adjValues raw
+                            if (gname == "adj") {
+                                shape.adj = (raw / 100000.0)
                             }
                         }
                     }

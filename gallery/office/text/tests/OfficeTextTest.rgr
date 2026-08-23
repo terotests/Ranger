@@ -265,5 +265,177 @@ class OfficeTextTest {
             i = (i + 1)
         }
         c.eqInt("exactly once each" seen 5)
+
+        print "-- a line cut into pieces one command can draw --"
+        ; What a painter actually has: a line that changes style partway
+        ; along it. Handed one run at a time, a painter has to reorder each
+        ; run on its own and lay the results out left to right, and the line
+        ; comes out with its letters right and its WORDS backwards. These
+        ; check that the cut is made on the LINE.
+        ;
+        ; "مرحبا " + "PowerPoint" + " بالعالم." — three runs of an Arabic
+        ; sentence with a Latin brand name in the middle of it, which is what
+        ; a real slide looks like.
+        def hello:string (OfficeTextTest.str("1605 1585 1581 1576 1575 32"))
+        def brand:string "PowerPoint"
+        def world:string (OfficeTextTest.str("32 1576 1575 1604 1593 1575 1604 1605 46"))
+        def whole:string ((hello + brand) + world)
+        def ids:[int]
+        def k:int 0
+        while (k < (array_length (EVGCodepoint.toArray(hello)))) {
+            push ids 0
+            k = (k + 1)
+        }
+        k = 0
+        while (k < (array_length (EVGCodepoint.toArray(brand)))) {
+            push ids 1
+            k = (k + 1)
+        }
+        k = 0
+        while (k < (array_length (EVGCodepoint.toArray(world)))) {
+            push ids 2
+            k = (k + 1)
+        }
+        def vr:[OfficeVisualRun] (OfficeText.visualRuns(whole 1 ids))
+        c.eqInt("three runs in, three pieces out" (array_length vr) 3)
+        ; Leftmost first. In a right-to-left paragraph the LAST run of the
+        ; sentence is the leftmost thing on the line, and the first run is the
+        ; rightmost — which is the whole of what was wrong.
+        def p0:OfficeVisualRun (itemAt vr 0)
+        def p1:OfficeVisualRun (itemAt vr 1)
+        def p2:OfficeVisualRun (itemAt vr 2)
+        c.eqInt("the leftmost piece is the last run" p0.style 2)
+        c.eqInt("the Latin name stays in the middle" p1.style 1)
+        c.eqInt("and the first run is drawn rightmost" p2.style 0)
+        ; The Latin name is not reversed inside its own piece: a left-to-right
+        ; island in a right-to-left line reads left to right.
+        c.eqStr("the Latin island reads forwards" p1.text "PowerPoint")
+        ; The full stop belongs to the line, not to the run it was stored in.
+        ; It is the last thing in the sentence, so it is the leftmost thing on
+        ; the line — it used to sit in the middle, inside its own run's island.
+        def leftCps:[int] (EVGCodepoint.toArray(p0.text))
+        c.eqInt("the full stop is the leftmost glyph on the line" (itemAt leftCps 0) 46)
+        ; And the pieces, laid out leftmost first, are exactly the line the
+        ; one-string call produces — a painter that draws them in order draws
+        ; the same thing the notes strip does.
+        def joined:string ((p0.text + p1.text) + p2.text)
+        c.eqStr("the pieces in order are the whole line" joined (OfficeText.forDisplayDir(whole 1)))
+
+        print "-- joining crosses a run boundary --"
+        ; A letter that goes bold in the middle of a word still joins to its
+        ; neighbours. Reordering run by run cannot do this: each half is
+        ; shaped as though the other were not there, so the letters either
+        ; side of the boundary come out in their isolated or final forms.
+        ; Two runs, "مرح" and "با", which is one word cut in half.
+        def h1:string (OfficeTextTest.str("1605 1585 1581"))
+        def h2:string (OfficeTextTest.str("1576 1575"))
+        def cut:[int]
+        k = 0
+        while (k < 3) {
+            push cut 0
+            k = (k + 1)
+        }
+        k = 0
+        while (k < 2) {
+            push cut 1
+            k = (k + 1)
+        }
+        def two:[OfficeVisualRun] (OfficeText.visualRuns((h1 + h2) 1 cut))
+        c.eqInt("two runs, two pieces" (array_length two) 2)
+        def jn:OfficeVisualRun (itemAt two 1)
+        ; The rightmost piece is the first run, and the leftmost glyph IN it
+        ; is ح — the letter that meets the boundary. ر before it joins only
+        ; backwards, so ح can never be medial; what the boundary decides is
+        ; whether it is INITIAL, U+FEA3, or isolated. As part of the whole
+        ; word it is initial, because ب follows it in the next run.
+        def jcps:[int] (EVGCodepoint.toArray(jn.text))
+        c.eqInt("the letter at the run boundary joins to the next run"
+            (itemAt jcps 0) 65187)
+        ; Shaped as its own run it is isolated instead — which is what the
+        ; painter used to draw, because it shaped each run on its own. An
+        ; isolated Arabic letter comes back as its BASE codepoint, U+062D
+        ; here, because neither bundled Arabic face has the isolated
+        ; presentation forms.
+        def alone:string (OfficeText.forDisplayDir(h1 1))
+        def acps:[int] (EVGCodepoint.toArray(alone))
+        c.eqInt("and is isolated when that run is shaped on its own" (itemAt acps 0) 1581)
+
+        print "-- and a line with nothing right-to-left in it is untouched --"
+        def plain:string "Hello there"
+        def pids:[int]
+        k = 0
+        while (k < 11) {
+            def which:int 0
+            if (k >= 6) {
+                which = 1
+            }
+            push pids which
+            k = (k + 1)
+        }
+        def pv:[OfficeVisualRun] (OfficeText.visualRuns(plain -1 pids))
+        c.eqInt("cut where the styles change and nowhere else" (array_length pv) 2)
+        def q0:OfficeVisualRun (itemAt pv 0)
+        def q1:OfficeVisualRun (itemAt pv 1)
+        c.eqStr("in the order it is stored" q0.text "Hello ")
+        c.eqStr("all of it" q1.text "there")
+        c.eqInt("with the logical range it came from" q1.start 6)
+        c.eqInt("to its end" q1.end 11)
+        ; A caller with one style for the whole line passes nothing.
+        def empty:[int]
+        def one:[OfficeVisualRun] (OfficeText.visualRuns(plain -1 empty))
+        c.eqInt("no styles at all is one piece" (array_length one) 1)
+        def only:OfficeVisualRun (itemAt one 0)
+        c.eqStr("holding the line" only.text plain)
+
+        print "-- L4: a bracket at a right-to-left level is drawn mirrored --"
+        ; Reordering puts a bracket in the right PLACE and leaves it pointing
+        ; the wrong way. An opening parenthesis at a right-to-left level opens
+        ; to the left, so it has to be DRAWN as ")" — the codepoint stored is
+        ; the semantic one, the glyph shown is its mirror.
+        ;
+        ; The line that caught this is a credit on an Arabic slide: an Arabic
+        ; sentence with a bracketed web address in the middle of it. It came
+        ; out as ") ingez-ppt.com (", brackets turned away from the thing they
+        ; enclose. Everything else about the line — the run order, the Latin
+        ; island, where the brackets sat — was already right, which is why it
+        ; took comparing against a reference implementation to see.
+        def rtlOpen:string ((OfficeTextTest.str("1605 1585 1581 1576 1575 32 40 32")) + "abc" + (OfficeTextTest.str("32 41 32 1576 1575 1604")))
+        def shown:string (OfficeText.forDisplayDir(rtlOpen 1))
+        def openAt:int (indexOf shown "(")
+        def closeAt:int (indexOf shown ")")
+        def latinAt:int (indexOf shown "abc")
+        c.ok("both brackets are drawn" ((openAt >= 0) && (closeAt >= 0)))
+        c.ok("the opening bracket is drawn left of the name it encloses" (openAt < latinAt))
+        c.ok("and the closing one right of it" (closeAt > latinAt))
+
+        ; And nothing is mirrored in a left-to-right line, whatever `dir` says
+        ; — the fast path returns the string untouched, and text with no
+        ; right-to-left character in it has no right-to-left level to be at.
+        def ltr:string "a (b) c"
+        c.eqStr("a left-to-right line keeps its brackets" (OfficeText.forDisplayDir(ltr 1)) ltr)
+
+        ; The mirror table is a table of PAIRS: applying it twice is the
+        ; identity, and a character with no mirror is returned as it stands.
+        c.eqInt("the parentheses are a pair" (OfficeBidi.mirrorOf((OfficeBidi.mirrorOf(40)))) 40)
+        c.eqInt("so are the square brackets" (OfficeBidi.mirrorOf(91)) 93)
+        c.eqInt("and the braces" (OfficeBidi.mirrorOf(125)) 123)
+        c.eqInt("a letter has no mirror" (OfficeBidi.mirrorOf(1605)) 1605)
+        c.eqInt("nor has a full stop" (OfficeBidi.mirrorOf(46)) 46)
+
+        ; The other route through this module has to mirror too: a painter
+        ; that draws a line one style-run at a time goes through `visualRuns`,
+        ; and a bracket does not stop being a bracket because the word beside
+        ; it changed colour.
+        def bids:[int]
+        k = 0
+        while (k < (array_length (EVGCodepoint.toArray(rtlOpen)))) {
+            push bids 0
+            k = (k + 1)
+        }
+        def one:[OfficeVisualRun] (OfficeText.visualRuns(rtlOpen 1 bids))
+        def onlyRun:OfficeVisualRun (itemAt one 0)
+        c.eqStr("the run-wise route mirrors the same way" onlyRun.text shown)
+
+
     }
 }

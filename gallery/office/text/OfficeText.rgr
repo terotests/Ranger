@@ -46,6 +46,24 @@ Import "OfficeBidi.rgr"
 Import "OfficeArabic.rgr"
 Import "../../evg/EVGCodepoint.rgr"
 
+; One stretch of a line that can be drawn with a single command: a maximal
+; range of the line that is both in one visual direction and in one of the
+; caller's styles.
+;
+; `text` is finished — shaped and in visual order — and the runs come back
+; leftmost first, so a caller draws them by walking the list and advancing a
+; pen. `start`/`end` are logical indices into the source, in codepoints, for a
+; caller that has to get back to the model.
+class OfficeVisualRun {
+    def style:int 0
+    def start:int 0
+    def end:int 0
+    def text:string ""
+
+    Constructor () {
+    }
+}
+
 class OfficeText {
 
     ; Is there anything here that this module would change? A single
@@ -177,6 +195,11 @@ class OfficeText {
         if (OfficeArabic.hasArabic(cps)) {
             glyphs = (OfficeArabic.shape(cps))
         }
+        ; Rule L4, after shaping and before ordering: a bracket at a
+        ; right-to-left level is DRAWN as its mirror. Reordering puts it in
+        ; the right place and leaves it pointing the wrong way.
+        def levels:[int] (OfficeBidi.levelsOf(cps dir))
+        glyphs = (OfficeBidi.mirrorGlyphs(glyphs levels))
         def order:[int] (OfficeBidi.visualOrder(cps dir))
         def visual:[int] (OfficeText.reattachMarks(cps order))
         def out:string ""
@@ -190,6 +213,111 @@ class OfficeText {
             i = (i + 1)
         }
         return out
+    }
+
+
+    ; The line, cut into pieces that can each be drawn with one command.
+    ;
+    ; This exists because `forDisplayDir` is the wrong shape for a line that
+    ; changes style partway along it, and a slide is full of those. Handed a
+    ; line one run at a time, a painter has no choice but to reorder each run
+    ; on its own and lay the results out left to right — and the result is a
+    ; line whose LETTERS are right and whose WORDS are backwards. A three-run
+    ; Arabic sentence came out with its first run at the far left instead of
+    ; the far right, and the full stop that belongs at the left-hand end of
+    ; the line sat in the middle, because the run it was stored in was
+    ; reordered as though it were the whole line.
+    ;
+    ; The bidirectional algorithm is defined on a LINE, not on a run: where a
+    ; neutral character ends up depends on what is on both sides of it, and a
+    ; run boundary is not a boundary to it. So is Arabic joining — a letter
+    ; that goes bold mid-word still joins to its neighbours. Both are done
+    ; here, once, over the whole line; the caller's styles come in as one id
+    ; per codepoint and come back attached to the pieces.
+    ;
+    ; `styleIds` is parallel to the CODEPOINTS of `s`. Anything past its end
+    ; reads as style 0, so a caller that has one style for the whole line can
+    ; pass an empty array.
+    sfn visualRuns:[OfficeVisualRun] (s:string dir:int styleIds:[int]) {
+        def out:[OfficeVisualRun]
+        def cps:[int] (EVGCodepoint.toArray(s))
+        def n:int (array_length cps)
+        if (n < 1) {
+            return out
+        }
+        def glyphs:[int] cps
+        if (OfficeArabic.hasArabic(cps)) {
+            glyphs = (OfficeArabic.shape(cps))
+        }
+        ; The fast path, which is almost every line in almost every document:
+        ; nothing right-to-left, so the visual order IS the logical order and
+        ; there is nothing to permute.
+        def visual:[int]
+        if (OfficeBidi.hasRtl(cps)) {
+            ; Rule L4: a bracket at a right-to-left level is drawn mirrored.
+            def levels:[int] (OfficeBidi.levelsOf(cps dir))
+            glyphs = (OfficeBidi.mirrorGlyphs(glyphs levels))
+            def order:[int] (OfficeBidi.visualOrder(cps dir))
+            visual = (OfficeText.reattachMarks(cps order))
+        } {
+            def k:int 0
+            while (k < n) {
+                push visual k
+                k = (k + 1)
+            }
+        }
+        def i:int 0
+        while (i < n) {
+            def li:int (itemAt visual i)
+            def sid:int (OfficeText.styleAt(styleIds li))
+            def lo:int li
+            def hi:int (li + 1)
+            def text:string ""
+            def j:int i
+            def more:boolean true
+            while more {
+                if (j >= n) {
+                    more = false
+                } {
+                    def lj:int (itemAt visual j)
+                    if ((OfficeText.styleAt(styleIds lj)) != sid) {
+                        more = false
+                    } {
+                        ; 0 is the second half of a lam-alef: one glyph out of
+                        ; two codepoints, and the second one draws nothing.
+                        def g:int (itemAt glyphs lj)
+                        if (g > 0) {
+                            text = (text + (EVGCodepoint.toStr(g)))
+                        }
+                        if (lj < lo) {
+                            lo = lj
+                        }
+                        if ((lj + 1) > hi) {
+                            hi = (lj + 1)
+                        }
+                        j = (j + 1)
+                    }
+                }
+            }
+            def vr (new OfficeVisualRun())
+            vr.style = sid
+            vr.start = lo
+            vr.end = hi
+            vr.text = text
+            push out vr
+            i = j
+        }
+        return out
+    }
+
+    sfn styleAt:int (styleIds:[int] i:int) {
+        if (i < 0) {
+            return 0
+        }
+        if (i >= (array_length styleIds)) {
+            return 0
+        }
+        return (itemAt styleIds i)
     }
 
     ; The same text shaped but NOT reordered, for measuring.
