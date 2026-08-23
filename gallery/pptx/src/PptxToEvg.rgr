@@ -514,10 +514,21 @@ class PptxToEvg {
                 }
                 this.pushTextCmd(dl line.bullet bx by line.bulletSize bcol bfont shape.rotation "left" 0.0 false 0.0)
             }
-            ; Each run's slice of this line, placed by measurement rather than
-            ; by an average character width — which is why a paragraph of two
-            ; sizes no longer draws its second half on top of its first.
-            def penX:double line.x
+            ; The whole line, then its pieces — in that order, because both
+            ; the bidirectional algorithm and Arabic joining are defined on a
+            ; LINE and not on a run.
+            ;
+            ; This used to walk the runs and hand each one to the reorderer on
+            ; its own, then lay the results out left to right. Every letter
+            ; came out right and every WORD came out backwards: a three-run
+            ; Arabic sentence drew its first run at the far left, where the
+            ; last one belongs, and the full stop that ends the line sat in
+            ; the middle of it, because the run holding it had been reordered
+            ; as though it were the whole line. The notes strip was right the
+            ; whole time and the slide was wrong, which is what gave it away —
+            ; the notes go into the list as one string.
+            def lineText:string ""
+            def styleIds:[int]
             def at:int 0
             def ri:int 0
             while (ri < (array_length para.runs)) {
@@ -540,78 +551,90 @@ class PptxToEvg {
                             piece = (to_string slideNumber)
                         }
                     }
-                    ; The bidirectional algorithm and the Arabic shaper, on
-                    ; the way from the model to the marks. A slide's runs are
-                    ; still laid out left to right by `penX`, so a paragraph
-                    ; that changes face mid-sentence still puts its runs in
-                    ; logical order — but each run now reads correctly, which
-                    ; is the whole of an ordinary Arabic slide.
-                    piece = (OfficeText.forDisplayDir(piece para.rtl))
-                    def fontSize:double (run.fontSizePt * s)
-                    def pieceW:double (measure.widthOf(piece fontSize run.bold run.italic))
-                    def drawX:double penX
-                    def drawY:double line.y
-                    if hasRot {
-                        def pcx:double (penX + (pieceW * 0.5))
-                        def pcy:double (line.y + (line.h * 0.5))
-                        def rp:[double] (PptxToEvg.rotateAbout(pcx pcy pivotX pivotY rotDeg))
-                        drawX = ((itemAt rp 0) - (pieceW * 0.5))
-                        drawY = ((itemAt rp 1) - (line.h * 0.5))
+                    lineText = (lineText + piece)
+                    ; One id per CODEPOINT, not per code unit: a string is
+                    ; UTF-16 on JavaScript and bytes in C++, and the reorderer
+                    ; works in codepoints on both.
+                    def pcps:[int] (EVGCodepoint.toArray(piece))
+                    def pi:int 0
+                    while (pi < (array_length pcps)) {
+                        push styleIds ri
+                        pi = (pi + 1)
                     }
-                    def fontFamily:string "Calibri"
-                    if ((strlen run.fontFamily) > 0) {
-                        fontFamily = run.fontFamily
-                    }
-                    def col:EVGColor (EVGColor.rgb(0 0 0))
-                    if (run.color.isSet) {
-                        col = (this.colorFrom(run.color))
-                    }
-                    ; A highlight is drawn behind the run, over the line it
-                    ; sits on — a marker pen, which is what a deck uses it as.
-                    if (run.highlight.isSet) {
-                        this.pushRect(dl drawX drawY pieceW line.h (this.colorFrom(run.highlight)))
-                    }
-                    ; How a display list says bold and slanted, and it is not
-                    ; one field: every backend reads `fontWeight == "bold"`
-                    ; for the weight and `textAlign == "italic"` for the
-                    ; slant, which is the convention the document viewer set
-                    ; and both painters implement.
-                    ;
-                    ; This wrote "bolditalic" into the weight and the
-                    ; paragraph's ALIGNMENT into the slant field, so a run
-                    ; that was both came out as neither — no backend has ever
-                    ; drawn a pptx italic — and one that was only italic came
-                    ; out upright too.
-                    def weight:string ""
-                    if run.bold {
-                        weight = "bold"
-                    }
-                    def slant:string "left"
-                    if run.italic {
-                        slant = "italic"
-                    }
-                    def c (new EVGDrawCmd())
-                    c.kind = 3
-                    c.x = drawX
-                    c.y = drawY
-                    c.w = 0.0
-                    c.h = fontSize
-                    c.text = piece
-                    c.fontFamily = fontFamily
-                    c.fontSize = fontSize
-                    c.textAlign = slant
-                    c.maxWidth = 0.0
-                    c.fontWeight = weight
-                    c.r = (col.red())
-                    c.g = (col.green())
-                    c.b = (col.blue())
-                    c.a = (col.alpha())
-                    c.rotate = shape.rotation
-                    push dl.cmds c
-                    penX = (penX + pieceW)
                 }
                 at = s1
                 ri = (ri + 1)
+            }
+            def vruns:[OfficeVisualRun] (OfficeText.visualRuns(lineText para.rtl styleIds))
+            def penX:double line.x
+            def vi:int 0
+            while (vi < (array_length vruns)) {
+                def vr:OfficeVisualRun (itemAt vruns vi)
+                def run:PptxTextRun (itemAt para.runs vr.style)
+                def piece:string vr.text
+                def fontSize:double (run.fontSizePt * s)
+                def pieceW:double (measure.widthOf(piece fontSize run.bold run.italic))
+                def drawX:double penX
+                def drawY:double line.y
+                if hasRot {
+                    def pcx:double (penX + (pieceW * 0.5))
+                    def pcy:double (line.y + (line.h * 0.5))
+                    def rp:[double] (PptxToEvg.rotateAbout(pcx pcy pivotX pivotY rotDeg))
+                    drawX = ((itemAt rp 0) - (pieceW * 0.5))
+                    drawY = ((itemAt rp 1) - (line.h * 0.5))
+                }
+                def fontFamily:string "Calibri"
+                if ((strlen run.fontFamily) > 0) {
+                    fontFamily = run.fontFamily
+                }
+                def col:EVGColor (EVGColor.rgb(0 0 0))
+                if (run.color.isSet) {
+                    col = (this.colorFrom(run.color))
+                }
+                ; A highlight is drawn behind the run, over the line it
+                ; sits on — a marker pen, which is what a deck uses it as.
+                if (run.highlight.isSet) {
+                    this.pushRect(dl drawX drawY pieceW line.h (this.colorFrom(run.highlight)))
+                }
+                ; How a display list says bold and slanted, and it is not
+                ; one field: every backend reads `fontWeight == "bold"`
+                ; for the weight and `textAlign == "italic"` for the
+                ; slant, which is the convention the document viewer set
+                ; and both painters implement.
+                ;
+                ; This wrote "bolditalic" into the weight and the
+                ; paragraph's ALIGNMENT into the slant field, so a run
+                ; that was both came out as neither — no backend has ever
+                ; drawn a pptx italic — and one that was only italic came
+                ; out upright too.
+                def weight:string ""
+                if run.bold {
+                    weight = "bold"
+                }
+                def slant:string "left"
+                if run.italic {
+                    slant = "italic"
+                }
+                def c (new EVGDrawCmd())
+                c.kind = 3
+                c.x = drawX
+                c.y = drawY
+                c.w = 0.0
+                c.h = fontSize
+                c.text = piece
+                c.fontFamily = fontFamily
+                c.fontSize = fontSize
+                c.textAlign = slant
+                c.maxWidth = 0.0
+                c.fontWeight = weight
+                c.r = (col.red())
+                c.g = (col.green())
+                c.b = (col.blue())
+                c.a = (col.alpha())
+                c.rotate = shape.rotation
+                push dl.cmds c
+                penX = (penX + pieceW)
+                vi = (vi + 1)
             }
             li = (li + 1)
         }
