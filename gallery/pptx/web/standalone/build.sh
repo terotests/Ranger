@@ -80,6 +80,12 @@ cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
 done
+# The 187 preset geometries, as data. The page fetches this and hands it to
+# the viewer the way it hands over the fonts: without it a browser build falls
+# back to the hand-written table, so every shape the specification defines and
+# nobody typed in comes out as a rectangle.
+cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
+
 # A deck to open on load. The page reads it with fetch and hands the bytes to
 # the viewer, exactly as it does with a file the user picks.
 cp gallery/pptx/fixtures/20-business-deck.pptx "$OUT/deck.pptx"

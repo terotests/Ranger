@@ -40,6 +40,13 @@ class PptxWeb {
         app.initBare()
     }
 
+    ; The preset shape catalogue, as text. A browser cannot read the file
+    ; beside the module, so the page fetches it and hands it over here —
+    ; the same shape of hand-off as the fonts above it.
+    fn loadPresets:void (text:string) {
+        app.loadPresets(text)
+    }
+
     fn addFont:boolean (family:string data:buffer) {
         return (app.addFontBytes(family data))
     }

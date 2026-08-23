@@ -21,6 +21,7 @@ Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../office/text/OfficeText.rgr"
+Import "../../office/geom/OfficePresetShapes.rgr"
 
 class PptxToEvg {
     def scale:double 1.0        ; extra zoom on top of pt→px
@@ -399,6 +400,65 @@ class PptxToEvg {
         return (PptxTextLayout.layout(shape.text measure (s * fit) x y w h))
     }
 
+    ; The 187 preset geometries, as data.
+    ;
+    ; Empty until a host loads it, and a converter with an empty catalogue
+    ; falls back to the hand-written table exactly as before — which is what
+    ; lets this be wired in one editor at a time without a flag day.
+    def presets:OfficePresetShapes (new OfficePresetShapes)
+
+    fn loadPresets:void (text:string) {
+        presets.load(text)
+    }
+
+    fn presetsReady:boolean () {
+        return presets.ready
+    }
+
+    ; A preset path's own fill instruction, applied to the shape's colour.
+    ;
+    ; A preset states several paths and tells each how to be painted relative
+    ; to the fill: `darken`, `darkenLess`, `lighten`, `lightenLess`. That is
+    ; the whole of how a flat polygon reads as a solid — a cube is one colour
+    ; with one face darker and one lighter, and drawing all three the same
+    ; draws a hexagon.
+    ;
+    ; The specification defines these as transforms in a colour space we do
+    ; not carry; these are the proportions every other reader uses, and they
+    ; are approximations said out loud rather than pretended exact.
+    sfn shadeColor:EVGColor (col:EVGColor mode:string) {
+        def f:double 1.0
+        if (mode == "darken") {
+            f = 0.6
+        }
+        if (mode == "darkenLess") {
+            f = 0.8
+        }
+        if (mode == "lighten") {
+            f = 1.4
+        }
+        if (mode == "lightenLess") {
+            f = 1.2
+        }
+        if (f == 1.0) {
+            return col
+        }
+        return (EVGColor.rgba((PptxToEvg.clamp255(((to_double (col.red())) * f)))
+                              (PptxToEvg.clamp255(((to_double (col.green())) * f)))
+                              (PptxToEvg.clamp255(((to_double (col.blue())) * f)))
+                              (col.alpha())))
+    }
+
+    sfn clamp255:int (v:double) {
+        if (v < 0.0) {
+            return 0
+        }
+        if (v > 255.0) {
+            return 255
+        }
+        return (to_int v)
+    }
+
     ; How much to shrink a body whose font we do not have.
     ;
     ; A deck names Calibri; we draw Open Sans, which is wider; a label the
@@ -462,6 +522,86 @@ class PptxToEvg {
         ; A hair under, so a line that measures exactly its box does not sit
         ; on the boundary and wrap anyway.
         return (fit * 0.999)
+    }
+
+
+    ; One preset, drawn from the specification's own definition.
+    ;
+    ; The guides are evaluated in the shape's real proportions — `ss` is the
+    ; shorter side, so a preset resolved in a square box and then stretched is
+    ; a different shape from the one the file asked for — and the points come
+    ; back in the unit box, where `mirrorUnit`, `scaleToBox` and
+    ; `rotatePoints` take over exactly as they do for a custGeom.
+    ;
+    ; Each path carries its own instructions. `stroke="false"` means the path
+    ; is not outlined even when the shape has a line; `fill="none"` means it
+    ; is a drawn line and not an area; the shading modes are how a flat
+    ; polygon reads as a solid. Returns false when the catalogue could not
+    ; resolve the shape, so the caller can fall back rather than draw nothing.
+
+    ; The two the rounded-rectangle primitive draws better than a polygon can.
+    sfn drawnAsBox:boolean (preset:string) {
+        if (preset == "rect") {
+            return true
+        }
+        if (preset == "roundRect") {
+            return true
+        }
+        return false
+    }
+
+    fn emitPresetPaths:boolean (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
+        def paths:[GeomPath] (presets.pathsFor(shape.preset shape.width shape.height shape.adjNames shape.adjValues))
+        if ((array_length paths) == 0) {
+            return false
+        }
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        def baseFill:EVGColor (EVGColor.rgb(180 180 190))
+        if (shape.fill.isSet) {
+            baseFill = (this.colorFrom(shape.fill))
+        }
+        def lineCol:EVGColor (EVGColor.rgb(60 60 70))
+        if (shape.line.isSet) {
+            lineCol = (this.colorFrom(shape.line))
+        }
+        def lw:double (this.ptToPx(shape.lineWidthPt))
+        if (lw < 1.0) {
+            lw = 1.0
+        }
+        def hasLine:boolean ((shape.line.isSet) && (shape.lineWidthPt > 0.0))
+        def i:int 0
+        while (i < (array_length paths)) {
+            def gp:GeomPath (itemAt paths i)
+            def unit:[double] (PptxToEvg.mirrorUnit(gp.pts shape.flipH shape.flipV))
+            def flat:[double] (PptxGeom.scaleToBox(unit x y w h))
+            def pts:[double] (PptxToEvg.rotatePoints(flat cx cy shape.rotation))
+            ; Filled unless the file said otherwise — and `<a:noFill/>` on the
+            ; shape beats anything the preset says, because a deck that asks
+            ; for no fill is asking about the whole shape.
+            def wantFill:boolean (gp.fill != "none")
+            if shape.noFill {
+                wantFill = false
+            }
+            if (gp.closed == false) {
+                wantFill = false
+            }
+            if wantFill {
+                this.pushPathFill(dl pts (PptxToEvg.shadeColor(baseFill gp.fill)))
+            }
+            ; Stroked only when the SHAPE has a line. `stroke="true"` on a
+            ; path is permission, not an instruction — it says this path
+            ; participates in the shape's outline, and a shape with no outline
+            ; has none to participate in. Drawing one anyway puts a black box
+            ; round every text frame in a deck, which is what it did.
+            if gp.stroke {
+                if hasLine {
+                    this.pushPathStroke(dl pts lw lineCol gp.closed)
+                }
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     fn emitTextBody:void (dl:EVGDisplayList shape:PptxShape x:double y:double w:double h:double) {
@@ -1186,6 +1326,29 @@ class PptxToEvg {
             this.applyShadowToCmd(last shape)
             filled = true
         } {
+            ; A preset the catalogue knows is drawn from the SPECIFICATION,
+            ; guides and all, rather than from a polygon somebody typed in.
+            ; It comes back as one path or several, each with its own fill and
+            ; stroke, which is what a cube and a donut need and what the hand
+            ; table could not express.
+            def usedCatalogue:boolean false
+            if (shape.hasPath == false) {
+                ; A plain rectangle and a rounded one stay on the rounded-rect
+                ; primitive, which knows about gradients, shadows and corner
+                ; radii in a way a polygon does not — and between them they
+                ; are most of the shapes in most decks, so this is also the
+                ; path that must not get slower.
+                if (PptxToEvg.drawnAsBox(shape.preset)) {
+                } {
+                    if (presets.has(shape.preset)) {
+                        usedCatalogue = (this.emitPresetPaths(dl shape x y w h))
+                    }
+                }
+            }
+            if usedCatalogue {
+                filled = true
+                strokedPath = true
+            } {
             def usePath:boolean shape.hasPath
             if (usePath == false) {
                 usePath = (PptxGeom.needsPath(shape.preset))
@@ -1294,6 +1457,7 @@ class PptxToEvg {
                         push dl.cmds rc2
                     }
                 }
+            }
             }
         }
         if ((shape.line.isSet) && (shape.lineWidthPt > 0.0)) {

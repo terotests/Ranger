@@ -711,6 +711,15 @@ class PptxShape {
     ; side, which is why every roundRect used to have the same corners
     ; whatever the file said.
     def adj:double (0.0 - 1.0)
+    ; Every adjustment the file states, by name.
+    ;
+    ; `adj` above is one value under one name, which is what the reader used
+    ; to keep, and it is enough for exactly the shapes that have one
+    ; adjustment. A callout has four. An arrow has two — head length and
+    ; shaft width — and reading only the first gives every arrow in a deck
+    ; the author's head with the default shaft.
+    def adjNames:[string]
+    def adjValues:[double]
     ; `<p:style>`: which theme fill, line, effect and font this shape asks for,
     ; and the colour each reference names. Zero means the shape said nothing.
     ; `<a:noFill/>` stated on the shape itself, which beats whatever the

@@ -21,6 +21,7 @@ Import "../src/PptxXml.rgr"
 Import "../src/PptxToEvg.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxModel.rgr"
+Import "../src/PptxApp.rgr"
 
 class PptxGeomTest {
     def passed:int 0
@@ -51,6 +52,8 @@ class PptxGeomTest {
         this.testCustGeomCubic()
         this.testCustGeomArc()
         this.testOpenPathIsAStroke()
+        this.testEveryPresetDraws()
+        this.testPresetPaintRules()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -338,6 +341,201 @@ class PptxGeomTest {
             i = (i + 1)
         }
         return n
+    }
+
+
+    ; Every preset ST_ShapeType names, through the real converter.
+    ;
+    ; This is the check the whole preset-shape effort exists for, and it has
+    ; to be a sweep rather than a list, because the failure it guards against
+    ; is SILENT: a shape the reader does not know is drawn as a filled box in
+    ; the shape's own colour. Nothing errors, nothing is missing, and a
+    ; `star7` reads as a deliberate red square. Only counting finds that.
+    ;
+    ; 34 of the 187 used to be hand-written polygons and the other 153 were
+    ; rectangles. Now every one of them comes from the specification's own
+    ; definition, through the guide evaluator, and the two that are still
+    ; drawn by the rounded-rectangle primitive are drawn by it on purpose —
+    ; it knows about gradients, shadows and corner radii in a way a polygon
+    ; does not, and between them they are most of the shapes in most decks.
+    fn testEveryPresetDraws:void () {
+        print "--- every one of the 187 preset geometries draws ---"
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def conv:PptxToEvg app.view.converter
+        this.check("the catalogue is loaded" (conv.presetsReady()))
+        def cat:OfficePresetShapes conv.presets
+        this.check("with all 187 in it" ((cat.count()) == 187))
+
+        def flat:int 0
+        def firstFlat:string ""
+        def empty:int 0
+        def firstEmpty:string ""
+        def i:int 0
+        while (i < (cat.count())) {
+            def nm:string (cat.nameAt(i))
+            def sh (new PptxShape())
+            sh.preset = nm
+            sh.width = 200.0
+            sh.height = 120.0
+            sh.fill.isSet = true
+            sh.fill.srgb = "3366CC"
+            ; A line as well as a fill, because a third of these shapes are
+            ; lines: a connector, a bracket and every callout's leader have
+            ; nothing to fill, and a shape with no outline is correctly
+            ; invisible. The general case is a shape with both.
+            sh.line.isSet = true
+            sh.line.srgb = "223344"
+            sh.lineWidthPt = 1.0
+            def dl (new EVGDisplayList)
+            conv.emitShape(dl sh 0.0 0.0)
+            def polys:int 0
+            def k:int 0
+            while (k < (array_length dl.cmds)) {
+                def cm:EVGDrawCmd (itemAt dl.cmds k)
+                if (cm.kind == 6) {
+                    polys = (polys + 1)
+                }
+                k = (k + 1)
+            }
+            if ((array_length dl.cmds) == 0) {
+                empty = (empty + 1)
+                if ((strlen firstEmpty) == 0) {
+                    firstEmpty = nm
+                }
+            }
+            if (polys == 0) {
+                ; The two the primitive draws are not a failure; anything else
+                ; reaching the painter without a polygon is a shape that came
+                ; out as a box.
+                if ((PptxToEvg.drawnAsBox(nm)) == false) {
+                    flat = (flat + 1)
+                    if ((strlen firstFlat) == 0) {
+                        firstFlat = nm
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.check(("every preset draws something (first empty: " + firstEmpty + ")") (empty == 0))
+        this.check(("and none of them comes out as a plain box (first: " + firstFlat + ")") (flat == 0))
+
+        ; The shape that started this, checked for what makes it a star.
+        def star (new PptxShape())
+        star.preset = "star7"
+        star.width = 200.0
+        star.height = 200.0
+        star.fill.isSet = true
+        star.fill.srgb = "F6503C"
+        def sdl (new EVGDisplayList)
+        conv.emitShape(sdl star 0.0 0.0)
+        def sc:EVGDrawCmd (itemAt sdl.cmds 0)
+        this.check("star7 is a polygon" (sc.kind == 6))
+        this.check("with fourteen vertices" ((idiv (array_length sc.pts) 2) == 14))
+        this.check("in the colour the deck asked for" (((sc.r == 246) && (sc.g == 80)) && (sc.b == 60)))
+
+        ; And the two that stay on the primitive really do stay on it: a
+        ; rounded rectangle has to keep its corner radius, which a polygon
+        ; would have to approximate.
+        def rr (new PptxShape())
+        rr.preset = "roundRect"
+        rr.width = 200.0
+        rr.height = 100.0
+        rr.fill.isSet = true
+        rr.fill.srgb = "3366CC"
+        def rdl (new EVGDisplayList)
+        conv.emitShape(rdl rr 0.0 0.0)
+        def rc:EVGDrawCmd (itemAt rdl.cmds 0)
+        this.check("a roundRect is still a rounded rectangle" (rc.kind == 0))
+        this.check("with a corner radius" (rc.radius > 0.0))
+    }
+
+    ; A preset says how each of its paths is painted, and the deck's own
+    ; `<a:noFill/>` outranks all of it.
+    fn testPresetPaintRules:void () {
+        print "--- a preset's own fill and stroke instructions ---"
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def conv:PptxToEvg app.view.converter
+
+        ; A cube is one colour with one face darker and one lighter. Drawing
+        ; all three the same draws a hexagon.
+        def cube (new PptxShape())
+        cube.preset = "cube"
+        cube.width = 150.0
+        cube.height = 150.0
+        cube.fill.isSet = true
+        cube.fill.srgb = "808080"
+        def cdl (new EVGDisplayList)
+        conv.emitShape(cdl cube 0.0 0.0)
+        def shades:int (PptxGeomTest.distinctFills(cdl))
+        this.check(("a cube is drawn in more than one shade (" + (to_string shades) + ")") (shades >= 2))
+
+        ; A shape that states no fill is not filled, whatever its preset says
+        ; about the paths.
+        def hollow (new PptxShape())
+        hollow.preset = "star7"
+        hollow.width = 150.0
+        hollow.height = 150.0
+        hollow.noFill = true
+        hollow.line.isSet = true
+        hollow.line.srgb = "133836"
+        hollow.lineWidthPt = 2.0
+        def hdl (new EVGDisplayList)
+        conv.emitShape(hdl hollow 0.0 0.0)
+        this.check("a noFill star is drawn in its line colour only"
+                   ((PptxGeomTest.anyColored(hdl 246 80 60)) == false))
+        this.check("and it is drawn" ((array_length hdl.cmds) > 0))
+
+        ; A shape with no line of its own gets no outline, whatever the
+        ; preset's paths say — `stroke="true"` is permission, not an order.
+        ; This put a black box round every text frame in a deck.
+        def plain (new PptxShape())
+        plain.preset = "ellipse"
+        plain.width = 150.0
+        plain.height = 150.0
+        plain.fill.isSet = true
+        plain.fill.srgb = "3366CC"
+        def pdl (new EVGDisplayList)
+        conv.emitShape(pdl plain 0.0 0.0)
+        this.check("a shape with no line is drawn without one"
+                   ((PptxGeomTest.anyColored(pdl 60 60 70)) == false))
+    }
+
+    sfn distinctFills:int (dl:EVGDisplayList) {
+        def seen:[int]
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 6) {
+                def key:int (((c.r * 65536) + (c.g * 256)) + c.b)
+                def found:boolean false
+                def k:int 0
+                while (k < (array_length seen)) {
+                    if ((itemAt seen k) == key) {
+                        found = true
+                    }
+                    k = (k + 1)
+                }
+                if (found == false) {
+                    push seen key
+                }
+            }
+            i = (i + 1)
+        }
+        return (array_length seen)
+    }
+
+    sfn anyColored:boolean (dl:EVGDisplayList r:int g:int b:int) {
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn parseGeom:PptxShape (inner:string) {

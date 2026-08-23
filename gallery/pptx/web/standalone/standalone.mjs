@@ -752,6 +752,20 @@ async function boot() {
   });
   await document.fonts.ready;
 
+  // The 187 preset geometries. Without them the viewer falls back to the
+  // hand-written table and every shape the specification defines but nobody
+  // typed in — 153 of them — comes out as a rectangle.
+  statusEl.textContent = "loading shapes";
+  try {
+    const presets = await fetch("./presets.txt");
+    if (presets.ok) web.loadPresets(await presets.text());
+  } catch (e) {
+    // A page that cannot reach the catalogue still opens the deck; it draws
+    // the shapes it always drew. Failing the whole load over it would be
+    // worse than the shapes it costs.
+    console.warn("preset shapes unavailable:", e);
+  }
+
   statusEl.textContent = "loading deck";
   const deck = await bytesOf(DECK);
   if (web.openDeck(deck, "deck.pptx")) {
