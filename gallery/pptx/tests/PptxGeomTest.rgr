@@ -69,6 +69,7 @@ class PptxGeomTest {
         this.testEveryPresetDraws()
         this.testPresetPaintRules()
         this.testCatalogueAgreesWithTheHandTable()
+        this.testAHoleIsAHole()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -950,6 +951,109 @@ class PptxGeomTest {
             i = (i + 2)
         }
         return false
+    }
+
+
+    ; A hole is a hole, checked on the pixels.
+    ;
+    ; A shape with two contours — a donut, a block arc, the ring of
+    ; `noSmoking`, the glyph cut out of an action button's face — used to
+    ; reach the canvas as ONE flat point list, so the painter closed it as a
+    ; single polygon and invented an edge from the end of the first contour to
+    ; the start of the second. The middle got filled and a wedge that is in no
+    ; contour got left out; an action button came out with a pale triangle
+    ; across its face.
+    ;
+    ; Counting commands cannot see any of that — the commands were always
+    ; right. Only the pixels can.
+    fn testAHoleIsAHole:void () {
+        print "--- a hole is a hole ---"
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        app.resize(200 200)
+        def sh (new PptxShape())
+        sh.preset = "donut"
+        sh.width = 120.0
+        sh.height = 120.0
+        sh.fill.isSet = true
+        sh.fill.srgb = "C83C3C"
+        def dl (new EVGDisplayList)
+        dl.addRect(0.0 0.0 200.0 200.0 (EVGColor.rgb(255 255 255)))
+        app.view.converter.emitShape(dl sh 20.0 20.0)
+        app.view.paintSoftCanvas(dl)
+        def px:buffer (app.view.raw())
+        ; The middle of a donut is its hole, so the page shows through.
+        def midR:int (PptxGeomTest.pixelAt(px 200 100 100))
+        this.check(("the middle of a donut is not filled (r=" + (to_string midR) + ")") (midR > 200))
+        ; And the ring itself is drawn, a third of the way out from the
+        ; centre — without this the check above would pass on a shape that
+        ; drew nothing at all.
+        def ringR:int (PptxGeomTest.pixelAt(px 200 100 30))
+        this.check(("but the ring around it is (r=" + (to_string ringR) + ")") (ringR < 220))
+
+        ; The shape the report was about: an action button's face, with its
+        ; glyph cut out of it as a second contour. The corner of the face has
+        ; to be painted — that is where the pale wedge appeared.
+        def btn (new PptxShape())
+        btn.preset = "actionButtonBackPrevious"
+        btn.width = 120.0
+        btn.height = 120.0
+        btn.fill.isSet = true
+        btn.fill.srgb = "C83C3C"
+        def bdl (new EVGDisplayList)
+        bdl.addRect(0.0 0.0 200.0 200.0 (EVGColor.rgb(255 255 255)))
+        app.view.converter.emitShape(bdl btn 20.0 20.0)
+        app.view.paintSoftCanvas(bdl)
+        def bpx:buffer (app.view.raw())
+        ; Counted rather than sampled. The missing wedge is a region, not a
+        ; point, and its position depends on which vertex each contour happens
+        ; to start at — so the test that catches it has to measure how much of
+        ; the face got painted, not whether one chosen pixel did.
+        ; The face is the shape's red and the glyph a darkened red, so
+        ; between them they cover the whole button. Counting anything that is
+        ; not the page behind it says that without depending on which of the
+        ; two a given pixel belongs to.
+        def painted:int (PptxGeomTest.countPainted(bpx 200 20 20 120 120))
+        def area:int (120 * 120)
+        ; Four fifths, not all of it: the shape's outline runs along the very
+        ; edge of the box and a scanline fill does not reach the outermost
+        ; row and column, so a whole button measures about nine tenths. With
+        ; the contours run together it measures about two thirds — the wedge
+        ; is a fifth of the face, which is why it was the thing anyone looked
+        ; at the picture noticed first.
+        this.check(("an action button's face is painted, wedge and all (" + (to_string painted) + " of " + (to_string area) + ")")
+                   (painted > (idiv (area * 8) 10)))
+    }
+
+    ; How many pixels of a rectangle are anything other than the white page
+    ; behind the shape. Enough to tell a face with a piece missing from a
+    ; whole one, whatever colour each piece of it is.
+    sfn countPainted:int (px:buffer w:int x0:int y0:int bw:int bh:int) {
+        def n:int 0
+        def y:int y0
+        while (y < (y0 + bh)) {
+            def x:int x0
+            while (x < (x0 + bw)) {
+                if ((PptxGeomTest.pixelAt(px w x y)) < 250) {
+                    n = (n + 1)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return n
+    }
+
+    ; The red channel of one pixel of an RGBA buffer.
+    sfn pixelAt:int (px:buffer w:int x:int y:int) {
+        def off:int (((y * w) + x) * 4)
+        if (off < 0) {
+            return 0
+        }
+        if ((off + 3) >= (buffer_length px)) {
+            return 0
+        }
+        return (buffer_get px off)
     }
 
     fn parseGeom:PptxShape (inner:string) {

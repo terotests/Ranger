@@ -15377,6 +15377,95 @@ class UIContext  {
       y = y + 1;
     };
   };
+  fillPolygonRings (pts, ringEnds, r, g, b, a) {
+    const rn = ringEnds.length;
+    if ( rn < 2 ) {
+      this.fillPolygon(pts, r, g, b, a);
+      return;
+    }
+    const m = pts.length;
+    if ( m < 6 ) {
+      return;
+    }
+    let minY = pts[1];
+    let maxY = pts[1];
+    let k = 1;
+    while (k < m) {
+      const yv = pts[k];
+      if ( yv < minY ) {
+        minY = yv;
+      }
+      if ( yv > maxY ) {
+        maxY = yv;
+      }
+      k = k + 2;
+    };
+    let y = Math.floor( minY);
+    const yEnd = Math.floor( maxY);
+    while (y <= yEnd) {
+      const sy = (y) + 0.5;
+      let xs = [];
+      let ri = 0;
+      while (ri < rn) {
+        let from = 0;
+        if ( ri > 0 ) {
+          from = ringEnds[(ri - 1)];
+        }
+        const stop = ringEnds[ri];
+        const count = (((stop - from) / 2) | 0);
+        if ( count >= 2 ) {
+          let e = 0;
+          while (e < count) {
+            const ai = from + (e * 2);
+            let ni = e + 1;
+            if ( ni >= count ) {
+              ni = 0;
+            }
+            const bi = from + (ni * 2);
+            const ay = pts[(ai + 1)];
+            const by = pts[(bi + 1)];
+            let cross = false;
+            if ( (ay <= sy) && (by > sy) ) {
+              cross = true;
+            }
+            if ( (by <= sy) && (ay > sy) ) {
+              cross = true;
+            }
+            if ( cross ) {
+              const ax = pts[ai];
+              const bx = pts[bi];
+              xs.push(ax + (((sy - ay) / (by - ay)) * (bx - ax)));
+            }
+            e = e + 1;
+          };
+        }
+        ri = ri + 1;
+      };
+      let i = 1;
+      while (i < (xs.length)) {
+        const key = xs[i];
+        let j = i - 1;
+        while ((j >= 0) && ((xs[j]) > key)) {
+          xs[j + 1] = xs[j];
+          j = j - 1;
+        };
+        xs[j + 1] = key;
+        i = i + 1;
+      };
+      let p = 0;
+      while ((p + 1) < (xs.length)) {
+        const x0 = Math.floor( (xs[p]));
+        const x1 = Math.floor( (xs[(p + 1)]));
+        let xx = x0;
+        while (xx <= x1) {
+          this.blendPixel(xx, y, r, g, b, a);
+          xx = xx + 1;
+        };
+        p = p + 2;
+      };
+      y = y + 1;
+    };
+  };
   text (s, x, y, size, col) {
     this.tr.drawLine(this.canvas, s, x, y, size, col.red(), col.green(), col.blue(), Math.floor( (col.alpha() * 255.0)));
   };

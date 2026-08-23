@@ -193,6 +193,56 @@ class OfficePresetShapesTest {
         }
         c.ok("some paths are drawn and not filled" any)
 
+
+        print "-- an arc that goes all the way round --"
+        ; `a wd2 hd2 cd2 21600000` is how a smiley face states its head: a
+        ; sweep of a full turn. An SVG arc whose start and end are the same
+        ; point draws NOTHING, so the face was missing, the sun had no disc
+        ; and the scrolls came apart — nine shapes, every one of which still
+        ; returned points, so nothing counted them as broken.
+        def face:[GeomPath] (cat.pathsFor("smileyFace" 200.0 200.0 noAdjN noAdjV))
+        c.ok("a smiley face has paths" ((array_length face) > 0))
+        def head:GeomPath (itemAt face 0)
+        def headRing:PathRing (itemAt head.rings 0)
+        c.ok("its head is a full circle, not an empty arc" ((idiv (array_length headRing.pts) 2) > 20))
+        ; And it IS a circle: every point the same distance from the centre.
+        def worst:double 0.0
+        def hi:int 0
+        while ((hi + 1) < (array_length headRing.pts)) {
+            def hdx:double ((itemAt headRing.pts hi) - 0.5)
+            def hdy:double ((itemAt headRing.pts (hi + 1)) - 0.5)
+            def rr:double (sqrt ((hdx * hdx) + (hdy * hdy)))
+            def er:double (fabs (rr - 0.5))
+            if (er > worst) {
+                worst = er
+            }
+            hi = (hi + 2)
+        }
+        c.ok(("and a round one (worst " + (to_string worst) + ")") (worst < 0.01))
+
+        print "-- one path, several contours --"
+        ; 44 of the 187 state more than one contour inside a single
+        ; `<a:path>`: a chart marker's plus is two strokes, an action button's
+        ; glyph is cut out of its face. Flattening them into one list invents
+        ; an edge from the end of each to the start of the next — a diagonal
+        ; across a plus sign, and a wedge missing from a button.
+        def marker:[GeomPath] (cat.pathsFor("chartPlus" 200.0 200.0 noAdjN noAdjV))
+        def cross:GeomPath (itemAt marker 0)
+        c.eqInt("a chart plus is two strokes" (array_length cross.rings) 2)
+        def s1:PathRing (itemAt cross.rings 0)
+        def s2:PathRing (itemAt cross.rings 1)
+        c.eqInt("each of two points" (array_length s1.pts) 4)
+        c.eqInt("and so is the other" (array_length s2.pts) 4)
+        ; One upright, one across — which is what makes it a plus rather than
+        ; a line with a kink in it.
+        c.ok("one of them is vertical" ((fabs ((itemAt s1.pts 0) - (itemAt s1.pts 2))) < 0.001))
+        c.ok("and the other horizontal" ((fabs ((itemAt s2.pts 1) - (itemAt s2.pts 3))) < 0.001))
+        ; An action button's face has its glyph cut out of it, as a second
+        ; contour inside the first.
+        def btn:[GeomPath] (cat.pathsFor("actionButtonBackPrevious" 200.0 120.0 noAdjN noAdjV))
+        def facePath:GeomPath (itemAt btn 0)
+        c.eqInt("an action button's face carries its glyph as a second contour" (array_length facePath.rings) 2)
+
         print "-- the adjustment the document states, not the one the shape defaults to --"
         ; A rounded rectangle at its default corner, and at a quarter. The
         ; corner has to MOVE — this is the value that never reached the shape.

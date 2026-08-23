@@ -47,7 +47,17 @@ Import "../../evg/SVGPathParser.rgr"
 ; paint it. A preset may state several, and they are not all filled the same
 ; way: that is how a cube gets a shaded side and a donut gets its hole.
 class GeomPath {
-    ; Flattened points, x,y interleaved, each in 0..1 of the shape's box.
+    ; The contours, each flattened, each in 0..1 of the shape's box.
+    ;
+    ; One `<a:path>` may hold several, and 44 of the 187 do: a chart marker's
+    ; plus is two strokes, a block arc is an outer and an inner sweep, an
+    ; action button's glyph is drawn inside its face. Flattening them into one
+    ; list joins the end of each contour to the start of the next with a line
+    ; that is not in the file — a diagonal across a plus sign — and makes a
+    ; hole impossible to express.
+    def rings:[PathRing]
+    ; Every point of every contour, for callers that only want the extent.
+    ; Drawing goes through `rings`.
     def pts:[double]
     ; `norm`, `none`, `darken`, `darkenLess`, `lighten` or `lightenLess`.
     def fill:string "norm"
@@ -355,17 +365,36 @@ class OfficePresetShapes {
         def p (new GeomPath())
         def parser (new SVGPathParser())
         parser.parse(data)
-        p.pts = (parser.flatten(16))
+        def rings:[PathRing] (parser.flattenRingsPlain(16))
+        def kept:[PathRing]
+        def all:[double]
+        def i:int 0
+        while (i < (array_length rings)) {
+            def r:PathRing (itemAt rings i)
+            ; Two points is a real contour: `line`, `chord`,
+            ; `straightConnector1` and the leader of every callout are all one
+            ; segment. Demanding three drops them, and a dropped path is a
+            ; shape that falls back to a rectangle — the failure this exists
+            ; to end.
+            if ((array_length r.pts) >= 4) {
+                push kept r
+                def k:int 0
+                while (k < (array_length r.pts)) {
+                    push all (itemAt r.pts k)
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length kept) == 0) {
+            return
+        }
+        p.rings = kept
+        p.pts = all
         p.fill = fill
         p.stroke = stroke
         p.closed = closed
-        ; Two points is a real path: `line`, `chord`, `straightConnector1` and
-        ; the leader of every callout are all one segment. Demanding three
-        ; would drop them, and a dropped path is a shape that falls back to a
-        ; rectangle — the failure this exists to end.
-        if ((array_length p.pts) >= 4) {
-            push out p
-        }
+        push out p
     }
 
     ; A record's kind is its first character followed by a space. Checking the
@@ -435,21 +464,48 @@ class OfficePresetShapes {
     }
 
     sfn arcData:string (cx:double cy:double wR:double hR:double stAng:double swAng:double w:double h:double) {
-        def e:[double] (OfficePresetShapes.arcEnd(cx cy wR hR stAng swAng))
-        def ex:double (itemAt e 0)
-        def ey:double (itemAt e 1)
-        def swDeg:double (swAng / 60000.0)
-        def large:string "0"
-        if ((fabs swDeg) > 180.0) {
-            large = "1"
+        ; Cut into pieces of at most a quarter turn.
+        ;
+        ; A DrawingML arc may sweep a full circle — `a wd2 hd2 cd2 21600000`
+        ; is how a smiley face states its head — and an SVG arc whose start
+        ; and end are the same point draws NOTHING. So the face was missing,
+        ; the sun had no disc, and the scrolls came apart; nine shapes in all,
+        ; and each one still had points, so nothing counted them as broken.
+        ;
+        ; Splitting also disposes of the large-arc flag: no piece exceeds half
+        ; a turn, so it is always zero and only the direction has to be got
+        ; right.
+        def quarter:double 5400000.0
+        def span:double (fabs swAng)
+        def n:int 1
+        if (span > quarter) {
+            n = (to_int (span / quarter))
+            def used:double ((to_double n) * quarter)
+            if (span > (used + 0.0001)) {
+                n = (n + 1)
+            }
         }
-        def sweep:string "0"
-        if (swDeg > 0.0) {
-            sweep = "1"
-        }
+        def step:double (swAng / (to_double n))
+        def st:double (OfficeGeomFormula.toRadians(stAng))
+        def ccx:double (cx - (wR * (cos st)))
+        def ccy:double (cy - (hR * (sin st)))
         def rx:double ((fabs wR) / w)
         def ry:double ((fabs hR) / h)
-        return (" A " + (OfficePresetShapes.num(rx)) + "," + (OfficePresetShapes.num(ry)) + " 0 " + large + " " + sweep + " " + (OfficePresetShapes.num((ex / w))) + "," + (OfficePresetShapes.num((ey / h))))
+        def sweep:string "0"
+        if (step > 0.0) {
+            sweep = "1"
+        }
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def a1:double (stAng + (step * (to_double (i + 1))))
+            def r1:double (OfficeGeomFormula.toRadians(a1))
+            def ex:double (ccx + (wR * (cos r1)))
+            def ey:double (ccy + (hR * (sin r1)))
+            out = (out + " A " + (OfficePresetShapes.num(rx)) + "," + (OfficePresetShapes.num(ry)) + " 0 0 " + sweep + " " + (OfficePresetShapes.num((ex / w))) + "," + (OfficePresetShapes.num((ey / h))))
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn splitLines:[string] (text:string) {

@@ -1,0 +1,77 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; pptx_shape_sheet — all 187 preset geometries on one page
+; ==============================================================================
+;
+; The sweep in PptxGeomTest counts; this one can be looked at. A shape can
+; satisfy every numeric check and still be visibly wrong — inside out, upside
+; down, or a plausible polygon that is not the shape the name means — and the
+; only way to catch that is to draw them all and look.
+;
+;   npm run pptx:shapes:sheet
+; ==============================================================================
+
+Import "PptxApp.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class PptxShapeSheet {
+    sfn main:void () {
+        def app:PptxApp (new PptxApp)
+        app.init("gallery/pdf_writer/assets/fonts")
+        def conv:PptxToEvg app.view.converter
+        def cat:OfficePresetShapes conv.presets
+        def n:int (cat.count())
+        print (("drawing " + (to_string n)) + " preset geometries")
+
+        def cols:int 12
+        def cellW:int 150
+        def cellH:int 122
+        def rows:int (idiv ((n + cols) - 1) cols)
+        def W:int (cols * cellW)
+        def H:int ((rows * cellH) + 40)
+        app.resize(W H)
+
+        def dl (new EVGDisplayList)
+        dl.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(250 250 248)))
+        def i:int 0
+        while (i < n) {
+            def nm:string (cat.nameAt(i))
+            def cx:int ((i % cols) * cellW)
+            def cy:int ((idiv i cols) * cellH)
+            def sh (new PptxShape())
+            sh.preset = nm
+            sh.x = 0.0
+            sh.y = 0.0
+            ; Points, because that is what a deck states and what the guides
+            ; are evaluated in. A wide box on purpose: a shape that is right
+            ; in a square and wrong stretched is the commonest way to get `ss`
+            ; wrong, and this sheet should show it.
+            sh.width = 84.0
+            sh.height = 54.0
+            sh.hasXfrm = true
+            sh.fill.isSet = true
+            sh.fill.srgb = "BFD3E6"
+            sh.line.isSet = true
+            sh.line.srgb = "1F3A5F"
+            sh.lineWidthPt = 1.0
+            def sub (new EVGDisplayList)
+            conv.emitShape(sub sh 0.0 0.0)
+            PptxApp.offsetList(sub (cx + 18) (cy + 16))
+            PptxApp.appendList(dl sub)
+            app.toolbarView.pushText(dl nm (to_double (cx + 6)) (to_double (cy + 100)) 9.0 (EVGColor.rgb(70 80 96)))
+            i = (i + 1)
+        }
+        app.toolbarView.pushText(dl (("all " + (to_string n)) + " ST_ShapeType preset geometries, from the specification's own definitions")
+            10.0 (to_double ((rows * cellH) + 14)) 12.0 (EVGColor.rgb(40 50 70)))
+
+        app.view.paintSoftCanvas(dl)
+        def rb:RasterBuffer (new RasterBuffer)
+        rb.width = W
+        rb.height = H
+        rb.pixels = (app.view.raw())
+        def png:PNGEncoder (new PNGEncoder)
+        png.encode(rb "gallery/pptx/artifacts" "preset_shapes.png")
+        print "wrote gallery/pptx/artifacts/preset_shapes.png"
+    }
+}

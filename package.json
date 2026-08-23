@@ -190,6 +190,7 @@
     "text_editor:window": "npm run text_editor:module && node gallery/text_editor/web/serve.mjs --open",
     "text_editor:window:smoke": "npm run text_editor:module && node gallery/text_editor/web/serve.mjs --headless-smoke",
     "pptx:fixtures": "python3 gallery/pptx/tools/make_fixtures.py",
+    "pptx:shapes:sheet": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/src/pptx_shape_sheet.rgr -d=./gallery/pptx/bin -o=pptx_shape_sheet.js -nodecli && node ./gallery/pptx/bin/pptx_shape_sheet.js",
     "pptx:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxTest.rgr -d=./gallery/pptx/bin -o=PptxTest.js -nodecli && node ./gallery/pptx/bin/PptxTest.js",
     "pptx:geom:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxGeomTest.rgr -d=./gallery/pptx/bin -o=PptxGeomTest.js -nodecli && node ./gallery/pptx/bin/PptxGeomTest.js",
     "pptx:text:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxTextEditTest.rgr -d=./gallery/pptx/bin -o=PptxTextEditTest.js -nodecli && node ./gallery/pptx/bin/PptxTextEditTest.js",

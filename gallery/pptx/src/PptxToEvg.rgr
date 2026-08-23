@@ -596,9 +596,21 @@ class PptxToEvg {
         def i:int 0
         while (i < (array_length paths)) {
             def gp:GeomPath (itemAt paths i)
-            def unit:[double] (PptxToEvg.mirrorUnit(gp.pts shape.flipH shape.flipV))
-            def flat:[double] (PptxGeom.scaleToBox(unit x y w h))
-            def pts:[double] (PptxToEvg.rotatePoints(flat cx cy shape.rotation))
+            ; Each contour transformed on its own, because they have to STAY
+            ; separate: a chart marker's plus is two strokes and a block arc
+            ; is an outer and an inner sweep, and joining them draws a line
+            ; that is not in the file.
+            def rings:[PathRing]
+            def ri:int 0
+            while (ri < (array_length gp.rings)) {
+                def src:PathRing (itemAt gp.rings ri)
+                def unit:[double] (PptxToEvg.mirrorUnit(src.pts shape.flipH shape.flipV))
+                def flat:[double] (PptxGeom.scaleToBox(unit x y w h))
+                def out (new PathRing())
+                out.pts = (PptxToEvg.rotatePoints(flat cx cy shape.rotation))
+                push rings out
+                ri = (ri + 1)
+            }
             ; Filled unless the file said otherwise — and `<a:noFill/>` on the
             ; shape beats anything the preset says, because a deck that asks
             ; for no fill is asking about the whole shape.
@@ -610,7 +622,16 @@ class PptxToEvg {
                 wantFill = false
             }
             if wantFill {
-                this.pushPathFill(dl pts (PptxToEvg.shadeColor(baseFill gp.fill)))
+                def shade:EVGColor (PptxToEvg.shadeColor(baseFill gp.fill))
+                if ((array_length rings) > 1) {
+                    ; Even-odd, which is what makes the inner contour a HOLE
+                    ; rather than a second disc — a donut, a block arc, the
+                    ; ring of `noSmoking`.
+                    dl.addPolyRings(rings shade true)
+                } {
+                    def only:PathRing (itemAt rings 0)
+                    this.pushPathFill(dl only.pts shade)
+                }
             }
             ; Stroked only when the SHAPE has a line. `stroke="true"` on a
             ; path is permission, not an instruction — it says this path
@@ -619,7 +640,12 @@ class PptxToEvg {
             ; round every text frame in a deck, which is what it did.
             if gp.stroke {
                 if hasLine {
-                    this.pushPathStroke(dl pts lw lineCol gp.closed)
+                    def si:int 0
+                    while (si < (array_length rings)) {
+                        def sr:PathRing (itemAt rings si)
+                        this.pushPathStroke(dl sr.pts lw lineCol gp.closed)
+                        si = (si + 1)
+                    }
                 }
             }
             i = (i + 1)
