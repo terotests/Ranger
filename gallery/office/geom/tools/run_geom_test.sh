@@ -17,22 +17,26 @@ set -euo pipefail
 cd "$(cd "$(dirname "$0")/../../../.." && pwd)"
 
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
-SRC=gallery/office/geom/tests/OfficeGeomFormulaTest.rgr
 OUT=tmp/office-geom
 mkdir -p "$OUT" tmp gallery/office/geom/bin
 
+# Two suites: the evaluator on its own, then all 187 shapes through it.
+SUITES="OfficeGeomFormulaTest OfficePresetShapesTest"
+
 echo "==> JavaScript"
-node bin/output.js -es6 "$SRC" -d=gallery/office/geom/bin -o=OfficeGeomFormulaTest.js -nodecli > "$OUT/js.log" 2>&1 || {
-  tail -20 "$OUT/js.log"; echo "Ranger -> JS failed" >&2; exit 1; }
-# The compiler can report [FAIL] and still exit 0, and the stale build from the
-# last run would then be what gets tested.
-if grep -q '\[FAIL\]' "$OUT/js.log"; then
-  grep -A2 '\[FAIL\]' "$OUT/js.log" | head -20
-  echo "Ranger -> JS failed" >&2
-  exit 1
-fi
-node gallery/office/geom/bin/OfficeGeomFormulaTest.js 2>&1 | tee "$OUT/js.out"
-grep -q "ALL PASS" "$OUT/js.out" || { echo "JavaScript run failed" >&2; exit 1; }
+for T in $SUITES; do
+  node bin/output.js -es6 "gallery/office/geom/tests/$T.rgr" -d=gallery/office/geom/bin -o="$T.js" -nodecli > "$OUT/js-$T.log" 2>&1 || {
+    tail -20 "$OUT/js-$T.log"; echo "Ranger -> JS failed ($T)" >&2; exit 1; }
+  # The compiler can report [FAIL] and still exit 0, and the stale build from
+  # the last run would then be what gets tested.
+  if grep -q '\[FAIL\]' "$OUT/js-$T.log"; then
+    grep -A2 '\[FAIL\]' "$OUT/js-$T.log" | head -20
+    echo "Ranger -> JS failed ($T)" >&2
+    exit 1
+  fi
+  node "gallery/office/geom/bin/$T.js" 2>&1 | tee "$OUT/js-$T.out"
+  grep -q "ALL PASS" "$OUT/js-$T.out" || { echo "JavaScript run failed ($T)" >&2; exit 1; }
+done
 
 CXX=""
 for cc in g++ clang++; do
@@ -46,17 +50,19 @@ fi
 
 echo
 echo "==> C++ ($CXX)"
-node bin/output.js -l=cpp "$SRC" -nodecli -d="$OUT" -o=OfficeGeomFormulaTest.cpp > "$OUT/cpp.log" 2>&1 || {
-  tail -20 "$OUT/cpp.log"; echo "Ranger -> C++ failed" >&2; exit 1; }
-if grep -q '\[FAIL\]' "$OUT/cpp.log"; then
-  grep -A2 '\[FAIL\]' "$OUT/cpp.log" | head -20
-  echo "Ranger -> C++ failed" >&2
-  exit 1
-fi
 cp gallery/invaders/variant.hpp "$OUT/variant.hpp"
-"$CXX" -std=c++17 -I "$OUT" -o "$OUT/officegeom" "$OUT/OfficeGeomFormulaTest.cpp"
-"$OUT/officegeom" 2>&1 | tee "$OUT/cpp.out"
-grep -q "ALL PASS" "$OUT/cpp.out" || { echo "C++ run failed" >&2; exit 1; }
+for T in $SUITES; do
+  node bin/output.js -l=cpp "gallery/office/geom/tests/$T.rgr" -nodecli -d="$OUT" -o="$T.cpp" > "$OUT/cpp-$T.log" 2>&1 || {
+    tail -20 "$OUT/cpp-$T.log"; echo "Ranger -> C++ failed ($T)" >&2; exit 1; }
+  if grep -q '\[FAIL\]' "$OUT/cpp-$T.log"; then
+    grep -A2 '\[FAIL\]' "$OUT/cpp-$T.log" | head -20
+    echo "Ranger -> C++ failed ($T)" >&2
+    exit 1
+  fi
+  "$CXX" -std=c++17 -I "$OUT" -o "$OUT/$T" "$OUT/$T.cpp"
+  "$OUT/$T" 2>&1 | tee "$OUT/cpp-$T.out"
+  grep -q "ALL PASS" "$OUT/cpp-$T.out" || { echo "C++ run failed ($T)" >&2; exit 1; }
+done
 
 echo
 echo "guides in, geometry out, the same on both targets"
