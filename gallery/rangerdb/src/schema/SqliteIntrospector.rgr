@@ -104,6 +104,20 @@ class SqliteIntrospector {
             def pk:int (DBIntrospector.intOf(rows r "pk"))
             col.pkPosition = pk
             col.isPrimaryKey = (pk > 0)
+            ; SQLite reports notnull = 0 for an INTEGER PRIMARY KEY, because
+            ; such a column is an alias for the rowid and the engine really
+            ; will accept a NULL there and substitute one — a documented
+            ; long-standing quirk it keeps for compatibility.
+            ;
+            ; Reported verbatim it would mean every primary key describes
+            ; itself as nullable on SQLite and NOT NULL on every other engine,
+            ; so the same DDL introspected twice would differ, and the schema
+            ; differ would propose an ALTER on every key it ever compared.
+            ; The logical schema is what this model holds: a primary key
+            ; column is not nullable.
+            if (pk > 0) {
+                col.nullable = false
+            }
             col.defaultValue = (DBIntrospector.textOf(rows r "dflt_value"))
             r = (r + 1)
         }

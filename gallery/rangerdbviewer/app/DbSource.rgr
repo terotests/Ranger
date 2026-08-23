@@ -1,0 +1,151 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DbSource.rgr — one database the viewer can open.
+; ============================================================================
+;
+; An engine name and a DSN, and the knowledge of which backend goes with which
+; name. It exists so that `DbViewerApp` never mentions SQLite: the day a
+; PostgreSQL backend lands, this file changes and the application does not.
+;
+; Which engine a FILE is depends on its first bytes, not on its extension:
+;
+;     SQLite   "SQLite format 3\0"  at offset 0
+;     DuckDB   "DUCK"               at offset 8
+;
+; `.db` is claimed by both, and by several products that are neither, so
+; sniffing is the test and the extension is only the fallback. The sniff itself
+; belongs to the host — reading bytes off a disk is not this layer's job — so
+; `detectEngine` takes the header the host already read.
+; ============================================================================
+
+Import "../../rangerdb/src/schema/Introspect.rgr"
+Import "../../rangerdb/src/HostSql.rgr"
+Import "../../rangerdb/src/RangerDB.rgr"
+
+class DbSource {
+    ; "sqlite" | "duckdb" | "rangerdb"
+    def engine:string "rangerdb"
+    def dsn:string ":memory:"
+    def label:string ""
+    def readOnly:boolean true
+    def errorText:string ""
+    def isOpen:boolean false
+    def session:DBSession (new DBSession)
+
+    Constructor () {
+    }
+
+    sfn of:DbSource (engine:string dsn:string) {
+        def s:DbSource (new DbSource)
+        s.engine = engine
+        s.dsn = dsn
+        s.label = dsn
+        return s
+    }
+
+    ; An in-memory database on a named engine. This is the shape the web build
+    ; uses, where there is no disk to open anything from.
+    sfn inMemory:DbSource (engine:string) {
+        def s:DbSource (DbSource.of(engine ":memory:"))
+        s.label = (engine + " (in memory)")
+        return s
+    }
+
+    ; Opening twice would hand back a DIFFERENT in-memory database and silently
+    ; discard whatever was in the first one, so an already-open source is a
+    ; no-op rather than a reopen.
+    fn openSession:boolean () {
+        if isOpen {
+            return true
+        }
+        errorText = ""
+        if (engine == "rangerdb") {
+            def rdb:RangerDbBackend (new RangerDbBackend)
+            session = (DBSession.over(rdb))
+            def okr:boolean (session.openDb(dsn))
+            if (okr == false) {
+                errorText = (session.lastError())
+            }
+            isOpen = okr
+            return okr
+        }
+        def here:boolean (HostSqlBackend.isAvailable(engine))
+        if (here == false) {
+            errorText = (engine + " is not installed on this host")
+            return false
+        }
+        def backend:HostSqlBackend (HostSqlBackend.forDriver(engine))
+        session = (DBSession.over(backend))
+        def ok:boolean (session.openDb(dsn))
+        if (ok == false) {
+            errorText = (session.lastError())
+        }
+        isOpen = ok
+        return ok
+    }
+
+    fn closeSession:void () {
+        if (isOpen == false) {
+            return
+        }
+        session.closeDb()
+        isOpen = false
+    }
+
+    fn isAvailable:boolean () {
+        if (engine == "rangerdb") {
+            return true
+        }
+        return (HostSqlBackend.isAvailable(engine))
+    }
+
+    ; The first bytes of the file, as the host read them. Returns "" when the
+    ; header matches nothing known — the caller then decides whether to guess
+    ; from the extension or to refuse, and refusing is usually right.
+    sfn detectEngine:string (header:string) {
+        def n:int (strlen header)
+        if (n >= 15) {
+            def head:string (substring header 0 15)
+            if (head == "SQLite format 3") {
+                return "sqlite"
+            }
+        }
+        if (n >= 12) {
+            def magic:string (substring header 8 12)
+            if (magic == "DUCK") {
+                return "duckdb"
+            }
+        }
+        return ""
+    }
+
+    ; Only used when the bytes said nothing — a new file that does not exist
+    ; yet has no header to sniff.
+    sfn engineForExtension:string (path:string) {
+        def lower:string (to_lowercase path)
+        def n:int (strlen lower)
+        if (n > 7) {
+            def tail7:string (substring lower (n - 7) n)
+            if (tail7 == ".duckdb") {
+                return "duckdb"
+            }
+            if (tail7 == ".sqlite") {
+                return "sqlite"
+            }
+        }
+        if (n > 8) {
+            def tail8:string (substring lower (n - 8) n)
+            if (tail8 == ".sqlite3") {
+                return "sqlite"
+            }
+        }
+        if (n > 3) {
+            def tail3:string (substring lower (n - 3) n)
+            if (tail3 == ".db") {
+                return "sqlite"
+            }
+        }
+        return ""
+    }
+}

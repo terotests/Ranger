@@ -118,6 +118,11 @@ class IntrospectContract {
             def idCol:SchemaColumn (itemAt customers.columns idIdx)
             check.ok((engine + ": customers.id is the primary key") idCol.isPrimaryKey)
             check.eqInt((engine + ": customers.id is PK position 1") idCol.pkPosition 1)
+            ; Every engine must agree here. SQLite's PRAGMA reports notnull = 0
+            ; for an INTEGER PRIMARY KEY (the rowid-alias quirk); reported
+            ; verbatim, the same DDL would describe itself differently per
+            ; engine and the schema differ would propose an ALTER on every key.
+            check.ok((engine + ": a primary key is never nullable") ((idCol.nullable) == false))
         }
         def pks:[string] (customers.primaryKeyColumns())
         check.eqInt((engine + ": customers has a single-column PK") (array_length pks) 1)
