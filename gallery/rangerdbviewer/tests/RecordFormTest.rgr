@@ -1,0 +1,313 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; RecordFormTest — one row of a real table, as a form.
+; ==============================================================================
+;
+; The claim is that the two libraries meet without either of them learning
+; about the other: `gallery/rangerforms` never hears of a database, and
+; `gallery/rangerdb` never hears of a questionnaire. What joins them is a
+; mapping from a column's declared type to a question's type, and it is the
+; SAME mapping the spreadsheet panels use — `SqlColumnRules.family` — so the
+; Data panel and the form refuse the same entries for the same reasons.
+;
+; And the same write-back discipline as `DataSheet`: an UPDATE addressed by
+; the key the row was LOADED with, or no UPDATE and a reason.
+; ==============================================================================
+
+Import "../forms/RecordForm.rgr"
+Import "../app/DemoData.rgr"
+
+class RecCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class RecordFormTest {
+
+    sfn customers:DBTable () {
+        def t:DBTable (DBTable.create("customers"))
+        def id:SchemaColumn (t.column("id" "INTEGER"))
+        id.isPrimaryKey = true
+        id.pkPosition = 1
+        id.nullable = false
+        def email:SchemaColumn (t.column("email" "VARCHAR(12)"))
+        email.nullable = false
+        def name:SchemaColumn (t.column("name" "VARCHAR(40)"))
+        def age:SchemaColumn (t.column("age" "SMALLINT"))
+        def active:SchemaColumn (t.column("active" "BOOLEAN"))
+        def spend:SchemaColumn (t.column("spend" "DECIMAL(10,2)"))
+        return t
+    }
+
+    sfn oneRow:DataChunk () {
+        def chunk:DataChunk (new DataChunk)
+        def vid:ValueVector (chunk.addColumn((DBColumn.createKey("id" (DBType.intKind())))))
+        def vem:ValueVector (chunk.addColumn((DBColumn.create("email" (DBType.stringKind())))))
+        def vnm:ValueVector (chunk.addColumn((DBColumn.create("name" (DBType.stringKind())))))
+        def vag:ValueVector (chunk.addColumn((DBColumn.create("age" (DBType.intKind())))))
+        def vac:ValueVector (chunk.addColumn((DBColumn.create("active" (DBType.boolKind())))))
+        def vsp:ValueVector (chunk.addColumn((DBColumn.create("spend" (DBType.doubleKind())))))
+        vid.appendInt(7)
+        vem.appendString("ada@x.fi")
+        vnm.appendString("Ada")
+        vag.appendInt(36)
+        vac.appendBool(true)
+        vsp.appendNull()
+        chunk.rowCount = 1
+        return chunk
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A table, described
+    ; --------------------------------------------------------------------------
+    sfn runDescribe:void (c:RecCheck) {
+        print "-- a table, as a questionnaire --"
+        def t:DBTable (RecordFormTest.customers())
+        def f:Questionnaire (RecordForm.describe(t))
+        c.eqInt("a question per column" (f.questionCount()) 6)
+        c.eqStr("the form is named after the table" f.name "customers")
+
+        ; The column's declared type becomes the question's type, through the
+        ; same `family` the spreadsheet panels read.
+        def email:Question (f.find("email"))
+        c.eqStr("VARCHAR is text" email.kind "text")
+        c.eqInt("with the length it declares" email.maxLength 12)
+        c.ok("and NOT NULL makes it required" (email.hasRule("required")))
+
+        def age:Question (f.find("age"))
+        c.eqStr("SMALLINT is a whole number" age.kind "int")
+        c.ok("bounded" age.hasMin)
+        c.ok("at both ends" age.hasMax)
+        c.ok("and nullable, so not required" ((age.hasRule("required")) == false))
+
+        def active:Question (f.find("active"))
+        c.eqStr("BOOLEAN is yes or no" active.kind "bool")
+        def spend:Question (f.find("spend"))
+        c.eqStr("DECIMAL is a decimal" spend.kind "decimal")
+
+        ; The key is shown and not edited: a form that let somebody retype it
+        ; could not say which row it meant afterwards.
+        def id:Question (f.find("id"))
+        c.ok("the key is read-only" (id.hasRule("readonly")))
+        ; …and an integer key the database fills in is NOT required, or a new
+        ; row could never be saved.
+        c.ok("and not required, because the database fills it in" ((id.hasRule("required")) == false))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A row, loaded and edited
+    ; --------------------------------------------------------------------------
+    sfn runRow:void (c:RecCheck) {
+        print "-- a row, loaded --"
+        def rf:RecordForm (new RecordForm)
+        c.ok("the form opens" (rf.open((RecordFormTest.customers()) 20000)))
+        c.ok("and the row loads" (rf.loadRow((RecordFormTest.oneRow()) 0 20000)))
+        c.eqStr("the key came through" (rf.currentText("id")) "7")
+        c.eqStr("and the text" (rf.currentText("email")) "ada@x.fi")
+        c.eqStr("a NULL is blank" (rf.currentText("spend")) "")
+        c.ok("an untouched form is not dirty" ((rf.isDirty()) == false))
+        c.ok("and has nothing to save" ((rf.canSave()) == false))
+        c.eqStr("saying so" rf.errorText "nothing has been changed")
+
+        ; --- the column's type refuses what the database would --------------
+        rf.engine.answerText(rf.state "email" "an-address-far-too-long")
+        c.ok("too long for VARCHAR(12) is invalid" ((rf.state.isValid("email")) == false))
+        c.ok("so it cannot be saved" ((rf.canSave()) == false))
+        c.ok("and the reason names the field" (RecordFormTest.holds(rf.errorText "email")))
+        rf.engine.answerText(rf.state "email" "ada2@x.fi")
+        c.ok("a short one is valid" (rf.state.isValid("email")))
+
+        rf.engine.answerText(rf.state "age" "twelve")
+        c.ok("a word is not a SMALLINT" ((rf.state.isValid("age")) == false))
+        rf.engine.answerText(rf.state "age" "99999")
+        c.ok("and neither is a number out of its range" ((rf.state.isValid("age")) == false))
+        rf.engine.answerText(rf.state "age" "37")
+        c.ok("but 37 is" (rf.state.isValid("age")))
+
+        rf.engine.answerText(rf.state "spend" "12.50")
+        c.ok("a decimal takes a fraction" (rf.state.isValid("spend")))
+
+        ; --- NOT NULL cannot be emptied ---------------------------------------
+        rf.engine.clear(rf.state "email")
+        c.ok("clearing a NOT NULL column blocks the save" ((rf.canSave()) == false))
+        c.ok("saying it has to be answered" (RecordFormTest.holds(rf.errorText "answered")))
+        rf.engine.answerText(rf.state "email" "ada2@x.fi")
+
+        ; --- the statement ----------------------------------------------------
+        c.ok("now it can be saved" (rf.canSave()))
+        def changed:[string] (rf.changedFields())
+        c.eqInt("three fields changed" (array_length changed) 3)
+        def m:DBMutation (rf.mutation())
+        c.eqStr("it is an update" m.table "customers")
+        c.eqInt("addressed by one key column" (array_length m.keyColumns) 1)
+        c.eqStr("which is the primary key" (itemAt m.keyColumns 0) "id")
+        ; The key value is the one the row was LOADED with — the whole point.
+        def keyVal:DBValue (itemAt m.keyValues 0)
+        c.eqStr("holding the value it was read with" (keyVal.asString()) "7")
+        c.eqInt("and it sets three columns" (array_length m.setColumns) 3)
+        c.ok("the key is not among them" ((RecordForm.listHas(m.setColumns "id")) == false))
+
+        ; The typed value, not the text. A form that sent every column as a
+        ; string would make a database do the conversion and would lose the
+        ; distinction between a number and the text of one.
+        def at:int (RecordFormTest.slotOf(m.setColumns "age"))
+        def ageVal:DBValue (itemAt m.setValues at)
+        c.eqInt("age went as a number" ageVal.kind 2)
+        def spendAt:int (RecordFormTest.slotOf(m.setColumns "spend"))
+        def spendVal:DBValue (itemAt m.setValues spendAt)
+        c.eqInt("and spend as a double" spendVal.kind 3)
+
+        c.ok("the preview reads like the statement" (RecordFormTest.holds((rf.preview()) "UPDATE customers SET")))
+        c.ok("…and names the row" (RecordFormTest.holds((rf.preview()) "WHERE id = 7")))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A table with no key
+    ; --------------------------------------------------------------------------
+    sfn runKeyless:void (c:RecCheck) {
+        print "-- a table with no primary key --"
+        def t:DBTable (DBTable.create("log"))
+        def line:SchemaColumn (t.column("line" "TEXT"))
+        def chunk:DataChunk (new DataChunk)
+        def v:ValueVector (chunk.addColumn((DBColumn.create("line" (DBType.stringKind())))))
+        v.appendString("started")
+        chunk.rowCount = 1
+
+        def rf:RecordForm (new RecordForm)
+        rf.open(t 20000)
+        rf.loadRow(chunk 0 20000)
+        rf.engine.answerText(rf.state "line" "stopped")
+        c.ok("the edit is taken" (rf.isDirty()))
+        ; …and refused, because there is no way to say which row it means.
+        c.ok("but it cannot be saved" ((rf.canSave()) == false))
+        c.ok("and says why" (RecordFormTest.holds(rf.errorText "no primary key")))
+        def m:DBMutation (rf.mutation())
+        c.eqInt("no statement is produced" (array_length m.setColumns) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Against the demo database
+    ; --------------------------------------------------------------------------
+    ;
+    ; The introspected schema, a real page of rows, and a real mutation run
+    ; against the engine — so the mapping is checked against what a database
+    ; actually reports rather than against a table written out by hand.
+    sfn runLive:void (c:RecCheck) {
+        print "-- against the demo database --"
+        def src:DbSource (DemoData.openSeeded("rangerdb"))
+        if ((src.isOpen) == false) {
+            print "  the demo database did not open"
+            return
+        }
+        def schema:DatabaseSchema (Introspect.everything(src.session))
+        def at:int (schema.indexOfTable("customers"))
+        c.ok("customers is there" (at >= 0))
+        if (at < 0) {
+            return
+        }
+        def t:DBTable (itemAt schema.tables at)
+        def rf:RecordForm (new RecordForm)
+        c.ok("a form opens on it" (rf.open(t 20000)))
+        c.eqInt("with a question per column" (RecordFormTest.questionCountOf(rf)) (array_length t.columns))
+
+        def spec:QuerySpec (QuerySpec.forTable("customers"))
+        spec.page(0 10)
+        def chunk:DataChunk (src.session.query(spec))
+        c.ok("the table has rows" (chunk.rowCount > 0))
+        c.ok("and the first one loads" (rf.loadRow(chunk 0 20000)))
+        def wasName:string (rf.currentText("name"))
+        c.ok("with a name in it" ((strlen wasName) > 0))
+
+        rf.engine.answerText(rf.state "name" "Ada Lovelace")
+        c.ok("an edit can be saved" (rf.canSave()))
+        def m:DBMutation (rf.mutation())
+        def applied:int (src.session.mutate(m))
+        c.eqInt("and the engine changes one row" applied 1)
+
+        ; Read it back. This is the assertion the whole file is for: the form
+        ; produced a statement that changed the row it said it would.
+        def again:DataChunk (src.session.query(spec))
+        def col:int (again.columnIndex("name"))
+        c.eqStr("the row now says what was typed" (again.stringAt(0 col)) "Ada Lovelace")
+        ; …and nothing else moved.
+        def emailCol:int (again.columnIndex("email"))
+        c.eqStr("and the rest of the row is untouched" (again.stringAt(0 emailCol)) "ada@example.com")
+        src.closeSession()
+    }
+
+    sfn questionCountOf:int (rf:RecordForm) {
+        return (rf.form.questionCount())
+    }
+
+    sfn slotOf:int (list:[string] want:string) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if ((itemAt list i) == want) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn holds:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if (n == 0) {
+            return false
+        }
+        def last:int ((strlen text) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring text i (i + n)) == part) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def c:RecCheck (new RecCheck)
+        RecordFormTest.runDescribe(c)
+        RecordFormTest.runRow(c)
+        RecordFormTest.runKeyless(c)
+        RecordFormTest.runLive(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

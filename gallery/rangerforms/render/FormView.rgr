@@ -1,0 +1,651 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FormView.rgr — a questionnaire, on screen.
+; ============================================================================
+;
+;   ┌──────────────────────────────────────────────┐
+;   │ Intake                          2 of 5 shown │
+;   ├──────────────────────────────────────────────┤
+;   │ How old are you?  *  ┌──────────────────────┐│
+;   │                      │ 12                   ││
+;   │                      └──────────────────────┘│
+;   │ Guardian          *  ┌──────────────────────┐│
+;   │                      │ Ada▌                 ││
+;   │                      └──────────────────────┘│
+;   │ Gift wrap?           ☑                       │
+;   │ Country              ┌──────────────────┬─▾─┐│
+;   │                      │ Finland          │   ││
+;   │                      └──────────────────┴───┘│
+;   └──────────────────────────────────────────────┘
+;
+; It draws only the questions the ENGINE says are showing, in the order the
+; questionnaire declares them, and it asks the engine what each one's state is
+; rather than working anything out. A view that decided for itself whether a
+; question was required would be a second implementation of the rules, and the
+; two would disagree the first time somebody wrote an interesting form.
+;
+; ---------------------------------------------------------------------------
+; Typing goes through the engine
+; ---------------------------------------------------------------------------
+;
+; A committed edit is `FormEngine.answer`, which settles the dependents and
+; re-checks the type. Nothing here writes into `AnswerState` directly, so
+; there is no path by which the screen and the rules can hold different
+; opinions about what has been answered.
+;
+; The picker for a choice question is `EVGWindow` — the same dialog the
+; spreadsheet opens for a validated cell, the deck editor opens for a theme,
+; and the document editor opens for a style.
+; ============================================================================
+
+Import "../engine/FormEngine.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "../../game_engine/ui/UIContext.rgr"
+
+; Where one question was drawn, so a click can find it again. Rebuilt every
+; frame, because which questions are showing changes as the form is filled in.
+class FieldBox {
+    def name:string ""
+    def kind:string ""
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    ; The arrow of a choice question, which means something different from the
+    ; rest of the box.
+    def arrowX:int 0
+    def hasArrow:boolean false
+
+    Constructor () {
+    }
+
+    fn holdsPoint:boolean (px:int py:int) {
+        if (px < x) {
+            return false
+        }
+        if (py < y) {
+            return false
+        }
+        if (px >= (x + w)) {
+            return false
+        }
+        return (py < (y + h))
+    }
+}
+
+class FormTheme {
+    def bg:EVGColor (EVGColor.rgb(252 253 255))
+    def ink:EVGColor (EVGColor.rgb(28 32 42))
+    def dim:EVGColor (EVGColor.rgb(96 106 122))
+    def glyph:EVGColor (EVGColor.rgb(140 150 168))
+    def line:EVGColor (EVGColor.rgb(206 214 226))
+    def field:EVGColor (EVGColor.rgb(255 255 255))
+    def fieldOff:EVGColor (EVGColor.rgb(242 244 248))
+    def accent:EVGColor (EVGColor.rgb(38 110 210))
+    def warn:EVGColor (EVGColor.rgb(200 60 50))
+
+    Constructor () {
+    }
+}
+
+class FormView {
+    def engine:FormEngine (new FormEngine)
+    def state:AnswerState (new AnswerState)
+    def theme:FormTheme (new FormTheme)
+    def ctx:UIContext (new UIContext)
+    def fontFamily:string "Open Sans"
+
+    def viewX:int 0
+    def viewY:int 0
+    def viewW:int 600
+    def viewH:int 400
+    def labelW:int 200
+    def rowH:int 30
+    def gap:int 10
+    def scrollY:int 0
+
+    ; Which question is being edited, and what has been typed into it. Empty
+    ; means nothing is.
+    def editing:string ""
+    def editBuf:string ""
+    ; The boxes of the last frame, for hit testing.
+    def boxes:[FieldBox]
+    ; What the last refused entry was about.
+    def note:string ""
+
+    ; The choice picker.
+    def windows:EVGWindowManager (new EVGWindowManager)
+    def picker:EVGWindow (new EVGWindow)
+    def pickerReady:boolean false
+    def pickerFor:string ""
+    def pickerValues:[string]
+    def hostW:int 1200
+    def hostH:int 800
+
+    Constructor () {
+    }
+
+    fn attach:void (e:FormEngine s:AnswerState c:UIContext family:string) {
+        engine = e
+        state = s
+        ctx = c
+        fontFamily = family
+    }
+
+    fn setBounds:void (x:int y:int w:int h:int) {
+        viewX = x
+        viewY = y
+        viewW = w
+        viewH = h
+    }
+
+    fn setHostSize:void (w:int h:int) {
+        hostW = w
+        hostH = h
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Drawing
+    ; ------------------------------------------------------------------------
+    fn text:void (dl:EVGDisplayList s:string x:double y:double size:double col:EVGColor) {
+        if ((strlen s) == 0) {
+            return
+        }
+        def w:double (ctx.tr.measureWidth(s size))
+        def h:double (ctx.tr.lineHeight(size))
+        dl.addText(s x y size col fontFamily false false w h)
+    }
+
+    fn buildInto:void (dl:EVGDisplayList) {
+        clear boxes
+        dl.addRect((to_double viewX) (to_double viewY) (to_double viewW) (to_double viewH) theme.bg)
+        dl.addClip((to_double viewX) (to_double viewY) (to_double viewW) (to_double viewH))
+        def y:int ((viewY + 8) - scrollY)
+        def i:int 0
+        def n:int (array_length engine.form.questions)
+        while (i < n) {
+            def q:Question (itemAt engine.form.questions i)
+            def st:QuestionState (state.stateOf(q.name))
+            if st.visible {
+                y = (this.paintField(dl q st y))
+            }
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    ; One question. Returns the y the next one starts at.
+    fn paintField:int (dl:EVGDisplayList q:Question st:QuestionState y:int) {
+        def bottom:int (viewY + viewH)
+        def onScreen:boolean false
+        if (y > (viewY - rowH)) {
+            if (y < bottom) {
+                onScreen = true
+            }
+        }
+        def boxX:int ((viewX + labelW) + 8)
+        def boxW:int ((viewW - labelW) - 24)
+        if (boxW < 80) {
+            boxW = 80
+        }
+        ; The box is recorded whether or not it is on screen, so a hit test
+        ; after a scroll does not depend on what happened to be painted.
+        def box:FieldBox (new FieldBox)
+        box.name = q.name
+        box.kind = q.kind
+        box.x = boxX
+        box.y = y
+        box.w = boxW
+        box.h = (rowH - 6)
+        if (this.isPickable(q)) {
+            box.hasArrow = true
+            box.arrowX = ((boxX + boxW) - 22)
+        }
+        push boxes box
+
+        if onScreen {
+            def labelCol:EVGColor theme.dim
+            if ((st.isValid()) == false) {
+                labelCol = theme.warn
+            }
+            def label:string q.label
+            if ((strlen label) == 0) {
+                label = q.name
+            }
+            this.text(dl label (to_double (viewX + 12)) (to_double (y + 4)) 12.0 labelCol)
+            if st.required {
+                def lw:double (ctx.tr.measureWidth(label 12.0))
+                this.text(dl "*" ((to_double (viewX + 16)) + lw) (to_double (y + 4)) 12.0 theme.warn)
+            }
+            this.paintValue(dl q st box)
+            ; The reason, under the field, in the words the form chose.
+            if ((strlen st.message) > 0) {
+                this.text(dl st.message (to_double boxX) (to_double (y + rowH - 3)) 10.5 theme.warn)
+            }
+        }
+        def used:int rowH
+        if ((strlen st.message) > 0) {
+            used = (rowH + 14)
+        }
+        return (y + used)
+    }
+
+    fn isPickable:boolean (q:Question) {
+        if (q.kind == "choice") {
+            return ((array_length q.choices) > 0)
+        }
+        return false
+    }
+
+    fn paintValue:void (dl:EVGDisplayList q:Question st:QuestionState box:FieldBox) {
+        ; A yes/no is a box you tick, not a box you type in.
+        if (q.kind == "bool") {
+            def ticked:boolean (this.boolOf(q.name))
+            dl.addRect((to_double box.x) (to_double (box.y + 3)) 16.0 16.0 theme.field)
+            FormView.border(dl (to_double box.x) (to_double (box.y + 3)) 16.0 16.0 theme.line)
+            if ticked {
+                this.text(dl "✓" (to_double (box.x + 3)) (to_double (box.y + 3)) 13.0 theme.accent)
+            }
+            return
+        }
+        def fill:EVGColor theme.field
+        if ((st.enabled) == false) {
+            fill = theme.fieldOff
+        }
+        if st.readOnly {
+            fill = theme.fieldOff
+        }
+        dl.addRect((to_double box.x) (to_double box.y) (to_double box.w) (to_double box.h) fill)
+        def edge:EVGColor theme.line
+        if (editing == q.name) {
+            edge = theme.accent
+        }
+        if ((st.isValid()) == false) {
+            edge = theme.warn
+        }
+        FormView.border(dl (to_double box.x) (to_double box.y) (to_double box.w) (to_double box.h) edge)
+        def shown:string (this.shownText(q))
+        def col:EVGColor theme.ink
+        if ((strlen shown) == 0) {
+            col = theme.glyph
+            if (q.isComputed()) {
+                shown = "(worked out)"
+            }
+        }
+        this.text(dl shown (to_double (box.x + 6)) (to_double (box.y + 3)) 12.5 col)
+        if (editing == q.name) {
+            def cw:double (ctx.tr.measureWidth(shown 12.5))
+            dl.addRect(((to_double (box.x + 7)) + cw) (to_double (box.y + 3)) 1.5 (to_double (box.h - 6)) theme.accent)
+        }
+        if box.hasArrow {
+            dl.addRect((to_double (box.arrowX - 4)) (to_double box.y) 1.0 (to_double box.h) theme.line)
+            this.text(dl "▾" (to_double (box.arrowX + 2)) (to_double (box.y + 3)) 11.0 theme.glyph)
+        }
+    }
+
+    fn shownText:string (q:Question) {
+        if (editing == q.name) {
+            return editBuf
+        }
+        def v:FormValue (state.rawValueOf(q.name))
+        if (q.kind == "choice") {
+            return (this.labelForChoice(q (v.asText())))
+        }
+        return (v.asText())
+    }
+
+    fn labelForChoice:string (q:Question value:string) {
+        def i:int 0
+        def n:int (array_length q.choices)
+        while (i < n) {
+            def c:Choice (itemAt q.choices i)
+            if (c.value == value) {
+                if ((strlen c.label) > 0) {
+                    return c.label
+                }
+                return c.value
+            }
+            i = (i + 1)
+        }
+        return value
+    }
+
+    fn boolOf:boolean (name:string) {
+        def v:FormValue (state.rawValueOf(name))
+        return (FormEngine.isYes((to_lowercase (v.asText()))))
+    }
+
+    sfn border:void (dl:EVGDisplayList x:double y:double w:double h:double col:EVGColor) {
+        dl.addRect(x y w 1.0 col)
+        dl.addRect(x ((y + h) - 1.0) w 1.0 col)
+        dl.addRect(x y 1.0 h col)
+        dl.addRect(((x + w) - 1.0) y 1.0 h col)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The picker
+    ; ------------------------------------------------------------------------
+    fn openPicker:boolean (q:Question box:FieldBox) {
+        if ((this.isPickable(q)) == false) {
+            return false
+        }
+        if (pickerReady == false) {
+            picker.w = 240
+            picker.title = "Choose"
+            windows.add(picker)
+            pickerReady = true
+        }
+        clear pickerValues
+        pickerFor = q.name
+        def current:string (this.currentText(q.name))
+        picker.reset()
+        picker.addLabel(q.label)
+        def i:int 0
+        def n:int (array_length q.choices)
+        while (i < n) {
+            def c:Choice (itemAt q.choices i)
+            push pickerValues c.value
+            def shown:string c.label
+            if ((strlen shown) == 0) {
+                shown = c.value
+            }
+            picker.addRadio((701 + i) shown 1 (c.value == current))
+            i = (i + 1)
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 691
+        push labels "Cancel"
+        push ids 692
+        push labels "Choose"
+        picker.addButtonRow(ids labels 692)
+        picker.finish()
+        picker.openWithin(box.x (box.y + box.h) hostW hostH)
+        windows.raise(picker)
+        return true
+    }
+
+    fn applyPicker:boolean () {
+        def chosen:int (picker.selectedInGroup(1))
+        picker.close()
+        if (chosen < 701) {
+            return false
+        }
+        def idx:int (chosen - 701)
+        if (idx >= (array_length pickerValues)) {
+            return false
+        }
+        return (engine.answerText(state pickerFor (itemAt pickerValues idx)))
+    }
+
+    fn buildPickerInto:void (dl:EVGDisplayList) {
+        if (pickerReady == false) {
+            return
+        }
+        windows.paint(dl ctx.tr hostW hostH)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Input
+    ; ------------------------------------------------------------------------
+    fn pointerPicker:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        if (pickerReady == false) {
+            return false
+        }
+        if ((windows.anyVisible()) == false) {
+            return false
+        }
+        def consumed:boolean (windows.handlePointer(x y pressed down released))
+        if (picker.activated > 0) {
+            if (picker.activated == 692) {
+                this.applyPicker()
+            }
+            if (picker.activated == 691) {
+                picker.close()
+            }
+            picker.activated = -1
+        }
+        return consumed
+    }
+
+    fn fieldAt:FieldBox (x:int y:int) {
+        def i:int 0
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:FieldBox (itemAt boxes i)
+            if (b.holdsPoint(x y)) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return (new FieldBox)
+    }
+
+    fn press:boolean (x:int y:int) {
+        def box:FieldBox (this.fieldAt(x y))
+        if ((strlen box.name) == 0) {
+            return false
+        }
+        def q:Question (engine.form.find(box.name))
+        def st:QuestionState (state.stateOf(box.name))
+        ; A field the rules have switched off, or one the form works out
+        ; itself, is shown and not typed into.
+        if ((st.enabled) == false) {
+            note = (box.name + " is not editable here")
+            return true
+        }
+        if st.readOnly {
+            note = (box.name + " cannot be changed")
+            return true
+        }
+        if (q.isComputed()) {
+            note = (box.name + " is worked out from the other answers")
+            return true
+        }
+        this.commit()
+        if (q.kind == "bool") {
+            def now:boolean (this.boolOf(box.name))
+            def next:string "yes"
+            if now {
+                next = "no"
+            }
+            engine.answerText(state box.name next)
+            return true
+        }
+        if box.hasArrow {
+            if (x >= box.arrowX) {
+                return (this.openPicker(q box))
+            }
+        }
+        if (this.isPickable(q)) {
+            return (this.openPicker(q box))
+        }
+        editing = box.name
+        editBuf = (this.currentText(box.name))
+        note = ""
+        return true
+    }
+
+    fn currentText:string (name:string) {
+        def v:FormValue (state.rawValueOf(name))
+        return (v.asText())
+    }
+
+    ; Start editing a named field, without a pointer. What a keyboard-only
+    ; reader does, and what a host driving the form from a script needs.
+    fn focus:boolean (name:string) {
+        if ((engine.form.has(name)) == false) {
+            return false
+        }
+        def st:QuestionState (state.stateOf(name))
+        if ((st.visible) == false) {
+            return false
+        }
+        if ((st.enabled) == false) {
+            return false
+        }
+        if st.readOnly {
+            return false
+        }
+        this.commit()
+        editing = name
+        editBuf = (this.currentText(name))
+        return true
+    }
+
+    fn typeText:boolean (s:string) {
+        if ((strlen editing) == 0) {
+            return false
+        }
+        editBuf = (editBuf + s)
+        return true
+    }
+
+    fn backspace:boolean () {
+        if ((strlen editing) == 0) {
+            return false
+        }
+        def n:int (strlen editBuf)
+        if (n == 0) {
+            return false
+        }
+        editBuf = (substring editBuf 0 (n - 1))
+        return true
+    }
+
+    fn cancel:boolean () {
+        if ((strlen editing) == 0) {
+            return false
+        }
+        editing = ""
+        editBuf = ""
+        return true
+    }
+
+    ; What was typed, through the engine — which settles the dependents and
+    ; re-checks the type. The view never writes into the state itself.
+    fn commit:boolean () {
+        if ((strlen editing) == 0) {
+            return false
+        }
+        def name:string editing
+        def typed:string editBuf
+        editing = ""
+        editBuf = ""
+        engine.answerText(state name typed)
+        def st:QuestionState (state.stateOf(name))
+        if ((st.isValid()) == false) {
+            note = (name + ": " + st.message)
+        } {
+            note = ""
+        }
+        return true
+    }
+
+    ; Move to the next question that can be typed into, committing first —
+    ; which is what Tab does in every form anybody has used.
+    fn moveBy:boolean (step:int) {
+        def names:[string] (this.editableNames())
+        def n:int (array_length names)
+        if (n == 0) {
+            return false
+        }
+        def at:int -1
+        def i:int 0
+        while (i < n) {
+            if ((itemAt names i) == editing) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        this.commit()
+        def next:int (at + step)
+        if (next < 0) {
+            next = (n - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        editing = (itemAt names next)
+        editBuf = (this.currentText(editing))
+        return true
+    }
+
+    fn editableNames:[string] () {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length engine.form.questions)
+        while (i < n) {
+            def q:Question (itemAt engine.form.questions i)
+            def st:QuestionState (state.stateOf(q.name))
+            if st.visible {
+                if st.enabled {
+                    if ((st.readOnly) == false) {
+                        if ((q.isComputed()) == false) {
+                            if ((q.kind == "bool") == false) {
+                                push out q.name
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn key:boolean (name:string) {
+        if (name == "Enter") {
+            return (this.commit())
+        }
+        if (name == "Escape") {
+            return (this.cancel())
+        }
+        if (name == "Backspace") {
+            return (this.backspace())
+        }
+        if (name == "Tab") {
+            return (this.moveBy(1))
+        }
+        if (name == "ArrowDown") {
+            return (this.moveBy(1))
+        }
+        if (name == "ArrowUp") {
+            return (this.moveBy(-1))
+        }
+        return false
+    }
+
+    fn scrollBy:boolean (dy:int) {
+        def before:int scrollY
+        scrollY = (scrollY + dy)
+        if (scrollY < 0) {
+            scrollY = 0
+        }
+        return ((scrollY == before) == false)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; What to say in the status line
+    ; ------------------------------------------------------------------------
+    fn summary:string () {
+        def shown:int (array_length (engine.visibleNames(state)))
+        def missing:int (array_length (engine.missingAnswers(state)))
+        def wrong:int (array_length (engine.invalidAnswers(state)))
+        def s:string ((to_string shown) + " questions showing")
+        if (missing > 0) {
+            s = (s + ", " + (to_string missing) + " still to answer")
+        }
+        if (wrong > 0) {
+            s = (s + ", " + (to_string wrong) + " to correct")
+        }
+        if (missing == 0) {
+            if (wrong == 0) {
+                s = (s + " — complete")
+            }
+        }
+        return s
+    }
+}

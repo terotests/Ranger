@@ -174,6 +174,59 @@ export async function selftest(web, draw) {
   ok("a rule nobody wrote refuses nothing",
      web.ruleOnDataColumn("name", "noSuchRule", "") && web.dataAccepts(1, 2, "anything"));
 
+  // --- the Forms section ----------------------------------------------------
+  //
+  // One record at a time. The engine underneath is `gallery/rangerforms` and
+  // has never heard of a database; what it sees is a questionnaire whose
+  // questions were described from the table's own columns, and an edit comes
+  // back out as an UPDATE addressed by the key the row was loaded with.
+  web.run("engine.rangerdb", "");
+  web.selectTable("customers");
+  ok("the Forms section opens", web.run("view.form", "") && web.section() === "form");
+  draw();
+  ok("with a question per column", web.formFieldCount() === 4);
+  ok("and records to move through", web.formRecordCount() > 1);
+  ok("showing the first one", web.formRecordIndex() === 0);
+  const firstName = web.formFieldText("name");
+  ok("with the row's values in it", firstName.length > 0);
+
+  // The navigator.
+  ok("next moves on", web.run("form.next", "") && web.formRecordIndex() === 1);
+  ok("…to a different record", web.formFieldText("name") !== firstName);
+  ok("and first comes back", web.run("form.first", "") && web.formRecordIndex() === 0);
+
+  // Nothing typed, nothing to save.
+  ok("an untouched record is not dirty", web.formDirty() === false);
+  ok("and has nothing to save", web.formCanSave() === false);
+
+  // Typing goes through the engine, which re-checks the type and settles.
+  ok("a field can be focused", web.formFocus("name"));
+  web.key("Backspace");
+  ok("and typed into", web.text("X") && web.key("Enter"));
+  ok("the record is now changed", web.formDirty());
+  ok("and can be saved", web.formCanSave());
+  ok("the preview reads like the statement",
+     web.formPreview().indexOf("UPDATE customers SET") === 0 &&
+     web.formPreview().indexOf("WHERE id =") > 0);
+
+  // A NOT NULL column cannot be emptied — the requirement came from the
+  // column, not from anything written in the viewer.
+  ok("email is required", web.formFieldRequired("email"));
+  web.formFocus("email");
+  for (let i = 0; i < 40; i++) web.key("Backspace");
+  web.key("Enter");
+  ok("clearing it blocks the save", web.formCanSave() === false);
+  ok("…and says it has to be answered", web.formPreview().indexOf("answered") > 0);
+
+  // Put it back and write it.
+  web.formFocus("email");
+  web.text("a@b.fi");
+  web.key("Enter");
+  ok("a valid address unblocks it", web.formCanSave());
+  ok("the save writes", web.run("form.save", ""));
+  ok("…and the form is clean again", web.formDirty() === false);
+  ok("…holding what the database now says", web.formFieldText("email") === "a@b.fi");
+
   // --- the honest refusal ---------------------------------------------------
   ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);
   ok("…and the refusal says why", (web.note() || "").indexOf("host") >= 0);

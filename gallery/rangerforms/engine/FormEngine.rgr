@@ -100,6 +100,13 @@ class FormEngine {
     ; Every rule, once, in order. The initial pass, and the thing `settle`
     ; exists to avoid repeating.
     fn evaluateAll:void (state:AnswerState) {
+        def k:int 0
+        def nk:int (array_length form.questions)
+        while (k < nk) {
+            def q:Question (itemAt form.questions k)
+            this.checkKind(state q.name)
+            k = (k + 1)
+        }
         def i:int 0
         def n:int (array_length graph.order)
         while (i < n) {
@@ -111,16 +118,28 @@ class FormEngine {
     ; ------------------------------------------------------------------------
     ; Answering
     ; ------------------------------------------------------------------------
+    ; Answering with nothing is not answering. A blank clears, so a `required`
+    ; question somebody emptied goes back to blocking the form — which is what
+    ; they would expect, and what an engine that stored "" as an answer gets
+    ; wrong in the direction that lets an incomplete form be submitted.
     fn answer:boolean (state:AnswerState name:string value:FormValue) {
         if ((form.has(name)) == false) {
             return false
         }
-        state.answer(name value)
+        if (value.isEmpty()) {
+            state.clearAnswer(name)
+        } {
+            state.answer(name value)
+        }
+        this.checkKind(state name)
         this.settle(state name)
         return true
     }
 
     fn answerText:boolean (state:AnswerState name:string text:string) {
+        if ((strlen text) == 0) {
+            return (this.answer(state name (FormValue.blank())))
+        }
         return (this.answer(state name (FormValue.ofText(text))))
     }
 
@@ -133,6 +152,7 @@ class FormEngine {
             return false
         }
         state.clearAnswer(name)
+        this.checkKind(state name)
         this.settle(state name)
         return true
     }
@@ -164,6 +184,7 @@ class FormEngine {
             ; submitted with every question a person was actually asked left
             ; blank.
             state.compute(node.question value)
+            this.checkKind(state node.question)
             return
         }
         if (node.role == "validate") {
@@ -171,17 +192,13 @@ class FormEngine {
             ; Showing "invalid" because our own expression failed would send
             ; somebody hunting for a mistake they did not make.
             if (value.isError()) {
-                st.valid = true
-                st.message = ""
+                st.ruleOk = true
+                this.refreshMessage(st rule)
                 return
             }
             def okNow:boolean (value.truthy())
-            st.valid = okNow
-            if okNow {
-                st.message = ""
-            } {
-                st.message = rule.message
-            }
+            st.ruleOk = okNow
+            this.refreshMessage(st rule)
             return
         }
         def flag:boolean (value.truthy())
@@ -200,6 +217,170 @@ class FormEngine {
         if (node.role == "readonly") {
             st.readOnly = flag
         }
+    }
+
+    ; The one message a question shows. The TYPE complaint wins: somebody who
+    ; typed "twelve" into an age needs to be told that before they are told
+    ; the value is out of range, because the range is not the problem.
+    fn refreshMessage:void (st:QuestionState rule:Rule) {
+        if ((st.kindOk) == false) {
+            return
+        }
+        if (st.ruleOk) {
+            st.message = ""
+        } {
+            st.message = rule.message
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Does the answer fit the question
+    ; ------------------------------------------------------------------------
+    ;
+    ; A question's TYPE is part of the model, not a rule — the same split
+    ; every questionnaire format makes, and the same one `SqlColumnRules`
+    ; makes for a spreadsheet column. Expressing "this is a whole number" as
+    ; an expression would mean the expression had to be evaluated against text
+    ; that is not a number, which is exactly the case it exists to catch.
+    fn checkKind:void (state:AnswerState name:string) {
+        def q:Question (form.find(name))
+        def st:QuestionState (state.stateOf(name))
+        def v:FormValue (state.rawValueOf(name))
+        def why:string (FormEngine.kindProblem(q v))
+        if ((strlen why) == 0) {
+            st.kindOk = true
+            def rule:Rule (q.ruleFor("validate"))
+            this.refreshMessage(st rule)
+            return
+        }
+        st.kindOk = false
+        st.message = why
+    }
+
+    ; Empty is never the wrong TYPE. "You have not answered this" is what
+    ; `required` is for, and saying both about the same blank field is how a
+    ; form ends up shouting at somebody who has simply not got there yet.
+    sfn kindProblem:string (q:Question v:FormValue) {
+        if (v.isEmpty()) {
+            return ""
+        }
+        if (v.isError()) {
+            return v.err
+        }
+        def kind:string q.kind
+        if (kind == "choice") {
+            return (FormEngine.choiceProblem(q v))
+        }
+        if (kind == "multichoice") {
+            return (FormEngine.choiceProblem(q v))
+        }
+        if (kind == "bool") {
+            def text:string (to_lowercase (v.asText()))
+            if (FormEngine.isYes(text)) {
+                return ""
+            }
+            if (FormEngine.isNo(text)) {
+                return ""
+            }
+            return "answer yes or no"
+        }
+        if (kind == "text") {
+            if (q.maxLength > 0) {
+                if ((strlen (v.asText())) > q.maxLength) {
+                    return ("at most " + (to_string q.maxLength) + " characters")
+                }
+            }
+            return ""
+        }
+        ; Everything left is a number of some sort.
+        def num:FormValue (v.asNumber())
+        if ((num.isNumber()) == false) {
+            if (kind == "date") {
+                return "that is not a date"
+            }
+            return "that is not a number"
+        }
+        if (kind == "int") {
+            def whole:double (to_double (to_int num.n))
+            if ((whole == num.n) == false) {
+                return "a whole number, with nothing after the point"
+            }
+        }
+        if q.hasMin {
+            if (num.n < q.minValue) {
+                return ("at least " + (FormValue.numberText(q.minValue)))
+            }
+        }
+        if q.hasMax {
+            if (num.n > q.maxValue) {
+                return ("at most " + (FormValue.numberText(q.maxValue)))
+            }
+        }
+        return ""
+    }
+
+    sfn choiceProblem:string (q:Question v:FormValue) {
+        ; A question with no choice list accepts anything — a form may be
+        ; loading its options from somewhere the engine cannot see.
+        if ((array_length q.choices) == 0) {
+            return ""
+        }
+        if (v.isList()) {
+            def i:int 0
+            def n:int (array_length v.items)
+            while (i < n) {
+                def one:string (itemAt v.items i)
+                if ((FormEngine.isChoice(q one)) == false) {
+                    return (one + " is not one of the choices")
+                }
+                i = (i + 1)
+            }
+            return ""
+        }
+        def only:string (v.asText())
+        if (FormEngine.isChoice(q only)) {
+            return ""
+        }
+        return (only + " is not one of the choices")
+    }
+
+    sfn isChoice:boolean (q:Question value:string) {
+        def i:int 0
+        def n:int (array_length q.choices)
+        while (i < n) {
+            def c:Choice (itemAt q.choices i)
+            if (c.value == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn isYes:boolean (text:string) {
+        if (text == "true") {
+            return true
+        }
+        if (text == "yes") {
+            return true
+        }
+        if (text == "1") {
+            return true
+        }
+        return false
+    }
+
+    sfn isNo:boolean (text:string) {
+        if (text == "false") {
+            return true
+        }
+        if (text == "no") {
+            return true
+        }
+        if (text == "0") {
+            return true
+        }
+        return false
     }
 
     ; ------------------------------------------------------------------------
@@ -237,7 +418,7 @@ class FormEngine {
             def q:Question (itemAt form.questions i)
             def st:QuestionState (state.stateOf(q.name))
             if st.visible {
-                if ((st.valid) == false) {
+                if ((st.isValid()) == false) {
                     push out q.name
                 }
             }

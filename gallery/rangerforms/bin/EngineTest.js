@@ -260,9 +260,16 @@ class QuestionState  {
     this.enabled = true;
     this.required = false;
     this.readOnly = false;
-    this.valid = true;
+    this.kindOk = true;
+    this.ruleOk = true;
     this.message = "";
   }
+  isValid () {
+    if ( this.kindOk == false ) {
+      return false;
+    }
+    return this.ruleOk;
+  };
 }
 QuestionState.of = function(name) {
   const q = new QuestionState();
@@ -323,6 +330,10 @@ class AnswerState  {
     }
     const a = found;
     a.value = value;
+    if ( value.isEmpty() ) {
+      a.answered = false;
+      return;
+    }
     if ( answered ) {
       a.answered = true;
     }
@@ -351,7 +362,7 @@ class AnswerState  {
   };
   isValid (name) {
     const st = this.stateOf(name);
-    return st.valid;
+    return st.isValid();
   };
   answeredNames () {
     return Object.keys(this.answers);
@@ -560,6 +571,11 @@ class Question  {
     this.choices = [];
     this.rules = [];
     this.initial = "";
+    this.maxLength = -1;
+    this.minValue = 0.0;
+    this.maxValue = 0.0;
+    this.hasMin = false;
+    this.hasMax = false;
   }
   rule (role, source) {
     const r = Rule.of(role, source);
@@ -582,6 +598,15 @@ class Question  {
     const r = this.rule("validate", source);
     r.message = message;
     return r;
+  };
+  between (low, high) {
+    this.minValue = low;
+    this.maxValue = high;
+    this.hasMin = true;
+    this.hasMax = true;
+  };
+  atMost (chars) {
+    this.maxLength = chars;
   };
   choice (value, label) {
     const c = Choice.of(value, label);
@@ -1072,6 +1097,13 @@ class FormEngine  {
     return state;
   };
   evaluateAll (state) {
+    let k = 0;
+    const nk = this.form.questions.length;
+    while (k < nk) {
+      const q = this.form.questions[k];
+      this.checkKind(state, q.name);
+      k = k + 1;
+    };
     let i = 0;
     const n = this.graph.order.length;
     while (i < n) {
@@ -1083,11 +1115,19 @@ class FormEngine  {
     if ( (this.form).has(name) == false ) {
       return false;
     }
-    state.answer(name, value);
+    if ( value.isEmpty() ) {
+      state.clearAnswer(name);
+    } else {
+      state.answer(name, value);
+    }
+    this.checkKind(state, name);
     this.settle(state, name);
     return true;
   };
   answerText (state, name, text) {
+    if ( (text.length) == 0 ) {
+      return this.answer(state, name, FormValue.blank());
+    }
     return this.answer(state, name, FormValue.ofText(text));
   };
   answerNumber (state, name, n) {
@@ -1098,6 +1138,7 @@ class FormEngine  {
       return false;
     }
     state.clearAnswer(name);
+    this.checkKind(state, name);
     this.settle(state, name);
     return true;
   };
@@ -1119,21 +1160,18 @@ class FormEngine  {
     const st = state.stateOf(node.question);
     if ( node.role == "calculated" ) {
       state.compute(node.question, value);
+      this.checkKind(state, node.question);
       return;
     }
     if ( node.role == "validate" ) {
       if ( value.isError() ) {
-        st.valid = true;
-        st.message = "";
+        st.ruleOk = true;
+        this.refreshMessage(st, rule);
         return;
       }
       const okNow = value.truthy();
-      st.valid = okNow;
-      if ( okNow ) {
-        st.message = "";
-      } else {
-        st.message = rule.message;
-      }
+      st.ruleOk = okNow;
+      this.refreshMessage(st, rule);
       return;
     }
     const flag = value.truthy();
@@ -1152,6 +1190,30 @@ class FormEngine  {
     if ( node.role == "readonly" ) {
       st.readOnly = flag;
     }
+  };
+  refreshMessage (st, rule) {
+    if ( st.kindOk == false ) {
+      return;
+    }
+    if ( st.ruleOk ) {
+      st.message = "";
+    } else {
+      st.message = rule.message;
+    }
+  };
+  checkKind (state, name) {
+    const q = (this.form).find(name);
+    const st = state.stateOf(name);
+    const v = state.rawValueOf(name);
+    const why = FormEngine.kindProblem(q, v);
+    if ( (why.length) == 0 ) {
+      st.kindOk = true;
+      const rule = q.ruleFor("validate");
+      this.refreshMessage(st, rule);
+      return;
+    }
+    st.kindOk = false;
+    st.message = why;
   };
   missingAnswers (state) {
     let out = [];
@@ -1181,7 +1243,7 @@ class FormEngine  {
       const q = this.form.questions[i];
       const st = state.stateOf(q.name);
       if ( st.visible ) {
-        if ( st.valid == false ) {
+        if ( st.isValid() == false ) {
           out.push(q.name);
         }
       }
@@ -1264,6 +1326,121 @@ FormEngine.load = function(form, host) {
   }
   e.ready = true;
   return e;
+};
+FormEngine.kindProblem = function(q, v) {
+  if ( v.isEmpty() ) {
+    return "";
+  }
+  if ( v.isError() ) {
+    return v.err;
+  }
+  const kind = q.kind;
+  if ( kind == "choice" ) {
+    return FormEngine.choiceProblem(q, v);
+  }
+  if ( kind == "multichoice" ) {
+    return FormEngine.choiceProblem(q, v);
+  }
+  if ( kind == "bool" ) {
+    const text = v.asText().toLowerCase();
+    if ( FormEngine.isYes(text) ) {
+      return "";
+    }
+    if ( FormEngine.isNo(text) ) {
+      return "";
+    }
+    return "answer yes or no";
+  }
+  if ( kind == "text" ) {
+    if ( q.maxLength > 0 ) {
+      if ( (v.asText().length) > q.maxLength ) {
+        return ("at most " + ((q.maxLength.toString()))) + " characters";
+      }
+    }
+    return "";
+  }
+  const num = v.asNumber();
+  if ( num.isNumber() == false ) {
+    if ( kind == "date" ) {
+      return "that is not a date";
+    }
+    return "that is not a number";
+  }
+  if ( kind == "int" ) {
+    const whole = (Math.floor( num.n));
+    if ( (whole == num.n) == false ) {
+      return "a whole number, with nothing after the point";
+    }
+  }
+  if ( q.hasMin ) {
+    if ( num.n < q.minValue ) {
+      return "at least " + FormValue.numberText(q.minValue);
+    }
+  }
+  if ( q.hasMax ) {
+    if ( num.n > q.maxValue ) {
+      return "at most " + FormValue.numberText(q.maxValue);
+    }
+  }
+  return "";
+};
+FormEngine.choiceProblem = function(q, v) {
+  if ( (q.choices.length) == 0 ) {
+    return "";
+  }
+  if ( v.isList() ) {
+    let i = 0;
+    const n = v.items.length;
+    while (i < n) {
+      const one = v.items[i];
+      if ( FormEngine.isChoice(q, one) == false ) {
+        return one + " is not one of the choices";
+      }
+      i = i + 1;
+    };
+    return "";
+  }
+  const only = v.asText();
+  if ( FormEngine.isChoice(q, only) ) {
+    return "";
+  }
+  return only + " is not one of the choices";
+};
+FormEngine.isChoice = function(q, value) {
+  let i = 0;
+  const n = q.choices.length;
+  while (i < n) {
+    const c = q.choices[i];
+    if ( c.value == value ) {
+      return true;
+    }
+    i = i + 1;
+  };
+  return false;
+};
+FormEngine.isYes = function(text) {
+  if ( text == "true" ) {
+    return true;
+  }
+  if ( text == "yes" ) {
+    return true;
+  }
+  if ( text == "1" ) {
+    return true;
+  }
+  return false;
+};
+FormEngine.isNo = function(text) {
+  if ( text == "false" ) {
+    return true;
+  }
+  if ( text == "no" ) {
+    return true;
+  }
+  if ( text == "0" ) {
+    return true;
+  }
+  return false;
 };
 FormEngine.jsonValue = function(v) {
   if ( v.isNumber() ) {

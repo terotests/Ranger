@@ -146,6 +146,16 @@ class Question {
     def rules:[Rule]
     ; What the answer starts as, before anybody says anything.
     def initial:string ""
+    ; The typed half of a question, which is not a rule. A `VARCHAR(64)` and a
+    ; `SMALLINT` say these things about themselves, and so does a
+    ; questionnaire format's `maxLength` / `min` / `max`; expressing them as
+    ; expressions would mean evaluating an expression against the very text
+    ; that is not a number.
+    def maxLength:int -1
+    def minValue:double 0.0
+    def maxValue:double 0.0
+    def hasMin:boolean false
+    def hasMax:boolean false
 
     Constructor () {
     }
@@ -184,6 +194,17 @@ class Question {
         def r:Rule (this.rule("validate" source))
         r.message = message
         return r
+    }
+
+    fn between:void (low:double high:double) {
+        minValue = low
+        maxValue = high
+        hasMin = true
+        hasMax = true
+    }
+
+    fn atMost:void (chars:int) {
+        maxLength = chars
     }
 
     fn choice:Choice (value:string label:string) {

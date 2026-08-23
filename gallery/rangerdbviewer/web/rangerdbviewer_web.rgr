@@ -145,6 +145,64 @@ class RangerDbViewerWeb {
         return (frame.dataSheet.pane.selectCell(row col))
     }
 
+    ; ------------------------------------------------------------------------
+    ; The Forms section
+    ; ------------------------------------------------------------------------
+    ;
+    ; One record at a time, which is the half of a database front end a grid is
+    ; bad at. The engine underneath has never heard of a database: what it sees
+    ; is a questionnaire whose questions were described from the table's own
+    ; columns.
+    fn formFieldText:string (name:string) {
+        return (frame.record.currentText(name))
+    }
+
+    fn formFieldValid:boolean (name:string) {
+        return (frame.record.state.isValid(name))
+    }
+
+    fn formFieldRequired:boolean (name:string) {
+        return (frame.record.state.isRequired(name))
+    }
+
+    fn formFieldVisible:boolean (name:string) {
+        return (frame.record.state.isVisible(name))
+    }
+
+    fn formFieldCount:int () {
+        return (frame.record.form.questionCount())
+    }
+
+    fn formRecordCount:int () {
+        return frame.formRows
+    }
+
+    fn formRecordIndex:int () {
+        return frame.formRow
+    }
+
+    fn formFocus:boolean (name:string) {
+        return (frame.formView.focus(name))
+    }
+
+    fn formDirty:boolean () {
+        return (frame.record.isDirty())
+    }
+
+    fn formCanSave:boolean () {
+        return (frame.record.canSave())
+    }
+
+    ; What the save WOULD do, in the words of the statement, without running
+    ; it. The same discipline as the schema panel's migration preview.
+    fn formPreview:string () {
+        return (frame.record.preview())
+    }
+
+    fn formSummary:string () {
+        return (frame.formView.summary())
+    }
+
     fn schemaEdited:boolean () {
         return (frame.schemaSheet.isDirty())
     }

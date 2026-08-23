@@ -43,11 +43,30 @@ class QuestionState {
     def enabled:boolean true
     def required:boolean false
     def readOnly:boolean false
-    def valid:boolean true
+    ; Validity has two halves, and they are kept apart because they are
+    ; decided in different places. `kindOk` is whether the answer is the sort
+    ; of thing the question asks for — a number where a number belongs, one of
+    ; the choices where there is a choice list — and the engine decides it from
+    ; the question's own type. `ruleOk` is whether the form's own `validate`
+    ; expression is satisfied.
+    ;
+    ; One flag would mean whichever of the two ran last won, and the loser
+    ; would be the type check about half the time: somebody types "twelve"
+    ; into an age and the form says nothing, because the range rule could not
+    ; read it either and declined to condemn it.
+    def kindOk:boolean true
+    def ruleOk:boolean true
     ; Why it is not valid, in the words the questionnaire chose.
     def message:string ""
 
     Constructor () {
+    }
+
+    fn isValid:boolean () {
+        if (kindOk == false) {
+            return false
+        }
+        return ruleOk
     }
 
     sfn of:QuestionState (name:string) {
@@ -143,6 +162,11 @@ class AnswerState {
         }
         def a:Answer (unwrap found)
         a.value = value
+        ; A value with nothing in it is not an answer, whoever put it there.
+        if (value.isEmpty()) {
+            a.answered = false
+            return
+        }
         ; Once a person has answered, a later computation does not un-answer
         ; it; but a person answering something the engine computed does.
         if answered {
@@ -181,7 +205,7 @@ class AnswerState {
 
     fn isValid:boolean (name:string) {
         def st:QuestionState (this.stateOf(name))
-        return st.valid
+        return (st.isValid())
     }
 
     fn answeredNames:[string] () {

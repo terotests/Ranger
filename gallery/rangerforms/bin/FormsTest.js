@@ -260,9 +260,16 @@ class QuestionState  {
     this.enabled = true;     /** note: unused */
     this.required = false;
     this.readOnly = false;     /** note: unused */
-    this.valid = true;
+    this.kindOk = true;
+    this.ruleOk = true;
     this.message = "";     /** note: unused */
   }
+  isValid () {
+    if ( this.kindOk == false ) {
+      return false;
+    }
+    return this.ruleOk;
+  };
 }
 QuestionState.of = function(name) {
   const q = new QuestionState();
@@ -323,6 +330,10 @@ class AnswerState  {
     }
     const a = found;
     a.value = value;
+    if ( value.isEmpty() ) {
+      a.answered = false;
+      return;
+    }
     if ( answered ) {
       a.answered = true;
     }
@@ -351,7 +362,7 @@ class AnswerState  {
   };
   isValid (name) {
     const st = this.stateOf(name);
-    return st.valid;
+    return st.isValid();
   };
   answeredNames () {
     return Object.keys(this.answers);
@@ -560,6 +571,11 @@ class Question  {
     this.choices = [];
     this.rules = [];
     this.initial = "";     /** note: unused */
+    this.maxLength = -1;
+    this.minValue = 0.0;
+    this.maxValue = 0.0;
+    this.hasMin = false;
+    this.hasMax = false;
   }
   rule (role, source) {
     const r = Rule.of(role, source);
@@ -582,6 +598,15 @@ class Question  {
     const r = this.rule("validate", source);
     r.message = message;
     return r;
+  };
+  between (low, high) {
+    this.minValue = low;
+    this.maxValue = high;
+    this.hasMin = true;
+    this.hasMax = true;
+  };
+  atMost (chars) {
+    this.maxLength = chars;
   };
   choice (value, label) {
     const c = Choice.of(value, label);

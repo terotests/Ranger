@@ -38,6 +38,8 @@ Import "DbViewerApp.rgr"
 Import "DemoData.rgr"
 Import "SchemaSheet.rgr"
 Import "DataSheet.rgr"
+Import "../forms/RecordForm.rgr"
+Import "../../rangerforms/render/FormView.rgr"
 Import "../../rangerdb/src/schema/SchemaDiff.rgr"
 Import "../../rangerdb/src/schema/MigrationPlan.rgr"
 Import "../../evg/EVGToolbarView.rgr"
@@ -85,6 +87,17 @@ class DbViewerToolbar extends EVGToolbar {
         this.addSeparator()
         this.add("data.pending" "" "What has been typed and not written" (ToolIcon.report()))
         this.add("data.revert" "" "Throw away the edits to this page" (ToolIcon.undo()))
+
+        this.addTab("Forms")
+        this.addLarge("view.form" "" "One record at a time" (ToolIcon.report()))
+        this.addSeparator()
+        this.add("form.first" "" "First record" (ToolIcon.navFirst()))
+        this.add("form.prev" "" "Previous record" (ToolIcon.navPrev()))
+        this.add("form.next" "" "Next record" (ToolIcon.navNext()))
+        this.add("form.last" "" "Last record" (ToolIcon.navLast()))
+        this.addSeparator()
+        this.addLabeled("form.save" "" "Save" (ToolIcon.save()))
+        this.add("form.revert" "" "Throw away the changes to this record" (ToolIcon.undo()))
 
         this.addTab("Metrics")
         this.addLarge("metrics.run" "" "Analyse" (ToolIcon.report()))
@@ -150,6 +163,19 @@ class DbViewerFrame {
     def sheetHeaderH:int 44
     ; Kept so a pane rebuilt for another table is given the same rules.
     def cellRules:CellRuleHost (new CellRuleHost)
+
+    ; The Forms section: one record at a time, which is the half of a database
+    ; front end a grid is bad at. The form itself is `gallery/rangerforms` —
+    ; an engine that has never heard of a database — and `RecordForm` is the
+    ; twenty lines that turn a table into a questionnaire and an edited
+    ; questionnaire back into an addressed UPDATE.
+    def record:RecordForm (new RecordForm)
+    def formView:FormView (new FormView)
+    def formReady:boolean false
+    def formFor:string ""
+    def formRow:int 0
+    def formRows:int 0
+    def formPage:DataChunk (new DataChunk)
     def note:string ""
     def hoverRow:int -1
     ; Which visible tree row is selected, so the list can show it.
@@ -354,6 +380,33 @@ class DbViewerFrame {
             note = "the schema panel is back to what the database says"
             return true
         }
+        if (id == "view.form") {
+            app.showSection("form")
+            return (this.syncForm())
+        }
+        if (id == "form.first") {
+            return (this.gotoRecord(0))
+        }
+        if (id == "form.prev") {
+            return (this.gotoRecord((formRow - 1)))
+        }
+        if (id == "form.next") {
+            return (this.gotoRecord((formRow + 1)))
+        }
+        if (id == "form.last") {
+            return (this.gotoRecord((formRows - 1)))
+        }
+        if (id == "form.save") {
+            return (this.saveRecord())
+        }
+        if (id == "form.revert") {
+            def at:int formRow
+            formFor = ""
+            this.syncForm()
+            this.gotoRecord(at)
+            note = "the record is back to what the database says"
+            return true
+        }
         if (id == "data.pending") {
             def pending:string (dataSheet.summary())
             if ((strlen pending) == 0) {
@@ -481,6 +534,11 @@ class DbViewerFrame {
                 }
             }
         }
+        if (app.section == "form") {
+            if (formView.pointerPicker(x y pressed down released)) {
+                return true
+            }
+        }
         ; An open value picker is a window over everything, including the
         ; object list, so it is asked before anything under it.
         if (this.sectionHasSheet()) {
@@ -509,6 +567,12 @@ class DbViewerFrame {
             }
             return false
         }
+        if (app.section == "form") {
+            if down {
+                return (formView.press(x y))
+            }
+            return false
+        }
         return false
     }
 
@@ -521,6 +585,9 @@ class DbViewerFrame {
     ; column's own declared type, asked by the pane on commit — see
     ; `SqlColumnRules`.
     fn text:boolean (s:string) {
+        if (app.section == "form") {
+            return (formView.typeText(s))
+        }
         if ((this.sectionHasSheet()) == false) {
             return false
         }
@@ -531,6 +598,13 @@ class DbViewerFrame {
 
     ; Named keys, by the codes the host already sends the other editors.
     fn key:boolean (name:string) {
+        if (app.section == "form") {
+            def handled:boolean (formView.key(name))
+            if handled {
+                note = formView.note
+            }
+            return handled
+        }
         if ((this.sectionHasSheet()) == false) {
             return false
         }
@@ -694,6 +768,9 @@ class DbViewerFrame {
             }
             return false
         }
+        if (app.section == "form") {
+            return (formView.scrollBy(dy))
+        }
         if (this.sectionHasSheet()) {
             this.startSheets()
             def pane:GridPane (this.activePane())
@@ -729,6 +806,9 @@ class DbViewerFrame {
         if (this.sectionHasSheet()) {
             def pane:GridPane (this.activePane())
             pane.buildPickerInto(dl)
+        }
+        if (app.section == "form") {
+            formView.buildPickerInto(dl)
         }
         return dl
     }
@@ -830,6 +910,10 @@ class DbViewerFrame {
         }
         if (app.section == "migration") {
             this.paintMigration(dl x y w h)
+            return
+        }
+        if (app.section == "form") {
+            this.paintForm(dl x y w h)
             return
         }
         this.paintColumns(dl x y w h)
@@ -1010,6 +1094,132 @@ class DbViewerFrame {
         dataSheet.pane.setHostSize(W H)
         dataSheet.pane.setBounds((x + 8) (y + sheetHeaderH) (w - 16) ((h - sheetHeaderH) - 8))
         dataSheet.pane.buildInto(dl)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The Forms section
+    ; ------------------------------------------------------------------------
+    ;
+    ; Base has one because a grid is the wrong shape for a record with twenty
+    ; columns, half of which only matter when another one says so. That last
+    ; part is the reason the form is an engine rather than a layout: which
+    ; fields are showing is a property of the answers.
+    fn syncForm:boolean () {
+        def name:string app.selectedTable
+        if ((strlen name) == 0) {
+            note = "select a table to open a record"
+            formReady = false
+            return false
+        }
+        if (formFor == name) {
+            if formReady {
+                return true
+            }
+        }
+        def t:DBTable (app.currentTable())
+        if ((record.open(t 20000)) == false) {
+            note = record.errorText
+            formReady = false
+            return false
+        }
+        formView.attach(record.engine record.state ctx "Open Sans")
+        formFor = name
+        formRow = 0
+        formReady = true
+        if ((app.hasRows) == false) {
+            formRows = 0
+            note = "this schema was read from SQL, so there are no records to show"
+            return true
+        }
+        ; One page of records, which is what the navigator moves through. A
+        ; form that re-queried per record would make Next a round trip.
+        formPage = (app.pageOfRows(0 dataPageSize))
+        formRows = formPage.rowCount
+        if (formRows > 0) {
+            record.loadRow(formPage 0 20000)
+            formView.state = record.state
+        }
+        note = ""
+        return true
+    }
+
+    fn gotoRecord:boolean (at:int) {
+        if ((this.syncForm()) == false) {
+            return false
+        }
+        if (formRows == 0) {
+            return false
+        }
+        def want:int at
+        if (want < 0) {
+            want = 0
+        }
+        if (want >= formRows) {
+            want = (formRows - 1)
+        }
+        ; Moving off a record with unsaved changes must not silently throw
+        ; them away — a form that did that would lose work every time
+        ; somebody pressed Next to check something.
+        if (record.isDirty()) {
+            if ((want == formRow) == false) {
+                note = "this record has unsaved changes — save them, or press the undo button"
+                return false
+            }
+        }
+        formRow = want
+        record.loadRow(formPage formRow 20000)
+        formView.state = record.state
+        formView.cancel()
+        note = ""
+        return true
+    }
+
+    fn saveRecord:boolean () {
+        if ((this.syncForm()) == false) {
+            return false
+        }
+        formView.commit()
+        if ((record.canSave()) == false) {
+            note = record.errorText
+            return false
+        }
+        def m:DBMutation (record.mutation())
+        def rows:int (app.source.session.mutate(m))
+        if (rows < 1) {
+            def why:string (app.source.session.lastError())
+            note = ("nothing was written: " + why)
+            return false
+        }
+        ; Re-read the page, so the form shows what the database now holds
+        ; rather than what was typed at it.
+        formPage = (app.pageOfRows(0 dataPageSize))
+        formRows = formPage.rowCount
+        record.loadRow(formPage formRow 20000)
+        formView.state = record.state
+        note = ((to_string rows) + " row written")
+        return true
+    }
+
+    fn paintForm:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        this.syncForm()
+        if (formReady == false) {
+            toolbarView.pushText(dl "no table selected" (to_double (x + 16)) (to_double (y + 12)) 13.0 theme.dim)
+            return
+        }
+        def title:string formFor
+        def detail:string ""
+        if (formRows == 0) {
+            detail = "no records — open the in-tab database to fill a form in"
+        } {
+            detail = ("record " + (to_string (formRow + 1)) + " of " + (to_string formRows) + "  ·  " + (formView.summary()))
+            if (record.isDirty()) {
+                detail = (detail + "  ·  changed")
+            }
+        }
+        this.paintSheetTitle(dl x y w title detail)
+        formView.setHostSize(W H)
+        formView.setBounds((x + 8) (y + sheetHeaderH) (w - 16) ((h - sheetHeaderH) - 8))
+        formView.buildInto(dl)
     }
 
     ; ------------------------------------------------------------------------
