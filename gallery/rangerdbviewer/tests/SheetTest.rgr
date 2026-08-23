@@ -1,0 +1,400 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; SheetTest — the database viewer's tables ARE the spreadsheet.
+; ==============================================================================
+;
+; The claim under test is not "a grid appears". It is that the viewer wrote no
+; editor, no dropdown, no validator and no cell model of its own, and that what
+; a reader gets in the Schema and Data sections is the component the
+; spreadsheet application is:
+;
+;   the type column offers a dropdown          because `DataValidation`
+;                                              kind="list" already existed
+;   a junk type is refused                     because the grid already asks
+;                                              the rule before it writes
+;   VARCHAR(8) refuses a ninth character       because the table's own declared
+;                                              type became that rule
+;   NOT NULL refuses a cleared cell            same rule, `allowBlank` off
+;   an edited sheet produces a MIGRATION       because `SchemaDiff` reads the
+;                                              table the sheet reads back, and
+;                                              nothing here writes SQL
+;
+; The last one is the one that matters: there is no path from a cell somebody
+; typed in to a running database that does not go through a migration.
+; ==============================================================================
+
+Import "../app/SchemaSheet.rgr"
+Import "../app/DataSheet.rgr"
+Import "../app/DbViewerFrame.rgr"
+Import "../../rangerdb/src/schema/SchemaDiff.rgr"
+Import "../../rangerdb/src/schema/MigrationPlan.rgr"
+
+class SheetCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class SheetTest {
+
+    ; --------------------------------------------------------------------------
+    ; A small table, stated once, used by both halves.
+    ; --------------------------------------------------------------------------
+    sfn people:DBTable () {
+        def t:DBTable (DBTable.create("people"))
+        def id:SchemaColumn (t.column("id" "INTEGER"))
+        id.isPrimaryKey = true
+        id.pkPosition = 1
+        id.nullable = false
+        def email:SchemaColumn (t.column("email" "VARCHAR(8)"))
+        email.nullable = false
+        def active:SchemaColumn (t.column("active" "BOOLEAN"))
+        def score:SchemaColumn (t.column("score" "DECIMAL(6,2)"))
+        def note:SchemaColumn (t.column("note" "TEXT"))
+        return t
+    }
+
+    sfn schemaOf:DatabaseSchema (t:DBTable) {
+        def s:DatabaseSchema (new DatabaseSchema)
+        s.engine = "sqlite"
+        s.addTable(t)
+        s.resolve()
+        return s
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Reading a SQL type name
+    ; --------------------------------------------------------------------------
+    sfn runTypes:void (c:SheetCheck) {
+        print "-- a declared type, read the way a database reads it --"
+        c.eqStr("BIGINT is not INT" (SqlColumnRules.family("BIGINT")) "bigint")
+        c.eqStr("int4 is an integer" (SqlColumnRules.family("int4")) "integer")
+        c.eqStr("SERIAL is an integer" (SqlColumnRules.family("SERIAL")) "integer")
+        c.eqStr("SMALLINT is its own size" (SqlColumnRules.family("SMALLINT")) "smallint")
+        c.eqStr("DOUBLE PRECISION is a decimal" (SqlColumnRules.family("DOUBLE PRECISION")) "decimal")
+        c.eqStr("NUMERIC is a decimal" (SqlColumnRules.family("NUMERIC(10,2)")) "decimal")
+        c.eqStr("VARCHAR is text" (SqlColumnRules.family("VARCHAR(64)")) "text")
+        c.eqStr("BOOLEAN is a boolean" (SqlColumnRules.family("boolean")) "boolean")
+        ; TIMESTAMP contains TIME and DATE; it must not be read as either.
+        c.eqStr("TIMESTAMP is a datetime" (SqlColumnRules.family("TIMESTAMP")) "datetime")
+        c.eqStr("DATE is a date" (SqlColumnRules.family("DATE")) "date")
+        c.eqStr("BLOB is a blob" (SqlColumnRules.family("BLOB")) "blob")
+        ; A type nobody here recognises gets NO rule. Refusing entries because
+        ; we did not know the type would be worse than accepting them.
+        c.eqStr("an unknown type is left alone" (SqlColumnRules.family("geography(Point,4326)")) "")
+
+        c.eqInt("VARCHAR(64) is 64 long" (SqlColumnRules.lengthOf("VARCHAR(64)")) 64)
+        ; The two numbers of DECIMAL(10,2) are a precision and a scale, and
+        ; neither of them is a length.
+        c.eqInt("DECIMAL(10,2) has no length" (SqlColumnRules.lengthOf("DECIMAL(10,2)")) -1)
+        c.eqInt("TEXT has no length" (SqlColumnRules.lengthOf("TEXT")) -1)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The Schema section
+    ; --------------------------------------------------------------------------
+    sfn runSchemaSheet:void (c:SheetCheck) {
+        print "-- the schema, in the spreadsheet --"
+        def sheet:SchemaSheet (new SchemaSheet)
+        sheet.pane.start(700 400)
+        def t:DBTable (SheetTest.people())
+        sheet.build(t)
+
+        c.eqStr("the header names the column" (sheet.pane.model.getCell(0 0)) "column")
+        c.eqStr("row one is the key column" (sheet.pane.model.getCell(1 0)) "id")
+        c.eqStr("and carries its declared type" (sheet.pane.model.getCell(1 1)) "INTEGER")
+        c.eqStr("and says it is the key" (sheet.pane.model.getCell(1 4)) "PK")
+
+        ; The dropdown is not new drawing: it is the list rule the grid has
+        ; always known how to offer.
+        def rule:DataValidation (sheet.pane.model.validationAt(1 (SchemaSheet.colType())))
+        c.ok("the type column is a list" (rule.isList()))
+        c.eqInt("with the portable types on it" (array_length (rule.listValues())) 13)
+
+        ; And the grid refuses what is not on it, before anything is stored.
+        c.ok("VARCHAR is offered" (sheet.pane.accepts(1 (SchemaSheet.colType()) "VARCHAR")))
+        c.ok("VARCHARR is not" ((sheet.pane.accepts(1 (SchemaSheet.colType()) "VARCHARR")) == false))
+        c.ok("a refused type is not written" ((sheet.pane.setCell(1 (SchemaSheet.colType()) "VARCHARR")) == false))
+        c.eqStr("so the cell still says what it said" (sheet.pane.model.getCell(1 1)) "INTEGER")
+
+        ; The header row is not data. It refuses entries through a rule of its
+        ; own, so nothing in the host has to special-case row zero.
+        c.ok("the header row refuses text" ((sheet.pane.accepts(0 0 "anything")) == false))
+        c.ok("and refuses being emptied" ((sheet.pane.accepts(0 0 "")) == false))
+        ; And the cursor starts where somebody who types means to type.
+        c.eqInt("the cursor starts on the first column" sheet.pane.sel.active.row 1)
+
+        c.ok("an untouched sheet is not dirty" ((sheet.isDirty()) == false))
+
+        ; --- the edit ---------------------------------------------------------
+        ; Widen `email` and make `note` NOT NULL. Both are things a person
+        ; would do in this panel, and both are things that need a migration.
+        c.ok("the type change is accepted" (sheet.pane.setCell(2 (SchemaSheet.colType()) "TEXT")))
+        c.ok("the null change is accepted" (sheet.pane.setCell(5 (SchemaSheet.colNull()) "no")))
+        c.ok("now it is dirty" (sheet.isDirty()))
+
+        def before:DatabaseSchema (SheetTest.schemaOf(t))
+        def after:DatabaseSchema (sheet.editedSchema(before))
+        def diffed:ChangeSet (SchemaDiff.between(before after))
+        def list:[SchemaChange] (diffed.ordered())
+        c.eqInt("two changes, no more" (array_length list) 2)
+        def kinds:string ""
+        def i:int 0
+        while (i < (array_length list)) {
+            def ch:SchemaChange (itemAt list i)
+            kinds = (kinds + ch.kind + "(" + ch.column + ") ")
+            i = (i + 1)
+        }
+        c.eqStr("and they are the two that were made" kinds "column.type(email) column.null(note) ")
+
+        ; The point of the whole arrangement: an edited cell reaches the
+        ; database as a migration a person can read, or it does not reach it.
+        def plan:MigrationPlan (new MigrationPlan)
+        def whole:boolean (plan.build(diffed before after))
+        def up:string (plan.upScript())
+        c.ok("the plan says something" ((strlen up) > 0))
+        c.ok("and it names the column that changed" (SqlColumnRules.holds(up "email")))
+        c.ok("and it is expressible end to end" whole)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The Data section
+    ; --------------------------------------------------------------------------
+    sfn pageOf:DataChunk (t:DBTable) {
+        def chunk:DataChunk (new DataChunk)
+        def vid:ValueVector (chunk.addColumn((DBColumn.createKey("id" (DBType.intKind())))))
+        def vem:ValueVector (chunk.addColumn((DBColumn.create("email" (DBType.stringKind())))))
+        def vac:ValueVector (chunk.addColumn((DBColumn.create("active" (DBType.boolKind())))))
+        def vsc:ValueVector (chunk.addColumn((DBColumn.create("score" (DBType.doubleKind())))))
+        def vnt:ValueVector (chunk.addColumn((DBColumn.create("note" (DBType.stringKind())))))
+        vid.appendInt(1)
+        vem.appendString("ada@x.fi")
+        vac.appendBool(true)
+        vsc.appendDouble(10.5)
+        vnt.appendNull()
+        vid.appendInt(2)
+        vem.appendString("gr@x.fi")
+        vac.appendBool(false)
+        vsc.appendDouble(3.25)
+        vnt.appendString("hello")
+        chunk.rowCount = 2
+        return chunk
+    }
+
+    sfn runDataSheet:void (c:SheetCheck) {
+        print "-- the rows, in the same spreadsheet --"
+        def t:DBTable (SheetTest.people())
+        def sheet:DataSheet (new DataSheet)
+        sheet.pane.start(700 400)
+        sheet.build(t (SheetTest.pageOf(t)) 0)
+
+        c.eqInt("two rows" sheet.rows 2)
+        c.eqInt("five columns" sheet.cols 5)
+        c.eqStr("the header is the column name" (sheet.pane.model.getCell(0 1)) "email")
+        c.eqStr("and the first row is the first row" (sheet.textAt(0 1)) "ada@x.fi")
+        ; A NULL is blank, and the sheet remembers that it was NULL rather
+        ; than an empty string somebody stored.
+        c.eqStr("a NULL shows as blank" (sheet.textAt(0 4)) "")
+        c.ok("and is remembered as NULL" (sheet.loadedWasNull(0 4)))
+
+        ; --- the column's own type, refusing entries -------------------------
+        c.ok("the key column takes a number" (sheet.pane.accepts(1 0 "17")))
+        c.ok("but not a word" ((sheet.pane.accepts(1 0 "seventeen")) == false))
+        c.ok("nor a fraction, it is INTEGER" ((sheet.pane.accepts(1 0 "1.5")) == false))
+        ; VARCHAR(8) is eight characters, and the grid knows because the table
+        ; said so — nothing in the viewer counted them.
+        c.ok("eight characters fit VARCHAR(8)" (sheet.pane.accepts(1 1 "12345678")))
+        c.ok("nine do not" ((sheet.pane.accepts(1 1 "123456789")) == false))
+        ; NOT NULL means the cell cannot be cleared either.
+        c.ok("a NOT NULL cell cannot be emptied" ((sheet.pane.accepts(1 1 "")) == false))
+        c.ok("a nullable one can" (sheet.pane.accepts(1 4 "")))
+        ; BOOLEAN became a dropdown, for the same reason the type column did.
+        def boolRule:DataValidation (sheet.pane.model.validationAt(1 2))
+        c.ok("the boolean column is a list" (boolRule.isList()))
+        c.ok("true is on it" (sheet.pane.accepts(1 2 "true")))
+        c.ok("maybe is not" ((sheet.pane.accepts(1 2 "maybe")) == false))
+        ; DECIMAL takes a fraction where INTEGER did not.
+        c.ok("the decimal column takes 3.25" (sheet.pane.accepts(1 3 "3.25")))
+        c.ok("and not a word" ((sheet.pane.accepts(1 3 "lots")) == false))
+
+        c.ok("the data header refuses text too" ((sheet.pane.accepts(0 0 "id2")) == false))
+        c.ok("an untouched page is not dirty" ((sheet.isDirty()) == false))
+
+        ; --- an edit, addressed by the key -----------------------------------
+        c.ok("the edit is accepted" (sheet.pane.setCell(2 1 "gr2@x.fi")))
+        def edits:[CellEdit] (sheet.changes())
+        c.eqInt("one edit" (array_length edits) 1)
+        def e:CellEdit (itemAt edits 0)
+        c.eqStr("on the column that was typed in" e.column "email")
+        c.eqStr("from what was there" e.before "gr@x.fi")
+        c.eqStr("to what was typed" e.after "gr2@x.fi")
+        c.ok("and the row can be named" e.addressable)
+        c.eqInt("by one key column" (array_length e.keyColumns) 1)
+        c.eqStr("which is the primary key" (itemAt e.keyColumns 0) "id")
+        c.eqStr("holding the value it was loaded with" (itemAt e.keyValues 0) "2")
+
+        ; --- an edit that renames the row it lives on ------------------------
+        ; Retyping the key means the loaded key no longer names the row an
+        ; UPDATE would touch. Every edit on that row becomes unaddressable —
+        ; reported, and refused, rather than written against the wrong row.
+        c.ok("the key edit is accepted by the grid" (sheet.pane.setCell(2 0 "99")))
+        def after2:[CellEdit] (sheet.changes())
+        c.eqInt("two edits now" (array_length after2) 2)
+        def i:int 0
+        def addressable:int 0
+        while (i < (array_length after2)) {
+            def e2:CellEdit (itemAt after2 i)
+            if e2.addressable {
+                addressable = (addressable + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("and neither of them can be addressed" addressable 0)
+        c.ok("which the summary says out loud" (SqlColumnRules.holds((sheet.summary()) "no key can name")))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A table with no key at all
+    ; --------------------------------------------------------------------------
+    sfn runKeyless:void (c:SheetCheck) {
+        print "-- a table with no primary key --"
+        def t:DBTable (DBTable.create("log"))
+        def line:SchemaColumn (t.column("line" "TEXT"))
+        def chunk:DataChunk (new DataChunk)
+        def v:ValueVector (chunk.addColumn((DBColumn.create("line" (DBType.stringKind())))))
+        v.appendString("started")
+        chunk.rowCount = 1
+        def sheet:DataSheet (new DataSheet)
+        sheet.pane.start(400 200)
+        sheet.build(t chunk 0)
+        c.ok("the edit is accepted into the sheet" (sheet.pane.setCell(1 0 "stopped")))
+        def edits:[CellEdit] (sheet.changes())
+        c.eqInt("and reported" (array_length edits) 1)
+        ; There is no way to name the row, so the edit says so instead of
+        ; being turned into an UPDATE that would match every row that looks
+        ; like it.
+        def only:CellEdit (itemAt edits 0)
+        c.ok("but it cannot be addressed" ((only.addressable) == false))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; And the same two, inside the workbench
+    ; --------------------------------------------------------------------------
+    ;
+    ; The sections above are components; this is the claim that the viewer
+    ; actually USES them — that a click in the Schema panel is a click in a
+    ; spreadsheet cell, that Enter goes through the column's rule, and that a
+    ; committed edit comes out as a migration.
+    sfn runFrame:void (c:SheetCheck) {
+        print "-- the workbench --"
+        def frame:DbViewerFrame (new DbViewerFrame)
+        frame.init(1200 800)
+        if ((frame.openDemo("rangerdb")) == false) {
+            print "  could not open the demo database"
+            return
+        }
+        frame.app.selectTable("orders")
+        frame.runCommand("view.schema" "")
+
+        ; Painting is what sizes and fills the pane, so nothing is asserted
+        ; about it before the frame has drawn once.
+        def first:EVGDisplayList (frame.buildDisplayList())
+        c.ok("the frame drew something" ((array_length first.cmds) > 20))
+        c.eqStr("the schema panel is holding the selected table" frame.schemaSheetFor "orders")
+        def pane:GridPane frame.schemaSheet.pane
+        c.eqStr("and its header is the spreadsheet's" (pane.model.getCell(0 0)) "column")
+        c.ok("with the table's columns under it" ((strlen (pane.model.getCell(1 0))) > 0))
+        ; The pane was laid out where the section is, not at the origin.
+        c.ok("the pane sits in the content area" (pane.paneX > 200))
+
+        ; --- a click is a click on a cell ------------------------------------
+        def rect:GridRect (pane.grid.cellRect(pane.model 2 1))
+        def px:int ((rect.x + pane.paneX) + 4)
+        def py:int ((rect.y + pane.paneY) + 4)
+        c.ok("the click was taken" (frame.pointer(px py true true false)))
+        c.eqInt("and landed on the row that was clicked" pane.sel.active.row 2)
+        c.eqInt("and the column" pane.sel.active.col 1)
+
+        ; --- typing goes through the column's rule ---------------------------
+        c.ok("typing is accepted into the editor" (frame.text("NOTATYPE")))
+        c.ok("but Enter does not commit it" (frame.key("Enter")))
+        c.ok("the cell still says what it said" ((pane.model.getCell(2 1)) != "NOTATYPE"))
+        c.ok("and the frame says why" (SqlColumnRules.holds(frame.note "refused")))
+        frame.key("Escape")
+
+        ; A type that IS on the list commits.
+        c.ok("a real type types" (frame.text("TEXT")))
+        c.ok("and commits" (frame.key("Enter")))
+        c.eqStr("into the cell" (pane.model.getCell(2 1)) "TEXT")
+
+        ; --- and comes out as a migration ------------------------------------
+        c.ok("the schema panel knows it was edited" (frame.schemaSheet.isDirty()))
+        c.ok("Migration builds one" (frame.runCommand("schema.migrate" "")))
+        c.eqStr("and shows it" frame.app.section "migration")
+        c.ok("the plan has an up side" (SqlColumnRules.holds(frame.migrationText "-- up")))
+        c.ok("and a down side" (SqlColumnRules.holds(frame.migrationText "-- down")))
+        c.ok("and it alters the table that was edited" (SqlColumnRules.holds(frame.migrationText "orders")))
+
+        ; Throwing the edits away puts the panel back.
+        c.ok("revert is a command" (frame.runCommand("schema.revert" "")))
+        c.ok("and the panel is clean again" ((frame.schemaSheet.isDirty()) == false))
+
+        ; --- the Data section is the same component --------------------------
+        frame.runCommand("view.data" "")
+        def second:EVGDisplayList (frame.buildDisplayList())
+        c.ok("the data panel drew" ((array_length second.cmds) > 20))
+        c.eqStr("and is holding the selected table" frame.dataSheetFor "orders")
+        def dpane:GridPane frame.dataSheet.pane
+        c.ok("its header row names a column" ((strlen (dpane.model.getCell(0 0))) > 0))
+        c.ok("and there are rows under it" (frame.dataSheet.rows > 0))
+        ; A wheel in a sheet section scrolls the SHEET. Before this the frame
+        ; scrolled its own object list wherever the pointer was.
+        def before:int dpane.grid.scrollY
+        frame.wheel(3)
+        c.ok("the wheel scrolls the sheet" ((dpane.grid.scrollY == before) == false))
+    }
+
+    sfn main:void () {
+        def c:SheetCheck (new SheetCheck)
+        SheetTest.runTypes(c)
+        SheetTest.runSchemaSheet(c)
+        SheetTest.runDataSheet(c)
+        SheetTest.runKeyless(c)
+        SheetTest.runFrame(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

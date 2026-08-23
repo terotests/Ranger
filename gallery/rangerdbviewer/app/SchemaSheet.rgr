@@ -137,6 +137,13 @@ class SchemaSheet {
         pane.listColumn((SchemaSheet.colType()) 1 last (SchemaSheet.commonTypes()))
         pane.listColumn((SchemaSheet.colNull()) 1 last (SchemaSheet.yesNo()))
         pane.listColumn((SchemaSheet.colKey()) 1 last (SchemaSheet.keyChoices()))
+        ; The header names what the columns of this sheet MEAN, and renaming
+        ; it would change nothing about the table — so it refuses entries the
+        ; same way every other cell refuses one, through its own rule.
+        pane.lockRange(0 0 0 4 "this row names the columns of the panel, not of the table")
+        ; And the cursor starts on the first column of the first real row,
+        ; because that is where somebody who starts typing means to type.
+        pane.selectCell(1 0)
     }
 
     sfn boolText:string (b:boolean) {

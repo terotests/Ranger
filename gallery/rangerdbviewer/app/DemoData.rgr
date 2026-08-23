@@ -137,7 +137,45 @@ class DemoData {
         DemoData.insertRow(session "categories" 3 "Cables" 2 0.0)
         DemoData.insertCustomer(session 1 "ada@example.com" "Ada" "Finland")
         DemoData.insertCustomer(session 2 "grace@example.com" "Grace" "Sweden")
+        ; The same rows the SQL seed puts in, so every table in the demo has
+        ; something to look at. A Data panel that is empty for three of the
+        ; five tables reads as a broken panel rather than as an empty table.
+        DemoData.insertProduct(session 1 "SKU-100" "Headphones" 2 199.0)
+        DemoData.insertProduct(session 2 "SKU-101" "Patch cable" 3 12.5)
+        DemoData.insertProduct(session 3 "SKU-102" "Monitor stand" 1 89.0)
+        DemoData.insertOrder(session 1 1 "2026-01-14" 211.5)
+        DemoData.insertOrder(session 2 2 "2026-02-02" 89.0)
+        DemoData.insertItem(session 1 1 1)
+        DemoData.insertItem(session 1 2 1)
+        DemoData.insertItem(session 2 3 1)
         return true
+    }
+
+    sfn insertProduct:void (session:DBSession id:int sku:string name:string category:int price:double) {
+        def m:DBMutation (DBMutation.makeInsert("products"))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("sku" (DBValue.fromString(sku)))
+        m.withValue("name" (DBValue.fromString(name)))
+        m.withValue("category_id" (DBValue.fromInt(category)))
+        m.withValue("price" (DBValue.fromDouble(price)))
+        session.mutate(m)
+    }
+
+    sfn insertOrder:void (session:DBSession id:int customer:int placedOn:string total:double) {
+        def m:DBMutation (DBMutation.makeInsert("orders"))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("customer_id" (DBValue.fromInt(customer)))
+        m.withValue("placed_on" (DBValue.fromString(placedOn)))
+        m.withValue("total" (DBValue.fromDouble(total)))
+        session.mutate(m)
+    }
+
+    sfn insertItem:void (session:DBSession orderId:int productId:int quantity:int) {
+        def m:DBMutation (DBMutation.makeInsert("order_items"))
+        m.withValue("order_id" (DBValue.fromInt(orderId)))
+        m.withValue("product_id" (DBValue.fromInt(productId)))
+        m.withValue("quantity" (DBValue.fromInt(quantity)))
+        session.mutate(m)
     }
 
     sfn insertRow:void (session:DBSession table:string id:int name:string parent:int price:double) {

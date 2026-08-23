@@ -96,6 +96,51 @@ export async function selftest(web, draw) {
   ok("…and nothing claims to have been measured", findings.every((f) => f.observed === false));
   ok("every finding names a rule", findings.every((f) => (f.rule || "").length > 0));
 
+  // --- the panels are the spreadsheet ---------------------------------------
+  //
+  // The Schema and Data sections are `GridPane` — the DataGrid's own view,
+  // model, selection and validation with the chrome switched off. These
+  // checks read the panel's CELLS, which only exist if that is true; a viewer
+  // that had gone back to painting its own table would have no cells to read.
+  web.run("engine.rangerdb", "");
+  web.selectTable("customers");
+  web.run("view.schema", "");
+  draw();
+  ok("the schema panel is a spreadsheet", web.schemaCell(0, 0) === "column");
+  ok("…holding the table's columns", web.schemaCell(1, 0).length > 0);
+  // The dropdown is the list rule the grid has always drawn an arrow for.
+  const choices = web.schemaChoices(1, 1);
+  ok("the type column offers a dropdown", choices.indexOf("VARCHAR") >= 0 && choices.indexOf("INTEGER") >= 0);
+
+  // The header row is not data: it refuses entries through a rule, the same
+  // way a column with a type does.
+  ok("the header row cannot be typed into",
+     web.schemaSelect(0, 0) && web.text("x") && web.key("Enter") && web.schemaCell(0, 0) === "column");
+  web.key("Escape");
+
+  // Typing goes through the column's rule, in the page, through the same
+  // methods a keypress calls.
+  web.schemaSelect(1, 1);
+  ok("a junk type does not commit", web.text("NOTATYPE") && web.key("Enter") && web.schemaCell(1, 1) !== "NOTATYPE");
+  ok("…and the page says why", (web.note() || "").indexOf("refused") >= 0);
+  web.key("Escape");
+  ok("a real type does commit", web.text("TEXT") && web.key("Enter") && web.schemaCell(1, 1) === "TEXT");
+  ok("…and the panel knows it was edited", web.schemaEdited());
+
+  // And an edit reaches the database as a migration, or not at all.
+  ok("the edit becomes a migration", web.run("schema.migrate", ""));
+  ok("…with an up side and a down side",
+     web.migrationText().indexOf("-- up") >= 0 && web.migrationText().indexOf("-- down") >= 0);
+  ok("…naming the table that was edited", web.migrationText().indexOf("customers") >= 0);
+  ok("the edits can be thrown away", web.run("schema.revert", "") && web.schemaEdited() === false);
+
+  // The Data panel is the same component, with the rules coming from the
+  // table's own declared types instead of a list of type names.
+  web.run("view.data", "");
+  draw();
+  ok("the data panel is a spreadsheet too", web.dataCell(0, 0).length > 0);
+  ok("…with rows in it", web.dataCell(1, 0).length > 0);
+
   // --- the honest refusal ---------------------------------------------------
   ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);
   ok("…and the refusal says why", (web.note() || "").indexOf("host") >= 0);

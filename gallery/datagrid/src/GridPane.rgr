@@ -46,6 +46,7 @@ Import "GridSelection.rgr"
 Import "DataGrid.rgr"
 Import "SheetView.rgr"
 Import "DataValidation.rgr"
+Import "../../evg/EVGWindow.rgr"
 
 class GridPane {
     def book:WorkbookModel (new WorkbookModel)
@@ -65,14 +66,37 @@ class GridPane {
     ; selects, scrolls and copies; it just refuses to begin an edit.
     def readOnly:boolean false
 
+    ; The value picker a list-validated cell opens. It is `EVGWindow` — the
+    ; same dialog the spreadsheet, the deck editor and the document editor put
+    ; their own choices in — so a pane gets a real dropdown without a line of
+    ; new drawing, and a host gets it by forwarding two calls.
+    ;
+    ; Its coordinates are the HOST's: a dialog is not clipped to the pane, it
+    ; hangs over whatever is beside it, which is what a dropdown near the
+    ; bottom edge has to do.
+    def windows:EVGWindowManager (new EVGWindowManager)
+    def listDialog:EVGWindow (new EVGWindow)
+    def listValues:[string]
+    def listRow:int -1
+    def listCol:int -1
+    def dialogReady:boolean false
+    ; The window the dialog has to stay inside.
+    def hostW:int 1200
+    def hostH:int 800
+
     Constructor () {
     }
 
     ; A pane with no fonts yet. Fonts arrive as bytes afterwards, because a
     ; browser has no font directory to read — the same reason `initBare`
     ; exists beside `init`.
+    ;
+    ; The software canvas `initBare` allocates is deliberately tiny. A pane
+    ; produces a display list and nothing rasterizes through it, so a canvas
+    ; the size of the pane would be megabytes nothing ever reads; `setBounds`
+    ; sets the page size the LAYOUT uses without touching it.
     fn start:void (w:int h:int) {
-        view.initBare(w h)
+        view.initBare(8 8)
         this.adopt(model)
         this.setBounds(0 0 w h)
     }
@@ -114,6 +138,11 @@ class GridPane {
         ; it gets back. Laying the grid out at the host's coordinates instead
         ; would make every hit test need the offset applied twice.
         grid.setBounds(0 0 w h)
+        ; The page the view believes it is drawing on IS the pane. Left at the
+        ; canvas's size, the view would draw a spreadsheet status bar in the
+        ; gap below the grid — furniture a pane has already switched off.
+        view.pageW = w
+        view.pageH = h
         grid.updateVisible(model)
     }
 
@@ -259,6 +288,187 @@ class GridPane {
     }
 
     ; ------------------------------------------------------------------------
+    ; The picker
+    ; ------------------------------------------------------------------------
+    fn setHostSize:void (w:int h:int) {
+        hostW = w
+        hostH = h
+    }
+
+    fn buildDialog:void () {
+        if dialogReady {
+            return
+        }
+        listDialog.w = 220
+        listDialog.title = "Choose a value"
+        windows.add(listDialog)
+        dialogReady = true
+    }
+
+    ; Whether the active cell has choices to offer at all. A host asks this
+    ; before deciding what a click on the arrow means.
+    fn activeIsList:boolean () {
+        def rule:DataValidation (model.validationAt(sel.active.row sel.active.col))
+        return (rule.isList())
+    }
+
+    fn openListPicker:boolean (row:int col:int) {
+        if readOnly {
+            return false
+        }
+        def rule:DataValidation (model.validationAt(row col))
+        if ((rule.isList()) == false) {
+            return false
+        }
+        this.buildDialog()
+        listValues = (rule.listValues())
+        listRow = row
+        listCol = col
+        def current:string (model.getCell(row col))
+        listDialog.reset()
+        listDialog.addLabel(("Value for " + (SpreadsheetModel.cellLabel(row col))))
+        def i:int 0
+        def n:int (array_length listValues)
+        while (i < n) {
+            def val:string (itemAt listValues i)
+            listDialog.addRadio((901 + i) val 1 (val == current))
+            i = (i + 1)
+        }
+        def ids:[int]
+        def labels:[string]
+        push ids 891
+        push labels "Cancel"
+        push ids 892
+        push labels "Choose"
+        listDialog.addButtonRow(ids labels 892)
+        listDialog.finish()
+        ; Under the cell, in the host's coordinates.
+        def cell:GridRect (grid.cellRect(model row col))
+        listDialog.openWithin((cell.x + paneX) ((cell.y + paneY) + cell.h) hostW hostH)
+        windows.raise(listDialog)
+        return true
+    }
+
+    fn pickerOpen:boolean () {
+        return listDialog.visible
+    }
+
+    fn applyListPicker:boolean () {
+        def chosen:int (listDialog.selectedInGroup(1))
+        listDialog.close()
+        if (chosen < 901) {
+            return false
+        }
+        def idx:int (chosen - 901)
+        if (idx >= (array_length listValues)) {
+            return false
+        }
+        ; Through `setCell`, so the rule is asked even about a value the rule
+        ; itself offered — one code path in and one answer out.
+        return (this.setCell(listRow listCol (itemAt listValues idx)))
+    }
+
+    ; A host forwards its pointer here first. True means the picker took the
+    ; click and the pane's own hit testing must not also see it.
+    fn pointerPicker:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        if (dialogReady == false) {
+            return false
+        }
+        if ((windows.anyVisible()) == false) {
+            return false
+        }
+        def consumed:boolean (windows.handlePointer(x y pressed down released))
+        if (listDialog.activated > 0) {
+            if (listDialog.activated == 892) {
+                this.applyListPicker()
+            }
+            if (listDialog.activated == 891) {
+                listDialog.close()
+            }
+            listDialog.activated = -1
+        }
+        return consumed
+    }
+
+    ; The picker, over everything. Called last, and outside the pane's clip.
+    fn buildPickerInto:void (dl:EVGDisplayList) {
+        if (dialogReady == false) {
+            return
+        }
+        windows.paint(dl view.ctx.tr hostW hostH)
+    }
+
+    ; A click, doing what a click on a spreadsheet cell does: select it, and
+    ; open the picker if it landed on the arrow of a cell that has one.
+    fn press:boolean (x:int y:int) {
+        if ((this.containsPoint(x y)) == false) {
+            return false
+        }
+        def wasList:boolean false
+        if (editing == false) {
+            wasList = (this.activeIsList())
+        }
+        if wasList {
+            if (this.hitListArrow(x y)) {
+                return (this.openListPicker(sel.active.row sel.active.col))
+            }
+        }
+        return (this.selectAt(x y))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Typing
+    ; ------------------------------------------------------------------------
+    fn typeText:boolean (s:string) {
+        if readOnly {
+            return false
+        }
+        if ((strlen s) == 0) {
+            return false
+        }
+        if (editing == false) {
+            editing = true
+            editBuf = ""
+        }
+        editBuf = (editBuf + s)
+        return true
+    }
+
+    fn backspace:boolean () {
+        if (editing == false) {
+            return false
+        }
+        def n:int (strlen editBuf)
+        if (n == 0) {
+            return false
+        }
+        editBuf = (substring editBuf 0 (n - 1))
+        return true
+    }
+
+    ; Move the selection, committing anything half-typed first — which is what
+    ; an arrow key does in every spreadsheet.
+    fn moveSelection:boolean (dr:int dc:int) {
+        if editing {
+            this.commitEdit()
+        }
+        def r:int (sel.active.row + dr)
+        def c:int (sel.active.col + dc)
+        if (r < 0) {
+            r = 0
+        }
+        if (c < 0) {
+            c = 0
+        }
+        sel.active.row = r
+        sel.active.col = c
+        sel.anchor.row = r
+        sel.anchor.col = c
+        grid.updateVisible(model)
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
     ; Validation — the dropdown a column offers
     ; ------------------------------------------------------------------------
     ;
@@ -279,6 +489,44 @@ class GridPane {
         v.errorText = ("This column accepts: " + (GridPane.plainList(choices)))
         model.addValidation(v)
         return v
+    }
+
+    ; A block nothing can be typed into. A header row is not data, and a grid
+    ; that let somebody rename `column` to `NOTATYPE` would be offering an
+    ; edit that means nothing — so it is stated as a RULE, refused by the same
+    ; `accepts` every other cell goes through, rather than as a special case
+    ; somewhere in the host's key handling.
+    fn lockRange:DataValidation (r0:int c0:int r1:int c1:int why:string) {
+        def v:DataValidation (new DataValidation)
+        v.kind = "textLength"
+        v.op = "lessThan"
+        v.f1 = "0"
+        v.r0 = r0
+        v.r1 = r1
+        v.c0 = c0
+        v.c1 = c1
+        v.allowBlank = false
+        v.errorTitle = "Not editable"
+        v.errorText = why
+        model.addValidation(v)
+        return v
+    }
+
+    ; Put the cursor somewhere, without a pointer. A pane whose selection sits
+    ; on a header by default sends the first thing anybody types into a title.
+    fn selectCell:boolean (row:int col:int) {
+        if (row < 0) {
+            return false
+        }
+        if (col < 0) {
+            return false
+        }
+        sel.active.row = row
+        sel.active.col = col
+        sel.anchor.row = row
+        sel.anchor.col = col
+        grid.updateVisible(model)
+        return true
     }
 
     fn wholeColumn:DataValidation (col:int firstRow:int lastRow:int low:string high:string) {

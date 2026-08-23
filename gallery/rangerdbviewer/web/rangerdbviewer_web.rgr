@@ -60,6 +60,57 @@ class RangerDbViewerWeb {
         return (frame.wheel(dy))
     }
 
+    ; The keyboard, for the panels that are spreadsheets. A page forwards what
+    ; the browser gives it and decides nothing: whether a cell may take what
+    ; was typed is the COLUMN's business, asked by the pane on commit.
+    fn text:boolean (s:string) {
+        return (frame.text(s))
+    }
+
+    fn key:boolean (name:string) {
+        return (frame.key(name))
+    }
+
+    ; What the Schema panel's spreadsheet currently says, so the page's own
+    ; checks can read a cell rather than the canvas.
+    fn schemaCell:string (row:int col:int) {
+        return (frame.schemaSheet.pane.model.getCell(row col))
+    }
+
+    fn dataCell:string (row:int col:int) {
+        return (frame.dataSheet.pane.model.getCell(row col))
+    }
+
+    ; The choices a column offers, comma separated — the dropdown, as text.
+    fn schemaChoices:string (row:int col:int) {
+        def rule:DataValidation (frame.schemaSheet.pane.model.validationAt(row col))
+        if ((rule.isList()) == false) {
+            return ""
+        }
+        return (GridPane.plainList((rule.listValues())))
+    }
+
+    ; Put the cursor on a cell without a pointer — what a keyboard-only
+    ; reader does, and what the page's own checks need.
+    fn schemaSelect:boolean (row:int col:int) {
+        return (frame.schemaSheet.pane.selectCell(row col))
+    }
+
+    fn dataSelect:boolean (row:int col:int) {
+        return (frame.dataSheet.pane.selectCell(row col))
+    }
+
+    fn schemaEdited:boolean () {
+        return (frame.schemaSheet.isDirty())
+    }
+
+    ; The migration an edited schema panel would need. Text, never statements
+    ; run: there is no path from a typed cell to this database that does not
+    ; go through something a person has read.
+    fn migrationText:string () {
+        return frame.migrationText
+    }
+
     fn run:boolean (id:string arg:string) {
         return (frame.runCommand(id arg))
     }

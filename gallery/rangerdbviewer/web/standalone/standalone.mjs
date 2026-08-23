@@ -181,6 +181,30 @@ canvas.addEventListener(
   { passive: false }
 );
 
+// The keyboard, for the two panels that are spreadsheets. The page forwards
+// and decides nothing — which key means what is the frame's business, and
+// whether a cell will take the text is the database column's.
+window.addEventListener("keydown", (ev) => {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const named = ["Enter", "Escape", "Backspace", "Tab", "F4",
+                 "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+  if (named.indexOf(ev.key) >= 0) {
+    if (web.key(ev.key)) {
+      ev.preventDefault();
+      draw();
+    }
+    return;
+  }
+  // A single printable character is text; everything else is a key we do not
+  // handle, and the browser keeps it.
+  if (ev.key.length === 1) {
+    if (web.text(ev.key)) {
+      ev.preventDefault();
+      draw();
+    }
+  }
+});
+
 function command(id) {
   web.run(id, "");
   draw();
