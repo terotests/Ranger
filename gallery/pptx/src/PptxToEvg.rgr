@@ -571,17 +571,24 @@ class PptxToEvg {
                     if (run.highlight.isSet) {
                         this.pushRect(dl drawX drawY pieceW line.h (this.colorFrom(run.highlight)))
                     }
+                    ; How a display list says bold and slanted, and it is not
+                    ; one field: every backend reads `fontWeight == "bold"`
+                    ; for the weight and `textAlign == "italic"` for the
+                    ; slant, which is the convention the document viewer set
+                    ; and both painters implement.
+                    ;
+                    ; This wrote "bolditalic" into the weight and the
+                    ; paragraph's ALIGNMENT into the slant field, so a run
+                    ; that was both came out as neither — no backend has ever
+                    ; drawn a pptx italic — and one that was only italic came
+                    ; out upright too.
                     def weight:string ""
                     if run.bold {
-                        if run.italic {
-                            weight = "bolditalic"
-                        } {
-                            weight = "bold"
-                        }
-                    } {
-                        if run.italic {
-                            weight = "italic"
-                        }
+                        weight = "bold"
+                    }
+                    def slant:string "left"
+                    if run.italic {
+                        slant = "italic"
                     }
                     def c (new EVGDrawCmd())
                     c.kind = 3
@@ -592,7 +599,7 @@ class PptxToEvg {
                     c.text = piece
                     c.fontFamily = fontFamily
                     c.fontSize = fontSize
-                    c.textAlign = "left"
+                    c.textAlign = slant
                     c.maxWidth = 0.0
                     c.fontWeight = weight
                     c.r = (col.red())

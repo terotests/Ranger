@@ -117,6 +117,12 @@ class PptxToolbar extends EVGToolbar {
 
     ; The one button that shows a value rather than a picture. The strip
     ; cannot work this out — it has never heard of a slide.
+    ; Whether the text under the caret is bold or italic. The strip cannot
+    ; work this out — it has never heard of a run — so the app puts the
+    ; answers here before the strip is painted, the same way `editOn` arrives.
+    def boldOn:boolean false
+    def italicOn:boolean false
+
     fn refresh:void (index:int count:int) {
         def i:int 0
         while (i < (array_length items)) {
@@ -130,6 +136,16 @@ class PptxToolbar extends EVGToolbar {
             }
             if (t.command == "view.rtl") {
                 t.pressed = uiRtl
+            }
+            ; Bold and Italic are toggles and have to LOOK like it. They were
+            ; plain buttons: pressing Bold made the text bold and the button
+            ; went on looking exactly as it had, so the only way to find out
+            ; whether bold was on was to look at the letters and guess.
+            if (t.command == "edit.bold") {
+                t.pressed = boldOn
+            }
+            if (t.command == "edit.italic") {
+                t.pressed = italicOn
             }
             i = (i + 1)
         }
@@ -1442,6 +1458,8 @@ class PptxApp {
         ; Settling this only on resize left the strip short after a page
         ; change, with the bottom of the button drawn over the slide.
         toolbarH = (toolbar.heightFor(W))
+        toolbar.boldOn = (this.selectionBold())
+        toolbar.italicOn = (this.selectionItalic())
         toolbar.refresh(index (this.slideCount()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 

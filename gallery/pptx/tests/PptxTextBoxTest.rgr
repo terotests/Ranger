@@ -90,6 +90,8 @@ class PptxTextBoxTest {
         this.testCancel()
         this.testToolbar()
         this.testTypingDoesNotMoveTheBox()
+        this.testSplitKeepsEverything()
+        this.testToolbarShowsBoldAndItalic()
         print ""
         print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
         if (c.failed == 0) {
@@ -277,6 +279,123 @@ class PptxTextBoxTest {
             def s3:PptxShape (unwrap after3)
             c.ok("with no caret, an arrow still nudges the shape" (s3.x > x0))
         }
+    }
+
+    fn testSplitKeepsEverything:void () {
+        print "--- splitting keeps what the half was ---"
+        ; Two hand-written copy lists had gone stale, and both went stale the
+        ; same way: somebody added a field to the model and nothing taught the
+        ; copy about it. Now each lives on the model next to the fields it
+        ; copies, so there is one thing to keep true instead of two.
+
+        ; A paragraph: pressing Enter on a bulleted line used to give a
+        ; paragraph that had lost its bullet COLOUR — the dash went from the
+        ; deck's white to a default black — along with its bullet font, its
+        ; indent, its numbering scheme and its direction.
+        def src (new PptxParagraph())
+        src.hasBullet = true
+        src.bulletChar = "-"
+        src.bulletFont = "Arial"
+        src.bulletSet = true
+        src.bulletColor.isSet = true
+        src.bulletColor.srgb = "FFFFFF"
+        src.bulletSizePct = 90.0
+        src.level = 2
+        src.rtl = 1
+        src.marginLeftPt = 36.0
+        src.marginSet = true
+        src.indentPt = 18.0
+        src.bulletAutoNum = true
+        src.bulletScheme = "alphaLcParenR"
+        src.bulletStartAt = 3
+        def copy (new PptxParagraph())
+        src.copyFormatTo(copy)
+        c.ok("the bullet colour survives" (copy.bulletColor.isSet))
+        c.eqInt("and is the same colour" (strlen copy.bulletColor.srgb) 6)
+        c.ok("the bullet font survives" (copy.bulletFont == "Arial"))
+        c.ok("the numbering scheme survives" (copy.bulletScheme == "alphaLcParenR"))
+        c.eqInt("and where it starts" copy.bulletStartAt 3)
+        c.eqInt("the indent survives" (to_int copy.marginLeftPt) 36)
+        c.eqInt("the level survives" copy.level 2)
+        c.eqInt("and the direction, which was the newest field and the one a
+                 hand-written list would miss" copy.rtl 1)
+        ; The colour is copied by VALUE. Sharing one object would mean
+        ; recolouring one bullet recoloured the other, later and elsewhere.
+        copy.bulletColor.srgb = "000000"
+        c.ok("and the two colours are not the same object"
+            ((src.bulletColor.srgb) == "FFFFFF"))
+
+        ; A run: toggling bold on PART of a line splits the run, and a half
+        ; that lost its resolution signatures is one the resolver re-inherits
+        ; from the layout — so the text jumped to the layout's size.
+        def r (new PptxTextRun())
+        r.fontSizePt = 28.0
+        r.sizeSet = true
+        r.bold = true
+        r.boldSet = true
+        r.resolvedSizeSig = "body:28"
+        r.resolvedColorSig = "scheme:tx1"
+        r.resolvedFontSig = "+mn-lt"
+        def r2 (new PptxTextRun())
+        r.copyStyleTo(r2)
+        c.eqInt("the size survives a split" (to_int r2.fontSizePt) 28)
+        c.ok("and so does the record of where it came from"
+            (r2.resolvedSizeSig == "body:28"))
+        c.ok("and the colour's" (r2.resolvedColorSig == "scheme:tx1"))
+        c.ok("and the font's" (r2.resolvedFontSig == "+mn-lt"))
+    }
+
+    fn testToolbarShowsBoldAndItalic:void () {
+        print "--- and the strip says whether bold is on ---"
+        ; Bold and Italic were plain buttons. Pressing Bold made the text bold
+        ; and the button went on looking exactly as it had, so the only way to
+        ; find out whether bold was on was to look at the letters and guess.
+        def a:PptxApp (PptxTextBoxTest.app())
+        a.setEditMode(true)
+        def all:[PptxShape] (a.editor.editableShapes())
+        def one:PptxShape (itemAt all 0)
+        a.editor.select(one.editId)
+        a.editor.beginTextEdit(one.editId)
+        a.editor.selectAllText()
+        a.buildFrame()
+        ; The contract is not "starts off" — this fixture's first shape is a
+        ; title and may well be bold already. It is that the LIGHT MATCHES THE
+        ; TEXT, whatever the text happens to be, before and after every
+        ; toggle. Asserting a starting value would tie the test to the
+        ; fixture and say nothing about the button.
+        c.ok("the light matches the text to begin with"
+            ((PptxTextBoxTest.pressedOf(a "edit.bold")) == (a.selectionBold())))
+        def was:boolean (a.selectionBold())
+        a.runCommand("edit.bold" "")
+        a.buildFrame()
+        c.ok("the toggle changed the text" ((a.selectionBold()) == (was == false)))
+        c.ok("and the light followed it"
+            ((PptxTextBoxTest.pressedOf(a "edit.bold")) == (a.selectionBold())))
+        def wasIt:boolean (a.selectionItalic())
+        a.runCommand("edit.italic" "")
+        a.buildFrame()
+        c.ok("italic followed too"
+            ((PptxTextBoxTest.pressedOf(a "edit.italic")) == (a.selectionItalic())))
+        c.ok("and italic really did change" ((a.selectionItalic()) == (wasIt == false)))
+        c.ok("without disturbing bold's light"
+            ((PptxTextBoxTest.pressedOf(a "edit.bold")) == (a.selectionBold())))
+        a.runCommand("edit.bold" "")
+        a.buildFrame()
+        c.ok("and back again" ((a.selectionBold()) == was))
+        c.ok("with the light back too"
+            ((PptxTextBoxTest.pressedOf(a "edit.bold")) == (a.selectionBold())))
+    }
+
+    sfn pressedOf:boolean (a:PptxApp cmd:string) {
+        def i:int 0
+        while (i < (a.toolbar.count())) {
+            def t:ToolItem (a.toolbar.at(i))
+            if (t.command == cmd) {
+                return t.pressed
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn testToolbar:void () {
