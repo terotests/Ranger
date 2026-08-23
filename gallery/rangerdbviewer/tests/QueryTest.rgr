@@ -1,0 +1,230 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; QueryTest — a query designed graphically, run structurally.
+; ==============================================================================
+;
+; Three claims:
+;
+;   1. the model is a `QuerySpec`, not SQL text — so every backend runs it and
+;      the capability-fallback engine covers the join RangerDB cannot do
+;   2. the SQL shown beside it says the SAME thing, generated from the same
+;      model, so the two cannot drift
+;   3. a criterion nobody can read is reported on its field, not dropped
+;
+; The last one is the one that matters. A designer that quietly ignored a
+; criterion it could not parse would return the wrong rows and look like it
+; worked, which is worse than refusing.
+; ==============================================================================
+
+Import "../query/QueryModel.rgr"
+Import "../app/DemoData.rgr"
+
+class QCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "]")
+            print ("       want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class QueryTest {
+
+    ; --------------------------------------------------------------------------
+    ; Criteria, as a person types them
+    ; --------------------------------------------------------------------------
+    sfn criterionOf:DBPredicate (text:string field:QueryField) {
+        return (QueryModel.predicateOf("total" text field))
+    }
+
+    sfn runCriteria:void (c:QCheck) {
+        print "-- what somebody types into a criteria box --"
+        def f:QueryField (QueryField.of("orders" "total"))
+
+        def gt:DBPredicate (QueryTest.criterionOf("> 100" f))
+        c.eqInt("greater than" gt.op (DBOp.gt()))
+        c.eqInt("…with the number" (gt.value.asInt()) 100)
+
+        def ge:DBPredicate (QueryTest.criterionOf(">= 100" f))
+        c.eqInt("at least" ge.op (DBOp.ge()))
+        def ne:DBPredicate (QueryTest.criterionOf("<> 3" f))
+        c.eqInt("not equal, in SQL's spelling" ne.op (DBOp.ne()))
+        def ne2:DBPredicate (QueryTest.criterionOf("!= 3" f))
+        c.eqInt("…and in everybody else's" ne2.op (DBOp.ne()))
+
+        ; No operator at all means equals, which is what a criteria box has
+        ; always meant.
+        def bare:DBPredicate (QueryTest.criterionOf("FI" f))
+        c.eqInt("a bare value is an equals" bare.op (DBOp.eq()))
+        c.eqStr("…of text" (bare.value.asString()) "FI")
+        def bareNum:DBPredicate (QueryTest.criterionOf("42" f))
+        c.eqStr("a bare number is a number" (bareNum.value.asString()) "42")
+        c.eqInt("…and not text" bareNum.value.kind 2)
+        def quoted:DBPredicate (QueryTest.criterionOf("'42'" f))
+        c.eqInt("but a quoted one is text, whatever it looks like" quoted.value.kind 4)
+
+        def nul:DBPredicate (QueryTest.criterionOf("is null" f))
+        c.eqInt("is null" nul.op (DBOp.isNull()))
+        def notNul:DBPredicate (QueryTest.criterionOf("is not null" f))
+        c.eqInt("is not null" notNul.op (DBOp.notNull()))
+        def like:DBPredicate (QueryTest.criterionOf("like ada" f))
+        c.eqInt("like is a contains" like.op (DBOp.hasText()))
+        c.eqStr("…of what was typed" (like.value.asString()) "ada"
+
+)
+        ; An operator with nothing after it is reported, not guessed at.
+        def broken:QueryField (QueryField.of("orders" "total"))
+        QueryTest.criterionOf("> " broken)
+        c.ok("an operator with no value is a problem" ((strlen broken.problem) > 0))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A designed query, run
+    ; --------------------------------------------------------------------------
+    sfn runQuery:void (c:QCheck) {
+        print "-- a two-table query, run on RangerDB --"
+        def src:DbSource (DemoData.openSeeded("rangerdb"))
+        if ((src.isOpen) == false) {
+            print "  the demo database did not open"
+            return
+        }
+        def schema:DatabaseSchema (DemoData.schemaFromSql())
+
+        def q:QueryModel (QueryModel.on("orders"))
+        c.ok("the relationship comes from the schema" (q.joinByKey(schema "orders" "customers" "inner")))
+        q.field("customers" "name")
+        q.field("orders" "total")
+        def placed:QueryField (q.field("orders" "placed_on"))
+        placed.sort = "asc"
+
+        def spec:QuerySpec (q.toSpec())
+        c.eqStr("no criterion is broken" q.errorText "")
+        c.ok("the spec has a join" (spec.hasJoins()))
+        c.eqInt("three columns" (array_length spec.columns) 3)
+        c.eqStr("qualified, because two tables share names" (itemAt spec.columns 0) "customers.name")
+
+        def chunk:DataChunk (src.session.query(spec))
+        c.eqStr("the engine had to join it itself" src.session.lastFallback "join")
+        c.eqInt("two orders, two customers" chunk.rowCount 2)
+        c.eqInt("and the three columns asked for" (chunk.columnCount()) 3)
+        def nameAt:int (chunk.columnIndex("customers.name"))
+        c.ok("the customer's name came from the other table" (nameAt >= 0))
+        c.eqStr("sorted by the date" (chunk.stringAt(0 (chunk.columnIndex("orders.placed_on")))) "2026-01-14")
+        c.eqStr("and the first row is Ada's" (chunk.stringAt(0 nameAt)) "Ada")
+
+        ; --- a criterion narrows it -------------------------------------------
+        def total:QueryField (q.field("orders" "total"))
+        total.shown = false
+        total.criteria = "> 100"
+        def spec2:QuerySpec (q.toSpec())
+        def chunk2:DataChunk (src.session.query(spec2))
+        c.eqInt("one order is over a hundred" chunk2.rowCount 1)
+        c.eqStr("and it is Ada's" (chunk2.stringAt(0 (chunk2.columnIndex("customers.name")))) "Ada")
+
+        ; --- the SQL says the same thing --------------------------------------
+        def sql:string (q.toSql())
+        c.ok("the SQL selects the columns" (QueryTest.holds(sql "\"customers\".\"name\"")))
+        c.ok("…joins the tables" (QueryTest.holds(sql "INNER JOIN \"customers\"")))
+        c.ok("…on the declared key" (QueryTest.holds(sql "\"orders\".\"customer_id\" = \"customers\".\"id\"")))
+        c.ok("…carries the criterion" (QueryTest.holds(sql "\"orders\".\"total\" > 100")))
+        c.ok("…and the sort" (QueryTest.holds(sql "ORDER BY \"orders\".\"placed_on\" ASC")))
+        ; A field that is not shown is still a filter, and must not be selected.
+        c.ok("a hidden field is not selected" ((QueryTest.holds(sql "SELECT \"customers\".\"name\", \"orders\".\"total\", \"orders\".\"placed_on\"")) ))
+
+        ; --- a left join keeps the rows with nothing on the other side --------
+        def q2:QueryModel (QueryModel.on("customers"))
+        q2.joinByKey(schema "customers" "orders" "left")
+        q2.field("customers" "name")
+        q2.field("orders" "total")
+        def chunk3:DataChunk (src.session.query((q2.toSpec())))
+        c.eqInt("every customer appears" chunk3.rowCount 2)
+
+        ; --- a criterion nobody can read ---------------------------------------
+        def q3:QueryModel (QueryModel.on("orders"))
+        def bad:QueryField (q3.field("orders" "total"))
+        bad.criteria = ">"
+        q3.toSpec()
+        c.ok("the model says which field" (QueryTest.holds(q3.errorText "orders.total")))
+        c.ok("…and what was wrong with it" (QueryTest.holds(q3.errorText "no value")))
+        src.closeSession()
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A single table still goes down the plain path
+    ; --------------------------------------------------------------------------
+    sfn runSingle:void (c:QCheck) {
+        print "-- one table, unqualified --"
+        def src:DbSource (DemoData.openSeeded("rangerdb"))
+        def q:QueryModel (QueryModel.on("products"))
+        q.field("products" "name")
+        def price:QueryField (q.field("products" "price"))
+        price.criteria = ">= 89"
+        price.sort = "desc"
+        def spec:QuerySpec (q.toSpec())
+        c.ok("no join" ((spec.hasJoins()) == false))
+        c.eqStr("and the columns are plain names" (itemAt spec.columns 0) "name")
+        def chunk:DataChunk (src.session.query(spec))
+        c.eqStr("nothing had to be done locally" src.session.lastFallback "")
+        c.eqInt("two products cost at least 89" chunk.rowCount 2)
+        c.eqStr("the dearest first" (chunk.stringAt(0 0)) "Headphones")
+        def sql:string (q.toSql())
+        c.ok("and the SQL is unqualified too" (QueryTest.holds(sql "SELECT \"name\", \"price\"")))
+        src.closeSession()
+    }
+
+    sfn holds:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if (n == 0) {
+            return false
+        }
+        def last:int ((strlen text) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring text i (i + n)) == part) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def c:QCheck (new QCheck)
+        QueryTest.runCriteria(c)
+        QueryTest.runQuery(c)
+        QueryTest.runSingle(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

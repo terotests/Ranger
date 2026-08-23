@@ -352,6 +352,71 @@ class DBAggregate {
     }
 }
 
+; ------------------------------------------------------------------ join --
+; Two tables and the columns that match them up.
+;
+; Structured, like everything else in a `QuerySpec`: a join written as SQL text
+; would be a string the capability-fallback engine could not take apart, and
+; the whole point of the spec is that a backend which cannot do a piece of the
+; work hands that piece back rather than the whole query.
+class DBJoin {
+    ; "inner" | "left". A right join is a left join with the sides swapped and
+    ; is normalised into one when a designer builds it, so there is one code
+    ; path to get wrong instead of two.
+    def kind:string "inner"
+    def table:string ""
+    ; The alias this side of the join is known by, when it has one. Empty means
+    ; the table's own name.
+    def alias:string ""
+    ; `leftColumns[i]` of whatever has been joined so far matches
+    ; `rightColumns[i]` of `table`.
+    def leftColumns:[string]
+    def rightColumns:[string]
+
+    Constructor () {
+    }
+
+    sfn on:DBJoin (kind:string table:string leftColumn:string rightColumn:string) {
+        def j:DBJoin (new DBJoin)
+        j.kind = kind
+        j.table = table
+        push j.leftColumns leftColumn
+        push j.rightColumns rightColumn
+        return j
+    }
+
+    fn also:void (leftColumn:string rightColumn:string) {
+        push leftColumns leftColumn
+        push rightColumns rightColumn
+    }
+
+    fn nameOf:string () {
+        if ((strlen alias) > 0) {
+            return alias
+        }
+        return table
+    }
+
+    fn isLeft:boolean () {
+        return (kind == "left")
+    }
+
+    fn copy:DBJoin () {
+        def j:DBJoin (new DBJoin)
+        j.kind = kind
+        j.table = table
+        j.alias = alias
+        def i:int 0
+        def n:int (array_length leftColumns)
+        while (i < n) {
+            push j.leftColumns (itemAt leftColumns i)
+            push j.rightColumns (itemAt rightColumns i)
+            i = (i + 1)
+        }
+        return j
+    }
+}
+
 class QuerySpec {
     def table:string ""
     ; Empty means every column of the table, in declaration order.
@@ -360,6 +425,9 @@ class QuerySpec {
     def sorts:[DBSort]
     def groupBy:[string]
     def aggregates:[DBAggregate]
+    ; Tables joined onto `table`, in order. Empty for the single-table case,
+    ; which is still every query the viewer's Data panel makes.
+    def joins:[DBJoin]
     def offset:int 0
     ; <= 0 means no limit.
     def limit:int 0
@@ -391,6 +459,16 @@ class QuerySpec {
 
     fn aggregate:void (fnKind:int column:string alias:string) {
         push aggregates (DBAggregate.create(fnKind column alias))
+    }
+
+    fn joinOn:DBJoin (kind:string table:string leftColumn:string rightColumn:string) {
+        def j:DBJoin (DBJoin.on(kind table leftColumn rightColumn))
+        push joins j
+        return j
+    }
+
+    fn hasJoins:boolean () {
+        return ((array_length joins) > 0)
     }
 
     fn page:void (start:int rows:int) {
@@ -428,6 +506,13 @@ class QuerySpec {
         n = (array_length aggregates)
         while (i < n) {
             push q.aggregates (itemAt aggregates i)
+            i = (i + 1)
+        }
+        i = 0
+        n = (array_length joins)
+        while (i < n) {
+            def j:DBJoin (itemAt joins i)
+            push q.joins (j.copy())
             i = (i + 1)
         }
         q.offset = offset

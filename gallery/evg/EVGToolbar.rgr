@@ -528,6 +528,48 @@ class EVGToolbar {
     ; Show a page. Out-of-range is ignored rather than clamped: a caller
     ; asking for a tab that is not there has a bug, and moving them to a
     ; neighbouring page hides it.
+    ; Which page a command's button sits on, or -1 when nothing on the strip
+    ; runs it.
+    fn tabOwning:int (command:string) {
+        def at:int (this.indexOfCommand(command))
+        if (at < 0) {
+            return -1
+        }
+        def i:int 0
+        def n:int (array_length tabs)
+        while (i < n) {
+            def t:ToolTab (itemAt tabs i)
+            if (at >= t.first) {
+                if (at < (t.first + t.count)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn indexOfCommand:int (command:string) {
+        def i:int 0
+        def n:int (array_length items)
+        while (i < n) {
+            def t:ToolItem (itemAt items i)
+            if (t.command == command) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Bring the page a command lives on to the front. A command run from a
+    ; link, a keyboard shortcut or a script leaves the strip showing the
+    ; button that would have run it — otherwise the window changes and the
+    ; toolbar goes on describing something else.
+    fn showTabFor:boolean (command:string) {
+        return (this.selectTab((this.tabOwning(command))))
+    }
+
     fn selectTab:boolean (i:int) {
         if (i < 0) {
             return false

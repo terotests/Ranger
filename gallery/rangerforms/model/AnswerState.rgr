@@ -1,0 +1,228 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; AnswerState.rgr — the mutable half.
+; ============================================================================
+;
+; The `Questionnaire` is what the form IS and never changes once it is read.
+; This is what one person has said, plus what the engine worked out from it.
+; Two people filling the same form share one AST and have one of these each,
+; which is what makes a server-side filling session cheap and what makes the
+; benchmark's "10 000-question questionnaire, resident" a measurement of the
+; questionnaire rather than of the answers.
+;
+; ---------------------------------------------------------------------------
+; `today` is data
+; ---------------------------------------------------------------------------
+;
+; `todayDays` is here, not read from a clock. An engine whose `today()` asks
+; the operating system cannot be tested against a fixture, cannot be replayed,
+; and cannot be compared across six compilation targets — which is the whole
+; point of the exercise. So the caller supplies the date, and a form filled in
+; on a Tuesday still evaluates the same way on Wednesday when somebody is
+; trying to reproduce a bug.
+; ============================================================================
+
+Import "FormValue.rgr"
+
+class Answer {
+    def name:string ""
+    def value:FormValue (new FormValue)
+    ; Whether a PERSON put this here. A calculated field has a value and was
+    ; never answered, and the difference decides whether "required" is met.
+    def answered:boolean false
+
+    Constructor () {
+    }
+}
+
+; What the engine worked out about one question, for this set of answers.
+class QuestionState {
+    def name:string ""
+    def visible:boolean true
+    def enabled:boolean true
+    def required:boolean false
+    def readOnly:boolean false
+    ; Validity has two halves, and they are kept apart because they are
+    ; decided in different places. `kindOk` is whether the answer is the sort
+    ; of thing the question asks for — a number where a number belongs, one of
+    ; the choices where there is a choice list — and the engine decides it from
+    ; the question's own type. `ruleOk` is whether the form's own `validate`
+    ; expression is satisfied.
+    ;
+    ; One flag would mean whichever of the two ran last won, and the loser
+    ; would be the type check about half the time: somebody types "twelve"
+    ; into an age and the form says nothing, because the range rule could not
+    ; read it either and declined to condemn it.
+    def kindOk:boolean true
+    def ruleOk:boolean true
+    ; Why it is not valid, in the words the questionnaire chose.
+    def message:string ""
+
+    Constructor () {
+    }
+
+    fn isValid:boolean () {
+        if (kindOk == false) {
+            return false
+        }
+        return ruleOk
+    }
+
+    sfn of:QuestionState (name:string) {
+        def q:QuestionState (new QuestionState)
+        q.name = name
+        return q
+    }
+}
+
+class AnswerState {
+    def answers:[string:Answer]
+    def states:[string:QuestionState]
+    ; Days since 1970-01-01. See the header: the date is an input.
+    def todayDays:int 0
+    ; How many rule evaluations have been run since `resetCounters`. This is
+    ; the benchmark's Q3 measurement, and it is a COUNT rather than a time
+    ; because "changing one answer re-ran four rules" is a fact about the
+    ; engine and "it took 0.3 ms" is a fact about the machine.
+    def evaluations:int 0
+
+    Constructor () {
+    }
+
+    fn resetCounters:void () {
+        evaluations = 0
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Answers
+    ; ------------------------------------------------------------------------
+    ; What an EXPRESSION sees. A hidden question reads as unanswered, whatever
+    ; is stored against it.
+    ;
+    ; This is the rule that makes a branch behave the way people expect: ask
+    ; somebody their weight, hide the question when they say they would rather
+    ; not, and the total that was adding it must stop adding it. Keeping the
+    ; stored value and withholding it here — rather than deleting it — is what
+    ; lets the answer come back intact when the branch reopens, which is the
+    ; other half of what people expect.
+    fn valueOf:FormValue (name:string) {
+        def st@(optional):QuestionState (get states name)
+        if (!null? st) {
+            def s:QuestionState (unwrap st)
+            if ((s.visible) == false) {
+                return (FormValue.blank())
+            }
+        }
+        return (this.rawValueOf(name))
+    }
+
+    ; What is STORED. For the renderer, the serializer, and for anything that
+    ; has to put the value back on screen when a hidden question reappears.
+    fn rawValueOf:FormValue (name:string) {
+        def found@(optional):Answer (get answers name)
+        if (null? found) {
+            return (FormValue.blank())
+        }
+        def a:Answer (unwrap found)
+        return a.value
+    }
+
+    fn wasAnswered:boolean (name:string) {
+        def found@(optional):Answer (get answers name)
+        if (null? found) {
+            return false
+        }
+        def a:Answer (unwrap found)
+        return a.answered
+    }
+
+    ; Somebody typed something.
+    fn answer:void (name:string value:FormValue) {
+        this.put(name value true)
+    }
+
+    ; The engine worked something out. Not an answer, so it never satisfies a
+    ; `required` — a calculated field that counted as answered would let a form
+    ; be submitted with every question the person was actually asked left
+    ; blank.
+    fn compute:void (name:string value:FormValue) {
+        this.put(name value false)
+    }
+
+    fn put:void (name:string value:FormValue answered:boolean) {
+        def found@(optional):Answer (get answers name)
+        if (null? found) {
+            def fresh:Answer (new Answer)
+            fresh.name = name
+            fresh.value = value
+            fresh.answered = answered
+            set answers name fresh
+            return
+        }
+        def a:Answer (unwrap found)
+        a.value = value
+        ; A value with nothing in it is not an answer, whoever put it there.
+        if (value.isEmpty()) {
+            a.answered = false
+            return
+        }
+        ; Once a person has answered, a later computation does not un-answer
+        ; it; but a person answering something the engine computed does.
+        if answered {
+            a.answered = true
+        }
+    }
+
+    fn clearAnswer:void (name:string) {
+        def blank:Answer (new Answer)
+        blank.name = name
+        set answers name blank
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Per-question state
+    ; ------------------------------------------------------------------------
+    ; The stored state, made if it is not there yet. The engine writes
+    ; through this.
+    fn stateOf:QuestionState (name:string) {
+        def found@(optional):QuestionState (get states name)
+        if (null? found) {
+            def fresh:QuestionState (QuestionState.of(name))
+            set states name fresh
+            return fresh
+        }
+        return (unwrap found)
+    }
+
+    ; The state, WITHOUT making one. Everything that only reads goes through
+    ; here: an accessor that quietly inserted would make "what does the engine
+    ; believe about q" change what the engine believes, and on a target where
+    ; the compiler tracks mutation it makes every read borrow mutably.
+    fn readState:QuestionState (name:string) {
+        def found@(optional):QuestionState (get states name)
+        if (null? found) {
+            return (QuestionState.of(name))
+        }
+        return (unwrap found)
+    }
+
+    fn isVisible:boolean (name:string) {
+        def st:QuestionState (this.readState(name))
+        return st.visible
+    }
+
+    fn isRequired:boolean (name:string) {
+        def st:QuestionState (this.readState(name))
+        return st.required
+    }
+
+    fn isValid:boolean (name:string) {
+        def st:QuestionState (this.readState(name))
+        return (st.isValid())
+    }
+
+    fn answeredNames:[string] () {
+        return (keys answers)
+    }
+}

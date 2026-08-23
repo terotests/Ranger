@@ -1,0 +1,5 @@
+{
+  "name": "branching",
+  "note": "relevant and required over the same condition",
+  "script": [ { "age": 12 }, { "guardian": "Ada" }, { "age": 40 }, { "age": 17 } ]
+}

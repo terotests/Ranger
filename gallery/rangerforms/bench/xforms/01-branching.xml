@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml" xmlns:jr="http://openrosa.org/javarosa">
+  <h:head>
+    <h:title>Branching</h:title>
+    <model>
+      <instance>
+        <data id="branching">
+          <age/>
+          <guardian/>
+          <note/>
+        </data>
+      </instance>
+      <bind nodeset="/data/age" type="int" required="true()"/>
+      <bind nodeset="/data/guardian" type="string" relevant="/data/age &lt; 18" required="/data/age &lt; 18"/>
+      <bind nodeset="/data/note" type="string"/>
+    </model>
+  </h:head>
+  <h:body>
+    <input ref="/data/age"><label>How old are you?</label></input>
+    <input ref="/data/guardian"><label>Name of a parent or guardian</label></input>
+    <input ref="/data/note"><label>Anything else</label></input>
+  </h:body>
+</h:html>

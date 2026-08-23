@@ -83,6 +83,193 @@ export async function selftest(web, draw) {
   ok("…with the relationships in it", ddl.indexOf("FOREIGN KEY") >= 0);
   ok("…and the indexes", ddl.indexOf("CREATE INDEX") >= 0);
 
+  // --- the metrics section --------------------------------------------------
+  ok("the metrics section can be run", web.run("metrics.run", ""));
+  draw();
+  ok("…and it is showing", web.section() === "metrics");
+  const findings = JSON.parse(web.findingsJson());
+  ok("the demo schema is analysed", Array.isArray(findings));
+  // The demo schema has a nullable foreign key on categories.parent_id (a
+  // self-reference that must be optional or the first row cannot exist), so
+  // there is something to find — and every schema-only finding must say it
+  // measured nothing.
+  ok("…and nothing claims to have been measured", findings.every((f) => f.observed === false));
+  ok("every finding names a rule", findings.every((f) => (f.rule || "").length > 0));
+
+  // --- the panels are the spreadsheet ---------------------------------------
+  //
+  // The Schema and Data sections are `GridPane` — the DataGrid's own view,
+  // model, selection and validation with the chrome switched off. These
+  // checks read the panel's CELLS, which only exist if that is true; a viewer
+  // that had gone back to painting its own table would have no cells to read.
+  web.run("engine.rangerdb", "");
+  web.selectTable("customers");
+  web.run("view.schema", "");
+  draw();
+  ok("the schema panel is a spreadsheet", web.schemaCell(0, 0) === "column");
+  ok("…holding the table's columns", web.schemaCell(1, 0).length > 0);
+  // The dropdown is the list rule the grid has always drawn an arrow for.
+  const choices = web.schemaChoices(1, 1);
+  ok("the type column offers a dropdown", choices.indexOf("VARCHAR") >= 0 && choices.indexOf("INTEGER") >= 0);
+
+  // The header row is not data: it refuses entries through a rule, the same
+  // way a column with a type does.
+  ok("the header row cannot be typed into",
+     web.schemaSelect(0, 0) && web.text("x") && web.key("Enter") && web.schemaCell(0, 0) === "column");
+  web.key("Escape");
+
+  // Typing goes through the column's rule, in the page, through the same
+  // methods a keypress calls.
+  web.schemaSelect(1, 1);
+  ok("a junk type does not commit", web.text("NOTATYPE") && web.key("Enter") && web.schemaCell(1, 1) !== "NOTATYPE");
+  ok("…and the page says why", (web.note() || "").indexOf("refused") >= 0);
+  web.key("Escape");
+  ok("a real type does commit", web.text("TEXT") && web.key("Enter") && web.schemaCell(1, 1) === "TEXT");
+  ok("…and the panel knows it was edited", web.schemaEdited());
+
+  // And an edit reaches the database as a migration, or not at all.
+  ok("the edit becomes a migration", web.run("schema.migrate", ""));
+  ok("…with an up side and a down side",
+     web.migrationText().indexOf("-- up") >= 0 && web.migrationText().indexOf("-- down") >= 0);
+  ok("…naming the table that was edited", web.migrationText().indexOf("customers") >= 0);
+  ok("the edits can be thrown away", web.run("schema.revert", "") && web.schemaEdited() === false);
+
+  // The Data panel is the same component, with the rules coming from the
+  // table's own declared types instead of a list of type names.
+  web.run("view.data", "");
+  draw();
+  ok("the data panel is a spreadsheet too", web.dataCell(0, 0).length > 0);
+  ok("…with rows in it", web.dataCell(1, 0).length > 0);
+
+  // --- a column rule somebody wrote in JavaScript ---------------------------
+  //
+  // Not a range and not a list: a function, run by ComponentEngine — the same
+  // evaluator the report scripts use — reached through the same `accepts`
+  // every other rule goes through. Changing what a column will take is
+  // editing this string, not rebuilding the viewer.
+  const rules = [
+    "function email(cell) {",
+    "  if (cell.blank) { return 'an email address is required' }",
+    "  if (cell.value.indexOf('@') < 0) { return 'that is not an email address' }",
+    "  return true",
+    "}",
+    "function nordic(cell) {",
+    "  return ['Finland', 'Sweden', 'Norway', 'Denmark'].indexOf(cell.value) >= 0",
+    "}",
+  ].join("\n");
+  ok("the page can install cell rules", web.useCellScript(rules) && web.scriptError() === "");
+  web.selectTable("customers");
+  web.run("view.data", "");
+  draw();
+  ok("a rule can be put on a column by name", web.ruleOnDataColumn("email", "email", "an email address"));
+  const emailCol = 1;
+  ok("…and it refuses what it should", web.dataAccepts(1, emailCol, "not-an-address") === false);
+  ok("…in the words the rule's author wrote", web.dataRefusal(1, emailCol) === "that is not an email address");
+  ok("…and accepts what it should", web.dataAccepts(1, emailCol, "ada@example.com"));
+  ok("a rule with no message still refuses",
+     web.ruleOnDataColumn("country", "nordic", "Nordic countries only") &&
+     web.dataAccepts(1, 3, "Portugal") === false);
+  ok("…and accepts", web.dataAccepts(1, 3, "Norway"));
+  // A rule nobody wrote must not make the column unfillable.
+  ok("a rule nobody wrote refuses nothing",
+     web.ruleOnDataColumn("name", "noSuchRule", "") && web.dataAccepts(1, 2, "anything"));
+
+  // --- the Forms section ----------------------------------------------------
+  //
+  // One record at a time. The engine underneath is `gallery/rangerforms` and
+  // has never heard of a database; what it sees is a questionnaire whose
+  // questions were described from the table's own columns, and an edit comes
+  // back out as an UPDATE addressed by the key the row was loaded with.
+  web.run("engine.rangerdb", "");
+  web.selectTable("customers");
+  ok("the Forms section opens", web.run("view.form", "") && web.section() === "form");
+  draw();
+  ok("with a question per column", web.formFieldCount() === 4);
+  ok("and records to move through", web.formRecordCount() > 1);
+  ok("showing the first one", web.formRecordIndex() === 0);
+  const firstName = web.formFieldText("name");
+  ok("with the row's values in it", firstName.length > 0);
+
+  // The navigator.
+  ok("next moves on", web.run("form.next", "") && web.formRecordIndex() === 1);
+  ok("…to a different record", web.formFieldText("name") !== firstName);
+  ok("and first comes back", web.run("form.first", "") && web.formRecordIndex() === 0);
+
+  // Nothing typed, nothing to save.
+  ok("an untouched record is not dirty", web.formDirty() === false);
+  ok("and has nothing to save", web.formCanSave() === false);
+
+  // Typing goes through the engine, which re-checks the type and settles.
+  ok("a field can be focused", web.formFocus("name"));
+  web.key("Backspace");
+  ok("and typed into", web.text("X") && web.key("Enter"));
+  ok("the record is now changed", web.formDirty());
+  ok("and can be saved", web.formCanSave());
+  ok("the preview reads like the statement",
+     web.formPreview().indexOf("UPDATE customers SET") === 0 &&
+     web.formPreview().indexOf("WHERE id =") > 0);
+
+  // A NOT NULL column cannot be emptied — the requirement came from the
+  // column, not from anything written in the viewer.
+  ok("email is required", web.formFieldRequired("email"));
+  web.formFocus("email");
+  for (let i = 0; i < 40; i++) web.key("Backspace");
+  web.key("Enter");
+  ok("clearing it blocks the save", web.formCanSave() === false);
+  ok("…and says it has to be answered", web.formPreview().indexOf("answered") > 0);
+
+  // Put it back and write it.
+  web.formFocus("email");
+  web.text("a@b.fi");
+  web.key("Enter");
+  ok("a valid address unblocks it", web.formCanSave());
+  ok("the save writes", web.run("form.save", ""));
+  ok("…and the form is clean again", web.formDirty() === false);
+  ok("…holding what the database now says", web.formFieldText("email") === "a@b.fi");
+
+  // --- the Query section ----------------------------------------------------
+  //
+  // Base's designer builds SQL and hands it to the engine; this one builds a
+  // `QuerySpec`, so the same execution path serves it and the Data panel and
+  // the capability-fallback engine does the join RangerDB cannot. The SQL
+  // beside it is generated FROM the model, for a person to read.
+  web.run("engine.rangerdb", "");
+  web.selectTable("orders");
+  ok("a query starts from a table", web.run("query.table", "") && web.section() === "query");
+  ok("…with its columns", web.run("query.all", "") && web.queryFieldCount() === 4);
+  web.selectTable("customers");
+  ok("a second table joins on the declared key", web.run("query.join", "") && web.queryJoinCount() === 1);
+  web.run("query.all", "");
+  ok("…bringing its columns too", web.queryFieldCount() === 8);
+  ok("both tables are in it", web.queryTables() === "orders, customers");
+
+  ok("it runs", web.run("query.run", "") && web.queryRan());
+  draw();
+  ok("two orders, two customers", web.queryRowCount() === 2);
+  // RangerDB has no join, so the engine did it — and says so rather than
+  // pretending the backend could.
+  ok("the engine joined it itself", web.queryFallback() === "join");
+  ok("the answer is a spreadsheet too", web.queryCell(0, 0) === "orders.id");
+  ok("…with the other table's columns in it", web.queryCell(0, 5) === "customers.email");
+
+  // A criterion typed into the grid narrows it.
+  ok("a criterion can be typed", web.queryCriteria("orders.total", "> 100"));
+  ok("…and it narrows the answer", web.run("query.run", "") && web.queryRowCount() === 1);
+  ok("…to the right row", web.queryCell(1, 5) === "ada@example.com");
+
+  // The SQL says the same thing, generated from the same model.
+  const qsql = web.querySql();
+  ok("the SQL joins the tables", qsql.indexOf('INNER JOIN "customers"') > 0);
+  ok("…on the key the database declares", qsql.indexOf('"orders"."customer_id" = "customers"."id"') > 0);
+  ok("…and carries the criterion", qsql.indexOf('"orders"."total" > 100') > 0);
+
+  // A criterion nobody can read is reported, not dropped.
+  web.queryCriteria("orders.total", ">");
+  ok("a broken criterion refuses to run", web.run("query.run", "") === false);
+  ok("…naming the field", (web.note() || "").indexOf("orders.total") >= 0);
+  web.queryCriteria("orders.total", "");
+  web.run("query.run", "");
+
   // --- the honest refusal ---------------------------------------------------
   ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);
   ok("…and the refusal says why", (web.note() || "").indexOf("host") >= 0);

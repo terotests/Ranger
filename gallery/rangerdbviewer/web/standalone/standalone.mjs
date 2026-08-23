@@ -181,6 +181,30 @@ canvas.addEventListener(
   { passive: false }
 );
 
+// The keyboard, for the two panels that are spreadsheets. The page forwards
+// and decides nothing — which key means what is the frame's business, and
+// whether a cell will take the text is the database column's.
+window.addEventListener("keydown", (ev) => {
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const named = ["Enter", "Escape", "Backspace", "Tab", "F4",
+                 "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+  if (named.indexOf(ev.key) >= 0) {
+    if (web.key(ev.key)) {
+      ev.preventDefault();
+      draw();
+    }
+    return;
+  }
+  // A single printable character is text; everything else is a key we do not
+  // handle, and the browser keeps it.
+  if (ev.key.length === 1) {
+    if (web.text(ev.key)) {
+      ev.preventDefault();
+      draw();
+    }
+  }
+});
+
 function command(id) {
   web.run(id, "");
   draw();
@@ -243,8 +267,44 @@ async function boot() {
   // The live engine cannot describe a relationship yet, so the page opens on
   // the schema that can — and the button beside it goes back.
   web.run("db.sql", "");
-  web.run("view.diagram", "");
+  // `?section=` opens straight onto one of the pages, which is what a link to
+  // a particular view needs and what a screenshot of one needs too.
+  const params = new URLSearchParams(location.search);
+  const wanted = params.get("section") || "diagram";
+  const table = params.get("table");
+  // `?engine=rangerdb` opens the live in-tab database instead of the schema
+  // read from SQL — the two show different true things, so which one a link
+  // wants has to be said rather than guessed.
+  if (params.get("engine") === "rangerdb") web.run("engine.rangerdb", "");
+  if (table) web.selectTable(table);
+  if (wanted === "metrics") {
+    web.run("metrics.run", "");
+  } else if (wanted === "schema") {
+    web.run("view.schema", "");
+  } else if (wanted === "data") {
+    web.run("view.data", "");
+  } else if (wanted === "query") {
+    web.run("engine.rangerdb", "");
+    if (table) web.selectTable(table);
+    web.run("query.table", "");
+    web.run("query.all", "");
+  } else if (wanted === "form") {
+    // The Forms section needs a live database: a schema read from SQL has no
+    // records to page through, and the section says so rather than showing an
+    // empty form.
+    web.run("engine.rangerdb", "");
+    if (table) web.selectTable(table);
+    web.run("view.form", "");
+  } else {
+    web.run("view.diagram", "");
+  }
   draw();
+  // The facade, and a redraw, on the window. `__evgStats` and `__dbScene` are
+  // already here for the page's own checks; this is the same idea one level
+  // up — a console, a screenshot script or a documentation page can drive the
+  // viewer through exactly the methods a button calls.
+  window.__dbViewer = web;
+  window.__dbDraw = draw;
   window.__dbReady = true;
 
   if (new URLSearchParams(location.search).has("selftest")) {

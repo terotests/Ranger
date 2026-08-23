@@ -1,0 +1,591 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; XFormReader.rgr — an ODK XForm, as a Questionnaire.
+; ============================================================================
+;
+;   <h:head>
+;     <model>
+;       <instance><data id="clinic">
+;         <age/><guardian/><height/><weight/><bmi/>
+;       </data></instance>
+;       <bind nodeset="/data/age" type="int" required="true()"/>
+;       <bind nodeset="/data/guardian" relevant="/data/age &lt; 18"
+;             required="/data/age &lt; 18"/>
+;       <bind nodeset="/data/bmi" type="decimal"
+;             calculate="/data/weight div (/data/height * /data/height)"/>
+;     </model>
+;   </h:head>
+;   <h:body>
+;     <input ref="/data/age"><label>How old are you?</label></input>
+;   </h:body>
+;
+; Three parts, and they are three different things:
+;
+;   the INSTANCE   which nodes exist, and their default values
+;   the BINDS      the types and the rules — relevant, required, constraint,
+;                  calculate, readonly
+;   the BODY       what a person sees: labels, hints, and the choice lists
+;
+; A node with no control in the body is a calculated or hidden field, and
+; still a question. A control with no bind is a plain text question. Reading
+; only one of the three would lose half of every real form.
+;
+; ---------------------------------------------------------------------------
+; Relative references are made absolute here
+; ---------------------------------------------------------------------------
+;
+; `.` is the node the bind is on and `../sibling` is the one beside it, and
+; both mean something only in the bind's own context. `Questionnaire.compile`
+; walks rules without saying which question it is holding, so this resolves
+; them before storing the expression — see `XPathExpr`'s header.
+;
+; ---------------------------------------------------------------------------
+; What it refuses
+; ---------------------------------------------------------------------------
+;
+; Repeats, itemsets loaded from a secondary instance, and any expression using
+; a function `XPathExpr` does not have. Each goes into `Questionnaire.gaps` by
+; name, and the comparison harness counts a form with any gap as unsupported
+; rather than as agreeing — the same discipline as the SurveyJS reader.
+; ============================================================================
+
+Import "../model/Questionnaire.rgr"
+Import "../expr/XPathExpr.rgr"
+Import "../../datagrid/src/xlsx/XmlLite.rgr"
+
+; One `<bind>`, before it is matched to a node.
+class XFormBind {
+    def nodeset:string ""
+    def name:string ""
+    def type:string ""
+    def relevant:string ""
+    def required:string ""
+    def readonly:string ""
+    def constraint:string ""
+    def constraintMsg:string ""
+    def calculate:string ""
+
+    Constructor () {
+    }
+}
+
+; One control from the body, before it is matched to a node.
+class XFormControl {
+    def ref:string ""
+    def name:string ""
+    ; "input" | "select1" | "select" | "trigger" | "upload"
+    def kind:string ""
+    def label:string ""
+    def hint:string ""
+    def choiceValues:[string]
+    def choiceLabels:[string]
+    def fromItemset:boolean false
+
+    Constructor () {
+    }
+}
+
+class XFormReader {
+    def form:Questionnaire (new Questionnaire)
+    def host:XPathExpr (new XPathExpr)
+    def errorText:string ""
+    def unsupported:[string]
+    ; The instance's node names, in document order — which is the order the
+    ; questions are asked in when the body says nothing else.
+    def nodeNames:[string]
+    def nodeDefaults:[string]
+    def binds:[XFormBind]
+    def controls:[XFormControl]
+
+    Constructor () {
+    }
+
+    sfn read:XFormReader (xml:string) {
+        def r:XFormReader (new XFormReader)
+        r.parse(xml)
+        return r
+    }
+
+    fn gap:void (detail:string) {
+        push unsupported detail
+        form.noteGap(detail)
+    }
+
+    fn gapCount:int () {
+        return (array_length unsupported)
+    }
+
+    fn supported:boolean () {
+        return ((array_length unsupported) == 0)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The whole document, in one pass
+    ; ------------------------------------------------------------------------
+    fn parse:boolean (xml:string) {
+        def x:XmlLite (new XmlLite)
+        x.reset(xml)
+        def title:string ""
+        ; Where in the document we are. An XForm nests the same tag names in
+        ; different places — `<label>` is in the body, `<item>` is in the body,
+        ; and `<instance>` is in the model — so the reader has to know.
+        def inInstance:boolean false
+        def instanceDepth:int 0
+        def inBody:boolean false
+        def current@(optional):XFormControl
+        def inItem:boolean false
+        def itemValue:string ""
+        def itemLabel:string ""
+        def pendingLabel:string ""
+        def repeatDepth:int 0
+
+        def going:boolean true
+        while going {
+            def tag:XmlTag (x.nextTag())
+            if ((tag.valid) == false) {
+                going = false
+            } {
+                def name:string (x.localName(tag.name))
+                if (name == "title") {
+                    if (tag.isEnd == false) {
+                        title = (x.readTextUntilEnd(tag.name))
+                    }
+                } {
+                    if (name == "instance") {
+                        if tag.isEnd {
+                            inInstance = false
+                        } {
+                            ; A SECOND instance is a lookup table, and an
+                            ; itemset that reads one is a choice list this
+                            ; reader cannot resolve.
+                            if inInstance {
+                                this.gap("a secondary instance is not read")
+                            } {
+                                if (tag.selfClose == false) {
+                                    inInstance = true
+                                    instanceDepth = 0
+                                }
+                            }
+                        }
+                    } {
+                        if (name == "bind") {
+                            if (tag.isEnd == false) {
+                                this.readBind(tag)
+                            }
+                        } {
+                            if (name == "body") {
+                                if tag.isEnd {
+                                    inBody = false
+                                } {
+                                    inBody = true
+                                }
+                            } {
+                                if inInstance {
+                                    this.readInstanceTag(tag instanceDepth name)
+                                    if tag.isEnd {
+                                        instanceDepth = (instanceDepth - 1)
+                                    } {
+                                        if (tag.selfClose == false) {
+                                            instanceDepth = (instanceDepth + 1)
+                                        }
+                                    }
+                                } {
+                                    if inBody {
+                                        ; --- repeats -------------------------
+                                        if (name == "repeat") {
+                                            if tag.isEnd {
+                                                repeatDepth = (repeatDepth - 1)
+                                            } {
+                                                repeatDepth = (repeatDepth + 1)
+                                                def repeatName:string (XFormReader.lastName((tag.attr("nodeset"))))
+                                                this.gap((repeatName + ": a repeat group is not read"))
+                                            }
+                                        }
+                                        ; --- controls ------------------------
+                                        if (XFormReader.isControl(name)) {
+                                            if tag.isEnd {
+                                                current = (XFormReader.noControl())
+                                            } {
+                                                def made:XFormControl (new XFormControl)
+                                                made.kind = name
+                                                made.ref = (tag.attrAny("ref" "nodeset"))
+                                                made.name = (XFormReader.lastName(made.ref))
+                                                push controls made
+                                                current = made
+                                                if tag.selfClose {
+                                                    current = (XFormReader.noControl())
+                                                }
+                                            }
+                                        }
+                                        if (name == "itemset") {
+                                            if (tag.isEnd == false) {
+                                                if (!null? current) {
+                                                    def owner:XFormControl (unwrap current)
+                                                    owner.fromItemset = true
+                                                    this.gap((owner.name + ": an itemset from another instance is not read"))
+                                                }
+                                            }
+                                        }
+                                        if (name == "item") {
+                                            if tag.isEnd {
+                                                if (!null? current) {
+                                                    def owner2:XFormControl (unwrap current)
+                                                    push owner2.choiceValues itemValue
+                                                    push owner2.choiceLabels itemLabel
+                                                }
+                                                inItem = false
+                                                itemValue = ""
+                                                itemLabel = ""
+                                            } {
+                                                inItem = true
+                                                itemValue = ""
+                                                itemLabel = ""
+                                            }
+                                        }
+                                        if (name == "value") {
+                                            if (tag.isEnd == false) {
+                                                if inItem {
+                                                    itemValue = (trim (x.readTextUntilEnd(tag.name)))
+                                                }
+                                            }
+                                        }
+                                        if (name == "label") {
+                                            if (tag.isEnd == false) {
+                                                def text:string (trim (x.readTextUntilEnd(tag.name)))
+                                                if inItem {
+                                                    itemLabel = text
+                                                } {
+                                                    if (!null? current) {
+                                                        def owner3:XFormControl (unwrap current)
+                                                        owner3.label = text
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (name == "hint") {
+                                            if (tag.isEnd == false) {
+                                                if (!null? current) {
+                                                    def owner4:XFormControl (unwrap current)
+                                                    owner4.hint = (trim (x.readTextUntilEnd(tag.name)))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        form = (Questionnaire.of("xform"))
+        form.title = title
+        this.build()
+        form.compile(host)
+        return true
+    }
+
+    sfn noControl:XFormControl () {
+        def none@(optional):XFormControl
+        return (new XFormControl)
+    }
+
+    sfn isControl:boolean (name:string) {
+        if (name == "input") {
+            return true
+        }
+        if (name == "select1") {
+            return true
+        }
+        if (name == "select") {
+            return true
+        }
+        if (name == "trigger") {
+            return true
+        }
+        if (name == "upload") {
+            return true
+        }
+        if (name == "range") {
+            return true
+        }
+        return false
+    }
+
+    ; The instance's leaves are the questions. A node with children is a
+    ; group, and a group is not asked — its children are.
+    fn readInstanceTag:void (tag:XmlTag depth:int name:string) {
+        if tag.isEnd {
+            return
+        }
+        ; The instance's own root — `<data id="…">` — is not a question.
+        if (depth == 0) {
+            return
+        }
+        if tag.selfClose {
+            push nodeNames name
+            push nodeDefaults ""
+            return
+        }
+        ; An open tag might be a group or a node with a default value in it.
+        ; Both are recorded; `build` drops the ones that turned out to be
+        ; groups, which are exactly the ones something else nested inside.
+        push nodeNames name
+        push nodeDefaults ""
+    }
+
+    fn readBind:void (tag:XmlTag) {
+        def b:XFormBind (new XFormBind)
+        b.nodeset = (tag.attrAny("nodeset" "ref"))
+        b.name = (XFormReader.lastName(b.nodeset))
+        b.type = (tag.attr("type"))
+        b.relevant = (tag.attr("relevant"))
+        b.required = (tag.attr("required"))
+        b.readonly = (tag.attr("readonly"))
+        b.constraint = (tag.attr("constraint"))
+        b.constraintMsg = (tag.attrAny("jr:constraintMsg" "constraintMsg"))
+        b.calculate = (tag.attr("calculate"))
+        push binds b
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Instance + binds + body → questions
+    ; ------------------------------------------------------------------------
+    fn build:void () {
+        ; A node named twice in the instance is a group's own tag followed by
+        ; its children; only the deepest name is a question, and a duplicate
+        ; here is a repeat, which is already a gap.
+        def seen:[string:boolean]
+        def i:int 0
+        def n:int (array_length nodeNames)
+        while (i < n) {
+            def name:string (itemAt nodeNames i)
+            if ((has seen name) == false) {
+                set seen name true
+                this.addQuestion(name)
+            }
+            i = (i + 1)
+        }
+        ; A bind on a node the instance did not declare is still a question:
+        ; some generators write calculated nodes only in the binds.
+        def k:int 0
+        def nk:int (array_length binds)
+        while (k < nk) {
+            def b:XFormBind (itemAt binds k)
+            if ((strlen b.name) > 0) {
+                if ((form.has(b.name)) == false) {
+                    this.addQuestion(b.name)
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn addQuestion:void (name:string) {
+        def b:XFormBind (this.bindFor(name))
+        def c:XFormControl (this.controlFor(name))
+        def kind:string (XFormReader.kindOf(b.type c.kind))
+        def label:string c.label
+        if ((strlen label) == 0) {
+            label = name
+        }
+        def q:Question (form.question(name kind label))
+        q.help = c.hint
+
+        if ((strlen b.relevant) > 0) {
+            q.visibleWhen((this.absolute(b.relevant name)))
+        }
+        if ((strlen b.required) > 0) {
+            ; `required="false()"` is not a rule, it is the default said out
+            ; loud, and turning it into one would put a node in the graph for
+            ; nothing.
+            def req:string (trim b.required)
+            if ((req == "false()") == false) {
+                q.requiredWhen((this.absolute(b.required name)))
+            }
+        }
+        if ((strlen b.readonly) > 0) {
+            def ro:string (trim b.readonly)
+            if ((ro == "false()") == false) {
+                q.rule("readonly" (this.absolute(b.readonly name)))
+            }
+        }
+        if ((strlen b.calculate) > 0) {
+            q.calculated((this.absolute(b.calculate name)))
+        }
+        if ((strlen b.constraint) > 0) {
+            def message:string b.constraintMsg
+            if ((strlen message) == 0) {
+                message = "that is not allowed here"
+            }
+            q.validWhen((this.absolute(b.constraint name)) message)
+        }
+
+        def ci:int 0
+        def nc:int (array_length c.choiceValues)
+        while (ci < nc) {
+            q.choice((itemAt c.choiceValues ci) (itemAt c.choiceLabels ci))
+            ci = (ci + 1)
+        }
+
+        ; Anything the expression host does not have, named on the question.
+        def r:int 0
+        def nr:int (array_length q.rules)
+        while (r < nr) {
+            def rule:Rule (itemAt q.rules r)
+            def bad:string (XPathExpr.usesUnsupported(rule.source))
+            if ((strlen bad) > 0) {
+                this.gap((name + "." + rule.role + ": " + bad + " is not implemented"))
+            }
+            r = (r + 1)
+        }
+    }
+
+    fn bindFor:XFormBind (name:string) {
+        def i:int 0
+        def n:int (array_length binds)
+        while (i < n) {
+            def b:XFormBind (itemAt binds i)
+            if (b.name == name) {
+                return b
+            }
+            i = (i + 1)
+        }
+        return (new XFormBind)
+    }
+
+    fn controlFor:XFormControl (name:string) {
+        def i:int 0
+        def n:int (array_length controls)
+        while (i < n) {
+            def c:XFormControl (itemAt controls i)
+            if (c.name == name) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new XFormControl)
+    }
+
+    ; XForms' types, as far as they map onto ours.
+    sfn kindOf:string (type:string control:string) {
+        if (control == "select") {
+            return "multichoice"
+        }
+        if (control == "select1") {
+            return "choice"
+        }
+        if (type == "int") {
+            return "int"
+        }
+        if (type == "integer") {
+            return "int"
+        }
+        if (type == "decimal") {
+            return "decimal"
+        }
+        if (type == "boolean") {
+            return "bool"
+        }
+        if (type == "date") {
+            return "date"
+        }
+        if (type == "dateTime") {
+            return "date"
+        }
+        if (type == "time") {
+            return "text"
+        }
+        return "text"
+    }
+
+    ; ------------------------------------------------------------------------
+    ; `.` and `..`, resolved against the bind they were written on
+    ; ------------------------------------------------------------------------
+    ;
+    ; Only the two forms that appear in real forms: `.` on its own, and
+    ; `../sibling`. A questionnaire's instance is flat, so a sibling of the
+    ; node is just another question, and `..` addressing a group is the same
+    ; tree problem `XPathExpr` refuses.
+    fn absolute:string (source:string self:string) {
+        def out:string ""
+        def n:int (strlen source)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt source i)
+            if (ch == 39) {
+                def e1:int (XPathExpr.endOfString(source i n 39))
+                out = (out + (substring source i e1))
+                i = e1
+            } {
+                if (ch == 34) {
+                    def e2:int (XPathExpr.endOfString(source i n 34))
+                    out = (out + (substring source i e2))
+                    i = e2
+                } {
+                    if (ch == 46) {
+                        ; `../name`
+                        if (XFormReader.matchesAt(source i "../")) {
+                            def start:int (i + 3)
+                            def j:int start
+                            while (j < n) {
+                                if ((XPathExpr.isPathChar((charAt source j))) == false) {
+                                    break
+                                }
+                                j = (j + 1)
+                            }
+                            out = (out + (substring source start j))
+                            i = j
+                        } {
+                            ; A bare `.` that is not part of a number and not
+                            ; followed by a name character is the node itself.
+                            def isSelf:boolean true
+                            if ((i + 1) < n) {
+                                if (XPathExpr.isPathChar((charAt source (i + 1)))) {
+                                    isSelf = false
+                                }
+                            }
+                            if (i > 0) {
+                                def prev:int (charAt source (i - 1))
+                                if (prev >= 48) {
+                                    if (prev <= 57) {
+                                        isSelf = false
+                                    }
+                                }
+                            }
+                            if isSelf {
+                                out = (out + self)
+                                i = (i + 1)
+                            } {
+                                out = (out + ".")
+                                i = (i + 1)
+                            }
+                        }
+                    } {
+                        out = (out + (substring source i (i + 1)))
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn matchesAt:boolean (src:string at:int part:string) {
+        def n:int (strlen part)
+        if ((at + n) > (strlen src)) {
+            return false
+        }
+        return ((substring src at (at + n)) == part)
+    }
+
+    ; The last segment of a nodeset path.
+    sfn lastName:string (path:string) {
+        if ((strlen path) == 0) {
+            return ""
+        }
+        return (XPathExpr.lastSegment(path))
+    }
+}

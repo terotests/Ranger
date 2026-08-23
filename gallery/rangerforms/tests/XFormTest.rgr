@@ -1,0 +1,246 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; XFormTest — an ODK XForm, read and run, with no oracle installed.
+; ==============================================================================
+;
+; The comparison against Enketo's own XPath evaluator lives in
+; `bench/xforms.mjs` and needs `jsdom` and `openrosa-xpath-evaluator`. This
+; runs in `npm test`, on nothing but the repository, and covers the two halves
+; separately:
+;
+;   XPathExpr     the rewrite — paths, `div`, `mod`, `true()`, `selected`
+;   XFormReader   instance + binds + body → questions, and what it refuses
+;
+; The refusals are the half worth writing a test for. A reader that quietly
+; dropped a `repeat` would produce a form that agreed with ODK on every case
+; that did not use one.
+; ==============================================================================
+
+Import "../io/XFormReader.rgr"
+Import "../engine/FormEngine.rgr"
+
+class XCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqNum:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        def good:boolean (d < 0.000001)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class XFormTest {
+
+    ; --------------------------------------------------------------------------
+    ; The rewrite
+    ; --------------------------------------------------------------------------
+    sfn runRewrite:void (c:XCheck) {
+        print "-- XPath, rewritten --"
+        c.eqStr("a path is its last segment" (XPathExpr.translate("/data/age < 18")) "age < 18")
+        c.eqStr("however deep the group" (XPathExpr.translate("/data/group/sub/age")) "age")
+        c.eqStr("div is a slash" (XPathExpr.translate("/data/a div /data/b")) "a / b")
+        c.eqStr("mod is a percent" (XPathExpr.translate("/data/a mod /data/b")) "a % b")
+        ; The one that quietly made a required field optional until it was
+        ; found: `true()` is a CALL in XPath and a literal here, and the empty
+        ; argument list has to go with the word.
+        c.eqStr("true() is a literal" (XPathExpr.translate("true()")) "true ")
+        c.eqStr("false() too" (XPathExpr.translate("false()")) "false ")
+        c.eqStr("string-length is len" (XPathExpr.translate("string-length(/data/name)")) "len(name)")
+        c.eqStr("count-selected is count" (XPathExpr.translate("count-selected(/data/s)")) "count(s)")
+        c.eqStr("if is iif" (XPathExpr.translate("if(/data/a, 1, 2)")) "iif(a, 1, 2)")
+        ; A word inside a string literal is four characters, not an operator.
+        c.eqStr("a literal survives" (XPathExpr.translate("/data/x = 'a div b'")) "x = 'a div b'")
+        c.eqStr("and so does a path in one" (XPathExpr.translate("/data/x = '/data/y'")) "x = '/data/y'")
+        ; A word that is part of a name is not the operator.
+        c.eqStr("division is not a word inside a name" (XPathExpr.translate("/data/divisor")) "divisor")
+
+        ; What it refuses, by name.
+        c.eqStr("a predicate" (XPathExpr.usesUnsupported("/data/child[1]/name")) "a predicate [...]")
+        c.eqStr("an axis" (XPathExpr.usesUnsupported("ancestor::data/x")) "an axis")
+        c.eqStr("indexed-repeat" (XPathExpr.usesUnsupported("indexed-repeat(/data/a, /data/b, 1)")) "indexed-repeat")
+        c.eqStr("calendar arithmetic" (XPathExpr.usesUnsupported("today() > 0")) "today")
+        ; `count` over a node set is refused; `count-selected` is not the same
+        ; question and is supported.
+        c.eqStr("count over a node set" (XPathExpr.usesUnsupported("count(/data/child)")) "count")
+        c.eqStr("count-selected is fine" (XPathExpr.usesUnsupported("count-selected(/data/s)")) "")
+    }
+
+    ; --------------------------------------------------------------------------
+    ; A form, read
+    ; --------------------------------------------------------------------------
+    sfn clinicXml:string () {
+        def x:string ""
+        x = (x + "<h:html xmlns=\"http://www.w3.org/2002/xforms\" xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:jr=\"http://openrosa.org/javarosa\">")
+        x = (x + "<h:head><h:title>Intake</h:title><model><instance><data id=\"clinic\">")
+        x = (x + "<age/><guardian/><height/><weight/><bmi/><country/></data></instance>")
+        x = (x + "<bind nodeset=\"/data/age\" type=\"int\" required=\"true()\" constraint=\". &gt;= 0 and . &lt;= 120\" jr:constraintMsg=\"an age is between 0 and 120\"/>")
+        x = (x + "<bind nodeset=\"/data/guardian\" type=\"string\" relevant=\"/data/age &lt; 18\" required=\"/data/age &lt; 18\"/>")
+        x = (x + "<bind nodeset=\"/data/height\" type=\"decimal\"/>")
+        x = (x + "<bind nodeset=\"/data/weight\" type=\"decimal\"/>")
+        x = (x + "<bind nodeset=\"/data/bmi\" type=\"decimal\" readonly=\"true()\" calculate=\"/data/weight div (/data/height * /data/height)\"/>")
+        x = (x + "<bind nodeset=\"/data/country\" type=\"string\"/>")
+        x = (x + "</model></h:head><h:body>")
+        x = (x + "<input ref=\"/data/age\"><label>How old are you?</label><hint>In years</hint></input>")
+        x = (x + "<input ref=\"/data/guardian\"><label>Parent or guardian</label></input>")
+        x = (x + "<select1 ref=\"/data/country\"><label>Country</label>")
+        x = (x + "<item><label>Finland</label><value>FI</value></item>")
+        x = (x + "<item><label>Sweden</label><value>SE</value></item></select1>")
+        x = (x + "</h:body></h:html>")
+        return x
+    }
+
+    sfn runRead:void (c:XCheck) {
+        print "-- an XForm, read --"
+        def r:XFormReader (XFormReader.read((XFormTest.clinicXml())))
+        c.eqStr("the title comes from the head" r.form.title "Intake")
+        c.eqInt("a question per instance node" (r.form.questionCount()) 6)
+        c.ok("and nothing was refused" (r.supported()))
+
+        def age:Question (r.form.find("age"))
+        c.eqStr("the label comes from the body" age.label "How old are you?")
+        c.eqStr("and the hint" age.help "In years")
+        c.eqStr("the type comes from the bind" age.kind "int")
+        c.ok("required=true() is a rule" (age.hasRule("required")))
+        c.ok("and the constraint is one too" (age.hasRule("validate")))
+        def check:Rule (age.ruleFor("validate"))
+        c.eqStr("with the message the form wrote" check.message "an age is between 0 and 120")
+        ; `.` is the node the bind is on, resolved before the expression is
+        ; stored — see the reader's header.
+        c.eqStr("and `.` became the node's own name" check.source "age >= 0 and age <= 120")
+
+        def guardian:Question (r.form.find("guardian"))
+        c.ok("relevant became a visibility rule" (guardian.hasRule("visible")))
+        def vis:Rule (guardian.ruleFor("visible"))
+        c.eqStr("over the path it named" vis.source "/data/age < 18")
+        c.ok("and it reads that question" (vis.program.reads("age")))
+
+        def bmi:Question (r.form.find("bmi"))
+        c.ok("calculate became a calculation" (bmi.isComputed()))
+        c.ok("readonly=true() is a rule" (bmi.hasRule("readonly")))
+
+        def country:Question (r.form.find("country"))
+        c.eqStr("select1 is a single choice" country.kind "choice")
+        c.eqInt("with the items from the body" (array_length country.choices) 2)
+        def first:Choice (itemAt country.choices 0)
+        c.eqStr("value" first.value "FI")
+        c.eqStr("and label" first.label "Finland")
+    }
+
+    ; --------------------------------------------------------------------------
+    ; …and run
+    ; --------------------------------------------------------------------------
+    sfn runFill:void (c:XCheck) {
+        print "-- and filled in --"
+        def r:XFormReader (XFormReader.read((XFormTest.clinicXml())))
+        def engine:FormEngine (FormEngine.load(r.form r.host))
+        c.ok("the engine takes it" engine.ready)
+        def st:AnswerState (engine.start(20454))
+
+        c.ok("the guardian starts hidden" ((st.isVisible("guardian")) == false))
+        engine.answerNumber(st "age" 12.0)
+        c.ok("a child sees it" (st.isVisible("guardian")))
+        c.ok("and has to answer it" (st.isRequired("guardian")))
+        engine.answerNumber(st "age" 40.0)
+        c.ok("an adult does not" ((st.isVisible("guardian")) == false))
+
+        engine.answerNumber(st "age" 200.0)
+        c.ok("the constraint catches an impossible age" ((st.isValid("age")) == false))
+        def bad:QuestionState (st.stateOf("age"))
+        c.eqStr("in the form's own words" bad.message "an age is between 0 and 120")
+        engine.answerNumber(st "age" 40.0)
+        c.ok("and lets a possible one through" (st.isValid("age")))
+
+        engine.answerNumber(st "height" 1.8)
+        engine.answerNumber(st "weight" 81.0)
+        c.eqNum("the calculation runs" (engine.numberOf(st "bmi")) 25.0)
+
+        c.ok("a choice takes one of its items" (engine.answerText(st "country" "FI")))
+        c.ok("…and is valid" (st.isValid("country")))
+        engine.answerText(st "country" "PT")
+        c.ok("but not one that is not there" ((st.isValid("country")) == false))
+    }
+
+    ; --------------------------------------------------------------------------
+    ; What it refuses
+    ; --------------------------------------------------------------------------
+    sfn runRefuses:void (c:XCheck) {
+        print "-- what the reader refuses --"
+        def x:string ""
+        x = (x + "<h:html xmlns=\"http://www.w3.org/2002/xforms\" xmlns:h=\"http://www.w3.org/1999/xhtml\">")
+        x = (x + "<h:head><model><instance><data id=\"r\"><total/><child><cname/></child></data></instance>")
+        x = (x + "<bind nodeset=\"/data/total\" type=\"int\" calculate=\"count(/data/child)\"/>")
+        x = (x + "</model></h:head><h:body>")
+        x = (x + "<repeat nodeset=\"/data/child\"><input ref=\"/data/child/cname\"><label>Name</label></input></repeat>")
+        x = (x + "</h:body></h:html>")
+        def r:XFormReader (XFormReader.read(x))
+        c.ok("a form with a repeat is not supported" ((r.supported()) == false))
+        c.ok("the repeat is named" (XFormTest.anyHolds(r.unsupported "repeat group")))
+        c.ok("and so is the function" (XFormTest.anyHolds(r.unsupported "count")))
+        ; It still LOADS. One unsupported construct must not take the reader
+        ; down; it makes the form unscoreable, which is a different thing.
+        c.ok("but the form still reads" ((r.form.questionCount()) > 0))
+    }
+
+    sfn anyHolds:boolean (list:[string] part:string) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if (NativeExpr.hasPart((itemAt list i) part)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def c:XCheck (new XCheck)
+        XFormTest.runRewrite(c)
+        XFormTest.runRead(c)
+        XFormTest.runFill(c)
+        XFormTest.runRefuses(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

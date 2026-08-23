@@ -1,0 +1,258 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; GridPaneTest — the spreadsheet as somebody else's component.
+; ==============================================================================
+;
+; Two claims:
+;
+;   1. A pane is the grid with its furniture off. It lays out, hit tests,
+;      selects, scrolls, edits and validates at a host's coordinates, and it
+;      draws by handing back the SAME display list the application draws —
+;      no second painter.
+;
+;   2. A column's rule can be a function somebody wrote in JavaScript, run by
+;      ComponentEngine, and the answer reaches the same `accepts` every other
+;      rule goes through. A pane with no script host still accepts, because a
+;      sheet opened away from its script must not become unfillable.
+; ==============================================================================
+
+Import "../src/GridPane.rgr"
+Import "../src/script/CellScripts.rgr"
+
+class PaneCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class GridPaneTest {
+
+    sfn filled:GridPane () {
+        def pane:GridPane (new GridPane)
+        pane.start(600 400)
+        def m:SpreadsheetModel (new SpreadsheetModel)
+        m.growTo(12 4)
+        m.setCell(0 0 "sku")
+        m.setCell(0 1 "qty")
+        m.setCell(0 2 "grade")
+        def r:int 1
+        while (r < 6) {
+            m.setCell(r 0 ("SKU-" + (to_string (100 + r))))
+            m.setCell(r 1 (to_string r))
+            m.setCell(r 2 "A")
+            r = (r + 1)
+        }
+        pane.adopt(m)
+        return pane
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The pane as a component
+    ; --------------------------------------------------------------------------
+    sfn runPane:void (c:PaneCheck) {
+        print "-- the grid, with its furniture off --"
+        def pane:GridPane (GridPaneTest.filled())
+        pane.setBounds(300 120 500 300)
+        c.eqInt("the chrome is gone: toolbar" pane.grid.toolbarH 0)
+        c.eqInt("…formula bar" pane.grid.formulaBarH 0)
+        c.eqInt("…sheet tabs" pane.grid.sheetTabH 0)
+        ; The pane lays itself out at its OWN origin and the host offsets the
+        ; list it gets back — otherwise every hit test applies the offset twice.
+        c.eqInt("and it is laid out at the origin" pane.grid.x 0)
+
+        def dl:EVGDisplayList (new EVGDisplayList)
+        pane.buildInto(dl)
+        c.ok("it drew something" ((array_length dl.cmds) > 10))
+        ; Clipped, and moved to where the host put it. The first command is
+        ; the clip and the last ends it.
+        def first:EVGDrawCmd (itemAt dl.cmds 0)
+        c.eqInt("clipped to the pane" first.kind 4)
+        def last:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
+        c.eqInt("and the clip is closed" last.kind 5)
+        ; Nothing was drawn above or left of where the host put the pane.
+        def i:int 1
+        def n:int ((array_length dl.cmds) - 1)
+        def stray:int 0
+        while (i < n) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind != 5) {
+                if (cmd.y < 119.0) {
+                    stray = (stray + 1)
+                }
+                if (cmd.x < 299.0) {
+                    stray = (stray + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("everything landed inside the host's rectangle" stray 0)
+
+        ; --- hit testing in the host's coordinates ---------------------------
+        c.ok("a point outside is outside" ((pane.containsPoint(10 10)) == false))
+        c.ok("and a point inside is inside" (pane.containsPoint(400 200)))
+        def rect:GridRect (pane.grid.cellRect(pane.model 2 1))
+        c.ok("a click selects the cell under it" (pane.selectAt((rect.x + pane.paneX + 4) (rect.y + pane.paneY + 4))))
+        c.eqInt("the row" pane.sel.active.row 2)
+        c.eqInt("and the column" pane.sel.active.col 1)
+
+        ; --- scrolling -------------------------------------------------------
+        def before:int pane.grid.scrollY
+        c.ok("the wheel scrolls it" (pane.scrollBy(40)))
+        c.ok("…measurably" ((pane.grid.scrollY == before) == false))
+        pane.scrollBy(-1000)
+        c.eqInt("and it does not scroll above the top" pane.grid.scrollY 0)
+
+        ; --- editing ---------------------------------------------------------
+        pane.selectCell(1 1)
+        ; `beginEdit` loads what the cell already says, the way F2 does, so
+        ; typing after it appends rather than replaces.
+        c.ok("an edit begins" (pane.beginEdit()))
+        c.eqStr("holding what the cell said" pane.editBuf "1")
+        c.ok("and typing extends it" (pane.typeText("7")))
+        c.ok("and commits" (pane.commitEdit()))
+        c.eqStr("into the cell" (pane.model.getCell(1 1)) "17")
+        pane.readOnly = true
+        c.ok("a read-only pane refuses to begin one" ((pane.beginEdit()) == false))
+        pane.readOnly = false
+    }
+
+    ; --------------------------------------------------------------------------
+    ; Rules a person wrote
+    ; --------------------------------------------------------------------------
+    sfn ruleScript:string () {
+        def src:string ""
+        src = (src + "function sku(cell) {\n")
+        src = (src + "  if (cell.blank) { return 'an SKU is required' }\n")
+        src = (src + "  if (cell.value.length < 4) { return 'too short for an SKU' }\n")
+        src = (src + "  if (cell.value.substring(0, 4) !== 'SKU-') { return 'an SKU starts with SKU-' }\n")
+        src = (src + "  return true\n")
+        src = (src + "}\n")
+        src = (src + "function evenOnly(cell) {\n")
+        src = (src + "  return (Number(cell.value) % 2) === 0\n")
+        src = (src + "}\n")
+        src = (src + "function firstRowOnly(cell) {\n")
+        src = (src + "  return cell.row === 1\n")
+        src = (src + "}\n")
+        src = (src + "function brokenRule(cell) {\n")
+        src = (src + "  return 12345\n")
+        src = (src + "}\n")
+        return src
+    }
+
+    sfn runScripts:void (c:PaneCheck) {
+        print "-- a column judged by a function --"
+        def scripts:CellScripts (CellScripts.of((GridPaneTest.ruleScript())))
+        c.ok("the script loaded" scripts.loaded)
+        c.eqInt("with the four functions it declares" (array_length scripts.names) 4)
+        c.ok("and it knows them by name" (scripts.hasRule("sku")))
+        c.ok("and only them" ((scripts.hasRule("substring")) == false))
+
+        def pane:GridPane (GridPaneTest.filled())
+        pane.scriptColumn(0 1 5 "sku" "an SKU column")
+        pane.scriptColumn(1 1 5 "evenOnly" "even quantities only")
+
+        ; --- with no host, a script rule accepts ------------------------------
+        ; A sheet opened away from its script must not become unfillable.
+        c.ok("with no host installed, anything goes" (pane.accepts(1 0 "nonsense")))
+
+        pane.useRules(scripts)
+        c.ok("with the host, the rule bites" ((pane.accepts(1 0 "nonsense")) == false))
+        c.eqStr("and says what the author wrote" (pane.refusalMessage(1 0)) "an SKU starts with SKU-")
+        c.ok("a real SKU passes" (pane.accepts(1 0 "SKU-900")))
+        c.ok("and blank is refused with its own reason" ((pane.accepts(1 0 "")) == false))
+        c.eqStr("…in the author's words" (pane.refusalMessage(1 0)) "an SKU is required")
+
+        ; A plain boolean refusal still refuses; the message falls back.
+        c.ok("an odd quantity is refused" ((pane.accepts(1 1 "3")) == false))
+        c.ok("and the fallback message names the rule" (GridPaneTest.holds((pane.refusalMessage(1 1)) "evenOnly")))
+        c.ok("an even one is not" (pane.accepts(1 1 "4")))
+
+        ; The rule is told which cell it is judging.
+        pane.scriptColumn(2 1 5 "firstRowOnly" "row one only")
+        c.ok("the rule sees the row" (pane.accepts(1 2 "A")))
+        c.ok("…and can refuse another one" ((pane.accepts(3 2 "A")) == false))
+
+        ; --- and the write path goes through it ------------------------------
+        c.ok("a refused value is not stored" ((pane.setCell(2 0 "nope")) == false))
+        c.eqStr("the cell still says what it said" (pane.model.getCell(2 0)) "SKU-102")
+        c.ok("an allowed one is" (pane.setCell(2 0 "SKU-777")))
+        c.eqStr("…and lands" (pane.model.getCell(2 0)) "SKU-777")
+
+        ; --- a rule that is not there, and one that is wrong ------------------
+        ; Both accept. A typo in a validator quietly making a column
+        ; unfillable is a worse failure than a validator that is not running,
+        ; and one nobody would think to look for.
+        pane.scriptColumn(3 1 5 "noSuchRule" "")
+        c.ok("a rule nobody wrote accepts" (pane.accepts(1 3 "anything")))
+        c.ok("and says so" (GridPaneTest.holds(scripts.errorText "noSuchRule")))
+        pane.clearValidations(12 4)
+        pane.scriptColumn(3 1 5 "brokenRule" "")
+        c.ok("a rule that answers nonsense accepts" (pane.accepts(1 3 "anything")))
+        c.ok("and says so too" ((strlen scripts.errorText) > 0))
+
+        ; A script with nothing callable in it is the same story.
+        def broken:CellScripts (CellScripts.of("const notARule = 1"))
+        c.ok("a script with no functions does not load" ((broken.loaded) == false))
+        def orphan:GridPane (GridPaneTest.filled())
+        orphan.useRules(broken)
+        orphan.scriptColumn(0 1 5 "sku" "")
+        c.ok("and refuses nothing" (orphan.accepts(1 0 "whatever")))
+    }
+
+    sfn holds:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if (n == 0) {
+            return false
+        }
+        def last:int ((strlen text) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring text i (i + n)) == part) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def c:PaneCheck (new PaneCheck)
+        GridPaneTest.runPane(c)
+        GridPaneTest.runScripts(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

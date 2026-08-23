@@ -1,0 +1,407 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Questionnaire.rgr — the form, which never changes once it is read.
+; ============================================================================
+;
+; A question is a name, a type, a label and a set of RULES. The rules are what
+; make this a program rather than a layout:
+;
+;   visible     show it, or do not
+;   enabled     let it be answered, or do not
+;   required    an answer is needed before the form can be submitted
+;   readonly    show the value, refuse the edit
+;   calculated  the value IS this expression; nobody types it
+;   validate    the answer is acceptable when this is true
+;
+; A role is part of the MODEL, not of the expression. `visible_when age < 18`
+; and `required_when age < 18` are two rules over one expression, and the
+; engine treats them completely differently — a hidden question's value is
+; withheld from calculations and from the submitted answers, while a
+; not-required one is simply optional. Folding the role into the expression is
+; how engines end up shipping a required field nobody can see, blocking a form
+; nobody can submit.
+; ============================================================================
+
+Import "../expr/ExprHost.rgr"
+
+class RuleRole {
+    sfn visible:string () {
+        return "visible"
+    }
+    sfn enabled:string () {
+        return "enabled"
+    }
+    sfn required:string () {
+        return "required"
+    }
+    sfn readOnly:string () {
+        return "readonly"
+    }
+    sfn calculated:string () {
+        return "calculated"
+    }
+    sfn validate:string () {
+        return "validate"
+    }
+
+    Constructor () {
+    }
+
+    ; What the role means when nothing says otherwise. A question with no
+    ; visibility rule is visible; one with no requirement rule is optional.
+    ; Stated here rather than spread through the evaluator, because these six
+    ; defaults ARE the semantics of an empty form.
+    sfn defaultOf:boolean (role:string) {
+        if (role == "visible") {
+            return true
+        }
+        if (role == "enabled") {
+            return true
+        }
+        if (role == "validate") {
+            return true
+        }
+        return false
+    }
+}
+
+class QuestionKind {
+    sfn text:string () {
+        return "text"
+    }
+    sfn integer:string () {
+        return "int"
+    }
+    sfn decimal:string () {
+        return "decimal"
+    }
+    sfn yesNo:string () {
+        return "bool"
+    }
+    sfn date:string () {
+        return "date"
+    }
+    sfn choice:string () {
+        return "choice"
+    }
+    sfn multiChoice:string () {
+        return "multichoice"
+    }
+    sfn group:string () {
+        return "group"
+    }
+    sfn repeat:string () {
+        return "repeat"
+    }
+
+    Constructor () {
+    }
+}
+
+class Choice {
+    def value:string ""
+    def label:string ""
+    ; A choice can come and go too — "other" appearing only for respondents
+    ; who said none of the above is an ordinary questionnaire pattern.
+    def visibleWhen:string ""
+
+    Constructor () {
+    }
+
+    sfn of:Choice (value:string label:string) {
+        def c:Choice (new Choice)
+        c.value = value
+        c.label = label
+        return c
+    }
+}
+
+class Rule {
+    def role:string ""
+    def source:string ""
+    def program:ExprProgram (new ExprProgram)
+    ; What to say when a `validate` rule is false. Ignored by every other
+    ; role, because only validation has something to tell the person.
+    def message:string ""
+
+    Constructor () {
+    }
+
+    sfn of:Rule (role:string source:string) {
+        def r:Rule (new Rule)
+        r.role = role
+        r.source = source
+        return r
+    }
+}
+
+class Question {
+    def name:string ""
+    def kind:string "text"
+    def label:string ""
+    def help:string ""
+    def page:string ""
+    def choices:[Choice]
+    def rules:[Rule]
+    ; What the answer starts as, before anybody says anything.
+    def initial:string ""
+    ; The typed half of a question, which is not a rule. A `VARCHAR(64)` and a
+    ; `SMALLINT` say these things about themselves, and so does a
+    ; questionnaire format's `maxLength` / `min` / `max`; expressing them as
+    ; expressions would mean evaluating an expression against the very text
+    ; that is not a number.
+    def maxLength:int -1
+    def minValue:double 0.0
+    def maxValue:double 0.0
+    def hasMin:boolean false
+    def hasMax:boolean false
+
+    Constructor () {
+    }
+
+    sfn of:Question (name:string kind:string label:string) {
+        def q:Question (new Question)
+        q.name = name
+        q.kind = kind
+        q.label = label
+        return q
+    }
+
+    fn rule:Rule (role:string source:string) {
+        def r:Rule (Rule.of(role source))
+        push rules r
+        return r
+    }
+
+    fn visibleWhen:Rule (source:string) {
+        return (this.rule("visible" source))
+    }
+
+    fn requiredWhen:Rule (source:string) {
+        return (this.rule("required" source))
+    }
+
+    fn enabledWhen:Rule (source:string) {
+        return (this.rule("enabled" source))
+    }
+
+    fn calculated:Rule (source:string) {
+        return (this.rule("calculated" source))
+    }
+
+    fn validWhen:Rule (source:string message:string) {
+        def r:Rule (this.rule("validate" source))
+        r.message = message
+        return r
+    }
+
+    fn between:void (low:double high:double) {
+        minValue = low
+        maxValue = high
+        hasMin = true
+        hasMax = true
+    }
+
+    fn atMost:void (chars:int) {
+        maxLength = chars
+    }
+
+    fn choice:Choice (value:string label:string) {
+        def c:Choice (Choice.of(value label))
+        push choices c
+        return c
+    }
+
+    fn ruleFor:Rule (role:string) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def r:Rule (itemAt rules i)
+            if (r.role == role) {
+                return r
+            }
+            i = (i + 1)
+        }
+        return (new Rule)
+    }
+
+    fn hasRule:boolean (role:string) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def r:Rule (itemAt rules i)
+            if (r.role == role) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn isComputed:boolean () {
+        return (this.hasRule("calculated"))
+    }
+}
+
+class Page {
+    def name:string ""
+    def title:string ""
+    def visibleWhen:string ""
+
+    Constructor () {
+    }
+
+    sfn of:Page (name:string title:string) {
+        def p:Page (new Page)
+        p.name = name
+        p.title = title
+        return p
+    }
+}
+
+class Questionnaire {
+    def name:string ""
+    def title:string ""
+    def version:string ""
+    def pages:[Page]
+    def questions:[Question]
+    ; Name → index, so a form with ten thousand questions does not walk the
+    ; list to answer "which one is `age`" ten thousand times per pass.
+    def byName:[string:int]
+    ; Anything a reader could not represent, named rather than dropped — the
+    ; same discipline `DBIntrospector` uses for a database it cannot fully
+    ; describe.
+    def gaps:[string]
+
+    Constructor () {
+    }
+
+    sfn of:Questionnaire (name:string) {
+        def q:Questionnaire (new Questionnaire)
+        q.name = name
+        return q
+    }
+
+    fn page:Page (name:string title:string) {
+        def p:Page (Page.of(name title))
+        push pages p
+        return p
+    }
+
+    fn question:Question (name:string kind:string label:string) {
+        def q:Question (Question.of(name kind label))
+        this.addQuestion(q)
+        return q
+    }
+
+    fn addQuestion:void (q:Question) {
+        def at:int (array_length questions)
+        push questions q
+        def key:string q.name
+        set byName key at
+    }
+
+    fn indexOf:int (name:string) {
+        def found@(optional):int (get byName name)
+        if (null? found) {
+            return -1
+        }
+        return (unwrap found)
+    }
+
+    fn has:boolean (name:string) {
+        return ((this.indexOf(name)) >= 0)
+    }
+
+    fn questionAt:Question (index:int) {
+        if (index < 0) {
+            return (new Question)
+        }
+        if (index >= (array_length questions)) {
+            return (new Question)
+        }
+        return (itemAt questions index)
+    }
+
+    fn find:Question (name:string) {
+        return (this.questionAt((this.indexOf(name))))
+    }
+
+    fn questionCount:int () {
+        return (array_length questions)
+    }
+
+    fn noteGap:void (detail:string) {
+        push gaps detail
+    }
+
+    ; Parse every rule once, at load. A rule that will not parse is kept, with
+    ; its error on it — one bad expression in a 500-question form must not
+    ; take the form down, and the person maintaining it needs to be told which
+    ; rule and why rather than being handed a blank page.
+    fn compile:int (host:ExprHost) {
+        def bad:int 0
+        def i:int 0
+        def n:int (array_length questions)
+        while (i < n) {
+            def q:Question (itemAt questions i)
+            def k:int 0
+            def nk:int (array_length q.rules)
+            while (k < nk) {
+                def r:Rule (itemAt q.rules k)
+                r.program = (host.parse(r.source))
+                if ((r.program.ok) == false) {
+                    bad = (bad + 1)
+                    this.noteGap((q.name + "." + r.role + ": " + r.program.errorText))
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return bad
+    }
+
+    ; Every name a rule reads that is not a question here. A form that refers
+    ; to something it does not define is not an error — a host may supply it —
+    ; but it is worth being able to list, because the usual cause is a typo.
+    fn unknownReferences:[string] () {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length questions)
+        while (i < n) {
+            def q:Question (itemAt questions i)
+            def k:int 0
+            def nk:int (array_length q.rules)
+            while (k < nk) {
+                def r:Rule (itemAt q.rules k)
+                def j:int 0
+                def nj:int (array_length r.program.names)
+                while (j < nj) {
+                    def name:string (itemAt r.program.names j)
+                    if ((this.has(name)) == false) {
+                        if ((Questionnaire.listHas(out name)) == false) {
+                            push out name
+                        }
+                    }
+                    j = (j + 1)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn listHas:boolean (list:[string] want:string) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

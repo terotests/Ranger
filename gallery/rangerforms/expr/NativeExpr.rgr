@@ -1,0 +1,1436 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; NativeExpr.rgr — the small expression language, and the default host.
+; ============================================================================
+;
+;     age < 18
+;     weight / (height * height)
+;     country in ("FI", "SE", "NO") and age >= 18
+;     len(name) > 0
+;     not consent
+;     count(symptoms) >= 2
+;
+; ---------------------------------------------------------------------------
+; Why write one rather than reuse the JavaScript evaluator
+; ---------------------------------------------------------------------------
+;
+; Because this one has to mean EXACTLY the same thing in ES6, Go, Rust, C++,
+; Kotlin and Python, and that is a promise about a language's semantics, not
+; about a parser. Every construct here is one the six targets already agree
+; about: doubles, string comparison by content, and a fixed function set with
+; no locale in it. `JsExpr` exists so a real SurveyJS form runs; this exists so
+; the conformance suite has something it can be strict about.
+;
+; It is also total. There is no throw anywhere below: a parse failure is a
+; program with `ok = false`, and an evaluation failure is a `FormValue` of
+; kind error. See `FormValue`'s header for why that matters on a form where
+; half the questions have not been answered yet.
+;
+; ---------------------------------------------------------------------------
+; Grammar
+; ---------------------------------------------------------------------------
+;
+;   expr    := orExpr
+;   orExpr  := andExpr ( "or" andExpr )*
+;   andExpr := notExpr ( "and" notExpr )*
+;   notExpr := "not" notExpr | cmp
+;   cmp     := sum ( ("==" "!=" "<" "<=" ">" ">=" "in") sum )?
+;   sum     := product ( ("+" "-") product )*
+;   product := unary ( ("*" "/" "%") unary )*
+;   unary   := "-" unary | primary
+;   primary := number | string | "true" | "false"
+;            | name | name "(" args ")" | "(" expr ")"
+;
+; A parenthesised comma list is also a LIST literal, which is what makes
+; `country in ("FI", "SE")` read the way somebody writing a form expects.
+; ============================================================================
+
+Import "ExprHost.rgr"
+
+class ExprToken {
+    ; 1 number · 2 string · 3 name · 4 punctuation/operator · 5 end
+    def kind:int 0
+    def num:double 0.0
+    def text:string ""
+    def at:int 0
+
+    Constructor () {
+    }
+}
+
+class NativeExpr extends ExprHost {
+    ; Parser state. One host parses one expression at a time; the engine
+    ; parses every rule at load and never again.
+    def toks:[ExprToken]
+    def pos:int 0
+    def parseError:string ""
+    ; Filled while parsing, so `names` costs nothing extra.
+    def found:[string]
+
+    Constructor () {
+    }
+
+    fn hostName:string () {
+        return "native"
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Lexing
+    ; ------------------------------------------------------------------------
+    sfn isDigit:boolean (ch:int) {
+        if (ch < 48) {
+            return false
+        }
+        return (ch <= 57)
+    }
+
+    ; A name may contain dots and brackets, because a repeat group addresses
+    ; its rows as `items[3].price` and that whole thing is ONE dependency.
+    sfn isNameStart:boolean (ch:int) {
+        if (ch == 95) {
+            return true
+        }
+        if (ch >= 65) {
+            if (ch <= 90) {
+                return true
+            }
+        }
+        if (ch >= 97) {
+            if (ch <= 122) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn isNameChar:boolean (ch:int) {
+        if (NativeExpr.isNameStart(ch)) {
+            return true
+        }
+        if (NativeExpr.isDigit(ch)) {
+            return true
+        }
+        if (ch == 46) {
+            return true
+        }
+        if (ch == 91) {
+            return true
+        }
+        if (ch == 93) {
+            return true
+        }
+        return false
+    }
+
+    fn lex:boolean (src:string) {
+        clear toks
+        parseError = ""
+        def n:int (strlen src)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt src i)
+            ; whitespace
+            if (ch == 32) {
+                i = (i + 1)
+            } {
+                if (ch == 9) {
+                    i = (i + 1)
+                } {
+                    if (ch == 10) {
+                        i = (i + 1)
+                    } {
+                        if (ch == 13) {
+                            i = (i + 1)
+                        } {
+                            def consumed:int (this.lexOne(src i n))
+                            if (consumed <= 0) {
+                                return false
+                            }
+                            i = (i + consumed)
+                        }
+                    }
+                }
+            }
+        }
+        def endTok:ExprToken (new ExprToken)
+        endTok.kind = 5
+        endTok.at = n
+        push toks endTok
+        return true
+    }
+
+    ; How many characters one token took, or 0 on a character nothing can
+    ; start with — which is a parse error with a position, not a throw.
+    fn lexOne:int (src:string at:int n:int) {
+        def ch:int (charAt src at)
+        if (NativeExpr.isDigit(ch)) {
+            return (this.lexNumber(src at n))
+        }
+        if (NativeExpr.isNameStart(ch)) {
+            return (this.lexName(src at n))
+        }
+        ; 34 is a double quote, 39 a single one. Both open a string, because
+        ; a form author should not have to remember which.
+        if (ch == 34) {
+            return (this.lexString(src at n 34))
+        }
+        if (ch == 39) {
+            return (this.lexString(src at n 39))
+        }
+        return (this.lexOperator(src at n))
+    }
+
+    fn lexNumber:int (src:string at:int n:int) {
+        def i:int at
+        def seenDot:boolean false
+        while (i < n) {
+            def ch:int (charAt src i)
+            if (NativeExpr.isDigit(ch)) {
+                i = (i + 1)
+            } {
+                if (ch == 46) {
+                    if seenDot {
+                        break
+                    }
+                    seenDot = true
+                    i = (i + 1)
+                } {
+                    break
+                }
+            }
+        }
+        def body:string (substring src at i)
+        def parsed@(optional):double (to_double body)
+        if (null? parsed) {
+            parseError = (body + " is not a number")
+            return 0
+        }
+        def t:ExprToken (new ExprToken)
+        t.kind = 1
+        t.num = (unwrap parsed)
+        t.text = body
+        t.at = at
+        push toks t
+        return (i - at)
+    }
+
+    fn lexName:int (src:string at:int n:int) {
+        def i:int at
+        while (i < n) {
+            if ((NativeExpr.isNameChar((charAt src i))) == false) {
+                break
+            }
+            i = (i + 1)
+        }
+        def t:ExprToken (new ExprToken)
+        t.kind = 3
+        t.text = (substring src at i)
+        t.at = at
+        push toks t
+        return (i - at)
+    }
+
+    fn lexString:int (src:string at:int n:int quote:int) {
+        def i:int (at + 1)
+        def out:string ""
+        while (i < n) {
+            def ch:int (charAt src i)
+            if (ch == quote) {
+                def t:ExprToken (new ExprToken)
+                t.kind = 2
+                t.text = out
+                t.at = at
+                push toks t
+                return ((i + 1) - at)
+            }
+            ; A backslash escapes the next character, whatever it is. There is
+            ; no escape table: a questionnaire's string literals are labels and
+            ; codes, and inventing \n here would be inventing a text format.
+            if (ch == 92) {
+                if ((i + 1) < n) {
+                    out = (out + (substring src (i + 1) (i + 2)))
+                    i = (i + 2)
+                } {
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (substring src i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        parseError = "a string was opened and never closed"
+        return 0
+    }
+
+    fn lexOperator:int (src:string at:int n:int) {
+        ; The two-character operators first, or `<=` lexes as `<` then `=`.
+        if ((at + 1) < n) {
+            def pair:string (substring src at (at + 2))
+            if (NativeExpr.isTwoCharOp(pair)) {
+                def t2:ExprToken (new ExprToken)
+                t2.kind = 4
+                t2.text = pair
+                t2.at = at
+                push toks t2
+                return 2
+            }
+        }
+        def one:string (substring src at (at + 1))
+        if (NativeExpr.isOneCharOp(one)) {
+            def t:ExprToken (new ExprToken)
+            t.kind = 4
+            t.text = one
+            t.at = at
+            push toks t
+            return 1
+        }
+        parseError = ("there is no operator " + one)
+        return 0
+    }
+
+    sfn isTwoCharOp:boolean (s:string) {
+        if (s == "==") {
+            return true
+        }
+        if (s == "!=") {
+            return true
+        }
+        if (s == "<=") {
+            return true
+        }
+        if (s == ">=") {
+            return true
+        }
+        return false
+    }
+
+    sfn isOneCharOp:boolean (s:string) {
+        if (s == "+") {
+            return true
+        }
+        if (s == "-") {
+            return true
+        }
+        if (s == "*") {
+            return true
+        }
+        if (s == "/") {
+            return true
+        }
+        if (s == "%") {
+            return true
+        }
+        if (s == "<") {
+            return true
+        }
+        if (s == ">") {
+            return true
+        }
+        if (s == "(") {
+            return true
+        }
+        if (s == ")") {
+            return true
+        }
+        if (s == ",") {
+            return true
+        }
+        ; A list literal's brackets. Safe beside `items[3].price`, because a
+        ; bracket that FOLLOWS name characters is lexed as part of the name —
+        ; `lexOne` only reaches here when a bracket starts a token.
+        if (s == "[") {
+            return true
+        }
+        if (s == "]") {
+            return true
+        }
+        ; A single `=` is what somebody writes when they mean `==`, every
+        ; time. Accepting it is kinder than a parse error, and there is no
+        ; assignment in this language for it to be confused with.
+        if (s == "=") {
+            return true
+        }
+        return false
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Parsing
+    ; ------------------------------------------------------------------------
+    ; A dialect's surface syntax, rewritten into this one before lexing. The
+    ; native language needs nothing; `SurveyExpr` turns `{age} < 18` into
+    ; `age < 18` here. A hook rather than an overridden `parse`, so a dialect
+    ; is a rewrite and never a second parser.
+    fn preprocess:string (source:string) {
+        return source
+    }
+
+    fn parse:ExprProgram (source:string) {
+        def p:ExprProgram (new ExprProgram)
+        p.source = source
+        clear found
+        pos = 0
+        def written:string (this.preprocess(source))
+        if ((FormValue.trimText(written)) == "") {
+            p.errorText = "the expression is empty"
+            return p
+        }
+        if ((this.lex(written)) == false) {
+            p.errorText = parseError
+            return p
+        }
+        def root:ExprNode (this.parseOr())
+        if ((strlen parseError) > 0) {
+            p.errorText = parseError
+            return p
+        }
+        if ((this.peekKind()) != 5) {
+            p.errorText = ("unexpected " + (this.peekText()) + " after the expression")
+            return p
+        }
+        p.root = root
+        p.ok = true
+        def i:int 0
+        def n:int (array_length found)
+        while (i < n) {
+            push p.names (itemAt found i)
+            i = (i + 1)
+        }
+        return p
+    }
+
+    fn peek:ExprToken () {
+        if (pos < (array_length toks)) {
+            return (itemAt toks pos)
+        }
+        def endTok:ExprToken (new ExprToken)
+        endTok.kind = 5
+        return endTok
+    }
+
+    fn peekKind:int () {
+        def t:ExprToken (this.peek())
+        return t.kind
+    }
+
+    fn peekText:string () {
+        def t:ExprToken (this.peek())
+        if (t.kind == 5) {
+            return "the end"
+        }
+        return t.text
+    }
+
+    fn atOp:boolean (text:string) {
+        def t:ExprToken (this.peek())
+        if (t.kind != 4) {
+            return false
+        }
+        return (t.text == text)
+    }
+
+    fn atWord:boolean (text:string) {
+        def t:ExprToken (this.peek())
+        if (t.kind != 3) {
+            return false
+        }
+        return (t.text == text)
+    }
+
+    fn take:void () {
+        pos = (pos + 1)
+    }
+
+    fn parseOr:ExprNode () {
+        def left:ExprNode (this.parseAnd())
+        while (this.atWord("or")) {
+            this.take()
+            def right:ExprNode (this.parseAnd())
+            left = (ExprNode.binary("or" left right))
+        }
+        return left
+    }
+
+    fn parseAnd:ExprNode () {
+        def left:ExprNode (this.parseNot())
+        while (this.atWord("and")) {
+            this.take()
+            def right:ExprNode (this.parseNot())
+            left = (ExprNode.binary("and" left right))
+        }
+        return left
+    }
+
+    fn parseNot:ExprNode () {
+        if (this.atWord("not")) {
+            this.take()
+            def inner:ExprNode (this.parseNot())
+            return (ExprNode.unary("not" inner))
+        }
+        return (this.parseCmp())
+    }
+
+    ; Comparison does not chain. `a < b < c` is a mistake in every language
+    ; that allows it, and refusing it costs nothing.
+    ;
+    ; Three shapes, because a questionnaire asks three kinds of question about
+    ; an answer and every format in the field spells them this way:
+    ;
+    ;   a < b                 the ordinary comparison
+    ;   a empty               a postfix test — "did they answer"
+    ;   a contains 'x'        a set operator over a multi-choice answer
+    fn parseCmp:ExprNode () {
+        def left:ExprNode (this.parseSum())
+        def post:string (this.postfixOp())
+        if ((strlen post) > 0) {
+            this.take()
+            def args:[ExprNode]
+            push args left
+            return (ExprNode.call(post args))
+        }
+        def setOp:string (this.setOp())
+        if ((strlen setOp) > 0) {
+            this.take()
+            def other:ExprNode (this.parseSum())
+            def pair:[ExprNode]
+            push pair left
+            push pair other
+            return (ExprNode.call(setOp pair))
+        }
+        def op:string (this.comparisonOp())
+        if ((strlen op) == 0) {
+            return left
+        }
+        this.take()
+        def right:ExprNode (this.parseSum())
+        return (ExprNode.binary(op left right))
+    }
+
+    ; `q empty` and `q notempty`, which read as the questions they are.
+    fn postfixOp:string () {
+        def t:ExprToken (this.peek())
+        if (t.kind != 3) {
+            return ""
+        }
+        if (t.text == "empty") {
+            return "empty"
+        }
+        if (t.text == "notempty") {
+            return "notempty"
+        }
+        return ""
+    }
+
+    ; The set operators, written between their two sides.
+    fn setOp:string () {
+        def t:ExprToken (this.peek())
+        if (t.kind != 3) {
+            return ""
+        }
+        if (t.text == "contains") {
+            return "contains"
+        }
+        if (t.text == "notcontains") {
+            return "notcontains"
+        }
+        if (t.text == "anyof") {
+            return "anyof"
+        }
+        if (t.text == "allof") {
+            return "allof"
+        }
+        return ""
+    }
+
+    fn comparisonOp:string () {
+        def t:ExprToken (this.peek())
+        if (t.kind == 3) {
+            if (t.text == "in") {
+                return "in"
+            }
+            return ""
+        }
+        if (t.kind != 4) {
+            return ""
+        }
+        if (t.text == "==") {
+            return "=="
+        }
+        if (t.text == "=") {
+            return "=="
+        }
+        if (t.text == "!=") {
+            return "!="
+        }
+        if (t.text == "<") {
+            return "<"
+        }
+        if (t.text == "<=") {
+            return "<="
+        }
+        if (t.text == ">") {
+            return ">"
+        }
+        if (t.text == ">=") {
+            return ">="
+        }
+        return ""
+    }
+
+    fn parseSum:ExprNode () {
+        def left:ExprNode (this.parseProduct())
+        def going:boolean true
+        while going {
+            if (this.atOp("+")) {
+                this.take()
+                def r1:ExprNode (this.parseProduct())
+                left = (ExprNode.binary("+" left r1))
+            } {
+                if (this.atOp("-")) {
+                    this.take()
+                    def r2:ExprNode (this.parseProduct())
+                    left = (ExprNode.binary("-" left r2))
+                } {
+                    going = false
+                }
+            }
+        }
+        return left
+    }
+
+    fn parseProduct:ExprNode () {
+        def left:ExprNode (this.parseUnary())
+        def going:boolean true
+        while going {
+            if (this.atOp("*")) {
+                this.take()
+                def r1:ExprNode (this.parseUnary())
+                left = (ExprNode.binary("*" left r1))
+            } {
+                if (this.atOp("/")) {
+                    this.take()
+                    def r2:ExprNode (this.parseUnary())
+                    left = (ExprNode.binary("/" left r2))
+                } {
+                    if (this.atOp("%")) {
+                        this.take()
+                        def r3:ExprNode (this.parseUnary())
+                        left = (ExprNode.binary("%" left r3))
+                    } {
+                        going = false
+                    }
+                }
+            }
+        }
+        return left
+    }
+
+    fn parseUnary:ExprNode () {
+        if (this.atOp("-")) {
+            this.take()
+            def inner:ExprNode (this.parseUnary())
+            return (ExprNode.unary("-" inner))
+        }
+        return (this.parsePrimary())
+    }
+
+    fn parsePrimary:ExprNode () {
+        def t:ExprToken (this.peek())
+        if (t.kind == 1) {
+            this.take()
+            return (ExprNode.number(t.num))
+        }
+        if (t.kind == 2) {
+            this.take()
+            return (ExprNode.ofText(t.text))
+        }
+        if (t.kind == 3) {
+            this.take()
+            if (t.text == "true") {
+                return (ExprNode.truth(true))
+            }
+            if (t.text == "false") {
+                return (ExprNode.truth(false))
+            }
+            if (t.text == "empty") {
+                return (ExprNode.call("empty" (this.noArgs())))
+            }
+            if (this.atOp("(")) {
+                def args:[ExprNode] (this.parseArgs())
+                return (ExprNode.call(t.text args))
+            }
+            ; A bare name is a question, and a question is a dependency.
+            this.noteName(t.text)
+            return (ExprNode.reference(t.text))
+        }
+        ; `['a', 'b']` — a list, written the way a form's JSON writes one.
+        if (this.atOp("[")) {
+            this.take()
+            def items:[ExprNode]
+            if (this.atOp("]")) {
+                this.take()
+                return (ExprNode.call("list" items))
+            }
+            push items (this.parseOr())
+            while (this.atOp(",")) {
+                this.take()
+                push items (this.parseOr())
+            }
+            if ((this.expect("]")) == false) {
+                return (ExprNode.truth(false))
+            }
+            return (ExprNode.call("list" items))
+        }
+        if (this.atOp("(")) {
+            this.take()
+            def first:ExprNode (this.parseOr())
+            ; A comma here means this was a list, not a grouping.
+            if (this.atOp(",")) {
+                def items:[ExprNode]
+                push items first
+                while (this.atOp(",")) {
+                    this.take()
+                    push items (this.parseOr())
+                }
+                if ((this.expect(")")) == false) {
+                    return (ExprNode.truth(false))
+                }
+                return (ExprNode.call("list" items))
+            }
+            if ((this.expect(")")) == false) {
+                return (ExprNode.truth(false))
+            }
+            return first
+        }
+        if ((strlen parseError) == 0) {
+            parseError = ("expected a value, found " + (this.peekText()))
+        }
+        return (ExprNode.truth(false))
+    }
+
+    fn noArgs:[ExprNode] () {
+        def none:[ExprNode]
+        return none
+    }
+
+    fn parseArgs:[ExprNode] () {
+        def args:[ExprNode]
+        this.take()
+        if (this.atOp(")")) {
+            this.take()
+            return args
+        }
+        push args (this.parseOr())
+        while (this.atOp(",")) {
+            this.take()
+            push args (this.parseOr())
+        }
+        this.expect(")")
+        return args
+    }
+
+    fn expect:boolean (text:string) {
+        if (this.atOp(text)) {
+            this.take()
+            return true
+        }
+        if ((strlen parseError) == 0) {
+            parseError = ("expected " + text + ", found " + (this.peekText()))
+        }
+        return false
+    }
+
+    fn noteName:void (name:string) {
+        def i:int 0
+        def n:int (array_length found)
+        while (i < n) {
+            if ((itemAt found i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push found name
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Evaluating
+    ; ------------------------------------------------------------------------
+    fn evaluate:FormValue (program:ExprProgram state:AnswerState) {
+        if ((program.ok) == false) {
+            return (FormValue.ofError(program.errorText))
+        }
+        return (this.evalNode(program.root state))
+    }
+
+    fn evalNode:FormValue (node:ExprNode state:AnswerState) {
+        if (node.kind == 1) {
+            return (FormValue.ofNumber(node.num))
+        }
+        if (node.kind == 2) {
+            return (FormValue.ofText(node.text))
+        }
+        if (node.kind == 3) {
+            return (FormValue.ofBool(node.flag))
+        }
+        if (node.kind == 4) {
+            return (state.valueOf(node.text))
+        }
+        if (node.kind == 5) {
+            return (this.evalUnary(node state))
+        }
+        if (node.kind == 6) {
+            return (this.evalBinary(node state))
+        }
+        if (node.kind == 7) {
+            return (this.evalCall(node state))
+        }
+        return (FormValue.ofError("an expression node with no meaning"))
+    }
+
+    fn kidValue:FormValue (node:ExprNode index:int state:AnswerState) {
+        if (index >= (array_length node.kids)) {
+            return (FormValue.ofError("a missing operand"))
+        }
+        return (this.evalNode((itemAt node.kids index) state))
+    }
+
+    fn evalUnary:FormValue (node:ExprNode state:AnswerState) {
+        def a:FormValue (this.kidValue(node 0 state))
+        if (node.op == "not") {
+            if (a.isError()) {
+                return a
+            }
+            return (FormValue.ofBool(((a.truthy()) == false)))
+        }
+        def num:FormValue (a.asNumber())
+        if ((num.isNumber()) == false) {
+            return num
+        }
+        return (FormValue.ofNumber((0.0 - num.n)))
+    }
+
+    fn evalBinary:FormValue (node:ExprNode state:AnswerState) {
+        ; `and` and `or` short-circuit, which is not an optimisation here: a
+        ; form writes `height > 0 and weight / height > 2` precisely so the
+        ; right half is not evaluated when the left half says not to.
+        if (node.op == "and") {
+            def la:FormValue (this.kidValue(node 0 state))
+            if (la.isError()) {
+                return la
+            }
+            if ((la.truthy()) == false) {
+                return (FormValue.ofBool(false))
+            }
+            def ra:FormValue (this.kidValue(node 1 state))
+            if (ra.isError()) {
+                return ra
+            }
+            return (FormValue.ofBool((ra.truthy())))
+        }
+        if (node.op == "or") {
+            def lo:FormValue (this.kidValue(node 0 state))
+            if (lo.isError()) {
+                return lo
+            }
+            if (lo.truthy()) {
+                return (FormValue.ofBool(true))
+            }
+            def ro:FormValue (this.kidValue(node 1 state))
+            if (ro.isError()) {
+                return ro
+            }
+            return (FormValue.ofBool((ro.truthy())))
+        }
+        def a:FormValue (this.kidValue(node 0 state))
+        def b:FormValue (this.kidValue(node 1 state))
+        if (a.isError()) {
+            return a
+        }
+        if (b.isError()) {
+            return b
+        }
+        if (node.op == "in") {
+            return (FormValue.ofBool((NativeExpr.holdsValue(b a))))
+        }
+        if (node.op == "==") {
+            return (FormValue.ofBool((a.sameAs(b))))
+        }
+        if (node.op == "!=") {
+            return (FormValue.ofBool(((a.sameAs(b)) == false)))
+        }
+        if (NativeExpr.isOrdering(node.op)) {
+            return (NativeExpr.compare(node.op a b))
+        }
+        return (this.arithmetic(node.op a b))
+    }
+
+    sfn isOrdering:boolean (op:string) {
+        if (op == "<") {
+            return true
+        }
+        if (op == "<=") {
+            return true
+        }
+        if (op == ">") {
+            return true
+        }
+        if (op == ">=") {
+            return true
+        }
+        return false
+    }
+
+    ; An ordering against an unanswered question is FALSE, not empty. See
+    ; `FormValue`'s header: a rule has to decide something, and "not yet" has
+    ; to mean "do not show the follow-up question".
+    sfn compare:FormValue (op:string a:FormValue b:FormValue) {
+        if (a.isEmpty()) {
+            return (FormValue.ofBool(false))
+        }
+        if (b.isEmpty()) {
+            return (FormValue.ofBool(false))
+        }
+        ; Two texts compare as text, so a code list orders the way a person
+        ; reading it expects. Anything else compares as a number.
+        if (a.isText()) {
+            if (b.isText()) {
+                def c:int (NativeExpr.compareText(a.s b.s))
+                return (FormValue.ofBool((NativeExpr.holdsOrder(op c))))
+            }
+        }
+        def na:FormValue (a.asNumber())
+        def nb:FormValue (b.asNumber())
+        if ((na.isNumber()) == false) {
+            return na
+        }
+        if ((nb.isNumber()) == false) {
+            return nb
+        }
+        def d:int 0
+        if (na.n < nb.n) {
+            d = -1
+        }
+        if (na.n > nb.n) {
+            d = 1
+        }
+        return (FormValue.ofBool((NativeExpr.holdsOrder(op d))))
+    }
+
+    sfn holdsOrder:boolean (op:string d:int) {
+        if (op == "<") {
+            return (d < 0)
+        }
+        if (op == "<=") {
+            return (d <= 0)
+        }
+        if (op == ">") {
+            return (d > 0)
+        }
+        return (d >= 0)
+    }
+
+    ; `<` does not compare strings in Ranger, and a questionnaire compares
+    ; codes often enough that this is worth having rather than forbidding.
+    sfn compareText:int (a:string b:string) {
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def n:int na
+        if (nb < n) {
+            n = nb
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return -1
+            }
+            if (ca > cb) {
+                return 1
+            }
+            i = (i + 1)
+        }
+        if (na < nb) {
+            return -1
+        }
+        if (na > nb) {
+            return 1
+        }
+        return 0
+    }
+
+    ; Membership in a list, and CONTAINMENT in a string. `'cough' in symptoms`
+    ; asks whether a box was ticked; `first contains 'a'` asks whether a name
+    ; has an `a` in it. Both are what a form author means by the word, and
+    ; every questionnaire format reads them that way.
+    sfn holdsValue:boolean (haystack:FormValue needle:FormValue) {
+        if (haystack.isList()) {
+            return (haystack.holds((needle.asText())))
+        }
+        if (haystack.isEmpty()) {
+            return false
+        }
+        if (needle.isEmpty()) {
+            return false
+        }
+        return (NativeExpr.hasPart((haystack.asText()) (needle.asText())))
+    }
+
+    ; Arithmetic on an unanswered question is UNANSWERED, not zero — the rule
+    ; that stops a fresh form filling itself with zeroes and error text.
+    fn arithmetic:FormValue (op:string a:FormValue b:FormValue) {
+        if (a.isEmpty()) {
+            return (FormValue.blank())
+        }
+        if (b.isEmpty()) {
+            return (FormValue.blank())
+        }
+        ; `+` on two texts joins them, which is what a form author means by
+        ; `first_name + " " + last_name`.
+        if (op == "+") {
+            if (a.isText()) {
+                if (b.isText()) {
+                    return (FormValue.ofText((a.s + b.s)))
+                }
+            }
+        }
+        def na:FormValue (a.asNumber())
+        def nb:FormValue (b.asNumber())
+        if ((na.isNumber()) == false) {
+            return na
+        }
+        if ((nb.isNumber()) == false) {
+            return nb
+        }
+        if (op == "+") {
+            return (FormValue.ofNumber((na.n + nb.n)))
+        }
+        if (op == "-") {
+            return (FormValue.ofNumber((na.n - nb.n)))
+        }
+        if (op == "*") {
+            return (FormValue.ofNumber((na.n * nb.n)))
+        }
+        if (nb.n == 0.0) {
+            return (FormValue.ofError("division by zero"))
+        }
+        if (op == "/") {
+            return (FormValue.ofNumber((na.n / nb.n)))
+        }
+        if (op == "%") {
+            def q:int (to_int (na.n / nb.n))
+            return (FormValue.ofNumber((na.n - ((to_double q) * nb.n))))
+        }
+        return (FormValue.ofError(("there is no operator " + op)))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The function set
+    ; ------------------------------------------------------------------------
+    ;
+    ; Fixed, small, and free of locale. Every one of these means the same
+    ; thing on six targets, which is the bar a function has to clear to be
+    ; here at all — which is why there is no `format`, no `round` with a
+    ; banker's-rounding argument, and no `now`.
+    fn evalCall:FormValue (node:ExprNode state:AnswerState) {
+        def name:string node.text
+        def argc:int (array_length node.kids)
+        if (name == "list") {
+            def items:[string]
+            def i:int 0
+            while (i < argc) {
+                def v:FormValue (this.kidValue(node i state))
+                if (v.isError()) {
+                    return v
+                }
+                push items (v.asText())
+                i = (i + 1)
+            }
+            return (FormValue.ofList(items))
+        }
+        if (name == "empty") {
+            ; `empty` on its own is the unanswered VALUE; `empty(x)` is the
+            ; question "is x unanswered". Both spellings are in real
+            ; questionnaires, and they mean different things.
+            if (argc == 0) {
+                return (FormValue.blank())
+            }
+        }
+        if (name == "today") {
+            return (FormValue.ofInt(state.todayDays))
+        }
+        ; The one lazy function: only the chosen branch is evaluated, so
+        ; `iif(height > 0, weight / height, 0)` does not divide by zero on its
+        ; way to not using the answer.
+        if (name == "iif") {
+            if (argc < 3) {
+                return (FormValue.ofError("iif needs a condition and two values"))
+            }
+            def cond:FormValue (this.kidValue(node 0 state))
+            if (cond.isError()) {
+                return cond
+            }
+            if (cond.truthy()) {
+                return (this.kidValue(node 1 state))
+            }
+            return (this.kidValue(node 2 state))
+        }
+        if (argc < 1) {
+            return (FormValue.ofError((name + " needs an argument")))
+        }
+        def first:FormValue (this.kidValue(node 0 state))
+        if (first.isError()) {
+            return first
+        }
+        if (name == "len") {
+            if (first.isEmpty()) {
+                return (FormValue.ofInt(0))
+            }
+            return (FormValue.ofInt((strlen (first.asText()))))
+        }
+        if (name == "count") {
+            if (first.isList()) {
+                return (FormValue.ofInt((array_length first.items)))
+            }
+            if (first.isEmpty()) {
+                return (FormValue.ofInt(0))
+            }
+            return (FormValue.ofInt(1))
+        }
+        if (name == "answered") {
+            return (FormValue.ofBool(((first.isEmpty()) == false)))
+        }
+        if (name == "empty") {
+            return (FormValue.ofBool((first.isEmpty())))
+        }
+        if (name == "notempty") {
+            return (FormValue.ofBool(((first.isEmpty()) == false)))
+        }
+        ; `contains(haystack, needle)` — the argument order questionnaire
+        ; formats use, which is the reverse of the `in` operator's.
+        if (name == "contains") {
+            if (argc < 2) {
+                return (FormValue.ofError("contains needs a value and something to look for"))
+            }
+            def want:FormValue (this.kidValue(node 1 state))
+            if (want.isError()) {
+                return want
+            }
+            return (FormValue.ofBool((NativeExpr.holdsValue(first want))))
+        }
+        if (name == "notcontains") {
+            if (argc < 2) {
+                return (FormValue.ofError("notcontains needs a value and something to look for"))
+            }
+            def unwanted:FormValue (this.kidValue(node 1 state))
+            if (unwanted.isError()) {
+                return unwanted
+            }
+            return (FormValue.ofBool(((NativeExpr.holdsValue(first unwanted)) == false)))
+        }
+        ; `anyof` and `allof` compare a multi-choice answer against a set.
+        if (name == "anyof") {
+            return (this.overlap(node state first false))
+        }
+        if (name == "allof") {
+            return (this.overlap(node state first true))
+        }
+        ; `selected(answer, value)` — was that box ticked?
+        ;
+        ; Not `contains`: a multi-choice answer stored as text is a
+        ; SPACE-DELIMITED list of codes, and `contains` on text is a substring
+        ; match, so `selected(q, 'ab')` would say yes to an answer of `abc`.
+        ; Every questionnaire format that stores a multi-select as a string
+        ; needs this distinction and none of them survive without it.
+        if (name == "selected") {
+            if (argc < 2) {
+                return (FormValue.ofError("selected needs an answer and a value"))
+            }
+            def want:FormValue (this.kidValue(node 1 state))
+            if (want.isError()) {
+                return want
+            }
+            def code:string (want.asText())
+            if (first.isList()) {
+                return (FormValue.ofBool((first.holds(code))))
+            }
+            if (first.isEmpty()) {
+                return (FormValue.ofBool(false))
+            }
+            return (FormValue.ofBool((NativeExpr.hasWord((first.asText()) code))))
+        }
+        ; The first argument that was answered.
+        if (name == "coalesce") {
+            def i2:int 0
+            while (i2 < argc) {
+                def v3:FormValue (this.kidValue(node i2 state))
+                if (v3.isError()) {
+                    return v3
+                }
+                if ((v3.isEmpty()) == false) {
+                    return v3
+                }
+                i2 = (i2 + 1)
+            }
+            return (FormValue.blank())
+        }
+        ; Everything, joined. An unanswered question contributes nothing
+        ; rather than making the whole result unanswerable — the point of
+        ; joining is usually to build a label out of whatever is there.
+        if (name == "concat") {
+            def out2:string ""
+            def c3:int 0
+            while (c3 < argc) {
+                def v4:FormValue (this.kidValue(node c3 state))
+                if (v4.isError()) {
+                    return v4
+                }
+                if ((v4.isEmpty()) == false) {
+                    out2 = (out2 + (v4.asText()))
+                }
+                c3 = (c3 + 1)
+            }
+            return (FormValue.ofText(out2))
+        }
+        if (name == "avg") {
+            def total:double 0.0
+            def seen:int 0
+            def a:int 0
+            while (a < argc) {
+                def av:FormValue (this.kidValue(node a state))
+                if (av.isError()) {
+                    return av
+                }
+                if ((av.isEmpty()) == false) {
+                    def an:FormValue (av.asNumber())
+                    if ((an.isNumber()) == false) {
+                        return an
+                    }
+                    total = (total + an.n)
+                    seen = (seen + 1)
+                }
+                a = (a + 1)
+            }
+            if (seen == 0) {
+                return (FormValue.blank())
+            }
+            return (FormValue.ofNumber((total / (to_double seen))))
+        }
+        ; Half away from zero, which is what everybody means by "round" and
+        ; what every one of the six targets agrees about.
+        if (name == "round") {
+            if (first.isEmpty()) {
+                return first
+            }
+            def rn:FormValue (first.asNumber())
+            if ((rn.isNumber()) == false) {
+                return rn
+            }
+            if (rn.n < 0.0) {
+                return (FormValue.ofNumber((to_double (to_int (rn.n - 0.5)))))
+            }
+            return (FormValue.ofNumber((to_double (to_int (rn.n + 0.5)))))
+        }
+        if (name == "abs") {
+            if (first.isEmpty()) {
+                return first
+            }
+            def bn:FormValue (first.asNumber())
+            if ((bn.isNumber()) == false) {
+                return bn
+            }
+            if (bn.n < 0.0) {
+                return (FormValue.ofNumber((0.0 - bn.n)))
+            }
+            return bn
+        }
+        if (name == "number") {
+            return (first.asNumber())
+        }
+        if (name == "sum") {
+            def total:double 0.0
+            def k:int 0
+            while (k < argc) {
+                def v2:FormValue (this.kidValue(node k state))
+                if (v2.isError()) {
+                    return v2
+                }
+                ; An unanswered question contributes nothing to a sum rather
+                ; than making the whole sum unanswerable — a running total of
+                ; a half-filled page is a thing forms show on purpose.
+                if ((v2.isEmpty()) == false) {
+                    def nv:FormValue (v2.asNumber())
+                    if ((nv.isNumber()) == false) {
+                        return nv
+                    }
+                    total = (total + nv.n)
+                }
+                k = (k + 1)
+            }
+            return (FormValue.ofNumber(total))
+        }
+        ; Whole days between a date answer and today, floored — an age in
+        ; years is `age_of(born) / 365` and the form author decides how to
+        ; round it, because "in years" means different things in different
+        ; questionnaires.
+        if (name == "age_of") {
+            if (first.isEmpty()) {
+                return (FormValue.blank())
+            }
+            def born:FormValue (first.asNumber())
+            if ((born.isNumber()) == false) {
+                return born
+            }
+            return (FormValue.ofNumber(((to_double state.todayDays) - born.n)))
+        }
+        if (name == "matches") {
+            if (argc < 2) {
+                return (FormValue.ofError("matches needs a value and a prefix"))
+            }
+            def pat:FormValue (this.kidValue(node 1 state))
+            if (pat.isError()) {
+                return pat
+            }
+            return (FormValue.ofBool((NativeExpr.hasPart((first.asText()) (pat.asText())))))
+        }
+        if (name == "min") {
+            return (this.extreme(node state true))
+        }
+        if (name == "max") {
+            return (this.extreme(node state false))
+        }
+        return (FormValue.ofError(("there is no function " + name)))
+    }
+
+    ; Does the first argument share ANY (or ALL) of the values that follow?
+    ; A second argument that is itself a list is flattened, so both
+    ; `anyof(q, ('a','b'))` and `anyof(q, 'a', 'b')` read the same.
+    fn overlap:FormValue (node:ExprNode state:AnswerState first:FormValue all:boolean) {
+        def wanted:[string]
+        def i:int 1
+        def n:int (array_length node.kids)
+        while (i < n) {
+            def v:FormValue (this.kidValue(node i state))
+            if (v.isError()) {
+                return v
+            }
+            if (v.isList()) {
+                def k:int 0
+                def nk:int (array_length v.items)
+                while (k < nk) {
+                    push wanted (itemAt v.items k)
+                    k = (k + 1)
+                }
+            } {
+                if ((v.isEmpty()) == false) {
+                    push wanted (v.asText())
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length wanted) == 0) {
+            return (FormValue.ofBool(false))
+        }
+        def hits:int 0
+        def w:int 0
+        def nw:int (array_length wanted)
+        while (w < nw) {
+            if (first.holds((itemAt wanted w))) {
+                hits = (hits + 1)
+            }
+            w = (w + 1)
+        }
+        if all {
+            return (FormValue.ofBool((hits == nw)))
+        }
+        return (FormValue.ofBool((hits > 0)))
+    }
+
+    fn extreme:FormValue (node:ExprNode state:AnswerState lowest:boolean) {
+        def best:double 0.0
+        def have:boolean false
+        def i:int 0
+        def n:int (array_length node.kids)
+        while (i < n) {
+            def v:FormValue (this.kidValue(node i state))
+            if (v.isError()) {
+                return v
+            }
+            if ((v.isEmpty()) == false) {
+                def nv:FormValue (v.asNumber())
+                if ((nv.isNumber()) == false) {
+                    return nv
+                }
+                if (have == false) {
+                    best = nv.n
+                    have = true
+                } {
+                    if lowest {
+                        if (nv.n < best) {
+                            best = nv.n
+                        }
+                    } {
+                        if (nv.n > best) {
+                            best = nv.n
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (have == false) {
+            return (FormValue.blank())
+        }
+        return (FormValue.ofNumber(best))
+    }
+
+    ; One whole word of a space-delimited list. See `selected` above for why a
+    ; substring match is not the same question.
+    sfn hasWord:boolean (text:string want:string) {
+        def n:int (strlen text)
+        def start:int 0
+        def i:int 0
+        while (i <= n) {
+            def atEnd:boolean (i == n)
+            def isSpace:boolean false
+            if (atEnd == false) {
+                def ch:int (charAt text i)
+                if (ch == 32) {
+                    isSpace = true
+                }
+                if (ch == 9) {
+                    isSpace = true
+                }
+                if (ch == 10) {
+                    isSpace = true
+                }
+            }
+            if (atEnd || isSpace) {
+                if (i > start) {
+                    if ((substring text start i) == want) {
+                        return true
+                    }
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn hasPart:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if (n == 0) {
+            return true
+        }
+        def last:int ((strlen text) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring text i (i + n)) == part) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

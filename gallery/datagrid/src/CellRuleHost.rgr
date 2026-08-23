@@ -1,0 +1,62 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CellRuleHost.rgr — the seam a custom cell rule arrives through.
+; ============================================================================
+;
+; `DataValidation` answers "would this cell take that text?" from data alone:
+; a list of choices, a numeric range, a length. That is deliberate — the same
+; object is read out of an .xlsx and written back into one, and a rule that
+; needed an interpreter to answer would be a rule the file format cannot hold.
+;
+; But a real column often wants something no range can say:
+;
+;     an SKU must match SKU-<digits>
+;     an end date must not be before the start date in the row beside it
+;     a discount over 30% is only allowed for a customer marked wholesale
+;
+; So `kind = "script"` names a function instead of stating a bound, and THIS
+; is where the naming is resolved. A pane with no host accepts everything a
+; script rule covers, which is the right default in two places at once: a
+; sheet read out of a file, where the script is not there, and a host that
+; never wired one up.
+;
+; ---------------------------------------------------------------------------
+; Why an object rather than an import
+; ---------------------------------------------------------------------------
+;
+; The implementation that runs the script is `CellScripts`, and it pulls in
+; ComponentEngine and the TypeScript parser. Most things that embed a grid
+; want neither. Handing the pane a host it can call, instead of having the
+; pane import the engine, is what keeps a spreadsheet that has no scripts
+; from carrying an interpreter.
+; ============================================================================
+
+class CellRuleHost {
+    ; Whatever the last refusal was about, for a host that wants to say more
+    ; than "not allowed here".
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    ; Is there anything behind this name? A rule naming a function nobody
+    ; registered is not an error — see the header — but a caller may want to
+    ; know before relying on it.
+    fn hasRule:boolean (name:string) {
+        return false
+    }
+
+    ; The verdict. A host that cannot answer must return TRUE: refusing what
+    ; somebody typed because our own machinery was not wired up would lose
+    ; their work for a reason that has nothing to do with them.
+    fn accepts:boolean (name:string text:string row:int col:int) {
+        return true
+    }
+
+    ; Why the last `accepts` said no. Empty when it said yes, or when the
+    ; script gave no reason.
+    fn reason:string () {
+        return errorText
+    }
+}

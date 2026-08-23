@@ -1,0 +1,12 @@
+{
+  "name": "branching",
+  "note": "the plain case: a follow-up that appears and becomes required together",
+  "survey": {
+    "elements": [
+      { "type": "text", "name": "age", "inputType": "number", "isRequired": true },
+      { "type": "text", "name": "guardian", "visibleIf": "{age} < 18", "requiredIf": "{age} < 18" },
+      { "type": "text", "name": "note" }
+    ]
+  },
+  "script": [ { "age": 12 }, { "guardian": "Ada" }, { "age": 40 }, { "age": 17 } ]
+}

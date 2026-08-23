@@ -1,0 +1,381 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SqlColumnRules.rgr — a database column's type, as a spreadsheet rule.
+; ============================================================================
+;
+; A column of a table already states what it will accept: `INTEGER`,
+; `VARCHAR(64)`, `NOT NULL`. A spreadsheet already has a way to say what a
+; block of cells will accept — `DataValidation`, the same rule OOXML writes
+; and the grid already draws an arrow for. This turns the first into the
+; second:
+;
+;     VARCHAR(64) NOT NULL   →   textLength between 0 and 64, blank refused
+;     SMALLINT               →   whole number between -32768 and 32767
+;     BOOLEAN                →   a dropdown: true / false / 0 / 1
+;     DECIMAL(10,2)          →   a number
+;
+; ---------------------------------------------------------------------------
+; Why it lives in the spreadsheet and not in the database viewer
+; ---------------------------------------------------------------------------
+;
+; Because the spreadsheet connects to databases too. A sheet bound to a table
+; through the Data tab wants exactly this — the column's own type refusing the
+; entry before it reaches the server — and a second copy of it written in the
+; viewer would be the drift this whole exercise exists to stop.
+;
+; So it takes STRINGS. Nothing here imports a schema, a session or an engine:
+; a caller that knows the SQL type name and whether NULL is allowed has said
+; everything this needs, and both callers know both.
+; ============================================================================
+
+Import "GridPane.rgr"
+
+class SqlColumnRules {
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Reading a SQL type name
+    ; ------------------------------------------------------------------------
+    ;
+    ; On the FIRST WORD of the declared type, matched whole, against a table
+    ; of names. Not on what the name contains: `POINT` contains `INT`, and a
+    ; geometry column that gets a whole-number rule is a column nobody can
+    ; type a coordinate into. `CHARACTER VARYING`, `DOUBLE PRECISION` and
+    ; `TIMESTAMP WITH TIME ZONE` all decide on their first word, which is why
+    ; taking it is enough.
+    ;
+    ; A name that is not in the table gets NO rule, and that is the right
+    ; answer rather than a gap: refusing what somebody typed because we did
+    ; not recognise their type would be worse than accepting it, and every
+    ; dialect has types we have never heard of.
+    sfn family:string (sqlType:string) {
+        def word:string (SqlColumnRules.firstWord(sqlType))
+        if ((strlen word) == 0) {
+            return ""
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.booleanNames()))) {
+            return "boolean"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.smallintNames()))) {
+            return "smallint"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.bigintNames()))) {
+            return "bigint"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.integerNames()))) {
+            return "integer"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.decimalNames()))) {
+            return "decimal"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.datetimeNames()))) {
+            return "datetime"
+        }
+        if (word == "DATE") {
+            return "date"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.timeNames()))) {
+            return "time"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.blobNames()))) {
+            return "blob"
+        }
+        if (SqlColumnRules.oneOf(word (SqlColumnRules.textNames()))) {
+            return "text"
+        }
+        return ""
+    }
+
+    sfn booleanNames:[string] () {
+        def out:[string]
+        push out "BOOL"
+        push out "BOOLEAN"
+        push out "BIT"
+        return out
+    }
+
+    sfn smallintNames:[string] () {
+        def out:[string]
+        push out "SMALLINT"
+        push out "INT2"
+        push out "TINYINT"
+        push out "SMALLSERIAL"
+        push out "SERIAL2"
+        return out
+    }
+
+    sfn bigintNames:[string] () {
+        def out:[string]
+        push out "BIGINT"
+        push out "INT8"
+        push out "BIGSERIAL"
+        push out "SERIAL8"
+        return out
+    }
+
+    sfn integerNames:[string] () {
+        def out:[string]
+        push out "INT"
+        push out "INTEGER"
+        push out "INT4"
+        push out "MEDIUMINT"
+        push out "SERIAL"
+        push out "SERIAL4"
+        return out
+    }
+
+    sfn decimalNames:[string] () {
+        def out:[string]
+        push out "DECIMAL"
+        push out "NUMERIC"
+        push out "NUMBER"
+        push out "DEC"
+        push out "FLOAT"
+        push out "REAL"
+        push out "DOUBLE"
+        push out "MONEY"
+        return out
+    }
+
+    sfn datetimeNames:[string] () {
+        def out:[string]
+        push out "TIMESTAMP"
+        push out "TIMESTAMPTZ"
+        push out "DATETIME"
+        return out
+    }
+
+    sfn timeNames:[string] () {
+        def out:[string]
+        push out "TIME"
+        push out "TIMETZ"
+        return out
+    }
+
+    sfn blobNames:[string] () {
+        def out:[string]
+        push out "BLOB"
+        push out "BYTEA"
+        push out "BINARY"
+        push out "VARBINARY"
+        return out
+    }
+
+    sfn textNames:[string] () {
+        def out:[string]
+        push out "TEXT"
+        push out "VARCHAR"
+        push out "CHAR"
+        push out "CHARACTER"
+        push out "NCHAR"
+        push out "NVARCHAR"
+        push out "NTEXT"
+        push out "CLOB"
+        push out "STRING"
+        push out "JSON"
+        push out "JSONB"
+        return out
+    }
+
+    sfn oneOf:boolean (word:string names:[string]) {
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if ((itemAt names i) == word) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The type's first word, upper-cased, with any `(...)` and anything after
+    ; it dropped: `varchar(64)` is `VARCHAR`, `double precision` is `DOUBLE`.
+    sfn firstWord:string (sqlType:string) {
+        def t:string (to_uppercase (SqlColumnRules.trimText(sqlType)))
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt t i)
+            def stop:boolean false
+            if (ch == 32) {
+                stop = true
+            }
+            if (ch == 40) {
+                stop = true
+            }
+            if (ch == 9) {
+                stop = true
+            }
+            if stop {
+                return (substring t 0 i)
+            }
+            i = (i + 1)
+        }
+        return t
+    }
+
+    ; The `n` of `VARCHAR(n)`, or -1. `DECIMAL(10,2)` has two numbers and
+    ; neither of them is a length, so a comma means there is none.
+    sfn lengthOf:int (sqlType:string) {
+        def open:int (SqlColumnRules.indexOfChar(sqlType 40))
+        if (open < 0) {
+            return -1
+        }
+        def close:int (SqlColumnRules.indexOfChar(sqlType 41))
+        if (close <= open) {
+            return -1
+        }
+        def inner:string (SqlColumnRules.trimText((substring sqlType (open + 1) close)))
+        if ((SqlColumnRules.indexOfChar(inner 44)) >= 0) {
+            return -1
+        }
+        if ((strlen inner) == 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (strlen inner)) {
+            def ch:int (charAt inner i)
+            if (ch < 48) {
+                return -1
+            }
+            if (ch > 57) {
+                return -1
+            }
+            i = (i + 1)
+        }
+        def parsed@(optional):int (to_int inner)
+        if (null? parsed) {
+            return -1
+        }
+        return (unwrap parsed)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The rule itself
+    ; ------------------------------------------------------------------------
+    ;
+    ; One call per column, which is the whole point: a caller with a table in
+    ; front of it walks the columns and says this once each.
+    sfn apply:DataValidation (pane:GridPane col:int firstRow:int lastRow:int sqlType:string nullable:boolean) {
+        def fam:string (SqlColumnRules.family(sqlType))
+        if (fam == "boolean") {
+            def choices:[string] (SqlColumnRules.booleanChoices())
+            def listRule:DataValidation (pane.listColumn(col firstRow lastRow choices))
+            ; A nullable boolean column has a third state, and it is blank.
+            listRule.allowBlank = nullable
+            return listRule
+        }
+        def v:DataValidation (new DataValidation)
+        v.c0 = col
+        v.c1 = col
+        v.r0 = firstRow
+        v.r1 = lastRow
+        v.allowBlank = nullable
+        if (fam == "smallint") {
+            v.kind = "whole"
+            v.op = "between"
+            v.f1 = "-32768"
+            v.f2 = "32767"
+        }
+        if (fam == "integer") {
+            v.kind = "whole"
+            v.op = "between"
+            v.f1 = "-2147483648"
+            v.f2 = "2147483647"
+        }
+        ; A 64-bit integer's ends do not survive a double, so the rule says
+        ; "a whole number" and stops there rather than stating a bound it
+        ; would enforce wrongly.
+        if (fam == "bigint") {
+            v.kind = "whole"
+        }
+        if (fam == "decimal") {
+            v.kind = "decimal"
+        }
+        if (fam == "text") {
+            def len:int (SqlColumnRules.lengthOf(sqlType))
+            if (len > 0) {
+                v.kind = "textLength"
+                v.op = "between"
+                v.f1 = "0"
+                v.f2 = (to_string len)
+            }
+        }
+        v.errorTitle = ("Not a " + sqlType)
+        v.errorText = (SqlColumnRules.explain(sqlType nullable))
+        pane.model.addValidation(v)
+        return v
+    }
+
+    sfn booleanChoices:[string] () {
+        def out:[string]
+        push out "true"
+        push out "false"
+        push out "0"
+        push out "1"
+        return out
+    }
+
+    ; What to tell somebody whose entry was refused, in the terms the database
+    ; would have refused it in.
+    sfn explain:string (sqlType:string nullable:boolean) {
+        def s:string ("this column is " + sqlType)
+        if (nullable == false) {
+            s = (s + " NOT NULL")
+        }
+        return s
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Small string helpers. `contains` and `endsWith` are spoken for.
+    ; ------------------------------------------------------------------------
+    sfn holds:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if (n == 0) {
+            return false
+        }
+        def last:int ((strlen text) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring text i (i + n)) == part) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn indexOfChar:int (text:string ch:int) {
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            if ((charAt text i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn trimText:string (s:string) {
+        def n:int (strlen s)
+        def a:int 0
+        while (a < n) {
+            if ((charAt s a) != 32) {
+                break
+            }
+            a = (a + 1)
+        }
+        def b:int n
+        while (b > a) {
+            if ((charAt s (b - 1)) != 32) {
+                break
+            }
+            b = (b - 1)
+        }
+        return (substring s a b)
+    }
+}

@@ -40,6 +40,15 @@ class DBCapabilities {
     def filterPushdown:boolean false
     def sortPushdown:boolean false
     def aggregatePushdown:boolean false
+    ; Can it join two tables itself? An engine that cannot still answers a
+    ; joined query — `DBSession` reads each side and matches them locally,
+    ; which is slower and correct, and `lastFallback` says it happened.
+    ;
+    ; Deliberately NOT part of `full()`. No backend emits a joined SELECT yet,
+    ; and a backend that claimed this without emitting one would answer a
+    ; two-table query with one table's rows and no error — the worst kind of
+    ; wrong. It goes true in the same commit that makes it true.
+    def joinPushdown:boolean false
     def pagination:boolean false
     ; Does execSpec return only the projected columns?
     def projection:boolean false
@@ -78,6 +87,9 @@ class DBCapabilities {
         }
         if filterPushdown {
             out = (out + "filter ")
+        }
+        if joinPushdown {
+            out = (out + "join ")
         }
         if sortPushdown {
             out = (out + "sort ")
@@ -231,6 +243,15 @@ class DBSession {
     ; The whole spec, whoever ends up doing the work.
     fn query:DataChunk (spec:QuerySpec) {
         def caps:DBCapabilities (backend.capabilities())
+        ; A joined query on a backend that cannot join is read a table at a
+        ; time and matched here. Slower than the engine doing it, and the only
+        ; alternative would be refusing a question the caller is entitled to
+        ; ask — the same bargain as the filter and sort fallbacks.
+        if (spec.hasJoins()) {
+            if (caps.joinPushdown == false) {
+                return (this.joinLocally(spec))
+            }
+        }
         def pushed:QuerySpec (spec.copy())
         def rest:QuerySpec (new QuerySpec)
         rest.table = spec.table
@@ -322,6 +343,37 @@ class DBSession {
             }
         }
         return (DBOps.applySpec(chunk rest))
+    }
+
+    ; Every table of a joined query, read whole and matched in order.
+    ;
+    ; Nothing is pushed down: the filter may name a column of the second table,
+    ; the sort may name one of the third, and a projection would throw away the
+    ; very columns the join matches on. Reading whole tables and applying the
+    ; spec at the end is the slow, correct shape — and the one a backend that
+    ; learns to join replaces wholesale rather than partly.
+    fn joinLocally:DataChunk (spec:QuerySpec) {
+        lastFallback = "join"
+        def base:QuerySpec (QuerySpec.forTable(spec.table))
+        def left:DataChunk (DBOps.qualifyChunk((this.readWhole(base)) spec.table))
+        def i:int 0
+        def n:int (array_length spec.joins)
+        while (i < n) {
+            def j:DBJoin (itemAt spec.joins i)
+            def side:QuerySpec (QuerySpec.forTable(j.table))
+            def right:DataChunk (DBOps.qualifyChunk((this.readWhole(side)) (j.nameOf())))
+            left = (DBOps.joinChunks(left right j.leftColumns j.rightColumns (j.isLeft())))
+            i = (i + 1)
+        }
+        return (DBOps.applySpec(left spec))
+    }
+
+    ; One table, every row, through the ordinary path so a backend's own
+    ; paging and streaming still apply to each side.
+    fn readWhole:DataChunk (spec:QuerySpec) {
+        def caps:DBCapabilities (backend.capabilities())
+        def chunk:DataChunk (backend.execSpec(spec))
+        return chunk
     }
 
     ; One window of a result, for a virtualised grid: rows [start, start+count).

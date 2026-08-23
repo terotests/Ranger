@@ -1,0 +1,458 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; RecordForm.rgr — one row of a table, as a form.
+; ============================================================================
+;
+; LibreOffice Base's forms exist so that somebody who is not looking at a grid
+; can work on one record at a time. This is that, built out of the two things
+; that already exist: `gallery/rangerforms`, which knows what a form IS, and
+; `gallery/rangerdb`, which knows what the row is.
+;
+;   DBTable  ──►  Questionnaire   a question per column, typed from the column
+;   DataChunk ─►  AnswerState     one row's values, as answers
+;   edits    ──►  DBMutation      addressed by the primary key, or refused
+;
+; ---------------------------------------------------------------------------
+; The column's declared type becomes the question's type
+; ---------------------------------------------------------------------------
+;
+; `VARCHAR(64) NOT NULL` becomes a text question with a length and a
+; requirement. `SMALLINT` becomes a whole-number question bounded at ±32767.
+; `BOOLEAN` becomes a yes/no. This is the same mapping the spreadsheet panels
+; make through `SqlColumnRules` — read from the same `family` and `lengthOf`,
+; so the Data panel and the form refuse the same entries for the same reasons
+; and cannot drift apart.
+;
+; ---------------------------------------------------------------------------
+; An edit is not a write
+; ---------------------------------------------------------------------------
+;
+; Same discipline as `DataSheet`: `mutation()` produces a statement addressed
+; by the row's primary key AS IT WAS LOADED, and a table with no key — or a
+; row whose key somebody has just retyped — produces no statement at all and
+; says why. Guessing which row an UPDATE meant is how a tool destroys data.
+; ============================================================================
+
+Import "../../rangerforms/engine/FormEngine.rgr"
+Import "../../rangerforms/expr/NativeExpr.rgr"
+Import "../../datagrid/src/SqlColumnRules.rgr"
+Import "../../rangerdb/src/schema/DatabaseSchema.rgr"
+Import "../../rangerdb/src/DBQuery.rgr"
+
+class RecordForm {
+    def table:DBTable (new DBTable)
+    def form:Questionnaire (new Questionnaire)
+    def engine:FormEngine (new FormEngine)
+    def state:AnswerState (new AnswerState)
+    def host:NativeExpr (new NativeExpr)
+    ; The row as it was read, so a diff has a left hand side.
+    def loadedText:[string:string]
+    def loadedNull:[string:boolean]
+    def keyColumns:[string]
+    def rowLoaded:boolean false
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------------------
+    ; A table, as a questionnaire
+    ; ------------------------------------------------------------------------
+    sfn describe:Questionnaire (t:DBTable) {
+        def f:Questionnaire (Questionnaire.of(t.name))
+        f.title = t.name
+        def i:int 0
+        def n:int (array_length t.columns)
+        while (i < n) {
+            def col:SchemaColumn (itemAt t.columns i)
+            def kind:string (RecordForm.kindOf(col.dataType))
+            def q:Question (f.question(col.name kind col.name))
+            q.help = col.dataType
+            RecordForm.applyType(q col)
+            ; NOT NULL is a requirement, with one exception that matters in
+            ; practice: a key column the database fills in itself. Marking
+            ; those required would make every new row impossible to save.
+            if ((col.nullable) == false) {
+                if ((RecordForm.selfFilling(col)) == false) {
+                    q.requiredWhen("true")
+                }
+            }
+            ; A key is not edited here. It addresses the row, and a form that
+            ; let somebody retype it would be a form that could not say which
+            ; row it meant afterwards.
+            if (col.isPrimaryKey) {
+                q.rule("readonly" "true")
+            }
+            i = (i + 1)
+        }
+        ; A relationship the form cannot offer as a list of real rows yet is
+        ; NAMED rather than quietly rendered as a number box — the same
+        ; discipline `DBIntrospector` uses for a database it cannot fully
+        ; describe.
+        def k:int 0
+        while (k < n) {
+            def c2:SchemaColumn (itemAt t.columns k)
+            if (c2.isForeignKey) {
+                f.noteGap((c2.name + " points at another table; the form shows the key rather than the row it names"))
+            }
+            k = (k + 1)
+        }
+        return f
+    }
+
+    ; An integer primary key is filled in by the database on insert in every
+    ; engine this viewer speaks to.
+    sfn selfFilling:boolean (col:SchemaColumn) {
+        if ((col.isPrimaryKey) == false) {
+            return false
+        }
+        def fam:string (SqlColumnRules.family(col.dataType))
+        if (fam == "integer") {
+            return true
+        }
+        if (fam == "bigint") {
+            return true
+        }
+        if (fam == "smallint") {
+            return true
+        }
+        return false
+    }
+
+    ; The same `family` the spreadsheet's column rules read, so a type means
+    ; one thing across the whole viewer.
+    sfn kindOf:string (sqlType:string) {
+        def fam:string (SqlColumnRules.family(sqlType))
+        if (fam == "boolean") {
+            return "bool"
+        }
+        if (fam == "smallint") {
+            return "int"
+        }
+        if (fam == "integer") {
+            return "int"
+        }
+        if (fam == "bigint") {
+            return "int"
+        }
+        if (fam == "decimal") {
+            return "decimal"
+        }
+        if (fam == "date") {
+            return "date"
+        }
+        if (fam == "datetime") {
+            return "date"
+        }
+        return "text"
+    }
+
+    sfn applyType:void (q:Question col:SchemaColumn) {
+        def fam:string (SqlColumnRules.family(col.dataType))
+        if (fam == "smallint") {
+            q.between(-32768.0 32767.0)
+            return
+        }
+        if (fam == "integer") {
+            q.between(-2147483648.0 2147483647.0)
+            return
+        }
+        def len:int (SqlColumnRules.lengthOf(col.dataType))
+        if (len > 0) {
+            q.atMost(len)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Opening
+    ; ------------------------------------------------------------------------
+    fn open:boolean (t:DBTable todayDays:int) {
+        table = t
+        form = (RecordForm.describe(t))
+        engine = (FormEngine.load(form host))
+        if ((engine.ready) == false) {
+            errorText = engine.errorText
+            return false
+        }
+        state = (engine.start(todayDays))
+        clear keyColumns
+        def pks:[string] (t.primaryKeyColumns())
+        def i:int 0
+        def n:int (array_length pks)
+        while (i < n) {
+            push keyColumns (itemAt pks i)
+            i = (i + 1)
+        }
+        rowLoaded = false
+        errorText = ""
+        return true
+    }
+
+    ; One row of a chunk, as answers. The chunk's columns are matched to the
+    ; form's questions BY NAME, so a query that returned them in another order
+    ; or returned only some of them still lands in the right boxes.
+    fn loadRow:boolean (chunk:DataChunk row:int todayDays:int) {
+        if (row < 0) {
+            return false
+        }
+        if (row >= chunk.rowCount) {
+            return false
+        }
+        state = (engine.start(todayDays))
+        ; Every question starts as "not in this row", so a second `loadRow`
+        ; cannot leave a column of the previous row behind in a query that
+        ; returned fewer columns.
+        def q:int 0
+        def nq:int (array_length form.questions)
+        while (q < nq) {
+            def question:Question (itemAt form.questions q)
+            def qname:string question.name
+            set loadedText qname ""
+            set loadedNull qname true
+            q = (q + 1)
+        }
+        def c:int 0
+        def n:int (chunk.columnCount())
+        while (c < n) {
+            def col:DBColumn (chunk.columnAt(c))
+            def name:string col.name
+            if (form.has(name)) {
+                def v:DBValue (chunk.valueAt(row c))
+                def text:string ""
+                if ((v.isNull) == false) {
+                    text = (chunk.stringAt(row c))
+                }
+                set loadedText name text
+                set loadedNull name v.isNull
+                if ((v.isNull) == false) {
+                    engine.answerText(state name text)
+                }
+            }
+            c = (c + 1)
+        }
+        rowLoaded = true
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; What was typed
+    ; ------------------------------------------------------------------------
+    fn currentText:string (name:string) {
+        return (engine.textOf(state name))
+    }
+
+    fn loadedTextOf:string (name:string) {
+        def found@(optional):string (get loadedText name)
+        if (null? found) {
+            return ""
+        }
+        return (unwrap found)
+    }
+
+    fn changedFields:[string] () {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            if ((q.isComputed()) == false) {
+                if (((this.currentText(q.name)) == (this.loadedTextOf(q.name))) == false) {
+                    push out q.name
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn isDirty:boolean () {
+        return ((array_length (this.changedFields())) > 0)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Writing it back
+    ; ------------------------------------------------------------------------
+    ;
+    ; Three things have to be true before a statement exists: the row must be
+    ; addressable, every showing answer must be valid, and nothing required
+    ; may be blank. Each failure sets `errorText` and produces no statement.
+    fn canSave:boolean () {
+        errorText = ""
+        if (rowLoaded == false) {
+            errorText = "no row is loaded"
+            return false
+        }
+        if ((array_length keyColumns) == 0) {
+            errorText = (table.name + " has no primary key, so there is no way to say which row an update means")
+            return false
+        }
+        def k:int 0
+        def nk:int (array_length keyColumns)
+        while (k < nk) {
+            def key:string (itemAt keyColumns k)
+            def wasNull@(optional):boolean (get loadedNull key)
+            if (null? wasNull) {
+                errorText = ("the row was read without " + key + ", which is part of its key")
+                return false
+            }
+            if (unwrap wasNull) {
+                errorText = ("the row's " + key + " is NULL, so no key names it")
+                return false
+            }
+            k = (k + 1)
+        }
+        def invalid:[string] (engine.invalidAnswers(state))
+        if ((array_length invalid) > 0) {
+            def first:string (itemAt invalid 0)
+            def st:QuestionState (state.stateOf(first))
+            errorText = (first + ": " + st.message)
+            return false
+        }
+        def missing:[string] (engine.missingAnswers(state))
+        if ((array_length missing) > 0) {
+            errorText = ((itemAt missing 0) + " has to be answered")
+            return false
+        }
+        if ((this.isDirty()) == false) {
+            errorText = "nothing has been changed"
+            return false
+        }
+        return true
+    }
+
+    ; The UPDATE, as a structured mutation. No SQL is built here and none is
+    ; run: the caller decides whether to execute it, and the key values are the
+    ; ones the row was LOADED with, never the ones on screen.
+    fn mutation:DBMutation () {
+        def m:DBMutation (DBMutation.makeUpdate(table.name))
+        if ((this.canSave()) == false) {
+            return m
+        }
+        def k:int 0
+        def nk:int (array_length keyColumns)
+        while (k < nk) {
+            def key:string (itemAt keyColumns k)
+            m.withKey(key (this.dbValueOf(key (this.loadedTextOf(key)))))
+            k = (k + 1)
+        }
+        def changed:[string] (this.changedFields())
+        def i:int 0
+        def n:int (array_length changed)
+        while (i < n) {
+            def name:string (itemAt changed i)
+            ; A key column is read-only, so it cannot be here; if it somehow
+            ; is, it is dropped rather than written, because changing the key
+            ; in the same statement that uses it to find the row is a way to
+            ; update a row nobody meant.
+            if ((RecordForm.listHas(keyColumns name)) == false) {
+                m.withValue(name (this.dbValueOf(name (this.currentText(name)))))
+            }
+            i = (i + 1)
+        }
+        return m
+    }
+
+    ; The typed value a column expects, from the text a person typed. Blank is
+    ; NULL, which is the choice every database GUI makes and the one the
+    ; spreadsheet panels make too.
+    fn dbValueOf:DBValue (name:string text:string) {
+        def at:int (table.columnIndex(name))
+        def kind:int 4
+        if (at >= 0) {
+            def col:SchemaColumn (itemAt table.columns at)
+            def fam:string (SqlColumnRules.family(col.dataType))
+            if (fam == "boolean") {
+                kind = 1
+            }
+            if (fam == "smallint") {
+                kind = 2
+            }
+            if (fam == "integer") {
+                kind = 2
+            }
+            if (fam == "bigint") {
+                kind = 2
+            }
+            if (fam == "decimal") {
+                kind = 3
+            }
+        }
+        if ((strlen text) == 0) {
+            return (DBValue.nullOf(kind))
+        }
+        if (kind == 1) {
+            return (DBValue.fromBool((FormEngine.isYes((to_lowercase text)))))
+        }
+        if (kind == 2) {
+            def asInt@(optional):int (to_int text)
+            if (null? asInt) {
+                return (DBValue.fromString(text))
+            }
+            return (DBValue.fromInt((unwrap asInt)))
+        }
+        if (kind == 3) {
+            def asNum@(optional):double (to_double text)
+            if (null? asNum) {
+                return (DBValue.fromString(text))
+            }
+            return (DBValue.fromDouble((unwrap asNum)))
+        }
+        return (DBValue.fromString(text))
+    }
+
+    ; A human account of what the save would do, for a status line and for a
+    ; person who would rather read it than run it.
+    fn preview:string () {
+        if ((this.canSave()) == false) {
+            return errorText
+        }
+        def out:string ("UPDATE " + table.name + " SET ")
+        def changed:[string] (this.changedFields())
+        def i:int 0
+        def n:int (array_length changed)
+        def written:int 0
+        while (i < n) {
+            def name:string (itemAt changed i)
+            if ((RecordForm.listHas(keyColumns name)) == false) {
+                if (written > 0) {
+                    out = (out + ", ")
+                }
+                out = (out + name + " = " + (RecordForm.shown((this.currentText(name)))))
+                written = (written + 1)
+            }
+            i = (i + 1)
+        }
+        out = (out + " WHERE ")
+        def k:int 0
+        def nk:int (array_length keyColumns)
+        while (k < nk) {
+            def key:string (itemAt keyColumns k)
+            if (k > 0) {
+                out = (out + " AND ")
+            }
+            out = (out + key + " = " + (RecordForm.shown((this.loadedTextOf(key)))))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn shown:string (text:string) {
+        if ((strlen text) == 0) {
+            return "NULL"
+        }
+        return text
+    }
+
+    sfn listHas:boolean (list:[string] want:string) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

@@ -1,0 +1,342 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DataSheet.rgr — a page of rows, as a spreadsheet you can edit.
+; ============================================================================
+;
+;      A          B                    C        D
+;   ┌──────────┬────────────────────┬────────┬──────────┐
+; 1 │ id       │ email              │ active │ country  │
+; 2 │ 1        │ ada@example.com    │ true ▾ │ FI       │
+; 3 │ 2        │ grace@example.com  │ false▾ │ US       │
+;   └──────────┴────────────────────┴────────┴──────────┘
+;
+; The same component the Schema section uses, and the same component the
+; spreadsheet application is: `GridPane` with the chrome switched off. What is
+; different is what the columns will ACCEPT, and that comes from the table's
+; own declared types through `SqlColumnRules` — `VARCHAR(64) NOT NULL` becomes
+; a length rule that refuses blanks, `BOOLEAN` becomes a dropdown.
+;
+; So the grid refuses an entry the database would have refused, at the moment
+; it is typed, without the viewer having written an editor or a validator.
+;
+; ---------------------------------------------------------------------------
+; A blank cell is NULL
+; ---------------------------------------------------------------------------
+;
+; A grid has one empty state and SQL has two. This treats blank as NULL, which
+; is the choice every database GUI makes, and the rule from the column carries
+; the consequence: a NOT NULL column has `allowBlank` off, so the cell that
+; cannot be NULL cannot be cleared either.
+;
+; ---------------------------------------------------------------------------
+; An edit is not a write
+; ---------------------------------------------------------------------------
+;
+; Typing changes the sheet. `changes()` is what turns that into a list of
+; addressed edits — each one carrying the primary key of the row it belongs to
+; — and a table with no primary key produces edits that say `addressable =
+; false`, because there is no way to name the row an UPDATE should touch and
+; guessing is how a tool destroys data.
+; ============================================================================
+
+Import "../../datagrid/src/SqlColumnRules.rgr"
+Import "../../rangerdb/src/schema/DatabaseSchema.rgr"
+Import "../../rangerdb/src/DataChunk.rgr"
+
+; One cell somebody changed, with enough around it to write the statement.
+class CellEdit {
+    def table:string ""
+    def column:string ""
+    ; Which row of the page, and which row of the table.
+    def sheetRow:int 0
+    def tableRow:int 0
+    def before:string ""
+    def after:string ""
+    def wasNull:boolean false
+    def isNull:boolean false
+    ; The primary key of the row, so an UPDATE can name it.
+    def keyColumns:[string]
+    def keyValues:[string]
+    def addressable:boolean false
+
+    Constructor () {
+    }
+
+    fn describe:string () {
+        def where:string table
+        if addressable {
+            def i:int 0
+            def n:int (array_length keyColumns)
+            while (i < n) {
+                def sep:string " WHERE "
+                if (i > 0) {
+                    sep = " AND "
+                }
+                where = (where + sep + (itemAt keyColumns i) + "=" + (itemAt keyValues i))
+                i = (i + 1)
+            }
+        } {
+            where = (where + " (row " + (to_string tableRow) + ", no primary key)")
+        }
+        def to:string after
+        if isNull {
+            to = "NULL"
+        }
+        def from:string before
+        if wasNull {
+            from = "NULL"
+        }
+        return (where + ": " + column + " " + from + " → " + to)
+    }
+}
+
+class DataSheet {
+    def pane:GridPane (new GridPane)
+    def tableName:string ""
+    ; The ordinal of the first row on the page, so an edit can say which row
+    ; of the table it changed and not merely which row of the screen.
+    def offset:int 0
+    def rows:int 0
+    def cols:int 0
+    def names:[string]
+    ; The page as it was loaded, flattened row-major, so a diff has a left
+    ; hand side after somebody types.
+    def loaded:[string]
+    def loadedNull:[boolean]
+    def keyColumns:[string]
+    def keyAt:[int]
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Building
+    ; ------------------------------------------------------------------------
+    fn build:void (t:DBTable chunk:DataChunk firstRow:int) {
+        tableName = t.name
+        offset = firstRow
+        rows = chunk.rowCount
+        cols = (chunk.columnCount())
+        clear names
+        clear loaded
+        clear loadedNull
+        clear keyColumns
+        clear keyAt
+
+        def m:SpreadsheetModel (new SpreadsheetModel)
+        m.growTo((rows + 2) (cols + 1))
+        def c:int 0
+        while (c < cols) {
+            def col:DBColumn (chunk.columnAt(c))
+            push names col.name
+            m.setCell(0 c col.name)
+            c = (c + 1)
+        }
+        def r:int 0
+        while (r < rows) {
+            def cc:int 0
+            while (cc < cols) {
+                def v:DBValue (chunk.valueAt(r cc))
+                def text:string ""
+                if ((v.isNull) == false) {
+                    text = (chunk.stringAt(r cc))
+                }
+                push loaded text
+                push loadedNull v.isNull
+                m.setCell((r + 1) cc text)
+                cc = (cc + 1)
+            }
+            r = (r + 1)
+        }
+        pane.adopt(m)
+
+        ; What each column will take, said once per column, in the terms the
+        ; table itself declares.
+        def last:int rows
+        def k:int 0
+        while (k < cols) {
+            def name:string (itemAt names k)
+            def at:int (t.columnIndex(name))
+            if (at >= 0) {
+                def sc:SchemaColumn (itemAt t.columns at)
+                SqlColumnRules.apply(pane k 1 last sc.dataType sc.nullable)
+                if (sc.isPrimaryKey) {
+                    push keyColumns name
+                    push keyAt k
+                }
+            }
+            k = (k + 1)
+        }
+        ; The header row is the column names of the TABLE. Renaming a column
+        ; is a schema change, and the schema panel is where it belongs, so
+        ; here the row refuses entries through its own rule.
+        if (cols > 0) {
+            pane.lockRange(0 0 0 (cols - 1) "column names are changed in the Schema panel, not here")
+        }
+        ; A column as wide as what is actually in it. Measured from the values
+        ; on THIS page rather than from the declared type, because a VARCHAR
+        ; column holding country codes should not be as wide as a VARCHAR
+        ; column holding addresses.
+        def w:int 0
+        while (w < cols) {
+            pane.model.setColWidth(w (this.widthFor(w)))
+            w = (w + 1)
+        }
+        pane.refresh()
+        pane.selectCell(1 0)
+    }
+
+    ; Roughly seven pixels a character, bounded so one long value does not
+    ; push every other column off the screen.
+    fn widthFor:int (col:int) {
+        def longest:int (strlen (itemAt names col))
+        def r:int 0
+        while (r < rows) {
+            def n:int (strlen (this.loadedAt(r col)))
+            if (n > longest) {
+                longest = n
+            }
+            r = (r + 1)
+        }
+        def px:int (28 + (longest * 8))
+        if (px < 64) {
+            return 64
+        }
+        if (px > 260) {
+            return 260
+        }
+        return px
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Reading the sheet back
+    ; ------------------------------------------------------------------------
+    fn columnIndex:int (name:string) {
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if ((itemAt names i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn textAt:string (row:int col:int) {
+        return (pane.model.getCell((row + 1) col))
+    }
+
+    fn loadedAt:string (row:int col:int) {
+        def at:int ((row * cols) + col)
+        if (at < 0) {
+            return ""
+        }
+        if (at >= (array_length loaded)) {
+            return ""
+        }
+        return (itemAt loaded at)
+    }
+
+    fn loadedWasNull:boolean (row:int col:int) {
+        def at:int ((row * cols) + col)
+        if (at < 0) {
+            return false
+        }
+        if (at >= (array_length loadedNull)) {
+            return false
+        }
+        return (itemAt loadedNull at)
+    }
+
+    ; Whether the row can be named by an UPDATE. Every key column has to be
+    ; present in the page AND unedited: a key somebody has just retyped names
+    ; a different row from the one they meant to change.
+    fn rowAddressable:boolean (row:int) {
+        if ((array_length keyColumns) == 0) {
+            return false
+        }
+        def i:int 0
+        def n:int (array_length keyAt)
+        while (i < n) {
+            def c:int (itemAt keyAt i)
+            if (((this.textAt(row c)) == (this.loadedAt(row c))) == false) {
+                return false
+            }
+            if (this.loadedWasNull(row c)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn changes:[CellEdit] () {
+        def out:[CellEdit]
+        def r:int 0
+        while (r < rows) {
+            def addressable:boolean (this.rowAddressable(r))
+            def c:int 0
+            while (c < cols) {
+                def now:string (this.textAt(r c))
+                def was:string (this.loadedAt(r c))
+                if ((now == was) == false) {
+                    def e:CellEdit (new CellEdit)
+                    e.table = tableName
+                    e.column = (itemAt names c)
+                    e.sheetRow = r
+                    e.tableRow = (offset + r)
+                    e.before = was
+                    e.after = now
+                    e.wasNull = (this.loadedWasNull(r c))
+                    e.isNull = ((strlen now) == 0)
+                    e.addressable = addressable
+                    if addressable {
+                        def i:int 0
+                        def n:int (array_length keyAt)
+                        while (i < n) {
+                            push e.keyColumns (itemAt keyColumns i)
+                            push e.keyValues (this.loadedAt(r (itemAt keyAt i)))
+                            i = (i + 1)
+                        }
+                    }
+                    push out e
+                    ; A key column that WAS edited makes the row unaddressable
+                    ; above, so the edit is reported and refused rather than
+                    ; written against a row nobody named.
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+        return out
+    }
+
+    fn isDirty:boolean () {
+        return ((array_length (this.changes())) > 0)
+    }
+
+    ; A one-line account of what is waiting, for the status bar.
+    fn summary:string () {
+        def list:[CellEdit] (this.changes())
+        def n:int (array_length list)
+        if (n == 0) {
+            return ""
+        }
+        def blocked:int 0
+        def i:int 0
+        while (i < n) {
+            def e:CellEdit (itemAt list i)
+            if ((e.addressable) == false) {
+                blocked = (blocked + 1)
+            }
+            i = (i + 1)
+        }
+        def s:string ((to_string n) + " cell edits pending")
+        if (blocked > 0) {
+            s = (s + ", " + (to_string blocked) + " of them on rows no key can name")
+        }
+        return s
+    }
+}

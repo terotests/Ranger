@@ -130,16 +130,16 @@ class JsonParser {
     }
 
     fn skipWs:void () {
-        def go:boolean true
-        while go {
+        def scanning:boolean true
+        while scanning {
             if (i >= n) {
-                go = false
+                scanning = false
             } {
                 def c:int (charAt s i)
                 if (this.isWs(c)) {
                     i = (i + 1)
                 } {
-                    go = false
+                    scanning = false
                 }
             }
         }
@@ -235,16 +235,16 @@ class JsonParser {
 
     fn parseNumber:JsonValue () {
         def start:int i
-        def go:boolean true
-        while go {
+        def scanning:boolean true
+        while scanning {
             if (i >= n) {
-                go = false
+                scanning = false
             } {
                 def c:int (charAt s i)
                 if (this.isNumChar(c)) {
                     i = (i + 1)
                 } {
-                    go = false
+                    scanning = false
                 }
             }
         }
@@ -287,22 +287,22 @@ class JsonParser {
         ; assumes current char is the opening quote
         i = (i + 1)
         def out:string ""
-        def go:boolean true
-        while go {
+        def scanning:boolean true
+        while scanning {
             if (i >= n) {
                 this.fail("unterminated string")
-                go = false
+                scanning = false
             } {
                 def c:int (charAt s i)
                 if (c == 34) {
                     i = (i + 1)
-                    go = false
+                    scanning = false
                 } {
                     if (c == 92) {
                         i = (i + 1)
                         if (i >= n) {
                             this.fail("unterminated escape")
-                            go = false
+                            scanning = false
                         } {
                             def e:int (charAt s i)
                             out = (out + (this.decodeEscape(e)))
@@ -375,14 +375,14 @@ class JsonParser {
                 return v
             }
         }
-        def go:boolean true
-        while go {
+        def scanning:boolean true
+        while scanning {
             def item:JsonValue (this.parseValue())
             push v.arr item
             this.skipWs()
             if (i >= n) {
                 this.fail("unterminated array")
-                go = false
+                scanning = false
             } {
                 def c:int (charAt s i)
                 if (c == 44) {
@@ -391,15 +391,15 @@ class JsonParser {
                 } {
                     if (c == 93) {
                         i = (i + 1)
-                        go = false
+                        scanning = false
                     } {
                         this.fail("expected ',' or ']' in array")
-                        go = false
+                        scanning = false
                     }
                 }
             }
             if (ok == false) {
-                go = false
+                scanning = false
             }
         }
         return v
@@ -416,26 +416,26 @@ class JsonParser {
                 return v
             }
         }
-        def go:boolean true
-        while go {
+        def scanning:boolean true
+        while scanning {
             this.skipWs()
             if (i >= n) {
                 this.fail("unterminated object")
-                go = false
+                scanning = false
             } {
                 if ((charAt s i) != 34) {
                     this.fail("expected string key in object")
-                    go = false
+                    scanning = false
                 } {
                     def key:string (this.readRawString())
                     this.skipWs()
                     if (i >= n) {
                         this.fail("expected ':' in object")
-                        go = false
+                        scanning = false
                     } {
                         if ((charAt s i) != 58) {
                             this.fail("expected ':' in object")
-                            go = false
+                            scanning = false
                         } {
                             i = (i + 1)
                             def val:JsonValue (this.parseValue())
@@ -444,7 +444,7 @@ class JsonParser {
                             this.skipWs()
                             if (i >= n) {
                                 this.fail("unterminated object")
-                                go = false
+                                scanning = false
                             } {
                                 def c:int (charAt s i)
                                 if (c == 44) {
@@ -452,10 +452,10 @@ class JsonParser {
                                 } {
                                     if (c == 125) {
                                         i = (i + 1)
-                                        go = false
+                                        scanning = false
                                     } {
                                         this.fail("expected ',' or '}' in object")
-                                        go = false
+                                        scanning = false
                                     }
                                 }
                             }
@@ -464,7 +464,7 @@ class JsonParser {
                 }
             }
             if (ok == false) {
-                go = false
+                scanning = false
             }
         }
         return v

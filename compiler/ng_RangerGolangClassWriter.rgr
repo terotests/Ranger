@@ -1073,7 +1073,40 @@ class RangerGolangClassWriter {
 
 
 
-  fn writeStructField:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+   ; Every ancestor of a class, direct parents first, then theirs, and so on,
+  ; each named once however many paths reach it.
+  ;
+  ; Go has no inheritance, so a derived class is emitted as a FLAT struct
+  ; carrying every field and method it inherits. Walking one level meant
+  ; `C extends B extends A` got B's and not A's: the struct was missing
+  ; fields, the constructor left them uninitialised, and the interface
+  ; generated for A was not implemented — three separate errors naming things
+  ; nobody had written.
+  fn goAncestors:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def out:[string]
+    def seen:[string:boolean]
+    def pending:[string]
+    for cl.extends_classes seedName:string si {
+      push pending seedName
+    }
+    def at:int 0
+    while ( at < ( array_length pending ) ) {
+      def pName:string (itemAt pending at)
+      at = (at + 1)
+      if( has seen pName ) {
+        continue
+      }
+      set seen pName true
+      push out pName
+      def pC:RangerAppClassDesc (ctx.findClass(pName))
+      for pC.extends_classes upName:string ui {
+        push pending upName
+      }
+    }
+    return out
+  }
+
+ fn writeStructField:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
@@ -2040,16 +2073,15 @@ class RangerGolangClassWriter {
       set declaredVariable pvar.name true
     }
 
-    if ( ( array_length cl.extends_classes ) > 0 ) { 
-      for cl.extends_classes pName:string i {
-        def pC:RangerAppClassDesc (ctx.findClass(pName))
-        wr.out("// inherited from parent class " + pName , true)
-        for pC.variables pvar:RangerAppParamDesc i {
-          if(has declaredVariable pvar.name) {
-            continue
-          }
-          this.writeStructField(( unwrap pvar.node ) ctx wr)
+    for (this.goAncestors((unwrap cl) ctx)) pName:string ai {
+      def pC:RangerAppClassDesc (ctx.findClass(pName))
+      wr.out("// inherited from parent class " + pName , true)
+      for pC.variables pvar:RangerAppParamDesc i {
+        if(has declaredVariable pvar.name) {
+          continue
         }
+        set declaredVariable pvar.name true
+        this.writeStructField(( unwrap pvar.node ) ctx wr)
       }
     }
 
@@ -2130,11 +2162,16 @@ class RangerGolangClassWriter {
 
 
     ; write inherited vriables
-    if ( ( array_length cl.extends_classes ) > 0 ) { 
-      for cl.extends_classes pName:string i {
+    def initedVariable:[string:boolean]
+    for (this.goAncestors((unwrap cl) ctx)) pName:string ai {
+      {
         def pC:RangerAppClassDesc (ctx.findClass(pName))
 
         for pC.variables pvar:RangerAppParamDesc i {
+          if(has initedVariable pvar.name) {
+            continue
+          }
+          set initedVariable pvar.name true
           def nn:CodeNode ( unwrap pvar.node )
           if ((array_length nn.children) > 2) {
             def valueNode:CodeNode (itemAt nn.children 2)
@@ -2297,8 +2334,8 @@ class RangerGolangClassWriter {
     }
 
 
-    if ( ( array_length cl.extends_classes ) > 0 ) { 
-      for cl.extends_classes pName:string i {
+    for (this.goAncestors((unwrap cl) ctx)) pName:string ai {
+      {
         def pC:RangerAppClassDesc (ctx.findClass(pName))
         wr.out("// inherited methods from parent class " + pName , true)
         for pC.defined_variants fnVar:string i {
@@ -2309,11 +2346,11 @@ class RangerGolangClassWriter {
               ; print variant.name + "was declared already!"
               continue
             }
-
-;            if(has declaredFunction variant.name) {
-;              continue
-;            }
-;            set declaredFunction variant.name true            
+            ; The NEAREST ancestor that defines a method wins, and the ones
+            ; above it are skipped. Without this the walk emitted `parse`
+            ; twice for a class whose parent and grandparent both define it,
+            ; and Go refuses a method declared on the same type twice.
+            set declaredFn variant.name true
 
             wr.out((((("func (this *" + cl.name) + ") ") + variant.compiledName) + " (") false)
             this.writeArgsDef(variant ctx wr)
@@ -2382,8 +2419,15 @@ class RangerGolangClassWriter {
           wr.out("}" true)     
       }    
 
-      if ( ( array_length cl.extends_classes ) > 0 ) { 
-        for cl.extends_classes pName:string i {
+      ; Every ancestor, not only the direct parents.
+      ;
+      ; A Go interface is satisfied by having the methods, so a class two
+      ; levels down from the one an interface was generated for needs the
+      ; grandparent's accessors as much as the parent's. Walking one level
+      ; meant `C extends B extends A` silently failed to implement A's
+      ; interface, and the error named a method nobody had written.
+      for (this.goAncestors((unwrap cl) ctx)) pName:string ai {
+        {
           def pC:RangerAppClassDesc (ctx.findClass(pName))
           wr.out("// inherited getters and setters from the parent class " + pName , true)
           for pC.variables p:RangerAppParamDesc i {
@@ -2424,6 +2468,7 @@ class RangerGolangClassWriter {
               wr.out("this." + p.compiledName +" = value " , true)
               wr.indent(-1)
             wr.out("}" true) 
+            set declaredGetter p.name true
           }
         }
       }

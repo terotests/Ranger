@@ -1,0 +1,31 @@
+{
+  "name": "operators",
+  "note": "the words XPath spells differently, and the function set",
+  "script": [
+    {
+      "a": 7
+    },
+    {
+      "b": 3
+    },
+    {
+      "name": "Ada"
+    },
+    {
+      "a": 9
+    },
+    {
+      "b": 9
+    }
+  ],
+  "knownDifferences": [
+    {
+      "question": "ratio",
+      "reason": "empty is not zero: div over an unanswered node is unanswered, where XPath makes it NaN"
+    },
+    {
+      "question": "rest",
+      "reason": "empty is not zero: mod over an unanswered node is unanswered, where XPath makes it NaN"
+    }
+  ]
+}

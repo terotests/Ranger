@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">
+  <h:head>
+    <h:title>Select</h:title>
+    <model>
+      <instance>
+        <data id="select">
+          <country/>
+          <symptoms/>
+          <nordic/>
+          <urgent/>
+          <howmany/>
+        </data>
+      </instance>
+      <bind nodeset="/data/country" type="string"/>
+      <bind nodeset="/data/symptoms" type="string"/>
+      <bind nodeset="/data/nordic" type="string" relevant="/data/country = 'FI' or /data/country = 'SE' or /data/country = 'NO'"/>
+      <bind nodeset="/data/urgent" type="string" relevant="selected(/data/symptoms, 'fever')"/>
+      <bind nodeset="/data/howmany" type="int" calculate="count-selected(/data/symptoms)"/>
+    </model>
+  </h:head>
+  <h:body>
+    <select1 ref="/data/country">
+      <label>Country</label>
+      <item><label>Finland</label><value>FI</value></item>
+      <item><label>Sweden</label><value>SE</value></item>
+      <item><label>Norway</label><value>NO</value></item>
+      <item><label>Portugal</label><value>PT</value></item>
+    </select1>
+    <select ref="/data/symptoms">
+      <label>Symptoms</label>
+      <item><label>Cough</label><value>cough</value></item>
+      <item><label>Fever</label><value>fever</value></item>
+      <item><label>Ache</label><value>ache</value></item>
+    </select>
+    <input ref="/data/nordic"><label>Nordic note</label></input>
+    <input ref="/data/urgent"><label>Urgent</label></input>
+  </h:body>
+</h:html>
