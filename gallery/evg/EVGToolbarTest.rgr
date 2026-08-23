@@ -175,6 +175,58 @@ class EVGToolbarTest {
         }
         c.ok("including text" (texts > 3))
 
+        print "-- and the same strip, turned around --"
+        ; The switch, on the part of the interface that does not go through
+        ; EVGLayout: a toolbar computes its own geometry, so it mirrors
+        ; itself, with the same reflection and for the same reason.
+        def rbar (new EVGToolbar)
+        rbar.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        rbar.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        rbar.add("format.bold" "" "Bold" (ToolIcon.bold()))
+        rbar.layout(0 0 900)
+        def lx0:int ((rbar.at(0)).x)
+        def lx1:int ((rbar.at(1)).x)
+        def lx2:int ((rbar.at(2)).x)
+        c.ok("left to right, Undo is leftmost" (lx0 < lx1))
+        c.ok("and Bold is rightmost" (lx1 < lx2))
+
+        def mbar (new EVGToolbar)
+        mbar.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        mbar.add("edit.redo" "" "Redo" (ToolIcon.redo()))
+        mbar.add("format.bold" "" "Bold" (ToolIcon.bold()))
+        mbar.rtl = true
+        mbar.layout(0 0 900)
+        def rx0:int ((mbar.at(0)).x)
+        def rx1:int ((mbar.at(1)).x)
+        def rx2:int ((mbar.at(2)).x)
+        c.ok("turned around, Undo is rightmost" (rx0 > rx1))
+        c.ok("and Bold is leftmost" (rx1 > rx2))
+        ; The widths are unchanged and the strip still starts where it did:
+        ; this reflects the buttons, it does not restretch the band.
+        c.eqInt("the strip is the same height" mbar.height rbar.height)
+        def undoItem:ToolItem (rbar.at(0))
+        def boldItem:ToolItem (mbar.at(2))
+        def undoW:int undoItem.w
+        def boldW:int boldItem.w
+        c.eqInt("and Bold begins where Undo used to end" rx2 ((lx0 + undoW) - boldW))
+
+        ; The click follows, because it reads the same rectangle the painter
+        ; does. This is the check that would fail if mirroring had been done
+        ; in the PAINTER instead — the strip would look right and every
+        ; button would run its opposite number's command.
+        def firstItem:ToolItem (mbar.at(0))
+        def firstY:int firstItem.y
+        def hitR:int (mbar.hit((rx0 + 2) (firstY + 2)))
+        c.eqInt("clicking the rightmost button hits Undo" hitR 0)
+        def lastY:int boldItem.y
+        def hitL:int (mbar.hit((rx2 + 2) (lastY + 2)))
+        c.eqInt("and the leftmost hits Bold" hitL 2)
+        ; The order in the model is untouched, so a screen reader still reads
+        ; the strip as Undo, Redo, Bold — which is the order it was built in
+        ; and the order it is spoken in, whichever way it is drawn.
+        def firstCmd:string firstItem.command
+        c.eqStr("the model order is untouched" firstCmd "edit.undo")
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

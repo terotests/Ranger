@@ -37,6 +37,10 @@ Import "../../evg/EVGCommands.rgr"
 ; Which buttons a document has. The strip itself is shared; this is the only
 ; part that is about documents.
 class DocxToolbar extends EVGToolbar {
+    ; What the direction switch is currently showing. The strip needs it to
+    ; draw the button pressed; the app owns the decision.
+    def uiRtl:boolean false
+
     Constructor () {
     }
 
@@ -59,6 +63,8 @@ class DocxToolbar extends EVGToolbar {
         this.add("edit.mode" "" "Edit the document" (ToolIcon.editMode()))
         this.add("page.prev" "" "Previous page" (ToolIcon.navPrev()))
         this.add("page.next" "" "Next page" (ToolIcon.navNext()))
+        this.addSeparator()
+        this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
     }
 
     ; What the strip is about to draw. The strip cannot work this out: "is
@@ -76,6 +82,9 @@ class DocxToolbar extends EVGToolbar {
             }
             if (t.command == "edit.mode") {
                 t.pressed = editing
+            }
+            if (t.command == "view.rtl") {
+                t.pressed = uiRtl
             }
             if (t.textW > 0) {
                 if (t.command == "format.font") {
@@ -99,6 +108,15 @@ class DocxToolbar extends EVGToolbar {
 
 class DocxApp {
     def viewer:DocxViewer (new DocxViewer)
+    ; Whether the interface is mirrored. Not the document's direction — that
+    ; is the file's business and is read from `w:bidi`; this is which way the
+    ; PROGRAM is laid out around it.
+    def uiRtl:boolean false
+    ; Has the reader turned the interface back to left-to-right by hand?
+    ; While they have, the automatic half stays quiet: a program that keeps
+    ; undoing a deliberate choice every time a file is opened is worse than
+    ; one that never guessed.
+    def uiRtlChosen:boolean false
     def toolbar:DocxToolbar (new DocxToolbar)
     def toolbarView:EVGToolbarView (new EVGToolbarView)
     def windows:EVGWindowManager (new EVGWindowManager)
@@ -181,6 +199,7 @@ class DocxApp {
         commands.add("page.next" "Next page" "View" "PageDown")
         commands.add("page.prev" "Previous page" "View" "PageUp")
         commands.addArg("page.goto" "Go to page" "View" "")
+        commands.add("view.rtl" "Right-to-left layout" "View" "")
     }
 
     ; --- geometry -------------------------------------------------------------
@@ -193,9 +212,57 @@ class DocxApp {
     }
 
     ; --- the command surface --------------------------------------------------
+    ; Turn the interface around, or back.
+    ;
+    ; One flag, and everything that has been taught the direction follows it:
+    ; the strip mirrors itself, and anything drawn through EVGLayout mirrors
+    ; because the property inherits from the root. The DOCUMENT's own
+    ; direction is a separate question and is not touched here — a Word file
+    ; says which way its paragraphs run and that is not the reader's to
+    ; override.
+    fn setUiRtl:void (on:boolean) {
+        uiRtl = on
+        toolbar.rtl = on
+        toolbar.uiRtl = on
+    }
+
+    ; And the automatic half: a document that is written right to left opens
+    ; with the interface already turned around, because a reader who has to
+    ; find a switch first has already been told the program does not
+    ; understand what it is showing. Only ever turns it ON — a reader who
+    ; turned it off is not overruled by the next file they open.
+    fn adoptDocumentDirection:void (doc:RichDocument) {
+        if uiRtlChosen {
+            return
+        }
+        if uiRtl {
+            return
+        }
+        def i:int 0
+        while (i < (array_length doc.paragraphs)) {
+            def p:Paragraph (itemAt doc.paragraphs i)
+            if (p.bidi == 1) {
+                this.setUiRtl(true)
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
     fn runCommand:boolean (id:string arg:string) {
         if (id == "file.save") {
             fileRequest = "saveAs"
+            return true
+        }
+        if (id == "view.rtl") {
+            ; The latch goes down exactly when the reader turns the interface
+            ; OFF, and lifts when they turn it back on. "The reader said no"
+            ; is the only thing the automatic half has to respect — it never
+            ; turns the switch off, so a reader who turned it on by hand has
+            ; nothing to be overruled about.
+            def next:boolean (uiRtl == false)
+            uiRtlChosen = (next == false)
+            this.setUiRtl(next)
             return true
         }
         if (id == "edit.mode") {
@@ -570,6 +637,13 @@ class DocxApp {
 
         toolbarView.attach(viewer.view.ctx "Open Sans")
         toolbarView.theme = theme
+        ; A right-to-left document opens with the interface already turned
+        ; around. Checked here rather than at load because this app has no
+        ; single load hook — it costs one walk of the paragraph list per
+        ; frame, and only while the answer is still no: once the interface is
+        ; turned around this returns on its first line, and a reader who turns
+        ; it back off is never overruled.
+        this.adoptDocumentDirection(viewer.doc)
         toolbar.refresh(viewer.edit (viewer.editMode()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 

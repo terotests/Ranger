@@ -22,6 +22,10 @@ Import "GridFormat.rgr"
 Import "../../evg/EVGToolbar.rgr"
 
 class GridToolbar extends EVGToolbar {
+    ; What the direction switch is showing. The strip needs it to draw the
+    ; button pressed; the app owns the decision.
+    def uiRtl:boolean false
+
     Constructor () {
     }
 
@@ -89,6 +93,8 @@ class GridToolbar extends EVGToolbar {
         this.add("script.run" "" "Run the report script" (ToolIcon.report()))
         this.add("db.connection" "" "Database connection" (ToolIcon.database()))
         this.add("db.sql.dialog" "" "SQL query" (ToolIcon.sqlBox()))
+        this.addSeparator()
+        this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
     }
 
     fn isPressed:boolean (i:int model:SpreadsheetModel sel:GridSelection) {
@@ -111,6 +117,9 @@ class GridToolbar extends EVGToolbar {
                 t.pressed = (GridFormat.activeIsOn(model sel t.toggleOp t.toggleArg))
             } {
                 t.pressed = false
+            }
+            if (t.command == "view.rtl") {
+                t.pressed = uiRtl
             }
             i = (i + 1)
         }

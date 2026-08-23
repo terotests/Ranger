@@ -38,6 +38,15 @@ class ToolIconPath {
 
     ; The silhouette for an icon, or "" when it is drawn some other way.
     sfn dataFor:string (k:int) {
+        ; --- the direction switch
+        ;
+        ; Three lines of a paragraph, ragged on the LEFT rather than the
+        ; right, over an arrow pointing left. A reader who has never seen the
+        ; button before can still read it as "the text goes that way", which
+        ; is more than a pair of mirrored arrows or the letters RTL manage.
+        if (k == (ToolIcon.textRtl())) {
+            return "M4 3 h16 v3 h-16 z M8 8 h12 v3 h-12 z M4 13 h16 v3 h-16 z M9 21 l4 -4 v2.4 h8 v3.2 h-8 v2.4 z"
+        }
         ; --- files and history
         if (k == (ToolIcon.newFile())) {
             return "M5 2 h9 l5 5 v15 h-14 z"

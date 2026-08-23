@@ -176,6 +176,11 @@ class ToolIcon {
     ; the paint roller and the all-borders grid, and the grid was ALSO the box
     ; tool two buttons away.
     sfn formatPaste:int () { return 78 }
+    ; The switch that turns the interface around. Drawn as a paragraph of
+    ; ragged lines with an arrow under it pointing LEFT — the direction the
+    ; text will run once it is pressed, which is the only thing about this
+    ; button a reader needs to guess.
+    sfn textRtl:int ()     { return 79 }
 }
 
 class ToolItem {
@@ -194,6 +199,10 @@ class ToolItem {
     def y:int 0
     def w:int 0
     def h:int 0
+    ; Which wrapped row this landed on. Recorded rather than derived from `y`,
+    ; because deriving it means knowing the strip's own origin and a mirroring
+    ; pass that got that subtraction wrong would move buttons between rows.
+    def row:int 0
     ; A separator is drawn as a rule and cannot be clicked.
     def isSeparator:boolean false
     ; Whether a toggle is currently on. The strip does not know how to answer
@@ -223,6 +232,16 @@ class EVGToolbar {
     def height:int 36
     def pad:int 5
     def iconW:int 30
+    ; Lay the strip out right to left.
+    ;
+    ; This is the same switch `direction: rtl` is in EVGLayout, for the part
+    ; of the interface that does not go through it: a toolbar computes its own
+    ; geometry because it is a single row of chips, not a flex tree. The
+    ; mirroring is the same reflection, for the same reason — everything that
+    ; reads a button's position, the painter, the click and the accessibility
+    ; tree, reads `x` and `w` off the item, so turning those around turns all
+    ; three around together and none of them has to know.
+    def rtl:boolean false
     ; Which item the pointer is over, or -1. Only chrome, but it is the
     ; difference between a strip of shapes and something that looks clickable.
     def hot:int -1
@@ -293,6 +312,7 @@ class EVGToolbar {
             }
             t.x = cx
             t.y = ((y0 + (row * rowH)) + 3)
+            t.row = row
             t.w = w
             t.h = (rowH - 6)
             cx = (cx + w)
@@ -303,7 +323,61 @@ class EVGToolbar {
         }
         rows = (row + 1)
         height = (rows * rowH)
+        if rtl {
+            this.mirrorRows(x0 width)
+        }
     }
+
+    ; Reflect every placed button about the strip, so the first command is
+    ; under the reader's hand — which for a right-to-left reader is the right
+    ; end of the strip, exactly as the first word of a line is.
+    ;
+    ; Each row is mirrored on its own, not the strip as a whole: a wrapped
+    ; last row is short, and reflecting the whole band would leave its buttons
+    ; floating in the middle instead of against the edge the rest start from.
+    ; Buttons that did not fit were given no rectangle and are left alone —
+    ; reflecting a zero-width item at zero would put a phantom target at the
+    ; far edge.
+    fn mirrorRows:void (x0:int width:int) {
+        def r:int 0
+        while (r < rows) {
+            ; Where this row's buttons actually reach, which is not the strip
+            ; width once a row has wrapped.
+            def lo:int (x0 + width)
+            def hi:int x0
+            def i:int 0
+            while (i < (array_length items)) {
+                def t:ToolItem (itemAt items i)
+                if (t.w > 0) {
+                    if (t.row == r) {
+                        if (t.x < lo) {
+                            lo = t.x
+                        }
+                        if (((t.x + t.w)) > hi) {
+                            hi = (t.x + t.w)
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+            if (hi > lo) {
+                def span:int (lo + hi)
+                def j:int 0
+                while (j < (array_length items)) {
+                    def t2:ToolItem (itemAt items j)
+                    if (t2.w > 0) {
+                        if (t2.row == r) {
+                            t2.x = (span - (t2.x + t2.w))
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            r = (r + 1)
+        }
+    }
+
+
 
     ; --- what the strip MEANS -------------------------------------------------
     ; The same buttons, for something that cannot see them. A screen reader gets

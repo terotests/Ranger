@@ -29,6 +29,10 @@ Import "../../evg/EVGSelectChrome.rgr"
 ; component the spreadsheet's and the document's are — and this is the only
 ; part that is about slides.
 class PptxToolbar extends EVGToolbar {
+    ; What the direction switch is showing. The strip needs it to draw the
+    ; button pressed; the app owns the decision.
+    def uiRtl:boolean false
+
     ; The strip cannot work out whether the deck is being edited any more than
     ; it can work out which slide you are on; the app sets it before paint.
     def editOn:boolean false
@@ -91,6 +95,8 @@ class PptxToolbar extends EVGToolbar {
         this.add("slide.delete" "" "Delete slide" (ToolIcon.slideDel()))
         this.addSeparator()
         this.add("show.start" "" "Show the deck" (ToolIcon.play()))
+        this.addSeparator()
+        this.add("view.rtl" "" "Right-to-left layout" (ToolIcon.textRtl()))
     }
 
     ; The one button that shows a value rather than a picture. The strip
@@ -105,6 +111,9 @@ class PptxToolbar extends EVGToolbar {
             }
             if (t.command == "edit.toggle") {
                 t.pressed = editOn
+            }
+            if (t.command == "view.rtl") {
+                t.pressed = uiRtl
             }
             i = (i + 1)
         }
@@ -125,6 +134,15 @@ class PptxApp {
     ; The frame: the shared strip, the shared window layer, the shared command
     ; table. A slide viewer used to draw its own dark band with a string in it,
     ; which was a third toolbar in a third style that nothing else could use.
+    ; Whether the interface is mirrored. Not the deck's direction — that is
+    ; the file's business and is read from `a:pPr rtl` — this is which way the
+    ; PROGRAM is laid out around it.
+    def uiRtl:boolean false
+    ; Has the reader turned the interface back to left-to-right by hand?
+    ; While they have, the automatic half stays quiet: a program that keeps
+    ; undoing a deliberate choice every time a file is opened is worse than
+    ; one that never guessed.
+    def uiRtlChosen:boolean false
     def toolbar:PptxToolbar (new PptxToolbar)
     def toolbarView:EVGToolbarView (new EVGToolbarView)
     def windows:EVGWindowManager (new EVGWindowManager)
@@ -558,6 +576,7 @@ class PptxApp {
         commands.add("slide.delete" "Delete slide" "Slides" "")
         commands.add("slide.moveup" "Move slide earlier" "Slides" "")
         commands.add("slide.movedown" "Move slide later" "Slides" "")
+        commands.add("view.rtl" "Right-to-left layout" "View" "")
     }
 
     ; A deck the caller already has, rather than one read from a file. The
@@ -816,8 +835,61 @@ class PptxApp {
         view.resize(W H)
     }
 
+    ; Turn the interface around, or back. One flag: the strip mirrors itself
+    ; and anything drawn through EVGLayout mirrors because `direction`
+    ; inherits from the root. The DECK's own direction is a separate question
+    ; — `a:pPr rtl` says which way a paragraph runs and that is not the
+    ; reader's to override.
+    fn setUiRtl:void (on:boolean) {
+        uiRtl = on
+        toolbar.rtl = on
+        toolbar.uiRtl = on
+    }
+
+    ; A right-to-left deck opens with the interface already turned around.
+    ; Only ever turns it ON: a reader who turned it off is not overruled by
+    ; the next deck they open.
+    fn adoptDeckDirection:void () {
+        if uiRtlChosen {
+            return
+        }
+        if uiRtl {
+            return
+        }
+        def si:int 0
+        while (si < (array_length presentation.slides)) {
+            def sl:PptxSlide (itemAt presentation.slides si)
+            def shi:int 0
+            while (shi < (array_length sl.shapes)) {
+                def sh:PptxShape (itemAt sl.shapes shi)
+                def pi:int 0
+                while (pi < (array_length sh.text.paragraphs)) {
+                    def pa:PptxParagraph (itemAt sh.text.paragraphs pi)
+                    if (pa.rtl == 1) {
+                        this.setUiRtl(true)
+                        return
+                    }
+                    pi = (pi + 1)
+                }
+                shi = (shi + 1)
+            }
+            si = (si + 1)
+        }
+    }
+
     ; --- the command surface --------------------------------------------------
     fn runCommand:boolean (id:string arg:string) {
+        if (id == "view.rtl") {
+            ; The latch goes down exactly when the reader turns the interface
+            ; OFF, and lifts when they turn it back on. "The reader said no"
+            ; is the only thing the automatic half has to respect — it never
+            ; turns the switch off, so a reader who turned it on by hand has
+            ; nothing to be overruled about.
+            def next:boolean (uiRtl == false)
+            uiRtlChosen = (next == false)
+            this.setUiRtl(next)
+            return true
+        }
         if (id == "file.open") {
             fileRequest = "open"
             return true
@@ -1286,6 +1358,11 @@ class PptxApp {
         }
         toolbarView.attach(view.ctx view.fontFamily)
         toolbarView.theme = theme
+        ; A right-to-left deck opens turned around. Checked here because this
+        ; app has no single load hook, and it costs one walk of the deck per
+        ; frame only while the answer is still no — once turned around this
+        ; returns on its first line.
+        this.adoptDeckDirection()
         toolbar.refresh(index (this.slideCount()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 
