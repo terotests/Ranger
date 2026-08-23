@@ -1200,10 +1200,16 @@ class PptxToEvg {
                 def pathCy:double (y + (h * 0.5))
                 def flat:[double] (PptxGeom.scaleToBox(unit x y w h))
                 def pts:[double] (PptxToEvg.rotatePoints(flat pathCx pathCy shape.rotation))
+                ; The grey is a placeholder for a shape that states no fill
+                ; and no `<a:noFill/>` either — better a visible shape than a
+                ; missing one. A shape that DID state `<a:noFill/>` is not
+                ; that case and must not be filled at all: it is the shape a
+                ; deck uses for a drawn line.
                 def col:EVGColor (EVGColor.rgb(180 180 190))
                 if (shape.fill.isSet) {
                     col = (this.colorFrom(shape.fill))
                 }
+                def doFill:boolean (shape.noFill == false)
                 ; shadow as offset dark polygon first
                 if (shape.shadow.isSet) {
                     def sflat:[double] (PptxGeom.scaleToBox(unit (x + (this.ptToPx(shape.shadow.offsetXPt))) (y + (this.ptToPx(shape.shadow.offsetYPt))) w h))
@@ -1212,11 +1218,21 @@ class PptxToEvg {
                     def shc:EVGColor (EVGColor.rgba((sc.red()) (sc.green()) (sc.blue()) shape.shadow.alpha))
                     dl.addPolygon(spts shc)
                 }
-                ; An open path — a bracket, a brace, a line — is a stroke and
-                ; not an area: filling it draws a solid blob where the deck
-                ; asked for a rule.
+                ; An open path — a bracket, a brace, a hand-drawn stroke — is
+                ; a stroke and not an area: filling it draws a solid blob
+                ; where the deck asked for a rule.
+                ;
+                ; This asked the PRESET whether it was open and left a custom
+                ; path out of the question entirely, so every freeform line in
+                ; every deck was filled. A drawn line is the commonest custom
+                ; path there is, and it is exactly the one that does not
+                ; close: an `<a:path>` with no `<a:close/>` under it. The
+                ; parser records that now, because flattening the path to
+                ; points loses it.
                 def openPath:boolean false
-                if (shape.hasPath == false) {
+                if (shape.hasPath) {
+                    openPath = (shape.pathClosed == false)
+                } {
                     openPath = (PptxGeom.isOpenPath(shape.preset))
                 }
                 if openPath {
@@ -1231,7 +1247,12 @@ class PptxToEvg {
                     this.pushPathStroke(dl pts lw lc false)
                     strokedPath = true
                 } {
-                    this.pushPathFill(dl pts col)
+                    ; A closed path with `<a:noFill/>` is an outline: the
+                    ; points are still the shape the border follows, they are
+                    ; simply not filled in.
+                    if doFill {
+                        this.pushPathFill(dl pts col)
+                    }
                     outlinePts = pts
                     hasOutline = true
                 }

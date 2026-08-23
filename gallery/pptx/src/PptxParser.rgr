@@ -1001,6 +1001,9 @@ class PptxParser {
         if ((array_length pts) >= 6) {
             shape.hasPath = true
             shape.pathUnit = pts
+            ; Kept, because the flattening below is about to lose it and the
+            ; painter cannot tell a filled shape from a drawn line without it.
+            shape.pathClosed = ((indexOf data "Z") >= 0)
         }
     }
 

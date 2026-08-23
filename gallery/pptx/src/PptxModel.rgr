@@ -823,6 +823,13 @@ class PptxShape {
     ; Custom / flattened path in shape-local unit coords (optional)
     def hasPath:boolean false
     def pathUnit:[double]
+    ; Whether that path ends with `<a:close/>`, and so encloses an area.
+    ;
+    ; Only meaningful when `hasPath`. Flattening the path to points throws
+    ; the answer away, and it is the difference between a shape and a stroke:
+    ; a hand-drawn line is a custom path with no close under it, and filling
+    ; one draws a solid blob over half the slide.
+    def pathClosed:boolean false
     ; Table (kind 4)
     def tableRows:int 0
     ; The grid the file states, in points. Equal division is what a table looks

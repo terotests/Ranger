@@ -50,6 +50,7 @@ class PptxGeomTest {
         this.testCustGeomLines()
         this.testCustGeomCubic()
         this.testCustGeomArc()
+        this.testOpenPathIsAStroke()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -241,6 +242,102 @@ class PptxGeomTest {
         this.check("a tiny number has no exponent" ((indexOf tiny "e") < 0))
         def neg:string (PptxGeom.pathNum(0.0 - 0.25))
         this.check("negatives survive" (neg == "-0.25"))
+    }
+
+
+    ; A drawn line is a custom path that does not close, and a shape that
+    ; states `<a:noFill/>` is not asking to be filled. Both of those were
+    ; being ignored, and together they turned every hand-drawn stroke in a
+    ; deck into a solid grey blob over the slide it was drawn on.
+    fn testOpenPathIsAStroke:void () {
+        print "--- an open custom path is a stroke, not an area ---"
+        def openSh:PptxShape (this.parseGeom("<a:moveTo><a:pt x=\"0\" y=\"0\"/></a:moveTo><a:lnTo><a:pt x=\"100\" y=\"40\"/></a:lnTo><a:lnTo><a:pt x=\"40\" y=\"100\"/></a:lnTo>"))
+        this.check("a path with no close is a path" openSh.hasPath)
+        this.check("and it is recorded as open" (openSh.pathClosed == false))
+        def shut:PptxShape (this.parseGeom("<a:moveTo><a:pt x=\"0\" y=\"0\"/></a:moveTo><a:lnTo><a:pt x=\"100\" y=\"40\"/></a:lnTo><a:lnTo><a:pt x=\"40\" y=\"100\"/></a:lnTo><a:close/>"))
+        this.check("and one with a close is closed" shut.pathClosed)
+
+        ; The painter, which is where it went wrong.
+        ;
+        ; A stroke reaches the display list as polygons too — that is how a
+        ; thick line is drawn — so counting polygons cannot tell a fill from a
+        ; stroke. The COLOUR can: everything a stroke draws is the line's
+        ; colour, and a fill is by definition something else. So "nothing was
+        ; filled" is "nothing was drawn in any colour but the line's".
+        def line:PptxShape (this.strokeShape(openSh))
+        def dl:EVGDisplayList (this.emit(line))
+        this.check("an open path with a line draws something" ((array_length dl.cmds) > 0))
+        this.check("all of it in the line's own colour" ((PptxGeomTest.notColored(dl 19 56 54)) == 0))
+        ; The placeholder grey a path with no fill used to get. Named, because
+        ; it is the exact thing that was on the slide.
+        this.check("and none of it in the placeholder grey" ((PptxGeomTest.colored(dl 180 180 190)) == 0))
+
+        ; The same path, closed and filled, is an area again — this must not
+        ; have turned every filled freeform into an outline.
+        def area:PptxShape (this.strokeShape(shut))
+        area.noFill = false
+        area.fill.isSet = true
+        area.fill.srgb = "E8B8FA"
+        def adl:EVGDisplayList (this.emit(area))
+        this.check("a closed path with a fill is still filled" ((PptxGeomTest.colored(adl 232 184 250)) > 0))
+
+        ; A closed path that says `<a:noFill/>` is an outline: the border
+        ; follows the shape and the middle of it is left alone.
+        def ring:PptxShape (this.strokeShape(shut))
+        def rdl:EVGDisplayList (this.emit(ring))
+        this.check("a closed path with noFill is not filled" ((PptxGeomTest.notColored(rdl 19 56 54)) == 0))
+        this.check("but its outline is still drawn" ((array_length rdl.cmds) > 0))
+    }
+
+    ; The shape as a deck states a drawn line: no fill of its own, an explicit
+    ; noFill, and a 2.25pt dark teal line — which is what the deck this came
+    ; from actually contains.
+    fn strokeShape:PptxShape (src:PptxShape) {
+        def sh (new PptxShape())
+        sh.hasPath = src.hasPath
+        sh.pathUnit = src.pathUnit
+        sh.pathClosed = src.pathClosed
+        sh.width = 200.0
+        sh.height = 100.0
+        sh.noFill = true
+        sh.lineWidthPt = 2.25
+        sh.line.isSet = true
+        sh.line.srgb = "133836"
+        return sh
+    }
+
+    fn emit:EVGDisplayList (sh:PptxShape) {
+        def conv (new PptxToEvg)
+        def dl (new EVGDisplayList)
+        conv.emitShape(dl sh 0.0 0.0)
+        return dl
+    }
+
+    sfn colored:int (dl:EVGDisplayList r:int g:int b:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn notColored:int (dl:EVGDisplayList r:int g:int b:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (((c.r == r) && (c.g == g)) && (c.b == b)) {
+            } {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     fn parseGeom:PptxShape (inner:string) {
