@@ -127,7 +127,15 @@ class FormValue {
     ; ------------------------------------------------------------------------
     ; Asking
     ; ------------------------------------------------------------------------
+    ; Nothing selected is not an answer. A multi-choice question whose list is
+    ; empty reads as unanswered, so a `required` one still blocks the form and
+    ; a calculation over it still says "we do not know yet" — which is what
+    ; every questionnaire format means by an empty array, and what somebody
+    ; who ticked a box and then unticked it means too.
     fn isEmpty:boolean () {
+        if (kind == 4) {
+            return ((array_length items) == 0)
+        }
         return (kind == 0)
     }
 

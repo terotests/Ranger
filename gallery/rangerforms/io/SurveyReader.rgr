@@ -1,0 +1,364 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SurveyReader.rgr — a SurveyJS form definition, as a Questionnaire.
+; ============================================================================
+;
+;   { "elements": [
+;       { "type": "text", "name": "age", "isRequired": true },
+;       { "type": "text", "name": "guardian", "visibleIf": "{age} < 18" },
+;       { "type": "expression", "name": "bmi",
+;         "expression": "{weight} / ({height} * {height})" } ] }
+;
+; SurveyJS is the benchmark this engine is measured against, so being able to
+; READ its forms is what turns "we support SurveyJS" from a claim into a
+; corpus that can be run. The comparison harness in `bench/` puts the same
+; JSON and the same sequence of answers through both engines and diffs the
+; result.
+;
+; ---------------------------------------------------------------------------
+; What it will not do
+; ---------------------------------------------------------------------------
+;
+; Every property it does not understand is recorded in `Questionnaire.gaps`
+; and counted, and the harness treats a form with gaps as UNSUPPORTED rather
+; than as agreeing. A reader that quietly dropped `validators` would produce a
+; form that agreed with SurveyJS on every case that did not use them, and the
+; score would be a lie about what the engine does.
+; ============================================================================
+
+Import "../model/Questionnaire.rgr"
+Import "../expr/SurveyExpr.rgr"
+Import "../../game_engine/model3d/GltfJson.rgr"
+
+class SurveyReader {
+    def form:Questionnaire (new Questionnaire)
+    def host:SurveyExpr (new SurveyExpr)
+    def errorText:string ""
+    ; Properties seen and not understood, one line each. Also pushed onto the
+    ; questionnaire's own gaps.
+    def unsupported:[string]
+
+    Constructor () {
+    }
+
+    sfn read:SurveyReader (json:string) {
+        def r:SurveyReader (new SurveyReader)
+        r.parse(json)
+        return r
+    }
+
+    fn parse:boolean (json:string) {
+        def p:JsonParser (new JsonParser)
+        def root:JsonValue (p.parse(json))
+        if ((p.ok) == false) {
+            errorText = p.err
+            return false
+        }
+        if ((root.isObject()) == false) {
+            errorText = "the form is not a JSON object"
+            return false
+        }
+        form = (Questionnaire.of((root.stringOr("name" "survey"))))
+        form.title = (root.stringOr("title" ""))
+        ; A survey is either a list of pages, each with elements, or a bare
+        ; list of elements. Both spellings are in the wild.
+        if (root.has("pages")) {
+            def pages:JsonValue (root.get("pages"))
+            def i:int 0
+            def n:int (pages.count())
+            while (i < n) {
+                def page:JsonValue (pages.at(i))
+                def pname:string (page.stringOr("name" ("page" + (to_string (i + 1)))))
+                def made:Page (form.page(pname (page.stringOr("title" ""))))
+                made.visibleWhen = (page.stringOr("visibleIf" ""))
+                if ((strlen made.visibleWhen) > 0) {
+                    ; A page's visibility hides every question on it. Modelled
+                    ; as a rule on each of them rather than as a separate kind
+                    ; of node, so there is one notion of "showing".
+                    this.readElements((page.get("elements")) pname made.visibleWhen)
+                } {
+                    this.readElements((page.get("elements")) pname "")
+                }
+                i = (i + 1)
+            }
+        } {
+            this.readElements((root.get("elements")) "" "")
+        }
+        form.compile(host)
+        return true
+    }
+
+    fn readElements:void (list:JsonValue page:string pageVisible:string) {
+        if ((list.isArray()) == false) {
+            return
+        }
+        def i:int 0
+        def n:int (list.count())
+        while (i < n) {
+            this.readElement((list.at(i)) page pageVisible)
+            i = (i + 1)
+        }
+    }
+
+    fn readElement:void (el:JsonValue page:string pageVisible:string) {
+        def type:string (el.stringOr("type" "text"))
+        def name:string (el.stringOr("name" ""))
+        if ((strlen name) == 0) {
+            this.gap("an element with no name")
+            return
+        }
+        ; A panel is a container: its questions are read, and its own
+        ; visibility is pushed onto each of them.
+        if (type == "panel") {
+            def own:string (el.stringOr("visibleIf" ""))
+            def joined:string (SurveyReader.bothOf(pageVisible own))
+            this.readElements((el.get("elements")) page joined)
+            return
+        }
+        if (type == "paneldynamic") {
+            this.gap((name + ": paneldynamic (a repeat group) is not read yet"))
+            return
+        }
+        if (type == "matrixdynamic") {
+            this.gap((name + ": matrixdynamic is not read yet"))
+            return
+        }
+        if (type == "matrix") {
+            this.gap((name + ": matrix is not read yet"))
+            return
+        }
+
+        def q:Question (form.question(name (SurveyReader.kindOf(el type)) (el.stringOr("title" name))))
+        q.page = page
+        q.help = (el.stringOr("description" ""))
+
+        ; --- visibility ------------------------------------------------------
+        def visible:string (SurveyReader.bothOf(pageVisible (el.stringOr("visibleIf" ""))))
+        if ((strlen visible) > 0) {
+            q.visibleWhen(visible)
+        }
+        ; `visible: false` is a question that is off unless something turns it
+        ; on, which is a different statement from having no rule at all.
+        if (el.has("visible")) {
+            if ((el.boolOr("visible" true)) == false) {
+                if ((strlen visible) == 0) {
+                    q.visibleWhen("false")
+                }
+            }
+        }
+
+        ; --- enabled / read only ---------------------------------------------
+        def enabled:string (el.stringOr("enableIf" ""))
+        if ((strlen enabled) > 0) {
+            q.enabledWhen(enabled)
+        }
+        if (el.boolOr("readOnly" false)) {
+            q.rule("readonly" "true")
+        }
+
+        ; --- required ---------------------------------------------------------
+        def requiredIf:string (el.stringOr("requiredIf" ""))
+        if ((strlen requiredIf) > 0) {
+            q.requiredWhen(requiredIf)
+        } {
+            if (el.boolOr("isRequired" false)) {
+                q.requiredWhen("true")
+            }
+        }
+
+        ; --- calculated -------------------------------------------------------
+        def expression:string (el.stringOr("expression" ""))
+        if ((strlen expression) > 0) {
+            q.calculated(expression)
+        }
+        def setValue:string (el.stringOr("setValueExpression" ""))
+        if ((strlen setValue) > 0) {
+            ; Not the same thing: `setValueExpression` writes an answer the
+            ; person can then change, and `expression` recomputes forever.
+            ; Reading one as the other would agree with SurveyJS until
+            ; somebody typed over it.
+            this.gap((name + ": setValueExpression is not read yet"))
+        }
+
+        ; --- choices ----------------------------------------------------------
+        if (el.has("choices")) {
+            def choices:JsonValue (el.get("choices"))
+            def c:int 0
+            def nc:int (choices.count())
+            while (c < nc) {
+                def one:JsonValue (choices.at(c))
+                if (one.isObject()) {
+                    def made:Choice (q.choice((one.stringOr("value" "")) (one.stringOr("text" ""))))
+                    made.visibleWhen = (one.stringOr("visibleIf" ""))
+                } {
+                    if (one.isString()) {
+                        q.choice((one.asString()) (one.asString()))
+                    } {
+                        if (one.isNumber()) {
+                            def text:string (FormValue.numberText((one.asDouble())))
+                            q.choice(text text)
+                        }
+                    }
+                }
+                c = (c + 1)
+            }
+        }
+        if (el.has("choicesByUrl")) {
+            this.gap((name + ": choicesByUrl needs a network the engine does not have"))
+        }
+
+        ; --- the typed half ---------------------------------------------------
+        if (el.has("maxLength")) {
+            q.atMost((el.intOr("maxLength" -1)))
+        }
+        def hasMin:boolean (el.has("min"))
+        def hasMax:boolean (el.has("max"))
+        if hasMin {
+            q.minValue = (el.doubleOr("min" 0.0))
+            q.hasMin = true
+        }
+        if hasMax {
+            q.maxValue = (el.doubleOr("max" 0.0))
+            q.hasMax = true
+        }
+        if (el.has("defaultValue")) {
+            def dv:JsonValue (el.get("defaultValue"))
+            if (dv.isString()) {
+                q.initial = (dv.asString())
+            }
+            if (dv.isNumber()) {
+                q.initial = (FormValue.numberText((dv.asDouble())))
+            }
+        }
+
+        ; --- validators -------------------------------------------------------
+        if (el.has("validators")) {
+            this.readValidators(q (el.get("validators")))
+        }
+
+        ; --- anything an expression uses that we do not have ------------------
+        this.checkExpressions(q)
+    }
+
+    fn readValidators:void (q:Question list:JsonValue) {
+        def i:int 0
+        def n:int (list.count())
+        while (i < n) {
+            def v:JsonValue (list.at(i))
+            def type:string (v.stringOr("type" ""))
+            def message:string (v.stringOr("text" ""))
+            if (type == "expression") {
+                def source:string (v.stringOr("expression" ""))
+                if ((strlen source) > 0) {
+                    q.validWhen(source message)
+                }
+            } {
+                if (type == "numeric") {
+                    ; A numeric validator with bounds is the typed half of the
+                    ; question, not a rule — see `FormEngine.checkKind`.
+                    if (v.has("minValue")) {
+                        q.minValue = (v.doubleOr("minValue" 0.0))
+                        q.hasMin = true
+                    }
+                    if (v.has("maxValue")) {
+                        q.maxValue = (v.doubleOr("maxValue" 0.0))
+                        q.hasMax = true
+                    }
+                } {
+                    if (type == "text") {
+                        if (v.has("maxLength")) {
+                            q.atMost((v.intOr("maxLength" -1)))
+                        }
+                        if (v.has("minLength")) {
+                            this.gap((q.name + ": a minLength validator is not read yet"))
+                        }
+                    } {
+                        this.gap((q.name + ": the " + type + " validator is not read yet"))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Every expression on the question, checked for a function we know we do
+    ; not have. Named rather than discovered from a wrong answer.
+    fn checkExpressions:void (q:Question) {
+        def i:int 0
+        def n:int (array_length q.rules)
+        while (i < n) {
+            def r:Rule (itemAt q.rules i)
+            def bad:string (SurveyExpr.usesUnsupported(r.source))
+            if ((strlen bad) > 0) {
+                this.gap((q.name + "." + r.role + ": " + bad + "() is not implemented"))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; SurveyJS's question types, as far as they map onto ours. Anything else
+    ; is read as text, which is what SurveyJS itself stores for most of them.
+    sfn kindOf:string (el:JsonValue type:string) {
+        if (type == "boolean") {
+            return "bool"
+        }
+        if (type == "checkbox") {
+            return "multichoice"
+        }
+        if (type == "tagbox") {
+            return "multichoice"
+        }
+        if (type == "radiogroup") {
+            return "choice"
+        }
+        if (type == "dropdown") {
+            return "choice"
+        }
+        if (type == "rating") {
+            return "decimal"
+        }
+        if (type == "expression") {
+            return "decimal"
+        }
+        if (type == "text") {
+            def input:string (el.stringOr("inputType" "text"))
+            if (input == "number") {
+                return "decimal"
+            }
+            if (input == "date") {
+                return "date"
+            }
+            return "text"
+        }
+        return "text"
+    }
+
+    ; Two conditions that both have to hold. A page's visibility and a
+    ; question's own are ANDed rather than one replacing the other.
+    sfn bothOf:string (a:string b:string) {
+        if ((strlen a) == 0) {
+            return b
+        }
+        if ((strlen b) == 0) {
+            return a
+        }
+        return ("(" + a + ") and (" + b + ")")
+    }
+
+    fn gap:void (detail:string) {
+        push unsupported detail
+        form.noteGap(detail)
+    }
+
+    fn gapCount:int () {
+        return (array_length unsupported)
+    }
+
+    fn supported:boolean () {
+        if ((array_length unsupported) > 0) {
+            return false
+        }
+        return ((array_length form.gaps) == 0)
+    }
+}

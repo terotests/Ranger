@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class FormValue  {
   constructor() {
     this.kind = 0;
@@ -260,12 +259,12 @@ class QuestionState  {
   constructor() {
     this.name = "";
     this.visible = true;
-    this.enabled = true;     /** note: unused */
+    this.enabled = true;
     this.required = false;
-    this.readOnly = false;     /** note: unused */
+    this.readOnly = false;
     this.kindOk = true;
     this.ruleOk = true;
-    this.message = "";     /** note: unused */
+    this.message = "";
   }
   isValid () {
     if ( this.kindOk == false ) {
@@ -541,7 +540,7 @@ class Choice  {
   constructor() {
     this.value = "";
     this.label = "";
-    this.visibleWhen = "";     /** note: unused */
+    this.visibleWhen = "";
   }
 }
 Choice.of = function(value, label) {
@@ -569,11 +568,11 @@ class Question  {
     this.name = "";
     this.kind = "text";
     this.label = "";
-    this.help = "";     /** note: unused */
-    this.page = "";     /** note: unused */
+    this.help = "";
+    this.page = "";
     this.choices = [];
     this.rules = [];
-    this.initial = "";     /** note: unused */
+    this.initial = "";
     this.maxLength = -1;
     this.minValue = 0.0;
     this.maxValue = 0.0;
@@ -655,7 +654,7 @@ class Page  {
   constructor() {
     this.name = "";
     this.title = "";
-    this.visibleWhen = "";     /** note: unused */
+    this.visibleWhen = "";
   }
 }
 Page.of = function(name, title) {
@@ -1073,6 +1072,425 @@ DependencyGraph.joinNames = function(names) {
     i = i + 1;
   };
   return out;
+};
+class FormEngine  {
+  constructor() {
+    this.form = new Questionnaire();
+    this.graph = new DependencyGraph();
+    this.host = new ExprHost();
+    this.ready = false;
+    this.errorText = "";
+    this.badRules = 0;
+  }
+  start (todayDays) {
+    const state = new AnswerState();
+    state.todayDays = todayDays;
+    let i = 0;
+    const n = this.form.questions.length;
+    while (i < n) {
+      const q = this.form.questions[i];
+      const st = state.stateOf(q.name);
+      if ( (q.initial.length) > 0 ) {
+        state.answer(q.name, FormValue.ofText(q.initial));
+      }
+      i = i + 1;
+    };
+    this.evaluateAll(state);
+    return state;
+  };
+  evaluateAll (state) {
+    let k = 0;
+    const nk = this.form.questions.length;
+    while (k < nk) {
+      const q = this.form.questions[k];
+      this.checkKind(state, q.name);
+      k = k + 1;
+    };
+    let i = 0;
+    const n = this.graph.order.length;
+    while (i < n) {
+      this.runNode(state, this.graph.order[i]);
+      i = i + 1;
+    };
+  };
+  answer (state, name, value) {
+    if ( (this.form).has(name) == false ) {
+      return false;
+    }
+    if ( value.isEmpty() ) {
+      state.clearAnswer(name);
+    } else {
+      state.answer(name, value);
+    }
+    this.checkKind(state, name);
+    this.settle(state, name);
+    return true;
+  };
+  answerText (state, name, text) {
+    if ( (text.length) == 0 ) {
+      return this.answer(state, name, FormValue.blank());
+    }
+    return this.answer(state, name, FormValue.ofText(text));
+  };
+  answerNumber (state, name, n) {
+    return this.answer(state, name, FormValue.ofNumber(n));
+  };
+  clear (state, name) {
+    if ( (this.form).has(name) == false ) {
+      return false;
+    }
+    state.clearAnswer(name);
+    this.checkKind(state, name);
+    this.settle(state, name);
+    return true;
+  };
+  settle (state, name) {
+    const touched = this.graph.dependentsOf(this.form, name);
+    let i = 0;
+    const n = touched.length;
+    while (i < n) {
+      this.runNode(state, touched[i]);
+      i = i + 1;
+    };
+  };
+  runNode (state, index) {
+    const node = this.graph.nodeAt(index);
+    const q = (this.form).find(node.question);
+    const rule = q.ruleFor(node.role);
+    const value = this.host.evaluate(rule.program, state);
+    state.evaluations = state.evaluations + 1;
+    const st = state.stateOf(node.question);
+    if ( node.role == "calculated" ) {
+      state.compute(node.question, value);
+      this.checkKind(state, node.question);
+      return;
+    }
+    if ( node.role == "validate" ) {
+      if ( value.isError() ) {
+        st.ruleOk = true;
+        this.refreshMessage(st, rule);
+        return;
+      }
+      const okNow = value.truthy();
+      st.ruleOk = okNow;
+      this.refreshMessage(st, rule);
+      return;
+    }
+    const flag = value.truthy();
+    if ( node.role == "visible" ) {
+      st.visible = flag;
+      return;
+    }
+    if ( node.role == "enabled" ) {
+      st.enabled = flag;
+      return;
+    }
+    if ( node.role == "required" ) {
+      st.required = flag;
+      return;
+    }
+    if ( node.role == "readonly" ) {
+      st.readOnly = flag;
+    }
+  };
+  refreshMessage (st, rule) {
+    if ( st.kindOk == false ) {
+      return;
+    }
+    if ( st.ruleOk ) {
+      st.message = "";
+    } else {
+      st.message = rule.message;
+    }
+  };
+  checkKind (state, name) {
+    const q = (this.form).find(name);
+    const st = state.stateOf(name);
+    const v = state.rawValueOf(name);
+    const why = FormEngine.kindProblem(q, v);
+    if ( (why.length) == 0 ) {
+      st.kindOk = true;
+      const rule = q.ruleFor("validate");
+      this.refreshMessage(st, rule);
+      return;
+    }
+    st.kindOk = false;
+    st.message = why;
+  };
+  missingAnswers (state) {
+    let out = [];
+    let i = 0;
+    const n = this.form.questions.length;
+    while (i < n) {
+      const q = this.form.questions[i];
+      const st = state.stateOf(q.name);
+      if ( st.visible ) {
+        if ( st.required ) {
+          if ( q.isComputed() == false ) {
+            if ( state.wasAnswered(q.name) == false ) {
+              out.push(q.name);
+            }
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  invalidAnswers (state) {
+    let out = [];
+    let i = 0;
+    const n = this.form.questions.length;
+    while (i < n) {
+      const q = this.form.questions[i];
+      const st = state.stateOf(q.name);
+      if ( st.visible ) {
+        if ( st.isValid() == false ) {
+          out.push(q.name);
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  isComplete (state) {
+    if ( (this.missingAnswers(state).length) > 0 ) {
+      return false;
+    }
+    return (this.invalidAnswers(state).length) == 0;
+  };
+  submittedNames (state) {
+    let out = [];
+    let i = 0;
+    const n = this.form.questions.length;
+    while (i < n) {
+      const q = this.form.questions[i];
+      const st = state.stateOf(q.name);
+      if ( st.visible ) {
+        const v = state.rawValueOf(q.name);
+        if ( v.isEmpty() == false ) {
+          out.push(q.name);
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  submissionJson (state) {
+    const names = this.submittedNames(state);
+    let out = "{";
+    let i = 0;
+    const n = names.length;
+    while (i < n) {
+      const name = names[i];
+      if ( i > 0 ) {
+        out = out + ",";
+      }
+      const v = state.rawValueOf(name);
+      out = ((out + FormEngine.jsonString(name)) + ":") + FormEngine.jsonValue(v);
+      i = i + 1;
+    };
+    return out + "}";
+  };
+  visibleNames (state) {
+    let out = [];
+    let i = 0;
+    const n = this.form.questions.length;
+    while (i < n) {
+      const q = this.form.questions[i];
+      const st = state.stateOf(q.name);
+      if ( st.visible ) {
+        out.push(q.name);
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  numberOf (state, name) {
+    const v = state.rawValueOf(name);
+    const num = v.asNumber();
+    return num.n;
+  };
+  textOf (state, name) {
+    const v = state.rawValueOf(name);
+    return v.asText();
+  };
+}
+FormEngine.load = function(form, host) {
+  const e = new FormEngine();
+  e.form = form;
+  e.host = host;
+  e.badRules = form.compile(host);
+  e.graph = DependencyGraph.of(form);
+  if ( e.graph.ok == false ) {
+    e.errorText = e.graph.errorText;
+    return e;
+  }
+  e.ready = true;
+  return e;
+};
+FormEngine.kindProblem = function(q, v) {
+  if ( v.isEmpty() ) {
+    return "";
+  }
+  if ( v.isError() ) {
+    return v.err;
+  }
+  const kind = q.kind;
+  if ( kind == "choice" ) {
+    return FormEngine.choiceProblem(q, v);
+  }
+  if ( kind == "multichoice" ) {
+    return FormEngine.choiceProblem(q, v);
+  }
+  if ( kind == "bool" ) {
+    const text = v.asText().toLowerCase();
+    if ( FormEngine.isYes(text) ) {
+      return "";
+    }
+    if ( FormEngine.isNo(text) ) {
+      return "";
+    }
+    return "answer yes or no";
+  }
+  if ( kind == "text" ) {
+    if ( q.maxLength > 0 ) {
+      if ( (v.asText().length) > q.maxLength ) {
+        return ("at most " + ((q.maxLength.toString()))) + " characters";
+      }
+    }
+    return "";
+  }
+  const num = v.asNumber();
+  if ( num.isNumber() == false ) {
+    if ( kind == "date" ) {
+      return "that is not a date";
+    }
+    return "that is not a number";
+  }
+  if ( kind == "int" ) {
+    const whole = (Math.floor( num.n));
+    if ( (whole == num.n) == false ) {
+      return "a whole number, with nothing after the point";
+    }
+  }
+  if ( q.hasMin ) {
+    if ( num.n < q.minValue ) {
+      return "at least " + FormValue.numberText(q.minValue);
+    }
+  }
+  if ( q.hasMax ) {
+    if ( num.n > q.maxValue ) {
+      return "at most " + FormValue.numberText(q.maxValue);
+    }
+  }
+  return "";
+};
+FormEngine.choiceProblem = function(q, v) {
+  if ( (q.choices.length) == 0 ) {
+    return "";
+  }
+  if ( v.isList() ) {
+    let i = 0;
+    const n = v.items.length;
+    while (i < n) {
+      const one = v.items[i];
+      if ( FormEngine.isChoice(q, one) == false ) {
+        return one + " is not one of the choices";
+      }
+      i = i + 1;
+    };
+    return "";
+  }
+  const only = v.asText();
+  if ( FormEngine.isChoice(q, only) ) {
+    return "";
+  }
+  return only + " is not one of the choices";
+};
+FormEngine.isChoice = function(q, value) {
+  let i = 0;
+  const n = q.choices.length;
+  while (i < n) {
+    const c = q.choices[i];
+    if ( c.value == value ) {
+      return true;
+    }
+    i = i + 1;
+  };
+  return false;
+};
+FormEngine.isYes = function(text) {
+  if ( text == "true" ) {
+    return true;
+  }
+  if ( text == "yes" ) {
+    return true;
+  }
+  if ( text == "1" ) {
+    return true;
+  }
+  return false;
+};
+FormEngine.isNo = function(text) {
+  if ( text == "false" ) {
+    return true;
+  }
+  if ( text == "no" ) {
+    return true;
+  }
+  if ( text == "0" ) {
+    return true;
+  }
+  return false;
+};
+FormEngine.jsonValue = function(v) {
+  if ( v.isNumber() ) {
+    return FormValue.numberText(v.n);
+  }
+  if ( v.kind == 1 ) {
+    if ( v.b ) {
+      return "true";
+    }
+    return "false";
+  }
+  if ( v.isList() ) {
+    let out = "[";
+    let i = 0;
+    const n = v.items.length;
+    while (i < n) {
+      if ( i > 0 ) {
+        out = out + ",";
+      }
+      out = out + FormEngine.jsonString((v.items[i]));
+      i = i + 1;
+    };
+    return out + "]";
+  }
+  return FormEngine.jsonString(v.asText());
+};
+FormEngine.jsonString = function(s) {
+  let out = "\"";
+  let i = 0;
+  const n = s.length;
+  while (i < n) {
+    const ch = s.charCodeAt(i );
+    if ( ch == 34 ) {
+      out = out + "\\\"";
+    } else {
+      if ( ch == 92 ) {
+        out = out + "\\\\";
+      } else {
+        if ( ch == 10 ) {
+          out = out + "\\n";
+        } else {
+          out = out + (s.substring(i, (i + 1) ));
+        }
+      }
+    }
+    i = i + 1;
+  };
+  return out + "\"";
 };
 class ExprToken  {
   constructor() {
@@ -2222,309 +2640,1118 @@ NativeExpr.hasPart = function(text, part) {
   };
   return false;
 };
-class FormCheck  {
+class SurveyExpr  extends NativeExpr {
   constructor() {
-    this.passed = 0;
-    this.failed = 0;
+    super()
+    this.sawBraces = false;     /** note: unused */
   }
-  ok (name, cond) {
-    if ( cond ) {
-      this.passed = this.passed + 1;
-    } else {
-      this.failed = this.failed + 1;
-      console.log("  FAIL " + name);
-    }
+  hostName () {
+    return "surveyjs";
   };
-  eqStr (name, got, want) {
-    const good = got == want;
-    if ( good == false ) {
-      console.log(((("       got [" + got) + "] want [") + want) + "]");
-    }
-    this.ok(name, good);
-  };
-  eqInt (name, got, want) {
-    const good = got == want;
-    if ( good == false ) {
-      console.log((("       got " + ((got.toString()))) + " want ") + ((want.toString())));
-    }
-    this.ok(name, good);
-  };
-  eqNum (name, got, want) {
-    let d = got - want;
-    if ( d < 0.0 ) {
-      d = 0.0 - d;
-    }
-    const good = d < 0.000001;
-    if ( good == false ) {
-      console.log((("       got " + ((got.toString()))) + " want ") + ((want.toString())));
-    }
-    this.ok(name, good);
+  preprocess (source) {
+    return SurveyExpr.translate(source);
   };
 }
-class FormsTest  {
-  constructor() {
-  }
-}
-FormsTest.clinicForm = function() {
-  const f = Questionnaire.of("clinic");
-  f.title = "Intake";
-  const age = f.question("age", QuestionKind.integer(), "How old are you?");
-  age.requiredWhen("true");
-  age.validWhen("age >= 0 and age <= 120", "an age is between 0 and 120");
-  const guardian = f.question("guardian", QuestionKind.text(), "Name of a parent or guardian");
-  guardian.visibleWhen("age < 18");
-  guardian.requiredWhen("age < 18");
-  const height = f.question("height", QuestionKind.decimal(), "Height in metres");
-  const weight = f.question("weight", QuestionKind.decimal(), "Weight in kilograms");
-  const bmi = f.question("bmi", QuestionKind.decimal(), "Body mass index");
-  bmi.calculated("weight / (height * height)");
-  const advice = f.question("advice", QuestionKind.text(), "What we suggest");
-  advice.visibleWhen("bmi > 25");
-  return f;
-};
-FormsTest.runModel = function(c) {
-  console.log("-- the form, compiled --");
-  const host = new NativeExpr();
-  const f = FormsTest.clinicForm();
-  const bad = f.compile(host);
-  c.eqInt("every rule parsed", bad, 0);
-  c.eqInt("six questions", f.questionCount(), 6);
-  c.ok("and they can be found by name", (f).has("guardian"));
-  c.ok("…and a name nobody used cannot", (f).has("guardain") == false);
-  const g = (f).find("guardian");
-  const vis = g.ruleFor("visible");
-  c.eqInt("the visibility rule reads one question", vis.program.names.length, 1);
-  c.ok("and it is age", vis.program.reads("age"));
-  const bmiQ = (f).find("bmi");
-  const bmiRule = bmiQ.ruleFor("calculated");
-  c.eqInt("the calculation reads two", bmiRule.program.names.length, 2);
-  c.ok("height", bmiRule.program.reads("height"));
-  c.ok("and weight", bmiRule.program.reads("weight"));
-  c.eqInt("nothing refers to a question that is not there", f.unknownReferences().length, 0);
-};
-FormsTest.runGraph = function(c) {
-  console.log("-- the dependency graph --");
-  const host = new NativeExpr();
-  const f = FormsTest.clinicForm();
-  f.compile(host);
-  const g = DependencyGraph.of(f);
-  c.ok("the graph sorted", g.ok);
-  c.eqStr("with nothing to report", g.errorText, "");
-  c.eqInt("one node per rule", g.nodeCount(), 6);
-  c.eqInt("and every one of them is in the order", g.order.length, 6);
-  const calc = g.nodeAt((g).indexOf("bmi", "calculated"));
-  const adv = g.nodeAt((g).indexOf("advice", "visible"));
-  c.ok("bmi is calculated before the advice that reads it", calc.rank < adv.rank);
-  c.ok("and the advice knows where it came from", DependencyGraph.intHas(adv.reads, (g).indexOf("bmi", "calculated")));
-  const touched = g.dependentsOf(f, "age");
-  c.eqInt("changing age touches three rules", touched.length, 3);
-  let names = "";
+SurveyExpr.translate = function(src) {
+  let out = "";
+  const n = src.length;
   let i = 0;
-  while (i < (touched.length)) {
-    const node = g.nodeAt((touched[i]));
-    if ( i > 0 ) {
-      names = names + " ";
+  while (i < n) {
+    const ch = src.charCodeAt(i );
+    if ( ch == 39 ) {
+      const end = SurveyExpr.endOfString(src, i, n, 39);
+      out = out + (src.substring(i, end ));
+      i = end;
+    } else {
+      if ( ch == 34 ) {
+        const end2 = SurveyExpr.endOfString(src, i, n, 34);
+        out = out + (src.substring(i, end2 ));
+        i = end2;
+      } else {
+        if ( ch == 123 ) {
+          const close = SurveyExpr.indexFrom(src, (i + 1), n, 125);
+          if ( close < 0 ) {
+            out = out + (src.substring(i, (i + 1) ));
+            i = i + 1;
+          } else {
+            out = out + SurveyExpr.cleanName((src.substring((i + 1), close )));
+            i = close + 1;
+          }
+        } else {
+          const taken = SurveyExpr.operatorAt(src, i, n);
+          if ( taken > 0 ) {
+            out = out + SurveyExpr.operatorFor(src, i, taken);
+            i = i + taken;
+          } else {
+            out = out + (src.substring(i, (i + 1) ));
+            i = i + 1;
+          }
+        }
+      }
     }
-    names = names + node.key();
-    i = i + 1;
   };
-  c.eqStr("and they are the three that read it", names, "age.validate guardian.visible guardian.required");
-  const viaCalc = g.dependentsOf(f, "weight");
-  c.eqInt("changing weight touches the calculation and what reads it", viaCalc.length, 2);
-  const first = g.nodeAt((viaCalc[0]));
-  const second = g.nodeAt((viaCalc[1]));
-  c.eqStr("the calculation first", first.key(), "bmi.calculated");
-  c.eqStr("then what reads it", second.key(), "advice.visible");
-  c.eqInt("an answer nothing reads touches nothing", g.dependentsOf(f, "advice").length, 0);
-};
-FormsTest.runCycle = function(c) {
-  console.log("-- a form that refers to itself --");
-  const host = new NativeExpr();
-  const f = Questionnaire.of("circular");
-  const a = f.question("a", QuestionKind.decimal(), "A");
-  a.calculated("b + 1");
-  const b = f.question("b", QuestionKind.decimal(), "B");
-  b.calculated("a + 1");
-  f.compile(host);
-  const g = DependencyGraph.of(f);
-  c.ok("the graph refuses it", g.ok == false);
-  c.ok("the message names the first rule", FormsTest.holds(g.errorText, "a.calculated"));
-  c.ok("and the second", FormsTest.holds(g.errorText, "b.calculated"));
-  c.eqInt("both are in the cycle", g.cycle.length, 2);
-  const f2 = Questionnaire.of("self");
-  const s = f2.question("total", QuestionKind.decimal(), "Total");
-  s.calculated("total + 1");
-  f2.compile(host);
-  const g2 = DependencyGraph.of(f2);
-  c.ok("a rule that reads itself is refused too", g2.ok == false);
-  c.eqInt("as a cycle of one", g2.cycle.length, 1);
-  const chain = Questionnaire.of("chain");
-  const head = chain.question("q0", QuestionKind.decimal(), "0");
-  let k = 1;
-  while (k < 40) {
-    const q = chain.question(("q" + ((k.toString()))), QuestionKind.decimal(), ((k.toString())));
-    q.calculated(("q" + (((k - 1).toString()))) + " + 1");
-    k = k + 1;
-  };
-  chain.compile(host);
-  const g3 = DependencyGraph.of(chain);
-  c.ok("a chain of thirty-nine calculations sorts", g3.ok);
-  c.eqInt("and changing the first touches all of them", g3.dependentsOf(chain, "q0").length, 39);
-  c.eqInt("changing the last touches nothing", g3.dependentsOf(chain, "q39").length, 0);
-};
-FormsTest.evalOf = function(host, src, state) {
-  const p = host.parse(src);
-  return host.evaluate(p, state);
-};
-FormsTest.numOf = function(host, src, state) {
-  const v = FormsTest.evalOf(host, src, state);
-  return v.n;
-};
-FormsTest.truthOf = function(host, src, state) {
-  const v = FormsTest.evalOf(host, src, state);
-  return v.truthy();
-};
-FormsTest.runExpr = function(c) {
-  console.log("-- the expression language --");
-  const host = new NativeExpr();
-  const st = new AnswerState();
-  st.todayDays = 20000;
-  c.eqNum("multiplication binds tighter", FormsTest.numOf(host, "1 + 2 * 3", st), 7.0);
-  c.eqNum("and brackets win", FormsTest.numOf(host, "(1 + 2) * 3", st), 9.0);
-  c.eqNum("unary minus", FormsTest.numOf(host, "0 - 4 * -2", st), 8.0);
-  c.eqNum("remainder", FormsTest.numOf(host, "7 % 3", st), 1.0);
-  c.ok("and short-circuits", FormsTest.truthOf(host, "false and 1 / 0 > 0", st) == false);
-  c.ok("or short-circuits", FormsTest.truthOf(host, "true or 1 / 0 > 0", st));
-  c.ok("not", FormsTest.truthOf(host, "not false", st));
-  c.ok("a single = means ==", FormsTest.truthOf(host, "2 = 2", st));
-  c.ok("text compares as text", FormsTest.truthOf(host, "'abc' < 'abd'", st));
-  st.answer("country", FormValue.ofText("SE"));
-  c.ok("in a list", FormsTest.truthOf(host, "country in ('FI', 'SE', 'NO')", st));
-  c.ok("and not in one", FormsTest.truthOf(host, "country in ('FI', 'NO')", st) == false);
-  st.answer("symptoms", FormValue.ofList(FormsTest.three()));
-  c.eqNum("count of a multi-choice", FormsTest.numOf(host, "count(symptoms)", st), 3.0);
-  c.ok("a chosen value is in it", FormsTest.truthOf(host, "'cough' in symptoms", st));
-  c.ok("contains, over a multi-choice", FormsTest.truthOf(host, "symptoms contains 'fever'", st));
-  c.ok("notcontains", FormsTest.truthOf(host, "symptoms notcontains 'rash'", st));
-  c.ok("anyof, with a bracket list", FormsTest.truthOf(host, "symptoms anyof ['rash', 'fever']", st));
-  c.ok("…and not just any list", FormsTest.truthOf(host, "symptoms anyof ['rash', 'limp']", st) == false);
-  c.ok("allof", FormsTest.truthOf(host, "symptoms allof ['cough', 'fever']", st));
-  c.ok("…which needs all of them", FormsTest.truthOf(host, "symptoms allof ['cough', 'rash']", st) == false);
-  st.answer("who", FormValue.ofText("Ada Lovelace"));
-  c.ok("contains, over text, is containment", FormsTest.truthOf(host, "who contains 'Love'", st));
-  c.ok("…and not equality", FormsTest.truthOf(host, "who contains 'Grace'", st) == false);
-  c.ok("answered, written postfix", FormsTest.truthOf(host, "who notempty", st));
-  c.ok("and its opposite", FormsTest.truthOf(host, "nobody empty", st));
-  c.eqNum("iif picks a branch", FormsTest.numOf(host, "iif(1 > 0, 7, 9)", st), 7.0);
-  c.eqNum("and the other one", FormsTest.numOf(host, "iif(1 > 5, 7, 9)", st), 9.0);
-  c.eqNum("iif does not evaluate the branch it skipped", FormsTest.numOf(host, "iif(nobody notempty, 1 / 0, 5)", st), 5.0);
-  let none = [];
-  st.answer("empty_pick", FormValue.ofList(none));
-  c.ok("an empty multi-choice reads as unanswered", (FormsTest.evalOf(host, "empty_pick", st)).isEmpty());
-  c.ok("…and says so", FormsTest.truthOf(host, "empty_pick empty", st));
-  const bmi = FormsTest.evalOf(host, "weight / (height * height)", st);
-  c.ok("a calculation with nothing answered is empty", bmi.isEmpty());
-  c.ok("…and not an error", bmi.isError() == false);
-  st.answer("height", FormValue.ofNumber(1.8));
-  const half = FormsTest.evalOf(host, "weight / (height * height)", st);
-  c.ok("half answered is still empty", half.isEmpty());
-  st.answer("weight", FormValue.ofNumber(81.0));
-  const full = FormsTest.evalOf(host, "weight / (height * height)", st);
-  c.eqNum("and answered is a number", full.n, 25.0);
-  c.ok("age < 18 with no age is false", FormsTest.truthOf(host, "age < 18", st) == false);
-  c.ok("…and so is age >= 18", FormsTest.truthOf(host, "age >= 18", st) == false);
-  st.answer("typed", FormValue.ofText("42"));
-  c.eqNum("text that is a number counts as one", FormsTest.numOf(host, "typed + 1", st), 43.0);
-  const words = FormsTest.evalOf(host, "'lots' + 1", st);
-  c.ok("text that is not a number is an error", words.isError());
-  c.ok("…that says which text", FormsTest.holds(words.err, "lots"));
-  c.eqNum("len", FormsTest.numOf(host, "len('hello')", st), 5.0);
-  c.eqNum("sum skips what is unanswered", FormsTest.numOf(host, "sum(height, weight, missing)", st), 82.8);
-  c.eqNum("today is data", FormsTest.numOf(host, "today()", st), 20000.0);
-  st.answer("born", FormValue.ofNumber(10000.0));
-  c.eqNum("age_of is whole days", FormsTest.numOf(host, "age_of(born)", st), 10000.0);
-  c.ok("matches finds a part", FormsTest.truthOf(host, "matches('SKU-100', 'SKU-')", st));
-  c.eqNum("max", FormsTest.numOf(host, "max(1, 9, 4)", st), 9.0);
-  c.eqNum("min ignores the unanswered", FormsTest.numOf(host, "min(missing, 4, 9)", st), 4.0);
-  c.ok("answered() sees an answer", FormsTest.truthOf(host, "answered(height)", st));
-  c.ok("…and its absence", FormsTest.truthOf(host, "answered(missing)", st) == false);
-  const divzero = FormsTest.evalOf(host, "height / 0", st);
-  c.ok("division by zero is an error value", divzero.isError());
-  const nofn = FormsTest.evalOf(host, "wobble(1)", st);
-  c.ok("an unknown function is an error value", nofn.isError());
-  c.ok("…that names it", FormsTest.holds(nofn.err, "wobble"));
-  const broken = host.parse("age < ");
-  c.ok("an incomplete expression does not parse", broken.ok == false);
-  c.ok("and says what it wanted", (broken.errorText.length) > 0);
-  const evaluated = host.evaluate(broken, st);
-  c.ok("evaluating it is an error value, not a crash", evaluated.isError());
-  const junk = host.parse("age #! 3");
-  c.ok("and so is nonsense", junk.ok == false);
-  const unclosed = host.parse("len('abc");
-  c.ok("an unterminated string is caught", unclosed.ok == false);
-  const trailing = host.parse("1 + 2 3");
-  c.ok("and so is a value with nothing joining it", trailing.ok == false);
-};
-FormsTest.three = function() {
-  let out = [];
-  out.push("cough");
-  out.push("fever");
-  out.push("ache");
   return out;
 };
-FormsTest.runBadRule = function(c) {
-  console.log("-- one bad rule --");
-  const host = new NativeExpr();
-  const f = Questionnaire.of("mixed");
-  const a = f.question("a", QuestionKind.integer(), "A");
-  const b = f.question("b", QuestionKind.integer(), "B");
-  b.visibleWhen("a >= ");
-  const d = f.question("d", QuestionKind.integer(), "D");
-  d.visibleWhen("a > 3");
-  const bad = f.compile(host);
-  c.eqInt("one rule failed", bad, 1);
-  c.eqInt("and the form says which", f.gaps.length, 1);
-  c.ok("naming the question and the role", FormsTest.holds((f.gaps[0]), "b.visible"));
-  const g = DependencyGraph.of(f);
-  c.ok("the graph still sorts", g.ok);
-  c.eqInt("changing a still reaches the rule that reads it", g.dependentsOf(f, "a").length, 1);
-  const f2 = Questionnaire.of("typo");
-  const q = f2.question("q", QuestionKind.integer(), "Q");
-  q.visibleWhen("agee < 18");
-  f2.compile(host);
-  const unknown = f2.unknownReferences();
-  c.eqInt("one unknown reference", unknown.length, 1);
-  c.eqStr("named", unknown[0], "agee");
+SurveyExpr.cleanName = function(inner) {
+  return FormValue.trimText(inner);
 };
-FormsTest.holds = function(text, part) {
-  const n = part.length;
-  if ( n == 0 ) {
-    return false;
+SurveyExpr.endOfString = function(src, at, n, quote) {
+  let i = at + 1;
+  while (i < n) {
+    const ch = src.charCodeAt(i );
+    if ( ch == 92 ) {
+      i = i + 2;
+    } else {
+      if ( ch == quote ) {
+        return i + 1;
+      }
+      i = i + 1;
+    }
+  };
+  return n;
+};
+SurveyExpr.indexFrom = function(src, at, n, ch) {
+  let i = at;
+  while (i < n) {
+    if ( (src.charCodeAt(i )) == ch ) {
+      return i;
+    }
+    i = i + 1;
+  };
+  return -1;
+};
+SurveyExpr.operatorAt = function(src, at, n) {
+  if ( (at + 1) < n ) {
+    const pair = src.substring(at, (at + 2) );
+    if ( pair == "&&" ) {
+      return 2;
+    }
+    if ( pair == "||" ) {
+      return 2;
+    }
+    if ( pair == "<>" ) {
+      return 2;
+    }
   }
-  const last = (text.length) - n;
+  if ( (src.charCodeAt(at )) == 33 ) {
+    if ( (at + 1) < n ) {
+      if ( (src.charCodeAt((at + 1) )) == 61 ) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  return 0;
+};
+SurveyExpr.operatorFor = function(src, at, taken) {
+  const text = src.substring(at, (at + taken) );
+  if ( text == "&&" ) {
+    return " and ";
+  }
+  if ( text == "||" ) {
+    return " or ";
+  }
+  if ( text == "<>" ) {
+    return "!=";
+  }
+  return " not ";
+};
+SurveyExpr.unsupportedFunctions = function() {
+  let out = [];
+  out.push("age");
+  out.push("currentDate");
+  out.push("currentDateTime");
+  out.push("getDate");
+  out.push("dateDiff");
+  out.push("dateAdd");
+  out.push("displayValue");
+  out.push("propertyValue");
+  return out;
+};
+SurveyExpr.usesUnsupported = function(source) {
+  const bad = SurveyExpr.unsupportedFunctions();
+  let i = 0;
+  const n = bad.length;
+  while (i < n) {
+    const name = bad[i];
+    if ( SurveyExpr.callsFunction(source, name) ) {
+      return name;
+    }
+    i = i + 1;
+  };
+  return "";
+};
+SurveyExpr.callsFunction = function(source, name) {
+  const n = name.length;
+  const last = (source.length) - n;
   let i = 0;
   while (i <= last) {
-    if ( (text.substring(i, (i + n) )) == part ) {
-      return true;
+    if ( (source.substring(i, (i + n) )) == name ) {
+      let before = true;
+      if ( i > 0 ) {
+        if ( NativeExpr.isNameChar((source.charCodeAt((i - 1) ))) ) {
+          before = false;
+        }
+      }
+      if ( before ) {
+        let k = i + n;
+        while (k < (source.length)) {
+          if ( (source.charCodeAt(k )) != 32 ) {
+            break;
+          }
+          k = k + 1;
+        };
+        if ( k < (source.length) ) {
+          if ( (source.charCodeAt(k )) == 40 ) {
+            return true;
+          }
+        }
+      }
     }
     i = i + 1;
   };
   return false;
 };
-/* static JavaSript main routine at the end of the JS file */
-function __js_main() {
-  const c = new FormCheck();
-  FormsTest.runModel(c);
-  FormsTest.runGraph(c);
-  FormsTest.runCycle(c);
-  FormsTest.runExpr(c);
-  FormsTest.runBadRule(c);
-  console.log("");
-  console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
-  if ( c.failed == 0 ) {
-    console.log("ALL PASS");
-  } else {
-    console.log("FAILURES");
+class JsonValue  {
+  constructor() {
+    this.kind = 0;
+    this.num = 0.0;
+    this.b = false;
+    this.str = "";
+    this.arr = [];
+    this.keys = [];
+    this.members = {};
   }
+  isNull () {
+    return this.kind == 0;
+  };
+  isNumber () {
+    return this.kind == 2;
+  };
+  isString () {
+    return this.kind == 3;
+  };
+  isArray () {
+    return this.kind == 4;
+  };
+  isObject () {
+    return this.kind == 5;
+  };
+  asInt () {
+    return Math.floor( this.num);
+  };
+  asDouble () {
+    return this.num;
+  };
+  asString () {
+    return this.str;
+  };
+  asBool () {
+    return this.b;
+  };
+  count () {
+    return this.arr.length;
+  };
+  at (index) {
+    return this.arr[index];
+  };
+  has (key) {
+    return ( typeof(this.members[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.members, key) );
+  };
+  get (key) {
+    if ( ( typeof(this.members[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.members, key) ) ) {
+      return (( Object.prototype.hasOwnProperty.call(this.members, key) ? this.members[key] : undefined ));
+    }
+    const nil = new JsonValue();
+    return nil;
+  };
+  intOr (key, dflt) {
+    if ( ( typeof(this.members[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.members, key) ) ) {
+      const v = (( Object.prototype.hasOwnProperty.call(this.members, key) ? this.members[key] : undefined ));
+      return Math.floor( v.num);
+    }
+    return dflt;
+  };
+  doubleOr (key, dflt) {
+    if ( ( typeof(this.members[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.members, key) ) ) {
+      const v = (( Object.prototype.hasOwnProperty.call(this.members, key) ? this.members[key] : undefined ));
+      return v.num;
+    }
+    return dflt;
+  };
+  stringOr (key, dflt) {
+    if ( ( typeof(this.members[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.members, key) ) ) {
+      const v = (( Object.prototype.hasOwnProperty.call(this.members, key) ? this.members[key] : undefined ));
+      return v.str;
+    }
+    return dflt;
+  };
+  boolOr (key, dflt) {
+    if ( ( typeof(this.members[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.members, key) ) ) {
+      const v = (( Object.prototype.hasOwnProperty.call(this.members, key) ? this.members[key] : undefined ));
+      return v.b;
+    }
+    return dflt;
+  };
 }
-__js_main();
+class JsonParser  {
+  constructor() {
+    this.s = "";
+    this.i = 0;
+    this.n = 0;
+    this.ok = true;
+    this.err = "";
+  }
+  parse (text) {
+    this.s = text;
+    this.i = 0;
+    this.n = text.length;
+    this.ok = true;
+    this.err = "";
+    const v = this.parseValue();
+    return v;
+  };
+  isWs (c) {
+    if ( c == 32 ) {
+      return true;
+    }
+    if ( c == 9 ) {
+      return true;
+    }
+    if ( c == 10 ) {
+      return true;
+    }
+    if ( c == 13 ) {
+      return true;
+    }
+    return false;
+  };
+  skipWs () {
+    let go = true;
+    while (go) {
+      if ( this.i >= this.n ) {
+        go = false;
+      } else {
+        const c = this.s.charCodeAt(this.i );
+        if ( this.isWs(c) ) {
+          this.i = this.i + 1;
+        } else {
+          go = false;
+        }
+      }
+    };
+  };
+  isNumChar (c) {
+    if ( c == 45 ) {
+      return true;
+    }
+    if ( c == 43 ) {
+      return true;
+    }
+    if ( c == 46 ) {
+      return true;
+    }
+    if ( c == 101 ) {
+      return true;
+    }
+    if ( c == 69 ) {
+      return true;
+    }
+    if ( c >= 48 ) {
+      if ( c <= 57 ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  fail (msg) {
+    if ( this.ok ) {
+      this.ok = false;
+      this.err = msg;
+    }
+  };
+  parseValue () {
+    this.skipWs();
+    if ( this.i >= this.n ) {
+      this.fail("unexpected end of input");
+      const v = new JsonValue();
+      return v;
+    }
+    const c = this.s.charCodeAt(this.i );
+    if ( c == 123 ) {
+      return this.parseObject();
+    }
+    if ( c == 91 ) {
+      return this.parseArray();
+    }
+    if ( c == 34 ) {
+      return this.parseString();
+    }
+    if ( c == 116 ) {
+      return this.parseKeyword("true", 1, true);
+    }
+    if ( c == 102 ) {
+      return this.parseKeyword("false", 1, false);
+    }
+    if ( c == 110 ) {
+      return this.parseKeyword("null", 0, false);
+    }
+    return this.parseNumber();
+  };
+  parseKeyword (word, kind, bval) {
+    const wl = word.length;
+    let matched = true;
+    let k = 0;
+    while (k < wl) {
+      if ( (this.i + k) >= this.n ) {
+        matched = false;
+        k = wl;
+      } else {
+        if ( (this.s.charCodeAt((this.i + k) )) != (word.charCodeAt(k )) ) {
+          matched = false;
+          k = wl;
+        } else {
+          k = k + 1;
+        }
+      }
+    };
+    const v = new JsonValue();
+    if ( matched ) {
+      this.i = this.i + wl;
+      v.kind = kind;
+      v.b = bval;
+    } else {
+      this.fail("invalid literal, expected " + word);
+    }
+    return v;
+  };
+  parseNumber () {
+    const start = this.i;
+    let go = true;
+    while (go) {
+      if ( this.i >= this.n ) {
+        go = false;
+      } else {
+        const c = this.s.charCodeAt(this.i );
+        if ( this.isNumChar(c) ) {
+          this.i = this.i + 1;
+        } else {
+          go = false;
+        }
+      }
+    };
+    const v = new JsonValue();
+    if ( this.i > start ) {
+      const sub = this.s.substring(start, this.i );
+      const d = isNaN( parseFloat(sub) ) ? undefined : parseFloat(sub);
+      v.kind = 2;
+      if ( typeof(d) != "undefined" ) {
+        v.num = d;
+      } else {
+        this.fail("invalid number: " + sub);
+      }
+    } else {
+      this.fail("expected value");
+    }
+    return v;
+  };
+  hexDigit (c) {
+    if ( c >= 48 ) {
+      if ( c <= 57 ) {
+        return c - 48;
+      }
+    }
+    if ( c >= 97 ) {
+      if ( c <= 102 ) {
+        return (c - 97) + 10;
+      }
+    }
+    if ( c >= 65 ) {
+      if ( c <= 70 ) {
+        return (c - 65) + 10;
+      }
+    }
+    return 0;
+  };
+  readRawString () {
+    this.i = this.i + 1;
+    let out = "";
+    let go = true;
+    while (go) {
+      if ( this.i >= this.n ) {
+        this.fail("unterminated string");
+        go = false;
+      } else {
+        const c = this.s.charCodeAt(this.i );
+        if ( c == 34 ) {
+          this.i = this.i + 1;
+          go = false;
+        } else {
+          if ( c == 92 ) {
+            this.i = this.i + 1;
+            if ( this.i >= this.n ) {
+              this.fail("unterminated escape");
+              go = false;
+            } else {
+              const e = this.s.charCodeAt(this.i );
+              out = out + this.decodeEscape(e);
+              this.i = this.i + 1;
+            }
+          } else {
+            out = out + (this.s.substring(this.i, (this.i + 1) ));
+            this.i = this.i + 1;
+          }
+        }
+      }
+    };
+    return out;
+  };
+  decodeEscape (e) {
+    if ( e == 34 ) {
+      return String.fromCharCode(34);
+    }
+    if ( e == 92 ) {
+      return String.fromCharCode(92);
+    }
+    if ( e == 47 ) {
+      return String.fromCharCode(47);
+    }
+    if ( e == 98 ) {
+      return String.fromCharCode(8);
+    }
+    if ( e == 102 ) {
+      return String.fromCharCode(12);
+    }
+    if ( e == 110 ) {
+      return String.fromCharCode(10);
+    }
+    if ( e == 114 ) {
+      return String.fromCharCode(13);
+    }
+    if ( e == 116 ) {
+      return String.fromCharCode(9);
+    }
+    if ( e == 117 ) {
+      let cp = 0;
+      let k = 0;
+      while (k < 4) {
+        const hc = this.s.charCodeAt(((this.i + 1) + k) );
+        cp = (cp * 16) + this.hexDigit(hc);
+        k = k + 1;
+      };
+      this.i = this.i + 4;
+      return String.fromCharCode(cp);
+    }
+    return String.fromCharCode(e);
+  };
+  parseString () {
+    const v = new JsonValue();
+    v.kind = 3;
+    v.str = this.readRawString();
+    return v;
+  };
+  parseArray () {
+    const v = new JsonValue();
+    v.kind = 4;
+    this.i = this.i + 1;
+    this.skipWs();
+    if ( this.i < this.n ) {
+      if ( (this.s.charCodeAt(this.i )) == 93 ) {
+        this.i = this.i + 1;
+        return v;
+      }
+    }
+    let go = true;
+    while (go) {
+      const item = this.parseValue();
+      v.arr.push(item);
+      this.skipWs();
+      if ( this.i >= this.n ) {
+        this.fail("unterminated array");
+        go = false;
+      } else {
+        const c = this.s.charCodeAt(this.i );
+        if ( c == 44 ) {
+          this.i = this.i + 1;
+          this.skipWs();
+        } else {
+          if ( c == 93 ) {
+            this.i = this.i + 1;
+            go = false;
+          } else {
+            this.fail("expected ',' or ']' in array");
+            go = false;
+          }
+        }
+      }
+      if ( this.ok == false ) {
+        go = false;
+      }
+    };
+    return v;
+  };
+  parseObject () {
+    const v = new JsonValue();
+    v.kind = 5;
+    this.i = this.i + 1;
+    this.skipWs();
+    if ( this.i < this.n ) {
+      if ( (this.s.charCodeAt(this.i )) == 125 ) {
+        this.i = this.i + 1;
+        return v;
+      }
+    }
+    let go = true;
+    while (go) {
+      this.skipWs();
+      if ( this.i >= this.n ) {
+        this.fail("unterminated object");
+        go = false;
+      } else {
+        if ( (this.s.charCodeAt(this.i )) != 34 ) {
+          this.fail("expected string key in object");
+          go = false;
+        } else {
+          const key = this.readRawString();
+          this.skipWs();
+          if ( this.i >= this.n ) {
+            this.fail("expected ':' in object");
+            go = false;
+          } else {
+            if ( (this.s.charCodeAt(this.i )) != 58 ) {
+              this.fail("expected ':' in object");
+              go = false;
+            } else {
+              this.i = this.i + 1;
+              const val = this.parseValue();
+              v.members[key] = val;
+              v.keys.push(key);
+              this.skipWs();
+              if ( this.i >= this.n ) {
+                this.fail("unterminated object");
+                go = false;
+              } else {
+                const c = this.s.charCodeAt(this.i );
+                if ( c == 44 ) {
+                  this.i = this.i + 1;
+                } else {
+                  if ( c == 125 ) {
+                    this.i = this.i + 1;
+                    go = false;
+                  } else {
+                    this.fail("expected ',' or '}' in object");
+                    go = false;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if ( this.ok == false ) {
+        go = false;
+      }
+    };
+    return v;
+  };
+}
+class SurveyReader  {
+  constructor() {
+    this.form = new Questionnaire();
+    this.host = new SurveyExpr();
+    this.errorText = "";
+    this.unsupported = [];
+  }
+  parse (json) {
+    const p = new JsonParser();
+    const root = p.parse(json);
+    if ( p.ok == false ) {
+      this.errorText = p.err;
+      return false;
+    }
+    if ( root.isObject() == false ) {
+      this.errorText = "the form is not a JSON object";
+      return false;
+    }
+    this.form = Questionnaire.of(root.stringOr("name", "survey"));
+    this.form.title = root.stringOr("title", "");
+    if ( (root).has("pages") ) {
+      const pages = (root).get("pages");
+      let i = 0;
+      const n = (pages).count();
+      while (i < n) {
+        const page = (pages).at(i);
+        const pname = page.stringOr("name", ("page" + (((i + 1).toString()))));
+        const made = this.form.page(pname, page.stringOr("title", ""));
+        made.visibleWhen = page.stringOr("visibleIf", "");
+        if ( (made.visibleWhen.length) > 0 ) {
+          this.readElements((page).get("elements"), pname, made.visibleWhen);
+        } else {
+          this.readElements((page).get("elements"), pname, "");
+        }
+        i = i + 1;
+      };
+    } else {
+      this.readElements((root).get("elements"), "", "");
+    }
+    this.form.compile(this.host);
+    return true;
+  };
+  readElements (list, page, pageVisible) {
+    if ( (list).isArray() == false ) {
+      return;
+    }
+    let i = 0;
+    const n = (list).count();
+    while (i < n) {
+      this.readElement((list).at(i), page, pageVisible);
+      i = i + 1;
+    };
+  };
+  readElement (el, page, pageVisible) {
+    const type = el.stringOr("type", "text");
+    const name = el.stringOr("name", "");
+    if ( (name.length) == 0 ) {
+      this.gap("an element with no name");
+      return;
+    }
+    if ( type == "panel" ) {
+      const own = el.stringOr("visibleIf", "");
+      const joined = SurveyReader.bothOf(pageVisible, own);
+      this.readElements((el).get("elements"), page, joined);
+      return;
+    }
+    if ( type == "paneldynamic" ) {
+      this.gap(name + ": paneldynamic (a repeat group) is not read yet");
+      return;
+    }
+    if ( type == "matrixdynamic" ) {
+      this.gap(name + ": matrixdynamic is not read yet");
+      return;
+    }
+    if ( type == "matrix" ) {
+      this.gap(name + ": matrix is not read yet");
+      return;
+    }
+    const q = this.form.question(name, SurveyReader.kindOf(el, type), el.stringOr("title", name));
+    q.page = page;
+    q.help = el.stringOr("description", "");
+    const visible = SurveyReader.bothOf(pageVisible, el.stringOr("visibleIf", ""));
+    if ( (visible.length) > 0 ) {
+      q.visibleWhen(visible);
+    }
+    if ( (el).has("visible") ) {
+      if ( el.boolOr("visible", true) == false ) {
+        if ( (visible.length) == 0 ) {
+          q.visibleWhen("false");
+        }
+      }
+    }
+    const enabled = el.stringOr("enableIf", "");
+    if ( (enabled.length) > 0 ) {
+      q.enabledWhen(enabled);
+    }
+    if ( el.boolOr("readOnly", false) ) {
+      q.rule("readonly", "true");
+    }
+    const requiredIf = el.stringOr("requiredIf", "");
+    if ( (requiredIf.length) > 0 ) {
+      q.requiredWhen(requiredIf);
+    } else {
+      if ( el.boolOr("isRequired", false) ) {
+        q.requiredWhen("true");
+      }
+    }
+    const expression = el.stringOr("expression", "");
+    if ( (expression.length) > 0 ) {
+      q.calculated(expression);
+    }
+    const setValue = el.stringOr("setValueExpression", "");
+    if ( (setValue.length) > 0 ) {
+      this.gap(name + ": setValueExpression is not read yet");
+    }
+    if ( (el).has("choices") ) {
+      const choices = (el).get("choices");
+      let c = 0;
+      const nc = (choices).count();
+      while (c < nc) {
+        const one = (choices).at(c);
+        if ( one.isObject() ) {
+          const made = q.choice(one.stringOr("value", ""), one.stringOr("text", ""));
+          made.visibleWhen = one.stringOr("visibleIf", "");
+        } else {
+          if ( one.isString() ) {
+            q.choice(one.asString(), one.asString());
+          } else {
+            if ( one.isNumber() ) {
+              const text = FormValue.numberText(one.asDouble());
+              q.choice(text, text);
+            }
+          }
+        }
+        c = c + 1;
+      };
+    }
+    if ( (el).has("choicesByUrl") ) {
+      this.gap(name + ": choicesByUrl needs a network the engine does not have");
+    }
+    if ( (el).has("maxLength") ) {
+      q.atMost(el.intOr("maxLength", -1));
+    }
+    const hasMin = (el).has("min");
+    const hasMax = (el).has("max");
+    if ( hasMin ) {
+      q.minValue = el.doubleOr("min", 0.0);
+      q.hasMin = true;
+    }
+    if ( hasMax ) {
+      q.maxValue = el.doubleOr("max", 0.0);
+      q.hasMax = true;
+    }
+    if ( (el).has("defaultValue") ) {
+      const dv = (el).get("defaultValue");
+      if ( dv.isString() ) {
+        q.initial = dv.asString();
+      }
+      if ( dv.isNumber() ) {
+        q.initial = FormValue.numberText(dv.asDouble());
+      }
+    }
+    if ( (el).has("validators") ) {
+      this.readValidators(q, (el).get("validators"));
+    }
+    this.checkExpressions(q);
+  };
+  readValidators (q, list) {
+    let i = 0;
+    const n = (list).count();
+    while (i < n) {
+      const v = (list).at(i);
+      const type = v.stringOr("type", "");
+      const message = v.stringOr("text", "");
+      if ( type == "expression" ) {
+        const source = v.stringOr("expression", "");
+        if ( (source.length) > 0 ) {
+          q.validWhen(source, message);
+        }
+      } else {
+        if ( type == "numeric" ) {
+          if ( (v).has("minValue") ) {
+            q.minValue = v.doubleOr("minValue", 0.0);
+            q.hasMin = true;
+          }
+          if ( (v).has("maxValue") ) {
+            q.maxValue = v.doubleOr("maxValue", 0.0);
+            q.hasMax = true;
+          }
+        } else {
+          if ( type == "text" ) {
+            if ( (v).has("maxLength") ) {
+              q.atMost(v.intOr("maxLength", -1));
+            }
+            if ( (v).has("minLength") ) {
+              this.gap(q.name + ": a minLength validator is not read yet");
+            }
+          } else {
+            this.gap(((q.name + ": the ") + type) + " validator is not read yet");
+          }
+        }
+      }
+      i = i + 1;
+    };
+  };
+  checkExpressions (q) {
+    let i = 0;
+    const n = q.rules.length;
+    while (i < n) {
+      const r = q.rules[i];
+      const bad = SurveyExpr.usesUnsupported(r.source);
+      if ( (bad.length) > 0 ) {
+        this.gap(((((q.name + ".") + r.role) + ": ") + bad) + "() is not implemented");
+      }
+      i = i + 1;
+    };
+  };
+  gap (detail) {
+    this.unsupported.push(detail);
+    this.form.noteGap(detail);
+  };
+  gapCount () {
+    return this.unsupported.length;
+  };
+  supported () {
+    if ( (this.unsupported.length) > 0 ) {
+      return false;
+    }
+    return (this.form.gaps.length) == 0;
+  };
+}
+SurveyReader.read = function(json) {
+  const r = new SurveyReader();
+  r.parse(json);
+  return r;
+};
+SurveyReader.kindOf = function(el, type) {
+  if ( type == "boolean" ) {
+    return "bool";
+  }
+  if ( type == "checkbox" ) {
+    return "multichoice";
+  }
+  if ( type == "tagbox" ) {
+    return "multichoice";
+  }
+  if ( type == "radiogroup" ) {
+    return "choice";
+  }
+  if ( type == "dropdown" ) {
+    return "choice";
+  }
+  if ( type == "rating" ) {
+    return "decimal";
+  }
+  if ( type == "expression" ) {
+    return "decimal";
+  }
+  if ( type == "text" ) {
+    const input = el.stringOr("inputType", "text");
+    if ( input == "number" ) {
+      return "decimal";
+    }
+    if ( input == "date" ) {
+      return "date";
+    }
+    return "text";
+  }
+  return "text";
+};
+SurveyReader.bothOf = function(a, b) {
+  if ( (a.length) == 0 ) {
+    return b;
+  }
+  if ( (b.length) == 0 ) {
+    return a;
+  }
+  return ((("(" + a) + ") and (") + b) + ")";
+};
+class BenchRunner  {
+  constructor() {
+    this.reader = new SurveyReader();
+    this.engine = new FormEngine();
+    this.state = new AnswerState();
+    this.steps = new JsonValue();
+    this.name = "";
+    this.errorText = "";
+    this.ready = false;
+  }
+  load (caseJson, todayDays) {
+    const p = new JsonParser();
+    const root = p.parse(caseJson);
+    if ( p.ok == false ) {
+      this.errorText = p.err;
+      return false;
+    }
+    this.name = root.stringOr("name", "case");
+    const survey = (root).get("survey");
+    if ( survey.isObject() == false ) {
+      this.errorText = "the case has no survey";
+      return false;
+    }
+    this.reader = SurveyReader.read(BenchRunner.reprint(survey));
+    if ( (this.reader.errorText.length) > 0 ) {
+      this.errorText = this.reader.errorText;
+      return false;
+    }
+    this.engine = FormEngine.load(this.reader.form, this.reader.host);
+    if ( this.engine.ready == false ) {
+      this.errorText = this.engine.errorText;
+      return false;
+    }
+    this.state = (this.engine).start(todayDays);
+    this.steps = (root).get("script");
+    this.ready = true;
+    return true;
+  };
+  stepCount () {
+    if ( (this.steps).isArray() == false ) {
+      return 0;
+    }
+    return (this.steps).count();
+  };
+  applyStep (index) {
+    if ( (this.steps).isArray() == false ) {
+      return;
+    }
+    if ( index >= (this.steps).count() ) {
+      return;
+    }
+    const step = (this.steps).at(index);
+    if ( step.isObject() == false ) {
+      return;
+    }
+    let k = 0;
+    const nk = step.keys.length;
+    while (k < nk) {
+      const key = step.keys[k];
+      const v = (step).get(key);
+      this.engine.answer(this.state, key, BenchRunner.valueOf(v));
+      k = k + 1;
+    };
+  };
+  snapshot () {
+    let out = "";
+    let i = 0;
+    const n = this.engine.form.questions.length;
+    while (i < n) {
+      const q = this.engine.form.questions[i];
+      const st = this.state.stateOf(q.name);
+      let line = (q.name + " visible=") + BenchRunner.yesNo(st.visible);
+      line = (line + " required=") + BenchRunner.yesNo(st.required);
+      line = (line + " value=") + BenchRunner.shown(this.state, q.name, st);
+      out = (out + line) + "\n";
+      i = i + 1;
+    };
+    return out;
+  };
+  report () {
+    let out = ("case " + this.name) + "\n";
+    out = ((out + "gaps ") + ((this.reader.gapCount().toString()))) + "\n";
+    let g = 0;
+    const ng = this.reader.unsupported.length;
+    while (g < ng) {
+      out = ((out + "gap ") + (this.reader.unsupported[g])) + "\n";
+      g = g + 1;
+    };
+    out = out + "-- step 0\n";
+    out = out + this.snapshot();
+    let i = 0;
+    const n = this.stepCount();
+    while (i < n) {
+      this.applyStep(i);
+      out = ((out + "-- step ") + (((i + 1).toString()))) + "\n";
+      out = out + this.snapshot();
+      i = i + 1;
+    };
+    out = ((out + "evaluations ") + ((this.state.evaluations.toString()))) + "\n";
+    return out;
+  };
+}
+BenchRunner.reprint = function(v) {
+  if ( v.isNull() ) {
+    return "null";
+  }
+  if ( v.isNumber() ) {
+    return FormValue.numberText(v.asDouble());
+  }
+  if ( v.isString() ) {
+    return BenchRunner.quoted(v.asString());
+  }
+  if ( v.kind == 1 ) {
+    if ( v.asBool() ) {
+      return "true";
+    }
+    return "false";
+  }
+  if ( (v).isArray() ) {
+    let out = "[";
+    let i = 0;
+    const n = (v).count();
+    while (i < n) {
+      if ( i > 0 ) {
+        out = out + ",";
+      }
+      out = out + BenchRunner.reprint((v).at(i));
+      i = i + 1;
+    };
+    return out + "]";
+  }
+  let out2 = "{";
+  let k = 0;
+  const nk = v.keys.length;
+  while (k < nk) {
+    const key = v.keys[k];
+    if ( k > 0 ) {
+      out2 = out2 + ",";
+    }
+    out2 = ((out2 + BenchRunner.quoted(key)) + ":") + BenchRunner.reprint((v).get(key));
+    k = k + 1;
+  };
+  return out2 + "}";
+};
+BenchRunner.quoted = function(s) {
+  return FormEngine.jsonString(s);
+};
+BenchRunner.valueOf = function(v) {
+  if ( v.isNull() ) {
+    return FormValue.blank();
+  }
+  if ( v.isNumber() ) {
+    return FormValue.ofNumber(v.asDouble());
+  }
+  if ( v.kind == 1 ) {
+    return FormValue.ofBool(v.asBool());
+  }
+  if ( (v).isArray() ) {
+    let items = [];
+    let i = 0;
+    const n = (v).count();
+    while (i < n) {
+      const one = (v).at(i);
+      if ( one.isNumber() ) {
+        items.push(FormValue.numberText(one.asDouble()));
+      } else {
+        items.push(one.asString());
+      }
+      i = i + 1;
+    };
+    return FormValue.ofList(items);
+  }
+  const text = v.asString();
+  if ( (text.length) == 0 ) {
+    return FormValue.blank();
+  }
+  return FormValue.ofText(text);
+};
+BenchRunner.shown = function(state, name, st) {
+  if ( st.visible == false ) {
+    return "-";
+  }
+  const v = state.rawValueOf(name);
+  if ( v.isEmpty() ) {
+    return "-";
+  }
+  if ( v.isError() ) {
+    return "-";
+  }
+  return v.asText();
+};
+BenchRunner.yesNo = function(b) {
+  if ( b ) {
+    return "1";
+  }
+  return "0";
+};
+module.exports.FormValue = FormValue;
+module.exports.Answer = Answer;
+module.exports.QuestionState = QuestionState;
+module.exports.AnswerState = AnswerState;
+module.exports.ExprNode = ExprNode;
+module.exports.ExprProgram = ExprProgram;
+module.exports.ExprHost = ExprHost;
+module.exports.RuleRole = RuleRole;
+module.exports.QuestionKind = QuestionKind;
+module.exports.Choice = Choice;
+module.exports.Rule = Rule;
+module.exports.Question = Question;
+module.exports.Page = Page;
+module.exports.Questionnaire = Questionnaire;
+module.exports.GraphNode = GraphNode;
+module.exports.DependencyGraph = DependencyGraph;
+module.exports.FormEngine = FormEngine;
+module.exports.ExprToken = ExprToken;
+module.exports.NativeExpr = NativeExpr;
+module.exports.SurveyExpr = SurveyExpr;
+module.exports.JsonValue = JsonValue;
+module.exports.JsonParser = JsonParser;
+module.exports.SurveyReader = SurveyReader;
+module.exports.BenchRunner = BenchRunner;

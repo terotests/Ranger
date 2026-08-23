@@ -274,6 +274,33 @@ class FormsTest {
         c.eqNum("count of a multi-choice" (FormsTest.numOf(host "count(symptoms)" st)) 3.0)
         c.ok("a chosen value is in it" (FormsTest.truthOf(host "'cough' in symptoms" st)))
 
+        ; --- the questionnaire operators --------------------------------------
+        ; The shapes every questionnaire format writes, so a form read from
+        ; one does not have to be rewritten to be evaluated.
+        c.ok("contains, over a multi-choice" (FormsTest.truthOf(host "symptoms contains 'fever'" st)))
+        c.ok("notcontains" (FormsTest.truthOf(host "symptoms notcontains 'rash'" st)))
+        c.ok("anyof, with a bracket list" (FormsTest.truthOf(host "symptoms anyof ['rash', 'fever']" st)))
+        c.ok("…and not just any list" ((FormsTest.truthOf(host "symptoms anyof ['rash', 'limp']" st)) == false))
+        c.ok("allof" (FormsTest.truthOf(host "symptoms allof ['cough', 'fever']" st)))
+        c.ok("…which needs all of them" ((FormsTest.truthOf(host "symptoms allof ['cough', 'rash']" st)) == false))
+        ; `contains` over TEXT is containment, which is what the word means
+        ; when the answer is a name rather than a set of ticks.
+        st.answer("who" (FormValue.ofText("Ada Lovelace")))
+        c.ok("contains, over text, is containment" (FormsTest.truthOf(host "who contains 'Love'" st)))
+        c.ok("…and not equality" ((FormsTest.truthOf(host "who contains 'Grace'" st)) == false))
+        ; The postfix pair, which read as the questions they are.
+        c.ok("answered, written postfix" (FormsTest.truthOf(host "who notempty" st)))
+        c.ok("and its opposite" (FormsTest.truthOf(host "nobody empty" st)))
+        c.eqNum("iif picks a branch" (FormsTest.numOf(host "iif(1 > 0, 7, 9)" st)) 7.0)
+        c.eqNum("and the other one" (FormsTest.numOf(host "iif(1 > 5, 7, 9)" st)) 9.0)
+        ; …and only evaluates the branch it picked, so a guard works.
+        c.eqNum("iif does not evaluate the branch it skipped" (FormsTest.numOf(host "iif(nobody notempty, 1 / 0, 5)" st)) 5.0)
+        ; Nothing ticked is not an answer.
+        def none:[string]
+        st.answer("empty_pick" (FormValue.ofList(none)))
+        c.ok("an empty multi-choice reads as unanswered" ((FormsTest.evalOf(host "empty_pick" st)).isEmpty()))
+        c.ok("…and says so" (FormsTest.truthOf(host "empty_pick empty" st)))
+
         ; --- the empty rule ---------------------------------------------------
         ; Arithmetic on an unanswered question is unanswered, not zero.
         def bmi:FormValue (FormsTest.evalOf(host "weight / (height * height)" st))

@@ -9,6 +9,9 @@ class FormValue  {
     this.err = "";
   }
   isEmpty () {
+    if ( this.kind == 4 ) {
+      return (this.items.length) == 0;
+    }
     return this.kind == 0;
   };
   isError () {
@@ -1660,16 +1663,20 @@ class NativeExpr  extends ExprHost {
     this.parseError = "there is no operator " + one;
     return 0;
   };
+  preprocess (source) {
+    return source;
+  };
   parse (source) {
     const p = new ExprProgram();
     p.source = source;
     this.found.length = 0;
     this.pos = 0;
-    if ( FormValue.trimText(source) == "" ) {
+    const written = this.preprocess(source);
+    if ( FormValue.trimText(written) == "" ) {
       p.errorText = "the expression is empty";
       return p;
     }
-    if ( this.lex(source) == false ) {
+    if ( this.lex(written) == false ) {
       p.errorText = this.parseError;
       return p;
     }
@@ -1756,6 +1763,22 @@ class NativeExpr  extends ExprHost {
   };
   parseCmp () {
     const left = this.parseSum();
+    const post = this.postfixOp();
+    if ( (post.length) > 0 ) {
+      this.take();
+      let args = [];
+      args.push(left);
+      return ExprNode.call(post, args);
+    }
+    const setOp = this.setOp();
+    if ( (setOp.length) > 0 ) {
+      this.take();
+      const other = this.parseSum();
+      let pair = [];
+      pair.push(left);
+      pair.push(other);
+      return ExprNode.call(setOp, pair);
+    }
     const op = this.comparisonOp();
     if ( (op.length) == 0 ) {
       return left;
@@ -1763,6 +1786,38 @@ class NativeExpr  extends ExprHost {
     this.take();
     const right = this.parseSum();
     return ExprNode.binary(op, left, right);
+  };
+  postfixOp () {
+    const t = this.peek();
+    if ( t.kind != 3 ) {
+      return "";
+    }
+    if ( t.text == "empty" ) {
+      return "empty";
+    }
+    if ( t.text == "notempty" ) {
+      return "notempty";
+    }
+    return "";
+  };
+  setOp () {
+    const t = this.peek();
+    if ( t.kind != 3 ) {
+      return "";
+    }
+    if ( t.text == "contains" ) {
+      return "contains";
+    }
+    if ( t.text == "notcontains" ) {
+      return "notcontains";
+    }
+    if ( t.text == "anyof" ) {
+      return "anyof";
+    }
+    if ( t.text == "allof" ) {
+      return "allof";
+    }
+    return "";
   };
   comparisonOp () {
     const t = this.peek();
@@ -1880,20 +1935,37 @@ class NativeExpr  extends ExprHost {
       this.noteName(t.text);
       return ExprNode.reference(t.text);
     }
+    if ( this.atOp("[") ) {
+      this.take();
+      let items = [];
+      if ( this.atOp("]") ) {
+        this.take();
+        return ExprNode.call("list", items);
+      }
+      items.push(this.parseOr());
+      while (this.atOp(",")) {
+        this.take();
+        items.push(this.parseOr());
+      };
+      if ( this.expect("]") == false ) {
+        return ExprNode.truth(false);
+      }
+      return ExprNode.call("list", items);
+    }
     if ( this.atOp("(") ) {
       this.take();
       const first = this.parseOr();
       if ( this.atOp(",") ) {
-        let items = [];
-        items.push(first);
+        let items_1 = [];
+        items_1.push(first);
         while (this.atOp(",")) {
           this.take();
-          items.push(this.parseOr());
+          items_1.push(this.parseOr());
         };
         if ( this.expect(")") == false ) {
           return ExprNode.truth(false);
         }
-        return ExprNode.call("list", items);
+        return ExprNode.call("list", items_1);
       }
       if ( this.expect(")") == false ) {
         return ExprNode.truth(false);
@@ -2106,10 +2178,25 @@ class NativeExpr  extends ExprHost {
       return FormValue.ofList(items);
     }
     if ( name == "empty" ) {
-      return FormValue.blank();
+      if ( argc == 0 ) {
+        return FormValue.blank();
+      }
     }
     if ( name == "today" ) {
       return FormValue.ofInt(state.todayDays);
+    }
+    if ( name == "iif" ) {
+      if ( argc < 3 ) {
+        return FormValue.ofError("iif needs a condition and two values");
+      }
+      const cond = this.kidValue(node, 0, state);
+      if ( cond.isError() ) {
+        return cond;
+      }
+      if ( cond.truthy() ) {
+        return this.kidValue(node, 1, state);
+      }
+      return this.kidValue(node, 2, state);
     }
     if ( argc < 1 ) {
       return FormValue.ofError((name + " needs an argument"));
@@ -2136,11 +2223,93 @@ class NativeExpr  extends ExprHost {
     if ( name == "answered" ) {
       return FormValue.ofBool((first.isEmpty() == false));
     }
+    if ( name == "empty" ) {
+      return FormValue.ofBool(first.isEmpty());
+    }
+    if ( name == "notempty" ) {
+      return FormValue.ofBool((first.isEmpty() == false));
+    }
+    if ( name == "contains" ) {
+      if ( argc < 2 ) {
+        return FormValue.ofError("contains needs a value and something to look for");
+      }
+      const want = this.kidValue(node, 1, state);
+      if ( want.isError() ) {
+        return want;
+      }
+      return FormValue.ofBool(NativeExpr.holdsValue(first, want));
+    }
+    if ( name == "notcontains" ) {
+      if ( argc < 2 ) {
+        return FormValue.ofError("notcontains needs a value and something to look for");
+      }
+      const unwanted = this.kidValue(node, 1, state);
+      if ( unwanted.isError() ) {
+        return unwanted;
+      }
+      return FormValue.ofBool((NativeExpr.holdsValue(first, unwanted) == false));
+    }
+    if ( name == "anyof" ) {
+      return this.overlap(node, state, first, false);
+    }
+    if ( name == "allof" ) {
+      return this.overlap(node, state, first, true);
+    }
+    if ( name == "avg" ) {
+      let total = 0.0;
+      let seen = 0;
+      let a = 0;
+      while (a < argc) {
+        const av = this.kidValue(node, a, state);
+        if ( av.isError() ) {
+          return av;
+        }
+        if ( av.isEmpty() == false ) {
+          const an = av.asNumber();
+          if ( an.isNumber() == false ) {
+            return an;
+          }
+          total = total + an.n;
+          seen = seen + 1;
+        }
+        a = a + 1;
+      };
+      if ( seen == 0 ) {
+        return FormValue.blank();
+      }
+      return FormValue.ofNumber((total / (seen)));
+    }
+    if ( name == "round" ) {
+      if ( first.isEmpty() ) {
+        return first;
+      }
+      const rn = first.asNumber();
+      if ( rn.isNumber() == false ) {
+        return rn;
+      }
+      if ( rn.n < 0.0 ) {
+        return FormValue.ofNumber(((Math.floor( (rn.n - 0.5)))));
+      }
+      return FormValue.ofNumber(((Math.floor( (rn.n + 0.5)))));
+    }
+    if ( name == "abs" ) {
+      if ( first.isEmpty() ) {
+        return first;
+      }
+      const bn = first.asNumber();
+      if ( bn.isNumber() == false ) {
+        return bn;
+      }
+      if ( bn.n < 0.0 ) {
+        return FormValue.ofNumber((0.0 - bn.n));
+      }
+      return bn;
+    }
     if ( name == "number" ) {
       return first.asNumber();
     }
     if ( name == "sum" ) {
-      let total = 0.0;
+      let total_1 = 0.0;
       let k = 0;
       while (k < argc) {
         const v2 = this.kidValue(node, k, state);
@@ -2152,11 +2321,11 @@ class NativeExpr  extends ExprHost {
           if ( nv.isNumber() == false ) {
             return nv;
           }
-          total = total + nv.n;
+          total_1 = total_1 + nv.n;
         }
         k = k + 1;
       };
-      return FormValue.ofNumber(total);
+      return FormValue.ofNumber(total_1);
     }
     if ( name == "age_of" ) {
       if ( first.isEmpty() ) {
@@ -2185,6 +2354,46 @@ class NativeExpr  extends ExprHost {
       return this.extreme(node, state, false);
     }
     return FormValue.ofError(("there is no function " + name));
+  };
+  overlap (node, state, first, all) {
+    let wanted = [];
+    let i = 1;
+    const n = node.kids.length;
+    while (i < n) {
+      const v = this.kidValue(node, i, state);
+      if ( v.isError() ) {
+        return v;
+      }
+      if ( v.isList() ) {
+        let k = 0;
+        const nk = v.items.length;
+        while (k < nk) {
+          wanted.push(v.items[k]);
+          k = k + 1;
+        };
+      } else {
+        if ( v.isEmpty() == false ) {
+          wanted.push(v.asText());
+        }
+      }
+      i = i + 1;
+    };
+    if ( (wanted.length) == 0 ) {
+      return FormValue.ofBool(false);
+    }
+    let hits = 0;
+    let w = 0;
+    const nw = wanted.length;
+    while (w < nw) {
+      if ( first.holds((wanted[w])) ) {
+        hits = hits + 1;
+      }
+      w = w + 1;
+    };
+    if ( all ) {
+      return FormValue.ofBool((hits == nw));
+    }
+    return FormValue.ofBool((hits > 0));
   };
   extreme (node, state, lowest) {
     let best = 0.0;
@@ -2310,6 +2519,12 @@ NativeExpr.isOneCharOp = function(s) {
   if ( s == "," ) {
     return true;
   }
+  if ( s == "[" ) {
+    return true;
+  }
+  if ( s == "]" ) {
+    return true;
+  }
   if ( s == "=" ) {
     return true;
   }
@@ -2403,10 +2618,13 @@ NativeExpr.holdsValue = function(haystack, needle) {
   if ( haystack.isList() ) {
     return haystack.holds(needle.asText());
   }
-  if ( haystack.isText() ) {
-    return haystack.s == needle.asText();
+  if ( haystack.isEmpty() ) {
+    return false;
   }
-  return false;
+  if ( needle.isEmpty() ) {
+    return false;
+  }
+  return NativeExpr.hasPart(haystack.asText(), needle.asText());
 };
 NativeExpr.hasPart = function(text, part) {
   const n = part.length;

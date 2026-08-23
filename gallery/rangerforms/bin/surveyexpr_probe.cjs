@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 class FormValue  {
   constructor() {
     this.kind = 0;
@@ -9,9 +8,6 @@ class FormValue  {
     this.err = "";
   }
   isEmpty () {
-    if ( this.kind == 4 ) {
-      return (this.items.length) == 0;
-    }
     return this.kind == 0;
   };
   isError () {
@@ -472,608 +468,6 @@ class ExprHost  {
     return FormValue.ofError("no expression host installed");
   };
 }
-class RuleRole  {
-  constructor() {
-  }
-}
-RuleRole.visible = function() {
-  return "visible";
-};
-RuleRole.enabled = function() {
-  return "enabled";
-};
-RuleRole.required = function() {
-  return "required";
-};
-RuleRole.readOnly = function() {
-  return "readonly";
-};
-RuleRole.calculated = function() {
-  return "calculated";
-};
-RuleRole.validate = function() {
-  return "validate";
-};
-RuleRole.defaultOf = function(role) {
-  if ( role == "visible" ) {
-    return true;
-  }
-  if ( role == "enabled" ) {
-    return true;
-  }
-  if ( role == "validate" ) {
-    return true;
-  }
-  return false;
-};
-class QuestionKind  {
-  constructor() {
-  }
-}
-QuestionKind.text = function() {
-  return "text";
-};
-QuestionKind.integer = function() {
-  return "int";
-};
-QuestionKind.decimal = function() {
-  return "decimal";
-};
-QuestionKind.yesNo = function() {
-  return "bool";
-};
-QuestionKind.date = function() {
-  return "date";
-};
-QuestionKind.choice = function() {
-  return "choice";
-};
-QuestionKind.multiChoice = function() {
-  return "multichoice";
-};
-QuestionKind.group = function() {
-  return "group";
-};
-QuestionKind.repeat = function() {
-  return "repeat";
-};
-class Choice  {
-  constructor() {
-    this.value = "";
-    this.label = "";
-    this.visibleWhen = "";     /** note: unused */
-  }
-}
-Choice.of = function(value, label) {
-  const c = new Choice();
-  c.value = value;
-  c.label = label;
-  return c;
-};
-class Rule  {
-  constructor() {
-    this.role = "";
-    this.source = "";
-    this.program = new ExprProgram();
-    this.message = "";
-  }
-}
-Rule.of = function(role, source) {
-  const r = new Rule();
-  r.role = role;
-  r.source = source;
-  return r;
-};
-class Question  {
-  constructor() {
-    this.name = "";
-    this.kind = "text";
-    this.label = "";
-    this.help = "";     /** note: unused */
-    this.page = "";     /** note: unused */
-    this.choices = [];
-    this.rules = [];
-    this.initial = "";     /** note: unused */
-    this.maxLength = -1;
-    this.minValue = 0.0;
-    this.maxValue = 0.0;
-    this.hasMin = false;
-    this.hasMax = false;
-  }
-  rule (role, source) {
-    const r = Rule.of(role, source);
-    this.rules.push(r);
-    return r;
-  };
-  visibleWhen (source) {
-    return this.rule("visible", source);
-  };
-  requiredWhen (source) {
-    return this.rule("required", source);
-  };
-  enabledWhen (source) {
-    return this.rule("enabled", source);
-  };
-  calculated (source) {
-    return this.rule("calculated", source);
-  };
-  validWhen (source, message) {
-    const r = this.rule("validate", source);
-    r.message = message;
-    return r;
-  };
-  between (low, high) {
-    this.minValue = low;
-    this.maxValue = high;
-    this.hasMin = true;
-    this.hasMax = true;
-  };
-  atMost (chars) {
-    this.maxLength = chars;
-  };
-  choice (value, label) {
-    const c = Choice.of(value, label);
-    this.choices.push(c);
-    return c;
-  };
-  ruleFor (role) {
-    let i = 0;
-    const n = this.rules.length;
-    while (i < n) {
-      const r = this.rules[i];
-      if ( r.role == role ) {
-        return r;
-      }
-      i = i + 1;
-    };
-    return new Rule();
-  };
-  hasRule (role) {
-    let i = 0;
-    const n = this.rules.length;
-    while (i < n) {
-      const r = this.rules[i];
-      if ( r.role == role ) {
-        return true;
-      }
-      i = i + 1;
-    };
-    return false;
-  };
-  isComputed () {
-    return this.hasRule("calculated");
-  };
-}
-Question.of = function(name, kind, label) {
-  const q = new Question();
-  q.name = name;
-  q.kind = kind;
-  q.label = label;
-  return q;
-};
-class Page  {
-  constructor() {
-    this.name = "";
-    this.title = "";
-    this.visibleWhen = "";     /** note: unused */
-  }
-}
-Page.of = function(name, title) {
-  const p = new Page();
-  p.name = name;
-  p.title = title;
-  return p;
-};
-class Questionnaire  {
-  constructor() {
-    this.name = "";
-    this.title = "";
-    this.version = "";     /** note: unused */
-    this.pages = [];
-    this.questions = [];
-    this.byName = {};
-    this.gaps = [];
-  }
-  page (name, title) {
-    const p = Page.of(name, title);
-    this.pages.push(p);
-    return p;
-  };
-  question (name, kind, label) {
-    const q = Question.of(name, kind, label);
-    this.addQuestion(q);
-    return q;
-  };
-  addQuestion (q) {
-    const at = this.questions.length;
-    this.questions.push(q);
-    const key = q.name;
-    this.byName[key] = at;
-  };
-  indexOf (name) {
-    const found = ( Object.prototype.hasOwnProperty.call(this.byName, name) ? this.byName[name] : undefined );
-    if ( typeof(found) === "undefined" ) {
-      return -1;
-    }
-    return found;
-  };
-  has (name) {
-    return (this).indexOf(name) >= 0;
-  };
-  questionAt (index) {
-    if ( index < 0 ) {
-      return new Question();
-    }
-    if ( index >= (this.questions.length) ) {
-      return new Question();
-    }
-    return this.questions[index];
-  };
-  find (name) {
-    return this.questionAt((this).indexOf(name));
-  };
-  questionCount () {
-    return this.questions.length;
-  };
-  noteGap (detail) {
-    this.gaps.push(detail);
-  };
-  compile (host) {
-    let bad = 0;
-    let i = 0;
-    const n = this.questions.length;
-    while (i < n) {
-      const q = this.questions[i];
-      let k = 0;
-      const nk = q.rules.length;
-      while (k < nk) {
-        const r = q.rules[k];
-        r.program = host.parse(r.source);
-        if ( r.program.ok == false ) {
-          bad = bad + 1;
-          this.noteGap((((q.name + ".") + r.role) + ": ") + r.program.errorText);
-        }
-        k = k + 1;
-      };
-      i = i + 1;
-    };
-    return bad;
-  };
-  unknownReferences () {
-    let out = [];
-    let i = 0;
-    const n = this.questions.length;
-    while (i < n) {
-      const q = this.questions[i];
-      let k = 0;
-      const nk = q.rules.length;
-      while (k < nk) {
-        const r = q.rules[k];
-        let j = 0;
-        const nj = r.program.names.length;
-        while (j < nj) {
-          const name_1 = r.program.names[j];
-          if ( (this).has(name_1) == false ) {
-            if ( Questionnaire.listHas(out, name_1) == false ) {
-              out.push(name_1);
-            }
-          }
-          j = j + 1;
-        };
-        k = k + 1;
-      };
-      i = i + 1;
-    };
-    return out;
-  };
-}
-Questionnaire.of = function(name) {
-  const q = new Questionnaire();
-  q.name = name;
-  return q;
-};
-Questionnaire.listHas = function(list, want) {
-  let i = 0;
-  const n = list.length;
-  while (i < n) {
-    if ( (list[i]) == want ) {
-      return true;
-    }
-    i = i + 1;
-  };
-  return false;
-};
-class GraphNode  {
-  constructor() {
-    this.question = "";
-    this.role = "";
-    this.reads = [];
-    this.feeds = [];
-    this.rank = -1;
-  }
-  key () {
-    return (this.question + ".") + this.role;
-  };
-}
-class DependencyGraph  {
-  constructor() {
-    this.nodes = [];
-    this.byKey = {};
-    this.producers = {};
-    this.order = [];
-    this.ok = false;
-    this.errorText = "";
-    this.cycle = [];
-  }
-  build (form) {
-    this.nodes.length = 0;
-    this.order.length = 0;
-    this.cycle.length = 0;
-    this.errorText = "";
-    this.ok = false;
-    let i = 0;
-    const n = form.questions.length;
-    while (i < n) {
-      const q = form.questions[i];
-      let k = 0;
-      const nk = q.rules.length;
-      while (k < nk) {
-        const r = q.rules[k];
-        const at = this.addNode(q.name, r.role);
-        if ( r.role == "calculated" ) {
-          const qname = q.name;
-          this.producers[qname] = at;
-        }
-        k = k + 1;
-      };
-      i = i + 1;
-    };
-    let j = 0;
-    const nj = form.questions.length;
-    while (j < nj) {
-      const q2 = form.questions[j];
-      let k2 = 0;
-      const nk2 = q2.rules.length;
-      while (k2 < nk2) {
-        const r2 = q2.rules[k2];
-        const me = (this).indexOf(q2.name, r2.role);
-        let m = 0;
-        const nm = r2.program.names.length;
-        while (m < nm) {
-          const read = r2.program.names[m];
-          const src = ( Object.prototype.hasOwnProperty.call(this.producers, read) ? this.producers[read] : undefined );
-          if ( (typeof(src) !== "undefined" && src != null )  ) {
-            this.link(src, me);
-          }
-          const visAt = (this).indexOf(read, "visible");
-          if ( visAt >= 0 ) {
-            this.link(visAt, me);
-          }
-          m = m + 1;
-        };
-        k2 = k2 + 1;
-      };
-      j = j + 1;
-    };
-    return (this).sort();
-  };
-  addNode (question, role) {
-    const key = (question + ".") + role;
-    const found = ( Object.prototype.hasOwnProperty.call(this.byKey, key) ? this.byKey[key] : undefined );
-    if ( (typeof(found) !== "undefined" && found != null )  ) {
-      return found;
-    }
-    const node = new GraphNode();
-    node.question = question;
-    node.role = role;
-    const at = this.nodes.length;
-    this.nodes.push(node);
-    this.byKey[key] = at;
-    return at;
-  };
-  indexOf (question, role) {
-    const key = (question + ".") + role;
-    const found = ( Object.prototype.hasOwnProperty.call(this.byKey, key) ? this.byKey[key] : undefined );
-    if ( typeof(found) === "undefined" ) {
-      return -1;
-    }
-    return found;
-  };
-  nodeAt (index) {
-    if ( index < 0 ) {
-      return new GraphNode();
-    }
-    if ( index >= (this.nodes.length) ) {
-      return new GraphNode();
-    }
-    return this.nodes[index];
-  };
-  link (from, to) {
-    if ( from < 0 ) {
-      return;
-    }
-    if ( to < 0 ) {
-      return;
-    }
-    if ( from == to ) {
-    }
-    const a = this.nodeAt(to);
-    const b = this.nodeAt(from);
-    if ( DependencyGraph.intHas(a.reads, from) == false ) {
-      a.reads.push(from);
-    }
-    if ( DependencyGraph.intHas(b.feeds, to) == false ) {
-      b.feeds.push(to);
-    }
-  };
-  sort () {
-    this.order.length = 0;
-    const n = this.nodes.length;
-    let remaining = [];
-    let i = 0;
-    while (i < n) {
-      const node = this.nodes[i];
-      remaining.push(node.reads.length);
-      i = i + 1;
-    };
-    let done = [];
-    let d = 0;
-    while (d < n) {
-      done.push(false);
-      d = d + 1;
-    };
-    let placed = 0;
-    let progress = true;
-    while (progress) {
-      progress = false;
-      let k = 0;
-      while (k < n) {
-        if ( (done[k]) == false ) {
-          if ( (remaining[k]) == 0 ) {
-            done[k] = true;
-            const node2 = this.nodes[k];
-            node2.rank = placed;
-            this.order.push(k);
-            placed = placed + 1;
-            progress = true;
-            let f = 0;
-            const nf = node2.feeds.length;
-            while (f < nf) {
-              const to = node2.feeds[f];
-              remaining[to] = (remaining[to]) - 1;
-              f = f + 1;
-            };
-          }
-        }
-        k = k + 1;
-      };
-    };
-    if ( placed == n ) {
-      this.ok = true;
-      return true;
-    }
-    this.nameCycle(done);
-    this.ok = false;
-    this.errorText = "the form has a cycle: " + DependencyGraph.joinNames(this.cycle);
-    return false;
-  };
-  nameCycle (done) {
-    this.cycle.length = 0;
-    let i = 0;
-    const n = this.nodes.length;
-    while (i < n) {
-      if ( (done[i]) == false ) {
-        const node = this.nodes[i];
-        this.cycle.push(node.key());
-      }
-      i = i + 1;
-    };
-  };
-  dependentsOf (form, changed) {
-    let hit = [];
-    let i = 0;
-    const n = this.nodes.length;
-    while (i < n) {
-      hit.push(false);
-      i = i + 1;
-    };
-    let stack = [];
-    let j = 0;
-    const nj = form.questions.length;
-    while (j < nj) {
-      const q = form.questions[j];
-      let k = 0;
-      const nk = q.rules.length;
-      while (k < nk) {
-        const r = q.rules[k];
-        if ( r.program.reads(changed) ) {
-          const at = (this).indexOf(q.name, r.role);
-          if ( at >= 0 ) {
-            if ( (hit[at]) == false ) {
-              hit[at] = true;
-              stack.push(at);
-            }
-          }
-        }
-        k = k + 1;
-      };
-      j = j + 1;
-    };
-    let top = 0;
-    while (top < (stack.length)) {
-      const cur = stack[top];
-      const node = this.nodeAt(cur);
-      let f = 0;
-      const nf = node.feeds.length;
-      while (f < nf) {
-        const to = node.feeds[f];
-        if ( (hit[to]) == false ) {
-          hit[to] = true;
-          stack.push(to);
-        }
-        f = f + 1;
-      };
-      top = top + 1;
-    };
-    let out = [];
-    let o = 0;
-    const no = this.order.length;
-    while (o < no) {
-      const idx = this.order[o];
-      if ( hit[idx] ) {
-        out.push(idx);
-      }
-      o = o + 1;
-    };
-    return out;
-  };
-  nodeCount () {
-    return this.nodes.length;
-  };
-  describe () {
-    let out = "";
-    let i = 0;
-    const n = this.order.length;
-    while (i < n) {
-      const node = this.nodeAt((this.order[i]));
-      if ( i > 0 ) {
-        out = out + ", ";
-      }
-      out = out + node.key();
-      i = i + 1;
-    };
-    return out;
-  };
-}
-DependencyGraph.of = function(form) {
-  const g = new DependencyGraph();
-  g.build(form);
-  return g;
-};
-DependencyGraph.intHas = function(list, want) {
-  let i = 0;
-  const n = list.length;
-  while (i < n) {
-    if ( (list[i]) == want ) {
-      return true;
-    }
-    i = i + 1;
-  };
-  return false;
-};
-DependencyGraph.joinNames = function(names) {
-  let out = "";
-  let i = 0;
-  const n = names.length;
-  while (i < n) {
-    if ( i > 0 ) {
-      out = out + " → ";
-    }
-    out = out + (names[i]);
-    i = i + 1;
-  };
-  return out;
-};
 class ExprToken  {
   constructor() {
     this.kind = 0;
@@ -1344,22 +738,6 @@ class NativeExpr  extends ExprHost {
   };
   parseCmp () {
     const left = this.parseSum();
-    const post = this.postfixOp();
-    if ( (post.length) > 0 ) {
-      this.take();
-      let args = [];
-      args.push(left);
-      return ExprNode.call(post, args);
-    }
-    const setOp = this.setOp();
-    if ( (setOp.length) > 0 ) {
-      this.take();
-      const other = this.parseSum();
-      let pair = [];
-      pair.push(left);
-      pair.push(other);
-      return ExprNode.call(setOp, pair);
-    }
     const op = this.comparisonOp();
     if ( (op.length) == 0 ) {
       return left;
@@ -1367,38 +745,6 @@ class NativeExpr  extends ExprHost {
     this.take();
     const right = this.parseSum();
     return ExprNode.binary(op, left, right);
-  };
-  postfixOp () {
-    const t = this.peek();
-    if ( t.kind != 3 ) {
-      return "";
-    }
-    if ( t.text == "empty" ) {
-      return "empty";
-    }
-    if ( t.text == "notempty" ) {
-      return "notempty";
-    }
-    return "";
-  };
-  setOp () {
-    const t = this.peek();
-    if ( t.kind != 3 ) {
-      return "";
-    }
-    if ( t.text == "contains" ) {
-      return "contains";
-    }
-    if ( t.text == "notcontains" ) {
-      return "notcontains";
-    }
-    if ( t.text == "anyof" ) {
-      return "anyof";
-    }
-    if ( t.text == "allof" ) {
-      return "allof";
-    }
-    return "";
   };
   comparisonOp () {
     const t = this.peek();
@@ -1516,37 +862,20 @@ class NativeExpr  extends ExprHost {
       this.noteName(t.text);
       return ExprNode.reference(t.text);
     }
-    if ( this.atOp("[") ) {
-      this.take();
-      let items = [];
-      if ( this.atOp("]") ) {
-        this.take();
-        return ExprNode.call("list", items);
-      }
-      items.push(this.parseOr());
-      while (this.atOp(",")) {
-        this.take();
-        items.push(this.parseOr());
-      };
-      if ( this.expect("]") == false ) {
-        return ExprNode.truth(false);
-      }
-      return ExprNode.call("list", items);
-    }
     if ( this.atOp("(") ) {
       this.take();
       const first = this.parseOr();
       if ( this.atOp(",") ) {
-        let items_1 = [];
-        items_1.push(first);
+        let items = [];
+        items.push(first);
         while (this.atOp(",")) {
           this.take();
-          items_1.push(this.parseOr());
+          items.push(this.parseOr());
         };
         if ( this.expect(")") == false ) {
           return ExprNode.truth(false);
         }
-        return ExprNode.call("list", items_1);
+        return ExprNode.call("list", items);
       }
       if ( this.expect(")") == false ) {
         return ExprNode.truth(false);
@@ -2100,12 +1429,6 @@ NativeExpr.isOneCharOp = function(s) {
   if ( s == "," ) {
     return true;
   }
-  if ( s == "[" ) {
-    return true;
-  }
-  if ( s == "]" ) {
-    return true;
-  }
   if ( s == "=" ) {
     return true;
   }
@@ -2199,13 +1522,10 @@ NativeExpr.holdsValue = function(haystack, needle) {
   if ( haystack.isList() ) {
     return haystack.holds(needle.asText());
   }
-  if ( haystack.isEmpty() ) {
-    return false;
+  if ( haystack.isText() ) {
+    return haystack.s == needle.asText();
   }
-  if ( needle.isEmpty() ) {
-    return false;
-  }
-  return NativeExpr.hasPart(haystack.asText(), needle.asText());
+  return false;
 };
 NativeExpr.hasPart = function(text, part) {
   const n = part.length;
@@ -2222,309 +1542,185 @@ NativeExpr.hasPart = function(text, part) {
   };
   return false;
 };
-class FormCheck  {
+class SurveyExpr  extends NativeExpr {
   constructor() {
-    this.passed = 0;
-    this.failed = 0;
+    super()
+    this.sawBraces = false;     /** note: unused */
   }
-  ok (name, cond) {
-    if ( cond ) {
-      this.passed = this.passed + 1;
-    } else {
-      this.failed = this.failed + 1;
-      console.log("  FAIL " + name);
-    }
+  hostName () {
+    return "surveyjs";
   };
-  eqStr (name, got, want) {
-    const good = got == want;
-    if ( good == false ) {
-      console.log(((("       got [" + got) + "] want [") + want) + "]");
-    }
-    this.ok(name, good);
-  };
-  eqInt (name, got, want) {
-    const good = got == want;
-    if ( good == false ) {
-      console.log((("       got " + ((got.toString()))) + " want ") + ((want.toString())));
-    }
-    this.ok(name, good);
-  };
-  eqNum (name, got, want) {
-    let d = got - want;
-    if ( d < 0.0 ) {
-      d = 0.0 - d;
-    }
-    const good = d < 0.000001;
-    if ( good == false ) {
-      console.log((("       got " + ((got.toString()))) + " want ") + ((want.toString())));
-    }
-    this.ok(name, good);
+  preprocess (source) {
+    return SurveyExpr.translate(source);
   };
 }
-class FormsTest  {
-  constructor() {
-  }
-}
-FormsTest.clinicForm = function() {
-  const f = Questionnaire.of("clinic");
-  f.title = "Intake";
-  const age = f.question("age", QuestionKind.integer(), "How old are you?");
-  age.requiredWhen("true");
-  age.validWhen("age >= 0 and age <= 120", "an age is between 0 and 120");
-  const guardian = f.question("guardian", QuestionKind.text(), "Name of a parent or guardian");
-  guardian.visibleWhen("age < 18");
-  guardian.requiredWhen("age < 18");
-  const height = f.question("height", QuestionKind.decimal(), "Height in metres");
-  const weight = f.question("weight", QuestionKind.decimal(), "Weight in kilograms");
-  const bmi = f.question("bmi", QuestionKind.decimal(), "Body mass index");
-  bmi.calculated("weight / (height * height)");
-  const advice = f.question("advice", QuestionKind.text(), "What we suggest");
-  advice.visibleWhen("bmi > 25");
-  return f;
-};
-FormsTest.runModel = function(c) {
-  console.log("-- the form, compiled --");
-  const host = new NativeExpr();
-  const f = FormsTest.clinicForm();
-  const bad = f.compile(host);
-  c.eqInt("every rule parsed", bad, 0);
-  c.eqInt("six questions", f.questionCount(), 6);
-  c.ok("and they can be found by name", (f).has("guardian"));
-  c.ok("…and a name nobody used cannot", (f).has("guardain") == false);
-  const g = (f).find("guardian");
-  const vis = g.ruleFor("visible");
-  c.eqInt("the visibility rule reads one question", vis.program.names.length, 1);
-  c.ok("and it is age", vis.program.reads("age"));
-  const bmiQ = (f).find("bmi");
-  const bmiRule = bmiQ.ruleFor("calculated");
-  c.eqInt("the calculation reads two", bmiRule.program.names.length, 2);
-  c.ok("height", bmiRule.program.reads("height"));
-  c.ok("and weight", bmiRule.program.reads("weight"));
-  c.eqInt("nothing refers to a question that is not there", f.unknownReferences().length, 0);
-};
-FormsTest.runGraph = function(c) {
-  console.log("-- the dependency graph --");
-  const host = new NativeExpr();
-  const f = FormsTest.clinicForm();
-  f.compile(host);
-  const g = DependencyGraph.of(f);
-  c.ok("the graph sorted", g.ok);
-  c.eqStr("with nothing to report", g.errorText, "");
-  c.eqInt("one node per rule", g.nodeCount(), 6);
-  c.eqInt("and every one of them is in the order", g.order.length, 6);
-  const calc = g.nodeAt((g).indexOf("bmi", "calculated"));
-  const adv = g.nodeAt((g).indexOf("advice", "visible"));
-  c.ok("bmi is calculated before the advice that reads it", calc.rank < adv.rank);
-  c.ok("and the advice knows where it came from", DependencyGraph.intHas(adv.reads, (g).indexOf("bmi", "calculated")));
-  const touched = g.dependentsOf(f, "age");
-  c.eqInt("changing age touches three rules", touched.length, 3);
-  let names = "";
+SurveyExpr.translate = function(src) {
+  let out = "";
+  const n = src.length;
   let i = 0;
-  while (i < (touched.length)) {
-    const node = g.nodeAt((touched[i]));
-    if ( i > 0 ) {
-      names = names + " ";
+  while (i < n) {
+    const ch = src.charCodeAt(i );
+    if ( ch == 39 ) {
+      const end = SurveyExpr.endOfString(src, i, n, 39);
+      out = out + (src.substring(i, end ));
+      i = end;
+    } else {
+      if ( ch == 34 ) {
+        const end2 = SurveyExpr.endOfString(src, i, n, 34);
+        out = out + (src.substring(i, end2 ));
+        i = end2;
+      } else {
+        if ( ch == 123 ) {
+          const close = SurveyExpr.indexFrom(src, (i + 1), n, 125);
+          if ( close < 0 ) {
+            out = out + (src.substring(i, (i + 1) ));
+            i = i + 1;
+          } else {
+            out = out + SurveyExpr.cleanName((src.substring((i + 1), close )));
+            i = close + 1;
+          }
+        } else {
+          const taken = SurveyExpr.operatorAt(src, i, n);
+          if ( taken > 0 ) {
+            out = out + SurveyExpr.operatorFor(src, i, taken);
+            i = i + taken;
+          } else {
+            out = out + (src.substring(i, (i + 1) ));
+            i = i + 1;
+          }
+        }
+      }
     }
-    names = names + node.key();
-    i = i + 1;
   };
-  c.eqStr("and they are the three that read it", names, "age.validate guardian.visible guardian.required");
-  const viaCalc = g.dependentsOf(f, "weight");
-  c.eqInt("changing weight touches the calculation and what reads it", viaCalc.length, 2);
-  const first = g.nodeAt((viaCalc[0]));
-  const second = g.nodeAt((viaCalc[1]));
-  c.eqStr("the calculation first", first.key(), "bmi.calculated");
-  c.eqStr("then what reads it", second.key(), "advice.visible");
-  c.eqInt("an answer nothing reads touches nothing", g.dependentsOf(f, "advice").length, 0);
-};
-FormsTest.runCycle = function(c) {
-  console.log("-- a form that refers to itself --");
-  const host = new NativeExpr();
-  const f = Questionnaire.of("circular");
-  const a = f.question("a", QuestionKind.decimal(), "A");
-  a.calculated("b + 1");
-  const b = f.question("b", QuestionKind.decimal(), "B");
-  b.calculated("a + 1");
-  f.compile(host);
-  const g = DependencyGraph.of(f);
-  c.ok("the graph refuses it", g.ok == false);
-  c.ok("the message names the first rule", FormsTest.holds(g.errorText, "a.calculated"));
-  c.ok("and the second", FormsTest.holds(g.errorText, "b.calculated"));
-  c.eqInt("both are in the cycle", g.cycle.length, 2);
-  const f2 = Questionnaire.of("self");
-  const s = f2.question("total", QuestionKind.decimal(), "Total");
-  s.calculated("total + 1");
-  f2.compile(host);
-  const g2 = DependencyGraph.of(f2);
-  c.ok("a rule that reads itself is refused too", g2.ok == false);
-  c.eqInt("as a cycle of one", g2.cycle.length, 1);
-  const chain = Questionnaire.of("chain");
-  const head = chain.question("q0", QuestionKind.decimal(), "0");
-  let k = 1;
-  while (k < 40) {
-    const q = chain.question(("q" + ((k.toString()))), QuestionKind.decimal(), ((k.toString())));
-    q.calculated(("q" + (((k - 1).toString()))) + " + 1");
-    k = k + 1;
-  };
-  chain.compile(host);
-  const g3 = DependencyGraph.of(chain);
-  c.ok("a chain of thirty-nine calculations sorts", g3.ok);
-  c.eqInt("and changing the first touches all of them", g3.dependentsOf(chain, "q0").length, 39);
-  c.eqInt("changing the last touches nothing", g3.dependentsOf(chain, "q39").length, 0);
-};
-FormsTest.evalOf = function(host, src, state) {
-  const p = host.parse(src);
-  return host.evaluate(p, state);
-};
-FormsTest.numOf = function(host, src, state) {
-  const v = FormsTest.evalOf(host, src, state);
-  return v.n;
-};
-FormsTest.truthOf = function(host, src, state) {
-  const v = FormsTest.evalOf(host, src, state);
-  return v.truthy();
-};
-FormsTest.runExpr = function(c) {
-  console.log("-- the expression language --");
-  const host = new NativeExpr();
-  const st = new AnswerState();
-  st.todayDays = 20000;
-  c.eqNum("multiplication binds tighter", FormsTest.numOf(host, "1 + 2 * 3", st), 7.0);
-  c.eqNum("and brackets win", FormsTest.numOf(host, "(1 + 2) * 3", st), 9.0);
-  c.eqNum("unary minus", FormsTest.numOf(host, "0 - 4 * -2", st), 8.0);
-  c.eqNum("remainder", FormsTest.numOf(host, "7 % 3", st), 1.0);
-  c.ok("and short-circuits", FormsTest.truthOf(host, "false and 1 / 0 > 0", st) == false);
-  c.ok("or short-circuits", FormsTest.truthOf(host, "true or 1 / 0 > 0", st));
-  c.ok("not", FormsTest.truthOf(host, "not false", st));
-  c.ok("a single = means ==", FormsTest.truthOf(host, "2 = 2", st));
-  c.ok("text compares as text", FormsTest.truthOf(host, "'abc' < 'abd'", st));
-  st.answer("country", FormValue.ofText("SE"));
-  c.ok("in a list", FormsTest.truthOf(host, "country in ('FI', 'SE', 'NO')", st));
-  c.ok("and not in one", FormsTest.truthOf(host, "country in ('FI', 'NO')", st) == false);
-  st.answer("symptoms", FormValue.ofList(FormsTest.three()));
-  c.eqNum("count of a multi-choice", FormsTest.numOf(host, "count(symptoms)", st), 3.0);
-  c.ok("a chosen value is in it", FormsTest.truthOf(host, "'cough' in symptoms", st));
-  c.ok("contains, over a multi-choice", FormsTest.truthOf(host, "symptoms contains 'fever'", st));
-  c.ok("notcontains", FormsTest.truthOf(host, "symptoms notcontains 'rash'", st));
-  c.ok("anyof, with a bracket list", FormsTest.truthOf(host, "symptoms anyof ['rash', 'fever']", st));
-  c.ok("…and not just any list", FormsTest.truthOf(host, "symptoms anyof ['rash', 'limp']", st) == false);
-  c.ok("allof", FormsTest.truthOf(host, "symptoms allof ['cough', 'fever']", st));
-  c.ok("…which needs all of them", FormsTest.truthOf(host, "symptoms allof ['cough', 'rash']", st) == false);
-  st.answer("who", FormValue.ofText("Ada Lovelace"));
-  c.ok("contains, over text, is containment", FormsTest.truthOf(host, "who contains 'Love'", st));
-  c.ok("…and not equality", FormsTest.truthOf(host, "who contains 'Grace'", st) == false);
-  c.ok("answered, written postfix", FormsTest.truthOf(host, "who notempty", st));
-  c.ok("and its opposite", FormsTest.truthOf(host, "nobody empty", st));
-  c.eqNum("iif picks a branch", FormsTest.numOf(host, "iif(1 > 0, 7, 9)", st), 7.0);
-  c.eqNum("and the other one", FormsTest.numOf(host, "iif(1 > 5, 7, 9)", st), 9.0);
-  c.eqNum("iif does not evaluate the branch it skipped", FormsTest.numOf(host, "iif(nobody notempty, 1 / 0, 5)", st), 5.0);
-  let none = [];
-  st.answer("empty_pick", FormValue.ofList(none));
-  c.ok("an empty multi-choice reads as unanswered", (FormsTest.evalOf(host, "empty_pick", st)).isEmpty());
-  c.ok("…and says so", FormsTest.truthOf(host, "empty_pick empty", st));
-  const bmi = FormsTest.evalOf(host, "weight / (height * height)", st);
-  c.ok("a calculation with nothing answered is empty", bmi.isEmpty());
-  c.ok("…and not an error", bmi.isError() == false);
-  st.answer("height", FormValue.ofNumber(1.8));
-  const half = FormsTest.evalOf(host, "weight / (height * height)", st);
-  c.ok("half answered is still empty", half.isEmpty());
-  st.answer("weight", FormValue.ofNumber(81.0));
-  const full = FormsTest.evalOf(host, "weight / (height * height)", st);
-  c.eqNum("and answered is a number", full.n, 25.0);
-  c.ok("age < 18 with no age is false", FormsTest.truthOf(host, "age < 18", st) == false);
-  c.ok("…and so is age >= 18", FormsTest.truthOf(host, "age >= 18", st) == false);
-  st.answer("typed", FormValue.ofText("42"));
-  c.eqNum("text that is a number counts as one", FormsTest.numOf(host, "typed + 1", st), 43.0);
-  const words = FormsTest.evalOf(host, "'lots' + 1", st);
-  c.ok("text that is not a number is an error", words.isError());
-  c.ok("…that says which text", FormsTest.holds(words.err, "lots"));
-  c.eqNum("len", FormsTest.numOf(host, "len('hello')", st), 5.0);
-  c.eqNum("sum skips what is unanswered", FormsTest.numOf(host, "sum(height, weight, missing)", st), 82.8);
-  c.eqNum("today is data", FormsTest.numOf(host, "today()", st), 20000.0);
-  st.answer("born", FormValue.ofNumber(10000.0));
-  c.eqNum("age_of is whole days", FormsTest.numOf(host, "age_of(born)", st), 10000.0);
-  c.ok("matches finds a part", FormsTest.truthOf(host, "matches('SKU-100', 'SKU-')", st));
-  c.eqNum("max", FormsTest.numOf(host, "max(1, 9, 4)", st), 9.0);
-  c.eqNum("min ignores the unanswered", FormsTest.numOf(host, "min(missing, 4, 9)", st), 4.0);
-  c.ok("answered() sees an answer", FormsTest.truthOf(host, "answered(height)", st));
-  c.ok("…and its absence", FormsTest.truthOf(host, "answered(missing)", st) == false);
-  const divzero = FormsTest.evalOf(host, "height / 0", st);
-  c.ok("division by zero is an error value", divzero.isError());
-  const nofn = FormsTest.evalOf(host, "wobble(1)", st);
-  c.ok("an unknown function is an error value", nofn.isError());
-  c.ok("…that names it", FormsTest.holds(nofn.err, "wobble"));
-  const broken = host.parse("age < ");
-  c.ok("an incomplete expression does not parse", broken.ok == false);
-  c.ok("and says what it wanted", (broken.errorText.length) > 0);
-  const evaluated = host.evaluate(broken, st);
-  c.ok("evaluating it is an error value, not a crash", evaluated.isError());
-  const junk = host.parse("age #! 3");
-  c.ok("and so is nonsense", junk.ok == false);
-  const unclosed = host.parse("len('abc");
-  c.ok("an unterminated string is caught", unclosed.ok == false);
-  const trailing = host.parse("1 + 2 3");
-  c.ok("and so is a value with nothing joining it", trailing.ok == false);
-};
-FormsTest.three = function() {
-  let out = [];
-  out.push("cough");
-  out.push("fever");
-  out.push("ache");
   return out;
 };
-FormsTest.runBadRule = function(c) {
-  console.log("-- one bad rule --");
-  const host = new NativeExpr();
-  const f = Questionnaire.of("mixed");
-  const a = f.question("a", QuestionKind.integer(), "A");
-  const b = f.question("b", QuestionKind.integer(), "B");
-  b.visibleWhen("a >= ");
-  const d = f.question("d", QuestionKind.integer(), "D");
-  d.visibleWhen("a > 3");
-  const bad = f.compile(host);
-  c.eqInt("one rule failed", bad, 1);
-  c.eqInt("and the form says which", f.gaps.length, 1);
-  c.ok("naming the question and the role", FormsTest.holds((f.gaps[0]), "b.visible"));
-  const g = DependencyGraph.of(f);
-  c.ok("the graph still sorts", g.ok);
-  c.eqInt("changing a still reaches the rule that reads it", g.dependentsOf(f, "a").length, 1);
-  const f2 = Questionnaire.of("typo");
-  const q = f2.question("q", QuestionKind.integer(), "Q");
-  q.visibleWhen("agee < 18");
-  f2.compile(host);
-  const unknown = f2.unknownReferences();
-  c.eqInt("one unknown reference", unknown.length, 1);
-  c.eqStr("named", unknown[0], "agee");
+SurveyExpr.cleanName = function(inner) {
+  return FormValue.trimText(inner);
 };
-FormsTest.holds = function(text, part) {
-  const n = part.length;
-  if ( n == 0 ) {
-    return false;
+SurveyExpr.endOfString = function(src, at, n, quote) {
+  let i = at + 1;
+  while (i < n) {
+    const ch = src.charCodeAt(i );
+    if ( ch == 92 ) {
+      i = i + 2;
+    } else {
+      if ( ch == quote ) {
+        return i + 1;
+      }
+      i = i + 1;
+    }
+  };
+  return n;
+};
+SurveyExpr.indexFrom = function(src, at, n, ch) {
+  let i = at;
+  while (i < n) {
+    if ( (src.charCodeAt(i )) == ch ) {
+      return i;
+    }
+    i = i + 1;
+  };
+  return -1;
+};
+SurveyExpr.operatorAt = function(src, at, n) {
+  if ( (at + 1) < n ) {
+    const pair = src.substring(at, (at + 2) );
+    if ( pair == "&&" ) {
+      return 2;
+    }
+    if ( pair == "||" ) {
+      return 2;
+    }
+    if ( pair == "<>" ) {
+      return 2;
+    }
   }
-  const last = (text.length) - n;
+  if ( (src.charCodeAt(at )) == 33 ) {
+    if ( (at + 1) < n ) {
+      if ( (src.charCodeAt((at + 1) )) == 61 ) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  return 0;
+};
+SurveyExpr.operatorFor = function(src, at, taken) {
+  const text = src.substring(at, (at + taken) );
+  if ( text == "&&" ) {
+    return " and ";
+  }
+  if ( text == "||" ) {
+    return " or ";
+  }
+  if ( text == "<>" ) {
+    return "!=";
+  }
+  return " not ";
+};
+SurveyExpr.unsupportedFunctions = function() {
+  let out = [];
+  out.push("age");
+  out.push("currentDate");
+  out.push("currentDateTime");
+  out.push("getDate");
+  out.push("dateDiff");
+  out.push("dateAdd");
+  out.push("displayValue");
+  out.push("propertyValue");
+  return out;
+};
+SurveyExpr.usesUnsupported = function(source) {
+  const bad = SurveyExpr.unsupportedFunctions();
+  let i = 0;
+  const n = bad.length;
+  while (i < n) {
+    const name = bad[i];
+    if ( SurveyExpr.callsFunction(source, name) ) {
+      return name;
+    }
+    i = i + 1;
+  };
+  return "";
+};
+SurveyExpr.callsFunction = function(source, name) {
+  const n = name.length;
+  const last = (source.length) - n;
   let i = 0;
   while (i <= last) {
-    if ( (text.substring(i, (i + n) )) == part ) {
-      return true;
+    if ( (source.substring(i, (i + n) )) == name ) {
+      let before = true;
+      if ( i > 0 ) {
+        if ( NativeExpr.isNameChar((source.charCodeAt((i - 1) ))) ) {
+          before = false;
+        }
+      }
+      if ( before ) {
+        let k = i + n;
+        while (k < (source.length)) {
+          if ( (source.charCodeAt(k )) != 32 ) {
+            break;
+          }
+          k = k + 1;
+        };
+        if ( k < (source.length) ) {
+          if ( (source.charCodeAt(k )) == 40 ) {
+            return true;
+          }
+        }
+      }
     }
     i = i + 1;
   };
   return false;
 };
-/* static JavaSript main routine at the end of the JS file */
-function __js_main() {
-  const c = new FormCheck();
-  FormsTest.runModel(c);
-  FormsTest.runGraph(c);
-  FormsTest.runCycle(c);
-  FormsTest.runExpr(c);
-  FormsTest.runBadRule(c);
-  console.log("");
-  console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
-  if ( c.failed == 0 ) {
-    console.log("ALL PASS");
-  } else {
-    console.log("FAILURES");
-  }
-}
-__js_main();
+module.exports.FormValue = FormValue;
+module.exports.Answer = Answer;
+module.exports.QuestionState = QuestionState;
+module.exports.AnswerState = AnswerState;
+module.exports.ExprNode = ExprNode;
+module.exports.ExprProgram = ExprProgram;
+module.exports.ExprHost = ExprHost;
+module.exports.ExprToken = ExprToken;
+module.exports.NativeExpr = NativeExpr;
+module.exports.SurveyExpr = SurveyExpr;

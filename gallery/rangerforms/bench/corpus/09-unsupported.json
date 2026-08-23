@@ -1,0 +1,12 @@
+{
+  "name": "unsupported",
+  "note": "a form the reader must REFUSE to score: calendar arithmetic and a repeat group",
+  "survey": {
+    "elements": [
+      { "type": "text", "name": "born", "inputType": "date" },
+      { "type": "expression", "name": "years", "expression": "age({born})" },
+      { "type": "paneldynamic", "name": "children", "templateElements": [ { "type": "text", "name": "cname" } ] }
+    ]
+  },
+  "script": [ { "born": "2000-01-01" } ]
+}

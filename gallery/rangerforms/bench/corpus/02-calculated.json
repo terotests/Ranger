@@ -1,0 +1,48 @@
+{
+  "name": "calculated",
+  "note": "a calculation, and a question that reads the calculation",
+  "survey": {
+    "elements": [
+      {
+        "type": "text",
+        "name": "height",
+        "inputType": "number"
+      },
+      {
+        "type": "text",
+        "name": "weight",
+        "inputType": "number"
+      },
+      {
+        "type": "expression",
+        "name": "bmi",
+        "expression": "{weight} / ({height} * {height})"
+      },
+      {
+        "type": "text",
+        "name": "advice",
+        "visibleIf": "{bmi} > 25"
+      }
+    ]
+  },
+  "script": [
+    {
+      "height": 1.8
+    },
+    {
+      "weight": 81
+    },
+    {
+      "weight": 90
+    },
+    {
+      "height": 2.0
+    }
+  ],
+  "knownDifferences": [
+    {
+      "question": "bmi",
+      "reason": "empty is not zero: a calculation over an unanswered question is unanswered, where SurveyJS reads the blank as 0"
+    }
+  ]
+}

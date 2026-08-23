@@ -1,0 +1,13 @@
+{
+  "name": "enable-readonly",
+  "note": "a question that is shown but switched off, and a required one that is hidden",
+  "survey": {
+    "elements": [
+      { "type": "boolean", "name": "wants_post" },
+      { "type": "text", "name": "address", "enableIf": "{wants_post} = true", "isRequired": true },
+      { "type": "text", "name": "secret", "visible": false, "isRequired": true },
+      { "type": "text", "name": "always" }
+    ]
+  },
+  "script": [ { "wants_post": true }, { "address": "Somewhere 1" }, { "wants_post": false } ]
+}
