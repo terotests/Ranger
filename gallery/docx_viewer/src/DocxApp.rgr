@@ -628,7 +628,11 @@ class DocxApp {
         if (pageX < 0) {
             pageX = 0
         }
-        pageY = (this.pageTop())
+        ; How far down the page the window is looking. Clicks already subtract
+        ; `pageY`, so the caret lands where the glyphs are without anything
+        ; else being told about scrolling.
+        viewer.viewportH = (this.pageAreaH())
+        pageY = ((this.pageTop()) - viewer.scrollY)
         DocxApp.offsetList(dl pageX pageY)
 
         def framed:EVGDisplayList (new EVGDisplayList)

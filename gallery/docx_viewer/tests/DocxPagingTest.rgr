@@ -94,25 +94,49 @@ class DocxPagingTest {
         }
         c.eqInt("and nothing after the last" v.currentPage (pages - 1))
 
-        print "-- a wheel or a swipe travels before it turns --"
+        print "-- a wheel or a swipe reads the page down --"
+        ; This used to check that travel was BANKED until it was worth a page,
+        ; and then the page jumped. That is what a reader complained about: the
+        ; paper could not be read down at all, only skipped, and everything
+        ; between the two positions went past unseen. A trackpad made it worse,
+        ; because whether a page turned depended on how many of its dozens of
+        ; small deltas the host had managed to deliver.
+        ;
+        ; Now the page scrolls and turns when it runs out. `DocxScrollTest`
+        ; covers that in full; what belongs here is the paged half of it.
         def w:DocxViewer (DocxPagingTest.open("08-pages.docx"))
-        def step:int (w.pageTurnTravel())
-        c.ok("a page is worth some travel" (step > 40))
+        w.viewportH = 400
+        c.ok("there is paper below the window" ((w.maxScrollY()) > 0))
         ; A few small deltas — a trackpad sends dozens of these per flick —
-        ; must not throw the reader through the document.
+        ; move the paper and do not throw the reader through the document.
         def small:int 0
         while (small < 4) {
-            w.scrollBy((idiv step 8))
+            w.scrollBy(30)
             small = (small + 1)
         }
-        c.eqInt("half a page of travel turns nothing" w.currentPage 0)
-        w.scrollBy(step)
-        c.eqInt("a page of it turns one" w.currentPage 1)
-        ; Turning back is the same gesture the other way, and a change of
-        ; direction starts a new one rather than cancelling what is banked.
-        w.scrollBy((0 - step))
+        c.eqInt("small gestures move the paper" w.scrollY 120)
+        c.eqInt("and turn nothing" w.currentPage 0)
+        ; Past the bottom of the page, the next one begins.
+        def rest:int ((w.maxScrollY()) - w.scrollY)
+        w.scrollBy(rest)
+        c.eqInt("still on the first page at its foot" w.currentPage 0)
+        c.eqInt("with the whole page above the window" w.scrollY (w.maxScrollY()))
+        w.scrollBy(60)
+        c.eqInt("and over the edge onto the second" w.currentPage 1)
+        w.scrollBy(-500)
         c.eqInt("and back" w.currentPage 0)
         c.ok("a zero delta is not a gesture" ((w.scrollBy(0)) == false))
+
+        ; A host that ships whole pages — the PNG one — sets no viewport, and
+        ; that is its way of saying there is nothing to scroll within a page.
+        ; Every gesture then turns exactly one page, which is the behaviour
+        ; that host wants and the one it used to get by accident.
+        def pg:DocxViewer (DocxPagingTest.open("08-pages.docx"))
+        c.eqInt("with no viewport there is no room" (pg.maxScrollY()) 0)
+        pg.scrollBy(40)
+        c.eqInt("so one gesture is one page" pg.currentPage 1)
+        pg.scrollBy(40)
+        c.eqInt("and the next is the next" pg.currentPage 2)
 
         print "-- editing still edits --"
         def e:DocxViewer (DocxPagingTest.open("08-pages.docx"))

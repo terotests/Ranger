@@ -1318,9 +1318,13 @@ class PptxApp {
                 }
             }
         }
+        ; PIXELS of travel, positive downwards — the unit the gesture arrives
+        ; in, rather than notches. See `scrollPanelPixels`: a trackpad swipe is
+        ; dozens of small wheel events, and counting each of them as a whole
+        ; notch scrolled a hundred slides past in one flick.
         if (input.scrollDelta != 0) {
             if (input.pointerX < (this.panelWidth())) {
-                this.scrollPanel(input.scrollDelta)
+                this.scrollPanelPixels(input.scrollDelta)
             }
         }
         this.pointer(input.pointerX input.pointerY input.pointerPressed input.pointerDown input.pointerReleased)
@@ -3663,21 +3667,58 @@ class PptxApp {
         return idx
     }
 
-    fn scrollPanel:void (delta:int) {
-        def n:int (this.slideCount())
-        def total:int (n * (this.panelStep()))
+    ; How far down the panel can go before it runs out of thumbnails.
+    fn panelMaxScroll:int () {
+        def total:int ((this.slideCount()) * (this.panelStep()))
         def visible:int ((H - toolbarH) - statusH)
         def maxScroll:int (total - visible)
         if (maxScroll < 0) {
-            maxScroll = 0
+            return 0
         }
-        panelScroll = (panelScroll - (delta * 40))
-        if (panelScroll < 0) {
-            panelScroll = 0
-        }
+        return maxScroll
+    }
+
+    ; Bring the panel back inside what there is to show.
+    ;
+    ; This is called before the panel is PAINTED rather than only when it is
+    ; scrolled, and that is the whole point of it. `panelScroll` outlives the
+    ; deck: open a long deck, scroll to the end of it, open a short one, and
+    ; the offset from the long deck is still there — the new deck's thumbnails
+    ; are laid out two thousand pixels above the top of the panel, and the
+    ; panel comes up EMPTY. It reads as thumbnails that failed to be made,
+    ; which is what makes it so hard to place: nothing is wrong with the
+    ; thumbnails or with the cache that holds them.
+    ;
+    ; Clamping where the panel is drawn rather than where it is scrolled
+    ; covers every way the deck can get shorter under a scrolled panel —
+    ; opening another deck, deleting slides, undoing an insert, or a window
+    ; that just got taller — instead of one of them.
+    fn clampPanelScroll:void () {
+        def maxScroll:int (this.panelMaxScroll())
         if (panelScroll > maxScroll) {
             panelScroll = maxScroll
         }
+        if (panelScroll < 0) {
+            panelScroll = 0
+        }
+    }
+
+    ; A wheel or a swipe over the panel, in PIXELS of travel, positive
+    ; downwards — the same unit the gesture arrives in.
+    ;
+    ; It used to take notches and multiply by 40, and the web host sent one
+    ; notch per wheel EVENT. A mouse fires one event per notch, so that was
+    ; right for a mouse and wrong by a factor of thirty for a trackpad: one
+    ; two-finger swipe is dozens of small events, each of which became a full
+    ; 40-pixel notch. A hundred slides went past in one flick.
+    fn scrollPanelPixels:void (dy:int) {
+        panelScroll = (panelScroll + dy)
+        this.clampPanelScroll()
+    }
+
+    ; The same, in wheel notches, for hosts that speak notches.
+    fn scrollPanel:void (delta:int) {
+        this.scrollPanelPixels((0 - (delta * 40)))
     }
 
     fn ensureSlideVisible:void () {
@@ -3825,6 +3866,7 @@ class PptxApp {
         if (panelVisible == false) {
             return
         }
+        this.clampPanelScroll()
         def w:int (this.panelWidth())
         def top:double (to_double toolbarH)
         def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))

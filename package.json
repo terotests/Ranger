@@ -319,6 +319,7 @@
     "docx_viewer:web": "bash gallery/docx_viewer/web/standalone/build.sh",
     "docx_viewer:web:serve": "bash gallery/docx_viewer/web/standalone/build.sh && python3 -m http.server -d gallery/docx_viewer/web/standalone/dist 8002",
     "docx_viewer:web:test": "bash gallery/docx_viewer/web/standalone/build.sh && node gallery/docx_viewer/web/standalone/smoke.mjs",
+    "docx_viewer:scroll:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/tests/DocxScrollTest.rgr -d=./gallery/docx_viewer/bin -o=DocxScrollTest.js -nodecli && node ./gallery/docx_viewer/bin/DocxScrollTest.js",
     "docx_viewer:rtl:shot": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/src/docx_rtl_shot.rgr -d=./gallery/docx_viewer/bin -o=docx_rtl_shot.js -nodecli && node ./gallery/docx_viewer/bin/docx_rtl_shot.js",
     "docx_viewer:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/docx_viewer/src/docx_demo.rgr -d=./gallery/docx_viewer/bin -o=docx_demo.js -nodecli && node ./gallery/docx_viewer/bin/docx_demo.js",
     "docx_viewer:fixtures": "python3 gallery/docx_viewer/fixtures/make_fixtures.py",

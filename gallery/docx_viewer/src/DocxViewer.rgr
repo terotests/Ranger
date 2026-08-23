@@ -22,8 +22,17 @@ class DocxViewer {
     def edit:DocxEditController (new DocxEditController)
     def lastError:string ""
     def currentPage:int 0
-    ; Wheel / swipe travel not yet spent on a page turn.
-    def scrollAccum:int 0
+    ; How far down the current page the window is looking, in scene pixels.
+    ;
+    ; The viewer had no such thing: a scroll gesture only ever TURNED PAGES,
+    ; so a document could not be read down. A trackpad flick jumped a whole
+    ; page and everything between the two positions went past unseen, which is
+    ; not slow scrolling — it is no scrolling at all.
+    def scrollY:int 0
+    ; How tall the window is that is looking at the page. The host sets it;
+    ; without it there is nothing to say how far down a page can be scrolled
+    ; before the bottom of the paper is on screen.
+    def viewportH:int 0
 
     Constructor () {
     }
@@ -359,6 +368,11 @@ class DocxViewer {
         if (want == currentPage) {
             return false
         }
+        ; A page arrived at by a button or a key starts at its top. `scrollBy`
+        ; sets its own position afterwards, which is what lets a gesture carry
+        ; travel across the boundary instead of landing at the top of the next
+        ; page whatever the reader did.
+        scrollY = 0
         this.renderPage(want)
         return true
     }
@@ -367,59 +381,96 @@ class DocxViewer {
         return (this.goToPage((currentPage + delta)))
     }
 
+    ; How far the page can be scrolled before its bottom edge is on screen.
+    ; Zero for a page shorter than the window, which then does not scroll at
+    ; all and turns on the first gesture instead.
+    fn maxScrollY:int () {
+        if (viewportH <= 0) {
+            return 0
+        }
+        def h:int (view.sceneHeight())
+        if (h <= viewportH) {
+            return 0
+        }
+        return (h - viewportH)
+    }
+
     ; A wheel notch or a swipe, in scene pixels, positive downwards.
     ;
-    ; The travel is ACCUMULATED rather than turned into a page each time: one
-    ; flick of a trackpad is a great many small deltas, and a page per delta
-    ; would throw a reader half way through the document. A page turns once
-    ; the travel adds up to a good part of one, and the remainder is kept so
-    ; two half-flicks in the same direction still turn a page.
+    ; The page scrolls, and when it runs out the next one begins — which is
+    ; how every reader of paged documents behaves and what this did not do.
+    ; Travel past the bottom of a page is not thrown away: it carries into the
+    ; top of the next one, so a long flick crosses a page boundary without
+    ; stopping dead at it and without skipping the paper in between.
+    ;
+    ; A page shorter than the window has nowhere to scroll, so the first
+    ; gesture turns it. That is the old behaviour, and it is still right for
+    ; the case it was written for.
     fn scrollBy:boolean (dy:int) {
         if (dy == 0) {
             return false
         }
-        ; A change of direction is a new gesture, not a continuation.
-        if (dy > 0) {
-            if (scrollAccum < 0) {
-                scrollAccum = 0
-            }
-        } {
-            if (scrollAccum > 0) {
-                scrollAccum = 0
-            }
-        }
-        scrollAccum = (scrollAccum + dy)
-        def step:int (this.pageTurnTravel())
-        def turned:boolean false
-        while (scrollAccum >= step) {
-            scrollAccum = (scrollAccum - step)
-            if (this.turnPage(1)) {
-                turned = true
+        def moved:boolean false
+        def want:int (scrollY + dy)
+        def guard:int 0
+        while (guard < 64) {
+            guard = (guard + 1)
+            def maxY:int (this.maxScrollY())
+            if (want > maxY) {
+                def over:int (want - maxY)
+                if (this.turnPage(1)) {
+                    moved = true
+                    ; The travel left over is spent on the NEW page, and only
+                    ; as far as the new page can take it. Without that clamp a
+                    ; page with nowhere to scroll — one shorter than the
+                    ; window — hands the whole gesture straight to the page
+                    ; after it, and one flick runs through the entire
+                    ; document.
+                    def room:int (this.maxScrollY())
+                    def rest:int (over - 1)
+                    if (rest > room) {
+                        rest = room
+                    }
+                    want = rest
+                    scrollY = 0
+                } {
+                    want = maxY
+                    guard = 64
+                }
             } {
-                scrollAccum = 0
+                if (want < 0) {
+                    if (this.turnPage(-1)) {
+                        moved = true
+                        def newMax:int (this.maxScrollY())
+                        def back:int ((newMax + want) + 1)
+                        if (back < 0) {
+                            back = 0
+                        }
+                        want = back
+                        scrollY = newMax
+                    } {
+                        want = 0
+                        guard = 64
+                    }
+                } {
+                    guard = 64
+                }
             }
         }
-        while (scrollAccum <= (0 - step)) {
-            scrollAccum = (scrollAccum + step)
-            if (this.turnPage(-1)) {
-                turned = true
-            } {
-                scrollAccum = 0
-            }
+        def maxEnd:int (this.maxScrollY())
+        if (want > maxEnd) {
+            want = maxEnd
         }
-        return turned
+        if (want < 0) {
+            want = 0
+        }
+        if (want != scrollY) {
+            moved = true
+        }
+        scrollY = want
+        return moved
     }
 
-    ; How far a gesture has to travel to be worth a page. A third of the page
-    ; is about one comfortable flick and is short enough that a deliberate
-    ; drag still feels connected to the paper.
-    fn pageTurnTravel:int () {
-        def h:int (this.pageHeight())
-        if (h < 300) {
-            return 100
-        }
-        return (idiv h 3)
-    }
 
     fn keyLeft:void (extend:boolean) {
         if ((edit.isEnabled()) == false) {

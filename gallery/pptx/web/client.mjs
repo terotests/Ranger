@@ -86,11 +86,26 @@ canvas.addEventListener("pointermove", (e) => {
 canvas.addEventListener("pointerup", (e) => {
   post(pointerPayload(e, false));
 });
+// How far the gesture actually travelled, in pixels — not which way it went.
+//
+// This used to send +1 or -1 per event and the app turned each into a 40-pixel
+// notch. A mouse fires one event per notch, so that was right for a mouse and
+// wrong by a factor of thirty for a trackpad: one two-finger swipe is dozens
+// of small events, every one of which counted as a full notch, and a hundred
+// slides went past in a flick.
+//
+// `deltaMode` says what the numbers are in. Firefox reports LINES for a mouse
+// wheel and Chrome reports pixels, so a host that ignores it scrolls at
+// completely different speeds in the two browsers.
+const LINE_PX = 16;
 canvas.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
-    post({ type: "wheel", delta: e.deltaY > 0 ? -1 : 1 });
+    let dy = e.deltaY;
+    if (e.deltaMode === 1) dy *= LINE_PX;
+    else if (e.deltaMode === 2) dy *= canvas.clientHeight;
+    post({ type: "wheel", delta: Math.round(dy) });
   },
   { passive: false },
 );

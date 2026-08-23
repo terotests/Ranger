@@ -1,6 +1,10 @@
 const statusEl = document.getElementById("status");
 const sizeEl = document.getElementById("size");
 const pageImg = document.getElementById("page");
+// The scrolling frame the page image sits in. The wheel handler below asks it
+// whether there is any paper left to scroll before it takes the gesture away
+// from the browser.
+const frameEl = document.querySelector(".frame");
 const docSelect = document.getElementById("docSelect");
 const pageLabel = document.getElementById("pageLabel");
 const editBtn = document.getElementById("editToggle");
@@ -284,31 +288,61 @@ async function writeClipboard(text) {
 // to a page. Deciding it there rather than here is what keeps this host and
 // the serverless page feeling the same.
 let scrollBusy = false;
+// Travel that arrived while a page turn was in flight. Dropping it was the
+// other half of what made this feel broken on a trackpad: a swipe is dozens
+// of small deltas, one request takes longer than the gap between them, and
+// almost all of the gesture went in the bin.
+let scrollPending = 0;
 
 async function sendScroll(dy) {
-  if (!dy) return;
+  scrollPending += dy;
   if (scrollBusy) return;
   scrollBusy = true;
   try {
-    const data = await sendInput({ type: "scroll", dy: Math.round(dy) });
-    if (data && typeof data.page === "number" && data.page !== page) {
-      page = data.page;
-      await refreshPage();
+    while (Math.abs(scrollPending) >= 1) {
+      const send = Math.round(scrollPending);
+      scrollPending = 0;
+      const data = await sendInput({ type: "scroll", dy: send });
+      if (data && typeof data.page === "number" && data.page !== page) {
+        page = data.page;
+        await refreshPage();
+      }
     }
   } finally {
     scrollBusy = false;
   }
 }
 
+// The page image lives in a scrolling frame, and the browser is very good at
+// scrolling it: smoothly, at the platform's own rate, with the momentum a
+// trackpad expects. This handler used to call preventDefault() on every wheel
+// event and hand the gesture to the server instead, which threw all of that
+// away — the paper could not be read DOWN at all, only jumped a page at a
+// time, and the wheel over the page felt dead.
+//
+// So the browser scrolls, and the server is only asked for a page turn when
+// the frame is already at the end it is being pushed against. That also means
+// no round trip at all for the common gesture.
+const AT_END = 1; // a pixel of slack: fractional scroll heights never land exact
+function frameAtEnd(dy) {
+  if (!frameEl) return true;
+  if (dy > 0) {
+    return frameEl.scrollTop + frameEl.clientHeight >= frameEl.scrollHeight - AT_END;
+  }
+  return frameEl.scrollTop <= AT_END;
+}
+
 pageImg?.addEventListener(
   "wheel",
   (ev) => {
-    ev.preventDefault();
     // A wheel notch is reported in lines or pages on some browsers; scale
     // those to something comparable to the pixels a trackpad sends.
     let dy = ev.deltaY;
     if (ev.deltaMode === 1) dy *= 16;
     else if (ev.deltaMode === 2) dy *= 400;
+    if (!dy) return;
+    if (!frameAtEnd(dy)) return; // let the browser scroll the paper
+    ev.preventDefault();
     sendScroll(dy);
   },
   { passive: false }
