@@ -477,6 +477,35 @@ class PptxTextEditTest {
         def r0:PptxTextLine (itemAt right 0)
         this.check("and right-aligning moves it further" (r0.x > c0.x))
         this.check("to the far edge" ((fabs ((r0.x + r0.w) - 80.0)) < 0.6))
+
+        ; --- and when the text does not FIT the box -----------------------
+        ;
+        ; It overflows, and which way it overflows is exactly what the anchor
+        ; decides. A bottom-anchored block keeps its last line on the box's
+        ; bottom edge and grows UPWARD, past the top of the box if it has to.
+        ;
+        ; The origin used to be clamped to the top of the box, which turned
+        ; every overflowing block into a top-anchored one spilling DOWNWARD
+        ; instead. A real deck's title — bottom-anchored in its placeholder,
+        ; which is how a title is put above a subtitle — came out written over
+        ; the subtitle underneath it.
+        def tall:PptxTextBody (this.wrapBody("one two three four five six seven eight nine ten" 10.0))
+        tall.anchor = "b"
+        def small:[PptxTextLine] (PptxTextLayout.layout(tall m 1.0 0.0 100.0 80.0 30.0))
+        this.check("the text is taller than the box" ((array_length small) > 2))
+        def first:PptxTextLine (itemAt small 0)
+        def last:PptxTextLine (itemAt small ((array_length small) - 1))
+        this.check("its first line is ABOVE the top of the box" (first.y < 100.0))
+        ; The last line's bottom sits on the box's bottom edge, less the inset.
+        def bottomEdge:double ((last.y + last.h))
+        this.check("and its last line ends at the bottom of the box"
+            ((fabs (bottomEdge - 130.0)) < 8.0))
+        ; Top-anchored is unchanged: it starts at the top and spills downward,
+        ; which is what a top anchor means.
+        tall.anchor = "t"
+        def fromTop:[PptxTextLine] (PptxTextLayout.layout(tall m 1.0 0.0 100.0 80.0 30.0))
+        def ft:PptxTextLine (itemAt fromTop 0)
+        this.check("a top-anchored block still starts at the top" (ft.y >= 100.0))
     }
 
     fn testWrapBullet:void () {

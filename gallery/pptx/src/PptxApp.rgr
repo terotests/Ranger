@@ -3945,6 +3945,28 @@ class PptxApp {
         }
     }
 
+    ; The slide the panel last scrolled itself to show. -1 means "never".
+    ;
+    ; The panel has to follow the SELECTION, and it was following only one of
+    ; the ways the selection moves: `gotoSlide` asked it to, and `nextSlide`
+    ; and `prevSlide` — the arrow keys and the buttons on the strip —
+    ; did not. Twenty slides in, the panel was still showing the first seven.
+    ;
+    ; Recording what it last followed, and checking that where the panel is
+    ; PAINTED, covers every way the index can change instead of the three
+    ; that existed when this was written. It also leaves a reader who scrolls
+    ; the panel by hand alone, which calling it on every frame would not:
+    ; scrolling does not change the index, so nothing pulls the panel back.
+    def panelFollowedIndex:int -1
+
+    fn followSelectionInPanel:void () {
+        if (panelFollowedIndex == index) {
+            return
+        }
+        panelFollowedIndex = index
+        this.ensureSlideVisible()
+    }
+
     ; A wheel or a swipe over the panel, in PIXELS of travel, positive
     ; downwards — the same unit the gesture arrives in.
     ;
@@ -4108,6 +4130,7 @@ class PptxApp {
         if (panelVisible == false) {
             return
         }
+        this.followSelectionInPanel()
         this.clampPanelScroll()
         def w:int (this.panelWidth())
         def top:double (to_double toolbarH)

@@ -75,6 +75,22 @@ class PptxFrameTest {
         run.fontFamily = fam
     }
 
+    ; Lengthen the open deck until it has `want` slides, by repeating the ones
+    ; it already has. The panel only scrolls when there are more thumbnails
+    ; than fit, and the fixtures are all short.
+    sfn padSlides:void (app:PptxApp want:int) {
+        def have:int (array_length app.presentation.slides)
+        if (have <= 0) {
+            return
+        }
+        def i:int have
+        while (i < want) {
+            def src:PptxSlide (itemAt app.presentation.slides (i % have))
+            push app.presentation.slides src
+            i = (i + 1)
+        }
+    }
+
     sfn indexOfCommand:int (app:PptxApp id:string) {
         def i:int 0
         while (i < (app.toolbar.count())) {
@@ -259,6 +275,70 @@ class PptxFrameTest {
         probe.addText(("a" + emoji + "b" + weird) 10.0 40.0 32.0 (EVGColor.rgb(0 0 0)) "Open Sans" false false 400.0 40.0)
         d.view.paintSoftCanvas(probe)
         c.ok("and drawing it does not fall over" true)
+
+        print "-- the panel follows the slide the reader is on --"
+        ; Twenty slides into the Varusteleka deck the panel was still showing
+        ; the first seven: `gotoSlide` asked the panel to scroll itself, and
+        ; `nextSlide`/`prevSlide` — the arrow keys and the two buttons on the
+        ; strip — did not. The reader turned pages and the left edge sat
+        ; still, so the highlighted thumbnail was somewhere off the bottom.
+        ;
+        ; The fix does not patch the three call sites; it records which slide
+        ; the panel last scrolled itself to and checks that where the panel is
+        ; PAINTED, which covers every way the index can change. These checks
+        ; are written against `nextSlide` for that reason: it is the path that
+        ; never asked.
+        def f:PptxApp (PptxFrameTest.build())
+        PptxFrameTest.padSlides(f 24)
+        c.ok("a deck long enough to scroll the panel" ((f.slideCount()) >= 24))
+        def bottom:int (f.H - f.statusH)
+        c.ok("and longer than the panel is tall" ((f.panelMaxScroll()) > 0))
+        f.buildFrame()
+        c.eqInt("the panel starts at the top" f.panelScroll 0)
+
+        def steps:int 0
+        while (steps < 18) {
+            f.nextSlide()
+            steps = (steps + 1)
+        }
+        c.eqInt("eighteen presses of Next" f.index 18)
+        ; Before the frame is built nothing has scrolled — the panel follows
+        ; when it is painted, not when the index moves.
+        def hidden:int (f.panelThumbY(18))
+        c.ok("and slide 19's thumbnail is off the bottom" ((hidden + (f.panelThumbH())) > bottom))
+        f.buildFrame()
+        def shown:int (f.panelThumbY(18))
+        c.ok("painting the frame brought it into view" (shown >= f.toolbarH))
+        c.ok("wholly into view" ((shown + (f.panelThumbH())) <= bottom))
+
+        ; Going back up follows too — the thumbnail above the viewport is as
+        ; invisible as the one below it. Sending the panel to its very bottom
+        ; first is what makes this check mean something: slide 3's thumbnail
+        ; is then well above the top edge, so only a panel that actually
+        ; scrolls itself back can show it.
+        f.scrollPanelPixels(10000)
+        c.eqInt("the panel is at its bottom" f.panelScroll (f.panelMaxScroll()))
+        def back:int 0
+        while (back < 16) {
+            f.prevSlide()
+            back = (back + 1)
+        }
+        f.buildFrame()
+        def upper:int (f.panelThumbY(2))
+        c.ok("and Previous brings the panel back up" (upper >= f.toolbarH))
+        c.ok("with the thumbnail whole" ((upper + (f.panelThumbH())) <= bottom))
+
+        ; But a reader who scrolls the panel BY HAND is left alone. Scrolling
+        ; does not change the index, so nothing pulls the panel back to the
+        ; selected slide on the next frame — which is what calling
+        ; `ensureSlideVisible` on every frame would have done, and would have
+        ; made the panel impossible to browse.
+        f.scrollPanelPixels((0 - 10000))
+        c.eqInt("from the top of the panel" f.panelScroll 0)
+        f.scrollPanelPixels(120)
+        c.eqInt("a hand scroll moves it" f.panelScroll 120)
+        f.buildFrame()
+        c.eqInt("and the next frame leaves it where the reader put it" f.panelScroll 120)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

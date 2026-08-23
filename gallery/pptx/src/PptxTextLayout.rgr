@@ -529,9 +529,20 @@ class PptxTextLayout {
         if (body.anchor == "b") {
             originY = (y + padT + (contentH - total))
         }
-        if (originY < (y + padT)) {
-            originY = (y + padT)
-        }
+        ; No clamp to the top of the box.
+        ;
+        ; Text taller than the box it is in OVERFLOWS, and which way it
+        ; overflows is exactly what the anchor decides: a bottom-anchored
+        ; block keeps its last line on the box's bottom edge and grows
+        ; upward, a centred one grows both ways. Clamping the origin to the
+        ; top of the box turned every one of those into a top-anchored block
+        ; that spilled DOWNWARD instead — a title bottom-anchored in its
+        ; placeholder, which is how a deck puts a title above a subtitle, came
+        ; out written over the subtitle.
+        ;
+        ; PowerPoint and Google Slides both let it overflow. Nothing is lost
+        ; by allowing it: the shape has no clip, so the only thing the clamp
+        ; ever achieved was moving the overflow to the wrong end.
         def li:int 0
         while (li < (array_length out)) {
             def ln:PptxTextLine (itemAt out li)
