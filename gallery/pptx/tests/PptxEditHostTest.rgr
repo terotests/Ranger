@@ -46,6 +46,23 @@ class PptxEditHostTest {
         return app
     }
 
+    ; A one-run label naming a face we do NOT have, in a box the author sized
+    ; to fit it — which is what makes the layout shrink it.
+    sfn calibriLabel:PptxShape (text:string sizePt:double widthPt:double) {
+        def sh (new PptxShape())
+        sh.width = widthPt
+        sh.height = 40.0
+        sh.hasText = true
+        def para (new PptxParagraph())
+        def run (new PptxTextRun())
+        run.text = text
+        run.fontSizePt = sizePt
+        run.fontFamily = "Calibri"
+        push para.runs run
+        push sh.text.paragraphs para
+        return sh
+    }
+
     sfn screenX:int (app:PptxApp xPt:double) {
         def sc:double (app.ptScale())
         return (to_int ((xPt * sc) + (app.slideOriginX())))
@@ -978,6 +995,59 @@ class PptxEditHostTest {
         c.ok("scrolling builds them where they moved to" ((big.panelBuiltLastFrame()) > 0))
         def f5:EVGDisplayList (big.buildFrame())
         c.ok("and stopping keeps them again" ((big.panelBuiltLastFrame()) == 0))
+
+        print "-- the caret is measured at the size the glyphs were DRAWN at --"
+        ; A deck names Calibri and we draw Open Sans, which is wider. A label
+        ; the author sized to fit would spill, so the body is shrunk to fit —
+        ; `substituteFit` — and the painter lays out AND draws at that reduced
+        ; scale. The caret was measured at the host's scale instead, so it sat
+        ; to the right of the glyphs: a pixel at the start of a short label,
+        ; and further with every column along a long one. Slightly wrong, all
+        ; the time, while typing — which is the worst kind of wrong to find.
+        ;
+        ; The check is the end of the line: the caret at the last column has
+        ; to land where the painted text ends, and the painter draws from
+        ; `line.x` for `line.w`.
+        def cf:PptxApp (PptxEditHostTest.buildDeck("04-multi.pptx"))
+        def shrunk:PptxShape (PptxEditHostTest.calibriLabel("Urheiijat" 18.0 85.05))
+        def cslide:PptxSlide (cf.editor.currentSlide())
+        push cslide.shapes shrunk
+        def cconv:PptxToEvg cf.view.converter
+        c.ok("the face this deck asks for is not one we have"
+             ((cconv.measure.hasFamily("Calibri")) == false))
+        def cs:double ((96.0 / 72.0) * cconv.scale)
+        def cfit:double (cconv.substituteFit(shrunk.text (cconv.ptToPx((85.05 - 14.4))) cs))
+        c.ok("so the body is shrunk to fit" (cfit < 1.0))
+        def clines:[PptxTextLine] (cf.lineBoxesFor(shrunk))
+        c.ok("on one line" ((array_length clines) == 1))
+        def cl:PptxTextLine (itemAt clines 0)
+        c.ok("the line records the scale it was drawn at" (cl.scale < (cf.ptScale())))
+        def caretEnd:double (cf.caretXOnLine(shrunk cl cl.endCol))
+        def paintEnd:double (cl.x + cl.w)
+        def drift:double (fabs (caretEnd - paintEnd))
+        c.ok(("the caret at the end of the line is where the text ends (off by " + (to_string drift) + ")")
+             (drift < 0.01))
+        ; And at the start, where there is nothing to measure, it is still on
+        ; the text's own left edge — the check above would pass on its own if
+        ; the caret simply never moved.
+        def caretStart:double (cf.caretXOnLine(shrunk cl cl.startCol))
+        c.ok("and at the start it is on the left edge" ((fabs (caretStart - cl.x)) < 0.01))
+        c.ok("with the line actually as wide as a word" (cl.w > 20.0))
+
+        ; A body whose face we DO have is not shrunk, and the caret is where
+        ; it always was — this must not have moved anything for those.
+        def kf:PptxApp (PptxEditHostTest.buildDeck("04-multi.pptx"))
+        def kept:PptxShape (PptxEditHostTest.calibriLabel("Urheiijat" 18.0 85.05))
+        def kpara:PptxParagraph (itemAt kept.text.paragraphs 0)
+        def krun:PptxTextRun (itemAt kpara.runs 0)
+        krun.fontFamily = "Open Sans"
+        def kslide:PptxSlide (kf.editor.currentSlide())
+        push kslide.shapes kept
+        def klines:[PptxTextLine] (kf.lineBoxesFor(kept))
+        def kl:PptxTextLine (itemAt klines 0)
+        c.ok("a face we have is laid out at the host's own scale" ((fabs (kl.scale - (kf.ptScale()))) < 0.0001))
+        def kEnd:double (kf.caretXOnLine(kept kl kl.endCol))
+        c.ok("and its caret still ends on its text" ((fabs (kEnd - (kl.x + kl.w))) < 0.01))
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

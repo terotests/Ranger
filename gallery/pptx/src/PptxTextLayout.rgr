@@ -35,6 +35,19 @@ class PptxTextLine {
     def bulletX:double 0.0
     def bulletSize:double 14.0
 
+    ; The scale this line was laid out at, glyphs and all.
+    ;
+    ; It is not always the host's scale. A body whose face was substituted is
+    ; shrunk to fit by `substituteFit`, and the painter then lays out AND
+    ; draws at that reduced scale. Anything that measures into a line after
+    ; the fact — the caret, the selection band, the column a click landed on —
+    ; has to use the same number or it measures glyphs that were never drawn
+    ; at that size. It used to use the host's scale, and the caret drifted to
+    ; the right of the text by however much the body had been shrunk: a pixel
+    ; on a short label, and further with every column on a long one, which is
+    ; exactly the "slightly wrong place" a person notices while typing.
+    def scale:double 1.0
+
     Constructor () {
     }
 }
@@ -472,6 +485,7 @@ class PptxTextLayout {
                 }
                 line.x = lineX
                 line.y = total
+                line.scale = scale
                 if firstLine {
                     line.bullet = bullet
                     ; A hanging indent puts the bullet where `indent` says, to
@@ -508,6 +522,7 @@ class PptxTextLayout {
                             tail.h = (tail.size * spacing * 1.2)
                             tail.x = (contentX + indent)
                             tail.y = total
+                            tail.scale = scale
                             push out tail
                             total = (total + tail.h)
                         }

@@ -3579,6 +3579,11 @@ class PptxApp {
         return (this.caretXOnLineAt(sh line col (this.ptScale())))
     }
 
+    ; The `scale` here is the host's, and it is NOT the one the slice is
+    ; measured at: the line carries the scale it was actually laid out and
+    ; drawn at, which is smaller whenever the body's face was substituted and
+    ; shrunk to fit. Measuring at the host's scale put the caret to the right
+    ; of the glyphs, further with every column along the line.
     fn caretXOnLineAt:double (sh:PptxShape line:PptxTextLine col:int scale:double) {
         def body:PptxTextBody sh.text
         if (line.para >= (array_length body.paragraphs)) {
@@ -3592,7 +3597,11 @@ class PptxApp {
         if (at > line.endCol) {
             at = line.endCol
         }
-        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure scale)))
+        def drawn:double line.scale
+        if (drawn <= 0.0) {
+            drawn = scale
+        }
+        return (line.x + (PptxTextLayout.measureSlice(para line.startCol at view.converter.measure drawn)))
     }
 
     fn caretRect:PptxEditRect (sh:PptxShape pos:PptxTextPos) {
