@@ -1,0 +1,57 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The introspection contract, against every engine this host has. A driver that
+; is not installed is skipped rather than failed, the same rule the query
+; contract already follows.
+
+Import "IntrospectContract.rgr"
+Import "../src/HostSql.rgr"
+Import "../src/RangerDB.rgr"
+
+class IntrospectTest {
+    sfn runHost:int (driver:string check:DbCheck) {
+        def here:boolean (HostSqlBackend.isAvailable(driver))
+        if (here == false) {
+            print ("== introspect: " + driver + " not installed, skipped ==")
+            return 0
+        }
+        def backend:HostSqlBackend (HostSqlBackend.forDriver(driver))
+        def session:DBSession (DBSession.over(backend))
+        def opened:boolean (session.openDb(":memory:"))
+        if (opened == false) {
+            print ("== introspect: " + driver + " could not open: " + (session.lastError()) + " ==")
+            check.ok((driver + " opens") false)
+            return 0
+        }
+        IntrospectContract.runAll(session check true)
+        session.closeDb()
+        return 1
+    }
+
+    sfn runRangerDb:int (check:DbCheck) {
+        def backend:RangerDbBackend (new RangerDbBackend)
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        IntrospectContract.runAll(session check false)
+        session.closeDb()
+        return 1
+    }
+
+    sfn main:void () {
+        def check:DbCheck (new DbCheck)
+        def ran:int 0
+        ran = (ran + (IntrospectTest.runRangerDb(check)))
+        ran = (ran + (IntrospectTest.runHost("sqlite" check)))
+        ran = (ran + (IntrospectTest.runHost("duckdb" check)))
+        print ("engines=" + (to_string ran) + " passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (ran == 0) {
+            print "NO ENGINE"
+            return
+        }
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

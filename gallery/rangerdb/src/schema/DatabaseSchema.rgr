@@ -33,6 +33,10 @@ class SchemaColumn {
     def dataType:string ""
     def nullable:boolean true
     def isPrimaryKey:boolean false
+    ; 1-based position within a composite primary key, 0 when not part of one.
+    ; PRIMARY KEY(b, a) and PRIMARY KEY(a, b) are different indexes, so the
+    ; order has to survive the round trip.
+    def pkPosition:int 0
     def isForeignKey:boolean false
     def isUnique:boolean false
     def defaultValue:string ""
@@ -55,6 +59,13 @@ class DBIndex {
     def name:string ""
     def columns:[string]
     def unique:boolean false
+    ; Where this index came from: "index" (someone wrote CREATE INDEX),
+    ; "unique" (it backs a UNIQUE constraint), "pk" (it backs the primary key).
+    ; An analyzer that cannot tell these apart reports the index behind every
+    ; primary key as a redundant duplicate of it.
+    def origin:string "index"
+    ; A partial / filtered index — the predicate, or "" for a whole-table one.
+    def predicate:string ""
 
     Constructor () {
     }
@@ -79,6 +90,12 @@ class DBTable {
     def constraints:[DBConstraint]
     ; "table" | "view" | "materialized"
     def kind:string "table"
+    ; The DDL the engine kept, where it keeps any. A view is only a name and a
+    ; column list without it, and CHECK constraints on engines that do not
+    ; expose them structurally can still be recovered from here later.
+    def sourceSql:string ""
+    ; Rows, when the engine will estimate without counting. -1 = not asked.
+    def rowEstimate:int -1
 
     Constructor () {
     }
@@ -173,6 +190,9 @@ class DBForeignKey {
 
 class DatabaseSchema {
     def name:string ""
+    ; The engine that produced this description, "" when it was read from a
+    ; file. Exporters use it to pick a default dialect.
+    def engine:string ""
     def tables:[DBTable]
     def foreignKeys:[DBForeignKey]
     def tableIndex:[string:int]
