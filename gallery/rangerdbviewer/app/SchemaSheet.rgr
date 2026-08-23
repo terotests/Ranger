@@ -149,6 +149,10 @@ class SchemaSheet {
         pane.model.setColWidth((SchemaSheet.colNull()) 60)
         pane.model.setColWidth((SchemaSheet.colDefault()) 150)
         pane.model.setColWidth((SchemaSheet.colKey()) 60)
+        ; Three of the five columns are choices, so the arrows belong on all
+        ; of them: with one only on the active cell nobody can tell the type
+        ; column is a dropdown until they happen to click it.
+        pane.showAllListArrows(true)
         pane.refresh()
         ; And the cursor starts on the first column of the first real row,
         ; because that is where somebody who starts typing means to type.

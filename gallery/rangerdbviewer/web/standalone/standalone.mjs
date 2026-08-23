@@ -294,6 +294,12 @@ async function boot() {
     web.run("view.diagram", "");
   }
   draw();
+  // The facade, and a redraw, on the window. `__evgStats` and `__dbScene` are
+  // already here for the page's own checks; this is the same idea one level
+  // up — a console, a screenshot script or a documentation page can drive the
+  // viewer through exactly the methods a button calls.
+  window.__dbViewer = web;
+  window.__dbDraw = draw;
   window.__dbReady = true;
 
   if (new URLSearchParams(location.search).has("selftest")) {

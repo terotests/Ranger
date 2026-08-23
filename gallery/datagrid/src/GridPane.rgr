@@ -514,6 +514,12 @@ class GridPane {
     ; all a host has to do is say which column has which choices. This is the
     ; call that makes "the data type is a dropdown" one line rather than a
     ; custom editor.
+    ; Show every list cell's arrow, not only the active one — for a pane
+    ; whose whole columns are choices. See `DataGrid.listArrowsEverywhere`.
+    fn showAllListArrows:void (on:boolean) {
+        grid.listArrowsEverywhere = on
+    }
+
     fn listColumn:DataValidation (col:int firstRow:int lastRow:int choices:[string]) {
         def v:DataValidation (new DataValidation)
         v.kind = "list"
