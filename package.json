@@ -250,6 +250,7 @@
     "rangerdb:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/tests/RangerDbTest.rgr -d=./gallery/rangerdb/bin -o=RangerDbTest.js -nodecli && node ./gallery/rangerdb/bin/RangerDbTest.js",
     "rangerdb:host:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/tests/HostDbTest.rgr -d=./gallery/rangerdb/bin -o=HostDbTest.js -nodecli && node ./gallery/rangerdb/bin/HostDbTest.js",
     "rangerdb:introspect:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/tests/IntrospectTest.rgr -d=./gallery/rangerdb/bin -o=IntrospectTest.js -nodecli && node ./gallery/rangerdb/bin/IntrospectTest.js",
+    "rangerdb:ddl:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdb/tests/DdlSchemaTest.rgr -d=./gallery/rangerdb/bin -o=DdlSchemaTest.js -nodecli && node ./gallery/rangerdb/bin/DdlSchemaTest.js",
     "rangerdbviewer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/tests/DbViewerTest.rgr -d=./gallery/rangerdbviewer/bin -o=DbViewerTest.js -nodecli && node ./gallery/rangerdbviewer/bin/DbViewerTest.js",
     "rangerdbviewer:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerdbviewer/demo/dbviewer_demo.rgr -d=./gallery/rangerdbviewer/bin -o=dbviewer_demo.js -nodecli",
     "rangerdbviewer:demo": "npm run rangerdbviewer:build && node ./gallery/rangerdbviewer/bin/dbviewer_demo.js",

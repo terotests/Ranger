@@ -30,7 +30,8 @@ Import "DbViewerApp.rgr"
 Import "DemoData.rgr"
 Import "../../evg/EVGToolbarView.rgr"
 Import "../../rangerflow/core/FlowEditor.rgr"
-Import "../../rangerflow/domains/erd/SqlSchemaReader.rgr"
+Import "../../rangerdb/src/schema/DdlToSchema.rgr"
+Import "../../rangerdb/src/schema/SchemaToDdl.rgr"
 
 ; ----------------------------------------------------------------------------
 ; The strip. Three pages, because a database viewer has three jobs and a
@@ -51,6 +52,7 @@ class DbViewerToolbar extends EVGToolbar {
         this.add("engine.rangerdb" "" "RangerDB, in this tab" (ToolIcon.database()))
         this.add("engine.sqlite" "" "SQLite (needs a host)" (ToolIcon.database()))
         this.add("db.sql" "" "Read the schema from SQL instead" (ToolIcon.sqlBox()))
+        this.add("export.ddl" "" "Write the schema back out as SQL" (ToolIcon.save()))
         this.addSeparator()
         this.add("view.schema" "" "Columns of the selected table" (ToolIcon.report()))
         this.add("tree.expandAll" "" "Expand everything" (ToolIcon.indentMore()))
@@ -182,13 +184,18 @@ class DbViewerFrame {
     ; foreign key — and it is the same path a `.sql` a reader drops on the page
     ; would take.
     fn openSqlText:boolean (sql:string label:string) {
-        def parsed:DatabaseSchema (SqlSchemaReader.parse(sql))
+        ; Through RangerSQL rather than through the ERD domain's hand-rolled
+        ; reader: the same statements a migration file is made of, applied in
+        ; order, with anything it could not read named rather than skipped.
+        def reader:DdlToSchema (DdlToSchema.of(""))
+        reader.applyScript(sql)
+        def parsed:DatabaseSchema reader.schema
         if ((parsed.tableCount()) == 0) {
             note = "no CREATE TABLE statements in that SQL"
             return false
         }
         app.adoptSchema(parsed label)
-        note = "read from SQL: relationships and indexes, but no rows"
+        note = ("read from SQL: " + (reader.report()) + " — relationships and indexes, but no rows")
         dataOffset = 0
         diagramReady = false
         treeSel = -1
@@ -208,6 +215,14 @@ class DbViewerFrame {
         editor.view.notation = "crowfoot"
         editor.fitView()
         diagramReady = true
+    }
+
+    ; The schema as DDL. The frame produces text and never a file — writing
+    ; one is the host's job, in a browser as much as anywhere else.
+    fn schemaDdl:string () {
+        def w:SchemaToDdl (SchemaToDdl.forDialect(""))
+        w.ifNotExists = true
+        return (w.script(app.schema))
     }
 
     fn scopedSchema:DatabaseSchema () {
@@ -240,6 +255,10 @@ class DbViewerFrame {
         }
         if (id == "engine.sqlite") {
             return (this.openDemo("sqlite"))
+        }
+        if (id == "export.ddl") {
+            note = "the page writes the file; the frame only produces the text"
+            return true
         }
         if (id == "db.sql") {
             return (this.openSqlText((DemoData.ddlText()) "the demo schema, read from SQL"))

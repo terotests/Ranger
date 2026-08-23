@@ -138,6 +138,13 @@ class RangerDbViewerWeb {
         return (sc.toSvg())
     }
 
+    ; The schema as DDL, in this build's dialect. Written by SchemaToDdl,
+    ; which is checked against DdlToSchema by a round-trip test rather than by
+    ; anyone reading its output.
+    fn schemaDdl:string () {
+        return (frame.schemaDdl())
+    }
+
     ; The schema as JSON — the export every other format is derived from, and
     ; the one a page can produce without a font in sight.
     fn schemaJson:string () {

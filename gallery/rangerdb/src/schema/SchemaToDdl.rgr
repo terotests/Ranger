@@ -1,0 +1,370 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SchemaToDdl.rgr — a DatabaseSchema back out as DDL.
+; ============================================================================
+;
+;   DatabaseSchema ─▶ CREATE TABLE … / CREATE INDEX … / CREATE VIEW …
+;
+; The other half of `DdlToSchema`, and the two are checked against each other:
+; a schema written out and read back in has to be the same schema. That
+; property is worth more than any individual assertion about the text, because
+; it is the property a migration generator depends on — the DDL it emits must
+; describe what the differ said it should.
+;
+; Three jobs downstream:
+;
+;   - export a schema as DDL, in whichever dialect a reader wants;
+;   - emit the CREATE side of a generated migration;
+;   - print the schema at a version of a replayed history.
+;
+; Ordering is a correctness property, not a formatting one. Tables come before
+; the foreign keys that point at them wherever the dialect allows the keys to
+; be written separately, and indexes come last because an index on a column
+; that does not exist yet is not a statement anything will run.
+; ============================================================================
+
+Import "DatabaseSchema.rgr"
+Import "../../../rangersql/src/dialects/Dialect.rgr"
+
+class SchemaToDdl {
+    def dialect:SqlDialect (SqlDialects.byName(""))
+    ; Write the foreign keys inside CREATE TABLE, or afterwards as ALTER
+    ; TABLE? Inline is what most dumps look like; separate is what a
+    ; migration wants, because it can then create every table first and never
+    ; care what order they came in.
+    def inlineForeignKeys:boolean true
+    ; `IF NOT EXISTS` on everything it creates. A migration usually wants this
+    ; off — a migration that silently does nothing is worse than one that
+    ; fails — and an export usually wants it on.
+    def ifNotExists:boolean false
+    def includeViews:boolean true
+    def includeIndexes:boolean true
+
+    Constructor () {
+    }
+
+    sfn forDialect:SchemaToDdl (name:string) {
+        def s:SchemaToDdl (new SchemaToDdl)
+        s.dialect = (SqlDialects.byName(name))
+        return s
+    }
+
+    fn quote:string (name:string) {
+        def open:string (dialect.quoteOpen())
+        def close:string (dialect.quoteClose())
+        def out:string open
+        def i:int 0
+        def n:int (strlen name)
+        while (i < n) {
+            def c:int (charAt name i)
+            def piece:string (strfromcode c)
+            if (piece == close) {
+                out = (out + close)
+            }
+            out = (out + piece)
+            i = (i + 1)
+        }
+        return (out + close)
+    }
+
+    fn head:string (what:string) {
+        if ifNotExists {
+            return ("CREATE " + what + " IF NOT EXISTS ")
+        }
+        return ("CREATE " + what + " ")
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The whole schema
+    ; ------------------------------------------------------------------------
+    fn statements:[string] (schema:DatabaseSchema) {
+        def out:[string]
+        def i:int 0
+        def n:int (array_length schema.tables)
+        while (i < n) {
+            def t:DBTable (itemAt schema.tables i)
+            if (t.kind == "table") {
+                push out (this.createTable(schema t))
+            }
+            i = (i + 1)
+        }
+        ; Keys written separately come after every table exists, which is the
+        ; whole reason to write them separately.
+        if (inlineForeignKeys == false) {
+            def k:int 0
+            def nk:int (array_length schema.foreignKeys)
+            while (k < nk) {
+                push out (this.addForeignKey((itemAt schema.foreignKeys k)))
+                k = (k + 1)
+            }
+        }
+        if includeIndexes {
+            def t2:int 0
+            while (t2 < n) {
+                def tab:DBTable (itemAt schema.tables t2)
+                def x:int 0
+                def nx:int (array_length tab.indexes)
+                while (x < nx) {
+                    def idx:DBIndex (itemAt tab.indexes x)
+                    ; The index behind a PRIMARY KEY or a UNIQUE constraint is
+                    ; created BY that constraint. Writing it again would be a
+                    ; second index, or an error.
+                    if (idx.origin == "index") {
+                        push out (this.createIndex(tab idx))
+                    }
+                    x = (x + 1)
+                }
+                t2 = (t2 + 1)
+            }
+        }
+        if includeViews {
+            def v:int 0
+            while (v < n) {
+                def vt:DBTable (itemAt schema.tables v)
+                if (vt.kind == "view") {
+                    def sql:string (this.createView(vt))
+                    if ((strlen sql) > 0) {
+                        push out sql
+                    }
+                }
+                v = (v + 1)
+            }
+        }
+        return out
+    }
+
+    fn script:string (schema:DatabaseSchema) {
+        def stmts:[string] (this.statements(schema))
+        def out:string ""
+        def i:int 0
+        def n:int (array_length stmts)
+        while (i < n) {
+            out = (out + (itemAt stmts i) + ";\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; One table
+    ; ------------------------------------------------------------------------
+    fn createTable:string (schema:DatabaseSchema t:DBTable) {
+        def out:string ((this.head("TABLE")) + (this.quote(t.name)) + " (")
+        def parts:[string]
+        def i:int 0
+        def n:int (array_length t.columns)
+        while (i < n) {
+            push parts (this.columnDef((itemAt t.columns i)))
+            i = (i + 1)
+        }
+        ; A single-column key is written on the column; a composite one has to
+        ; be written at the table level, because a column cannot say "and also
+        ; that one over there".
+        def pks:[string] (t.primaryKeyColumns())
+        def npk:int (array_length pks)
+        if (npk > 1) {
+            def pkText:string "PRIMARY KEY ("
+            def p:int 0
+            def ordered:[string] (SchemaToDdl.orderedKey(t))
+            while (p < npk) {
+                if (p > 0) {
+                    pkText = (pkText + ", ")
+                }
+                pkText = (pkText + (this.quote((itemAt ordered p))))
+                p = (p + 1)
+            }
+            push parts (pkText + ")")
+        }
+        def c:int 0
+        def nc:int (array_length t.constraints)
+        while (c < nc) {
+            def con:DBConstraint (itemAt t.constraints c)
+            if (con.kind == "check") {
+                if ((strlen con.expression) > 0) {
+                    push parts ("CHECK (" + (SchemaToDdl.bareCheck(con.expression)) + ")")
+                }
+            }
+            c = (c + 1)
+        }
+        if inlineForeignKeys {
+            def k:int 0
+            def nk:int (array_length schema.foreignKeys)
+            while (k < nk) {
+                def fk:DBForeignKey (itemAt schema.foreignKeys k)
+                if (fk.fromTable == t.name) {
+                    push parts (this.foreignKeyClause(fk))
+                }
+                k = (k + 1)
+            }
+        }
+        def j:int 0
+        def nj:int (array_length parts)
+        while (j < nj) {
+            if (j > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (itemAt parts j))
+            j = (j + 1)
+        }
+        return (out + ")")
+    }
+
+    ; The key's columns in the order the key declares, which is not
+    ; necessarily the order the columns are in.
+    sfn orderedKey:[string] (t:DBTable) {
+        def out:[string]
+        def wanted:int 1
+        def total:int (array_length t.columns)
+        while (wanted <= total) {
+            def i:int 0
+            while (i < total) {
+                def c:SchemaColumn (itemAt t.columns i)
+                if (c.isPrimaryKey) {
+                    if (c.pkPosition == wanted) {
+                        push out c.name
+                    }
+                }
+                i = (i + 1)
+            }
+            wanted = (wanted + 1)
+        }
+        ; A schema that never recorded positions still has a key.
+        if ((array_length out) == 0) {
+            return (t.primaryKeyColumns())
+        }
+        return out
+    }
+
+    fn columnDef:string (c:SchemaColumn) {
+        def out:string (this.quote(c.name))
+        if ((strlen c.dataType) > 0) {
+            out = (out + " " + c.dataType)
+        }
+        ; A single-column key is written here. A composite one is written at
+        ; the table level, so this asks for position 1 AND no second column,
+        ; which `createTable` has already decided by counting.
+        if (c.isPrimaryKey) {
+            if (c.pkPosition <= 1) {
+                out = (out + " PRIMARY KEY")
+            }
+        }
+        if ((c.nullable) == false) {
+            ; PRIMARY KEY already implies it, and writing both is noise.
+            if ((c.isPrimaryKey) == false) {
+                out = (out + " NOT NULL")
+            }
+        }
+        if (c.isUnique) {
+            if ((c.isPrimaryKey) == false) {
+                out = (out + " UNIQUE")
+            }
+        }
+        if ((strlen c.defaultValue) > 0) {
+            out = (out + " DEFAULT " + c.defaultValue)
+        }
+        return out
+    }
+
+    fn foreignKeyClause:string (fk:DBForeignKey) {
+        def out:string ""
+        if ((strlen fk.name) > 0) {
+            out = ("CONSTRAINT " + (this.quote(fk.name)) + " ")
+        }
+        out = (out + "FOREIGN KEY (" + (this.quoteList(fk.fromColumns)) + ")")
+        out = (out + " REFERENCES " + (this.quote(fk.toTable)))
+        if ((array_length fk.toColumns) > 0) {
+            out = (out + " (" + (this.quoteList(fk.toColumns)) + ")")
+        }
+        if ((strlen fk.onDelete) > 0) {
+            out = (out + " ON DELETE " + fk.onDelete)
+        }
+        if ((strlen fk.onUpdate) > 0) {
+            out = (out + " ON UPDATE " + fk.onUpdate)
+        }
+        return out
+    }
+
+    fn addForeignKey:string (fk:DBForeignKey) {
+        return ("ALTER TABLE " + (this.quote(fk.fromTable)) + " ADD " + (this.foreignKeyClause(fk)))
+    }
+
+    fn quoteList:string (names:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (this.quote((itemAt names i))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn createIndex:string (t:DBTable idx:DBIndex) {
+        def out:string "CREATE "
+        if (idx.unique) {
+            out = (out + "UNIQUE ")
+        }
+        out = (out + "INDEX ")
+        if ifNotExists {
+            out = (out + "IF NOT EXISTS ")
+        }
+        out = (out + (this.quote(idx.name)) + " ON " + (this.quote(t.name)))
+        out = (out + "(" + (this.quoteList(idx.columns)) + ")")
+        if ((strlen idx.predicate) > 0) {
+            out = (out + " WHERE " + idx.predicate)
+        }
+        return out
+    }
+
+    ; A view is only reproducible when its query survived introspection. An
+    ; engine that did not keep the text gets no CREATE VIEW rather than an
+    ; invented one.
+    fn createView:string (t:DBTable) {
+        if ((strlen t.sourceSql) > 0) {
+            return (SchemaToDdl.stripTrailingSemicolon(t.sourceSql))
+        }
+        return ""
+    }
+
+    sfn stripTrailingSemicolon:string (text:string) {
+        def out:string (trim text)
+        def n:int (strlen out)
+        if (n == 0) {
+            return out
+        }
+        if ((charAt out (n - 1)) == 59) {
+            return (trim (substring out 0 (n - 1)))
+        }
+        return out
+    }
+
+    ; An engine hands back a CHECK constraint spelled its own way — SQLite
+    ; keeps the text, DuckDB says `CHECK((total >= 0))`. What goes back inside
+    ; `CHECK (…)` is the expression, so a stored `CHECK(...)` wrapper is
+    ; unwrapped rather than nested.
+    sfn bareCheck:string (expression:string) {
+        def e:string (trim expression)
+        def n:int (strlen e)
+        if (n < 6) {
+            return e
+        }
+        def head:string (to_uppercase (substring e 0 5))
+        if (head == "CHECK") {
+            def rest:string (trim (substring e 5 n))
+            def rn:int (strlen rest)
+            if (rn >= 2) {
+                if ((charAt rest 0) == 40) {
+                    if ((charAt rest (rn - 1)) == 41) {
+                        return (trim (substring rest 1 (rn - 1)))
+                    }
+                }
+            }
+            return rest
+        }
+        return e
+    }
+}

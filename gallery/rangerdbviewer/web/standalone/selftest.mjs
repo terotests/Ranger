@@ -29,7 +29,14 @@ export async function selftest(web, draw) {
   // --- the schema read from SQL --------------------------------------------
   ok("the schema can be read from SQL instead", web.run("db.sql", ""));
   const schema = JSON.parse(web.schemaJson());
-  ok("…and that one has all five tables", schema.tables.length === 5);
+  // Reading through RangerSQL sees the CREATE VIEW too, which the ERD
+  // domain's older hand-rolled reader did not — so the object count is five
+  // tables AND a view, and the assertion counts them apart rather than
+  // rounding the view away.
+  const tables = schema.tables.filter((t) => t.kind === "table");
+  const views = schema.tables.filter((t) => t.kind === "view");
+  ok("…and that one has all five tables", tables.length === 5);
+  ok("…and the view as a view", views.length === 1);
   ok("…and the five relationships RangerDB could not see", schema.foreignKeys.length === 5);
   const selfRef = schema.foreignKeys.filter((f) => f.from === f.to).length;
   ok("…including the self-reference on categories", selfRef === 1);
@@ -69,6 +76,12 @@ export async function selftest(web, draw) {
   const svg = web.diagramSvg();
   ok("it exports an SVG", svg.indexOf("<svg") === 0);
   ok("…with the tables in it", svg.indexOf("customers") > 0 && svg.indexOf("order_items") > 0);
+
+  // --- DDL export -----------------------------------------------------------
+  const ddl = web.schemaDdl();
+  ok("it exports DDL", ddl.indexOf("CREATE TABLE") >= 0);
+  ok("…with the relationships in it", ddl.indexOf("FOREIGN KEY") >= 0);
+  ok("…and the indexes", ddl.indexOf("CREATE INDEX") >= 0);
 
   // --- the honest refusal ---------------------------------------------------
   ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);

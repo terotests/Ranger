@@ -279,7 +279,254 @@ class SqlGenerator {
         if (kind == 50) {
             return (this.cteSql(id))
         }
+        if (kind == 70) {
+            return (this.createTableSql(id))
+        }
+        if (kind == 71) {
+            return (this.createViewSql(id))
+        }
+        if (kind == 72) {
+            return (this.createIndexSql(id))
+        }
+        if (kind == 73) {
+            return (this.dropSql(id))
+        }
+        if (kind == 74) {
+            return (this.alterTableSql(id))
+        }
+        if (kind == 75) {
+            return (this.columnDefSql(id))
+        }
+        if (kind == 76) {
+            return (this.tableConstraintSql(id))
+        }
+        if (kind == 77) {
+            return (this.columnConstraintSql(id))
+        }
+        if (kind == 78) {
+            return (this.alterActionSql(id))
+        }
         return text
+    }
+
+    ; ==========================================================================
+    ; DDL
+    ; ==========================================================================
+
+    fn ifNotExistsSql:string (id:int) {
+        if (ast.hasFlag(id (SqlFlag.ifNotExistsFlag()))) {
+            return "IF NOT EXISTS "
+        }
+        return ""
+    }
+
+    fn createHead:string (id:int what:string) {
+        def out:string "CREATE "
+        if (ast.hasFlag(id (SqlFlag.orReplaceFlag()))) {
+            out = (out + "OR REPLACE ")
+        }
+        if (ast.hasFlag(id (SqlFlag.temporaryFlag()))) {
+            out = (out + "TEMPORARY ")
+        }
+        if (ast.hasFlag(id (SqlFlag.materializedFlag()))) {
+            out = (out + "MATERIALIZED ")
+        }
+        if (ast.hasFlag(id (SqlFlag.uniqueFlag()))) {
+            out = (out + "UNIQUE ")
+        }
+        return (out + what + " " + (this.ifNotExistsSql(id)))
+    }
+
+    fn createTableSql:string (id:int) {
+        def out:string (this.createHead(id "TABLE"))
+        out = (out + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+        def body:int (ast.childAt(id (SqlRole.bodyClause())))
+        if (body >= 0) {
+            return (out + " AS " + (this.sqlOf(body)))
+        }
+        def members:[int] (ast.childrenOf(id (SqlRole.definition())))
+        return (out + " (" + (this.joinList(members ", ")) + ")")
+    }
+
+    fn createViewSql:string (id:int) {
+        def out:string (this.createHead(id "VIEW"))
+        out = (out + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+        def cols:[int] (ast.childrenOf(id (SqlRole.columnList())))
+        if ((array_length cols) > 0) {
+            out = (out + " (" + (this.joinList(cols ", ")) + ")")
+        }
+        return (out + " AS " + (this.sqlOf((ast.childAt(id (SqlRole.bodyClause()))))))
+    }
+
+    fn createIndexSql:string (id:int) {
+        def out:string (this.createHead(id "INDEX"))
+        out = (out + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))))
+        out = (out + " ON " + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+        def cols:[int] (ast.childrenOf(id (SqlRole.columnList())))
+        ; No space before the list: CREATE INDEX abc ON t(a), not ON t (a).
+        ; A table's own definition is spelled with one and this is not, which
+        ; is a spelling difference rather than a tree difference — but the
+        ; corpus is byte-for-byte, so it is a difference that counts.
+        out = (out + "(" + (this.joinList(cols ", ")) + ")")
+        def pred:int (ast.childAt(id (SqlRole.whereClause())))
+        if (pred >= 0) {
+            out = (out + " WHERE " + (this.sqlOf(pred)))
+        }
+        return out
+    }
+
+    fn dropSql:string (id:int) {
+        def out:string ("DROP " + (ast.textOf(id)) + " ")
+        if (ast.hasFlag(id (SqlFlag.ifExistsFlag()))) {
+            out = (out + "IF EXISTS ")
+        }
+        def targets:[int] (ast.childrenOf(id (SqlRole.targetClause())))
+        out = (out + (this.joinList(targets ", ")))
+        if (ast.hasFlag(id (SqlFlag.cascadeFlag()))) {
+            out = (out + " CASCADE")
+        }
+        if (ast.hasFlag(id (SqlFlag.restrictFlag()))) {
+            out = (out + " RESTRICT")
+        }
+        return out
+    }
+
+    fn alterTableSql:string (id:int) {
+        def out:string "ALTER TABLE "
+        if (ast.hasFlag(id (SqlFlag.ifExistsFlag()))) {
+            out = (out + "IF EXISTS ")
+        }
+        out = (out + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+        def actions:[int] (ast.childrenOf(id (SqlRole.actionClause())))
+        return (out + " " + (this.joinList(actions ", ")))
+    }
+
+    fn columnDefSql:string (id:int) {
+        def out:string (this.sqlOf((ast.childAt(id (SqlRole.thisOperand())))))
+        def ty:int (ast.childAt(id (SqlRole.typeName())))
+        if (ty >= 0) {
+            out = (out + " " + (this.sqlOf(ty)))
+        }
+        def cons:[int] (ast.childrenOf(id (SqlRole.constraintClause())))
+        def i:int 0
+        def n:int (array_length cons)
+        while (i < n) {
+            out = (out + " " + (this.sqlOf((itemAt cons i))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The constraint's text IS its keyword phrase, so most of them write
+    ; themselves; only the ones carrying a payload need a line here.
+    fn columnConstraintSql:string (id:int) {
+        def word:string (ast.textOf(id))
+        def payload:int (ast.childAt(id (SqlRole.thisOperand())))
+        if (word == "REFERENCES") {
+            def out:string ("REFERENCES " + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+            def cols:[int] (ast.childrenOf(id (SqlRole.referenceColumns())))
+            if ((array_length cols) > 0) {
+                out = (out + " (" + (this.joinList(cols ", ")) + ")")
+            }
+            return (out + (this.refActionsSql(id)))
+        }
+        if (word == "CHECK") {
+            return ("CHECK (" + (this.sqlOf(payload)) + ")")
+        }
+        if (word == "SET DATA TYPE") {
+            def st:string ("SET DATA TYPE " + (this.sqlOf((ast.childAt(id (SqlRole.typeName()))))))
+            if (payload >= 0) {
+                st = (st + " USING " + (this.sqlOf(payload)))
+            }
+            return st
+        }
+        if (word == "TYPE") {
+            return ("TYPE " + (this.sqlOf((ast.childAt(id (SqlRole.typeName()))))))
+        }
+        if (payload >= 0) {
+            return (word + " " + (this.sqlOf(payload)))
+        }
+        return word
+    }
+
+    fn refActionsSql:string (id:int) {
+        def acts:[int] (ast.childrenOf(id (SqlRole.actionClause())))
+        def out:string ""
+        def i:int 0
+        def n:int (array_length acts)
+        while (i < n) {
+            def a:int (itemAt acts i)
+            out = (out + " " + (ast.textOf(a)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn tableConstraintSql:string (id:int) {
+        def out:string ""
+        def named:int (ast.childAt(id (SqlRole.constraintClause())))
+        if (named >= 0) {
+            out = ("CONSTRAINT " + (this.sqlOf(named)) + " ")
+        }
+        def word:string (ast.textOf(id))
+        if (word == "CHECK") {
+            return (out + "CHECK (" + (this.sqlOf((ast.childAt(id (SqlRole.thisOperand()))))) + ")")
+        }
+        def cols:[int] (ast.childrenOf(id (SqlRole.columnList())))
+        out = (out + word + " (" + (this.joinList(cols ", ")) + ")")
+        if (word == "FOREIGN KEY") {
+            out = (out + " REFERENCES " + (this.sqlOf((ast.childAt(id (SqlRole.targetClause()))))))
+            def refs:[int] (ast.childrenOf(id (SqlRole.referenceColumns())))
+            if ((array_length refs) > 0) {
+                out = (out + " (" + (this.joinList(refs ", ")) + ")")
+            }
+            out = (out + (this.refActionsSql(id)))
+        }
+        return out
+    }
+
+    fn alterActionSql:string (id:int) {
+        def word:string (ast.textOf(id))
+        def out:string word
+        if (ast.hasFlag(id (SqlFlag.ifNotExistsFlag()))) {
+            out = (out + " IF NOT EXISTS")
+        }
+        if (ast.hasFlag(id (SqlFlag.ifExistsFlag()))) {
+            out = (out + " IF EXISTS")
+        }
+        def target:int (ast.childAt(id (SqlRole.thisOperand())))
+        def payload:int (ast.childAt(id (SqlRole.definition())))
+        def right:int (ast.childAt(id (SqlRole.rightOperand())))
+        if (target >= 0) {
+            out = (out + " " + (this.sqlOf(target)))
+        }
+        if (right >= 0) {
+            ; "RENAME TO" spells the keyword in the action's own name;
+            ; "RENAME COLUMN a" still needs one before the new name.
+            if (word == "RENAME TO") {
+                out = (out + " " + (this.sqlOf(right)))
+            } {
+                out = (out + " TO " + (this.sqlOf(right)))
+            }
+        }
+        if (payload >= 0) {
+            out = (out + " " + (this.sqlOf(payload)))
+        }
+        if (ast.hasFlag(id (SqlFlag.cascadeFlag()))) {
+            out = (out + " CASCADE")
+        }
+        if (ast.hasFlag(id (SqlFlag.restrictFlag()))) {
+            out = (out + " RESTRICT")
+        }
+        def pos:int (ast.childAt(id (SqlRole.qualifier())))
+        if (pos >= 0) {
+            out = (out + " " + (ast.textOf(pos)))
+            def after:int (ast.childAt(id (SqlRole.leftOperand())))
+            if (after >= 0) {
+                out = (out + " " + (this.sqlOf(after)))
+            }
+        }
+        return out
     }
 
     fn aliasSql:string (id:int) {

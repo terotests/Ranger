@@ -224,6 +224,15 @@ class SqlParser {
     }
 
     fn parseStatement:int () {
+        if (this.atWord("CREATE")) {
+            return (this.parseCreate())
+        }
+        if (this.atWord("DROP")) {
+            return (this.parseDrop())
+        }
+        if (this.atWord("ALTER")) {
+            return (this.parseAlter())
+        }
         if (this.atWord("INSERT")) {
             return (this.parseInsert())
         }
@@ -1346,6 +1355,669 @@ class SqlParser {
     ; ------------------------------------------------------------------ DML --
     ; INSERT INTO t (a, b) VALUES (1, 2), (3, 4)
     ; INSERT INTO t SELECT ...
+
+    ; ==========================================================================
+    ; DDL — the statements a schema is made of.
+    ; ==========================================================================
+    ;
+    ; A migration file is DDL, a schema diagram is DDL read backwards, and a
+    ; schema diff is two of them compared. So this is the part of SQL the
+    ; viewer needs most and the part the grammar had none of.
+    ;
+    ; The shape is deliberately flat. A column's constraints are an ordered
+    ; LIST of small nodes whose text is the keyword phrase, rather than a set
+    ; of booleans on the column: `INT NOT NULL DEFAULT 1` and
+    ; `INT DEFAULT 1 NOT NULL` mean the same thing and are not the same text,
+    ; and a formatter that cannot tell them apart cannot round-trip either.
+    ; ==========================================================================
+
+    fn parseCreate:int () {
+        this.advance()
+        def orReplace:boolean false
+        if (this.atWord("OR")) {
+            def ahead:SqlToken (this.peekAhead(1))
+            if (ahead.isWord("REPLACE")) {
+                this.advance()
+                this.advance()
+                orReplace = true
+            }
+        }
+        def temporary:boolean false
+        if (this.takeWord("TEMPORARY")) {
+            temporary = true
+        } {
+            if (this.takeWord("TEMP")) {
+                temporary = true
+            }
+        }
+        def materialized:boolean (this.takeWord("MATERIALIZED"))
+        def unique:boolean (this.takeWord("UNIQUE"))
+
+        if (this.atWord("TABLE")) {
+            this.advance()
+            return (this.parseCreateTable(orReplace temporary))
+        }
+        if (this.atWord("VIEW")) {
+            this.advance()
+            return (this.parseCreateView(orReplace temporary materialized))
+        }
+        if (this.atWord("INDEX")) {
+            this.advance()
+            return (this.parseCreateIndex(unique))
+        }
+        ; CREATE FUNCTION, PROCEDURE, SCHEMA, TRIGGER … are deliberately not
+        ; here. They carry a body in a dialect's own procedural language,
+        ; which is a different grammar rather than more of this one, and none
+        ; of them describes the shape of a table.
+        this.fail("only CREATE TABLE, VIEW and INDEX are supported")
+        return -1
+    }
+
+    fn takeIfNotExists:boolean () {
+        if ((this.atWord("IF")) == false) {
+            return false
+        }
+        def a:SqlToken (this.peekAhead(1))
+        def b:SqlToken (this.peekAhead(2))
+        if (a.isWord("NOT")) {
+            if (b.isWord("EXISTS")) {
+                this.advance()
+                this.advance()
+                this.advance()
+                return true
+            }
+        }
+        return false
+    }
+
+    fn takeIfExists:boolean () {
+        if ((this.atWord("IF")) == false) {
+            return false
+        }
+        def a:SqlToken (this.peekAhead(1))
+        if (a.isWord("EXISTS")) {
+            this.advance()
+            this.advance()
+            return true
+        }
+        return false
+    }
+
+    fn parseCreateTable:int (orReplace:boolean temporary:boolean) {
+        def node:int (ast.newNode((SqlKind.createTable()) ""))
+        if orReplace {
+            ast.addFlag(node (SqlFlag.orReplaceFlag()))
+        }
+        if temporary {
+            ast.addFlag(node (SqlFlag.temporaryFlag()))
+        }
+        if (this.takeIfNotExists()) {
+            ast.addFlag(node (SqlFlag.ifNotExistsFlag()))
+        }
+        def target:int (this.parseTableName())
+        ast.attach(node (SqlRole.targetClause()) target)
+
+        ; CREATE TABLE x AS SELECT … — the columns come from the query.
+        if (this.atWord("AS")) {
+            this.advance()
+            ast.attach(node (SqlRole.bodyClause()) (this.parseSetOperation()))
+            return node
+        }
+        if ((this.expectPunct("(")) == false) {
+            return -1
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            def member:int (this.parseTableMember())
+            if (member < 0) {
+                return -1
+            }
+            ast.attach(node (SqlRole.definition()) member)
+            more = (this.takePunct(","))
+        }
+        if ((this.expectPunct(")")) == false) {
+            return -1
+        }
+        return node
+    }
+
+    ; A member of a CREATE TABLE body is either a column or a table-level
+    ; constraint, and which one is decided by the first word.
+    fn parseTableMember:int () {
+        if (this.atWord("CONSTRAINT")) {
+            return (this.parseTableConstraint())
+        }
+        if (this.atWord("PRIMARY")) {
+            return (this.parseTableConstraint())
+        }
+        if (this.atWord("FOREIGN")) {
+            return (this.parseTableConstraint())
+        }
+        if (this.atWord("CHECK")) {
+            return (this.parseTableConstraint())
+        }
+        if (this.atWord("UNIQUE")) {
+            ; UNIQUE (a) is a constraint; a column may not be called UNIQUE.
+            def ahead:SqlToken (this.peekAhead(1))
+            if (ahead.isPunct("(")) {
+                return (this.parseTableConstraint())
+            }
+        }
+        return (this.parseColumnDef())
+    }
+
+    fn parseColumnDef:int () {
+        def nameTok:SqlToken (this.advance())
+        def nameId:int (this.identifierFrom(nameTok))
+        if (nameId < 0) {
+            this.fail("expected a column name")
+            return -1
+        }
+        def node:int (ast.newNode((SqlKind.columnDef()) ""))
+        ast.attach(node (SqlRole.thisOperand()) nameId)
+        ; ALTER TABLE … ADD COLUMN x  has no type at all on some dialects.
+        if ((this.atPunct(",")) == false) {
+            if ((this.atPunct(")")) == false) {
+                if ((this.atEnd()) == false) {
+                    def typeId:int (this.parseDataType())
+                    if (typeId < 0) {
+                        return -1
+                    }
+                    ast.attach(node (SqlRole.typeName()) typeId)
+                }
+            }
+        }
+        while (true) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            def con:int (this.parseColumnConstraint())
+            if (con < 0) {
+                break
+            }
+            ast.attach(node (SqlRole.constraintClause()) con)
+        }
+        return node
+    }
+
+    ; One constraint written after a column's type. Returns -1 when the next
+    ; token starts something else, which is how the caller's loop ends.
+    fn parseColumnConstraint:int () {
+        if (this.atWord("NOT")) {
+            def ahead:SqlToken (this.peekAhead(1))
+            if (ahead.isWord("NULL")) {
+                this.advance()
+                this.advance()
+                return (ast.newNode((SqlKind.columnConstraint()) "NOT NULL"))
+            }
+            return -1
+        }
+        if (this.atWord("NULL")) {
+            this.advance()
+            return (ast.newNode((SqlKind.columnConstraint()) "NULL"))
+        }
+        if (this.atWord("PRIMARY")) {
+            def ahead2:SqlToken (this.peekAhead(1))
+            if (ahead2.isWord("KEY")) {
+                this.advance()
+                this.advance()
+                def pk:int (ast.newNode((SqlKind.columnConstraint()) "PRIMARY KEY"))
+                if (this.takeWord("ASC")) {
+                    ast.setText(pk "PRIMARY KEY ASC")
+                } {
+                    if (this.takeWord("DESC")) {
+                        ast.setText(pk "PRIMARY KEY DESC")
+                    }
+                }
+                return pk
+            }
+            return -1
+        }
+        if (this.atWord("UNIQUE")) {
+            this.advance()
+            return (ast.newNode((SqlKind.columnConstraint()) "UNIQUE"))
+        }
+        if (this.atWord("AUTO_INCREMENT")) {
+            this.advance()
+            return (ast.newNode((SqlKind.columnConstraint()) "AUTO_INCREMENT"))
+        }
+        if (this.atWord("AUTOINCREMENT")) {
+            this.advance()
+            return (ast.newNode((SqlKind.columnConstraint()) "AUTOINCREMENT"))
+        }
+        if (this.atWord("DEFAULT")) {
+            this.advance()
+            def def1:int (ast.newNode((SqlKind.columnConstraint()) "DEFAULT"))
+            ast.attach(def1 (SqlRole.thisOperand()) (this.parseExpression(0)))
+            return def1
+        }
+        if (this.atWord("COLLATE")) {
+            this.advance()
+            def col:int (ast.newNode((SqlKind.columnConstraint()) "COLLATE"))
+            def cname:SqlToken (this.advance())
+            ast.attach(col (SqlRole.thisOperand()) (this.identifierFrom(cname)))
+            return col
+        }
+        if (this.atWord("COMMENT")) {
+            this.advance()
+            def cm:int (ast.newNode((SqlKind.columnConstraint()) "COMMENT"))
+            ast.attach(cm (SqlRole.thisOperand()) (this.parseExpression(0)))
+            return cm
+        }
+        if (this.atWord("CHECK")) {
+            this.advance()
+            def ck:int (ast.newNode((SqlKind.columnConstraint()) "CHECK"))
+            this.expectPunct("(")
+            ast.attach(ck (SqlRole.thisOperand()) (this.parseExpression(0)))
+            this.expectPunct(")")
+            return ck
+        }
+        if (this.atWord("REFERENCES")) {
+            this.advance()
+            def rf:int (ast.newNode((SqlKind.columnConstraint()) "REFERENCES"))
+            ast.attach(rf (SqlRole.targetClause()) (this.parseTableName()))
+            this.parseRefColumns(rf)
+            this.parseRefActions(rf)
+            return rf
+        }
+        return -1
+    }
+
+    fn parseRefColumns:void (into:int) {
+        if ((this.atPunct("(")) == false) {
+            return
+        }
+        this.advance()
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return
+            }
+            def t:SqlToken (this.advance())
+            ast.attach(into (SqlRole.referenceColumns()) (this.identifierFrom(t)))
+            more = (this.takePunct(","))
+        }
+        this.expectPunct(")")
+    }
+
+    ; ON DELETE CASCADE, ON UPDATE SET NULL — kept as text, because what they
+    ; mean to a schema is one word and what they mean to SQL is several.
+    fn parseRefActions:void (into:int) {
+        while (this.atWord("ON")) {
+            def which:SqlToken (this.peekAhead(1))
+            def isDelete:boolean (which.isWord("DELETE"))
+            def isUpdate:boolean (which.isWord("UPDATE"))
+            if (isDelete == false) {
+                if (isUpdate == false) {
+                    return
+                }
+            }
+            this.advance()
+            this.advance()
+            def phrase:string ("ON " + which.upper)
+            def w1:SqlToken (this.advance())
+            phrase = (phrase + " " + w1.upper)
+            if (w1.isWord("SET")) {
+                def w2:SqlToken (this.advance())
+                phrase = (phrase + " " + w2.upper)
+            }
+            if (w1.isWord("NO")) {
+                def w3:SqlToken (this.advance())
+                phrase = (phrase + " " + w3.upper)
+            }
+            ast.attach(into (SqlRole.actionClause()) (ast.newNode((SqlKind.columnConstraint()) phrase)))
+        }
+    }
+
+    fn parseTableConstraint:int () {
+        def named:int -1
+        if (this.takeWord("CONSTRAINT")) {
+            def nameTok:SqlToken (this.advance())
+            named = (this.identifierFrom(nameTok))
+        }
+        def node:int -1
+        if (this.atWord("PRIMARY")) {
+            this.advance()
+            this.expectWord("KEY")
+            node = (ast.newNode((SqlKind.tableConstraint()) "PRIMARY KEY"))
+            this.parseConstraintColumns(node)
+        } {
+            if (this.atWord("UNIQUE")) {
+                this.advance()
+                node = (ast.newNode((SqlKind.tableConstraint()) "UNIQUE"))
+                this.parseConstraintColumns(node)
+            } {
+                if (this.atWord("FOREIGN")) {
+                    this.advance()
+                    this.expectWord("KEY")
+                    node = (ast.newNode((SqlKind.tableConstraint()) "FOREIGN KEY"))
+                    this.parseConstraintColumns(node)
+                    this.expectWord("REFERENCES")
+                    ast.attach(node (SqlRole.targetClause()) (this.parseTableName()))
+                    this.parseRefColumns(node)
+                    this.parseRefActions(node)
+                } {
+                    if (this.atWord("CHECK")) {
+                        this.advance()
+                        node = (ast.newNode((SqlKind.tableConstraint()) "CHECK"))
+                        this.expectPunct("(")
+                        ast.attach(node (SqlRole.thisOperand()) (this.parseExpression(0)))
+                        this.expectPunct(")")
+                    } {
+                        this.fail("expected a table constraint")
+                        return -1
+                    }
+                }
+            }
+        }
+        if (named >= 0) {
+            ast.attach(node (SqlRole.constraintClause()) named)
+        }
+        return node
+    }
+
+    fn parseConstraintColumns:void (into:int) {
+        if ((this.expectPunct("(")) == false) {
+            return
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return
+            }
+            def t:SqlToken (this.advance())
+            ast.attach(into (SqlRole.columnList()) (this.identifierFrom(t)))
+            more = (this.takePunct(","))
+        }
+        this.expectPunct(")")
+    }
+
+    fn parseCreateView:int (orReplace:boolean temporary:boolean materialized:boolean) {
+        def node:int (ast.newNode((SqlKind.createView()) ""))
+        if orReplace {
+            ast.addFlag(node (SqlFlag.orReplaceFlag()))
+        }
+        if temporary {
+            ast.addFlag(node (SqlFlag.temporaryFlag()))
+        }
+        if materialized {
+            ast.addFlag(node (SqlFlag.materializedFlag()))
+        }
+        if (this.takeIfNotExists()) {
+            ast.addFlag(node (SqlFlag.ifNotExistsFlag()))
+        }
+        ast.attach(node (SqlRole.targetClause()) (this.parseTableName()))
+        if (this.atPunct("(")) {
+            this.advance()
+            def more:boolean true
+            while (more) {
+                if ((this.ok()) == false) {
+                    return -1
+                }
+                def t:SqlToken (this.advance())
+                ast.attach(node (SqlRole.columnList()) (this.identifierFrom(t)))
+                more = (this.takePunct(","))
+            }
+            this.expectPunct(")")
+        }
+        if ((this.expectWord("AS")) == false) {
+            return -1
+        }
+        ast.attach(node (SqlRole.bodyClause()) (this.parseSetOperation()))
+        return node
+    }
+
+    fn parseCreateIndex:int (unique:boolean) {
+        def node:int (ast.newNode((SqlKind.createIndex()) ""))
+        if unique {
+            ast.addFlag(node (SqlFlag.uniqueFlag()))
+        }
+        if (this.takeIfNotExists()) {
+            ast.addFlag(node (SqlFlag.ifNotExistsFlag()))
+        }
+        def nameTok:SqlToken (this.advance())
+        ast.attach(node (SqlRole.thisOperand()) (this.identifierFrom(nameTok)))
+        if ((this.expectWord("ON")) == false) {
+            return -1
+        }
+        ast.attach(node (SqlRole.targetClause()) (this.parseTableName()))
+        if ((this.expectPunct("(")) == false) {
+            return -1
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            ; An index column may be an expression and may carry ASC / DESC,
+            ; and `parseOrderItem` already knows both.
+            ast.attach(node (SqlRole.columnList()) (this.parseOrderItem()))
+            more = (this.takePunct(","))
+        }
+        if ((this.expectPunct(")")) == false) {
+            return -1
+        }
+        if (this.takeWord("WHERE")) {
+            ast.attach(node (SqlRole.whereClause()) (this.parseExpression(0)))
+        }
+        return node
+    }
+
+    fn parseDrop:int () {
+        this.advance()
+        def what:string ""
+        if (this.takeWord("TABLE")) {
+            what = "TABLE"
+        } {
+            if (this.takeWord("VIEW")) {
+                what = "VIEW"
+            } {
+                if (this.takeWord("INDEX")) {
+                    what = "INDEX"
+                } {
+                    this.fail("only DROP TABLE, VIEW and INDEX are supported")
+                    return -1
+                }
+            }
+        }
+        def node:int (ast.newNode((SqlKind.dropStatement()) what))
+        if (this.takeIfExists()) {
+            ast.addFlag(node (SqlFlag.ifExistsFlag()))
+        }
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            ast.attach(node (SqlRole.targetClause()) (this.parseTableName()))
+            more = (this.takePunct(","))
+        }
+        if (this.takeWord("CASCADE")) {
+            ast.addFlag(node (SqlFlag.cascadeFlag()))
+        }
+        if (this.takeWord("RESTRICT")) {
+            ast.addFlag(node (SqlFlag.restrictFlag()))
+        }
+        return node
+    }
+
+    fn parseAlter:int () {
+        this.advance()
+        if ((this.expectWord("TABLE")) == false) {
+            return -1
+        }
+        def node:int (ast.newNode((SqlKind.alterTable()) ""))
+        if (this.takeIfExists()) {
+            ast.addFlag(node (SqlFlag.ifExistsFlag()))
+        }
+        ast.attach(node (SqlRole.targetClause()) (this.parseTableName()))
+        def more:boolean true
+        while (more) {
+            if ((this.ok()) == false) {
+                return -1
+            }
+            def action:int (this.parseAlterAction())
+            if (action < 0) {
+                return -1
+            }
+            ast.attach(node (SqlRole.actionClause()) action)
+            more = (this.takePunct(","))
+        }
+        return node
+    }
+
+    fn parseAlterAction:int () {
+        if (this.takeWord("ADD")) {
+            def isCon:boolean false
+            if (this.atWord("CONSTRAINT")) {
+                isCon = true
+            }
+            if (this.atWord("PRIMARY")) {
+                isCon = true
+            }
+            if (this.atWord("FOREIGN")) {
+                isCon = true
+            }
+            if (this.atWord("CHECK")) {
+                isCon = true
+            }
+            if (isCon) {
+                def addCon:int (ast.newNode((SqlKind.alterAction()) "ADD"))
+                ast.attach(addCon (SqlRole.definition()) (this.parseTableConstraint()))
+                return addCon
+            }
+            def hadColumn:boolean (this.takeWord("COLUMN"))
+            def add:int (ast.newNode((SqlKind.alterAction()) "ADD COLUMN"))
+            if (hadColumn == false) {
+                ast.setText(add "ADD")
+            }
+            if (this.takeIfNotExists()) {
+                ast.addFlag(add (SqlFlag.ifNotExistsFlag()))
+            }
+            ast.attach(add (SqlRole.definition()) (this.parseColumnDef()))
+            this.takePositionClause(add)
+            return add
+        }
+        if (this.takeWord("DROP")) {
+            def hadCol:boolean (this.takeWord("COLUMN"))
+            def drop:int (ast.newNode((SqlKind.alterAction()) "DROP COLUMN"))
+            if (hadCol == false) {
+                ast.setText(drop "DROP")
+            }
+            if (this.takeIfExists()) {
+                ast.addFlag(drop (SqlFlag.ifExistsFlag()))
+            }
+            def t:SqlToken (this.advance())
+            ast.attach(drop (SqlRole.thisOperand()) (this.identifierFrom(t)))
+            if (this.takeWord("CASCADE")) {
+                ast.addFlag(drop (SqlFlag.cascadeFlag()))
+            }
+            if (this.takeWord("RESTRICT")) {
+                ast.addFlag(drop (SqlFlag.restrictFlag()))
+            }
+            return drop
+        }
+        if (this.takeWord("RENAME")) {
+            if (this.takeWord("TO")) {
+                def ren:int (ast.newNode((SqlKind.alterAction()) "RENAME TO"))
+                ast.attach(ren (SqlRole.rightOperand()) (this.parseTableName()))
+                return ren
+            }
+            def hadCol2:boolean (this.takeWord("COLUMN"))
+            def rc:int (ast.newNode((SqlKind.alterAction()) "RENAME COLUMN"))
+            if (hadCol2 == false) {
+                ast.setText(rc "RENAME")
+            }
+            def from:SqlToken (this.advance())
+            ast.attach(rc (SqlRole.thisOperand()) (this.identifierFrom(from)))
+            this.expectWord("TO")
+            def to:SqlToken (this.advance())
+            ast.attach(rc (SqlRole.rightOperand()) (this.identifierFrom(to)))
+            return rc
+        }
+        if (this.takeWord("ALTER")) {
+            this.takeWord("COLUMN")
+            def alt:int (ast.newNode((SqlKind.alterAction()) "ALTER COLUMN"))
+            def col:SqlToken (this.advance())
+            ast.attach(alt (SqlRole.thisOperand()) (this.identifierFrom(col)))
+            return (this.parseAlterColumnTail(alt))
+        }
+        this.fail("unsupported ALTER TABLE action")
+        return -1
+    }
+
+    fn parseAlterColumnTail:int (alt:int) {
+        if (this.takeWord("SET")) {
+            if (this.takeWord("DATA")) {
+                this.expectWord("TYPE")
+                def st:int (ast.newNode((SqlKind.columnConstraint()) "SET DATA TYPE"))
+                ast.attach(st (SqlRole.typeName()) (this.parseDataType()))
+                if (this.takeWord("USING")) {
+                    ast.attach(st (SqlRole.thisOperand()) (this.parseExpression(0)))
+                }
+                ast.attach(alt (SqlRole.definition()) st)
+                return alt
+            }
+            if (this.takeWord("DEFAULT")) {
+                def sd:int (ast.newNode((SqlKind.columnConstraint()) "SET DEFAULT"))
+                ast.attach(sd (SqlRole.thisOperand()) (this.parseExpression(0)))
+                ast.attach(alt (SqlRole.definition()) sd)
+                return alt
+            }
+            if (this.takeWord("NOT")) {
+                this.expectWord("NULL")
+                ast.attach(alt (SqlRole.definition()) (ast.newNode((SqlKind.columnConstraint()) "SET NOT NULL")))
+                return alt
+            }
+            this.fail("unsupported ALTER COLUMN SET")
+            return -1
+        }
+        if (this.takeWord("DROP")) {
+            if (this.takeWord("DEFAULT")) {
+                ast.attach(alt (SqlRole.definition()) (ast.newNode((SqlKind.columnConstraint()) "DROP DEFAULT")))
+                return alt
+            }
+            if (this.takeWord("NOT")) {
+                this.expectWord("NULL")
+                ast.attach(alt (SqlRole.definition()) (ast.newNode((SqlKind.columnConstraint()) "DROP NOT NULL")))
+                return alt
+            }
+            this.fail("unsupported ALTER COLUMN DROP")
+            return -1
+        }
+        if (this.takeWord("COMMENT")) {
+            def cm:int (ast.newNode((SqlKind.columnConstraint()) "COMMENT"))
+            ast.attach(cm (SqlRole.thisOperand()) (this.parseExpression(0)))
+            ast.attach(alt (SqlRole.definition()) cm)
+            return alt
+        }
+        if (this.takeWord("TYPE")) {
+            def ty:int (ast.newNode((SqlKind.columnConstraint()) "TYPE"))
+            ast.attach(ty (SqlRole.typeName()) (this.parseDataType()))
+            ast.attach(alt (SqlRole.definition()) ty)
+            return alt
+        }
+        this.fail("unsupported ALTER COLUMN action")
+        return -1
+    }
+
+    ; MySQL's ADD COLUMN … FIRST / AFTER other.
+    fn takePositionClause:void (into:int) {
+        if (this.takeWord("FIRST")) {
+            ast.attach(into (SqlRole.qualifier()) (ast.newNode((SqlKind.identifier()) "FIRST")))
+            return
+        }
+        if (this.takeWord("AFTER")) {
+            def t:SqlToken (this.advance())
+            def marker:int (ast.newNode((SqlKind.identifier()) "AFTER"))
+            ast.attach(into (SqlRole.qualifier()) marker)
+            ast.attach(into (SqlRole.leftOperand()) (this.identifierFrom(t)))
+        }
+    }
+
     fn parseInsert:int () {
         this.advance()
         def node:int (ast.newNode((SqlKind.insertNode()) ""))

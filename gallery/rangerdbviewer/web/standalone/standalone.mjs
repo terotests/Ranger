@@ -195,15 +195,25 @@ document.getElementById("rows").addEventListener("click", () => command("view.da
 // The SVG is produced by the same scene the canvas is drawing; the page only
 // wraps it in a download, because writing a file is a host's job and this
 // page IS the host.
-document.getElementById("svg").addEventListener("click", () => {
-  const svg = web.diagramSvg();
-  const blob = new Blob([svg], { type: "image/svg+xml" });
+function download(text, name, mime) {
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "schema.svg";
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+document.getElementById("svg").addEventListener("click", () => {
+  download(web.diagramSvg(), "schema.svg", "image/svg+xml");
+});
+
+// The schema written back out as DDL. Produced by SchemaToDdl, which a
+// round-trip test checks against the reader rather than against a fixture of
+// expected text.
+document.getElementById("ddl").addEventListener("click", () => {
+  download(web.schemaDdl(), "schema.sql", "text/plain");
 });
 
 function fitCanvas() {

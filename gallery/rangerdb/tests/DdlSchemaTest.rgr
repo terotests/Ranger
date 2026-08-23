@@ -1,0 +1,324 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; DdlSchemaTest — DDL replayed, against the same DDL executed.
+; ==============================================================================
+;
+; The interesting assertion in this file is not that DdlToSchema produces *a*
+; schema. It is that the schema it produces from reading the text matches the
+; schema an engine reports after RUNNING the text.
+;
+;     the DDL ──▶ DdlToSchema ────▶ DatabaseSchema
+;         │                              ≟
+;         └────▶ SQLite ──▶ introspect ─▶ DatabaseSchema
+;
+; That is the only test of a migration replayer that means anything, and it is
+; the same shape the Phase 5 exit test will take against a real Flyway tree:
+; replay the history, introspect the database those migrations built, compare.
+; ==============================================================================
+
+Import "DbContract.rgr"
+Import "../src/schema/DdlToSchema.rgr"
+Import "../src/schema/SchemaToDdl.rgr"
+Import "../src/schema/Introspect.rgr"
+Import "../src/HostSql.rgr"
+
+class DdlSchemaTest {
+
+    sfn script:string () {
+        def out:string ""
+        out = (out + "CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL UNIQUE, note VARCHAR DEFAULT 'x');\n")
+        out = (out + "-- a comment, and a semicolon in a string: 'a;b'\n")
+        out = (out + "CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id), total DOUBLE);\n")
+        out = (out + "CREATE TABLE order_items (order_id INTEGER, product_id INTEGER, quantity INTEGER, PRIMARY KEY (order_id, product_id));\n")
+        out = (out + "CREATE INDEX idx_orders_customer ON orders (customer_id);\n")
+        out = (out + "CREATE VIEW v_orders AS SELECT id, total FROM orders;\n")
+        return out
+    }
+
+    sfn findIndex:DBIndex (t:DBTable name:string) {
+        def i:int 0
+        def n:int (array_length t.indexes)
+        while (i < n) {
+            def idx:DBIndex (itemAt t.indexes i)
+            if (idx.name == name) {
+                return idx
+            }
+            i = (i + 1)
+        }
+        return (new DBIndex)
+    }
+
+    ; --- what the text says ---------------------------------------------------
+    sfn runReplay:DatabaseSchema (check:DbCheck) {
+        check.label = "ddl"
+        print "== DDL replayed into a schema =="
+        def d:DdlToSchema (DdlToSchema.of(""))
+        d.applyScript((DdlSchemaTest.script()))
+        check.ok("every statement was understood" (d.trustworthy()))
+        if ((d.trustworthy()) == false) {
+            def f:int 0
+            while (f < (array_length d.failures)) {
+                print ("    " + (itemAt d.failures f))
+                f = (f + 1)
+            }
+        }
+        check.eqInt("five statements applied" d.applied 5)
+
+        def s:DatabaseSchema d.schema
+        check.eqInt("four objects" (s.tableCount()) 4)
+
+        def ci:int (s.indexOfTable("customers"))
+        check.ok("customers is there" (ci >= 0))
+        if (ci >= 0) {
+            def cust:DBTable (itemAt s.tables ci)
+            check.eqInt("customers has three columns" (array_length cust.columns) 3)
+            def em:int (cust.columnIndex("email"))
+            if (em >= 0) {
+                def email:SchemaColumn (itemAt cust.columns em)
+                check.ok("email is NOT NULL" ((email.nullable) == false))
+                check.ok("email is unique" email.isUnique)
+                check.eqStr("email keeps its type" email.dataType "VARCHAR")
+            }
+            def nt:int (cust.columnIndex("note"))
+            if (nt >= 0) {
+                def note:SchemaColumn (itemAt cust.columns nt)
+                check.eqStr("note keeps its default" note.defaultValue "'x'")
+            }
+            def pk:int (cust.columnIndex("id"))
+            if (pk >= 0) {
+                def idc:SchemaColumn (itemAt cust.columns pk)
+                check.ok("id is the primary key" idc.isPrimaryKey)
+                check.ok("a key column is not nullable" ((idc.nullable) == false))
+            }
+        }
+
+        ; the composite key, in the order it was written
+        def oi:int (s.indexOfTable("order_items"))
+        if (oi >= 0) {
+            def items:DBTable (itemAt s.tables oi)
+            def pks:[string] (items.primaryKeyColumns())
+            check.eqInt("order_items has a two-column key" (array_length pks) 2)
+            if ((array_length pks) == 2) {
+                check.eqStr("…order_id first" (itemAt pks 0) "order_id")
+                check.eqStr("…product_id second" (itemAt pks 1) "product_id")
+            }
+        }
+
+        ; the inline REFERENCES
+        check.eqInt("one foreign key" (array_length s.foreignKeys) 1)
+        if ((array_length s.foreignKeys) > 0) {
+            def fk:DBForeignKey (itemAt s.foreignKeys 0)
+            check.eqStr("it leaves orders" fk.fromTable "orders")
+            check.eqStr("it arrives at customers" fk.toTable "customers")
+            check.eqStr("from customer_id" (fk.firstFromColumn()) "customer_id")
+            check.eqStr("to id" (fk.firstToColumn()) "id")
+        }
+
+        ; the index and the view
+        def ordi:int (s.indexOfTable("orders"))
+        if (ordi >= 0) {
+            def orders:DBTable (itemAt s.tables ordi)
+            def idx:DBIndex (DdlSchemaTest.findIndex(orders "idx_orders_customer"))
+            check.eqStr("the index is there" idx.name "idx_orders_customer")
+            check.eqStr("it is a hand-written one" idx.origin "index")
+        }
+        def vi:int (s.indexOfTable("v_orders"))
+        if (vi >= 0) {
+            def view:DBTable (itemAt s.tables vi)
+            check.eqStr("the view knows it is a view" view.kind "view")
+            ; The view named no columns, so they come from its query — which
+            ; is what the engine will report when asked.
+            check.eqInt("the view took its columns from its query" (array_length view.columns) 2)
+        }
+        return s
+    }
+
+    ; --- statements applied in order, which is what a migration is -----------
+    sfn runEvolution:void (check:DbCheck) {
+        check.label = "evolution"
+        print "== a history replayed forward =="
+        def d:DdlToSchema (DdlToSchema.of(""))
+        d.applyScript("CREATE TABLE t (a INTEGER PRIMARY KEY);")
+        d.applyScript("ALTER TABLE t ADD COLUMN b VARCHAR NOT NULL DEFAULT 'z';")
+        d.applyScript("ALTER TABLE t ADD COLUMN c INTEGER;")
+        d.applyScript("ALTER TABLE t DROP COLUMN c;")
+        d.applyScript("ALTER TABLE t RENAME COLUMN b TO label;")
+        check.ok("the history was understood" (d.trustworthy()))
+        def ti:int (d.schema.indexOfTable("t"))
+        check.ok("the table survived" (ti >= 0))
+        if (ti >= 0) {
+            def t:DBTable (itemAt d.schema.tables ti)
+            check.eqInt("it has two columns" (array_length t.columns) 2)
+            check.ok("the dropped column is gone" ((t.columnIndex("c")) < 0))
+            check.ok("the renamed one is under its new name" ((t.columnIndex("label")) >= 0))
+            check.ok("…and not its old one" ((t.columnIndex("b")) < 0))
+            def li:int (t.columnIndex("label"))
+            if (li >= 0) {
+                def lab:SchemaColumn (itemAt t.columns li)
+                check.ok("it kept NOT NULL through the rename" ((lab.nullable) == false))
+                check.eqStr("and its default" lab.defaultValue "'z'")
+            }
+        }
+
+        ; renaming the table carries its relationships with it
+        def d2:DdlToSchema (DdlToSchema.of(""))
+        d2.applyScript("CREATE TABLE parent (id INTEGER PRIMARY KEY);")
+        d2.applyScript("CREATE TABLE child (pid INTEGER REFERENCES parent(id));")
+        d2.applyScript("ALTER TABLE parent RENAME TO ancestor;")
+        check.ok("the rename was understood" (d2.trustworthy()))
+        check.ok("the old name is gone" ((d2.schema.indexOfTable("parent")) < 0))
+        check.ok("the new name is there" ((d2.schema.indexOfTable("ancestor")) >= 0))
+        if ((array_length d2.schema.foreignKeys) > 0) {
+            def fk:DBForeignKey (itemAt d2.schema.foreignKeys 0)
+            check.eqStr("and the key followed it" fk.toTable "ancestor")
+        }
+
+        ; DROP takes the relationships with it
+        def d3:DdlToSchema (DdlToSchema.of(""))
+        d3.applyScript("CREATE TABLE a (id INTEGER PRIMARY KEY);")
+        d3.applyScript("CREATE TABLE b (aid INTEGER REFERENCES a(id));")
+        d3.applyScript("DROP TABLE b;")
+        check.eqInt("dropping a table drops its keys" (array_length d3.schema.foreignKeys) 0)
+        check.eqInt("and the table" (d3.schema.tableCount()) 1)
+
+        ; a statement it cannot read is named, not swallowed
+        def d4:DdlToSchema (DdlToSchema.of(""))
+        d4.applyScript("CREATE TABLE ok (a INTEGER); CREATE FUNCTION nope() RETURNS INT;")
+        check.ok("a statement it cannot read is reported" ((d4.trustworthy()) == false))
+        check.eqInt("…exactly one of them" (d4.failed()) 1)
+        check.eqInt("…and the rest still applied" (d4.schema.tableCount()) 1)
+    }
+
+    ; --- the comparison that matters ------------------------------------------
+    sfn runAgainstEngine:int (check:DbCheck replayed:DatabaseSchema) {
+        def here:boolean (HostSqlBackend.isAvailable("sqlite"))
+        if (here == false) {
+            print "== sqlite not installed, the comparison is skipped =="
+            return 0
+        }
+        check.label = "replay vs engine"
+        print "== the same DDL, executed and then introspected =="
+        def backend:HostSqlBackend (HostSqlBackend.forDriver("sqlite"))
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        def stmts:[string] (DdlToSchema.splitStatements((DdlSchemaTest.script())))
+        def i:int 0
+        def n:int (array_length stmts)
+        while (i < n) {
+            def one:string (trim (itemAt stmts i))
+            if ((strlen one) > 0) {
+                session.execSql(one)
+            }
+            i = (i + 1)
+        }
+        def ins:DBIntrospector (Introspect.forSession(session))
+        def live:DatabaseSchema (Introspect.everythingWith(ins session))
+
+        check.eqInt("the same number of objects" (live.tableCount()) (replayed.tableCount()))
+        check.eqInt("the same number of foreign keys" (array_length live.foreignKeys) (array_length replayed.foreignKeys))
+
+        def t:int 0
+        def nt:int (array_length replayed.tables)
+        while (t < nt) {
+            def want:DBTable (itemAt replayed.tables t)
+            def at:int (live.indexOfTable(want.name))
+            check.ok((want.name + " exists in the engine too") (at >= 0))
+            if (at >= 0) {
+                def got:DBTable (itemAt live.tables at)
+                check.eqInt((want.name + ": same column count") (array_length got.columns) (array_length want.columns))
+                check.eqStr((want.name + ": same kind") got.kind want.kind)
+                def c:int 0
+                def nc:int (array_length want.columns)
+                while (c < nc) {
+                    def wc:SchemaColumn (itemAt want.columns c)
+                    def gi:int (got.columnIndex(wc.name))
+                    check.ok((want.name + "." + wc.name + " exists") (gi >= 0))
+                    if (gi >= 0) {
+                        def gc:SchemaColumn (itemAt got.columns gi)
+                        check.ok((want.name + "." + wc.name + ": same nullability") (gc.nullable == wc.nullable))
+                        check.ok((want.name + "." + wc.name + ": same key-ness") (gc.isPrimaryKey == wc.isPrimaryKey))
+                        check.eqInt((want.name + "." + wc.name + ": same key position") gc.pkPosition wc.pkPosition)
+                    }
+                    c = (c + 1)
+                }
+            }
+            t = (t + 1)
+        }
+        session.closeDb()
+        return 1
+    }
+
+    ; --- written out and read back --------------------------------------------
+    ; The property a migration generator depends on: the DDL it emits has to
+    ; describe the schema it was asked to describe. Anything the writer forgets
+    ; or the reader misreads shows up here as a difference, without either of
+    ; them having to be inspected directly.
+    sfn runRoundTrip:void (check:DbCheck original:DatabaseSchema) {
+        check.label = "round trip"
+        print "== schema -> DDL -> schema =="
+        def w:SchemaToDdl (SchemaToDdl.forDialect(""))
+        def script:string (w.script(original))
+        check.ok("it wrote something" ((strlen script) > 0))
+
+        def back:DdlToSchema (DdlToSchema.of(""))
+        back.applyScript(script)
+        check.ok("and it reads back" (back.trustworthy()))
+        if ((back.trustworthy()) == false) {
+            def f:int 0
+            while (f < (array_length back.failures)) {
+                print ("    " + (itemAt back.failures f))
+                f = (f + 1)
+            }
+            print ("    --- the script it could not read ---")
+            print script
+        }
+        def again:DatabaseSchema back.schema
+        check.eqInt("the same number of objects" (again.tableCount()) (original.tableCount()))
+        check.eqInt("the same number of keys" (array_length again.foreignKeys) (array_length original.foreignKeys))
+
+        def i:int 0
+        def n:int (array_length original.tables)
+        while (i < n) {
+            def want:DBTable (itemAt original.tables i)
+            def at:int (again.indexOfTable(want.name))
+            check.ok((want.name + " survived the round trip") (at >= 0))
+            if (at >= 0) {
+                def got:DBTable (itemAt again.tables at)
+                check.eqInt((want.name + ": same columns") (array_length got.columns) (array_length want.columns))
+                def c:int 0
+                def nc:int (array_length want.columns)
+                while (c < nc) {
+                    def wc:SchemaColumn (itemAt want.columns c)
+                    def gi:int (got.columnIndex(wc.name))
+                    check.ok((want.name + "." + wc.name + " survived") (gi >= 0))
+                    if (gi >= 0) {
+                        def gc:SchemaColumn (itemAt got.columns gi)
+                        check.eqStr((want.name + "." + wc.name + ": type") gc.dataType wc.dataType)
+                        check.ok((want.name + "." + wc.name + ": nullability") (gc.nullable == wc.nullable))
+                        check.ok((want.name + "." + wc.name + ": key") (gc.isPrimaryKey == wc.isPrimaryKey))
+                        check.eqInt((want.name + "." + wc.name + ": key position") gc.pkPosition wc.pkPosition)
+                        check.ok((want.name + "." + wc.name + ": uniqueness") (gc.isUnique == wc.isUnique))
+                        check.eqStr((want.name + "." + wc.name + ": default") gc.defaultValue wc.defaultValue)
+                    }
+                    c = (c + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn main:void () {
+        def check:DbCheck (new DbCheck)
+        def replayed:DatabaseSchema (DdlSchemaTest.runReplay(check))
+        DdlSchemaTest.runEvolution(check)
+        DdlSchemaTest.runRoundTrip(check replayed)
+        def compared:int (DdlSchemaTest.runAgainstEngine(check replayed))
+        print ("compared=" + (to_string compared) + " passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

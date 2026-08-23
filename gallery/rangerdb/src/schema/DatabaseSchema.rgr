@@ -234,6 +234,59 @@ class DatabaseSchema {
         return (itemAt tables i)
     }
 
+    ; DROP TABLE, for a schema being replayed forward through a migration
+    ; history. The keys that pointed at or away from it go with it — a
+    ; relationship to a table that no longer exists is not a relationship.
+    fn removeTable:boolean (name:string) {
+        def at:int (this.indexOfTable(name))
+        if (at < 0) {
+            return false
+        }
+        def keptTables:[DBTable]
+        def i:int 0
+        def n:int (array_length tables)
+        while (i < n) {
+            def t:DBTable (itemAt tables i)
+            if (i != at) {
+                push keptTables t
+            }
+            i = (i + 1)
+        }
+        clear tables
+        def k:int 0
+        def nk:int (array_length keptTables)
+        while (k < nk) {
+            push tables (itemAt keptTables k)
+            k = (k + 1)
+        }
+        def keptKeys:[DBForeignKey]
+        def f:int 0
+        def nf:int (array_length foreignKeys)
+        while (f < nf) {
+            def fk:DBForeignKey (itemAt foreignKeys f)
+            def touches:boolean false
+            if (fk.fromTable == name) {
+                touches = true
+            }
+            if (fk.toTable == name) {
+                touches = true
+            }
+            if (touches == false) {
+                push keptKeys fk
+            }
+            f = (f + 1)
+        }
+        clear foreignKeys
+        def g:int 0
+        def ng:int (array_length keptKeys)
+        while (g < ng) {
+            push foreignKeys (itemAt keptKeys g)
+            g = (g + 1)
+        }
+        this.resolve()
+        return true
+    }
+
     fn addForeignKey:DBForeignKey (fk:DBForeignKey) {
         push foreignKeys fk
         return fk
