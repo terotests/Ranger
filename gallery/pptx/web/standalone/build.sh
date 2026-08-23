@@ -80,6 +80,13 @@ cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
 done
+# The fallback pool: emoji, the geometric bullets, and Arabic. The desktop
+# build loads every face in the font directory and the browser build only ever
+# shipped Open Sans, so a browser measured Arabic with notdef widths and drew
+# it with the system's own font — right-looking glyphs, wrong every number.
+for face in Noto_Emoji/NotoEmoji-Regular Noto_Sans/NotoSans-Regular El_Messiri/ElMessiri-Regular El_Messiri/ElMessiri-Bold; do
+  cp "gallery/pdf_writer/assets/fonts/$face.ttf" "$OUT/fonts/$(basename "$face").ttf"
+done
 # The 187 preset geometries, as data. The page fetches this and hands it to
 # the viewer the way it hands over the fonts: without it a browser build falls
 # back to the hand-written table, so every shape the specification defines and

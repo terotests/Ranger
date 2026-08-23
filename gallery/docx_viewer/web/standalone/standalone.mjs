@@ -35,6 +35,20 @@ const FONTS = [
   [null, "OpenSans-Bold.ttf"],
   [null, "OpenSans-Italic.ttf"],
   [null, "OpenSans-BoldItalic.ttf"],
+  // The fallback pool the desktop build has always had, and the browser
+  // build did not: an emoji face, a face with the geometric bullets in it,
+  // and an Arabic one.
+  //
+  // `FontManager` falls back per CODEPOINT across every loaded face, so
+  // having these loaded at all is the whole of it — none of them becomes the
+  // face Latin text is drawn in. Without them a browser MEASURED Arabic with
+  // notdef widths while the canvas DREW it with the system's own Arabic font:
+  // the glyphs looked right and every number about them was wrong, so a title
+  // wrapped a word early and the caret sat a letter short of where it looked.
+  [null, "NotoEmoji-Regular.ttf"],
+  [null, "NotoSans-Regular.ttf"],
+  [null, "ElMessiri-Regular.ttf"],
+  [null, "ElMessiri-Bold.ttf"],
 ];
 const DOCUMENT = "./document.docx";
 

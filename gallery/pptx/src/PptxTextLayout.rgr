@@ -19,6 +19,7 @@
 
 Import "PptxModel.rgr"
 Import "PptxTextMeasure.rgr"
+Import "../../office/text/OfficeText.rgr"
 
 class PptxTextLine {
     def para:int 0
@@ -349,6 +350,41 @@ class PptxTextLayout {
     ;
     ; `x` / `y` / `w` / `h` are the shape's box in painter pixels; the insets
     ; are taken out here, the same way the painter used to take them out.
+
+    ; Which edge a paragraph is aligned to.
+    ;
+    ; A paragraph that STATES an alignment gets it. One that does not is
+    ; aligned to the start of its own reading direction: left for a
+    ; left-to-right paragraph, RIGHT for a right-to-left one. That is what
+    ; PowerPoint does, and it is the only thing it can do — DrawingML has no
+    ; "start" or "end" the way Word's `w:jc` does, so an unstated alignment
+    ; has to be resolved from the direction rather than defaulted to a side.
+    ;
+    ; The deck this was reported on is the ordinary case: an Arabic body with
+    ; no `<a:pPr>` at all, so no `algn` and no `rtl` either. Every line of it
+    ; came out ragged against the LEFT edge of the box while PowerPoint had it
+    ; flush against the right.
+    ;
+    ; Where the direction comes from, in order: what the paragraph says, and
+    ; failing that what its text says — which is the same first-strong-
+    ; character rule the bidirectional algorithm resolves a paragraph level
+    ; with, and is exactly the question `OfficeText.isRtl` answers.
+    sfn alignOf:string (para:PptxParagraph text:string) {
+        if para.alignSet {
+            return para.align
+        }
+        if (para.rtl == 1) {
+            return "r"
+        }
+        if (para.rtl == 0) {
+            return para.align
+        }
+        if (OfficeText.isRtl(text)) {
+            return "r"
+        }
+        return para.align
+    }
+
     sfn layout:[PptxTextLine] (body:PptxTextBody m:PptxTextMeasure scale:double x:double y:double w:double h:double) {
         def out:[PptxTextLine]
         def padL:double (body.insetL * scale)
@@ -368,6 +404,7 @@ class PptxTextLayout {
             def para:PptxParagraph (itemAt body.paragraphs pi)
             def text:string (PptxTextLayout.paraText(para))
             def n:int (strlen text)
+            def align:string (PptxTextLayout.alignOf(para text))
             ; Where the text starts, and where the bullet hangs. The deck says
             ; both — `marL` is the text's left edge and `indent` is the bullet's
             ; offset from it, negative for the hanging bullet every list has —
@@ -464,7 +501,7 @@ class PptxTextLayout {
                 line.startCol = start
                 line.endCol = end
                 line.first = firstLine
-                line.align = para.align
+                line.align = align
                 line.size = (PptxTextLayout.maxRunSize(para start end scale))
                 def lineH:double (line.size * spacing * 1.2)
                 if (lineH < (line.size * 1.15)) {
@@ -477,10 +514,10 @@ class PptxTextLayout {
                 if (para.indentSet == false) {
                     lineX = ((contentX + indent) + bulletW)
                 }
-                if (para.align == "ctr") {
+                if (align == "ctr") {
                     lineX = (lineX + ((avail - line.w) * 0.5))
                 }
-                if (para.align == "r") {
+                if (align == "r") {
                     lineX = (lineX + (avail - line.w))
                 }
                 line.x = lineX
@@ -517,7 +554,7 @@ class PptxTextLayout {
                             tail.startCol = start
                             tail.endCol = start
                             tail.first = false
-                            tail.align = para.align
+                            tail.align = align
                             tail.size = (PptxTextLayout.maxRunSize(para 0 n scale))
                             tail.h = (tail.size * spacing * 1.2)
                             tail.x = (contentX + indent)

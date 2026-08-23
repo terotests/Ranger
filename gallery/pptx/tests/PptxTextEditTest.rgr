@@ -339,6 +339,32 @@ class PptxTextEditTest {
     ; pass itself: no measurement of a real font here, just the estimate, which
     ; is deterministic and enough to see where a line breaks.
 
+    ; Decimal codepoints to a string, so a test reads as what it tests.
+    sfn cps:string (spec:string) {
+        def out:string ""
+        def cur:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (strlen spec)) {
+            def ch:int (charAt spec i)
+            if (ch == 32) {
+                if any {
+                    out = (out + (EVGCodepoint.toStr(cur)))
+                }
+                cur = 0
+                any = false
+            } {
+                cur = ((cur * 10) + (ch - 48))
+                any = true
+            }
+            i = (i + 1)
+        }
+        if any {
+            out = (out + (EVGCodepoint.toStr(cur)))
+        }
+        return out
+    }
+
     fn wrapBody:PptxTextBody (text:string sizePt:double) {
         def body (new PptxTextBody())
         body.insetL = 0.0
@@ -464,6 +490,58 @@ class PptxTextEditTest {
         def b0:PptxTextLine (itemAt bottom 0)
         this.check("centred text starts lower than top-anchored" (m0.y > t0.y))
         this.check("bottom-anchored lower still" (b0.y > m0.y))
+
+        print "--- an unstated alignment follows the paragraph's own direction ---"
+        ; DrawingML has no "start" or "end" the way Word's `w:jc` does, so a
+        ; paragraph that states no `algn` has to have one resolved from its
+        ; DIRECTION: left for a left-to-right paragraph, right for a
+        ; right-to-left one. Defaulting to left instead put every line of an
+        ; Arabic body ragged against the left edge of its box while PowerPoint
+        ; had it flush against the right.
+        ;
+        ; The deck this came from is the ordinary case: no `<a:pPr>` at all,
+        ; so no `algn` and no `rtl` either — the direction is the text's own.
+        def arabic:string (PptxTextEditTest.cps("1605 1585 1581 1576 1575 32 1576 1575 1604 1593 1575 1604 1605"))
+        def rtlBody:PptxTextBody (this.wrapBody(arabic 10.0))
+        def rtlLines:[PptxTextLine] (PptxTextLayout.layout(rtlBody m 1.0 0.0 0.0 300.0 400.0))
+        def r0:PptxTextLine (itemAt rtlLines 0)
+        ; Flush right means the line ENDS at the box's right edge.
+        this.check(("an Arabic paragraph is flush right (" + (to_string (r0.x + r0.w)) + " of 300)")
+                   ((fabs ((r0.x + r0.w) - 300.0)) < 0.5))
+        this.check("which is not where it would start" (r0.x > 1.0))
+
+        ; Latin in the same box, with the same nothing stated, stays left.
+        def ltrBody:PptxTextBody (this.wrapBody("hello there" 10.0))
+        def ltrLines:[PptxTextLine] (PptxTextLayout.layout(ltrBody m 1.0 0.0 0.0 300.0 400.0))
+        def l0:PptxTextLine (itemAt ltrLines 0)
+        this.check(("a Latin paragraph is flush left (" + (to_string l0.x) + ")") ((fabs l0.x) < 0.5))
+
+        ; And a STATED alignment always wins, including one that disagrees
+        ; with the direction — an author who left-aligns Arabic meant it.
+        def statedBody:PptxTextBody (this.wrapBody(arabic 10.0))
+        def statedPara:PptxParagraph (itemAt statedBody.paragraphs 0)
+        statedPara.align = "l"
+        statedPara.alignSet = true
+        def statedLines:[PptxTextLine] (PptxTextLayout.layout(statedBody m 1.0 0.0 0.0 300.0 400.0))
+        def s0:PptxTextLine (itemAt statedLines 0)
+        this.check(("a stated alignment wins over the direction (" + (to_string s0.x) + ")") ((fabs s0.x) < 0.5))
+
+        ; A paragraph the file marks left-to-right keeps the left edge even
+        ; when its text is Arabic — `rtl="0"` is a statement too.
+        def ltrMarked:PptxTextBody (this.wrapBody(arabic 10.0))
+        def markedPara:PptxParagraph (itemAt ltrMarked.paragraphs 0)
+        markedPara.rtl = 0
+        def markedLines:[PptxTextLine] (PptxTextLayout.layout(ltrMarked m 1.0 0.0 0.0 300.0 400.0))
+        def mk0:PptxTextLine (itemAt markedLines 0)
+        this.check("a paragraph marked left-to-right stays left" ((fabs mk0.x) < 0.5))
+        ; …and one marked right-to-left goes right whatever it says.
+        def rtlMarked:PptxTextBody (this.wrapBody("hello there" 10.0))
+        def rtlPara:PptxParagraph (itemAt rtlMarked.paragraphs 0)
+        rtlPara.rtl = 1
+        def rtlMarkedLines:[PptxTextLine] (PptxTextLayout.layout(rtlMarked m 1.0 0.0 0.0 300.0 400.0))
+        def rm0:PptxTextLine (itemAt rtlMarkedLines 0)
+        this.check("and one marked right-to-left goes right" ((fabs ((rm0.x + rm0.w) - 300.0)) < 0.5))
+
         ; Alignment moves the line, not the break.
         def para:PptxParagraph (itemAt body.paragraphs 0)
         body.anchor = "t"
