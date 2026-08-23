@@ -1,0 +1,264 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Timeline.rgr — a history replayed, and the schema at every version.
+; ============================================================================
+;
+;   V1 ──▶ V2 ──▶ V3 ──▶ … ──▶ V47      the timeline
+;    │      │                     │
+;    └──────┴─ diff any two ──────┘      what changed, and when
+;                                  │
+;                            vs live      drift
+;
+; Three features that are one feature. Replaying a `MigrationSet` in order
+; through `DdlToSchema` keeps the `DatabaseSchema` at each step, and once
+; those exist:
+;
+;   - the timeline is the list;
+;   - "what changed in V32" is a diff of two neighbours;
+;   - drift is a diff of the last one against what a database reports.
+;
+; ---------------------------------------------------------------------------
+; A partly-read history produces a marked schema, not a wrong one
+; ---------------------------------------------------------------------------
+;
+; If a step could not be read — an unknown Django operation, DDL the parser
+; refuses — every schema from that point on is missing whatever it did. That
+; is recorded on the frame and asked about by name (`trustworthyAt`), because
+; a drift report computed against a schema that lost a step is not a drift
+; report, it is noise that looks like one.
+; ============================================================================
+
+Import "MigrationSet.rgr"
+Import "../../rangerdb/src/schema/SchemaDiff.rgr"
+
+class TimelineFrame {
+    def version:string ""
+    def name:string ""
+    def schema:DatabaseSchema (new DatabaseSchema)
+    ; What this step did to the schema before it.
+    def changes:ChangeSet (new ChangeSet)
+    ; False from the first step that could not be fully read, onwards.
+    def trustworthy:boolean true
+    def note:string ""
+
+    Constructor () {
+    }
+
+    fn label:string () {
+        if ((strlen name) == 0) {
+            return version
+        }
+        return (version + " " + name)
+    }
+}
+
+class Timeline {
+    def frames:[TimelineFrame]
+    def dialect:string ""
+    ; Everything the replay could not read, in the order it met them.
+    def problems:[string]
+
+    Constructor () {
+    }
+
+    sfn of:Timeline (dialectName:string) {
+        def t:Timeline (new Timeline)
+        t.dialect = dialectName
+        return t
+    }
+
+    fn count:int () {
+        return (array_length frames)
+    }
+
+    fn frameAt:TimelineFrame (i:int) {
+        return (itemAt frames i)
+    }
+
+    fn trustworthy:boolean () {
+        return ((array_length problems) == 0)
+    }
+
+    ; The schema as of the last step, which is what the history SAYS the
+    ; database should look like.
+    fn head:DatabaseSchema () {
+        def n:int (array_length frames)
+        if (n == 0) {
+            return (new DatabaseSchema)
+        }
+        def last:TimelineFrame (itemAt frames (n - 1))
+        return last.schema
+    }
+
+    fn indexOfVersion:int (version:string) {
+        def i:int 0
+        def n:int (array_length frames)
+        while (i < n) {
+            def f:TimelineFrame (itemAt frames i)
+            if (f.version == version) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn schemaAt:DatabaseSchema (version:string) {
+        def at:int (this.indexOfVersion(version))
+        if (at < 0) {
+            return (new DatabaseSchema)
+        }
+        def f:TimelineFrame (itemAt frames at)
+        return f.schema
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The replay
+    ; ------------------------------------------------------------------------
+    ;
+    ; Each step is applied to a schema rebuilt from every step so far rather
+    ; than to a copy of the previous frame's. `DatabaseSchema` holds objects a
+    ; later step would otherwise mutate in place — an ALTER on version 5 would
+    ; reach back and change the frame for version 4, and the timeline would
+    ; show every version looking like the last one.
+    fn replay:boolean (set:MigrationSet) {
+        clear frames
+        clear problems
+        def previous:DatabaseSchema (new DatabaseSchema)
+        def i:int 0
+        def n:int (set.count())
+        def stillGood:boolean true
+        while (i < n) {
+            def step:MigrationStep (set.stepAt(i))
+            def d:DdlToSchema (DdlToSchema.of(dialect))
+            def k:int 0
+            while (k <= i) {
+                def upto:MigrationStep (set.stepAt(k))
+                d.applyScript(upto.upSql)
+                k = (k + 1)
+            }
+            def frame:TimelineFrame (new TimelineFrame)
+            frame.version = step.version
+            frame.name = step.name
+            frame.schema = d.schema
+            frame.changes = (SchemaDiff.between(previous d.schema))
+            if ((step.understood) == false) {
+                stillGood = false
+                frame.note = step.note
+                push problems ((step.label()) + ": " + step.note)
+            }
+            if ((d.trustworthy()) == false) {
+                stillGood = false
+                def why:string (d.report())
+                frame.note = why
+                push problems ((step.label()) + ": " + why)
+            }
+            frame.trustworthy = stillGood
+            push frames frame
+            previous = d.schema
+            i = (i + 1)
+        }
+        return (this.trustworthy())
+    }
+
+    ; What changed at one version — the same list the diagram animates and the
+    ; timeline shows beside a step's name.
+    fn changesAt:ChangeSet (version:string) {
+        def at:int (this.indexOfVersion(version))
+        if (at < 0) {
+            return (new ChangeSet)
+        }
+        def f:TimelineFrame (itemAt frames at)
+        return f.changes
+    }
+
+    ; Between any two versions, in either direction.
+    fn between:ChangeSet (fromVersion:string toVersion:string) {
+        def a:DatabaseSchema (this.schemaAt(fromVersion))
+        def b:DatabaseSchema (this.schemaAt(toVersion))
+        return (SchemaDiff.between(a b))
+    }
+
+    fn summary:string () {
+        def out:string ((to_string (array_length frames)) + " versions")
+        def bad:int (array_length problems)
+        if (bad > 0) {
+            out = (out + ", " + (to_string bad) + " NOT FULLY READ")
+        }
+        return out
+    }
+
+    ; One line per version, which is what a terminal shows and the timeline
+    ; panel draws.
+    fn dump:string () {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length frames)
+        while (i < n) {
+            def f:TimelineFrame (itemAt frames i)
+            def mark:string "  "
+            if ((f.trustworthy) == false) {
+                mark = " ?"
+            }
+            out = (out + mark + " " + (f.label()))
+            out = (out + "   " + (to_string (f.schema.tableCount())) + " tables, " + (f.changes.summary()))
+            if ((strlen f.note) > 0) {
+                out = (out + "   [" + f.note + "]")
+            }
+            out = (out + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; ----------------------------------------------------------------------------
+; Drift — what the history says, against what the database is.
+; ----------------------------------------------------------------------------
+;
+; On a database with years of history behind it this is frequently the most
+; valuable screen in the product, and it is a diff with particular arguments
+; and a particular way of reading the result: a change here is not something
+; to apply, it is something that already happened to one side and not the
+; other.
+; ----------------------------------------------------------------------------
+class Drift {
+    def changes:ChangeSet (new ChangeSet)
+    ; True when the replay that produced the expected side was complete. A
+    ; drift report from a partly-read history is not a drift report.
+    def reliable:boolean true
+    def why:string ""
+
+    Constructor () {
+    }
+
+    sfn compare:Drift (timeline:Timeline live:DatabaseSchema) {
+        def d:Drift (new Drift)
+        d.reliable = (timeline.trustworthy())
+        if ((d.reliable) == false) {
+            d.why = "the history was not fully read, so what it expects is incomplete"
+        }
+        def expected:DatabaseSchema (timeline.head())
+        d.changes = (SchemaDiff.between(expected live))
+        return d
+    }
+
+    fn hasDrifted:boolean () {
+        return ((changes.isEmpty()) == false)
+    }
+
+    fn report:string () {
+        if ((this.hasDrifted()) == false) {
+            if (reliable) {
+                return "the database matches its migrations"
+            }
+            return ("no differences found, but " + why)
+        }
+        def out:string ("the database differs from its migrations in " + (to_string (changes.count())) + " ways")
+        if ((reliable) == false) {
+            out = (out + " — and " + why + ", so some of these may be the reader's fault rather than the database's")
+        }
+        return out
+    }
+}

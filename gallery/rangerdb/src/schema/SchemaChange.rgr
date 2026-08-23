@@ -1,0 +1,351 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SchemaChange.rgr — one difference between two schemas.
+; ============================================================================
+;
+; The vocabulary a migration is written in. `SchemaDiff` produces these,
+; `MigrationPlan` turns them into DDL, and the timeline shows them as what
+; happened between two versions.
+;
+; ---------------------------------------------------------------------------
+; Order is a correctness property, not a formatting one
+; ---------------------------------------------------------------------------
+;
+; A foreign key has to be dropped before the column it covers, and a table has
+; to exist before a key points at it. So every change carries a `rank`, and a
+; plan is the changes sorted by it:
+;
+;   10  drop foreign keys        ← dependents first, on the way down
+;   20  drop indexes
+;   30  drop columns
+;   40  drop tables
+;   50  create tables            ← depended-on first, on the way up
+;   60  add columns
+;   70  alter columns
+;   80  add indexes
+;   90  add foreign keys
+;
+; ---------------------------------------------------------------------------
+; Destructive is a property of the change, not of the reader
+; ---------------------------------------------------------------------------
+;
+; Dropping a column loses data and adding one does not, and no amount of
+; reading the DDL afterwards recovers that distinction as reliably as marking
+; it here. Everything that shows a plan to a person separates the two.
+; ============================================================================
+
+Import "DatabaseSchema.rgr"
+
+class ChangeKind {
+    sfn tableAdd:string () {
+        return "table.add"
+    }
+    sfn tableDrop:string () {
+        return "table.drop"
+    }
+    sfn tableRename:string () {
+        return "table.rename"
+    }
+    sfn columnAdd:string () {
+        return "column.add"
+    }
+    sfn columnDrop:string () {
+        return "column.drop"
+    }
+    sfn columnRename:string () {
+        return "column.rename"
+    }
+    sfn columnType:string () {
+        return "column.type"
+    }
+    sfn columnNull:string () {
+        return "column.null"
+    }
+    sfn columnDefault:string () {
+        return "column.default"
+    }
+    sfn indexAdd:string () {
+        return "index.add"
+    }
+    sfn indexDrop:string () {
+        return "index.drop"
+    }
+    sfn keyAdd:string () {
+        return "fk.add"
+    }
+    sfn keyDrop:string () {
+        return "fk.drop"
+    }
+    sfn primaryKey:string () {
+        return "pk.change"
+    }
+
+    ; Where in a plan a change of this kind belongs. See the header.
+    sfn rankOf:int (kind:string) {
+        if (kind == "fk.drop") {
+            return 10
+        }
+        if (kind == "index.drop") {
+            return 20
+        }
+        if (kind == "column.drop") {
+            return 30
+        }
+        if (kind == "table.drop") {
+            return 40
+        }
+        if (kind == "table.add") {
+            return 50
+        }
+        if (kind == "table.rename") {
+            return 45
+        }
+        if (kind == "column.add") {
+            return 60
+        }
+        if (kind == "column.rename") {
+            return 55
+        }
+        if (kind == "column.type") {
+            return 70
+        }
+        if (kind == "column.null") {
+            return 70
+        }
+        if (kind == "column.default") {
+            return 70
+        }
+        if (kind == "pk.change") {
+            return 75
+        }
+        if (kind == "index.add") {
+            return 80
+        }
+        if (kind == "fk.add") {
+            return 90
+        }
+        return 65
+    }
+
+    ; Does applying this lose data that cannot be recovered by undoing it?
+    sfn isDestructive:boolean (kind:string) {
+        if (kind == "table.drop") {
+            return true
+        }
+        if (kind == "column.drop") {
+            return true
+        }
+        ; A type change can truncate, and a NOT NULL can refuse rows that are
+        ; already there. Neither is reversible by running the down migration.
+        if (kind == "column.type") {
+            return true
+        }
+        if (kind == "column.null") {
+            return true
+        }
+        return false
+    }
+}
+
+class SchemaChange {
+    def kind:string ""
+    def table:string ""
+    def column:string ""
+    ; The new name, for a rename.
+    def toName:string ""
+    ; What it was and what it becomes, as text a person can read.
+    def before:string ""
+    def after:string ""
+    def destructive:boolean false
+    ; A rename is never certain. When this is above zero the change is a
+    ; SUGGESTION and the caller is expected to have asked somebody.
+    def confidence:double 0.0
+    def suggested:boolean false
+
+    ; The objects a plan needs to write the DDL. Only the relevant one is set.
+    def columnDef:SchemaColumn (new SchemaColumn)
+    def priorColumn:SchemaColumn (new SchemaColumn)
+    def index:DBIndex (new DBIndex)
+    def foreignKey:DBForeignKey (new DBForeignKey)
+    def tableDef:DBTable (new DBTable)
+
+    Constructor () {
+    }
+
+    sfn of:SchemaChange (kind:string table:string) {
+        def c:SchemaChange (new SchemaChange)
+        c.kind = kind
+        c.table = table
+        c.destructive = (ChangeKind.isDestructive(kind))
+        return c
+    }
+
+    fn rank:int () {
+        return (ChangeKind.rankOf(kind))
+    }
+
+    ; One line a person can read, which is what the timeline and the plan
+    ; preview both show.
+    fn describe:string () {
+        if (kind == "table.add") {
+            return ("create table " + table)
+        }
+        if (kind == "table.drop") {
+            return ("drop table " + table)
+        }
+        if (kind == "table.rename") {
+            return ("rename table " + table + " to " + toName)
+        }
+        if (kind == "column.add") {
+            return ("add " + table + "." + column + " " + after)
+        }
+        if (kind == "column.drop") {
+            return ("drop " + table + "." + column)
+        }
+        if (kind == "column.rename") {
+            return ("rename " + table + "." + column + " to " + toName)
+        }
+        if (kind == "column.type") {
+            return (table + "." + column + ": " + before + " becomes " + after)
+        }
+        if (kind == "column.null") {
+            return (table + "." + column + ": " + before + " becomes " + after)
+        }
+        if (kind == "column.default") {
+            return (table + "." + column + ": default " + before + " becomes " + after)
+        }
+        if (kind == "index.add") {
+            return ("add index " + index.name + " on " + table)
+        }
+        if (kind == "index.drop") {
+            return ("drop index " + index.name + " on " + table)
+        }
+        if (kind == "fk.add") {
+            return ("add foreign key " + table + " -> " + foreignKey.toTable)
+        }
+        if (kind == "fk.drop") {
+            return ("drop foreign key " + table + " -> " + foreignKey.toTable)
+        }
+        if (kind == "pk.change") {
+            return (table + ": primary key " + before + " becomes " + after)
+        }
+        return (kind + " " + table)
+    }
+}
+
+; An ordered set of changes, and the questions everything downstream asks of
+; one: is any of it destructive, is any of it a guess.
+class ChangeSet {
+    def changes:[SchemaChange]
+
+    Constructor () {
+    }
+
+    fn add:SchemaChange (c:SchemaChange) {
+        push changes c
+        return c
+    }
+
+    fn count:int () {
+        return (array_length changes)
+    }
+
+    fn isEmpty:boolean () {
+        return ((array_length changes) == 0)
+    }
+
+    fn destructiveCount:int () {
+        def n:int 0
+        def i:int 0
+        def total:int (array_length changes)
+        while (i < total) {
+            def c:SchemaChange (itemAt changes i)
+            if (c.destructive) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn suggestedCount:int () {
+        def n:int 0
+        def i:int 0
+        def total:int (array_length changes)
+        while (i < total) {
+            def c:SchemaChange (itemAt changes i)
+            if (c.suggested) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Sorted into an order that can actually be run. An insertion sort, because
+    ; the list is short and a stable sort keeps changes of equal rank in the
+    ; order the differ found them, which is the order the tables are in.
+    fn ordered:[SchemaChange] () {
+        def out:[SchemaChange]
+        def i:int 0
+        def n:int (array_length changes)
+        while (i < n) {
+            def c:SchemaChange (itemAt changes i)
+            def r:int (c.rank())
+            def at:int (array_length out)
+            def k:int 0
+            def found:boolean false
+            while (k < (array_length out)) {
+                if (found == false) {
+                    def other:SchemaChange (itemAt out k)
+                    if ((other.rank()) > r) {
+                        at = k
+                        found = true
+                    }
+                }
+                k = (k + 1)
+            }
+            ; Rebuild with the new one inserted at `at`.
+            def rebuilt:[SchemaChange]
+            def j:int 0
+            def m:int (array_length out)
+            while (j < m) {
+                if (j == at) {
+                    push rebuilt c
+                }
+                push rebuilt (itemAt out j)
+                j = (j + 1)
+            }
+            if (at >= m) {
+                push rebuilt c
+            }
+            clear out
+            def q:int 0
+            def qn:int (array_length rebuilt)
+            while (q < qn) {
+                push out (itemAt rebuilt q)
+                q = (q + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn summary:string () {
+        def n:int (array_length changes)
+        if (n == 0) {
+            return "no changes"
+        }
+        def out:string ((to_string n) + " changes")
+        def d:int (this.destructiveCount())
+        if (d > 0) {
+            out = (out + ", " + (to_string d) + " destructive")
+        }
+        def s:int (this.suggestedCount())
+        if (s > 0) {
+            out = (out + ", " + (to_string s) + " suggested")
+        }
+        return out
+    }
+}

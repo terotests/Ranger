@@ -15,6 +15,8 @@ npm run rangerdbviewer:web:test    # …driven by headless Chrome: 21 checks in 
 npm run rangerdbviewer:test        # 89 assertions, on every engine this host has
 npm run rangerdbviewer:demo:all    # the CLI, on RangerDB, SQLite and DuckDB
 npm run rangerdb:introspect:test   # 73 assertions: the introspection contract
+npm run rangerdbviewer:migrations:test  # replay a Flyway tree, and a Django one
+npm run rangerdb:ddl:test          # DDL read, written, and compared with SQLite
 ```
 
 ## In a browser, with nothing behind it
@@ -65,7 +67,83 @@ open a database, describe it, list it, page it, draw it, export it.
 | **Toolbar** | the shared `gallery/evg` strip — named pages, labelled buttons, dropdowns |
 | **Hosts** | a serverless web page on WebGL 2; the CLI; the frame is host-agnostic |
 
-Migrations, metrics and the network engines are Phases 4–7 and are not built.
+| **Migrations** | read Flyway / golang-migrate / Prisma / Django, replay a history, diff any two versions, report drift, generate a plan |
+
+Metrics and the network engines are Phases 6–7 and are not built.
+
+## Migrations
+
+A history is an ordered list of steps, and every convention below is that same
+shape wearing a different filename — which is why there is one reader and not
+five:
+
+| | files |
+| --- | --- |
+| Flyway | `V2__add_orders.sql`, `U2__…` undo, `R__…` ignored (no place in a version order) |
+| golang-migrate | `000002_add_orders.up.sql` / `.down.sql` |
+| Prisma | `20240101_add_orders/migration.sql` |
+| plain SQL | numbered or timestamped |
+| Django | `app/migrations/0002_x.py` — operations, read as data |
+
+Replaying one through `DdlToSchema` gives the schema at every version, and
+that one list answers three questions at once:
+
+```text
+V1 ──▶ V2 ──▶ V3 ──▶ … ──▶ V47      the timeline
+ │      │                     │
+ └──────┴─ diff any two ──────┘      what changed, and when
+                              │
+                        vs live      drift
+```
+
+Nothing here lists a directory or opens a path — files are handed in, which is
+what lets the same readers work on a folder, a zip, a git tree, and a browser's
+file picker.
+
+### Version order is not alphabetical order
+
+`V10` comes after `V2`, and a text sort puts it second. Replaying a history in
+that order builds a database that never existed, so versions are compared
+segment by segment as numbers where both sides are numeric.
+
+### It reads Django; it does not run it
+
+A Django migration is a Python file, and executing it would be the accurate
+way to learn what it does. It would also be arbitrary code execution against
+somebody's repository. The operations list is structured and declarative — it
+is what Django's own `makemigrations` diffs against — so it is read as data,
+and `RunPython` is skipped because it changes rows rather than shape.
+
+The subset has an edge, and the edge is announced: an operation the reader does
+not know marks the step, the timeline, **and any drift report built on it** as
+unreliable. A drift report computed against a schema that lost a step is not a
+drift report, it is noise that looks like one.
+
+### A rename is a suggestion and never anything more
+
+A dropped `user_name` and an added `username` of the same type in the same
+position is *probably* a rename. Being right nine times out of ten is not a
+defence for the tenth, so the differ emits the drop, the add, **and** a scored
+rename marked as a guess — and `MigrationPlan` refuses to write DDL for
+anything still marked that way:
+
+```text
+plan: 4 up, 4 down, 2 IRREVERSIBLE, 2 unconfirmed guesses left out
+```
+
+`collapseRenames` is what turns an accepted suggestion into a real change and
+removes the pair it replaces. It is a separate call precisely so it cannot
+happen by accident.
+
+### Order is a correctness property
+
+A foreign key is dropped before the column it covers; a table exists before a
+key points at it. Every change carries a rank, a plan is the changes sorted by
+it, and the down side is the inverses in the *reverse* of that order — because
+undoing a plan is not undoing each step, it is undoing the steps backwards.
+
+And a down migration cannot bring back a dropped table's rows, so the plan says
+so rather than emitting DDL that looks like it can.
 
 ## The parts it is made of
 

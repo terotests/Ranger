@@ -1,0 +1,311 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MigrationSource.rgr — reading somebody else's history.
+; ============================================================================
+;
+; Files go in one at a time — `addFile(path, contents)` — and a MigrationSet
+; comes out. Nothing here touches a disk; the host lists the directory, which
+; is what lets the same readers work on a folder, a zip, a git tree, and a
+; browser's file picker.
+;
+; ---------------------------------------------------------------------------
+; The SQL conventions are one reader with different filename grammars
+; ---------------------------------------------------------------------------
+;
+;   Flyway          V2__add_orders.sql         U2__…   R__…
+;   golang-migrate  000002_add_orders.up.sql   …down.sql
+;   Prisma          20240101_add_orders/migration.sql
+;   dbmate / sqlx   numbered or timestamped .sql
+;
+; They differ in how a version and a direction are spelled into a name, and
+; not at all in what the file contains, so `classify` is the whole difference
+; and everything after it is shared.
+;
+; ---------------------------------------------------------------------------
+; It reads, it never runs
+; ---------------------------------------------------------------------------
+;
+; A Django migration is a Python file and an Alembic one is a Python file, and
+; running them would be the accurate way to learn what they do. It would also
+; be arbitrary code execution against somebody's repository. The operations
+; list is structured, declarative, and what the framework itself diffs
+; against — so it is read, and what cannot be read is said out loud.
+; ============================================================================
+
+Import "MigrationSet.rgr"
+Import "DjangoReader.rgr"
+
+class MigrationFile {
+    def version:string ""
+    def name:string ""
+    ; "up" | "down" | "repeatable" | "django" | "ignore"
+    def direction:string "up"
+    def convention:string ""
+
+    Constructor () {
+    }
+}
+
+class MigrationSource {
+    ; NOT named `set`: a field of that name shadows the `set` map operator,
+    ; and `set byVersion key idx` then compiles into one concatenated
+    ; identifier instead of a map write.
+    def built:MigrationSet (new MigrationSet)
+    ; Steps being assembled, keyed by version, so an up file and a down file
+    ; that arrive in either order end up on the same step.
+    def byVersion:[string:int]
+
+    Constructor () {
+    }
+
+    fn addFile:boolean (path:string contents:string) {
+        def base:string (MigrationSource.baseName(path))
+        def info:MigrationFile (MigrationSource.classify(path base))
+        if (info.direction == "ignore") {
+            return false
+        }
+        if ((strlen built.convention) == 0) {
+            built.convention = info.convention
+        }
+        if (info.direction == "django") {
+            return (this.addDjango(info path contents))
+        }
+        def step:MigrationStep (this.stepFor(info path))
+        if (info.direction == "down") {
+            step.downSql = contents
+            return true
+        }
+        step.upSql = contents
+        return true
+    }
+
+    fn stepFor:MigrationStep (info:MigrationFile path:string) {
+        ; The key is bound to a local first: `set byVersion info.version idx`
+        ; — a member map with a field-access key — miscompiles into one
+        ; concatenated identifier rather than a map write.
+        def key:string info.version
+        if (has byVersion key) {
+            def at:int (unwrap (get byVersion key))
+            return (built.stepAt(at))
+        }
+        def step:MigrationStep (MigrationStep.of(info.version info.name))
+        step.sourceFile = path
+        built.add(step)
+        def idx:int ((built.count()) - 1)
+        set byVersion key idx
+        return step
+    }
+
+    fn addDjango:boolean (info:MigrationFile path:string contents:string) {
+        def step:MigrationStep (this.stepFor(info path))
+        step.origin = "django"
+        def reader:DjangoReader (new DjangoReader)
+        def sql:string (reader.toSql(contents))
+        step.upSql = sql
+        if ((reader.understood) == false) {
+            step.understood = false
+            step.note = (reader.note)
+            push built.problems (path + ": " + reader.note)
+        }
+        return true
+    }
+
+    fn finish:MigrationSet () {
+        built.sortSteps()
+        return built
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Which convention is this file, and what does its name say
+    ; ------------------------------------------------------------------------
+    sfn classify:MigrationFile (path:string base:string) {
+        def out:MigrationFile (new MigrationFile)
+        out.direction = "ignore"
+
+        ; --- Django: <app>/migrations/0002_add_orders.py --------------------
+        if (MigrationSource.finishesWith(base ".py")) {
+            if (MigrationSource.pathHas(path "migrations")) {
+                def stem:string (substring base 0 ((strlen base) - 3))
+                if (stem == "__init__") {
+                    return out
+                }
+                out.convention = "django"
+                out.direction = "django"
+                MigrationSource.splitUnderscore(stem out)
+                return out
+            }
+            return out
+        }
+        if ((MigrationSource.finishesWith(base ".sql")) == false) {
+            return out
+        }
+
+        ; --- Flyway: V2__name.sql, U2__name.sql, R__name.sql ----------------
+        def first:int (charAt base 0)
+        def dunder:int (MigrationSource.indexOfSub(base "__"))
+        if (dunder > 0) {
+            if (first == 86) {
+                out.convention = "flyway"
+                out.direction = "up"
+                out.version = (substring base 1 dunder)
+                out.name = (MigrationSource.stripSql((substring base (dunder + 2) (strlen base))))
+                return out
+            }
+            if (first == 85) {
+                out.convention = "flyway"
+                out.direction = "down"
+                out.version = (substring base 1 dunder)
+                out.name = (MigrationSource.stripSql((substring base (dunder + 2) (strlen base))))
+                return out
+            }
+            if (first == 82) {
+                ; A repeatable migration runs whenever its checksum changes and
+                ; has no place in a version order, so a replay cannot use it.
+                out.convention = "flyway"
+                out.direction = "ignore"
+                return out
+            }
+        }
+
+        ; --- Prisma: 20240101_add_orders/migration.sql ----------------------
+        if (base == "migration.sql") {
+            def dir:string (MigrationSource.parentDir(path))
+            out.convention = "prisma"
+            out.direction = "up"
+            def d:MigrationFile (new MigrationFile)
+            MigrationSource.splitUnderscore(dir d)
+            out.version = d.version
+            out.name = d.name
+            return out
+        }
+
+        ; --- golang-migrate: 000002_add_orders.up.sql / .down.sql -----------
+        def stem2:string (substring base 0 ((strlen base) - 4))
+        if (MigrationSource.finishesWith(stem2 ".up")) {
+            out.convention = "golang-migrate"
+            out.direction = "up"
+            MigrationSource.splitUnderscore((substring stem2 0 ((strlen stem2) - 3)) out)
+            return out
+        }
+        if (MigrationSource.finishesWith(stem2 ".down")) {
+            out.convention = "golang-migrate"
+            out.direction = "down"
+            MigrationSource.splitUnderscore((substring stem2 0 ((strlen stem2) - 5)) out)
+            return out
+        }
+
+        ; --- a plain numbered or timestamped .sql ---------------------------
+        out.convention = "sql"
+        out.direction = "up"
+        MigrationSource.splitUnderscore(stem2 out)
+        return out
+    }
+
+    ; `0002_add_orders` -> version 0002, name "add orders".
+    sfn splitUnderscore:void (stem:string into:MigrationFile) {
+        def at:int (MigrationSource.indexOfChar(stem 95))
+        if (at <= 0) {
+            into.version = stem
+            into.name = ""
+            return
+        }
+        into.version = (substring stem 0 at)
+        into.name = (MigrationSource.spaces((substring stem (at + 1) (strlen stem))))
+    }
+
+    sfn spaces:string (text:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 95) {
+                out = (out + " ")
+            } {
+                out = (out + (substring text i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn stripSql:string (text:string) {
+        if (MigrationSource.finishesWith(text ".sql")) {
+            return (MigrationSource.spaces((substring text 0 ((strlen text) - 4))))
+        }
+        return (MigrationSource.spaces(text))
+    }
+
+    sfn baseName:string (path:string) {
+        def at:int -1
+        def i:int 0
+        def n:int (strlen path)
+        while (i < n) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            return path
+        }
+        return (substring path (at + 1) n)
+    }
+
+    sfn parentDir:string (path:string) {
+        def parts:[string] (strsplit path "/")
+        def n:int (array_length parts)
+        if (n < 2) {
+            return ""
+        }
+        return (itemAt parts (n - 2))
+    }
+
+    sfn pathHas:boolean (path:string want:string) {
+        return ((MigrationSource.indexOfSub(path want)) >= 0)
+    }
+
+    ; Not `endsWith`: defining that name on a class compiles and then every
+    ; call site fails to resolve (AGENTS.md).
+    sfn finishesWith:boolean (text:string tail:string) {
+        def n:int (strlen tail)
+        def m:int (strlen text)
+        if (m < n) {
+            return false
+        }
+        return ((substring text (m - n) m) == tail)
+    }
+
+    sfn indexOfChar:int (text:string code:int) {
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            if ((charAt text i) == code) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn indexOfSub:int (text:string want:string) {
+        def wn:int (strlen want)
+        def n:int (strlen text)
+        if (wn == 0) {
+            return -1
+        }
+        if (wn > n) {
+            return -1
+        }
+        def i:int 0
+        def last:int (n - wn)
+        while (i <= last) {
+            if ((substring text i (i + wn)) == want) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}

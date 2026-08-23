@@ -1,0 +1,269 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MigrationSet.rgr — somebody else's migration history, as data.
+; ============================================================================
+;
+; A history is an ORDERED list of steps, each with a version, a name, and the
+; DDL that takes the schema from the previous version to this one. Every
+; convention in the table below is that same shape wearing a different
+; filename, which is why there is one type here and not eight.
+;
+;   Flyway          V2__add_orders.sql          + U2__…  undo
+;   golang-migrate  000002_add_orders.up.sql    + .down.sql
+;   Prisma          20240101_add_orders/migration.sql
+;   dbmate / sqlx   numbered or timestamped .sql
+;   Django          app/migrations/0002_add_orders.py     (operations, not SQL)
+;   Rails           db/migrate/20240101_add_orders.rb
+;
+; Files are handed IN. Nothing here lists a directory or opens a path: reading
+; a disk is the host's job, and keeping it out means the same readers work on
+; a file picker in a browser, on a zip, and on a git tree.
+; ============================================================================
+
+Import "../../rangerdb/src/schema/DdlToSchema.rgr"
+
+class MigrationStep {
+    ; What the convention calls this step: "1", "1.2", "000003", "0002".
+    def version:string ""
+    def name:string ""
+    ; The DDL. For a convention that stores operations rather than SQL
+    ; (Django, Rails), this is the SQL those operations were translated into.
+    def upSql:string ""
+    def downSql:string ""
+    def sourceFile:string ""
+    ; "sql" | "django" — where the step came from, so a reader of a report
+    ; knows whether the SQL was written or derived.
+    def origin:string "sql"
+    ; A step whose file was read but not fully understood. The schema built
+    ; from a history containing one of these is not trustworthy, and
+    ; everything downstream is told rather than left to assume.
+    def understood:boolean true
+    def note:string ""
+
+    Constructor () {
+    }
+
+    sfn of:MigrationStep (version:string name:string) {
+        def s:MigrationStep (new MigrationStep)
+        s.version = version
+        s.name = name
+        return s
+    }
+
+    fn label:string () {
+        if ((strlen name) == 0) {
+            return version
+        }
+        return (version + " " + name)
+    }
+}
+
+class MigrationSet {
+    ; "flyway" | "golang-migrate" | "django" | "prisma" | "sql" | ""
+    def convention:string ""
+    def steps:[MigrationStep]
+    ; Files that looked like they belonged and could not be read.
+    def problems:[string]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length steps)
+    }
+
+    fn add:MigrationStep (s:MigrationStep) {
+        push steps s
+        return s
+    }
+
+    fn trustworthy:boolean () {
+        if ((array_length problems) > 0) {
+            return false
+        }
+        def i:int 0
+        def n:int (array_length steps)
+        while (i < n) {
+            def s:MigrationStep (itemAt steps i)
+            if ((s.understood) == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn stepAt:MigrationStep (i:int) {
+        return (itemAt steps i)
+    }
+
+    fn indexOfVersion:int (version:string) {
+        def i:int 0
+        def n:int (array_length steps)
+        while (i < n) {
+            def s:MigrationStep (itemAt steps i)
+            if (s.version == version) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn report:string () {
+        def out:string ((to_string (array_length steps)) + " steps")
+        if ((strlen convention) > 0) {
+            out = (convention + ": " + out)
+        }
+        def bad:int (array_length problems)
+        if (bad > 0) {
+            out = (out + ", " + (to_string bad) + " FILES NOT READ")
+        }
+        def unclear:int 0
+        def i:int 0
+        def n:int (array_length steps)
+        while (i < n) {
+            def s:MigrationStep (itemAt steps i)
+            if ((s.understood) == false) {
+                unclear = (unclear + 1)
+            }
+            i = (i + 1)
+        }
+        if (unclear > 0) {
+            out = (out + ", " + (to_string unclear) + " PARTLY UNDERSTOOD")
+        }
+        return out
+    }
+
+    ; Version order, which is the only order a history may be replayed in.
+    ; Compared segment by segment as NUMBERS where both sides are numeric, so
+    ; that 10 comes after 9 and `1.10` after `1.9` — a plain text sort gets
+    ; both of those wrong, and getting them wrong replays the history in an
+    ; order that never happened.
+    fn sortSteps:void () {
+        def n:int (array_length steps)
+        def i:int 1
+        while (i < n) {
+            def cur:MigrationStep (itemAt steps i)
+            def j:int (i - 1)
+            while (j >= 0) {
+                def other:MigrationStep (itemAt steps j)
+                def cmp:int (MigrationSet.compareVersions(other.version cur.version))
+                if (cmp <= 0) {
+                    break
+                }
+                set_at steps (j + 1) other
+                j = (j - 1)
+            }
+            set_at steps (j + 1) cur
+            i = (i + 1)
+        }
+    }
+
+    sfn compareVersions:int (a:string b:string) {
+        def pa:[string] (strsplit a ".")
+        def pb:[string] (strsplit b ".")
+        def na:int (array_length pa)
+        def nb:int (array_length pb)
+        def most:int na
+        if (nb > most) {
+            most = nb
+        }
+        def i:int 0
+        while (i < most) {
+            def sa:string ""
+            def sb:string ""
+            if (i < na) {
+                sa = (itemAt pa i)
+            }
+            if (i < nb) {
+                sb = (itemAt pb i)
+            }
+            def bothNumeric:boolean false
+            if (MigrationSet.isNumeric(sa)) {
+                if (MigrationSet.isNumeric(sb)) {
+                    bothNumeric = true
+                }
+            }
+            if bothNumeric {
+                def ia:int (MigrationSet.toNumber(sa))
+                def ib:int (MigrationSet.toNumber(sb))
+                if (ia < ib) {
+                    return -1
+                }
+                if (ia > ib) {
+                    return 1
+                }
+            } {
+                def cmp:int (MigrationSet.compareText(sa sb))
+                if (cmp != 0) {
+                    return cmp
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    ; `<` does not compare strings here, so the ordering is done by code point.
+    sfn compareText:int (a:string b:string) {
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def shortest:int na
+        if (nb < shortest) {
+            shortest = nb
+        }
+        def i:int 0
+        while (i < shortest) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return -1
+            }
+            if (ca > cb) {
+                return 1
+            }
+            i = (i + 1)
+        }
+        if (na < nb) {
+            return -1
+        }
+        if (na > nb) {
+            return 1
+        }
+        return 0
+    }
+
+    sfn isNumeric:boolean (s:string) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c < 48) {
+                return false
+            }
+            if (c > 57) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Leading zeros and all: `000012` is twelve.
+    sfn toNumber:int (s:string) {
+        def out:int 0
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def c:int (charAt s i)
+            out = ((out * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return out
+    }
+}
