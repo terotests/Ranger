@@ -40,8 +40,15 @@ class PptxToolbar extends EVGToolbar {
     Constructor () {
     }
 
+    ; The strip, in named pages. A deck viewer's commands split cleanly:
+    ; Home is moving around the deck, Insert puts a shape or a picture on the
+    ; slide, Arrange is what you do to the shapes once they are there, and
+    ; Slides is about the deck itself. Thirty buttons in one band made all
+    ; four look like one undifferentiated wall of pictures.
     fn build:void () {
         clear items
+        clear tabs
+        this.addTab("Home")
         this.add("file.open" "" "Open a deck" (ToolIcon.openFile()))
         this.add("file.save" "" "Save the deck" (ToolIcon.save()))
         this.addSeparator()
@@ -58,12 +65,14 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.toggle" "" "Edit the slide" (ToolIcon.editMode()))
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
-        this.addSeparator()
+
+        this.addTab("Insert")
         this.add("shape.rect" "" "Insert a box" (ToolIcon.shapeRect()))
         this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.shapeEllipse()))
         this.add("text.add" "" "Insert a text box" (ToolIcon.textBox()))
         this.add("picture.add" "" "Insert a picture" (ToolIcon.picture()))
-        this.addSeparator()
+
+        this.addTab("Arrange")
         this.add("edit.copy" "" "Copy" (ToolIcon.copy()))
         this.add("edit.paste" "" "Paste" (ToolIcon.paste()))
         this.add("edit.lock" "" "Lock or unlock" (ToolIcon.lock()))
@@ -75,7 +84,8 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.back" "" "Send to back" (ToolIcon.sendBack()))
         this.add("edit.group" "" "Group" (ToolIcon.group()))
         this.add("edit.ungroup" "" "Ungroup" (ToolIcon.ungroup()))
-        this.addSeparator()
+
+        this.addTab("Format")
         this.add("edit.align.left" "" "Align left" (ToolIcon.alignLeft()))
         this.add("edit.align.hcenter" "" "Align centre" (ToolIcon.alignCenter()))
         this.add("edit.align.right" "" "Align right" (ToolIcon.alignRight()))
@@ -87,7 +97,8 @@ class PptxToolbar extends EVGToolbar {
         this.add("text.number" "" "Numbered list" (ToolIcon.numberList()))
         this.add("text.outdent" "" "Outdent the list" (ToolIcon.indentLess()))
         this.add("text.indent" "" "Indent the list" (ToolIcon.indentMore()))
-        this.addSeparator()
+
+        this.addTab("Slides")
         this.add("view.notes" "" "Show the notes" (ToolIcon.comment()))
         this.add("theme.palette" "office" "Recolour the deck" (ToolIcon.palette()))
         this.add("slide.add" "" "New slide" (ToolIcon.slideAdd()))
@@ -1022,6 +1033,14 @@ class PptxApp {
         }
         toolbar.hot = (toolbar.hit(px py))
         if pressed {
+            ; A press on a page name shows that page. Checked before the
+            ; buttons, because the two rows are one strip and the names sit
+            ; where a button never does.
+            def tb:int (toolbar.hitTab(px py))
+            if (tb >= 0) {
+                toolbar.selectTab(tb)
+                return true
+            }
             if (toolbar.hot >= 0) {
                 def t:ToolItem (toolbar.at(toolbar.hot))
                 return (this.runCommand(t.command t.arg))

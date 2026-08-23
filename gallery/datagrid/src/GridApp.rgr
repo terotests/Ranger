@@ -7895,6 +7895,16 @@ class GridApp {
         if (this.toolbarHit(px py) >= 0) {
             return (GridCursor.pointing())
         }
+        ; A page name is as clickable as a button, and the pointer has to say
+        ; so — a row of words that does not answer the cursor reads as a
+        ; heading rather than as something to press.
+        if (py >= (grid.toolbarY())) {
+            if (py < ((grid.toolbarY()) + grid.toolbarH)) {
+                if ((view.toolbar.hitTab(px py)) >= 0) {
+                    return (GridCursor.pointing())
+                }
+            }
+        }
         def hit:CellPos (grid.hitTest(model px py))
         ; The formula bar is a text field.
         if ((hit.row == -3) && (hit.col == -3)) {
@@ -8199,6 +8209,19 @@ class GridApp {
                     return
                 }
                 this.closeHeaderMenu()
+            }
+            ; A press on a page name shows that page. Checked before the
+            ; buttons, because the two rows are one strip and the names sit
+            ; where a button never does.
+            if (input.pointerY >= (grid.toolbarY())) {
+                if (input.pointerY < ((grid.toolbarY()) + grid.toolbarH)) {
+                    def tb:int (view.toolbar.hitTab(input.pointerX input.pointerY))
+                    if (tb >= 0) {
+                        view.focused = true
+                        view.toolbar.selectTab(tb)
+                        return
+                    }
+                }
             }
             def hitTool:int (this.toolbarHit(input.pointerX input.pointerY))
             if (hitTool >= 0) {

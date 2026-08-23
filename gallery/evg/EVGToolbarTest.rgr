@@ -251,6 +251,80 @@ class EVGToolbarTest {
         def firstCmd:string firstItem.command
         c.eqStr("the model order is untouched" firstCmd "edit.undo")
 
+        print "-- and the same strip in named pages --"
+        ; Tabs group a wall of commands into words a reader can read. What
+        ; matters is that they are an ADDITION: everything above this line is
+        ; a strip with no tabs on it and behaves exactly as it always did.
+        def tb (new EVGToolbar)
+        tb.addTab("Home")
+        tb.add("file.save" "" "Save" (ToolIcon.save()))
+        tb.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        tb.addTab("Insert")
+        tb.add("insert.chart" "" "Chart" (ToolIcon.chart()))
+        tb.add("insert.link" "" "Link" (ToolIcon.link()))
+        tb.add("picture.add" "" "Picture" (ToolIcon.picture()))
+        tb.layout(0 0 900)
+
+        c.ok("the strip has pages" (tb.hasTabs()))
+        c.eqInt("two of them" (tb.tabCount()) 2)
+        c.eqInt("and every button is still in the one list" (tb.count()) 5)
+        c.eqInt("Home is found by name" (tb.tabNamed("Home")) 0)
+        c.eqInt("and Insert" (tb.tabNamed("Insert")) 1)
+        c.eqInt("a name nobody used is not found" (tb.tabNamed("Nowhere")) -1)
+
+        ; The showing page has geometry; the other has none at all. That is
+        ; what lets the painter, the click and the accessibility tree stay
+        ; ignorant of tabs — they already skip an item with no width, because
+        ; that is how a button that did not fit has always been marked.
+        def home0:ToolItem (tb.at(0))
+        def ins0:ToolItem (tb.at(2))
+        c.ok("a button on the showing page has a rectangle" (home0.w > 0))
+        c.ok("one on the other page has none" (ins0.w == 0))
+        c.eqInt("so a click where it would be hits nothing"
+            (tb.hit((home0.x + 2) (home0.y + 2))) 0)
+
+        ; The names sit above the buttons, and the buttons start below them.
+        def t0:ToolTab (tb.tabAt(0))
+        def t1:ToolTab (tb.tabAt(1))
+        c.ok("the first name is at the left" (t0.x < t1.x))
+        c.ok("the names are on their own row" (t0.y < home0.y))
+        c.ok("and the buttons start under them" (home0.y >= tb.tabH))
+        c.eqInt("clicking a name finds it" (tb.hitTab((t1.x + 2) (t1.y + 2))) 1)
+        c.eqInt("and clicking where a button is finds no name"
+            (tb.hitTab((home0.x + 2) (home0.y + 2))) -1)
+
+        ; Switching pages swaps which buttons exist.
+        c.ok("selecting the other page changes something" (tb.selectTab(1)))
+        c.ok("selecting it again changes nothing" ((tb.selectTab(1)) == false))
+        c.ok("and a page that is not there is refused" ((tb.selectTab(7)) == false))
+        tb.layout(0 0 900)
+        def home0b:ToolItem (tb.at(0))
+        def ins0b:ToolItem (tb.at(2))
+        c.ok("now Insert has the rectangles" (ins0b.w > 0))
+        c.ok("and Home has none" (home0b.w == 0))
+        c.eqInt("the click lands on the Insert button"
+            (tb.hit((ins0b.x + 2) (ins0b.y + 2))) 2)
+
+        ; The strip is taller by exactly the row of names.
+        def flat (new EVGToolbar)
+        flat.add("file.save" "" "Save" (ToolIcon.save()))
+        flat.add("edit.undo" "" "Undo" (ToolIcon.undo()))
+        c.eqInt("the pages cost exactly one row of names"
+            ((tb.heightFor(900)) - (flat.heightFor(900))) tb.tabH)
+
+        ; And they turn around with everything else.
+        def mtb (new EVGToolbar)
+        mtb.addTab("Home")
+        mtb.add("file.save" "" "Save" (ToolIcon.save()))
+        mtb.addTab("Insert")
+        mtb.add("insert.chart" "" "Chart" (ToolIcon.chart()))
+        mtb.rtl = true
+        mtb.layout(0 0 900)
+        def m0:ToolTab (mtb.tabAt(0))
+        def m1:ToolTab (mtb.tabAt(1))
+        c.ok("turned around, the first page name is on the right" (m0.x > m1.x))
+        c.ok("and it reaches the right-hand edge" (((m0.x + m0.w)) > 880))
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {

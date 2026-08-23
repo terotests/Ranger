@@ -186,6 +186,14 @@ class DocxAppTest {
         def inside:boolean (p.pointer((p.colorDialog.x + 10) (p.colorDialog.y + 10) true true false false))
         c.ok("a press inside a window is taken by the window" inside)
         p.colorDialog.close()
+        ; Page turning lives on the View page now, so the click has to get
+        ; there first — which is what a reader does too. A button on a page
+        ; that is not showing has no rectangle at all, so clicking where it
+        ; would have been lands on the paper.
+        def vt:int (p.toolbar.tabNamed("View"))
+        c.ok("there is a View page" (vt >= 0))
+        p.toolbar.selectTab(vt)
+        p.buildDisplayList()
         def ti:int (DocxAppTest.indexOfCommand(p "page.next"))
         def tt:ToolItem (p.toolbar.at(ti))
         c.eqInt("still on the first page" p.viewer.currentPage 0)

@@ -235,7 +235,17 @@ class EVGToolbarView {
     fn paint:void (dl:EVGDisplayList bar:EVGToolbar x0:int y0:int width:int height:int) {
         this.pushRect(dl (to_double x0) (to_double y0) (to_double width) (to_double height) theme.bg)
         this.pushBorder(dl (to_double x0) (to_double y0) (to_double width) (to_double height) 1.0 theme.line)
+        ; The names are measured HERE, where the measurer is, and written back
+        ; onto the tabs before the layout runs. The strip itself has no way to
+        ; measure text — it computes geometry from numbers its owner hands it,
+        ; which is the same reason `addText` takes a width — and a tab row
+        ; sized by counting characters is visibly wrong on the first proper
+        ; name it meets.
+        this.measureTabs(bar)
         bar.layout(x0 y0 width)
+        if (bar.hasTabs()) {
+            this.paintTabs(dl bar x0 y0 width)
+        }
         def i:int 0
         while (i < (bar.count())) {
             def t:ToolItem (bar.at(i))
@@ -278,6 +288,53 @@ class EVGToolbarView {
                 this.pushBorder(dl (to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.accent)
                 this.pushText(dl tip (to_double (tx + 6)) (to_double (ty + 3)) 12.0 theme.ink)
             }
+        }
+    }
+
+    ; What each page's name measures at, for the layout to place them by.
+    fn measureTabs:void (bar:EVGToolbar) {
+        if ((bar.hasTabs()) == false) {
+            return
+        }
+        this.applyFace(false)
+        def i:int 0
+        while (i < (bar.tabCount())) {
+            def t:ToolTab (bar.tabAt(i))
+            t.measuredW = (to_int (ctx.tr.measureWidth(t.name 13.0)))
+            i = (i + 1)
+        }
+    }
+
+    ; The row of names above the buttons.
+    ;
+    ; The showing page is drawn as a raised chip continuous with the band
+    ; below it, and the others are flat: that is the whole visual grammar of a
+    ; tab, and it is what says which of the five words the buttons underneath
+    ; belong to. A rule under the row, broken by the active chip, is what
+    ; makes it read as a page rather than as five more buttons.
+    fn paintTabs:void (dl:EVGDisplayList bar:EVGToolbar x0:int y0:int width:int) {
+        def baseY:double (to_double ((y0 + bar.tabH) - 1))
+        this.pushRect(dl (to_double x0) baseY (to_double width) 1.0 theme.line)
+        def i:int 0
+        while (i < (bar.tabCount())) {
+            def t:ToolTab (bar.tabAt(i))
+            if (t.w > 0) {
+                def active:boolean (i == bar.activeTab)
+                def col:EVGColor theme.dim
+                if active {
+                    ; The chip, drawn a pixel past the rule so the two join.
+                    this.pushRect(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double (t.h + 1)) theme.tipBg)
+                    this.pushBorder(dl (to_double t.x) (to_double t.y) (to_double t.w) (to_double (t.h + 1)) 1.0 theme.line)
+                    this.pushRect(dl (to_double (t.x + 1)) (to_double t.y) (to_double (t.w - 2)) 2.0 theme.accent)
+                    this.pushRect(dl (to_double (t.x + 1)) baseY (to_double (t.w - 2)) 1.0 theme.tipBg)
+                    col = theme.ink
+                }
+                def tw:double (ctx.tr.measureWidth(t.name 13.0))
+                def tx:double ((to_double t.x) + (((to_double t.w) - tw) * 0.5))
+                def ty:double ((to_double t.y) + (((to_double t.h) - 13.0) * 0.5))
+                this.pushText(dl t.name tx ty 13.0 col)
+            }
+            i = (i + 1)
         }
     }
 

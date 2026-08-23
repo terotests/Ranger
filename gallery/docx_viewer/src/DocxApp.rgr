@@ -44,8 +44,14 @@ class DocxToolbar extends EVGToolbar {
     Constructor () {
     }
 
+    ; The strip, in named pages — the same grouping every office suite uses,
+    ; so a reader who has met one has met this. It is a short strip today and
+    ; the pages cost it nothing; what they buy is somewhere to put the next
+    ; twenty commands that does not make the first ten harder to find.
     fn build:void () {
         clear items
+        clear tabs
+        this.addTab("Home")
         this.add("file.save" "" "Save" (ToolIcon.save()))
         this.add("edit.undo" "" "Undo" (ToolIcon.undo()))
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
@@ -60,7 +66,13 @@ class DocxToolbar extends EVGToolbar {
         this.add("format.size.down" "" "Smaller text" (ToolIcon.sizeDown()))
         this.add("format.color" "" "Text colour" (ToolIcon.textColor()))
         this.addSeparator()
+        ; Edit mode stays on Home. It is not one command among many — it is
+        ; the switch that decides whether any of the others do anything, and a
+        ; reader who has to find a page before they can start typing has been
+        ; given a filing system instead of a document.
         this.add("edit.mode" "" "Edit the document" (ToolIcon.editMode()))
+
+        this.addTab("View")
         this.add("page.prev" "" "Previous page" (ToolIcon.navPrev()))
         this.add("page.next" "" "Next page" (ToolIcon.navNext()))
         this.addSeparator()
@@ -541,6 +553,14 @@ class DocxApp {
         }
         toolbar.hot = (toolbar.hit(px py))
         if pressed {
+            ; A press on a page name shows that page. Checked before the
+            ; buttons, because the two rows are one strip and the names sit
+            ; where a button never does.
+            def tb:int (toolbar.hitTab(px py))
+            if (tb >= 0) {
+                toolbar.selectTab(tb)
+                return true
+            }
             if (toolbar.hot >= 0) {
                 def t:ToolItem (toolbar.at(toolbar.hot))
                 this.runCommand(t.command t.arg)

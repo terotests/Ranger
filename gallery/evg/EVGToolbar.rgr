@@ -212,8 +212,51 @@ class ToolItem {
     }
 }
 
+; One named page of the strip.
+;
+; A spreadsheet has upwards of fifty commands and a deck not many fewer, and a
+; single strip of them is a wall: everything is present, nothing is findable,
+; and the buttons a beginner wants are the ones that wrapped onto the second
+; row or fell off the end. Grouping them under names — File, Home, Insert,
+; Layout — is what every office suite settled on, LibreOffice's tabbed
+; notebookbar included, and it is not decoration: it turns "which of these
+; fifty pictures is it" into "which of five words is it", and a word can be
+; read.
+;
+; A tab owns a RANGE of the item list rather than its own list. The items stay
+; in one array in the order they were added, so everything that walks them —
+; the painter, the click, the accessibility tree — keeps working on a strip
+; with tabs and on one without.
+class ToolTab {
+    def name:string ""
+    ; The half-open range of `items` this tab owns.
+    def first:int 0
+    def count:int 0
+    ; Laid-out geometry of the tab's own label, filled by `layout`.
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    ; What the label measures at, when somebody with a measurer has said. The
+    ; strip itself has none — it computes geometry from numbers the owner
+    ; hands it, which is the same reason `addText` takes a width — so the
+    ; view measures the names and writes them here before the layout runs,
+    ; and the estimate below is what a host without a view falls back to.
+    def measuredW:int 0
+
+    Constructor () {
+    }
+}
+
 class EVGToolbar {
     def items:[ToolItem]
+    ; The named pages, in the order they are shown. Empty means an untabbed
+    ; strip, which is what every caller had before tabs existed and still
+    ; works unchanged.
+    def tabs:[ToolTab]
+    def activeTab:int 0
+    ; The height of the row of names above the buttons.
+    def tabH:int 28
     ; One row is 30 tall; the strip is as many rows as the buttons need at the
     ; width it is given. A spreadsheet has more buttons than a narrow window
     ; has room for, and dropping the last six of them — which is what a single
@@ -278,13 +321,152 @@ class EVGToolbar {
         push items t
     }
 
+    ; Start a named page. Everything added after this belongs to it, until the
+    ; next one — which is why a strip is still built as one list of `add`
+    ; calls, with the tabs marked off inside it rather than built separately.
+    fn addTab:ToolTab (name:string) {
+        this.closeTab()
+        def t (new ToolTab)
+        t.name = name
+        t.first = (array_length items)
+        t.count = 0
+        push tabs t
+        return t
+    }
+
+    ; Give the last tab the items added since it was opened. Called by
+    ; `addTab` and again by `layout`, so a caller never has to close the last
+    ; one by hand — forgetting to would silently hide every button on it.
+    fn closeTab:void () {
+        def n:int (array_length tabs)
+        if (n == 0) {
+            return
+        }
+        def last:ToolTab (itemAt tabs (n - 1))
+        last.count = ((array_length items) - last.first)
+    }
+
+    fn hasTabs:boolean () {
+        return ((array_length tabs) > 0)
+    }
+
+    fn tabCount:int () {
+        return (array_length tabs)
+    }
+
+    fn tabAt:ToolTab (i:int) {
+        return (itemAt tabs i)
+    }
+
+    ; How wide a tab's label sits. The measured width when the view has said,
+    ; and an estimate when nothing has — a strip with no measurer behind it
+    ; still has to lay out, because that is how the tests and the a11y tree
+    ; drive it.
+    fn tabLabelW:int (t:ToolTab) {
+        if (t.measuredW > 0) {
+            return (t.measuredW + 22)
+        }
+        return ((strlen t.name) * 8 + 22)
+    }
+
+    ; Which tab the pointer is over, or -1. Separate from `hit` because a tab
+    ; and a button do different things and a caller has to be able to tell
+    ; them apart before deciding which.
+    fn hitTab:int (px:int py:int) {
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            if (t.w > 0) {
+                if (px >= t.x) {
+                    if (px < (t.x + t.w)) {
+                        if (py >= t.y) {
+                            if (py < (t.y + t.h)) {
+                                return i
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Show a page. Out-of-range is ignored rather than clamped: a caller
+    ; asking for a tab that is not there has a bug, and moving them to a
+    ; neighbouring page hides it.
+    fn selectTab:boolean (i:int) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (array_length tabs)) {
+            return false
+        }
+        if (i == activeTab) {
+            return false
+        }
+        activeTab = i
+        hot = -1
+        return true
+    }
+
+    fn tabNamed:int (name:string) {
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            if (t.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Is this item on the page being shown? An untabbed strip shows all of
+    ; them, which is what makes tabs an addition rather than a change.
+    fn itemOnActiveTab:boolean (i:int) {
+        if ((array_length tabs) == 0) {
+            return true
+        }
+        if (activeTab < 0) {
+            return false
+        }
+        if (activeTab >= (array_length tabs)) {
+            return false
+        }
+        def t:ToolTab (itemAt tabs activeTab)
+        if (i < t.first) {
+            return false
+        }
+        return (i < (t.first + t.count))
+    }
+
     fn layout:void (x0:int y0:int width:int) {
+        this.closeTab()
+        def buttonsY:int y0
+        if (this.hasTabs()) {
+            this.layoutTabs(x0 y0 width)
+            buttonsY = (y0 + tabH)
+        }
         def right:int ((x0 + width) - pad)
         def cx:int (x0 + pad)
         def row:int 0
         def i:int 0
         while (i < (array_length items)) {
             def t:ToolItem (itemAt items i)
+            ; Items on a page that is not showing get NO rectangle. That is
+            ; what keeps the painter, the click and the accessibility tree
+            ; from having to know about tabs at all: they already skip an item
+            ; with no width, because that is how a button that did not fit has
+            ; always been marked.
+            if ((this.itemOnActiveTab(i)) == false) {
+                t.x = 0
+                t.y = 0
+                t.w = 0
+                t.h = 0
+                i = (i + 1)
+                continue
+            }
             def w:int iconW
             if t.isSeparator {
                 w = 9
@@ -307,7 +489,7 @@ class EVGToolbar {
                 }
             }
             t.x = cx
-            t.y = ((y0 + (row * rowH)) + 3)
+            t.y = ((buttonsY + (row * rowH)) + 3)
             t.w = w
             t.h = (rowH - 6)
             cx = (cx + w)
@@ -318,8 +500,54 @@ class EVGToolbar {
         }
         rows = (row + 1)
         height = (rows * rowH)
+        if (this.hasTabs()) {
+            height = (height + tabH)
+        }
         if rtl {
             this.mirrorRows(x0 width)
+            this.mirrorTabs(x0 width)
+        }
+    }
+
+    ; The row of names. One line, left to right, in the order they were added
+    ; — a tab strip that wraps is a tab strip nobody can find anything on, so
+    ; names that do not fit are given no rectangle and are not drawn, the same
+    ; way a button that does not fit is not.
+    fn layoutTabs:void (x0:int y0:int width:int) {
+        def right:int ((x0 + width) - pad)
+        def cx:int (x0 + pad)
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            def w:int (this.tabLabelW(t))
+            if ((cx + w) > right) {
+                t.x = 0
+                t.y = 0
+                t.w = 0
+                t.h = 0
+            } {
+                t.x = cx
+                t.y = (y0 + 2)
+                t.w = w
+                t.h = (tabH - 2)
+                cx = (cx + w)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The tab row turns around with the rest of the strip, about the strip
+    ; rather than about the names' own extent — see `mirrorRows`, which had
+    ; exactly that bug.
+    fn mirrorTabs:void (x0:int width:int) {
+        def span:int ((x0 + x0) + width)
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            if (t.w > 0) {
+                t.x = (span - (t.x + t.w))
+            }
+            i = (i + 1)
         }
     }
 
@@ -370,6 +598,27 @@ class EVGToolbar {
         def bar:EVGA11yNode (t.node(barId parentId (EVGA11yRole.toolbar())))
         bar.name = "Toolbar"
         t.place(bar bx by bw bh)
+        ; The pages, when there are any. A reader who cannot see the strip
+        ; needs to know that most of it is somewhere else — a tab list says
+        ; that in one word, where a flat list of the twelve buttons that
+        ; happen to be showing says the program has twelve commands.
+        if (this.hasTabs()) {
+            def listId:string (barId + "/tabs")
+            def list:EVGA11yNode (t.node(listId barId (EVGA11yRole.tabList())))
+            list.name = "Toolbar pages"
+            t.place(list bx by bw tabH)
+            def ti:int 0
+            while (ti < (array_length tabs)) {
+                def tb:ToolTab (itemAt tabs ti)
+                if (tb.w > 0) {
+                    def tn:EVGA11yNode (t.node(((listId + "/") + tb.name) listId (EVGA11yRole.tab())))
+                    tn.name = tb.name
+                    t.place(tn tb.x tb.y tb.w tb.h)
+                    tn.selected = (ti == activeTab)
+                }
+                ti = (ti + 1)
+            }
+        }
         def i:int 0
         while (i < (array_length items)) {
             def it:ToolItem (itemAt items i)
