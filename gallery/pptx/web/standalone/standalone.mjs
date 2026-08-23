@@ -451,14 +451,27 @@ async function selftest() {
     await draw();
     ok("F2 puts a caret in the shape", JSON.parse(web.scene()).list.cmds.length > before);
   // Clicking is how a person actually asks to type. The box is taken while
-  // the shape is still selected — Escape drops the caret AND the selection —
-  // and then two clicks land in it: the first picks it up, the second puts a
-  // caret in it, which is also what the second half of a double click does.
+  // the shape is still selected, and then two clicks land in it: the first
+  // picks it up, the second puts a caret in it, which is also what the second
+  // half of a double click does.
   const box = JSON.parse(web.selectionBox());
   const midX = Math.round(box.x + box.w / 2);
   const midY = Math.round(box.y + box.h / 2);
+  // Escape takes ONE thing at a time, the way PowerPoint and Impress do: the
+  // first gives up the caret and leaves the shape selected, the second gives
+  // up the shape. It used to do both at once — the key reached the text
+  // editor and the shape editor on the same press — and this test was
+  // written against that, pressing Escape once and expecting nothing to be
+  // selected. So the first click below landed on a shape that was in fact
+  // still selected, which is the "click it again" case, and a caret went in
+  // on click one.
   web.keyMod("escape", false, false);
   await draw();
+  ok("Escape gives up the caret and keeps the shape",
+     (web.selectionCount() | 0) === 1 && web.editingText() === false);
+  web.keyMod("escape", false, false);
+  await draw();
+  ok("and Escape again gives up the shape", (web.selectionCount() | 0) === 0);
   web.pointerAt(midX, midY, true, true, false);
   web.pointerAt(midX, midY, false, false, true);
   ok("a first click picks the shape up without typing in it",
