@@ -70,9 +70,9 @@ class DbSource {
             isOpen = okr
             return okr
         }
-        def here:boolean (HostSqlBackend.isAvailable(engine))
+        def here:boolean (this.isAvailable())
         if (here == false) {
-            errorText = (engine + " is not installed on this host")
+            errorText = (engine + " is not available here")
             return false
         }
         def backend:HostSqlBackend (HostSqlBackend.forDriver(engine))
@@ -93,11 +93,24 @@ class DbSource {
         isOpen = false
     }
 
+    ; RangerDB is Ranger, so it is present wherever this code is. Every other
+    ; engine is a host binary reached through a bridge that does not exist in a
+    ; browser tab — `__rgrdb_host()` there is a `require` of nothing — and the
+    ; call THROWS rather than answering false. A thrown host bridge and a
+    ; missing driver are the same fact to a caller, so both are reported the
+    ; same way, and a serverless page can offer the button without breaking on
+    ; it.
     fn isAvailable:boolean () {
         if (engine == "rangerdb") {
             return true
         }
-        return (HostSqlBackend.isAvailable(engine))
+        def here:boolean false
+        try {
+            here = (HostSqlBackend.isAvailable(engine))
+        } {
+            here = false
+        }
+        return here
     }
 
     ; The first bytes of the file, as the host read them. Returns "" when the

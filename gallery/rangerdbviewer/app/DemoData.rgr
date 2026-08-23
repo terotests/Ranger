@@ -37,6 +37,22 @@ class DemoData {
         return out
     }
 
+    ; The same DDL as one document, for the path that needs no engine at all:
+    ; RangerFlow's SqlSchemaReader turns CREATE TABLE text into a
+    ; DatabaseSchema directly. That matters most in a browser, where the only
+    ; engine available is the one that cannot yet describe a foreign key.
+    sfn ddlText:string () {
+        def stmts:[string] (DemoData.ddl())
+        def out:string ""
+        def i:int 0
+        def n:int (array_length stmts)
+        while (i < n) {
+            out = (out + (itemAt stmts i) + ";\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
     sfn rows:[string] () {
         def out:[string]
         push out "INSERT INTO categories VALUES (1, 'Everything', NULL)"

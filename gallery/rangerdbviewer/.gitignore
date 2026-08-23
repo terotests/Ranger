@@ -10,3 +10,7 @@ out/
 # this directory has to be let back in explicitly.
 !artifacts/
 !artifacts/**
+
+# The serverless page's build output — regenerate with
+#   npm run rangerdbviewer:web
+web/standalone/dist/

@@ -38,6 +38,12 @@ class DbViewerApp {
     def selectedTable:string ""
     def status:string "no database open"
     def opened:boolean false
+    ; A schema read from DDL text describes a database that is not running:
+    ; every relationship is there and not one row is. Kept apart from `opened`
+    ; because the Data section must say which of those it is looking at rather
+    ; than showing an empty grid.
+    def hasRows:boolean false
+    def origin:string ""
 
     Constructor () {
     }
@@ -57,8 +63,26 @@ class DbViewerApp {
             return false
         }
         opened = true
+        hasRows = true
+        origin = ("live " + src.engine)
         this.refresh()
         return true
+    }
+
+    ; A schema from somewhere that is not a connection — a .sql file, a
+    ; migration replay, a JSON fixture. The tree and the diagram cannot tell
+    ; the difference, which is the whole point of DatabaseSchema being the
+    ; interface; the Data section can, and says so.
+    fn adoptSchema:void (s:DatabaseSchema label:string) {
+        schema = s
+        opened = false
+        hasRows = false
+        origin = label
+        introspector = (new DBIntrospector)
+        tree.rebuild(schema)
+        selectedTable = (tree.firstTableName())
+        def fks:int (array_length schema.foreignKeys)
+        status = (label + " · " + (to_string tree.tableCount) + " tables, " + (to_string fks) + " foreign keys")
     }
 
     ; Re-read the database. Everything the viewer shows is derived from this

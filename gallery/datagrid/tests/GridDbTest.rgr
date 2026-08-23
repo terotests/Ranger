@@ -110,6 +110,26 @@ class GridDbTest {
         return -1
     }
 
+    ; Which page of the strip owns an item. A tab owns a RANGE of the item
+    ; list rather than a list of its own, so this is a range test rather than
+    ; a lookup.
+    sfn tabOwning:int (app:GridApp index:int) {
+        def bar:EVGToolbar app.view.toolbar
+        def n:int (bar.tabCount())
+        def i:int 0
+        while (i < n) {
+            def t:ToolTab (bar.tabAt(i))
+            if (index >= t.first) {
+                def end:int (t.first + t.count)
+                if (index < end) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     sfn clickAt:void (app:GridApp input:UIInput px:int py:int) {
         input.newFrame()
         input.setPointerPos(px py)
@@ -242,6 +262,15 @@ class GridDbTest {
         def sqlButton:int (GridDbTest.toolIndexFor(app "db.sql.dialog"))
         check.ok("and one for the SQL box" (sqlButton >= 0))
         if (dbButton >= 0) {
+            ; The database button lives on the strip's Data page, and a page
+            ; that is not showing is deliberately not laid out — that is what
+            ; keeps a click from landing on a button nobody can see. So the
+            ; page is selected first, the way a reader selects it, and the
+            ; strip lays itself out again on the next frame.
+            def owning:int (GridDbTest.tabOwning(app dbButton))
+            check.ok("the database button is on a page of the strip" (owning >= 0))
+            check.ok("its page can be selected" (app.view.toolbar.selectTab(owning)))
+            app.render()
             def item:ToolItem (app.view.toolbar.at(dbButton))
             check.ok("the button was laid out" (item.w > 0))
             def hit:int (app.toolbarHit((item.x + (idiv item.w 2)) (item.y + (idiv item.h 2))))

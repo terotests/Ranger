@@ -7,14 +7,46 @@ beside it, the work in the middle — and the shape to disagree with in one
 respect. Base is a front end for *authoring* a database. This is a front end
 for **understanding** one: the first databases it opens will be someone else's.
 
-![the schema of a live SQLite database, drawn by RangerFlow](artifacts/01_schema_sqlite.png)
+![the serverless page: the database, the viewer and the renderer all in one browser tab](artifacts/02_web_page.png)
 
 ```bash
+npm run rangerdbviewer:web:serve   # the page above — no server, no database server
+npm run rangerdbviewer:web:test    # …driven by headless Chrome: 21 checks in the tab
 npm run rangerdbviewer:test        # 89 assertions, on every engine this host has
-npm run rangerdbviewer:demo        # open an in-memory SQLite database and draw it
-npm run rangerdbviewer:demo:all    # …the same on RangerDB, SQLite and DuckDB
+npm run rangerdbviewer:demo:all    # the CLI, on RangerDB, SQLite and DuckDB
 npm run rangerdb:introspect:test   # 73 assertions: the introspection contract
 ```
+
+## In a browser, with nothing behind it
+
+`npm run rangerdbviewer:web:serve` builds a static directory and serves it.
+There is no host process — and no database server either. **RangerDB is written
+in Ranger**, so it compiles to JavaScript along with the viewer above it, and
+the page really holds a database: it creates the tables, inserts the rows,
+introspects the schema and draws the result.
+
+That is also the honest limit of the browser build, and the page says so rather
+than hiding it. SQLite is `node:sqlite` and DuckDB is a native addon; both are
+host binaries a static page cannot reach. Pressing SQLite there reports that it
+needs a host process — it does not fail silently, and it does not crash, which
+it very nearly did: the host-SQL bridge reaches for `require` the moment
+anything asks whether SQLite is installed, so `DbSource.isAvailable` catches
+that and reads it as "not available here". The build checks it by pressing the
+button in a browser-shaped load.
+
+Because RangerDB has no DDL yet, it cannot describe a foreign key. So the page
+offers the other source the schema model was always meant to have:
+
+| | tables | relationships | rows |
+| --- | --- | --- | --- |
+| **the in-tab RangerDB database** | 5 | none — and it says so | real |
+| **the same schema read from `CREATE TABLE` text** | 5 | all 5 | none, and it says so |
+
+Neither pretends to be the other. The Data section of a schema read from SQL
+does not draw an empty grid, because "this table is empty" and "there is no
+database behind this" are different statements.
+
+![the schema of a live SQLite database, drawn by RangerFlow](artifacts/01_schema_sqlite.png)
 
 ## What is here now
 
@@ -30,6 +62,8 @@ open a database, describe it, list it, page it, draw it, export it.
 | **Diagram** | RangerFlow's ERD editor, crow's foot, field-level ports |
 | **Export** | SVG, PDF, HTML, scene JSON |
 | **Subject areas** | a table and its neighbours, or tables without views |
+| **Toolbar** | the shared `gallery/evg` strip — named pages, labelled buttons, dropdowns |
+| **Hosts** | a serverless web page on WebGL 2; the CLI; the frame is host-agnostic |
 
 Migrations, metrics and the network engines are Phases 4–7 and are not built.
 
@@ -128,8 +162,14 @@ app/
   ObjectTree.rgr      the left list as flat rows with a depth, for any host
   SchemaDiagram.rgr   schema → laid-out FlowView, and the subject areas
   DemoData.rgr        five tables the viewer can always open, on any engine
+  DbViewerFrame.rgr   the whole UI as one display list: strip, list, section
 demo/dbviewer_demo.rgr
 tests/DbViewerTest.rgr
+web/
+  rangerdbviewer_web.rgr        a facade, and nothing else
+  standalone/build.sh           builds a static dir, and checks it loads AND runs
+  standalone/selftest.mjs       the page driving itself, inside the tab
+  standalone/smoke.mjs          headless Chrome, reading the verdict back
 
 ../rangerdb/src/schema/          ← the introspection layer lives with the DB
   DatabaseSchema.rgr             what a database is; imports nothing

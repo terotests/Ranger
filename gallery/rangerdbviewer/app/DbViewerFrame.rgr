@@ -1,0 +1,821 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DbViewerFrame.rgr — the workbench as a display list.
+; ============================================================================
+;
+;   ┌──────────────────────────────────────────────────────────┐
+;   │ Schema │ Data │ Diagram        ← the shared EVG toolbar   │
+;   ├──────────────┬───────────────────────────────────────────┤
+;   │ ▾ main       │                                           │
+;   │   ▾ tables   │   the section: columns, rows, or the ERD   │
+;   │     orders   │                                           │
+;   ├──────────────┴───────────────────────────────────────────┤
+;   │ sqlite · 5 tables, 1 views, 5 foreign keys                │
+;   └──────────────────────────────────────────────────────────┘
+;
+; It draws nothing itself in the sense that matters: the strip is
+; `gallery/evg/EVGToolbar`, the same one the document, deck and spreadsheet
+; editors grew, and the diagram is RangerFlow's. What lives here is the
+; arrangement, the hit testing, and the two panels a database needs that no
+; existing app had — an object list and a column table.
+;
+; There is still no I/O. Fonts arrive as bytes, the database is whatever the
+; host opened, and the output is a display list. That is what lets the same
+; frame run in a browser through WebGL and in an SDL window through OpenGL
+; without a second code path.
+; ============================================================================
+
+Import "DbViewerApp.rgr"
+Import "DemoData.rgr"
+Import "../../evg/EVGToolbarView.rgr"
+Import "../../rangerflow/core/FlowEditor.rgr"
+Import "../../rangerflow/domains/erd/SqlSchemaReader.rgr"
+
+; ----------------------------------------------------------------------------
+; The strip. Three pages, because a database viewer has three jobs and a
+; single row of everything is the wall the tabbed notebookbar exists to avoid.
+; ----------------------------------------------------------------------------
+class DbViewerToolbar extends EVGToolbar {
+    Constructor () {
+    }
+
+    fn build:void () {
+        clear items
+        clear tabs
+
+        this.addTab("Schema")
+        this.addLabeled("db.open" "" "Open" (ToolIcon.openFile()))
+        this.addLabeled("db.refresh" "" "Refresh" (ToolIcon.redo()))
+        this.addSeparator()
+        this.add("engine.rangerdb" "" "RangerDB, in this tab" (ToolIcon.database()))
+        this.add("engine.sqlite" "" "SQLite (needs a host)" (ToolIcon.database()))
+        this.add("db.sql" "" "Read the schema from SQL instead" (ToolIcon.sqlBox()))
+        this.addSeparator()
+        this.add("view.schema" "" "Columns of the selected table" (ToolIcon.report()))
+        this.add("tree.expandAll" "" "Expand everything" (ToolIcon.indentMore()))
+        this.add("tree.collapseAll" "" "Collapse everything" (ToolIcon.indentLess()))
+
+        this.addTab("Data")
+        this.addLabeled("view.data" "" "Rows" (ToolIcon.sqlBox()))
+        this.addSeparator()
+        this.add("data.first" "" "First page" (ToolIcon.navFirst()))
+        this.add("data.prev" "" "Previous page" (ToolIcon.navPrev()))
+        this.add("data.next" "" "Next page" (ToolIcon.navNext()))
+
+        this.addTab("Diagram")
+        this.addLarge("view.diagram" "" "Draw" (ToolIcon.chart()))
+        this.addSeparator()
+        this.add("diagram.all" "" "Every table" (ToolIcon.borderAll()))
+        this.add("diagram.tables" "" "Tables, no views" (ToolIcon.borderOut()))
+        this.add("diagram.near" "" "The selected table and its neighbours" (ToolIcon.funnel()))
+        this.addSeparator()
+        this.add("diagram.fit" "" "Fit to the window" (ToolIcon.search()))
+        this.add("diagram.export" "" "Copy the diagram as SVG" (ToolIcon.save()))
+    }
+}
+
+class DbViewerFrame {
+    def app:DbViewerApp (new DbViewerApp)
+    def toolbar:DbViewerToolbar (new DbViewerToolbar)
+    def toolbarView:EVGToolbarView (new EVGToolbarView)
+    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    def ctx:UIContext (new UIContext)
+
+    def W:int 1200
+    def H:int 800
+    def toolbarH:int 34
+    def statusH:int 24
+    def treeW:int 260
+    def rowH:int 22
+
+    ; The diagram is a live editor, not a picture: it is what the Diagram
+    ; section shows and what the pointer talks to while that section is up.
+    def editor:FlowEditor (new FlowEditor)
+    def diagramReady:boolean false
+    ; "all" | "tables" | "near"
+    def diagramScope:string "all"
+
+    def dataOffset:int 0
+    def dataPageSize:int 40
+    def note:string ""
+    def hoverRow:int -1
+    ; Which visible tree row is selected, so the list can show it.
+    def treeSel:int -1
+    def scrollY:int 0
+
+    Constructor () {
+    }
+
+    fn init:void (w:int h:int) {
+        toolbar.build()
+        this.resize(w h)
+    }
+
+    fn resize:void (w:int h:int) {
+        W = w
+        H = h
+        this.sizeEditor()
+    }
+
+    fn sizeEditor:void () {
+        def cw:double (to_double (this.contentW()))
+        def ch:double (to_double (this.contentH()))
+        editor.setSize(cw ch)
+    }
+
+    fn contentX:int () {
+        return treeW
+    }
+
+    fn contentY:int () {
+        return toolbarH
+    }
+
+    fn contentW:int () {
+        def w:int (W - treeW)
+        if (w < 80) {
+            return 80
+        }
+        return w
+    }
+
+    fn contentH:int () {
+        def h:int ((H - toolbarH) - statusH)
+        if (h < 80) {
+            return 80
+        }
+        return h
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Opening
+    ; ------------------------------------------------------------------------
+
+    ; The only engine that can run inside a browser tab is the one written in
+    ; Ranger: `node:sqlite` and DuckDB are host binaries, and a serverless page
+    ; has no host. That is not a limitation of the viewer — it is the reason
+    ; RangerDB exists — but it has to be SAID, so a reader does not conclude
+    ; the page is broken when SQLite is refused.
+    fn openDemo:boolean (engine:string) {
+        def probe:DbSource (DbSource.inMemory(engine))
+        if ((probe.isAvailable()) == false) {
+            note = (engine + " needs a host process; this page runs RangerDB in the tab")
+            return false
+        }
+        def src:DbSource (DemoData.openSeeded(engine))
+        def ok:boolean (app.openSource(src))
+        if (ok == false) {
+            note = src.errorText
+            return false
+        }
+        note = ""
+        dataOffset = 0
+        diagramReady = false
+        treeSel = -1
+        scrollY = 0
+        return true
+    }
+
+    ; A schema straight out of DDL text. No engine is involved, so this works
+    ; in a browser tab where the only available engine cannot yet describe a
+    ; foreign key — and it is the same path a `.sql` a reader drops on the page
+    ; would take.
+    fn openSqlText:boolean (sql:string label:string) {
+        def parsed:DatabaseSchema (SqlSchemaReader.parse(sql))
+        if ((parsed.tableCount()) == 0) {
+            note = "no CREATE TABLE statements in that SQL"
+            return false
+        }
+        app.adoptSchema(parsed label)
+        note = "read from SQL: relationships and indexes, but no rows"
+        dataOffset = 0
+        diagramReady = false
+        treeSel = -1
+        scrollY = 0
+        if (app.section == "diagram") {
+            this.rebuildDiagram()
+        }
+        return true
+    }
+
+    fn rebuildDiagram:void () {
+        def sub:DatabaseSchema (this.scopedSchema())
+        def d:SchemaDiagram (new SchemaDiagram)
+        def g:FlowGraph (d.buildGraph(sub))
+        editor = (FlowEditor.of(g))
+        this.sizeEditor()
+        editor.view.notation = "crowfoot"
+        editor.fitView()
+        diagramReady = true
+    }
+
+    fn scopedSchema:DatabaseSchema () {
+        if (diagramScope == "tables") {
+            return (SchemaDiagram.tablesOnly(app.schema))
+        }
+        if (diagramScope == "near") {
+            if ((strlen app.selectedTable) > 0) {
+                return (SchemaDiagram.neighbourhood(app.schema app.selectedTable 1))
+            }
+        }
+        return app.schema
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Commands — every button, and nothing a button cannot reach
+    ; ------------------------------------------------------------------------
+    fn runCommand:boolean (id:string arg:string) {
+        if (id == "db.refresh") {
+            app.refresh()
+            diagramReady = false
+            return true
+        }
+        if (id == "db.open") {
+            note = "a serverless page has no disk; this one opens the demo database"
+            return (this.openDemo("rangerdb"))
+        }
+        if (id == "engine.rangerdb") {
+            return (this.openDemo("rangerdb"))
+        }
+        if (id == "engine.sqlite") {
+            return (this.openDemo("sqlite"))
+        }
+        if (id == "db.sql") {
+            return (this.openSqlText((DemoData.ddlText()) "the demo schema, read from SQL"))
+        }
+        if (id == "view.schema") {
+            app.showSection("schema")
+            return true
+        }
+        if (id == "view.data") {
+            app.showSection("data")
+            dataOffset = 0
+            return true
+        }
+        if (id == "view.diagram") {
+            app.showSection("diagram")
+            if (diagramReady == false) {
+                this.rebuildDiagram()
+            }
+            return true
+        }
+        if (id == "tree.expandAll") {
+            return (this.setAllExpanded(true))
+        }
+        if (id == "tree.collapseAll") {
+            return (this.setAllExpanded(false))
+        }
+        if (id == "data.first") {
+            dataOffset = 0
+            return true
+        }
+        if (id == "data.prev") {
+            dataOffset = (dataOffset - dataPageSize)
+            if (dataOffset < 0) {
+                dataOffset = 0
+            }
+            return true
+        }
+        if (id == "data.next") {
+            dataOffset = (dataOffset + dataPageSize)
+            return true
+        }
+        if (id == "diagram.all") {
+            diagramScope = "all"
+            app.showSection("diagram")
+            this.rebuildDiagram()
+            return true
+        }
+        if (id == "diagram.tables") {
+            diagramScope = "tables"
+            app.showSection("diagram")
+            this.rebuildDiagram()
+            return true
+        }
+        if (id == "diagram.near") {
+            diagramScope = "near"
+            app.showSection("diagram")
+            this.rebuildDiagram()
+            return true
+        }
+        if (id == "diagram.fit") {
+            if diagramReady {
+                editor.fitView()
+                return true
+            }
+            return false
+        }
+        if (id == "diagram.export") {
+            note = "the page writes the SVG; the frame only draws"
+            return true
+        }
+        return false
+    }
+
+    fn setAllExpanded:boolean (on:boolean) {
+        def i:int 0
+        def n:int (array_length app.tree.rows)
+        while (i < n) {
+            def r:TreeRow (itemAt app.tree.rows i)
+            if (r.expandable) {
+                r.expanded = on
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Pointer — the strip first, then the list, then the section
+    ; ------------------------------------------------------------------------
+    fn pointer:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        if (y < toolbarH) {
+            if down {
+                return (this.pressToolbar(x y))
+            }
+            return false
+        }
+        ; A dropdown hangs below the strip and swallows the click under it.
+        def box:[int] (toolbar.menuBox())
+        if ((array_length box) == 4) {
+            def bx:int (itemAt box 0)
+            def by:int (itemAt box 1)
+            def bw:int (itemAt box 2)
+            def bh:int (itemAt box 3)
+            def insideX:boolean false
+            if (x >= bx) {
+                if (x < (bx + bw)) {
+                    insideX = true
+                }
+            }
+            if insideX {
+                if (y >= by) {
+                    if (y < (by + bh)) {
+                        if down {
+                            return (this.pressToolbar(x y))
+                        }
+                        return false
+                    }
+                }
+            }
+        }
+        if (x < treeW) {
+            if down {
+                return (this.pressTree(x y))
+            }
+            return false
+        }
+        if (app.section == "diagram") {
+            return (this.pointerDiagram(x y pressed down released))
+        }
+        return false
+    }
+
+    fn pressToolbar:boolean (x:int y:int) {
+        def tab:int (toolbar.hitTab(x y))
+        if (tab >= 0) {
+            toolbar.selectTab(tab)
+            return true
+        }
+        def i:int (toolbar.hit(x y))
+        if (i < 0) {
+            toolbar.closeMenu()
+            return false
+        }
+        def opened:boolean (toolbar.pressItem(i))
+        if opened {
+            return true
+        }
+        def item:ToolItem (toolbar.at(i))
+        return (this.runCommand(item.command item.arg))
+    }
+
+    fn pressTree:boolean (x:int y:int) {
+        def rows:[TreeRow] (app.tree.visibleRows())
+        def idx:int (this.treeRowAt(y))
+        if (idx < 0) {
+            return false
+        }
+        if (idx >= (array_length rows)) {
+            return false
+        }
+        treeSel = idx
+        def r:TreeRow (itemAt rows idx)
+        if (r.expandable) {
+            def real:int (this.realIndexOf(r))
+            if (real >= 0) {
+                app.tree.toggleAt(real)
+                return true
+            }
+        }
+        if ((strlen r.tableName) > 0) {
+            app.selectTable(r.tableName)
+            dataOffset = 0
+            ; A table picked while the neighbourhood is showing means a
+            ; different neighbourhood, so the diagram is stale.
+            if (diagramScope == "near") {
+                diagramReady = false
+                if (app.section == "diagram") {
+                    this.rebuildDiagram()
+                }
+            }
+            return true
+        }
+        return true
+    }
+
+    fn treeRowAt:int (y:int) {
+        def top:int (toolbarH + 4)
+        if (y < top) {
+            return -1
+        }
+        def rel:int ((y - top) + scrollY)
+        return (idiv rel rowH)
+    }
+
+    fn realIndexOf:int (r:TreeRow) {
+        def i:int 0
+        def n:int (array_length app.tree.rows)
+        while (i < n) {
+            def cand:TreeRow (itemAt app.tree.rows i)
+            if (cand.label == r.label) {
+                if (cand.depth == r.depth) {
+                    if (cand.kind == r.kind) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn pointerDiagram:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        if (diagramReady == false) {
+            return false
+        }
+        def lx:double (to_double (x - (this.contentX())))
+        def ly:double (to_double (y - (this.contentY())))
+        def input:FlowInput (new FlowInput)
+        input.x = lx
+        input.y = ly
+        if down {
+            editor.pointerDown(input)
+            return true
+        }
+        if released {
+            editor.pointerUp(input)
+            return true
+        }
+        editor.pointerMove(input)
+        return pressed
+    }
+
+    fn wheel:boolean (dy:int) {
+        if (app.section == "diagram") {
+            if diagramReady {
+                def inp:FlowInput (new FlowInput)
+                inp.x = (to_double (idiv (this.contentW()) 2))
+                inp.y = (to_double (idiv (this.contentH()) 2))
+                editor.wheel(inp (to_double dy))
+                return true
+            }
+            return false
+        }
+        scrollY = (scrollY + dy)
+        if (scrollY < 0) {
+            scrollY = 0
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Drawing
+    ; ------------------------------------------------------------------------
+    fn buildDisplayList:EVGDisplayList () {
+        def dl:EVGDisplayList (new EVGDisplayList)
+        toolbarView.attach(ctx "Open Sans")
+        toolbarView.theme = theme
+
+        dl.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(246 247 250)))
+
+        toolbarH = (toolbar.heightFor(W))
+        toolbarView.paint(dl toolbar 0 0 W toolbarH)
+
+        this.paintTree(dl)
+        this.paintSection(dl)
+        this.paintStatus(dl)
+        ; An open dropdown belongs above everything the strip sits on.
+        toolbarView.paintOverlay(dl toolbar)
+        return dl
+    }
+
+    fn sceneJson:string () {
+        def dl:EVGDisplayList (this.buildDisplayList())
+        def body:string (dl.toJson())
+        def wtxt:string (EVGDisplayList.num((to_double W)))
+        def htxt:string (EVGDisplayList.num((to_double H)))
+        return ("{\"width\":" + wtxt + ",\"height\":" + htxt + ",\"list\":" + body + "}")
+    }
+
+    fn paintTree:void (dl:EVGDisplayList) {
+        def top:int (toolbarH)
+        def h:int (this.contentH())
+        dl.addRect(0.0 (to_double top) (to_double treeW) (to_double h) (EVGColor.rgb(238 241 246)))
+        dl.addRect((to_double (treeW - 1)) (to_double top) 1.0 (to_double h) theme.line)
+        dl.addClip(0.0 (to_double top) (to_double treeW) (to_double h))
+        def rows:[TreeRow] (app.tree.visibleRows())
+        def i:int 0
+        def n:int (array_length rows)
+        def y:int ((top + 4) - scrollY)
+        while (i < n) {
+            def r:TreeRow (itemAt rows i)
+            def bottom:int (top + h)
+            def visible:boolean false
+            if (y > (top - rowH)) {
+                if (y < bottom) {
+                    visible = true
+                }
+            }
+            if visible {
+                if (i == treeSel) {
+                    dl.addRect(0.0 (to_double y) (to_double (treeW - 1)) (to_double rowH) (EVGColor.rgba(50 120 220 0.16)))
+                }
+                def indent:int (8 + (r.depth * 14))
+                def col:EVGColor theme.ink
+                if (r.kind == "group") {
+                    col = theme.dim
+                }
+                if (r.kind == "index") {
+                    col = theme.dim
+                }
+                if (r.expandable) {
+                    def marker:string "▾"
+                    if ((r.expanded) == false) {
+                        marker = "▸"
+                    }
+                    toolbarView.pushText(dl marker (to_double (indent - 10)) (to_double (y + 4)) 11.0 theme.glyph)
+                }
+                def isSelected:boolean false
+                if ((strlen r.tableName) > 0) {
+                    if (r.tableName == app.selectedTable) {
+                        if (r.kind != "index") {
+                            isSelected = true
+                        }
+                    }
+                }
+                if isSelected {
+                    col = theme.accent
+                }
+                ; The detail is right-aligned against the pane edge and the
+                ; label gets whatever room is left, so a long index name is
+                ; shortened rather than drawn through its own description.
+                def labelRight:double (to_double (treeW - 8))
+                if ((strlen r.detail) > 0) {
+                    def dw:double (ctx.tr.measureWidth(r.detail 10.0))
+                    def dx:double ((to_double (treeW - 8)) - dw)
+                    toolbarView.pushText(dl r.detail dx (to_double (y + 5)) 10.0 theme.glyph)
+                    labelRight = (dx - 6.0)
+                }
+                def room:double (labelRight - (to_double indent))
+                def shown:string (this.fitText(r.label room 12.0))
+                toolbarView.pushText(dl shown (to_double indent) (to_double (y + 4)) 12.0 col)
+            }
+            y = (y + rowH)
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    fn paintSection:void (dl:EVGDisplayList) {
+        def x:int (this.contentX())
+        def y:int (this.contentY())
+        def w:int (this.contentW())
+        def h:int (this.contentH())
+        dl.addRect((to_double x) (to_double y) (to_double w) (to_double h) (EVGColor.rgb(252 253 255)))
+        if (app.section == "diagram") {
+            this.paintDiagram(dl x y w h)
+            return
+        }
+        if (app.section == "data") {
+            this.paintData(dl x y w h)
+            return
+        }
+        this.paintColumns(dl x y w h)
+    }
+
+    fn paintDiagram:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        if (diagramReady == false) {
+            this.rebuildDiagram()
+        }
+        def sc:FlowScene (editor.build())
+        def sub:EVGDisplayList (sc.toDisplayList())
+        dl.addClip((to_double x) (to_double y) (to_double w) (to_double h))
+        DbViewerFrame.offsetList(sub x y)
+        DbViewerFrame.appendList(dl sub)
+        dl.addClipEnd()
+    }
+
+    fn paintColumns:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        def t:DBTable (app.currentTable())
+        def title:string t.name
+        if ((strlen title) == 0) {
+            title = "no table selected"
+        }
+        toolbarView.pushText(dl title (to_double (x + 16)) (to_double (y + 12)) 16.0 theme.ink)
+        if ((strlen t.kind) > 0) {
+            toolbarView.pushText(dl t.kind (to_double (x + 16)) (to_double (y + 34)) 11.0 theme.glyph)
+        }
+        def hy:int (y + 56)
+        dl.addRect((to_double (x + 16)) (to_double hy) (to_double (w - 32)) 22.0 (EVGColor.rgb(238 241 246)))
+        toolbarView.pushText(dl "column" (to_double (x + 24)) (to_double (hy + 5)) 11.0 theme.dim)
+        toolbarView.pushText(dl "type" (to_double (x + 220)) (to_double (hy + 5)) 11.0 theme.dim)
+        toolbarView.pushText(dl "null" (to_double (x + 360)) (to_double (hy + 5)) 11.0 theme.dim)
+        toolbarView.pushText(dl "default" (to_double (x + 430)) (to_double (hy + 5)) 11.0 theme.dim)
+        dl.addClip((to_double x) (to_double (hy + 22)) (to_double w) (to_double ((h - hy) + y)))
+        def ry:int (hy + 26)
+        def i:int 0
+        def n:int (array_length t.columns)
+        while (i < n) {
+            def c:SchemaColumn (itemAt t.columns i)
+            def odd:boolean ((i % 2) == 1)
+            if odd {
+                dl.addRect((to_double (x + 16)) (to_double ry) (to_double (w - 32)) (to_double rowH) (EVGColor.rgb(246 248 251)))
+            }
+            def badge:string ""
+            if (c.isPrimaryKey) {
+                badge = "PK"
+            }
+            if (c.isForeignKey) {
+                if ((strlen badge) > 0) {
+                    badge = (badge + " FK")
+                } {
+                    badge = "FK"
+                }
+            }
+            if ((strlen badge) > 0) {
+                toolbarView.pushText(dl badge (to_double (x + 24)) (to_double (ry + 5)) 10.0 theme.accent)
+            }
+            toolbarView.pushText(dl c.name (to_double (x + 60)) (to_double (ry + 4)) 12.0 theme.ink)
+            toolbarView.pushText(dl c.dataType (to_double (x + 220)) (to_double (ry + 4)) 12.0 theme.dim)
+            def nullText:string "yes"
+            if ((c.nullable) == false) {
+                nullText = "no"
+            }
+            toolbarView.pushText(dl nullText (to_double (x + 360)) (to_double (ry + 4)) 12.0 theme.dim)
+            if ((strlen c.defaultValue) > 0) {
+                toolbarView.pushText(dl c.defaultValue (to_double (x + 430)) (to_double (ry + 4)) 11.0 theme.glyph)
+            }
+            if (c.isUnique) {
+                toolbarView.pushText(dl "unique" (to_double (x + 560)) (to_double (ry + 5)) 10.0 theme.glyph)
+            }
+            ry = (ry + rowH)
+            i = (i + 1)
+        }
+        ; Indexes, under the columns, because they are a property of the table
+        ; and a reader looking at one wants both without changing section.
+        def ni:int (array_length t.indexes)
+        if (ni > 0) {
+            ry = (ry + 14)
+            toolbarView.pushText(dl "indexes" (to_double (x + 24)) (to_double ry) 11.0 theme.dim)
+            ry = (ry + 18)
+            def k:int 0
+            while (k < ni) {
+                def ix:DBIndex (itemAt t.indexes k)
+                def label:string (ix.name + "  (" + (ObjectTree.joinNames(ix.columns)) + ")")
+                def tint:EVGColor theme.dim
+                if (ix.origin != "index") {
+                    tint = theme.glyph
+                    label = (label + "  — " + ix.origin)
+                }
+                toolbarView.pushText(dl label (to_double (x + 40)) (to_double ry) 11.0 tint)
+                ry = (ry + 18)
+                k = (k + 1)
+            }
+        }
+        dl.addClipEnd()
+    }
+
+    fn paintData:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        def name:string app.selectedTable
+        if ((strlen name) == 0) {
+            toolbarView.pushText(dl "no table selected" (to_double (x + 16)) (to_double (y + 12)) 13.0 theme.dim)
+            return
+        }
+        ; A schema read from text describes a database that is not running.
+        ; An empty grid would read as "this table is empty", which is a
+        ; different and wrong statement.
+        if ((app.hasRows) == false) {
+            toolbarView.pushText(dl name (to_double (x + 16)) (to_double (y + 12)) 14.0 theme.ink)
+            toolbarView.pushText(dl "This schema was read from SQL, so there is no database to page." (to_double (x + 16)) (to_double (y + 40)) 12.0 theme.dim)
+            toolbarView.pushText(dl "Open the in-tab RangerDB database to browse rows." (to_double (x + 16)) (to_double (y + 60)) 12.0 theme.glyph)
+            return
+        }
+        def chunk:DataChunk (app.pageOfRows(dataOffset dataPageSize))
+        def cols:int (chunk.columnCount())
+        def rowsShown:int chunk.rowCount
+        def header:string (name + "  ·  rows " + (to_string dataOffset) + "–" + (to_string (dataOffset + rowsShown)))
+        toolbarView.pushText(dl header (to_double (x + 16)) (to_double (y + 12)) 14.0 theme.ink)
+
+        def colW:int 150
+        def hy:int (y + 40)
+        dl.addRect((to_double (x + 16)) (to_double hy) (to_double (w - 32)) 22.0 (EVGColor.rgb(238 241 246)))
+        def c:int 0
+        while (c < cols) {
+            def col:DBColumn (chunk.columnAt(c))
+            def cx:int ((x + 24) + (c * colW))
+            toolbarView.pushText(dl col.name (to_double cx) (to_double (hy + 5)) 11.0 theme.dim)
+            c = (c + 1)
+        }
+        dl.addClip((to_double x) (to_double (hy + 22)) (to_double w) (to_double ((h + y) - (hy + 22))))
+        def ry:int (hy + 26)
+        def r:int 0
+        while (r < rowsShown) {
+            def odd:boolean ((r % 2) == 1)
+            if odd {
+                dl.addRect((to_double (x + 16)) (to_double ry) (to_double (w - 32)) (to_double rowH) (EVGColor.rgb(246 248 251)))
+            }
+            def cc:int 0
+            while (cc < cols) {
+                def cx:int ((x + 24) + (cc * colW))
+                def text:string (chunk.stringAt(r cc))
+                toolbarView.pushText(dl text (to_double cx) (to_double (ry + 4)) 12.0 theme.ink)
+                cc = (cc + 1)
+            }
+            ry = (ry + rowH)
+            r = (r + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    fn paintStatus:void (dl:EVGDisplayList) {
+        def sy:int (H - statusH)
+        dl.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)
+        dl.addRect(0.0 (to_double sy) (to_double W) 1.0 theme.line)
+        def label:string app.status
+        if ((strlen note) > 0) {
+            label = (label + "   ·   " + note)
+        }
+        toolbarView.pushText(dl label 10.0 (to_double (sy + 5)) 11.0 theme.dim)
+    }
+
+    ; Text cut to fit a column, with an ellipsis where it was cut. The tree
+    ; puts a label and a detail on one row, and an index name plus the table
+    ; and columns it covers is easily wider than the pane — drawn unclamped
+    ; the two run through each other and neither is readable.
+    fn fitText:string (text:string maxW:double size:double) {
+        if (maxW <= 0.0) {
+            return ""
+        }
+        def w:double (ctx.tr.measureWidth(text size))
+        if (w <= maxW) {
+            return text
+        }
+        def cut:int (strlen text)
+        while (cut > 1) {
+            cut = (cut - 1)
+            def part:string ((substring text 0 cut) + "…")
+            def pw:double (ctx.tr.measureWidth(part size))
+            if (pw <= maxW) {
+                return part
+            }
+        }
+        return "…"
+    }
+
+    ; The two list utilities every EVG app that composes sub-lists needs.
+    sfn offsetList:void (src:EVGDisplayList dx:int dy:int) {
+        def i:int 0
+        def n:int (array_length src.cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt src.cmds i)
+            ; kind 5 ends a clip and carries no geometry to move.
+            if (c.kind != 5) {
+                c.x = (c.x + (to_double dx))
+                c.y = (c.y + (to_double dy))
+                def pi:int 0
+                def np:int (array_length c.pts)
+                while (pi < np) {
+                    def even:boolean ((pi % 2) == 0)
+                    if even {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dx))
+                    } {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dy))
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn appendList:void (into:EVGDisplayList src:EVGDisplayList) {
+        def i:int 0
+        def n:int (array_length src.cmds)
+        while (i < n) {
+            push into.cmds (itemAt src.cmds i)
+            i = (i + 1)
+        }
+    }
+}
