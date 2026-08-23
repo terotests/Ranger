@@ -89,6 +89,7 @@ class PptxTextBoxTest {
         this.testTwoBoxes()
         this.testCancel()
         this.testToolbar()
+        this.testTypingDoesNotMoveTheBox()
         print ""
         print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
         if (c.failed == 0) {
@@ -204,6 +205,78 @@ class PptxTextBoxTest {
         ; than placing something.
         a.pointer((PptxTextBoxTest.sx(a 100.0)) (PptxTextBoxTest.sy(a 80.0)) true true false)
         c.ok("a press is a selection again" (a.dragMode != 5))
+    }
+
+    fn testTypingDoesNotMoveTheBox:void () {
+        print "--- typing must not move the box you are typing in ---"
+        ; The arrow keys mean two different things depending on what is going
+        ; on: with a shape selected they NUDGE it, and with the caret in its
+        ; text they move the caret. The key dispatch tried the caret first and
+        ; then ran the shape handler anyway — it assigned its result to the
+        ; "was this key taken" flag without checking whether something already
+        ; had — so the right arrow moved the caret AND nudged the box a point
+        ; to the right. The box crept across the slide as the writer read back
+        ; what they had written, and nothing said why.
+        def a:PptxApp (PptxTextBoxTest.app())
+        a.setEditMode(true)
+        def all:[PptxShape] (a.editor.editableShapes())
+        def one:PptxShape (itemAt all 0)
+        a.editor.select(one.editId)
+        a.editor.beginTextEdit(one.editId)
+        c.ok("the caret is in the box" (a.editor.isEditingText()))
+        def x0:double one.x
+        def y0:double one.y
+
+        def i:int 0
+        while (i < 6) {
+            def inp (new UIInput)
+            inp.newFrame()
+            inp.pushKey((UIKey.right()))
+            a.update(inp)
+            i = (i + 1)
+        }
+        def after@(optional):PptxShape (a.editor.findShape(one.editId))
+        if (!null? after) {
+            def s:PptxShape (unwrap after)
+            c.near("six right arrows leave the box where it was" s.x x0 0.001)
+            c.near("in both directions" s.y y0 0.001)
+        }
+        c.ok("and the caret is still in it" (a.editor.isEditingText()))
+
+        ; The same for the other three, since each one nudged its own way.
+        def j:int 0
+        while (j < 4) {
+            def inp2 (new UIInput)
+            inp2.newFrame()
+            inp2.pushKey((UIKey.down()))
+            a.update(inp2)
+            def inp3 (new UIInput)
+            inp3.newFrame()
+            inp3.pushKey((UIKey.left()))
+            a.update(inp3)
+            j = (j + 1)
+        }
+        def after2@(optional):PptxShape (a.editor.findShape(one.editId))
+        if (!null? after2) {
+            def s2:PptxShape (unwrap after2)
+            c.near("nor do the others" s2.x x0 0.001)
+            c.near("in y either" s2.y y0 0.001)
+        }
+
+        ; And with NO caret, an arrow still nudges — that is what the key is
+        ; for when a shape is merely selected, and fixing the one must not
+        ; take the other away.
+        a.editor.endTextEdit()
+        a.editor.select(one.editId)
+        def inp4 (new UIInput)
+        inp4.newFrame()
+        inp4.pushKey((UIKey.right()))
+        a.update(inp4)
+        def after3@(optional):PptxShape (a.editor.findShape(one.editId))
+        if (!null? after3) {
+            def s3:PptxShape (unwrap after3)
+            c.ok("with no caret, an arrow still nudges the shape" (s3.x > x0))
+        }
     }
 
     fn testToolbar:void () {

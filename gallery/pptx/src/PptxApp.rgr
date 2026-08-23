@@ -1344,8 +1344,19 @@ class PptxApp {
                     }
                 }
             }
-            if editMode {
-                taken = (this.editKey(k input.shiftDown))
+            ; Only if nothing above has already dealt with the key.
+            ;
+            ; This assigned `taken` unconditionally, which meant every branch
+            ; above it ran AND THEN this one did. Typing in a text box, the
+            ; right arrow moved the caret and then nudged the shape a point to
+            ; the right — the box crept across the slide as you read back what
+            ; you had written. Enter started editing and then appended a
+            ; newline at the END of the text rather than at the caret. Escape
+            ; closed a dialog and then cleared the selection behind it.
+            if (taken == false) {
+                if editMode {
+                    taken = (this.editKey(k input.shiftDown))
+                }
             }
             if (taken == false) {
                 if (k == (UIKey.right())) {
@@ -3202,6 +3213,17 @@ class PptxApp {
     ; --- keys -----------------------------------------------------------------
 
     fn editKey:boolean (k:int shift:boolean) {
+        ; Nothing here applies while the caret is in a text box. These keys
+        ; move, delete and deselect SHAPES, and every one of them means
+        ; something else entirely to somebody typing: the arrows move the
+        ; caret, Delete takes out a character rather than the box around it.
+        ;
+        ; The dispatch above already tries `textKey` first, but a guard that
+        ; lives only in the caller is a guard one edit away from being gone —
+        ; which is exactly what happened.
+        if (editor.isEditingText()) {
+            return false
+        }
         def step:double 1.0
         if shift {
             step = 10.0
@@ -3672,6 +3694,13 @@ class PptxApp {
         }
         if (k == (UIKey.del())) {
             return (editor.deleteAtCaret())
+        }
+        ; A newline goes where the caret is, not at the end of the box. It
+        ; used to fall through to `appendText`, so pressing Enter in the
+        ; middle of a paragraph put the break after the last word instead.
+        if (k == (UIKey.enter())) {
+            editor.typeAtCaret("\n")
+            return true
         }
         if (k == (UIKey.enter())) {
             return (editor.newlineAtCaret())
