@@ -2125,8 +2125,22 @@ class PptxApp {
 
     ; The rotation handle stands off the top of the box, where every editor
     ; puts it.
+    ; Where the rotation handle stands: above the top edge of the selection,
+    ; and never underneath the toolbar.
+    ;
+    ; The clamp is the whole point of this being a function. A shape near the
+    ; top of the slide put its handle at y=67 with a toolbar 68 tall, and
+    ; `editPointer` rejects everything above `toolbarH` as a click on the
+    ; strip — so the handle was DRAWN, `handleAt` found it, and pressing it
+    ; did nothing at all. A control you can see and cannot use is worse than
+    ; one that is not there, because the reader keeps trying.
     fn rotateHandleY:double (y0:double) {
-        return (y0 - 18.0)
+        def y:double (y0 - 18.0)
+        def floorY:double (to_double (toolbarH + 8))
+        if (y < floorY) {
+            return floorY
+        }
+        return y
     }
 
     ; One shape, turned: its selection turns with it. Several shapes, or none
@@ -2432,11 +2446,23 @@ class PptxApp {
                     marqueeH = (sy - marqueeY)
                 }
                 if (dragMode == 4) {
-                    ; The pointer's angle about the centre of the selection,
-                    ; with the handle standing at twelve o'clock.
-                    def b2:PptxEditRect (editor.selectionBounds())
-                    def cx:double (b2.midX())
-                    def cy:double (b2.midY())
+                    ; The pointer's angle about the point the turn STARTED
+                    ; from, with the handle standing at twelve o'clock.
+                    ;
+                    ; It used to recompute the centre from the selection's
+                    ; bounds every frame, and for a group that is a centre
+                    ; that MOVES: `spinAbout` carries each shape around the
+                    ; pivot, so the bounding box of the selection swings as
+                    ; the group turns. Measured over a full turn of two
+                    ; shapes the recomputed centre wandered from (360,135) to
+                    ; (450,22) and back — a hundred and forty points away
+                    ; from where the turn began. The group still ended up
+                    ; rotated about the right point, because `applyRotate`
+                    ; uses the captured pivot; what was wrong was the ANGLE,
+                    ; so the group did not follow the pointer and the handle
+                    ; felt like it was fighting the hand holding it.
+                    def cx:double editor.rotPivotX
+                    def cy:double editor.rotPivotY
                     def ang:double (atan2 (sy - cy) (sx - cx))
                     def deg:double (((ang * 180.0) / 3.141592653589793) + 90.0)
                     if modShift {
