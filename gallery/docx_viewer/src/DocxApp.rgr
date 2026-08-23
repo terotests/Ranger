@@ -757,6 +757,10 @@ class DocxApp {
         ; turned around this returns on its first line, and a reader who turns
         ; it back off is never overruled.
         this.adoptDocumentDirection(viewer.doc)
+        ; The band is as tall as the page showing on it needs, and pages
+        ; differ. Settling this only on resize leaves the strip short after a
+        ; page change.
+        toolbarH = (toolbar.heightFor(W))
         toolbar.refresh(viewer.edit (viewer.editMode()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
         rulerView.attach(viewer.view.ctx "Open Sans")

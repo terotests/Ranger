@@ -69,9 +69,12 @@ class PptxToolbar extends EVGToolbar {
         this.add("edit.redo" "" "Redo" (ToolIcon.redo()))
 
         this.addTab("Insert")
+        ; The text box is what somebody opens Insert to do, so it is drawn as
+        ; the thing on the page rather than as one of four identical squares.
+        this.addLarge("text.add" "" "Text Box" (ToolIcon.textBox()))
+        this.addSeparator()
         this.add("shape.rect" "" "Insert a box" (ToolIcon.shapeRect()))
         this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.shapeEllipse()))
-        this.add("text.add" "" "Insert a text box" (ToolIcon.textBox()))
         this.add("picture.add" "" "Insert a picture" (ToolIcon.picture()))
 
         this.addTab("Arrange")
@@ -176,9 +179,23 @@ class PptxApp {
     ; editor behind a toolbar toggle, which meant the first thing anyone did —
     ; click the slide — turned the page instead of picking a shape up.
     def editMode:boolean true
-    def dragMode:int 0          ; 0 none, 1 move, 2 resize, 3 marquee, 4 rotate
+    def dragMode:int 0          ; 0 none, 1 move, 2 resize, 3 marquee, 4 rotate, 5 placing
     ; The rubber band, in slide points, while a drag over empty canvas is
     ; happening.
+    ; A tool waiting to be put down: "" for none, "text" for a text box.
+    ;
+    ; Inserting used to drop a box at a fixed fraction of the slide, so two of
+    ; them landed at EXACTLY the same place and the second hid the first; the
+    ; caret was not in it, so typing did nothing until you found and
+    ; double-clicked it; and it arrived carrying the literal word "Text",
+    ; which you then had to select and delete. Four steps and a collision to
+    ; write one label.
+    ;
+    ; This is how every drawing program has done it for thirty years: pick the
+    ; tool, drag out the box, type. The pointer says the tool is armed, a
+    ; click without a drag gives a sensible default box, and Escape puts the
+    ; tool down again.
+    def pendingTool:string ""
     def marqueeX:double 0.0
     def marqueeY:double 0.0
     def marqueeW:double 0.0
@@ -1317,6 +1334,15 @@ class PptxApp {
                     slideDialog.close()
                     taken = true
                 }
+                ; Escape puts an armed tool down. Before the dialog check
+                ; would be wrong — a dialog over the slide is the nearer
+                ; thing — and after everything else would mean a reader with
+                ; a tool armed could not get out of it without using it.
+                if (taken == false) {
+                    if (this.cancelPendingTool()) {
+                        taken = true
+                    }
+                }
             }
             if editMode {
                 taken = (this.editKey(k input.shiftDown))
@@ -1400,6 +1426,11 @@ class PptxApp {
         ; frame only while the answer is still no — once turned around this
         ; returns on its first line.
         this.adoptDeckDirection()
+        ; The band is as tall as the page showing on it needs, and pages
+        ; differ — one with a big button on it is taller than one without.
+        ; Settling this only on resize left the strip short after a page
+        ; change, with the bottom of the button drawn over the slide.
+        toolbarH = (toolbar.heightFor(W))
         toolbar.refresh(index (this.slideCount()))
         toolbarView.paint(framed toolbar 0 0 W toolbarH)
 
@@ -2341,6 +2372,20 @@ class PptxApp {
         def sy:double (this.screenToSlideY(py))
         if pressed {
             this.syncEditor()
+            ; An armed tool takes the press before anything else on the slide:
+            ; the whole point of arming one is that the next drag means "put
+            ; it here" and not "select what is under here".
+            if ((strlen pendingTool) > 0) {
+                dragMode = 5
+                marqueeX = sx
+                marqueeY = sy
+                marqueeW = 0.0
+                marqueeH = 0.0
+                dragLastX = sx
+                dragLastY = sy
+                dragMoved = false
+                return true
+            }
             ; While a caret is in a shape, a click inside that shape moves the
             ; caret rather than picking the shape up again.
             if (editor.isEditingText()) {
@@ -2410,6 +2455,13 @@ class PptxApp {
         }
         if released {
             if (dragMode > 0) {
+                if (dragMode == 5) {
+                    this.placePendingTool()
+                    marqueeW = 0.0
+                    marqueeH = 0.0
+                    dragMode = 0
+                    return true
+                }
                 if (dragMode == 3) {
                     ; A band that never moved is a click on empty canvas, and
                     ; that already cleared the selection.
@@ -2483,6 +2535,13 @@ class PptxApp {
                     marqueeW = (sx - marqueeX)
                     marqueeH = (sy - marqueeY)
                 }
+                ; Placing a tool draws the same rectangle a rubber band does,
+                ; and for the same reason: the reader has to see the shape of
+                ; the thing before they let go of it.
+                if (dragMode == 5) {
+                    marqueeW = (sx - marqueeX)
+                    marqueeH = (sy - marqueeY)
+                }
                 if (dragMode == 4) {
                     ; The pointer's angle about the point the turn STARTED
                     ; from, with the handle standing at twelve o'clock.
@@ -2513,6 +2572,74 @@ class PptxApp {
             }
         }
         return false
+    }
+
+    ; Put the armed tool down where it was dragged.
+    ;
+    ; A drag gives the box its rectangle. A CLICK — a drag that never moved —
+    ; gives a sensible default box centred on where the reader clicked, which
+    ; is what somebody who does not know the tool wants a drag to be, and it
+    ; still lands where they pointed rather than at a fixed spot on the slide.
+    ;
+    ; The box arrives EMPTY and with the caret in it. It used to arrive
+    ; carrying the word "Text", which every reader then had to select and
+    ; delete before writing their own — a placeholder is only kind when the
+    ; program cannot put the caret where the words go, and it can.
+    fn placePendingTool:void () {
+        if ((strlen pendingTool) == 0) {
+            return
+        }
+        pendingTool = ""
+        view.status = ""
+        def x0:double marqueeX
+        def y0:double marqueeY
+        def w0:double marqueeW
+        def h0:double marqueeH
+        if (w0 < 0.0) {
+            x0 = (x0 + w0)
+            w0 = (0.0 - w0)
+        }
+        if (h0 < 0.0) {
+            y0 = (y0 + h0)
+            h0 = (0.0 - h0)
+        }
+        ; Too small to have been meant as a rectangle: treat it as a click.
+        def minW:double ((this.slideW()) * 0.04)
+        def minH:double ((this.slideH()) * 0.04)
+        if (w0 < minW) {
+            w0 = ((this.slideW()) * 0.34)
+            x0 = (x0 - (w0 * 0.5))
+        }
+        if (h0 < minH) {
+            h0 = ((this.slideH()) * 0.1)
+            y0 = (y0 - (h0 * 0.5))
+        }
+        if (x0 < 0.0) {
+            x0 = 0.0
+        }
+        if (y0 < 0.0) {
+            y0 = 0.0
+        }
+        def newId:int (editor.addTextBox(x0 y0 w0 h0 ""))
+        if (newId > 0) {
+            editor.beginTextEdit(newId)
+            view.status = ""
+        }
+    }
+
+    ; Put the tool down without using it. Escape, and a click on the strip.
+    fn cancelPendingTool:boolean () {
+        if ((strlen pendingTool) == 0) {
+            return false
+        }
+        pendingTool = ""
+        view.status = ""
+        if (dragMode == 5) {
+            dragMode = 0
+            marqueeW = 0.0
+            marqueeH = 0.0
+        }
+        return true
     }
 
     fn setMods:void (shift:boolean ctrl:boolean) {
@@ -3032,11 +3159,13 @@ class PptxApp {
             return (newId2 > 0)
         }
         if (id == "text.add") {
-            def w3:double ((this.slideW()) * 0.4)
-            def h3:double ((this.slideH()) * 0.12)
-            def newId3:int (editor.addTextBox(((this.slideW()) * 0.3) ((this.slideH()) * 0.44) w3 h3 "Text"))
+            ; Arm the tool; the next drag on the slide says where and how big.
             this.setEditMode(true)
-            return (newId3 > 0)
+            editor.endTextEdit()
+            editor.clearSelection()
+            pendingTool = "text"
+            view.status = "drag on the slide to place a text box"
+            return true
         }
         if (id == "picture.add") {
             fileRequest = "image"
@@ -3200,8 +3329,10 @@ class PptxApp {
                 }
             }
         }
-        ; The rubber band, while one is being dragged.
-        if (dragMode == 3) {
+        ; The rubber band, while one is being dragged — and the box being
+        ; placed, which is the same rectangle drawn the same way, because it
+        ; means the same thing to the hand holding it.
+        if ((dragMode == 3) || (dragMode == 5)) {
             def mx:double marqueeX
             def my:double marqueeY
             def mw:double marqueeW

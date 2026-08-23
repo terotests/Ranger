@@ -231,6 +231,12 @@ class ToolItem {
     ; -1. An entry takes no room on the strip while its list is shut, which
     ; is the whole point — five border commands in one slot.
     def menuOwner:int -1
+    ; A button drawn big, with its name UNDER the picture rather than beside
+    ; it. For the one or two commands on a page that are the reason the page
+    ; exists — Insert's text box is what somebody opens Insert to do. A strip
+    ; where every command is the same size says every command is equally
+    ; likely, and none of them ever is.
+    def isLarge:boolean false
 
     Constructor () {
     }
@@ -295,6 +301,9 @@ class EVGToolbar {
     def height:int 36
     def pad:int 5
     def iconW:int 30
+    ; A row with a large button in it is this tall instead of `rowH`; the
+    ; ordinary chips centre themselves in it.
+    def largeH:int 54
     ; Lay the strip out right to left.
     ;
     ; This is the same switch `direction: rtl` is in EVGLayout, for the part
@@ -350,6 +359,32 @@ class EVGToolbar {
     ; Start a named page. Everything added after this belongs to it, until the
     ; next one — which is why a strip is still built as one list of `add`
     ; calls, with the tabs marked off inside it rather than built separately.
+    ; A button drawn big, with its name under the picture.
+    fn addLarge:ToolItem (command:string arg:string label:string icon:int) {
+        def t:ToolItem (this.add(command arg label icon))
+        t.isLarge = true
+        t.showLabel = true
+        return t
+    }
+
+    ; Is there a big button on the page being shown? The row has to be tall
+    ; enough for it, and the answer decides the height of the whole band.
+    fn hasLargeShowing:boolean () {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if t.isLarge {
+                if (t.menuOwner < 0) {
+                    if (this.itemOnActiveTab(i)) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     ; A button that says what it is. The picture and the word, side by side.
     fn addLabeled:ToolItem (command:string arg:string label:string icon:int) {
         def t:ToolItem (this.add(command arg label icon))
@@ -505,6 +540,9 @@ class EVGToolbar {
         }
         activeTab = i
         hot = -1
+        ; A list belonging to the page being left has no business staying
+        ; open over the page being arrived at.
+        openMenu = -1
         return true
     }
 
@@ -548,6 +586,11 @@ class EVGToolbar {
         }
         def right:int ((x0 + width) - pad)
         def cx:int (x0 + pad)
+        ; The row is as tall as the tallest thing on it.
+        def useRowH:int rowH
+        if (this.hasLargeShowing()) {
+            useRowH = largeH
+        }
         def row:int 0
         def i:int 0
         while (i < (array_length items)) {
@@ -586,6 +629,14 @@ class EVGToolbar {
             if t.showLabel {
                 w = ((iconW + (this.labelWidth(t))) + 6)
             }
+            ; A big button is as wide as its own name and no wider — the word
+            ; sits under the picture rather than beside it.
+            if t.isLarge {
+                w = ((this.labelWidth(t)) + 12)
+                if (w < (iconW + 16)) {
+                    w = (iconW + 16)
+                }
+            }
             if t.isMenu {
                 ; Room for the chevron that says there is a list under it.
                 w = (w + 12)
@@ -605,9 +656,15 @@ class EVGToolbar {
                 }
             }
             t.x = cx
-            t.y = ((buttonsY + (row * rowH)) + 3)
+            t.y = ((buttonsY + (row * useRowH)) + 3)
             t.w = w
-            t.h = (rowH - 6)
+            t.h = (useRowH - 6)
+            if (t.isLarge == false) {
+                ; An ordinary chip keeps its own height and sits in the middle
+                ; of a tall row, rather than stretching to fill it.
+                t.h = (rowH - 6)
+                t.y = (t.y + (idiv (useRowH - rowH) 2))
+            }
             cx = (cx + w)
             if (t.isSeparator == false) {
                 cx = (cx + 2)
@@ -615,7 +672,7 @@ class EVGToolbar {
             i = (i + 1)
         }
         rows = (row + 1)
-        height = (rows * rowH)
+        height = (rows * useRowH)
         if (this.hasTabs()) {
             height = (height + tabH)
         }

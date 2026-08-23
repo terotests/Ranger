@@ -6718,6 +6718,12 @@ ToolIcon.formatPaste = function() {
 ToolIcon.textRtl = function() {
   return 79;
 };
+ToolIcon.printDoc = function() {
+  return 80;
+};
+ToolIcon.caret = function() {
+  return 81;
+};
 class ToolItem  {
   constructor() {
     this.command = "";
@@ -6731,21 +6737,42 @@ class ToolItem  {
     this.y = 0;
     this.w = 0;
     this.h = 0;
-    this.row = 0;
     this.isSeparator = false;
     this.pressed = false;
     this.textW = 0;
+    this.showLabel = false;
+    this.labelW = 0;
+    this.isMenu = false;
+    this.menuOwner = -1;
+    this.isLarge = false;
+  }
+}
+class ToolTab  {
+  constructor() {
+    this.name = "";
+    this.first = 0;
+    this.count = 0;
+    this.x = 0;
+    this.y = 0;
+    this.w = 0;
+    this.h = 0;
+    this.measuredW = 0;
   }
 }
 class EVGToolbar  {
   constructor() {
     this.items = [];
+    this.tabs = [];
+    this.activeTab = 0;
+    this.tabH = 28;
     this.rowH = 34;
     this.rows = 1;
     this.height = 36;
     this.pad = 5;
     this.iconW = 30;
+    this.largeH = 54;
     this.rtl = false;
+    this.openMenu = -1;
     this.hot = -1;
   }
   add (command, arg, label, icon) {
@@ -6774,19 +6801,226 @@ class EVGToolbar  {
     t.isSeparator = true;
     this.items.push(t);
   };
+  addLarge (command, arg, label, icon) {
+    const t = this.add(command, arg, label, icon);
+    t.isLarge = true;
+    t.showLabel = true;
+    return t;
+  };
+  hasLargeShowing () {
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.isLarge ) {
+        if ( t.menuOwner < 0 ) {
+          if ( this.itemOnActiveTab(i) ) {
+            return true;
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  addLabeled (command, arg, label, icon) {
+    const t = this.add(command, arg, label, icon);
+    t.showLabel = true;
+    return t;
+  };
+  addDropdown (label, icon) {
+    const t = this.add("", "", label, icon);
+    t.isMenu = true;
+    t.showLabel = true;
+    return t;
+  };
+  addUnder (command, arg, label, icon) {
+    const owner = this.lastMenuIndex();
+    const t = this.add(command, arg, label, icon);
+    t.menuOwner = owner;
+    t.showLabel = true;
+    return t;
+  };
+  lastMenuIndex () {
+    let i = (this.items.length) - 1;
+    while (i >= 0) {
+      const t = this.items[i];
+      if ( t.isMenu ) {
+        return i;
+      }
+      i = i - 1;
+    };
+    return -1;
+  };
+  pressItem (i) {
+    if ( i < 0 ) {
+      return false;
+    }
+    if ( i >= (this.items.length) ) {
+      return false;
+    }
+    const t = this.items[i];
+    if ( t.isMenu ) {
+      if ( this.openMenu == i ) {
+        this.openMenu = -1;
+      } else {
+        this.openMenu = i;
+      }
+      return true;
+    }
+    if ( t.menuOwner >= 0 ) {
+      this.openMenu = -1;
+    } else {
+      this.openMenu = -1;
+    }
+    return false;
+  };
+  closeMenu () {
+    this.openMenu = -1;
+  };
+  addTab (name) {
+    this.closeTab();
+    const t = new ToolTab();
+    t.name = name;
+    t.first = this.items.length;
+    t.count = 0;
+    this.tabs.push(t);
+    return t;
+  };
+  closeTab () {
+    const n = this.tabs.length;
+    if ( n == 0 ) {
+      return;
+    }
+    const last = this.tabs[(n - 1)];
+    last.count = (this.items.length) - last.first;
+  };
+  hasTabs () {
+    return (this.tabs.length) > 0;
+  };
+  tabCount () {
+    return this.tabs.length;
+  };
+  tabAt (i) {
+    return this.tabs[i];
+  };
+  tabLabelW (t) {
+    if ( t.measuredW > 0 ) {
+      return t.measuredW + 22;
+    }
+    return ((t.name.length) * 8) + 22;
+  };
+  hitTab (px, py) {
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      if ( t.w > 0 ) {
+        if ( px >= t.x ) {
+          if ( px < (t.x + t.w) ) {
+            if ( py >= t.y ) {
+              if ( py < (t.y + t.h) ) {
+                return i;
+              }
+            }
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  selectTab (i) {
+    if ( i < 0 ) {
+      return false;
+    }
+    if ( i >= (this.tabs.length) ) {
+      return false;
+    }
+    if ( i == this.activeTab ) {
+      return false;
+    }
+    this.activeTab = i;
+    this.hot = -1;
+    this.openMenu = -1;
+    return true;
+  };
+  tabNamed (name) {
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      if ( t.name == name ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  itemOnActiveTab (i) {
+    if ( (this.tabs.length) == 0 ) {
+      return true;
+    }
+    if ( this.activeTab < 0 ) {
+      return false;
+    }
+    if ( this.activeTab >= (this.tabs.length) ) {
+      return false;
+    }
+    const t = this.tabs[this.activeTab];
+    if ( i < t.first ) {
+      return false;
+    }
+    return i < (t.first + t.count);
+  };
   layout (x0, y0, width) {
+    this.closeTab();
+    let buttonsY = y0;
+    if ( this.hasTabs() ) {
+      this.layoutTabs(x0, y0, width);
+      buttonsY = y0 + this.tabH;
+    }
     const right = (x0 + width) - this.pad;
     let cx = x0 + this.pad;
+    let useRowH = this.rowH;
+    if ( this.hasLargeShowing() ) {
+      useRowH = this.largeH;
+    }
     let row = 0;
     let i = 0;
     while (i < (this.items.length)) {
       const t = this.items[i];
+      if ( this.itemOnActiveTab(i) == false ) {
+        t.x = 0;
+        t.y = 0;
+        t.w = 0;
+        t.h = 0;
+        i = i + 1;
+        continue;
+      }
+      if ( t.menuOwner >= 0 ) {
+        t.x = 0;
+        t.y = 0;
+        t.w = 0;
+        t.h = 0;
+        i = i + 1;
+        continue;
+      }
       let w = this.iconW;
       if ( t.isSeparator ) {
         w = 9;
       }
       if ( t.textW > 0 ) {
         w = t.textW;
+      }
+      if ( t.showLabel ) {
+        w = (this.iconW + this.labelWidth(t)) + 6;
+      }
+      if ( t.isLarge ) {
+        w = this.labelWidth(t) + 12;
+        if ( w < (this.iconW + 16) ) {
+          w = this.iconW + 16;
+        }
+      }
+      if ( t.isMenu ) {
+        w = w + 12;
       }
       if ( (cx + w) > right ) {
         row = row + 1;
@@ -6801,10 +7035,13 @@ class EVGToolbar  {
         }
       }
       t.x = cx;
-      t.y = (y0 + (row * this.rowH)) + 3;
-      t.row = row;
+      t.y = (buttonsY + (row * useRowH)) + 3;
       t.w = w;
-      t.h = this.rowH - 6;
+      t.h = useRowH - 6;
+      if ( t.isLarge == false ) {
+        t.h = this.rowH - 6;
+        t.y = t.y + ((((useRowH - this.rowH) / 2) | 0));
+      }
       cx = cx + w;
       if ( t.isSeparator == false ) {
         cx = cx + 2;
@@ -6812,45 +7049,148 @@ class EVGToolbar  {
       i = i + 1;
     };
     this.rows = row + 1;
-    this.height = this.rows * this.rowH;
+    this.height = this.rows * useRowH;
+    if ( this.hasTabs() ) {
+      this.height = this.height + this.tabH;
+    }
+    this.layoutMenu();
     if ( this.rtl ) {
       this.mirrorRows(x0, width);
+      this.mirrorTabs(x0, width);
     }
   };
-  mirrorRows (x0, width) {
-    let r = 0;
-    while (r < this.rows) {
-      let lo = x0 + width;
-      let hi = x0;
-      let i = 0;
-      while (i < (this.items.length)) {
-        const t = this.items[i];
+  labelWidth (t) {
+    if ( t.labelW > 0 ) {
+      return t.labelW;
+    }
+    return (t.label.length) * 7;
+  };
+  layoutMenu () {
+    if ( this.openMenu < 0 ) {
+      return;
+    }
+    if ( this.openMenu >= (this.items.length) ) {
+      this.openMenu = -1;
+      return;
+    }
+    const owner = this.items[this.openMenu];
+    if ( owner.w <= 0 ) {
+      this.openMenu = -1;
+      return;
+    }
+    let wide = 0;
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.menuOwner == this.openMenu ) {
+        const w = (this.iconW + this.labelWidth(t)) + 12;
+        if ( w > wide ) {
+          wide = w;
+        }
+      }
+      i = i + 1;
+    };
+    if ( wide < owner.w ) {
+      wide = owner.w;
+    }
+    let y = owner.y + owner.h;
+    let j = 0;
+    while (j < (this.items.length)) {
+      const e = this.items[j];
+      if ( e.menuOwner == this.openMenu ) {
+        e.x = owner.x;
+        e.y = y;
+        e.w = wide;
+        e.h = 26;
+        y = y + 26;
+      }
+      j = j + 1;
+    };
+  };
+  menuBox () {
+    let out = [];
+    if ( this.openMenu < 0 ) {
+      return out;
+    }
+    let x0 = 0;
+    let y0 = 0;
+    let x1 = 0;
+    let y1 = 0;
+    let any = false;
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.menuOwner == this.openMenu ) {
         if ( t.w > 0 ) {
-          if ( t.row == r ) {
-            if ( t.x < lo ) {
-              lo = t.x;
+          if ( any == false ) {
+            x0 = t.x;
+            y0 = t.y;
+            x1 = t.x + t.w;
+            y1 = t.y + t.h;
+            any = true;
+          } else {
+            if ( (t.x + t.w) > x1 ) {
+              x1 = t.x + t.w;
             }
-            if ( (t.x + t.w) > hi ) {
-              hi = t.x + t.w;
+            if ( (t.y + t.h) > y1 ) {
+              y1 = t.y + t.h;
             }
           }
         }
-        i = i + 1;
-      };
-      if ( hi > lo ) {
-        const span = lo + hi;
-        let j = 0;
-        while (j < (this.items.length)) {
-          const t2 = this.items[j];
-          if ( t2.w > 0 ) {
-            if ( t2.row == r ) {
-              t2.x = span - (t2.x + t2.w);
-            }
-          }
-          j = j + 1;
-        };
       }
-      r = r + 1;
+      i = i + 1;
+    };
+    if ( any == false ) {
+      return out;
+    }
+    out.push(x0);
+    out.push(y0);
+    out.push(x1 - x0);
+    out.push(y1 - y0);
+    return out;
+  };
+  layoutTabs (x0, y0, width) {
+    const right = (x0 + width) - this.pad;
+    let cx = x0 + this.pad;
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      const w = this.tabLabelW(t);
+      if ( (cx + w) > right ) {
+        t.x = 0;
+        t.y = 0;
+        t.w = 0;
+        t.h = 0;
+      } else {
+        t.x = cx;
+        t.y = y0 + 2;
+        t.w = w;
+        t.h = this.tabH - 2;
+        cx = cx + w;
+      }
+      i = i + 1;
+    };
+  };
+  mirrorTabs (x0, width) {
+    const span = (x0 + x0) + width;
+    let i = 0;
+    while (i < (this.tabs.length)) {
+      const t = this.tabs[i];
+      if ( t.w > 0 ) {
+        t.x = span - (t.x + t.w);
+      }
+      i = i + 1;
+    };
+  };
+  mirrorRows (x0, width) {
+    const span = (x0 + x0) + width;
+    let i = 0;
+    while (i < (this.items.length)) {
+      const t = this.items[i];
+      if ( t.w > 0 ) {
+        t.x = span - (t.x + t.w);
+      }
+      i = i + 1;
     };
   };
   a11y (t, parentId, idPrefix, bx, by, bw, bh) {
@@ -6858,6 +7198,23 @@ class EVGToolbar  {
     const bar = t.node(barId, parentId, EVGA11yRole.toolbar());
     bar.name = "Toolbar";
     t.place(bar, bx, by, bw, bh);
+    if ( this.hasTabs() ) {
+      const listId = barId + "/tabs";
+      const list = t.node(listId, barId, EVGA11yRole.tabList());
+      list.name = "Toolbar pages";
+      t.place(list, bx, by, bw, this.tabH);
+      let ti = 0;
+      while (ti < (this.tabs.length)) {
+        const tb = this.tabs[ti];
+        if ( tb.w > 0 ) {
+          const tn = t.node(((listId + "/") + tb.name), listId, EVGA11yRole.tab());
+          tn.name = tb.name;
+          t.place(tn, tb.x, tb.y, tb.w, tb.h);
+          tn.selected = ti == this.activeTab;
+        }
+        ti = ti + 1;
+      };
+    }
     let i = 0;
     while (i < (this.items.length)) {
       const it = this.items[i];
@@ -14939,6 +15296,9 @@ class ToolIconPath  {
   }
 }
 ToolIconPath.dataFor = function(k) {
+  if ( k == ToolIcon.printDoc() ) {
+    return "M6 2 h12 v5 h-12 z M2 8 h20 v8 h-4 v-4 h-12 v4 h-4 z M6 14 h12 v8 h-12 z";
+  }
   if ( k == ToolIcon.textRtl() ) {
     return "M4 3 h16 v3 h-16 z M8 8 h12 v3 h-12 z M4 13 h16 v3 h-16 z M9 21 l4 -4 v2.4 h8 v3.2 h-8 v2.4 z";
   }
@@ -15050,6 +15410,9 @@ ToolIconPath.dataFor = function(k) {
   return "";
 };
 ToolIconPath.holeFor = function(k) {
+  if ( k == ToolIcon.printDoc() ) {
+    return "M8 3 h8 v3 h-8 z M8 15 h8 v6 h-8 z M16 10 h4 v2 h-4 z";
+  }
   if ( k == ToolIcon.newFile() ) {
     return "M14 2 v5 h5 z M7 4 h6 v5 h6 v11 h-12 z";
   }
@@ -15276,7 +15639,12 @@ class EVGToolbarView  {
   paint (dl, bar, x0, y0, width, height) {
     this.pushRect(dl, x0, y0, width, height, this.theme.bg);
     this.pushBorder(dl, x0, y0, width, height, 1.0, this.theme.line);
+    this.measureTabs(bar);
+    this.measureLabels(bar);
     bar.layout(x0, y0, width);
+    if ( bar.hasTabs() ) {
+      this.paintTabs(dl, bar, x0, y0, width);
+    }
     let i = 0;
     while (i < (bar).count()) {
       const t = (bar).at(i);
@@ -15295,7 +15663,13 @@ class EVGToolbarView  {
           if ( t.textW > 0 ) {
             this.paintTextButton(dl, t);
           } else {
-            this.paintToolIcon(dl, t);
+            this.paintToolIcon(dl, t, bar.iconW);
+            if ( t.showLabel ) {
+              this.paintChipLabel(dl, t, bar.iconW);
+            }
+            if ( t.isMenu ) {
+              this.paintChevron(dl, (t.x + t.w) - 9, t.y + (((t.h / 2) | 0)), this.theme.dim);
+            }
           }
         }
       }
@@ -15318,6 +15692,99 @@ class EVGToolbarView  {
         this.pushText(dl, tip, (tx + 6), (ty + 3), 12.0, this.theme.ink);
       }
     }
+  };
+  paintChipLabel (dl, t, iconW) {
+    this.applyFace(false);
+    if ( t.isLarge ) {
+      const lw = this.ctx.tr.measureWidth(t.label, 12.0);
+      const lx = (t.x) + (((t.w) - lw) * 0.5);
+      const ly = ((t.y + t.h) - 16);
+      this.pushText(dl, t.label, lx, ly, 12.0, this.theme.ink);
+      return;
+    }
+    const ty = (t.y) + (((t.h) - 12.0) * 0.5);
+    this.pushText(dl, t.label, (t.x + iconW), ty, 12.0, this.theme.ink);
+  };
+  paintChevron (dl, cx, cy, col) {
+    this.pushRect(dl, (cx - 3), (cy - 1), 7.0, 1.0, col);
+    this.pushRect(dl, (cx - 2), (cy + 1), 5.0, 1.0, col);
+    this.pushRect(dl, (cx - 1), (cy + 3), 3.0, 1.0, col);
+  };
+  measureLabels (bar) {
+    this.applyFace(false);
+    let i = 0;
+    while (i < (bar).count()) {
+      const t = (bar).at(i);
+      if ( t.showLabel ) {
+        t.labelW = Math.floor( (this.ctx.tr.measureWidth(t.label, 12.0) + 8.0));
+      }
+      i = i + 1;
+    };
+  };
+  paintOverlay (dl, bar) {
+    this.paintMenu(dl, bar);
+  };
+  paintMenu (dl, bar) {
+    const box = bar.menuBox();
+    if ( (box.length) < 4 ) {
+      return;
+    }
+    const bx = (box[0]);
+    const by = (box[1]);
+    const bw = (box[2]);
+    const bh = (box[3]);
+    this.pushRect(dl, bx, by, bw, bh, this.theme.tipBg);
+    this.pushBorder(dl, bx, by, bw, bh, 1.0, this.theme.line);
+    let i = 0;
+    while (i < (bar).count()) {
+      const t = (bar).at(i);
+      if ( t.menuOwner == bar.openMenu ) {
+        if ( t.w > 0 ) {
+          if ( bar.hot == i ) {
+            this.pushRect(dl, t.x, t.y, t.w, t.h, this.theme.hotBg);
+          }
+          this.paintToolIcon(dl, t, bar.iconW);
+          this.paintChipLabel(dl, t, bar.iconW);
+        }
+      }
+      i = i + 1;
+    };
+  };
+  measureTabs (bar) {
+    if ( bar.hasTabs() == false ) {
+      return;
+    }
+    this.applyFace(false);
+    let i = 0;
+    while (i < bar.tabCount()) {
+      const t = bar.tabAt(i);
+      t.measuredW = Math.floor( this.ctx.tr.measureWidth(t.name, 13.0));
+      i = i + 1;
+    };
+  };
+  paintTabs (dl, bar, x0, y0, width) {
+    const baseY = ((y0 + bar.tabH) - 1);
+    this.pushRect(dl, x0, baseY, width, 1.0, this.theme.line);
+    let i = 0;
+    while (i < bar.tabCount()) {
+      const t = bar.tabAt(i);
+      if ( t.w > 0 ) {
+        const active = i == bar.activeTab;
+        let col = this.theme.dim;
+        if ( active ) {
+          this.pushRect(dl, t.x, t.y, t.w, (t.h + 1), this.theme.tipBg);
+          this.pushBorder(dl, t.x, t.y, t.w, (t.h + 1), 1.0, this.theme.line);
+          this.pushRect(dl, (t.x + 1), t.y, (t.w - 2), 2.0, this.theme.accent);
+          this.pushRect(dl, (t.x + 1), baseY, (t.w - 2), 1.0, this.theme.tipBg);
+          col = this.theme.ink;
+        }
+        const tw = this.ctx.tr.measureWidth(t.name, 13.0);
+        const tx = (t.x) + (((t.w) - tw) * 0.5);
+        const ty = (t.y) + (((t.h) - 13.0) * 0.5);
+        this.pushText(dl, t.name, tx, ty, 13.0, col);
+      }
+      i = i + 1;
+    };
   };
   paintTextButton (dl, t) {
     this.pushBorder(dl, t.x, t.y, t.w, t.h, 1.0, this.theme.line);
@@ -15401,9 +15868,16 @@ class EVGToolbarView  {
       return;
     }
   };
-  paintToolIcon (dl, t) {
-    const cx = t.x + (((t.w / 2) | 0));
-    const cy = t.y + (((t.h / 2) | 0));
+  paintToolIcon (dl, t, iconW) {
+    let cx = t.x + (((t.w / 2) | 0));
+    let cy = t.y + (((t.h / 2) | 0));
+    if ( t.showLabel ) {
+      cx = t.x + (((iconW / 2) | 0));
+    }
+    if ( t.isLarge ) {
+      cx = t.x + (((t.w / 2) | 0));
+      cy = (t.y + 4) + (((this.glyphSize / 2) | 0));
+    }
     const ink = this.theme.ink;
     const dim = this.theme.dim;
     const k = t.icon;
@@ -15946,7 +16420,11 @@ function __js_main() {
   const boldItem = (mbar).at(2);
   const undoW = undoItem.w;
   const boldW = boldItem.w;
-  c.eqInt("and Bold begins where Undo used to end", rx2, (lx0 + undoW) - boldW);
+  const firstEnd = rx0 + undoW;
+  c.ok("the strip is packed against the right edge", firstEnd > 880);
+  c.ok("and is not still hugging the left one", rx2 > 700);
+  c.eqInt("the padding is the same at the far end", 900 - firstEnd, lx0);
+  c.eqInt("Bold's left edge mirrors Undo's right edge", rx2, 900 - (lx2 + boldW));
   const firstItem = (mbar).at(0);
   const firstY = firstItem.y;
   const hitR = mbar.hit((rx0 + 2), (firstY + 2));
@@ -15956,6 +16434,104 @@ function __js_main() {
   c.eqInt("and the leftmost hits Bold", hitL, 2);
   const firstCmd = firstItem.command;
   c.eqStr("the model order is untouched", firstCmd, "edit.undo");
+  console.log("-- and the same strip in named pages --");
+  const tb = new EVGToolbar();
+  tb.addTab("Home");
+  tb.add("file.save", "", "Save", ToolIcon.save());
+  tb.add("edit.undo", "", "Undo", ToolIcon.undo());
+  tb.addTab("Insert");
+  tb.add("insert.chart", "", "Chart", ToolIcon.chart());
+  tb.add("insert.link", "", "Link", ToolIcon.link());
+  tb.add("picture.add", "", "Picture", ToolIcon.picture());
+  tb.layout(0, 0, 900);
+  c.ok("the strip has pages", tb.hasTabs());
+  c.eqInt("two of them", tb.tabCount(), 2);
+  c.eqInt("and every button is still in the one list", (tb).count(), 5);
+  c.eqInt("Home is found by name", tb.tabNamed("Home"), 0);
+  c.eqInt("and Insert", tb.tabNamed("Insert"), 1);
+  c.eqInt("a name nobody used is not found", tb.tabNamed("Nowhere"), -1);
+  const home0 = (tb).at(0);
+  const ins0 = (tb).at(2);
+  c.ok("a button on the showing page has a rectangle", home0.w > 0);
+  c.ok("one on the other page has none", ins0.w == 0);
+  c.eqInt("so a click where it would be hits nothing", tb.hit((home0.x + 2), (home0.y + 2)), 0);
+  const t0 = tb.tabAt(0);
+  const t1 = tb.tabAt(1);
+  c.ok("the first name is at the left", t0.x < t1.x);
+  c.ok("the names are on their own row", t0.y < home0.y);
+  c.ok("and the buttons start under them", home0.y >= tb.tabH);
+  c.eqInt("clicking a name finds it", tb.hitTab((t1.x + 2), (t1.y + 2)), 1);
+  c.eqInt("and clicking where a button is finds no name", tb.hitTab((home0.x + 2), (home0.y + 2)), -1);
+  c.ok("selecting the other page changes something", tb.selectTab(1));
+  c.ok("selecting it again changes nothing", tb.selectTab(1) == false);
+  c.ok("and a page that is not there is refused", tb.selectTab(7) == false);
+  tb.layout(0, 0, 900);
+  const home0b = (tb).at(0);
+  const ins0b = (tb).at(2);
+  c.ok("now Insert has the rectangles", ins0b.w > 0);
+  c.ok("and Home has none", home0b.w == 0);
+  c.eqInt("the click lands on the Insert button", tb.hit((ins0b.x + 2), (ins0b.y + 2)), 2);
+  const flat = new EVGToolbar();
+  flat.add("file.save", "", "Save", ToolIcon.save());
+  flat.add("edit.undo", "", "Undo", ToolIcon.undo());
+  c.eqInt("the pages cost exactly one row of names", tb.heightFor(900) - flat.heightFor(900), tb.tabH);
+  const mtb = new EVGToolbar();
+  mtb.addTab("Home");
+  mtb.add("file.save", "", "Save", ToolIcon.save());
+  mtb.addTab("Insert");
+  mtb.add("insert.chart", "", "Chart", ToolIcon.chart());
+  mtb.rtl = true;
+  mtb.layout(0, 0, 900);
+  const m0 = mtb.tabAt(0);
+  const m1 = mtb.tabAt(1);
+  c.ok("turned around, the first page name is on the right", m0.x > m1.x);
+  c.ok("and it reaches the right-hand edge", (m0.x + m0.w) > 880);
+  console.log("-- buttons that say what they are, and lists that fold away --");
+  const lb = new EVGToolbar();
+  const plain = lb.add("edit.undo", "", "Undo", ToolIcon.undo());
+  const named = lb.addLabeled("file.print", "", "Print", ToolIcon.printDoc());
+  lb.layout(0, 0, 900);
+  c.ok("a labelled button says so", named.showLabel);
+  c.ok("a plain one does not", plain.showLabel == false);
+  c.ok("and the label makes it wider", named.w > plain.w);
+  const dd = new EVGToolbar();
+  const owner = dd.addDropdown("Borders", ToolIcon.borderAll());
+  dd.addUnder("format.border", "all", "All borders", ToolIcon.borderAll());
+  dd.addUnder("format.border", "none", "No border", ToolIcon.borderNone());
+  dd.addUnder("format.border", "outline", "Outline", ToolIcon.borderOut());
+  dd.addUnder("format.border", "", "More borders…", ToolIcon.borderMore());
+  dd.layout(0, 0, 900);
+  c.eqInt("the strip holds five buttons", (dd).count(), 5);
+  const e0 = (dd).at(1);
+  const e2 = (dd).at(4);
+  c.ok("the dropdown itself is on the strip", owner.w > 0);
+  c.eqInt("and its entries take no room at all", e0.w, 0);
+  c.eqInt("none of them", e2.w, 0);
+  const flat2 = new EVGToolbar();
+  flat2.add("format.border", "all", "All borders", ToolIcon.borderAll());
+  flat2.add("format.border", "none", "No border", ToolIcon.borderNone());
+  flat2.add("format.border", "outline", "Outline", ToolIcon.borderOut());
+  flat2.add("format.border", "", "More borders…", ToolIcon.borderMore());
+  flat2.layout(0, 0, 900);
+  const flatEnd = (flat2).at(3);
+  c.ok("the folded list is narrower than the four buttons were", (owner.x + owner.w) < (flatEnd.x + flatEnd.w));
+  c.ok("pressing it is handled by the strip", dd.pressItem(0));
+  c.eqInt("and the list is showing", dd.openMenu, 0);
+  dd.layout(0, 0, 900);
+  const o0 = (dd).at(1);
+  const o1 = (dd).at(2);
+  c.ok("now the entries have rectangles", o0.w > 0);
+  c.ok("stacked under the button", o0.y >= (owner.y + owner.h));
+  c.ok("one below the other", o1.y > o0.y);
+  c.ok("all the same width", o1.w == o0.w);
+  c.eqInt("and a click lands on one", dd.hit((o1.x + 4), (o1.y + 4)), 2);
+  const box = dd.menuBox();
+  c.eqInt("the list has a box to draw a panel behind", box.length, 4);
+  c.ok("choosing an entry is left to the owner", dd.pressItem(2) == false);
+  c.eqInt("and the list is shut again", dd.openMenu, -1);
+  dd.pressItem(0);
+  c.ok("pressing it again shuts it", dd.pressItem(0));
+  c.eqInt("shut", dd.openMenu, -1);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed == 0 ) {

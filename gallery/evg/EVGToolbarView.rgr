@@ -298,9 +298,17 @@ class EVGToolbarView {
         }
     }
 
-    ; The word beside the picture on a labelled button.
+    ; The word beside the picture on a labelled button, or under it on a big
+    ; one.
     fn paintChipLabel:void (dl:EVGDisplayList t:ToolItem iconW:int) {
         this.applyFace(false)
+        if t.isLarge {
+            def lw:double (ctx.tr.measureWidth(t.label 12.0))
+            def lx:double ((to_double t.x) + (((to_double t.w) - lw) * 0.5))
+            def ly:double ((to_double ((t.y + t.h) - 16)))
+            this.pushText(dl t.label lx ly 12.0 theme.ink)
+            return
+        }
         def ty:double ((to_double t.y) + (((to_double t.h) - 12.0) * 0.5))
         this.pushText(dl t.label (to_double (t.x + iconW)) ty 12.0 theme.ink)
     }
@@ -527,6 +535,13 @@ class EVGToolbarView {
         ; three times its width leaves the word floating away from it.
         if t.showLabel {
             cx = (t.x + (idiv iconW 2))
+        }
+        ; A big button centres its picture over its name rather than beside
+        ; it, which is the whole difference between "one of these commands"
+        ; and "the command this page is for".
+        if t.isLarge {
+            cx = (t.x + (idiv t.w 2))
+            cy = ((t.y + 4) + (idiv (glyphSize) 2))
         }
         def ink:EVGColor theme.ink
         def dim:EVGColor theme.dim

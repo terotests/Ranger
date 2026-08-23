@@ -5228,8 +5228,17 @@ class GridApp {
         if (py < (grid.toolbarY())) {
             return -1
         }
+        ; An open dropdown hangs BELOW the band, over the formula bar and the
+        ; first rows of the sheet, so the band guard has to let those through
+        ; — otherwise the list is drawn, and drawn over the sheet, and none of
+        ; it can be clicked. It worked before this only by accident: the band
+        ; height was settled once at startup and happened to be tall enough to
+        ; contain the list, and it stopped being so the moment the height
+        ; started tracking the page being shown.
         if (py >= ((grid.toolbarY()) + grid.toolbarH)) {
-            return -1
+            if ((view.toolbar.openMenu) < 0) {
+                return -1
+            }
         }
         return (view.toolbar.hit(px py))
     }
@@ -8690,6 +8699,10 @@ class GridApp {
         ; costs a walk of the STYLE table, not the cells, and only while the
         ; answer is still no.
         this.adoptWorkbookDirection()
+        ; The band is as tall as the page showing on it needs, and pages
+        ; differ. Settling this only on resize leaves the strip short after a
+        ; page change.
+        grid.toolbarH = (view.toolbar.heightFor(W))
         view.render(model sel grid editing editBuf book)
     }
 
