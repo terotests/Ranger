@@ -20,7 +20,7 @@
 ; keeps the ERD side self-contained.
 ; ============================================================================
 
-Import "DatabaseSchema.rgr"
+Import "../../../rangerdb/src/schema/DatabaseSchema.rgr"
 
 class SqlToken {
     def text:string ""
@@ -329,7 +329,7 @@ class SqlSchemaReader {
             return
         }
         def dataType:string (this.readType())
-        def col:DBColumn (t.column(name dataType))
+        def col:SchemaColumn (t.column(name dataType))
         def guard:int 0
         while ((this.atEnd()) == false) {
             guard = (guard + 1)
@@ -468,7 +468,7 @@ class SqlSchemaReader {
         return v
     }
 
-    fn readInlineReference:void (t:DBTable col:DBColumn) {
+    fn readInlineReference:void (t:DBTable col:SchemaColumn) {
         def target:string (this.readQualifiedName())
         def cols:[string] (this.readNameList())
         def toCol:string ""
@@ -543,7 +543,7 @@ class SqlSchemaReader {
             while (i < (array_length cols)) {
                 def ci:int (t.columnIndex((itemAt cols i)))
                 if (ci >= 0) {
-                    def c:DBColumn (itemAt t.columns ci)
+                    def c:SchemaColumn (itemAt t.columns ci)
                     c.isPrimaryKey = true
                     c.nullable = false
                 }
@@ -570,7 +570,7 @@ class SqlSchemaReader {
             if ((array_length ucols) == 1) {
                 def ci2:int (t.columnIndex((itemAt ucols 0)))
                 if (ci2 >= 0) {
-                    def c2:DBColumn (itemAt t.columns ci2)
+                    def c2:SchemaColumn (itemAt t.columns ci2)
                     c2.isUnique = true
                 }
             }
@@ -676,7 +676,7 @@ class SqlSchemaReader {
                 if ((array_length cols) == 1) {
                     def ci:int (t.columnIndex((itemAt cols 0)))
                     if (ci >= 0) {
-                        def c:DBColumn (itemAt t.columns ci)
+                        def c:SchemaColumn (itemAt t.columns ci)
                         c.isUnique = true
                     }
                 }

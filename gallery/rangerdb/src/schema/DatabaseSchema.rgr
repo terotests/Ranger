@@ -4,22 +4,31 @@
 ; DatabaseSchema.rgr — what a database looks like, with no diagram in sight.
 ; ============================================================================
 ;
-; The core knows about nodes, ports and edges. It does not know about tables,
-; and it must not: the day it does, a UML class diagram becomes a table with
-; the words changed. So the domain model lives here, entirely on its own, and
-; `SchemaToGraph` is the only file that has heard of both.
+; A graph editor knows about nodes, ports and edges. It does not know about
+; tables, and it must not: the day it does, a UML class diagram becomes a table
+; with the words changed. So the domain model lives here, entirely on its own,
+; and `SchemaToGraph` is the only file that has heard of both.
 ;
 ;   DuckDB / SQLite / Postgres / RangerDB
-;                ↓  (an inspector, per engine)
+;                ↓  DBIntrospector, per engine
 ;         DatabaseSchema          ← this file
-;                ↓  SchemaToGraph
-;             FlowGraph
+;                ↓  SchemaToGraph            ↓  exporters, diff, metrics
+;             FlowGraph                   DDL / JSON / Markdown / …
 ;
 ; That shape is what lets the same diagram come from a live connection, from a
 ; `.sql` file, or from a JSON fixture, with the editor unable to tell.
+;
+; It lives under `rangerdb` rather than beside the ERD domain that first used
+; it, because it is what a database IS, and the things that now read it — the
+; introspectors, the schema differ, the migration replayer, the metrics
+; analyzer — must not have to depend on a diagram library to name a table.
+; It imports nothing, and that is deliberate: keep it that way.
+;
+; Note `SchemaColumn`, not `DBColumn`. A column of a TABLE and a column of a
+; RESULT are different objects, and `DBValue.rgr` already owns the second name.
 ; ============================================================================
 
-class DBColumn {
+class SchemaColumn {
     def name:string ""
     def dataType:string ""
     def nullable:boolean true
@@ -34,8 +43,8 @@ class DBColumn {
     Constructor () {
     }
 
-    sfn create:DBColumn (name:string dataType:string) {
-        def c (new DBColumn)
+    sfn create:SchemaColumn (name:string dataType:string) {
+        def c (new SchemaColumn)
         c.name = name
         c.dataType = dataType
         return c
@@ -65,7 +74,7 @@ class DBTable {
     def name:string ""
     def schema:string ""
     def comment:string ""
-    def columns:[DBColumn]
+    def columns:[SchemaColumn]
     def indexes:[DBIndex]
     def constraints:[DBConstraint]
     ; "table" | "view" | "materialized"
@@ -87,21 +96,21 @@ class DBTable {
         return name
     }
 
-    fn addColumn:DBColumn (c:DBColumn) {
+    fn addColumn:SchemaColumn (c:SchemaColumn) {
         c.position = (array_length columns)
         push columns c
         return c
     }
 
-    fn column:DBColumn (name:string dataType:string) {
-        def c:DBColumn (DBColumn.create(name dataType))
+    fn column:SchemaColumn (name:string dataType:string) {
+        def c:SchemaColumn (SchemaColumn.create(name dataType))
         return (this.addColumn(c))
     }
 
     fn columnIndex:int (name:string) {
         def i:int 0
         while (i < (array_length columns)) {
-            def c:DBColumn (itemAt columns i)
+            def c:SchemaColumn (itemAt columns i)
             if (c.name == name) {
                 return i
             }
@@ -114,7 +123,7 @@ class DBTable {
         def out:[string]
         def i:int 0
         while (i < (array_length columns)) {
-            def c:DBColumn (itemAt columns i)
+            def c:SchemaColumn (itemAt columns i)
             if (c.isPrimaryKey) {
                 push out c.name
             }
@@ -235,7 +244,7 @@ class DatabaseSchema {
                 while (c < (array_length fk.fromColumns)) {
                     def ci:int (t2.columnIndex((itemAt fk.fromColumns c)))
                     if (ci >= 0) {
-                        def col:DBColumn (itemAt t2.columns ci)
+                        def col:SchemaColumn (itemAt t2.columns ci)
                         col.isForeignKey = true
                     }
                     c = (c + 1)
@@ -261,7 +270,7 @@ class DatabaseSchema {
             if (ci < 0) {
                 allUnique = false
             } {
-                def col:DBColumn (itemAt t.columns ci)
+                def col:SchemaColumn (itemAt t.columns ci)
                 def u:boolean false
                 if col.isUnique { u = true }
                 if col.isPrimaryKey { u = true }
@@ -289,7 +298,7 @@ class DatabaseSchema {
         while (i < (array_length fk.fromColumns)) {
             def ci:int (t.columnIndex((itemAt fk.fromColumns i)))
             if (ci >= 0) {
-                def col:DBColumn (itemAt t.columns ci)
+                def col:SchemaColumn (itemAt t.columns ci)
                 if col.nullable {
                     return true
                 }
