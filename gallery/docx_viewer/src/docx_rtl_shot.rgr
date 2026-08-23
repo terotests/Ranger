@@ -1,0 +1,80 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; docx_rtl_shot — render the right-to-left fixture to a PNG, for looking at.
+;
+; The tests say the codepoints are right. This says the page is.
+;
+;   npm run docx_viewer:rtl:shot
+
+Import "DocxViewer.rgr"
+Import "DocxApp.rgr"
+Import "../../datagrid/src/SoftPainter.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+
+class DocxRtlShot {
+    sfn main:void () {
+        def viewer (new DocxViewer)
+        viewer.init("gallery/pdf_writer/assets/fonts")
+        def fix:string "gallery/docx_viewer/fixtures"
+        if ((viewer.openFile(fix "24-rtl-arabic.docx")) == false) {
+            print ("FAIL open: " + viewer.lastError)
+            return
+        }
+        def d:RichDocument (viewer.document())
+        print ("paragraphs=" + (to_string (d.paragraphCount())))
+        def i:int 0
+        def rtl:int 0
+        while (i < (array_length d.paragraphs)) {
+            def p:Paragraph (itemAt d.paragraphs i)
+            if (p.bidi == 1) {
+                rtl = (rtl + 1)
+            }
+            i = (i + 1)
+        }
+        print ("right-to-left paragraphs=" + (to_string rtl))
+        viewer.renderPage(0)
+        viewer.writePng("gallery/docx_viewer" "docx_rtl_arabic.png")
+        print "wrote gallery/docx_viewer/docx_rtl_arabic.png"
+
+        ; And the whole window, with the interface turned around by the
+        ; switch — which is a different claim from the page above and needs
+        ; its own picture.
+        DocxRtlShot.window(true "docx_rtl_window.png")
+        DocxRtlShot.window(false "docx_ltr_window.png")
+    }
+
+    sfn window:void (rtl:boolean out:string) {
+        def app (new DocxApp)
+        def W:int 900
+        def H:int 700
+        app.viewer.init("gallery/pdf_writer/assets/fonts")
+        app.init()
+        app.resize(W H)
+        app.viewer.openFile("gallery/docx_viewer/fixtures" "24-rtl-arabic.docx")
+        if (rtl == false) {
+            ; The automatic half would turn it on for this document, so the
+            ; left-to-right picture has to say no on the reader's behalf.
+            app.runCommand("view.rtl" "")
+            app.runCommand("view.rtl" "")
+        }
+        def dl:EVGDisplayList (app.buildDisplayList())
+        def painter (new SoftPainter)
+        def canvas (new SoftCanvas)
+        canvas.init(W H)
+        ; The APP's context, not a fresh one: the faces are loaded on it, and
+        ; a painter handed an empty context falls back to the bitmap font and
+        ; draws no Arabic at all. Which is what the first version of this tool
+        ; did, and the picture said so immediately.
+        def ctx:UIContext app.viewer.view.ctx
+        ctx.attach(canvas)
+        painter.attach(canvas ctx (new GridImages) W H)
+        painter.draw(dl)
+        def rb (new RasterBuffer)
+        rb.width = W
+        rb.height = H
+        rb.pixels = (canvas.raw())
+        def png (new PNGEncoder)
+        png.encode(rb "gallery/docx_viewer" out)
+        print ("wrote gallery/docx_viewer/" + out)
+    }
+}

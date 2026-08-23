@@ -204,11 +204,35 @@ class EVGToolbarTest {
         ; The widths are unchanged and the strip still starts where it did:
         ; this reflects the buttons, it does not restretch the band.
         c.eqInt("the strip is the same height" mbar.height rbar.height)
+
         def undoItem:ToolItem (rbar.at(0))
         def boldItem:ToolItem (mbar.at(2))
         def undoW:int undoItem.w
         def boldW:int boldItem.w
-        c.eqInt("and Bold begins where Undo used to end" rx2 ((lx0 + undoW) - boldW))
+
+        ; WHERE THE STRIP SITS, not only the order inside it.
+        ;
+        ; This is the check that was missing, and its absence let a mirroring
+        ; that reversed every button and moved the block of them nowhere pass
+        ; a full green suite: the buttons came out in the right order, still
+        ; packed against the LEFT edge with the empty space still on the
+        ; right. Every button had moved and the strip had not. A screenshot
+        ; said so in a second; the tests did not, because each of them asked
+        ; about a button relative to another button.
+        ;
+        ; So: the first command must reach the right-hand edge, and the last
+        ; must not begin at the left one.
+        def firstEnd:int (rx0 + undoW)
+        c.ok("the strip is packed against the right edge" (firstEnd > 880))
+        c.ok("and is not still hugging the left one" (rx2 > 700))
+        ; The padding survives the reflection at both ends: a row that began
+        ; `pad` from the left edge ends `pad` from the right one.
+        c.eqInt("the padding is the same at the far end" (900 - firstEnd) lx0)
+        ; Bold was leftmost-but-two on the left-hand strip; mirrored it is
+        ; the leftmost button, and its left edge is the mirror of Undo's
+        ; right edge — the outermost button on each side is the same distance
+        ; in from its own edge.
+        c.eqInt("Bold's left edge mirrors Undo's right edge" rx2 (900 - (lx2 + boldW)))
 
         ; The click follows, because it reads the same rectangle the painter
         ; does. This is the check that would fail if mirroring had been done

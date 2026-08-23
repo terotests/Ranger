@@ -199,10 +199,6 @@ class ToolItem {
     def y:int 0
     def w:int 0
     def h:int 0
-    ; Which wrapped row this landed on. Recorded rather than derived from `y`,
-    ; because deriving it means knowing the strip's own origin and a mirroring
-    ; pass that got that subtraction wrong would move buttons between rows.
-    def row:int 0
     ; A separator is drawn as a rule and cannot be clicked.
     def isSeparator:boolean false
     ; Whether a toggle is currently on. The strip does not know how to answer
@@ -312,7 +308,6 @@ class EVGToolbar {
             }
             t.x = cx
             t.y = ((y0 + (row * rowH)) + 3)
-            t.row = row
             t.w = w
             t.h = (rowH - 6)
             cx = (cx + w)
@@ -328,52 +323,38 @@ class EVGToolbar {
         }
     }
 
-    ; Reflect every placed button about the strip, so the first command is
-    ; under the reader's hand — which for a right-to-left reader is the right
-    ; end of the strip, exactly as the first word of a line is.
+    ; Reflect every placed button about THE STRIP, so the row begins at the
+    ; right-hand edge — where a right-to-left reader's eye and hand start, and
+    ; where the first word of every line in the document below it begins.
     ;
-    ; Each row is mirrored on its own, not the strip as a whole: a wrapped
-    ; last row is short, and reflecting the whole band would leave its buttons
-    ; floating in the middle instead of against the edge the rest start from.
+    ; About the strip, and not about the extent the buttons happen to occupy.
+    ; That was the first version of this and it was wrong in a way the tests
+    ; did not catch and a screenshot did immediately: reflecting a row about
+    ; its own ends reverses the ORDER of the buttons and leaves the block of
+    ; them exactly where it was, still packed against the left edge with the
+    ; empty space still on the right. Every button had moved and the strip had
+    ; not.
+    ;
+    ; Reflecting about the strip is also what a wrapped row wants. A short
+    ; last row lands against the right edge, which is where a row starts here,
+    ; the same way a short last line of a right-to-left paragraph does.
+    ;
+    ; `pad` is preserved at both ends because it is inside the reflection: a
+    ; row running from x0+pad to some x lands with its far end at
+    ; x0+width-pad.
+    ;
     ; Buttons that did not fit were given no rectangle and are left alone —
-    ; reflecting a zero-width item at zero would put a phantom target at the
-    ; far edge.
+    ; reflecting a zero-width item at zero would put a phantom click target at
+    ; the far edge.
     fn mirrorRows:void (x0:int width:int) {
-        def r:int 0
-        while (r < rows) {
-            ; Where this row's buttons actually reach, which is not the strip
-            ; width once a row has wrapped.
-            def lo:int (x0 + width)
-            def hi:int x0
-            def i:int 0
-            while (i < (array_length items)) {
-                def t:ToolItem (itemAt items i)
-                if (t.w > 0) {
-                    if (t.row == r) {
-                        if (t.x < lo) {
-                            lo = t.x
-                        }
-                        if (((t.x + t.w)) > hi) {
-                            hi = (t.x + t.w)
-                        }
-                    }
-                }
-                i = (i + 1)
+        def span:int ((x0 + x0) + width)
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.w > 0) {
+                t.x = (span - (t.x + t.w))
             }
-            if (hi > lo) {
-                def span:int (lo + hi)
-                def j:int 0
-                while (j < (array_length items)) {
-                    def t2:ToolItem (itemAt items j)
-                    if (t2.w > 0) {
-                        if (t2.row == r) {
-                            t2.x = (span - (t2.x + t2.w))
-                        }
-                    }
-                    j = (j + 1)
-                }
-            }
-            r = (r + 1)
+            i = (i + 1)
         }
     }
 
