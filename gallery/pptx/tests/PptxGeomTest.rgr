@@ -18,6 +18,7 @@
 
 Import "../src/PptxGeom.rgr"
 Import "../src/PptxXml.rgr"
+Import "../src/PptxToEvg.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxModel.rgr"
 
@@ -44,6 +45,7 @@ class PptxGeomTest {
         print "=== PptxGeomTest ==="
         this.testEllipse()
         this.testPresets()
+        this.testOutlineFollowsThePath()
         this.testNumbers()
         this.testCustGeomLines()
         this.testCustGeomCubic()
@@ -96,9 +98,79 @@ class PptxGeomTest {
         this.check("it fills the box down" ((minY < 0.001) && (maxY > 0.999)))
     }
 
+    ; How many of a path's corners sit on the given y.
+    sfn cornersAtY:int (pts:[double] want:double) {
+        def n:int 0
+        def i:int 0
+        while (i < (idiv (array_length pts) 2)) {
+            if ((fabs ((itemAt pts ((i * 2) + 1)) - want)) < 0.001) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; A shape with a preset path and a line, drawn, and what the display list
+    ; came out holding.
+    ;
+    ; `kind 1` is the FRAME primitive — an axis-aligned rectangle outline. A
+    ; triangle must not produce one: it was filled as a polygon and then
+    ; outlined as its bounding box, so every triangle, diamond and funnel
+    ; stage in every deck wore a rectangle it did not have. On a seven-stage
+    ; funnel that is seven boxes drawn over the thing they are supposed to be
+    ; tracing.
+    fn drawPreset:EVGDisplayList (preset:string) {
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.preset = preset
+        sh.x = 10.0
+        sh.y = 10.0
+        sh.width = 100.0
+        sh.height = 60.0
+        sh.hasXfrm = true
+        sh.fill.isSet = true
+        sh.fill.srgb = "C83C3C"
+        sh.line.isSet = true
+        sh.line.srgb = "000000"
+        sh.lineWidthPt = 1.0
+        def slide (new PptxSlide())
+        push slide.shapes sh
+        def conv (new PptxToEvg())
+        def dl:EVGDisplayList (conv.slideToDisplayList(slide))
+        return dl
+    }
+
+    sfn countKind:int (dl:EVGDisplayList k:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == k) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn testOutlineFollowsThePath:void () {
+        print "--- an outline follows the shape, not its box ---"
+        def tri:EVGDisplayList (this.drawPreset("triangle"))
+        this.check("a triangle draws no rectangle outline"
+            ((PptxGeomTest.countKind(tri 1)) == 0))
+        def fun:EVGDisplayList (this.drawPreset("flowChartMerge"))
+        this.check("nor does a funnel stage" ((PptxGeomTest.countKind(fun 1)) == 0))
+        ; A rectangle still gets the frame primitive, which is the whole point
+        ; of having one: it knows about square corners and costs one command.
+        def box:EVGDisplayList (this.drawPreset("rect"))
+        this.check("a rectangle still uses the frame primitive"
+            ((PptxGeomTest.countKind(box 1)) > 0))
+    }
+
     fn testPresets:void () {
         print "--- the presets ---"
-        def names:[string] ([] _:string ( "triangle" "rtTriangle" "diamond" "parallelogram" "trapezoid" "pentagon" "hexagon" "octagon" "chevron" "homePlate" "star5" "rightArrow" "leftArrow" "upArrow" "downArrow" "plus" "flowChartTerminator" ))
+        def names:[string] ([] _:string ( "triangle" "rtTriangle" "diamond" "parallelogram" "trapezoid" "pentagon" "hexagon" "octagon" "chevron" "homePlate" "star5" "rightArrow" "leftArrow" "upArrow" "downArrow" "plus" "flowChartTerminator" "flowChartMerge" "flowChartExtract" "flowChartDecision" "flowChartConnector" "flowChartInputOutput" "flowChartData" "flowChartPreparation" "flowChartManualOperation" "flowChartManualInput" ))
         def allInside:boolean true
         def allClosed:boolean true
         def i:int 0
@@ -132,6 +204,31 @@ class PptxGeomTest {
         def rect:[double] (PptxGeom.unitPreset("rect"))
         this.check("rect still answers four corners" ((array_length rect) == 8))
         this.check("an unknown preset falls back to the box" ((array_length (PptxGeom.unitPreset("smileyFace"))) == 8))
+
+        ; The funnel presets, by name and by shape.
+        ;
+        ; A real deck came in with a seven-stage funnel built entirely from
+        ; `flowChartMerge`, and every stage fell back to a rectangle — so the
+        ; funnel was a stack of boxes, and nothing anywhere said a shape was
+        ; missing. Falling back to a rectangle is the right thing to do with a
+        ; preset nobody has drawn yet and a terrible answer when the shape IS
+        ; the picture.
+        def merge:[double] (PptxGeom.unitPreset("flowChartMerge"))
+        this.check("merge is three corners" ((array_length merge) == 6))
+        this.check("with its point at the bottom" ((fabs ((itemAt merge 5) - 1.0)) < 0.001))
+        this.check("and centred" ((fabs ((itemAt merge 4) - 0.5)) < 0.001))
+        def extract:[double] (PptxGeom.unitPreset("flowChartExtract"))
+        this.check("extract is three corners" ((array_length extract) == 6))
+        this.check("with its point at the top" ((fabs (itemAt extract 1)) < 0.001))
+        this.check("and centred too" ((fabs ((itemAt extract 0) - 0.5)) < 0.001))
+        ; They point OPPOSITE ways, which is the whole difference between the
+        ; two symbols and the sort of thing that is easy to copy wrong. A
+        ; downward triangle has its two corners along the TOP edge and one
+        ; below; an upward one is the other way about.
+        def mergeTop:int (PptxGeomTest.cornersAtY(merge 0.0))
+        def extractTop:int (PptxGeomTest.cornersAtY(extract 0.0))
+        this.check("merge has two corners along the top" (mergeTop == 2))
+        this.check("and extract only one" (extractTop == 1))
     }
 
     fn testNumbers:void () {

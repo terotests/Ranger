@@ -1137,6 +1137,16 @@ class PptxToEvg {
         ; An open path has already been stroked with the shape's own line, and
         ; must not also get a rectangle drawn round it.
         def strokedPath:boolean false
+        ; The outline of a shape that is a PATH has to follow that path.
+        ;
+        ; A closed preset — a triangle, a diamond, a funnel stage — was filled
+        ; as a polygon and then outlined as its BOUNDING RECTANGLE, so every
+        ; one of them wore a box it did not have. On a seven-stage funnel that
+        ; is seven rectangles drawn over the thing they are supposed to be
+        ; tracing, and the deck looks like a stack of boxes with triangles
+        ; inside them.
+        def outlinePts:[double]
+        def hasOutline:boolean false
         if (shape.fillGrad.isSet) {
             def gc (new EVGDrawCmd())
             ; use pushGradRect path via temporary
@@ -1192,6 +1202,8 @@ class PptxToEvg {
                     strokedPath = true
                 } {
                     this.pushPathFill(dl pts col)
+                    outlinePts = pts
+                    hasOutline = true
                 }
                 filled = true
             } {
@@ -1244,6 +1256,11 @@ class PptxToEvg {
                 def turned:[double] (PptxToEvg.rotatePoints(ring (x + (w * 0.5)) (y + (h * 0.5)) shape.rotation))
                 this.pushPathStroke(dl turned lw2 lcol true)
             } {
+                if (hasOutline) {
+                    ; Round the shape it actually is.
+                    this.pushPathStroke(dl outlinePts lw2 lcol true)
+                    strokedPath = true
+                }
                 if (strokedPath == false) {
                     this.pushBorder(dl x y w h lw2 lcol)
                     def border:EVGDrawCmd (itemAt dl.cmds ((array_length dl.cmds) - 1))
