@@ -491,6 +491,67 @@ class PptxTextEditTest {
         this.check("centred text starts lower than top-anchored" (m0.y > t0.y))
         this.check("bottom-anchored lower still" (b0.y > m0.y))
 
+
+        print "--- a new list item keeps the list's colour ---"
+        ; Enter at the end of a white bulleted line, then type: the new item
+        ; came out BLACK. The bullet stayed white — `copyFormatTo` copies the
+        ; paragraph's format — and the words did not, which is what makes it
+        ; read as a colour bug rather than a formatting one.
+        ;
+        ; The split leaves the new paragraph with no runs at all, so the first
+        ; character typed into it goes through `ensureRun`, which builds a run
+        ; out of the BODY's defaults and knows nothing about the line the
+        ; caret just left.
+        def listBody (new PptxTextBody())
+        def item (new PptxParagraph())
+        def white (new PptxTextRun())
+        white.text = "first item"
+        white.fontSizePt = 18.0
+        white.sizeSet = true
+        white.bold = true
+        white.boldSet = true
+        white.fontFamily = "Open Sans"
+        white.color.isSet = true
+        white.color.srgb = "FFFFFF"
+        push item.runs white
+        push listBody.paragraphs item
+
+        ; Enter at the end of the line.
+        def after:PptxTextPos (PptxTextEdit.splitAt(listBody (PptxTextPos.of(0 10))))
+        this.check("the caret moved to a new paragraph" (after.para == 1))
+        def newItem:PptxParagraph (itemAt listBody.paragraphs 1)
+        this.check("which has a run to type into" ((array_length newItem.runs) > 0))
+        def seeded:PptxTextRun (itemAt newItem.runs 0)
+        this.check("carrying the colour of the line it came from" (seeded.color.srgb == "FFFFFF"))
+        this.check("and its size" (seeded.fontSizePt == 18.0))
+        this.check("and its weight" seeded.bold)
+        this.check("and its face" (seeded.fontFamily == "Open Sans"))
+        ; And what is actually typed into it keeps that, which is the thing
+        ; the reader sees.
+        PptxTextEdit.insertAt(listBody (PptxTextPos.of(1 0)) "second item")
+        def typedPara:PptxParagraph (itemAt listBody.paragraphs 1)
+        def typed:PptxTextRun (itemAt typedPara.runs 0)
+        this.check("so the words typed into it are that colour too" (typed.color.srgb == "FFFFFF"))
+        this.check("and it really is the text" (typed.text == "second item"))
+
+        ; The same at the START of a line: everything moves to the new
+        ; paragraph and the one left behind is the empty one.
+        def startBody (new PptxTextBody())
+        def line2 (new PptxParagraph())
+        def w2 (new PptxTextRun())
+        w2.text = "an item"
+        w2.fontSizePt = 18.0
+        w2.sizeSet = true
+        w2.color.isSet = true
+        w2.color.srgb = "FFFFFF"
+        push line2.runs w2
+        push startBody.paragraphs line2
+        PptxTextEdit.splitAt(startBody (PptxTextPos.of(0 0)))
+        def leftBehind:PptxParagraph (itemAt startBody.paragraphs 0)
+        this.check("the paragraph left behind has a run" ((array_length leftBehind.runs) > 0))
+        def lb:PptxTextRun (itemAt leftBehind.runs 0)
+        this.check("with the colour it always had" (lb.color.srgb == "FFFFFF"))
+
         print "--- an unstated alignment follows the paragraph's own direction ---"
         ; DrawingML has no "start" or "end" the way Word's `w:jc` does, so a
         ; paragraph that states no `algn` has to have one resolved from its

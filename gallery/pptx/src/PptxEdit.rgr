@@ -451,6 +451,17 @@ class PptxEditor {
     def rotActive:boolean false
     def rotPivotX:double 0.0
     def rotPivotY:double 0.0
+    ; The live angle of a multi-shape rotation, and the box the selection had
+    ; when it started.
+    ;
+    ; The chrome needs both. A single shape's frame turns with the shape,
+    ; because the shape IS the selection; several shapes have no such angle,
+    ; so the frame stayed square while everything inside it turned — which is
+    ; how it was reported. And it cannot be the current bounds turned either:
+    ; those are the axis-aligned box of shapes that are themselves turning, so
+    ; it grows as the drag goes on and stops hugging anything.
+    def rotDeg:double 0.0
+    def rotBox:PptxEditRect (PptxEditRect.of(0.0 0.0 0.0 0.0))
     def rotStartX:[double]
     def rotStartY:[double]
     def rotStartDeg:[double]
@@ -1528,11 +1539,14 @@ class PptxEditor {
         def b:PptxEditRect (this.selectionBounds())
         rotPivotX = (b.midX())
         rotPivotY = (b.midY())
+        rotBox = b
+        rotDeg = 0.0
         rotActive = true
     }
 
     fn endRotate:void () {
         rotActive = false
+        rotDeg = 0.0
     }
 
     fn applyRotate:void (deg:double) {
@@ -1564,6 +1578,7 @@ class PptxEditor {
             sh2.rotation = (itemAt rotStartDeg r)
             r = (r + 1)
         }
+        rotDeg = deg
         PptxEditor.spinAbout(shapes rotPivotX rotPivotY deg)
     }
 

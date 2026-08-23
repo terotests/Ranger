@@ -484,6 +484,17 @@ class PptxTextEdit {
         return true
     }
 
+    ; An empty run wearing another's style. `mergeRuns` keeps exactly one of
+    ; these for a paragraph with nothing in it, and copies the style off the
+    ; first run it finds — so a paragraph seeded with one keeps its formatting
+    ; through the merge, and one seeded with nothing does not.
+    sfn emptyLike:PptxTextRun (proto:PptxTextRun) {
+        def out (new PptxTextRun())
+        PptxTextEdit.copyStyle(proto out)
+        out.text = ""
+        return out
+    }
+
     sfn splitAt:PptxTextPos (body:PptxTextBody pos:PptxTextPos) {
         PptxTextEdit.clamp(body pos)
         def p@(optional):PptxParagraph (PptxTextEdit.paraAt(body pos.para))
@@ -491,6 +502,10 @@ class PptxTextEdit {
             return pos
         }
         def para:PptxParagraph (unwrap p)
+        ; The run the caret is in, remembered BEFORE the split takes the
+        ; paragraph apart. Whichever side comes out with no runs is seeded
+        ; from it below — see there for why.
+        def protoOpt@(optional):PptxTextRun (PptxTextEdit.styleRunAt(para pos.col))
         def at:int (PptxTextEdit.splitRunsAt(para pos.col))
         def tail (new PptxParagraph())
         ; ALL of the paragraph's formatting, not the seven fields somebody
@@ -512,6 +527,30 @@ class PptxTextEdit {
             i = (i + 1)
         }
         para.runs = keep
+        ; Enter at the END of a line gives a paragraph with no runs at all,
+        ; and Enter at the START does the same to the one left behind. An
+        ; empty side keeps the paragraph's format — its bullet, its colour,
+        ; its indent — because `copyFormatTo` above copies that, and loses the
+        ; RUN's: the next character typed into it goes through `ensureRun`,
+        ; which builds a run out of the BODY's defaults and knows nothing
+        ; about the line the caret just left.
+        ;
+        ; So a new item added to a white list came out black. The bullet was
+        ; white and the words were not, which is what makes it read as a
+        ; colour bug rather than a formatting one.
+        ;
+        ; Seeding the empty side with a styleless copy of the run the caret
+        ; was in is what makes typing continue in the style you were typing
+        ; in, which is what every editor does and what the author means.
+        if (!null? protoOpt) {
+            def proto:PptxTextRun (unwrap protoOpt)
+            if ((array_length tail.runs) == 0) {
+                push tail.runs (PptxTextEdit.emptyLike(proto))
+            }
+            if ((array_length para.runs) == 0) {
+                push para.runs (PptxTextEdit.emptyLike(proto))
+            }
+        }
         PptxTextEdit.mergeRuns(para)
         PptxTextEdit.mergeRuns(tail)
         def paras:[PptxParagraph]

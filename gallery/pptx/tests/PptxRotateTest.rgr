@@ -63,6 +63,136 @@ class PptxRotateTest {
         t.run()
     }
 
+
+    ; A turned group carries its children ROUND, it does not spin each of them
+    ; where it stands.
+    ;
+    ; Setting a group's rotation gave every child the group's angle on top of
+    ; its own — which is right for how a child SITS — and moved none of them.
+    ; So the frame turned and the contents stayed exactly where they were,
+    ; each spinning in place. It was reported as "the box rotates but the
+    ; items no longer rotate about the box's centre", which is precisely it.
+    fn testGroupCarriesItsChildrenRound:void () {
+        print "-- a turned group carries its children round --"
+        def a:PptxApp (PptxRotateTest.app())
+        def conv:PptxToEvg a.view.converter
+
+        def grp (new PptxShape())
+        grp.kind = (PptxShapeKind.group())
+        grp.x = 0.0
+        grp.y = 0.0
+        grp.width = 200.0
+        grp.height = 200.0
+        grp.chX = 0.0
+        grp.chY = 0.0
+        grp.chW = 200.0
+        grp.chH = 200.0
+        ; One child in the top-left quarter, well away from the centre, so
+        ; that moving it is unmistakable.
+        def kid (new PptxShape())
+        kid.x = 20.0
+        kid.y = 20.0
+        kid.width = 40.0
+        kid.height = 40.0
+        kid.hasXfrm = true
+        push grp.children kid
+
+        def flat:PptxShape (conv.mapGroupChild(grp kid))
+        c.near("with the group upright the child is where it was put" flat.x 20.0 0.01)
+        c.near("in both directions" flat.y 20.0 0.01)
+
+        ; Half a turn: a child at (40,40) from a centre at (100,100) has to
+        ; come out on the far side of it, at (160,160).
+        grp.rotation = 180.0
+        def turned:PptxShape (conv.mapGroupChild(grp kid))
+        c.near("half a turn puts the child on the other side of the centre" (turned.x + 20.0) 160.0 0.5)
+        c.near("in both directions too" (turned.y + 20.0) 160.0 0.5)
+        c.near("and it is turned as well as moved" turned.rotation 180.0 0.01)
+
+        ; A quarter turn clockwise: (40,40) about (100,100) lands at (160,40).
+        grp.rotation = 90.0
+        def quarter:PptxShape (conv.mapGroupChild(grp kid))
+        c.near("a quarter turn swings it round" (quarter.x + 20.0) 160.0 0.5)
+        c.near("to the same height it started from, mirrored" (quarter.y + 20.0) 40.0 0.5)
+
+        ; A child AT the centre stays there whatever the group does — the one
+        ; point a rotation about a point does not move.
+        def mid (new PptxShape())
+        mid.x = 80.0
+        mid.y = 80.0
+        mid.width = 40.0
+        mid.height = 40.0
+        mid.hasXfrm = true
+        def midTurned:PptxShape (conv.mapGroupChild(grp mid))
+        c.near("a child on the centre stays on it" (midTurned.x + 20.0) 100.0 0.5)
+        c.near("exactly" (midTurned.y + 20.0) 100.0 0.5)
+    }
+
+    ; The frame around several shapes turns with them.
+    ;
+    ; One shape's frame turns because the shape IS the selection. Several have
+    ; no angle of their own, so the frame stayed square while everything
+    ; inside it plainly turned. And it cannot be the CURRENT bounds turned
+    ; either: those are the axis-aligned extent of shapes that are themselves
+    ; turning, so they grow as the drag goes on.
+    fn testTheFrameTurnsWithTheSelection:void () {
+        print "-- the frame around several shapes turns with them --"
+        def a:PptxApp (PptxRotateTest.app())
+        def sl:PptxSlide (a.editor.currentSlide())
+        if ((array_length sl.shapes) < 2) {
+            c.ok("the fixture has two shapes to turn" false)
+            return
+        }
+        def s1:PptxShape (itemAt sl.shapes 0)
+        def s2:PptxShape (itemAt sl.shapes 1)
+        a.editor.clearSelection()
+        a.editor.addToSelection(s1.editId)
+        a.editor.addToSelection(s2.editId)
+        c.ok("two shapes are selected" ((a.editor.selectionCount()) == 2))
+        c.near("and the frame is square before anything turns" (a.selectionAngle()) 0.0 0.001)
+
+        def before:PptxEditRect (a.editor.selectionBounds())
+        a.editor.beginRotate()
+        a.editor.applyRotate(30.0)
+        c.near("mid-drag the frame takes the drag's angle" (a.selectionAngle()) 30.0 0.001)
+        ; And it is the box they STARTED in, not the one they are in now —
+        ; which by then is bigger, because the shapes inside it have turned.
+        def now:PptxEditRect (a.editor.selectionBounds())
+        c.ok("the shapes' own bounds have grown" ((now.w > (before.w + 0.5)) || (now.h > (before.h + 0.5))))
+        def corners:[double] (a.selectionCorners())
+        c.ok("the frame is a quadrilateral" ((array_length corners) == 8))
+        def sc:double (a.ptScale())
+        def diag:double (PptxRotateTest.longestEdge(corners))
+        def startDiag:double ((before.w * sc))
+        def startH:double ((before.h * sc))
+        def want:double startDiag
+        if (startH > want) {
+            want = startH
+        }
+        c.near("and it is the size of the box they started in" diag want 2.0)
+
+        ; Letting go puts it back to a plain box round where they ended up.
+        a.editor.endRotate()
+        c.near("and the frame is square again once the drag ends" (a.selectionAngle()) 0.0 0.001)
+    }
+
+    ; The longest of a quadrilateral's four edges.
+    sfn longestEdge:double (p:[double]) {
+        def best:double 0.0
+        def i:int 0
+        while (i < 4) {
+            def j:int ((i + 1) % 4)
+            def dx:double ((itemAt p (i * 2)) - (itemAt p (j * 2)))
+            def dy:double ((itemAt p ((i * 2) + 1)) - (itemAt p ((j * 2) + 1)))
+            def d:double (sqrt ((dx * dx) + (dy * dy)))
+            if (d > best) {
+                best = d
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
     sfn app:PptxApp () {
         def a (new PptxApp)
         a.init("gallery/pdf_writer/assets/fonts")
@@ -77,6 +207,8 @@ class PptxRotateTest {
         this.testSingle()
         this.testGroupPivot()
         this.testGroupFollowsPointer()
+        this.testGroupCarriesItsChildrenRound()
+        this.testTheFrameTurnsWithTheSelection()
         print ""
         print (("passed = " + (to_string c.passed)) + ("  failed = " + (to_string c.failed)))
         if (c.failed == 0) {

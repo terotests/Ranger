@@ -2291,6 +2291,12 @@ class PptxApp {
     ; what PowerPoint draws too, because there is no single angle to draw at.
     fn selectionAngle:double () {
         if ((editor.selectionCount()) != 1) {
+            ; Several shapes have no angle of their own, but while they are
+            ; being turned together they have the drag's. Without this the
+            ; frame stayed square around contents that were plainly turning.
+            if editor.rotActive {
+                return editor.rotDeg
+            }
             return 0.0
         }
         def hit@(optional):PptxShape (editor.firstSelected())
@@ -2309,7 +2315,17 @@ class PptxApp {
         def sc:double (this.ptScale())
         def ox:double (this.slideOriginX())
         def oy:double (this.slideOriginY())
+        ; While several shapes are being turned together the frame is the box
+        ; they started in, turned — not the box they are in NOW. The current
+        ; bounds are the axis-aligned extent of shapes that are themselves
+        ; turning, so they grow with the drag and the frame stops hugging
+        ; anything.
         def b:PptxEditRect (editor.selectionBounds())
+        if ((editor.selectionCount()) != 1) {
+            if editor.rotActive {
+                b = editor.rotBox
+            }
+        }
         def x0:double ((b.x * sc) + ox)
         def y0:double ((b.y * sc) + oy)
         def x1:double (((b.right()) * sc) + ox)
