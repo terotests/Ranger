@@ -1,0 +1,88 @@
+{
+  "$comment": "Registry of the Ranger sources that declare a published API surface. docs/tools/extract-api.mjs reads this file and writes docs/site/src/data/*-api.json; render-api-pages.mjs turns that into pages under /docs/office/. A facade added to gallery/*/api/ and not listed here is documented nowhere, which docs:api:coverage reports.",
+  "apis": [
+    {
+      "id": "pptx",
+      "title": "PowerPoint",
+      "package": "@ranger/pptx",
+      "summary": "Open a .pptx, read it, change it, write it back — and draw it to PNG or PDF.",
+      "entries": [
+        {
+          "file": "gallery/pptx/api/PptxApi.rgr",
+          "import": "@ranger/pptx",
+          "title": "The document",
+          "summary": "Headless: a ZIP reader, an XML parser, the model and the writer. No canvas and no fonts.",
+          "js": {
+            "$comment": "How each Ranger class and accessor appears in the JavaScript package. The reference is generated from the Ranger comments because that is where the prose lives, but a reader installs @ranger/pptx and must see the names THEY will type. docs:api:coverage fails when a documented method has no counterpart in the wrapper.",
+            "classes": {
+              "PptxApi": "Pptx",
+              "PptxDeck": "Deck",
+              "PptxSlideRef": "Slide",
+              "PptxShapeRef": "Shape",
+              "PptxRunRef": "Run"
+            },
+            "renames": {
+              "PptxDeck.slideAt": "slide",
+              "PptxSlideRef.shapeAt": "shape",
+              "PptxShapeRef.runAt": "run"
+            },
+            "getters": {
+              "PptxDeck": [
+                "slideCount",
+                "width",
+                "height",
+                "text"
+              ],
+              "PptxSlideRef": [
+                "exists",
+                "width",
+                "height",
+                "shapeCount",
+                "text"
+              ],
+              "PptxShapeRef": [
+                "exists",
+                "name",
+                "preset",
+                "x",
+                "y",
+                "width",
+                "height",
+                "rotation",
+                "text",
+                "paragraphCount"
+              ],
+              "PptxRunRef": [
+                "exists",
+                "text"
+              ],
+              "PptxApi": [
+                "version"
+              ]
+            },
+            "wrapper": "gallery/pptx/api/js/index.cjs"
+          }
+        },
+        {
+          "file": "gallery/pptx/api/PptxRenderApi.rgr",
+          "import": "@ranger/pptx/render",
+          "title": "Drawing",
+          "summary": "PNG and PDF. A separate entry point because its bundle is five times the size.",
+          "js": {
+            "classes": {
+              "PptxRenderer": "Renderer"
+            },
+            "getters": {
+              "PptxRenderer": [
+                "ready",
+                "error",
+                "imagesPrinted"
+              ]
+            },
+            "wrapper": "gallery/pptx/api/js/render.cjs"
+          }
+        }
+      ]
+    }
+  ]
+}

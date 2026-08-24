@@ -1,0 +1,431 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGListToElements — a display list, turned back into an element tree, so the
+; PDF writer can draw what the screen draws.
+; ==============================================================================
+;
+; THE PROBLEM THIS SOLVES. There are two pictures of a document in this
+; repository and they are not the same picture:
+;
+;   * an EVGElement TREE — boxes with styles, which is what `EVGPDFRenderer`
+;     and `EVGHTMLRenderer` consume, and what the .pptx reader's `slideToEvg`
+;     produces as a coarse approximation;
+;   * an EVGDisplayList — flat, resolved, painted commands, which is what the
+;     software canvas, the WebGL backend and the browser all read, and what
+;     every fidelity fix in this gallery has gone into.
+;
+; So the accurate picture could not be printed and the printable picture was
+; not accurate. Rather than teach the PDF writer a second input format, or
+; maintain the element tree in parallel with the display list and watch the two
+; drift, this converts: display list in, element tree out, one command at a
+; time. Everything `EVGPDFRenderer` already does — embedding a TrueType face
+; and subsetting it, embedding a JPEG or a PNG, emitting real vector path
+; operators — comes with it, and there is one renderer rather than two.
+;
+; It is not pptx-specific and must not become so. The .docx reader and the
+; spreadsheet both emit display lists through the same `EVGDisplayList`, so a
+; PDF of either is this class plus four lines of wiring.
+;
+; WHAT A COMMAND BECOMES:
+;
+;   kind 0  rect      an absolutely positioned div with a background
+;   kind 1  border    the same, with a border and no fill
+;   kind 2  image     an <img> at the same box
+;   kind 3  text      a div carrying the run, its face, size, weight and colour
+;   kind 6  polygon   a div whose `svgPath` is the rings, in user units
+;   kind 7  stroke    the same path, stroked rather than filled
+;
+; WHAT IS NOT CARRIED, and is worth saying rather than discovering: clipping
+; (kinds 4 and 5) is dropped, because an element tree expresses a clip as an
+; ancestor's overflow and the display list expresses it as a stack — mapping
+; one onto the other needs the tree the flattening threw away. A document whose
+; content is clipped will print the part that a viewer hides. Gradients on a
+; rect are carried; a gradient under a polygon is drawn in its first colour.
+; ==============================================================================
+
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGElement.rgr"
+
+class EVGListToElements {
+    ; The page every command is placed on. `relative` is what makes the
+    ; children's `absolute` mean "from this box's corner" rather than from the
+    ; document — get it wrong and every command lands at the top left.
+    sfn page:EVGElement (w:double h:double bg:EVGColor) {
+        def root (EVGElement.createDiv())
+        root.width = (EVGUnit.px(w))
+        root.height = (EVGUnit.px(h))
+        root.backgroundColor = bg
+        root.position = "relative"
+        return root
+    }
+
+    sfn colorOf:EVGColor (c:EVGDrawCmd) {
+        return (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
+    }
+
+    sfn color2Of:EVGColor (c:EVGDrawCmd) {
+        return (EVGColor.create((to_double c.r2) (to_double c.g2) (to_double c.b2) c.a2))
+    }
+
+    ; An element sitting exactly on a command's box.
+    sfn boxAt:EVGElement (x:double y:double w:double h:double) {
+        def el (EVGElement.createDiv())
+        el.position = "absolute"
+        el.left = (EVGUnit.px(x))
+        el.top = (EVGUnit.px(y))
+        el.width = (EVGUnit.px(w))
+        el.height = (EVGUnit.px(h))
+        return el
+    }
+
+    ; --- the polygon rings, as an SVG path --------------------------------------
+    ;
+    ; `pts` is x,y,x,y… and `ringEnds` says where each contour stops — the same
+    ; pair the software painter and the WebGL painter read. A shape with a hole
+    ; in it is two rings, and writing them as one path with two subpaths is what
+    ; makes the hole a hole: a path with a single ring cannot express one, which
+    ; is how a donut came to be drawn as a disc.
+    ;
+    ; Coordinates are absolute, and the element is placed at 0,0 over the whole
+    ; page rather than on the shape's own box. Placing it on the box would need
+    ; the points translated into box space, and every rounding there is a seam
+    ; between a fill and the border drawn beside it.
+    sfn ringsPath:string (pts:[double] ringEnds:[int]) {
+        def d:string ""
+        def n:int (to_int ((array_length pts) / 2))
+        if (n < 2) {
+            return ""
+        }
+        def ends:[int] ringEnds
+        if ((array_length ends) == 0) {
+            def one:[int]
+            push one n
+            ends = one
+        }
+        def at:int 0
+        def ri:int 0
+        while (ri < (array_length ends)) {
+            def stop:int (itemAt ends ri)
+            if (stop > n) {
+                stop = n
+            }
+            def first:boolean true
+            while (at < stop) {
+                def px:double (itemAt pts (at * 2))
+                def py:double (itemAt pts ((at * 2) + 1))
+                def sx:string (EVGListToElements.num(px))
+                def sy:string (EVGListToElements.num(py))
+                if first {
+                    d = (d + "M " + sx + " " + sy)
+                    first = false
+                } {
+                    d = (d + " L " + sx + " " + sy)
+                }
+                at = (at + 1)
+            }
+            if (first == false) {
+                d = (d + " Z")
+            }
+            ri = (ri + 1)
+        }
+        return d
+    }
+
+    ; Two decimals is a tenth of a device pixel at any scale a document is
+    ; printed at, and it keeps the path data from being three times the size it
+    ; needs to be. Written by hand because `to_string` on a double gives the
+    ; full expansion.
+    sfn num:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def m:double v
+        if neg {
+            m = (0.0 - m)
+        }
+        def scaled:int (to_int ((m * 100.0) + 0.5))
+        def whole:int (to_int (scaled / 100))
+        def frac:int (scaled - (whole * 100))
+        def out:string (to_string whole)
+        if (frac > 0) {
+            def f:string (to_string frac)
+            if (frac < 10) {
+                f = ("0" + f)
+            }
+            out = (out + "." + f)
+        }
+        if neg {
+            out = ("-" + out)
+        }
+        return out
+    }
+
+    ; The name `FontManager` records a face under: the bare family for the
+    ; regular one, "Family-Bold", "Family-Italic", "Family-Bold Italic". It
+    ; splits on the FIRST dash and the style may contain a space — which is why
+    ; "BoldItalic", written without one, matched no face and every bold italic
+    ; run in the .docx reader drew upright and light for a long time.
+    sfn faceName:string (family:string bold:boolean italic:boolean) {
+        if ((strlen family) == 0) {
+            return family
+        }
+        if (bold) {
+            if (italic) {
+                return (family + "-Bold Italic")
+            }
+            return (family + "-Bold")
+        }
+        if (italic) {
+            return (family + "-Italic")
+        }
+        return family
+    }
+
+    ; --- one command ------------------------------------------------------------
+    ;
+    ; Answers an element, or nothing for a command this target does not carry.
+    ; The optional is the point: a clip push is not an error and not a shape,
+    ; and returning an empty div for it would put an invisible box in the tree
+    ; that a later reader has to know to ignore.
+    sfn elementFor@(optional):EVGElement (c:EVGDrawCmd pageW:double pageH:double withImages:boolean) {
+        if (c.kind == 0) {
+            def el:EVGElement (EVGListToElements.boxAt(c.x c.y c.w c.h))
+            el.backgroundColor = (EVGListToElements.colorOf(c))
+            ; Border radius lives on `box`, not on the element — a duplicate
+            ; field here used to shadow it and worked in the PDF while
+            ; silently doing nothing in the PNG.
+            if (c.radius > 0.0) {
+                el.box.borderRadius = (EVGUnit.px(c.radius))
+            }
+            if c.hasGrad {
+                el.gradientFrom = (EVGListToElements.colorOf(c))
+                el.gradientTo = (EVGListToElements.color2Of(c))
+                el.gradientDir = c.gradDir
+                el.gradientSet = true
+            }
+            if (c.rotate != 0.0) {
+                el.rotate = c.rotate
+            }
+            def outEl@(optional):EVGElement el
+            return outEl
+        }
+        if (c.kind == 1) {
+            def el:EVGElement (EVGListToElements.boxAt(c.x c.y c.w c.h))
+            def t:double c.thickness
+            if (t <= 0.0) {
+                t = 1.0
+            }
+            el.borderWidth = (EVGUnit.px(t))
+            el.borderColor = (EVGListToElements.colorOf(c))
+            if (c.radius > 0.0) {
+                el.box.borderRadius = (EVGUnit.px(c.radius))
+            }
+            if (c.rotate != 0.0) {
+                el.rotate = c.rotate
+            }
+            def outEl@(optional):EVGElement el
+            return outEl
+        }
+        if (c.kind == 2) {
+            ; A display list names a picture by its PACKAGE PART —
+            ; "ppt/media/image1.png" — because that is what the document calls
+            ; it, and the painters resolve it through a cache of decoded bytes
+            ; they were handed. `EVGPDFRenderer` resolves `src` as a FILE PATH
+            ; relative to a base directory, and every decoder under it takes a
+            ; directory and a file name, so there is no way to give it bytes at
+            ; all. It does not fail politely either: it calls `readJPEG` and the
+            ; process dies on ENOENT.
+            ;
+            ; So the caller says whether pictures can be resolved. A target
+            ; that can — one with the media on disk and a base directory set —
+            ; passes true. The PDF path passes false today and prints
+            ; everything else rather than crashing on the first slide with a
+            ; logo on it. Teaching the PDF writer to take image BYTES is the
+            ; piece of work that removes this argument.
+            if (withImages == false) {
+                def __noImg@(optional):EVGElement
+                return __noImg
+            }
+            def el (EVGElement.createImg())
+            el.position = "absolute"
+            el.left = (EVGUnit.px(c.x))
+            el.top = (EVGUnit.px(c.y))
+            el.width = (EVGUnit.px(c.w))
+            el.height = (EVGUnit.px(c.h))
+            el.src = c.src
+            if (c.rotate != 0.0) {
+                el.rotate = c.rotate
+            }
+            def outEl@(optional):EVGElement el
+            return outEl
+        }
+        if (c.kind == 3) {
+            ; A TEXT command's `y` is the top of the line box and its `h` is the
+            ; line height — the same convention every painter here reads, and
+            ; the one the browser backend had to be taught explicitly after
+            ; placing the ink at `y` pushed every run up by its face's ascent.
+            def hh:double c.h
+            if (hh <= 0.0) {
+                hh = (c.fontSize * 1.2)
+            }
+            def ww:double c.w
+            if (ww <= 0.0) {
+                ww = (c.maxWidth)
+            }
+            def el:EVGElement (EVGListToElements.boxAt(c.x c.y ww hh))
+            ; `tagName` is the whole of it: `EVGPDFRenderer.renderElement`
+            ; reaches `renderText` on `tagName == "text"` and on nothing else,
+            ; so a div carrying `textContent` is laid out, given a background
+            ; and a border, and then silently drawn without its words. Every
+            ; shape on the page came out right and every caption was missing,
+            ; which reads like a font problem and is not one.
+            el.tagName = "text"
+            el.elementType = 1
+            el.textContent = c.text
+            el.fontSize = (EVGUnit.px(c.fontSize))
+            el.color = (EVGListToElements.colorOf(c))
+            if ((strlen c.fontFamily) > 0) {
+                el.fontFamily = c.fontFamily
+            }
+            if (c.fontWeight == "bold") {
+                el.fontWeight = "bold"
+            }
+            ; The slant travels in `textAlign` — the convention the document
+            ; viewer set and every backend here implements. An alignment word
+            ; in the same field is an alignment; "italic" is not one.
+            ; There is no `fontStyle` on an element: `FontManager` keys a face
+            ; by family AND style, written as one string, so the slant travels
+            ; in the family name. "Open Sans-Italic" is a face; "Open Sans"
+            ; with an italic flag is nothing this renderer can look up.
+            if (c.textAlign == "italic") {
+                el.fontFamily = (EVGListToElements.faceName(el.fontFamily (c.fontWeight == "bold") true))
+            } {
+                if (c.fontWeight == "bold") {
+                    el.fontFamily = (EVGListToElements.faceName(el.fontFamily true false))
+                }
+                if ((strlen c.textAlign) > 0) {
+                    el.textAlign = c.textAlign
+                }
+            }
+            if (c.rotate != 0.0) {
+                el.rotate = c.rotate
+            }
+            def outEl@(optional):EVGElement el
+            return outEl
+        }
+        if ((c.kind == 6) || (c.kind == 7)) {
+            def d:string (EVGListToElements.ringsPath(c.pts c.ringEnds))
+            if ((strlen d) == 0) {
+                def __empty@(optional):EVGElement
+                return __empty
+            }
+            ; Over the WHOLE PAGE, at the origin, with an identity viewBox.
+            ; The ring coordinates are absolute page coordinates, and the path
+            ; renderer maps user units onto the element's box through the
+            ; viewBox — so a box that is not the page, or a viewBox that is not
+            ; the box, scales the shape away from where every other command
+            ; put it. Both are set here rather than left to a default.
+            def el (EVGElement.createPath())
+            el.position = "absolute"
+            el.left = (EVGUnit.px(0.0))
+            el.top = (EVGUnit.px(0.0))
+            el.width = (EVGUnit.px(pageW))
+            el.height = (EVGUnit.px(pageH))
+            el.viewBox = ("0 0 " + (EVGListToElements.num(pageW)) + " " + (EVGListToElements.num(pageH)))
+            el.svgPath = d
+            ; Even-odd is how a ring inside a ring becomes a hole. Losing it
+            ; fills the hole in, which is a donut drawn as a disc.
+            if c.evenOdd {
+                el.fillRule = "evenodd"
+            }
+            if (c.kind == 6) {
+                el.fillColor = (EVGListToElements.colorOf(c))
+            } {
+                def t:double c.thickness
+                if (t <= 0.0) {
+                    t = 1.0
+                }
+                el.strokeColor = (EVGListToElements.colorOf(c))
+                el.strokeWidth = t
+            }
+            def outEl@(optional):EVGElement el
+            return outEl
+        }
+        ; A clip push or pop, or a kind this target does not carry. Not an
+        ; error and not a shape: answering with an empty div would put an
+        ; invisible box in the tree that every later reader has to know to
+        ; skip.
+        def __none@(optional):EVGElement
+        return __none
+    }
+
+    ; --- a document of several pages -------------------------------------------
+    ;
+    ; `EVGPDFRenderer.render` branches on the ROOT's tag: `print` means a
+    ; multi-page document and anything else means one page. Under a `print`
+    ; come `section` elements — a section carries the page size and the margin,
+    ; and every `page` inside it is laid out at the section's content size and
+    ; drawn offset by its margin.
+    ;
+    ; The margin is the trap. `getSectionMargin` answers 40 when the section
+    ; states none, which for a book is a sensible default and for a slide is
+    ; a page an inch and a bit too small with the deck shrunk inside it. So it
+    ; is set to zero here explicitly — and it can be, because `EVGUnit.px(0.0)`
+    ; is genuinely SET rather than merely zero, which is the distinction the
+    ; default turns on.
+    sfn printRoot:EVGElement (w:double h:double) {
+        def root (EVGElement.createDiv())
+        root.tagName = "print"
+        def section (EVGElement.createDiv())
+        section.tagName = "section"
+        section.width = (EVGUnit.px(w))
+        section.height = (EVGUnit.px(h))
+        section.box.marginTop = (EVGUnit.px(0.0))
+        section.box.marginRight = (EVGUnit.px(0.0))
+        section.box.marginBottom = (EVGUnit.px(0.0))
+        section.box.marginLeft = (EVGUnit.px(0.0))
+        root.addChild(section)
+        return root
+    }
+
+    ; The section a `printRoot` made, so pages can be hung off it.
+    sfn sectionOf:EVGElement (root:EVGElement) {
+        return (root.getChild(0))
+    }
+
+    ; One page of a multi-page document, filled from a display list. It is the
+    ; same conversion as `convert` below; only the tag differs, and it differs
+    ; because that tag is what makes the renderer treat it as a page rather
+    ; than as a box on one.
+    sfn pageFrom:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor withImages:boolean) {
+        def pg:EVGElement (EVGListToElements.fillOpt(dl w h bg withImages))
+        pg.tagName = "page"
+        return pg
+    }
+
+    ; The whole list, in the order it was painted — which is the order it has to
+    ; be drawn in, because a display list carries no z and says what is on top
+    ; by saying it last.
+    ; Pictures resolved from disk. Use this when the target can find them —
+    ; see the note on kind 2 for why that is not every target.
+    sfn convert:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor) {
+        return (EVGListToElements.fillOpt(dl w h bg true))
+    }
+
+    sfn fill:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor) {
+        return (EVGListToElements.fillOpt(dl w h bg true))
+    }
+
+    sfn fillOpt:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor withImages:boolean) {
+        def root:EVGElement (EVGListToElements.page(w h bg))
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            def made@(optional):EVGElement (EVGListToElements.elementFor(c w h withImages))
+            if (!null? made) {
+                root.addChild((unwrap made))
+            }
+            i = (i + 1)
+        }
+        return root
+    }
+}

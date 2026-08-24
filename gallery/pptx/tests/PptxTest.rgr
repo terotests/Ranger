@@ -9,6 +9,7 @@ Import "../src/PptxXml.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"
 Import "../src/PptxToEvg.rgr"
+Import "../../office/text/OfficeFont.rgr"
 Import "../src/PptxWriter.rgr"
 Import "../src/PptxModel.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -48,6 +49,8 @@ class PptxTest {
         this.testAdjustments()
         this.testInheritedText()
         this.testStatedVersusSilent()
+        this.testDrawnFontFamily()
+        this.testOtherStyle()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -351,6 +354,174 @@ class PptxTest {
         def sh:PptxShape (unwrap hit)
         this.check("the words are not run together" ((sh.text.plainText()) == "The Ultimate Diary"))
         parser.close()
+    }
+
+    ; --- the family the display list names ---------------------------------------
+    ;
+    ; A deck says "Calibri". Calibri is not shipped here, and every width in
+    ; the layout — a line break, a caret column, the box a shape is judged
+    ; against — comes from whatever the shared alias map sent that name to.
+    ; The display list used to carry the DECK's name regardless.
+    ;
+    ; Nothing on the desktop noticed, because the software painter ignores the
+    ; field and paints Open Sans. A browser does not ignore it: `ctx.font` was
+    ; handed "Calibri", found no such face registered, and drew the system sans
+    ; at the same pixel size. The two faces differ by about six per cent, which
+    ; is under two pixels on a 12pt field and nineteen on a 40pt title — so a
+    ; deck looked right everywhere except its heading, where the caret sat most
+    ; of a letter past the end of the word. Reported exactly that way.
+    fn testDrawnFontFamily:void () {
+        print "--- the display list names the family it measured ---"
+        def bp (new PptxXmlParser())
+        def doc@(optional):PptxXmlNode (bp.parse("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en\" sz=\"4000\" b=\"1\"><a:latin typeface=\"Calibri\"/></a:rPr><a:t>RealTrainer</a:t></a:r></a:p></p:txBody>"))
+        this.check("the title body parses" (!null? doc))
+        if (null? doc) {
+            return
+        }
+        def tp (new PptxParser())
+        def body:PptxTextBody (tp.parseTextBody((unwrap doc)))
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        def run:PptxTextRun (itemAt para.runs 0)
+        this.check("and the run carries the deck's own font name" (run.fontFamily == "Calibri"))
+
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.x = 40.0
+        sh.y = 40.0
+        sh.width = 400.0
+        sh.height = 80.0
+        sh.hasText = true
+        sh.text = body
+        def slide (new PptxSlide())
+        push slide.shapes sh
+
+        def conv (new PptxToEvg())
+        def dl:EVGDisplayList (conv.slideToDisplayList(slide))
+        def texts:int 0
+        def named:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 3) {
+                texts = (texts + 1)
+                if (c.fontFamily == "Calibri") {
+                    named = (named + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("the title reached the display list" (texts > 0))
+        this.check("and no command carries the name the deck used" (named == 0))
+        def first:string ""
+        def j:int 0
+        while (j < (array_length dl.cmds)) {
+            def c2:EVGDrawCmd (itemAt dl.cmds j)
+            if ((c2.kind == 3) && ((strlen first) == 0)) {
+                first = c2.fontFamily
+            }
+            j = (j + 1)
+        }
+        def wanted:string (OfficeFont.aliasFamily("Calibri"))
+        this.check("it carries the family the widths came from" (first == wanted))
+    }
+
+    ; --- what a shape that is not a placeholder inherits --------------------------
+    ;
+    ; The master's `p:otherStyle` is the typography for "everything else", and
+    ; the rule on `PptxResolver.styleForPh` says so — "everything else, and
+    ; every shape that is not a placeholder at all, takes the other style".
+    ; The code applied it only to placeholders: the whole inheritance block sat
+    ; inside `if shape.isPlaceholder`, so a plain box with words in it got
+    ; nothing and fell back to THIS READER's defaults.
+    ;
+    ; A deck exported from Google Slides is entirely such shapes — there is not
+    ; one placeholder on the slide. Reported as "the text in those shapes is a
+    ; different font": 18 points where the deck said 14, a quarter too big, so
+    ; every label overflowed its box and wrapped mid-word.
+    ;
+    ; And it is not only the size. A missing inherited style loses the COLOUR
+    ; the same way, which is why the four shapes inside a group — the only ones
+    ; the recursion still missed after the first fix — stayed white on pink
+    ; where the deck said black.
+    fn testOtherStyle:void () {
+        print "--- otherStyle reaches a shape that is not a placeholder ---"
+        def parser (new PptxParser())
+        if ((parser.openParts("gallery/pptx/fixtures" "35-other-style.pptx")) == false) {
+            this.check("open 35-other-style" false)
+            return
+        }
+        def pres:PptxPresentation ((new PptxResolver()).resolvePresentation((parser.parsePresentation())))
+        def slide:PptxSlide (itemAt pres.slides 0)
+
+        def plainOpt@(optional):PptxShape (PptxTest.byName(slide "Plain"))
+        this.check("the plain shape is there" (!null? plainOpt))
+        if (!null? plainOpt) {
+            def plain:PptxShape (unwrap plainOpt)
+            def p:PptxParagraph (itemAt plain.text.paragraphs 0)
+            def r:PptxTextRun (itemAt p.runs 0)
+            ; 14, from the master. 18 is this reader's own default and is what
+            ; a shape got before it inherited anything.
+            this.check("it takes the master's size" (r.fontSizePt == 14.0))
+            this.check("and the master's colour" r.color.isSet)
+            this.check("which is black" (r.color.srgb == "000000"))
+        }
+
+        ; …and the same, down through a group. `resolveShape` already walked a
+        ; group's children for their fills and their lines; the typography was
+        ; applied only to the shapes a slide lists directly.
+        def inOpt@(optional):PptxShape (PptxTest.byNameDeep(slide "InGroup"))
+        this.check("a shape inside a group is found" (!null? inOpt))
+        if (!null? inOpt) {
+            def kid:PptxShape (unwrap inOpt)
+            def kp:PptxParagraph (itemAt kid.text.paragraphs 0)
+            def kr:PptxTextRun (itemAt kp.runs 0)
+            this.check("it inherits the size too" (kr.fontSizePt == 14.0))
+            this.check("and the colour" (kr.color.srgb == "000000"))
+        }
+
+        ; A group inside a group: the recursion has to keep going rather than
+        ; stop one level down, which is the easy thing to write by accident.
+        def deepOpt@(optional):PptxShape (PptxTest.byNameDeep(slide "Deeper"))
+        this.check("a shape two groups down is found" (!null? deepOpt))
+        if (!null? deepOpt) {
+            def deep:PptxShape (unwrap deepOpt)
+            def dp:PptxParagraph (itemAt deep.text.paragraphs 0)
+            def dr:PptxTextRun (itemAt dp.runs 0)
+            this.check("and inherits at any depth" (dr.fontSizePt == 14.0))
+            this.check("colour and all" (dr.color.srgb == "000000"))
+        }
+        parser.close()
+    }
+
+    ; `byName`, but through groups.
+    sfn byNameDeep@(optional):PptxShape (slide:PptxSlide name:string) {
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def hit@(optional):PptxShape (PptxTest.findDeep((itemAt slide.shapes i) name))
+            if (!null? hit) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        def __none@(optional):PptxShape
+        return __none
+    }
+
+    sfn findDeep@(optional):PptxShape (shape:PptxShape name:string) {
+        if (shape.name == name) {
+            def me@(optional):PptxShape shape
+            return me
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            def hit@(optional):PptxShape (PptxTest.findDeep((itemAt shape.children i) name))
+            if (!null? hit) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        def __none@(optional):PptxShape
+        return __none
     }
 
     fn testConnectors:void () {

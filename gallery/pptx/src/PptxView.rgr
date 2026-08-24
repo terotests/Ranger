@@ -208,17 +208,33 @@ class PptxView {
     fn paintTextCmd:void (c:EVGDrawCmd) {
         def col:EVGColor (EVGColor.create((to_double c.r) (to_double c.g) (to_double c.b) c.a))
         def prevFamily:string ctx.tr.fontFamily
-        ctx.tr.fontFamily = fontFamily
+        ; The face for this command, asked of the same measurer the layout
+        ; used. It used to be four lines that named "Open Sans" whatever the
+        ; command said, which was safe only for as long as the widths above
+        ; came from one family too — they no longer do, and a run measured in
+        ; Noto Sans and painted in Open Sans is a caret that drifts across the
+        ; line. `faceForIn` runs the family through the same alias map and the
+        ; same is-it-loaded check, so the two cannot come apart.
+        ;
+        ; Two fields, not one: a bold run says so in `fontWeight`, and the
+        ; slant is written into `textAlign` — the convention the document
+        ; viewer set and every backend here reads.
+        def wantBold:boolean false
+        def wantItalic:boolean false
         if (c.fontWeight == "bold") {
-            ctx.tr.fontFamily = "Open Sans-Bold"
+            wantBold = true
         }
         if (c.fontWeight == "italic") {
-            ctx.tr.fontFamily = "Open Sans-Italic"
+            wantItalic = true
         }
         if (c.fontWeight == "bolditalic") {
-            ; FontManager style string is "Bold Italic" (space), not "BoldItalic"
-            ctx.tr.fontFamily = "Open Sans-Bold Italic"
+            wantBold = true
+            wantItalic = true
         }
+        if (c.textAlign == "italic") {
+            wantItalic = true
+        }
+        ctx.tr.fontFamily = (converter.measure.faceForIn(c.fontFamily wantBold wantItalic))
         def x:double c.x
         def y:double c.y
         def size:double c.fontSize

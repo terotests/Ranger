@@ -257,6 +257,10 @@ class GridDbTest {
         ; A shortcut is not a discoverable feature, and in a browser Ctrl+D is
         ; the bookmark. Both windows have a button, and the button is clicked
         ; here the way a pointer clicks it.
+        ; Choosing the page the button is on happens below, next to the click
+        ; it enables — `tabOwning` finds it rather than this naming the page,
+        ; which is the same fix arrived at from two directions and is better
+        ; done once.
         def dbButton:int (GridDbTest.toolIndexFor(app "db.connection"))
         check.ok("there is a database button on the toolbar" (dbButton >= 0))
         def sqlButton:int (GridDbTest.toolIndexFor(app "db.sql.dialog"))

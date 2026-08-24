@@ -2876,6 +2876,55 @@ def main() -> None:
         media={"image1.png": alt_png},
     )
 
+    # 35 — what a shape that is NOT a placeholder inherits
+    #
+    # The master's `p:otherStyle` is the typography for "everything else", and
+    # every shape in a deck exported from Google Slides is everything else:
+    # there is not one placeholder on the slide. This fixture states 14 points
+    # and black there, and then draws three shapes that say NOTHING about size
+    # or colour — one plain, one inside a group, and one nested a group deeper.
+    #
+    # A reader that stops at placeholders draws all three in its own defaults.
+    # Reported as "the text in those shapes is a different font": 18 points
+    # against 14, so every label overflowed its box, and white against black
+    # for the ones inside the group.
+    other_master = MASTER.replace(
+        "</p:sldMaster>",
+        '<p:txStyles><p:otherStyle><a:lvl1pPr><a:defRPr sz="1400">'
+        '<a:solidFill><a:srgbClr val="000000"/></a:solidFill>'
+        '<a:latin typeface="Open Sans"/></a:defRPr></a:lvl1pPr></p:otherStyle>'
+        "</p:txStyles></p:sldMaster>",
+    )
+    def bare(sid: int, name: str, y: int, text: str) -> str:
+        # A run that states NOTHING: no size, no colour, no typeface. Every
+        # one of those has to come down the inheritance chain, which is the
+        # whole point of the fixture — `text_shape` writes a size and a scheme
+        # colour, so a shape built with it would pass whether or not anything
+        # was inherited.
+        return (
+            f'<p:sp><p:nvSpPr><p:cNvPr id="{sid}" name="{name}"/><p:cNvSpPr txBox="1"/>'
+            "<p:nvPr/></p:nvSpPr>"
+            f'<p:spPr><a:xfrm><a:off x="457200" y="{y}"/><a:ext cx="2743200" cy="914400"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+            "<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr/>"
+            f"<a:r><a:rPr lang=\"en-GB\"/><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp>"
+        )
+
+    plain = bare(2, "Plain", 457200, "Plain")
+    inner = bare(4, "InGroup", 1600200, "InGroup")
+    deeper = bare(6, "Deeper", 2743200, "Deeper")
+    nested = group_shape(
+        5, "Inner group", 457200, 2743200, 2743200, 914400, [deeper],
+    )
+    grouped = group_shape(
+        3, "Outer group", 457200, 1600200, 2743200, 2057400, [inner, nested],
+    )
+    write_pptx(
+        "35-other-style.pptx",
+        [(slide_xml(sp_tree(plain, grouped)), slide_rels())],
+        master_xml=other_master,
+    )
+
     print("fixtures ready")
 
 

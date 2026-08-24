@@ -489,6 +489,12 @@ class XlsxWorksheet {
                             keep.name = t.name
                             keep.source = src
                             push model.opaque keep
+                            ; Kept for the writer AND read for the screen. The
+                            ; capture consumed the element, so anything that
+                            ; wants to look inside one has to do it here.
+                            if (t.name == "conditionalFormatting") {
+                                XlsxWorksheet.readConditionalFormatting(src model)
+                            }
                         }
                         continue
                     }
@@ -720,126 +726,153 @@ class XlsxWorksheet {
                 XlsxWorksheet.parseMergeRef(mref r1 c1 r2 c2)
                 model.addMerge((itemAt r1 0) (itemAt c1 0) (itemAt r2 0) (itemAt c2 0))
             }
-            if ((t.name == "conditionalFormatting") && (t.isEnd == false)) {
-                def sq:string (t.attr("sqref"))
-                def rr1:[int]
-                def cc1:[int]
-                def rr2:[int]
-                def cc2:[int]
-                push rr1 0
-                push cc1 0
-                push rr2 0
-                push cc2 0
-                if ((strlen sq) > 0) {
-                    ; take first ref token
-                    def sp:int 0
-                    while (sp < (strlen sq)) {
-                        def sch:int (charAt sq sp)
-                        if (sch == 32) {
-                            break
-                        }
-                        sp = (sp + 1)
-                    }
-                    def one:string (substring sq 0 sp)
-                    clear rr1
-                    clear cc1
-                    clear rr2
-                    clear cc2
-                    XlsxWorksheet.parseMergeRef(one rr1 cc1 rr2 cc2)
-                }
-                def colorIdx:int 0
-                ; scan children for cfRule until </conditionalFormatting>
-                def depth:int 1
-                while ((p.pos < p.len) && (depth > 0)) {
-                    def ct:XmlTag (p.nextTag())
-                    if (ct.valid == false) {
+            ; Conditional formatting is read where it is PRESERVED — see
+            ; `readConditionalFormatting`. It cannot be read here: the capture
+            ; above has already consumed the element.
+        }
+        clear model.undoStack
+        clear model.redoStack
+        model.version = (model.version + 1)
+    }
+
+    ; --- conditional formatting -------------------------------------------------
+    ;
+    ; Read from the element's own SOURCE rather than from the worksheet parser,
+    ; because by the time this runs the element has already been consumed.
+    ;
+    ; `isPreserved` lists `conditionalFormatting`: the writer does not generate
+    ; it, so the loader keeps the raw XML and hands it back at save. That capture
+    ; takes the whole element and skips the parser past it — which meant the
+    ; branch that READ the rules, further down the same loop, stopped being
+    ; reached. A workbook with a colour scale in it round-tripped perfectly and
+    ; displayed nothing, and neither half looked wrong on its own.
+    ;
+    ; So both happen, from one place: the span is kept for the writer AND parsed
+    ; here for the screen.
+    sfn readConditionalFormatting:void (src:string model:SpreadsheetModel) {
+        def p:XmlLite (new XmlLite)
+        p.reset(src)
+        def t:XmlTag (p.nextTag())
+        if (t.valid == false) {
+            return
+        }
+        if (t.name != "conditionalFormatting") {
+            return
+        }
+            def sq:string (t.attr("sqref"))
+            def rr1:[int]
+            def cc1:[int]
+            def rr2:[int]
+            def cc2:[int]
+            push rr1 0
+            push cc1 0
+            push rr2 0
+            push cc2 0
+            if ((strlen sq) > 0) {
+                ; take first ref token
+                def sp:int 0
+                while (sp < (strlen sq)) {
+                    def sch:int (charAt sq sp)
+                    if (sch == 32) {
                         break
                     }
-                    if (ct.name == "conditionalFormatting") {
-                        if ct.isEnd {
-                            depth = (depth - 1)
-                        } {
-                            if (ct.selfClose == false) {
-                                depth = (depth + 1)
-                            }
-                        }
+                    sp = (sp + 1)
+                }
+                def one:string (substring sq 0 sp)
+                clear rr1
+                clear cc1
+                clear rr2
+                clear cc2
+                XlsxWorksheet.parseMergeRef(one rr1 cc1 rr2 cc2)
+            }
+            def colorIdx:int 0
+            ; scan children for cfRule until </conditionalFormatting>
+            def depth:int 1
+            while ((p.pos < p.len) && (depth > 0)) {
+                def ct:XmlTag (p.nextTag())
+                if (ct.valid == false) {
+                    break
+                }
+                if (ct.name == "conditionalFormatting") {
+                    if ct.isEnd {
+                        depth = (depth - 1)
                     } {
-                        if ((ct.name == "cfRule") && (ct.isEnd == false)) {
-                            def typ:string (ct.attr("type"))
-                            def rule:CfRule (new CfRule)
-                            rule.r0 = (itemAt rr1 0)
-                            rule.c0 = (itemAt cc1 0)
-                            rule.r1 = (itemAt rr2 0)
-                            rule.c1 = (itemAt cc2 0)
-                            if (typ == "colorScale") {
-                                rule.kind = 0
-                                push model.cfRules rule
-                                colorIdx = 0
-                            }
-                            if (typ == "cellIs") {
-                                rule.kind = 1
-                                rule.op = (ct.attr("operator"))
-                                rule.fillRgb = "#C6EFCE"
-                                push model.cfRules rule
+                        if (ct.selfClose == false) {
+                            depth = (depth + 1)
+                        }
+                    }
+                } {
+                    if ((ct.name == "cfRule") && (ct.isEnd == false)) {
+                        def typ:string (ct.attr("type"))
+                        def rule:CfRule (new CfRule)
+                        rule.r0 = (itemAt rr1 0)
+                        rule.c0 = (itemAt cc1 0)
+                        rule.r1 = (itemAt rr2 0)
+                        rule.c1 = (itemAt cc2 0)
+                        if (typ == "colorScale") {
+                            rule.kind = 0
+                            push model.cfRules rule
+                            colorIdx = 0
+                        }
+                        if (typ == "cellIs") {
+                            rule.kind = 1
+                            rule.op = (ct.attr("operator"))
+                            rule.fillRgb = "#C6EFCE"
+                            push model.cfRules rule
+                        }
+                    }
+                    if ((ct.name == "color") && (ct.isEnd == false)) {
+                        def ncf:int (array_length model.cfRules)
+                        if (ncf > 0) {
+                            def last:CfRule (itemAt model.cfRules (ncf - 1))
+                            if (last.kind == 0) {
+                                def rgb:string (ct.attr("rgb"))
+                                if ((strlen rgb) >= 6) {
+                                    if (colorIdx == 0) {
+                                        last.color0 = rgb
+                                    }
+                                    if (colorIdx == 1) {
+                                        last.color1 = rgb
+                                    }
+                                    if (colorIdx == 2) {
+                                        last.color2 = rgb
+                                    }
+                                    colorIdx = (colorIdx + 1)
+                                }
                             }
                         }
-                        if ((ct.name == "color") && (ct.isEnd == false)) {
-                            def ncf:int (array_length model.cfRules)
-                            if (ncf > 0) {
-                                def last:CfRule (itemAt model.cfRules (ncf - 1))
-                                if (last.kind == 0) {
-                                    def rgb:string (ct.attr("rgb"))
-                                    if ((strlen rgb) >= 6) {
-                                        if (colorIdx == 0) {
-                                            last.color0 = rgb
-                                        }
-                                        if (colorIdx == 1) {
-                                            last.color1 = rgb
-                                        }
-                                        if (colorIdx == 2) {
-                                            last.color2 = rgb
-                                        }
-                                        colorIdx = (colorIdx + 1)
+                    }
+                    if ((ct.name == "formula") && (ct.isEnd == false) && (ct.selfClose == false)) {
+                        def ncf2:int (array_length model.cfRules)
+                        if (ncf2 > 0) {
+                            def last2:CfRule (itemAt model.cfRules (ncf2 - 1))
+                            if (last2.kind == 1) {
+                                def ftxt:string (p.readTextUntilEnd("formula"))
+                                def pv@(optional):double (to_double ftxt)
+                                if pv {
+                                    if (last2.v1 == 0.0) {
+                                        last2.v1 = (unwrap pv)
+                                    } {
+                                        last2.v2 = (unwrap pv)
                                     }
                                 }
                             }
                         }
-                        if ((ct.name == "formula") && (ct.isEnd == false) && (ct.selfClose == false)) {
-                            def ncf2:int (array_length model.cfRules)
-                            if (ncf2 > 0) {
-                                def last2:CfRule (itemAt model.cfRules (ncf2 - 1))
-                                if (last2.kind == 1) {
-                                    def ftxt:string (p.readTextUntilEnd("formula"))
-                                    def pv@(optional):double (to_double ftxt)
-                                    if pv {
-                                        if (last2.v1 == 0.0) {
-                                            last2.v1 = (unwrap pv)
-                                        } {
-                                            last2.v2 = (unwrap pv)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if ((ct.name == "dxf") && (ct.isEnd == false)) {
-                            ; fill may appear later; default green highlight for cellIs
-                            def ncf3:int (array_length model.cfRules)
-                            if (ncf3 > 0) {
-                                def last3:CfRule (itemAt model.cfRules (ncf3 - 1))
-                                if (last3.kind == 1) {
-                                    if ((strlen last3.fillRgb) == 0) {
-                                        last3.fillRgb = "#C6EFCE"
-                                    }
+                    }
+                    if ((ct.name == "dxf") && (ct.isEnd == false)) {
+                        ; fill may appear later; default green highlight for cellIs
+                        def ncf3:int (array_length model.cfRules)
+                        if (ncf3 > 0) {
+                            def last3:CfRule (itemAt model.cfRules (ncf3 - 1))
+                            if (last3.kind == 1) {
+                                if ((strlen last3.fillRgb) == 0) {
+                                    last3.fillRgb = "#C6EFCE"
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-        clear model.undoStack
-        clear model.redoStack
-        model.version = (model.version + 1)
     }
 
     fn noteRowStated:void (row:int) {

@@ -16,6 +16,7 @@ Import "../src/PptxModel.rgr"
 Import "../src/PptxTextEdit.rgr"
 Import "../src/PptxEdit.rgr"
 Import "../src/PptxTextLayout.rgr"
+Import "../../evg/EVGCodepoint.rgr"
 
 class PptxTextEditTest {
     def passed:int 0
@@ -66,6 +67,7 @@ class PptxTextEditTest {
         this.testMovement()
         this.testStyleRange()
         this.testWrap()
+        this.testWrapBreaks()
         this.testWrapCaret()
         this.testWrapAnchorAndAlign()
         this.testWrapBullet()
@@ -444,6 +446,65 @@ class PptxTextEditTest {
         noWrap.wrap = false
         def single:[PptxTextLine] (PptxTextLayout.layout(noWrap m 1.0 0.0 0.0 100.0 400.0))
         this.check("wrap off is one line" ((array_length single) == 1))
+    }
+
+    ; --- where a line may be broken ----------------------------------------------
+    ;
+    ; A space was the only break opportunity this wrapper knew, and that is not
+    ; enough for the commonest kind of text there is: a hyphenated compound is
+    ; ONE word to a space-only wrapper. A box too narrow for the whole of
+    ; "Liiketoiminta-logiikka" had nowhere to break it and fell through to
+    ; breaking between letters — "Liiketoimint" / "a-logiikka", where every
+    ; other program gives "Liiketoiminta-" / "logiikka". Reported by comparing
+    ; a slide against Google Slides.
+    fn testWrapBreaks:void () {
+        print "--- a line breaks after a hyphen, not inside a word ---"
+        def m (new PptxTextMeasure())
+        ; ~5.2px per character at the estimate. 80px is about fifteen
+        ; characters: too narrow for the compound, wide enough for either half.
+        def body:PptxTextBody (this.wrapBody("Liiketoiminta-logiikka" 10.0))
+        def lines:[PptxTextLine] (PptxTextLayout.layout(body m 1.0 0.0 0.0 80.0 400.0))
+        this.check("the compound breaks" ((array_length lines) == 2))
+        if ((array_length lines) == 2) {
+            def a:PptxTextLine (itemAt lines 0)
+            def b:PptxTextLine (itemAt lines 1)
+            def first:string (substring "Liiketoiminta-logiikka" a.startCol a.endCol)
+            def second:string (substring "Liiketoiminta-logiikka" b.startCol b.endCol)
+            ; The hyphen stays on the line it belongs to. That is the whole
+            ; difference between a compound that reads and one that looks like
+            ; a typo.
+            this.check("the first line keeps the hyphen" (first == "Liiketoiminta-"))
+            this.check("and the second starts the next part" (second == "logiikka"))
+        }
+
+        ; A word with no break opportunity in it is NOT chopped. No office
+        ; program hyphenates on its own — PowerPoint, Word and Google Slides
+        ; all let a word wider than its box stick out — and a label chopped
+        ; mid-word reads as a broken document rather than as a small box.
+        def solo:PptxTextBody (this.wrapBody("Käyttöliittymät" 10.0))
+        def one:[PptxTextLine] (PptxTextLayout.layout(solo m 1.0 0.0 0.0 30.0 400.0))
+        this.check("a word too wide for the box stays whole" ((array_length one) == 1))
+        if ((array_length one) == 1) {
+            def only:PptxTextLine (itemAt one 0)
+            def all:string (substring "Käyttöliittymät" only.startCol only.endCol)
+            this.check("all of it" (all == "Käyttöliittymät"))
+            this.check("and it overflows rather than being cut" (only.w > 30.0))
+        }
+
+        ; A hyphen at the very start is not a break: "-5" is one token, and a
+        ; chunk of nothing but a hyphen would make no progress.
+        def dash:PptxTextBody (this.wrapBody("-5 -6" 10.0))
+        def dashLines:[PptxTextLine] (PptxTextLayout.layout(dash m 1.0 0.0 0.0 300.0 400.0))
+        this.check("a leading hyphen does not break" ((array_length dashLines) == 1))
+
+        ; The rule itself, which the .docx wrapper reads from the same place.
+        this.check("a hyphen is a break opportunity" (EVGCodepoint.breaksAfter(45)))
+        this.check("so is an en dash" (EVGCodepoint.breaksAfter(8211)))
+        this.check("and an em dash" (EVGCodepoint.breaksAfter(8212)))
+        this.check("and a solidus" (EVGCodepoint.breaksAfter(47)))
+        this.check("a letter is not" ((EVGCodepoint.breaksAfter(97)) == false))
+        this.check("nor a full stop, which would break a date"
+            ((EVGCodepoint.breaksAfter(46)) == false))
     }
 
     fn testWrapCaret:void () {

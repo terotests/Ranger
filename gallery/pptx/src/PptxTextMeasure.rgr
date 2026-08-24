@@ -68,7 +68,52 @@ class PptxTextMeasure {
         return ((OfficeFont.substituted(ctx.tr.fm fam)) == false)
     }
 
+    ; --- what the run itself asked for ------------------------------------------
+    ;
+    ; Everything above answers for ONE family: the one the host attached. That
+    ; was the whole of it for a long time, and it meant a deck naming Arial and
+    ; a deck naming Times New Roman were measured, and drawn, in exactly the
+    ; same face — the alias map that the spreadsheet and the .docx reader both
+    ; go through was never reached from here.
+    ;
+    ; `drawnFamily` is the family a run ends up in, and `widthOfIn` measures in
+    ; it. They are one pair on purpose: the display list carries the answer
+    ; from the first, every width comes from the second, and a backend that
+    ; obeys the family it is handed draws what was measured. Split them — name
+    ; one family and measure another — and the caret drifts by the difference
+    ; between the two faces, which is precisely the bug this exists to close.
+    fn drawnFamily:string (named:string bold:boolean italic:boolean) {
+        if ((strlen (trim named)) == 0) {
+            return family
+        }
+        if (hasCtx == false) {
+            return (OfficeFont.aliasFamily(named))
+        }
+        return (OfficeFont.drawnFamily(ctx.tr.fm named bold italic family))
+    }
+
+    ; The face for a run that names its own family, as `faceFor` is for the
+    ; attached one.
+    fn faceForIn:string (named:string bold:boolean italic:boolean) {
+        def fam:string (this.drawnFamily(named bold italic))
+        if (hasCtx == false) {
+            return (OfficeFont.faceName(fam bold italic))
+        }
+        def hit:string (OfficeFont.resolve(ctx.tr.fm fam bold italic family))
+        if ((strlen hit) > 0) {
+            return hit
+        }
+        return (OfficeFont.faceName(fam bold italic))
+    }
+
     fn widthOf:double (text:string sizePx:double bold:boolean italic:boolean) {
+        return (this.widthOfIn(text sizePx bold italic ""))
+    }
+
+    ; An empty `named` means "the family this host attached" — a bullet glyph,
+    ; a measurement taken before any run is in hand — and takes the old path
+    ; exactly.
+    fn widthOfIn:double (text:string sizePx:double bold:boolean italic:boolean named:string) {
         if ((strlen text) == 0) {
             return 0.0
         }
@@ -76,7 +121,7 @@ class PptxTextMeasure {
             return ((to_double (strlen text)) * sizePx * emFactor)
         }
         def prev:string ctx.tr.fontFamily
-        ctx.tr.fontFamily = (this.faceFor(bold italic))
+        ctx.tr.fontFamily = (this.faceForIn(named bold italic))
         def w:double (ctx.measureWidth(text sizePx))
         ctx.tr.fontFamily = prev
         return w

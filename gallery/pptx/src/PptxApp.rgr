@@ -999,35 +999,60 @@ class PptxApp {
         toolbar.uiRtl = on
     }
 
-    ; A right-to-left deck opens with the interface already turned around.
-    ; Only ever turns it ON: a reader who turned it off is not overruled by
-    ; the next deck they open.
+    ; A right-to-left deck opens with the interface turned around, and a
+    ; left-to-right one opens with it the right way up — including when the
+    ; deck before it was Arabic.
+    ;
+    ; It used to only ever turn it ON, and gave a reason: "a reader who turned
+    ; it off is not overruled by the next deck they open". That reader is
+    ; already protected by `uiRtlChosen`, which is what records a decision. The
+    ; early return on `uiRtl` protected nobody and made the mode STICKY:
+    ; open an Arabic deck, then open an English one, and the interface stayed
+    ; mirrored with nothing on screen to explain why.
     fn adoptDeckDirection:void () {
         if uiRtlChosen {
             return
         }
-        if uiRtl {
-            return
-        }
+        this.setUiRtl((this.deckIsRtl()))
+    }
+
+    ; Does anything in this deck run right to left? Groups included — a
+    ; paragraph does not stop being Arabic for being inside one, and the walk
+    ; that only looked at a slide's top-level shapes missed exactly the shapes
+    ; a diagram keeps its text in.
+    fn deckIsRtl:boolean () {
         def si:int 0
         while (si < (array_length presentation.slides)) {
             def sl:PptxSlide (itemAt presentation.slides si)
             def shi:int 0
             while (shi < (array_length sl.shapes)) {
-                def sh:PptxShape (itemAt sl.shapes shi)
-                def pi:int 0
-                while (pi < (array_length sh.text.paragraphs)) {
-                    def pa:PptxParagraph (itemAt sh.text.paragraphs pi)
-                    if (pa.rtl == 1) {
-                        this.setUiRtl(true)
-                        return
-                    }
-                    pi = (pi + 1)
+                if (this.shapeIsRtl((itemAt sl.shapes shi))) {
+                    return true
                 }
                 shi = (shi + 1)
             }
             si = (si + 1)
         }
+        return false
+    }
+
+    fn shapeIsRtl:boolean (sh:PptxShape) {
+        def pi:int 0
+        while (pi < (array_length sh.text.paragraphs)) {
+            def pa:PptxParagraph (itemAt sh.text.paragraphs pi)
+            if (pa.rtl == 1) {
+                return true
+            }
+            pi = (pi + 1)
+        }
+        def ci:int 0
+        while (ci < (array_length sh.children)) {
+            if (this.shapeIsRtl((itemAt sh.children ci))) {
+                return true
+            }
+            ci = (ci + 1)
+        }
+        return false
     }
 
     ; --- the command surface --------------------------------------------------
@@ -1040,13 +1065,16 @@ class PptxApp {
             return true
         }
         if (id == "view.rtl") {
-            ; The latch goes down exactly when the reader turns the interface
-            ; OFF, and lifts when they turn it back on. "The reader said no"
-            ; is the only thing the automatic half has to respect — it never
-            ; turns the switch off, so a reader who turned it on by hand has
-            ; nothing to be overruled about.
+            ; Any use of this switch is a decision, and the automatic half
+            ; leaves it alone from here on — in BOTH directions.
+            ;
+            ; The latch used to go down only when the reader turned the
+            ; interface off, which was right while the automatic half could
+            ; only ever turn it ON. Now that it can also turn it off, a reader
+            ; who turned it on by hand over a left-to-right document would have
+            ; it taken away again by the next one they opened.
             def next:boolean (uiRtl == false)
-            uiRtlChosen = (next == false)
+            uiRtlChosen = true
             this.setUiRtl(next)
             return true
         }
