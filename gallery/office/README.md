@@ -29,6 +29,12 @@ gallery/office/
         OfficeHistory.rgr      what "one undo" means
     drawing/
         OfficeColor.rgr        the theme palette, and what is done to a colour
+    geom/
+        OfficeGeomFormula.rgr  the guide language DrawingML geometry is written in
+        OfficePresetShapes.rgr the 187 preset geometries, evaluated
+        OfficeShapeCatalog.rgr the same 187, named and grouped, so a picker can
+                               offer them — the slide editor could draw every
+                               one and insert two
     text/
         OfficeFont.rgr         which face draws this run
         OfficeTextRun.rgr      a stretch of text drawn in one face
@@ -42,6 +48,8 @@ npm run office:font:test       # JavaScript and C++
 npm run office:metrics:test    # likewise
 npm run office:style:test      # likewise
 npm run office:color:test      # likewise
+npm run office:geom:test       # the guide evaluator and the presets
+npm run office:shapes:test     # the catalogue, and that both editors call it
 npm run office:history:test    # likewise
 npm run office:asset:test      # likewise
 ```

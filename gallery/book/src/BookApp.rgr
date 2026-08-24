@@ -32,6 +32,7 @@ Import "BookView.rgr"
 Import "BookPreflight.rgr"
 Import "BookSample.rgr"
 Import "BookAlbumImport.rgr"
+Import "../../office/geom/OfficeShapeCatalog.rgr"
 Import "PhotoScan.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGToolbarView.rgr"
@@ -137,6 +138,11 @@ class BookApp {
     def theme:EVGToolbarTheme (new EVGToolbarTheme)
     def toolbarH:int 30
     def statusH:int 22
+    ; The 187 preset geometries, as a catalogue an editor can offer. Shared
+    ; with the slide editor, which has been able to DRAW all of them for a
+    ; while and could only ever insert two.
+    def shapes:OfficeShapeCatalog (new OfficeShapeCatalog())
+
     ; Why the last album import failed, for a host to show. Empty after a
     ; successful one.
     def albumError:string ""
@@ -726,7 +732,14 @@ class BookApp {
             return (this.insertFrame("image"))
         }
         if (id == "frame.shape") {
-            return (this.insertFrame("shape"))
+            ; With no argument this is the plain box it always was; with a
+            ; catalogue id it is that shape's outline. One command rather than
+            ; two, so a host that knows nothing about the catalogue keeps
+            ; working unchanged.
+            if ((strlen arg) == 0) {
+                return (this.insertFrame("shape"))
+            }
+            return (this.insertShape(arg))
         }
         if (id == "image.cover") {
             return (editor.setFit("cover"))
@@ -834,6 +847,48 @@ class BookApp {
         }
         this.refreshStatus()
         return ((strlen id) > 0)
+    }
+
+    ; The preset geometries, for a host with no file system. The catalogue
+    ; LISTS its shapes without them — the names and categories are compiled in —
+    ; and can only draw one once these arrive.
+    fn loadShapePresets:void (text:string) {
+        shapes.loadPresets(text)
+    }
+
+    ; One catalogue shape, as a path frame in the middle of the page.
+    ;
+    ; A shape whose outline cannot be produced is NOT inserted. The catalogue
+    ; answers with an empty path when the presets were never loaded or the id
+    ; is not one it has, and an empty path frame is an invisible frame the
+    ; reader then has to find and delete — worse than the insert plainly not
+    ; happening.
+    fn insertShape:boolean (shapeId:string) {
+        if (editor.editMode == false) {
+            return false
+        }
+        def d:BookDocument editor.doc
+        if ((d.pageCount()) == 0) {
+            return false
+        }
+        def w:double (d.pageWidth * 0.3)
+        def h:double (d.pageHeight * 0.2)
+        def path:string (shapes.pathFor(shapeId w h))
+        if ((strlen path) == 0) {
+            albumError = ("no outline for shape '" + shapeId + "' - are the presets loaded?")
+            return false
+        }
+        def x:double ((d.pageWidth - w) * 0.5)
+        def y:double ((d.pageHeight - h) * 0.5)
+        def id:string (editor.addFrame("path" x y w h))
+        if ((strlen id) == 0) {
+            return false
+        }
+        def frame:BookFrame (editor.frameById(id))
+        frame.pathData = path
+        frame.fill = "#3b2f2a"
+        this.refreshStatus()
+        return true
     }
 
     ; The story this page is already showing, so a new text frame joins the

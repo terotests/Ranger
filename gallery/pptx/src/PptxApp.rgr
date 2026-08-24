@@ -24,6 +24,7 @@ Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "../../evg/EVGCommands.rgr"
 Import "../../evg/EVGSelectChrome.rgr"
+Import "../../office/geom/OfficeShapeCatalog.rgr"
 
 ; Which buttons a slide viewer has. The strip is the shared one — the same
 ; component the spreadsheet's and the document's are — and this is the only
@@ -334,7 +335,17 @@ class PptxApp {
     ; hands them over here, before anything is drawn.
     fn loadPresets:void (text:string) {
         view.converter.loadPresets(text)
+        ; The same bytes to the catalogue. It can list its shapes without them
+        ; but cannot produce an outline, and the book editor needs outlines —
+        ; so both are fed from the one call a host already makes.
+        shapes.loadPresets(text)
     }
+
+    ; The 187 preset geometries as a catalogue somebody can browse. This
+    ; editor has been able to DRAW all of them since the presets landed and
+    ; could only ever INSERT two of them, because nothing named the rest.
+    ; Shared with the book editor, which turns an entry into a path instead.
+    def shapes:OfficeShapeCatalog (new OfficeShapeCatalog())
 
     ; The strip, the command table, and the room they take out of the window.
     ; `view.chromeH` is what the slide's fit-to-window scale keeps clear, so it
@@ -3380,6 +3391,24 @@ class PptxApp {
             }
             def sh:PptxShape (unwrap sel)
             return (editor.setShapeText(sh.editId arg))
+        }
+        ; Any shape in the catalogue, by id. `shape.rect` and `shape.ellipse`
+        ; below are what a toolbar button with no argument sends, and they are
+        ; left alone: this is the same insert with a name in it.
+        if (id == "shape.insert") {
+            if ((strlen arg) == 0) {
+                return false
+            }
+            ; Bound to a local: `(obj.m()).field` does not resolve in Ranger.
+            def entry:ShapeEntry (shapes.find(arg))
+            if (entry.id != arg) {
+                return false
+            }
+            def sw:double ((this.slideW()) * 0.25)
+            def sh2:double ((this.slideH()) * 0.22)
+            def madeId:int (editor.addShapeAt(arg ((this.slideW()) * 0.3) ((this.slideH()) * 0.3) sw sh2))
+            this.setEditMode(true)
+            return (madeId > 0)
         }
         if (id == "shape.rect") {
             def w:double ((this.slideW()) * 0.25)

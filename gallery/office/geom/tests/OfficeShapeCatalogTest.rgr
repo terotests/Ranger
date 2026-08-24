@@ -1,0 +1,172 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeShapeCatalogTest — the catalogue, and that both editors actually use it
+; ==============================================================================
+;
+;   npm run office:shapes:test
+;
+; Two halves, and the second is the one that would not pass on its own.
+;
+; The first checks the catalogue: every preset in `presets.txt` is named, every
+; entry lands in a category, search finds a synonym, and an outline comes out as
+; path data.
+;
+; The second drives the REAL insert command in each editor — `BookApp` with
+; `frame.shape` and a shape id, `PptxApp` with `shape.insert` — and looks at
+; what appeared on the page. That is the wiring test the kernel plan asks every
+; shared module to ship: a catalogue that is correct and that nobody calls
+; passes the first half and fails here.
+; ==============================================================================
+
+Import "../OfficeShapeCatalog.rgr"
+Import "../../../book/src/BookApp.rgr"
+Import "../../../pptx/src/PptxApp.rgr"
+Import "../../../pptx/api/PptxApi.rgr"
+
+class ShapeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OfficeShapeCatalogTest {
+    sfn presetText:string () {
+        def t:string (?? (read_file "gallery/office/geom/assets" "presets.txt") "")
+        return t
+    }
+
+    sfn testCatalogue:void (c:ShapeCheck) {
+        print "-- the catalogue --"
+        def cat (new OfficeShapeCatalog())
+        c.eqInt("every preset is named" (cat.count()) 187)
+
+        def cats:[string] (cat.categories())
+        c.ok("and grouped" ((array_length cats) > 5))
+
+        ; Every entry belongs to a category that the category list reports, or
+        ; a shape exists that no picker can ever show.
+        def orphan:int 0
+        def i:int 0
+        while (i < (cat.count())) {
+            def e:ShapeEntry (cat.at(i))
+            if ((OfficeShapeCatalog.hasString(cats e.category)) == false) {
+                orphan = (orphan + 1)
+            }
+            if ((strlen e.label) == 0) {
+                orphan = (orphan + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("no entry is unreachable or unlabelled" orphan 0)
+
+        ; The categories partition the catalogue: every shape in exactly one.
+        def total:int 0
+        def k:int 0
+        while (k < (array_length cats)) {
+            total = (total + (array_length (cat.inCategory((itemAt cats k)))))
+            k = (k + 1)
+        }
+        c.eqInt("the categories partition it" total 187)
+
+        c.ok("search finds a shape by a word not in its name" ((array_length (cat.search("circle"))) > 0))
+        c.ok("an empty query is everything" ((array_length (cat.search(""))) == 187))
+        c.ok("an unknown id is not found" ((strlen ((cat.find("nosuchshape")).id)) == 0))
+
+        ; Without presets it still lists, and honestly answers with no outline.
+        c.ok("no presets means no outline, not a substitute" ((strlen (cat.pathFor("star5" 100.0 100.0))) == 0))
+
+        cat.loadPresets((OfficeShapeCatalogTest.presetText()))
+        def star:string (cat.pathFor("star5" 100.0 100.0))
+        c.ok("a preset becomes path data" ((strlen star) > 20))
+        c.ok("and it is a path" ((substring star 0 1) == "M"))
+        c.ok("a shape the catalogue lacks still answers empty" ((strlen (cat.pathFor("nope" 10.0 10.0))) == 0))
+    }
+
+    ; --- the wiring --------------------------------------------------------
+
+    sfn testBookInserts:void (c:ShapeCheck) {
+        print "-- the book editor calls it --"
+        def app (new BookApp)
+        app.W = 900
+        app.H = 600
+        app.initBare()
+        ; `initBare` gives a window, not a book. Insert refuses on a document
+        ; with no pages, which is correct and is why one is attached here.
+        def api (BookApi.create("Shapes" "a4"))
+        api.defaultStyles()
+        api.master("plain")
+        api.page("plain")
+        app.attach(api.doc)
+        app.loadShapePresets((OfficeShapeCatalogTest.presetText()))
+        app.runCommand("edit.toggle" "")
+
+        def before:int (array_length ((app.editor.currentPage()).frames))
+        def ok:boolean (app.runCommand("frame.shape" "star5"))
+        c.ok("frame.shape with a catalogue id inserts" ok)
+        def after:int (array_length ((app.editor.currentPage()).frames))
+        c.eqInt("one frame more" after (before + 1))
+
+        ; What matters is that it took the CATALOGUE's outline rather than
+        ; drawing a box: a path frame with real path data on it.
+        def page:BookPage (app.editor.currentPage())
+        def last:BookFrame (itemAt page.frames (after - 1))
+        c.ok("and it is a path frame" (last.kind == "path"))
+        c.ok("carrying the star's outline" ((strlen last.pathData) > 20))
+
+        ; A shape that cannot be produced must not leave an invisible frame.
+        def n0:int (array_length ((app.editor.currentPage()).frames))
+        def bad:boolean (app.runCommand("frame.shape" "nosuchshape"))
+        c.ok("an unknown shape does not insert" (bad == false))
+        c.eqInt("and leaves no empty frame" (array_length ((app.editor.currentPage()).frames)) n0)
+    }
+
+    sfn testSlideInserts:void (c:ShapeCheck) {
+        print "-- the slide editor calls it --"
+        def app (new PptxApp)
+        app.W = 900
+        app.H = 600
+        app.initBare()
+        ; A deck with one slide, for the same reason the book needed a page:
+        ; the insert refuses when there is nothing to insert into.
+        def deck:PptxDeck (PptxApi.create())
+        deck.addSlide()
+        app.attachPresentation(deck.pres "test")
+        app.loadPresets((OfficeShapeCatalogTest.presetText()))
+
+        def ok:boolean (app.runCommand("shape.insert" "heart"))
+        c.ok("shape.insert with a catalogue id inserts" ok)
+        def bad:boolean (app.runCommand("shape.insert" "nosuchshape"))
+        c.ok("and refuses one the catalogue does not have" (bad == false))
+        def empty:boolean (app.runCommand("shape.insert" ""))
+        c.ok("and refuses an empty id" (empty == false))
+    }
+
+    sfn main:void () {
+        print "== OfficeShapeCatalogTest =="
+        def c (new ShapeCheck())
+        OfficeShapeCatalogTest.testCatalogue(c)
+        OfficeShapeCatalogTest.testBookInserts(c)
+        OfficeShapeCatalogTest.testSlideInserts(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

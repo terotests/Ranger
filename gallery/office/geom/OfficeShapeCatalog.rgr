@@ -1,0 +1,496 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeShapeCatalog.rgr — the shapes an editor can offer, as data
+; ==============================================================================
+;
+; Two editors have a button that inserts a shape. The slide editor offered a
+; rectangle and an ellipse; the book editor offered a rectangle. Meanwhile
+; `presets.txt` beside this file holds **187 DrawingML geometries** that both
+; already RENDER, and `PptxEdit.addShapeAt` has always taken any preset name as
+; a string. The shapes were there. Nothing named them.
+;
+; So this file is a table, not a feature: an id, a label, a category and the
+; words somebody might search for. What an editor does with an entry is the
+; editor's business — the slide editor stores the preset name, the book editor
+; asks `OfficePresetShapes` for the outline and stores a path — and that
+; difference is exactly why the catalogue holds neither.
+;
+; ONE SOURCE TODAY, MORE LATER. Every entry here is a preset, so `pathFor`
+; goes through `OfficePresetShapes`. Entries from another source — a glyph
+; outline, an SVG file — carry their own path data in `pathData` and answer
+; from that instead. The two are told apart by `hasPath`, not by parsing the
+; id, so adding a source does not touch this class.
+;
+; Categories follow the ones PowerPoint's own gallery uses, because a person
+; looking for a chevron looks under Arrows whatever drew it.
+; ==============================================================================
+
+Import "OfficePresetShapes.rgr"
+
+class ShapeEntry {
+    ; The preset name for a preset, or a catalogue-unique id for anything else.
+    def id:string ""
+    def label:string ""
+    def category:string ""
+    ; Extra words a search should match — a plain substring of the label
+    ; already matches, so these are the SYNONYMS: "circle" for an ellipse.
+    def keywords:string ""
+    ; Set only for an entry that is not a preset. See the header.
+    def pathData:string ""
+
+    Constructor () {
+    }
+
+    fn hasPath:boolean () {
+        return ((strlen pathData) > 0)
+    }
+
+    sfn of:ShapeEntry (id:string label:string category:string keywords:string) {
+        def e (new ShapeEntry())
+        e.id = id
+        e.label = label
+        e.category = category
+        e.keywords = keywords
+        return e
+    }
+}
+
+class OfficeShapeCatalog {
+    def entries:[ShapeEntry]
+    ; The preset geometry, loaded once by whoever has the file. A catalogue
+    ; with no presets loaded still LISTS everything — the names and categories
+    ; are here — and answers `pathFor` with nothing, which is what an editor
+    ; that forgot to load them should see rather than a rectangle.
+    def presets:OfficePresetShapes (new OfficePresetShapes())
+    def presetsLoaded:boolean false
+
+    Constructor () {
+        OfficeShapeCatalog.fill(this)
+    }
+
+    ; `gallery/office/geom/assets/presets.txt`, read by the caller — this file
+    ; has no file system and runs in a browser.
+    fn loadPresets:void (text:string) {
+        presets.load(text)
+        presetsLoaded = true
+    }
+
+    fn count:int () {
+        return (array_length entries)
+    }
+
+    fn at:ShapeEntry (i:int) {
+        if (i < 0) {
+            return (new ShapeEntry())
+        }
+        if (i >= (array_length entries)) {
+            return (new ShapeEntry())
+        }
+        return (itemAt entries i)
+    }
+
+    ; The category names, in the order an editor should offer them.
+    fn categories:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:ShapeEntry (itemAt entries i)
+            if ((OfficeShapeCatalog.hasString(out e.category)) == false) {
+                push out e.category
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn inCategory:[ShapeEntry] (category:string) {
+        def out:[ShapeEntry]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:ShapeEntry (itemAt entries i)
+            if (e.category == category) {
+                push out e
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn find:ShapeEntry (id:string) {
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:ShapeEntry (itemAt entries i)
+            if (e.id == id) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return (new ShapeEntry())
+    }
+
+    ; Case-insensitive substring over the label, the id and the keywords. An
+    ; empty query answers with everything, which is what an empty search box
+    ; should show.
+    fn search:[ShapeEntry] (query:string) {
+        def q:string (OfficeShapeCatalog.lower(query))
+        def out:[ShapeEntry]
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:ShapeEntry (itemAt entries i)
+            if ((strlen q) == 0) {
+                push out e
+            } {
+                def hay:string (OfficeShapeCatalog.lower(e.label + " " + e.id + " " + e.keywords))
+                if (OfficeShapeCatalog.hasSub(hay q)) {
+                    push out e
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The outline for one entry, as SVG path data in **0..1 of its box** —
+    ; `OfficePresetShapes` normalises its rings, and every consumer here scales
+    ; a path to the frame it lands in anyway.
+    ;
+    ; `w` and `h` are still the box, because they are not the output size: they
+    ; are what the guide evaluator computes the geometry FROM. A shape whose
+    ; proportions depend on its box — a rounded rectangle's corner, an arrow's
+    ; head — comes out differently at 100x100 than at 300x50, and passing the
+    ; box it will actually occupy is what makes that right.
+    ;
+    ; An entry that carries its own path answers with it; a preset is asked of
+    ; `OfficePresetShapes` and flattened. Empty means the shape could not be
+    ; produced — no presets loaded, or a name this build does not have — and a
+    ; caller must not draw a substitute, because a rectangle standing in for a
+    ; heart is worse than nothing appearing.
+    fn pathFor:string (id:string w:double h:double) {
+        def e:ShapeEntry (this.find(id))
+        if ((strlen e.id) == 0) {
+            return ""
+        }
+        if (e.hasPath()) {
+            return e.pathData
+        }
+        if (presetsLoaded == false) {
+            return ""
+        }
+        if ((presets.has(id)) == false) {
+            return ""
+        }
+        def adjNames:[string]
+        def adjValues:[double]
+        def paths:[GeomPath] (presets.pathsFor(id w h adjNames adjValues))
+        return (OfficeShapeCatalog.ringsToSvg(paths))
+    }
+
+    ; Every ring of every path as one `M … L … Z` run. The rings are already
+    ; flattened by `OfficePresetShapes`, so there are no curves to carry.
+    sfn ringsToSvg:string (paths:[GeomPath]) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length paths)) {
+            def p:GeomPath (itemAt paths i)
+            def r:int 0
+            while (r < (array_length p.rings)) {
+                def ring:PathRing (itemAt p.rings r)
+                def n:int (array_length ring.pts)
+                def k:int 0
+                while ((k + 1) < n) {
+                    def x:double (itemAt ring.pts k)
+                    def y:double (itemAt ring.pts (k + 1))
+                    if (k == 0) {
+                        out = (out + "M ")
+                    } {
+                        out = (out + "L ")
+                    }
+                    out = (out + (OfficeShapeCatalog.num(x)) + " " + (OfficeShapeCatalog.num(y)) + " ")
+                    k = (k + 2)
+                }
+                if (n > 0) {
+                    out = (out + "Z ")
+                }
+                r = (r + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Two decimals is a tenth of a point at any size a shape is inserted at,
+    ; and it keeps a 187-shape catalogue's path strings short enough to hold in
+    ; a browser without thinking about it.
+    sfn num:string (v:double) {
+        def scaled:double (v * 100.0)
+        def r:int (floor (scaled + 0.5))
+        if (scaled < 0.0) {
+            r = (floor (scaled - 0.5))
+        }
+        def whole:int (idiv r 100)
+        def frac:int (r - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        if (frac == 0) {
+            return (to_string whole)
+        }
+        if (frac < 10) {
+            return ((to_string whole) + ".0" + (to_string frac))
+        }
+        return ((to_string whole) + "." + (to_string frac))
+    }
+
+    sfn hasString:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if (c >= 65) {
+                if (c <= 90) {
+                    c = (c + 32)
+                }
+            }
+            def one:string (strfromcode c)
+            out = (out + one)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Not `contains`: that name is spoken for, and a static method that takes
+    ; it is simply absent from the class — the same trap as `select` (a Go
+    ; keyword) and a name beginning with a global operator.
+    sfn hasSub:boolean (hay:string needle:string) {
+        def hl:int (strlen hay)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            if ((substring hay i (i + nl)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The table. Generated from `presets.txt` so a preset this build has and
+    ; this list does not is impossible.
+    ; ----------------------------------------------------------------------
+    sfn fill:void (c:OfficeShapeCatalog) {
+        ; --- Basic ---
+        push c.entries (ShapeEntry.of("arc" "Arc" "Basic" "curve"))
+        push c.entries (ShapeEntry.of("blockArc" "Block arc" "Basic" ""))
+        push c.entries (ShapeEntry.of("can" "Cylinder" "Basic" "cylinder tube"))
+        push c.entries (ShapeEntry.of("chartPlus" "Chart plus" "Basic" ""))
+        push c.entries (ShapeEntry.of("chartStar" "Chart star" "Basic" ""))
+        push c.entries (ShapeEntry.of("chartX" "Chart X" "Basic" ""))
+        push c.entries (ShapeEntry.of("chord" "Chord" "Basic" ""))
+        push c.entries (ShapeEntry.of("cloud" "Cloud" "Basic" "weather"))
+        push c.entries (ShapeEntry.of("cube" "Cube" "Basic" "box 3d"))
+        push c.entries (ShapeEntry.of("decagon" "Decagon" "Basic" ""))
+        push c.entries (ShapeEntry.of("diamond" "Diamond" "Basic" "rhombus"))
+        push c.entries (ShapeEntry.of("dodecagon" "Dodecagon" "Basic" ""))
+        push c.entries (ShapeEntry.of("donut" "Donut" "Basic" "ring annulus"))
+        push c.entries (ShapeEntry.of("ellipse" "Ellipse" "Basic" "circle oval round"))
+        push c.entries (ShapeEntry.of("funnel" "Funnel" "Basic" ""))
+        push c.entries (ShapeEntry.of("gear6" "Gear, 6 teeth" "Basic" "cog wheel"))
+        push c.entries (ShapeEntry.of("gear9" "Gear, 9 teeth" "Basic" "cog wheel"))
+        push c.entries (ShapeEntry.of("heart" "Heart" "Basic" "love"))
+        push c.entries (ShapeEntry.of("heptagon" "Heptagon" "Basic" ""))
+        push c.entries (ShapeEntry.of("hexagon" "Hexagon" "Basic" ""))
+        push c.entries (ShapeEntry.of("leftRightRibbon" "Left Right Ribbon" "Basic" ""))
+        push c.entries (ShapeEntry.of("lightningBolt" "Lightning bolt" "Basic" "flash storm bolt"))
+        push c.entries (ShapeEntry.of("line" "Line" "Basic" "stroke rule"))
+        push c.entries (ShapeEntry.of("lineInv" "Line, inverted" "Basic" ""))
+        push c.entries (ShapeEntry.of("moon" "Moon" "Basic" "crescent night"))
+        push c.entries (ShapeEntry.of("nonIsoscelesTrapezoid" "Non-isosceles trapezoid" "Basic" ""))
+        push c.entries (ShapeEntry.of("noSmoking" "No symbol" "Basic" "forbidden prohibited no"))
+        push c.entries (ShapeEntry.of("octagon" "Octagon" "Basic" ""))
+        push c.entries (ShapeEntry.of("parallelogram" "Parallelogram" "Basic" ""))
+        push c.entries (ShapeEntry.of("pentagon" "Pentagon" "Basic" ""))
+        push c.entries (ShapeEntry.of("pie" "Pie" "Basic" "chart slice"))
+        push c.entries (ShapeEntry.of("pieWedge" "Pie wedge" "Basic" ""))
+        push c.entries (ShapeEntry.of("plus" "Cross" "Basic" "cross plus add"))
+        push c.entries (ShapeEntry.of("rtTriangle" "Right triangle" "Basic" ""))
+        push c.entries (ShapeEntry.of("smileyFace" "Smiley face" "Basic" "smile face happy"))
+        push c.entries (ShapeEntry.of("sun" "Sun" "Basic" "star sunshine"))
+        push c.entries (ShapeEntry.of("teardrop" "Teardrop" "Basic" ""))
+        push c.entries (ShapeEntry.of("trapezoid" "Trapezoid" "Basic" ""))
+        push c.entries (ShapeEntry.of("triangle" "Triangle" "Basic" ""))
+        ; --- Rectangles ---
+        push c.entries (ShapeEntry.of("bevel" "Bevel" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("corner" "Corner" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("cornerTabs" "Corner Tabs" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("diagStripe" "Diagonal stripe" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("foldedCorner" "Folded corner" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("frame" "Frame" "Rectangles" "border"))
+        push c.entries (ShapeEntry.of("halfFrame" "Half frame" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("plaque" "Plaque" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("plaqueTabs" "Plaque Tabs" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("rect" "Rectangle" "Rectangles" "square box"))
+        push c.entries (ShapeEntry.of("round1Rect" "Round 1rectangle" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("round2DiagRect" "Round 2Diag rectangle" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("round2SameRect" "Round 2Same rectangle" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("roundRect" "Rounded rectangle" "Rectangles" "square box rounded"))
+        push c.entries (ShapeEntry.of("snip1Rect" "Snip 1rectangle" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("snip2DiagRect" "Snip 2Diag rectangle" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("snip2SameRect" "Snip 2Same rectangle" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("snipRoundRect" "Snip Round rectangle" "Rectangles" ""))
+        push c.entries (ShapeEntry.of("squareTabs" "Square Tabs" "Rectangles" ""))
+        ; --- Arrows ---
+        push c.entries (ShapeEntry.of("bentArrow" "Bent arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("bentUpArrow" "Bent Up arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("chevron" "Chevron" "Arrows" ""))
+        push c.entries (ShapeEntry.of("circularArrow" "Circular arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("curvedDownArrow" "Curved Down arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("curvedLeftArrow" "Curved Left arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("curvedRightArrow" "Curved Right arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("curvedUpArrow" "Curved Up arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("downArrow" "Down arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("homePlate" "Pentagon arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("leftArrow" "Left arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("leftCircularArrow" "Left Circular arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("leftRightArrow" "Left Right arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("leftRightCircularArrow" "Left Right Circular arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("leftRightUpArrow" "Left Right Up arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("leftUpArrow" "Left Up arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("notchedRightArrow" "Notched Right arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("quadArrow" "Quad arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("rightArrow" "Right arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("stripedRightArrow" "Striped Right arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("swooshArrow" "Swoosh arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("upDownArrow" "Up Down arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("uturnArrow" "U-turn arrow" "Arrows" ""))
+        push c.entries (ShapeEntry.of("upArrow" "Up arrow" "Arrows" ""))
+        ; --- Stars and banners ---
+        push c.entries (ShapeEntry.of("doubleWave" "Double wave" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("ellipseRibbon" "Ellipse Ribbon" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("ellipseRibbon2" "Ellipse Ribbon 2" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("horizontalScroll" "Horizontal scroll" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("irregularSeal1" "Explosion 1" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("irregularSeal2" "Explosion 2" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("ribbon" "Ribbon" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("ribbon2" "Ribbon 2" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star10" "10-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star12" "12-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star16" "16-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star24" "24-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star32" "32-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star4" "4-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star5" "5-point star" "Stars and banners" "favourite favorite"))
+        push c.entries (ShapeEntry.of("star6" "6-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star7" "7-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("star8" "8-point star" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("verticalScroll" "Vertical scroll" "Stars and banners" ""))
+        push c.entries (ShapeEntry.of("wave" "Wave" "Stars and banners" ""))
+        ; --- Flowchart ---
+        push c.entries (ShapeEntry.of("flowChartAlternateProcess" "Alternate Process" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartCollate" "Collate" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartConnector" "Connector" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartDecision" "Decision" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartDelay" "Delay" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartDisplay" "Display" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartDocument" "Document" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartExtract" "Extract" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartInputOutput" "Input Output" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartInternalStorage" "Internal Storage" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartMagneticDisk" "Magnetic Disk" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartMagneticDrum" "Magnetic Drum" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartMagneticTape" "Magnetic Tape" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartManualInput" "Manual Input" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartManualOperation" "Manual Operation" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartMerge" "Merge" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartMultidocument" "Multidocument" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartOfflineStorage" "Offline Storage" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartOffpageConnector" "Offpage connector" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartOnlineStorage" "Online Storage" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartOr" "Or" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartPredefinedProcess" "Predefined Process" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartPreparation" "Preparation" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartProcess" "Process" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartPunchedCard" "Punched Card" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartPunchedTape" "Punched Tape" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartSort" "Sort" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartSummingJunction" "Summing Junction" "Flowchart" ""))
+        push c.entries (ShapeEntry.of("flowChartTerminator" "Terminator" "Flowchart" ""))
+        ; --- Callouts ---
+        push c.entries (ShapeEntry.of("accentBorderCallout1" "Accent Border callout 1" "Callouts" ""))
+        push c.entries (ShapeEntry.of("accentBorderCallout2" "Accent Border callout 2" "Callouts" ""))
+        push c.entries (ShapeEntry.of("accentBorderCallout3" "Accent Border callout 3" "Callouts" ""))
+        push c.entries (ShapeEntry.of("accentCallout1" "Accent callout 1" "Callouts" ""))
+        push c.entries (ShapeEntry.of("accentCallout2" "Accent callout 2" "Callouts" ""))
+        push c.entries (ShapeEntry.of("accentCallout3" "Accent callout 3" "Callouts" ""))
+        push c.entries (ShapeEntry.of("borderCallout1" "Border callout 1" "Callouts" ""))
+        push c.entries (ShapeEntry.of("borderCallout2" "Border callout 2" "Callouts" ""))
+        push c.entries (ShapeEntry.of("borderCallout3" "Border callout 3" "Callouts" ""))
+        push c.entries (ShapeEntry.of("callout1" "Callout 1" "Callouts" ""))
+        push c.entries (ShapeEntry.of("callout2" "Callout 2" "Callouts" ""))
+        push c.entries (ShapeEntry.of("callout3" "Callout 3" "Callouts" ""))
+        push c.entries (ShapeEntry.of("cloudCallout" "Cloud callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("downArrowCallout" "Down arrow callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("leftArrowCallout" "Left arrow callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("leftRightArrowCallout" "Left Right arrow callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("quadArrowCallout" "Quad arrow callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("rightArrowCallout" "Right arrow callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("upArrowCallout" "Up arrow callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("upDownArrowCallout" "Up Down arrow callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("wedgeEllipseCallout" "Wedge Ellipse callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("wedgeRectCallout" "Wedge rectangle callout" "Callouts" ""))
+        push c.entries (ShapeEntry.of("wedgeRoundRectCallout" "Wedge Round rectangle callout" "Callouts" ""))
+        ; --- Connectors ---
+        push c.entries (ShapeEntry.of("bentConnector2" "Bent connector 2" "Connectors" ""))
+        push c.entries (ShapeEntry.of("bentConnector3" "Bent connector 3" "Connectors" ""))
+        push c.entries (ShapeEntry.of("bentConnector4" "Bent connector 4" "Connectors" ""))
+        push c.entries (ShapeEntry.of("bentConnector5" "Bent connector 5" "Connectors" ""))
+        push c.entries (ShapeEntry.of("curvedConnector2" "Curved connector 2" "Connectors" ""))
+        push c.entries (ShapeEntry.of("curvedConnector3" "Curved connector 3" "Connectors" ""))
+        push c.entries (ShapeEntry.of("curvedConnector4" "Curved connector 4" "Connectors" ""))
+        push c.entries (ShapeEntry.of("curvedConnector5" "Curved connector 5" "Connectors" ""))
+        push c.entries (ShapeEntry.of("straightConnector1" "Straight connector 1" "Connectors" ""))
+        ; --- Math ---
+        push c.entries (ShapeEntry.of("mathDivide" "Divide" "Math" ""))
+        push c.entries (ShapeEntry.of("mathEqual" "Equal" "Math" ""))
+        push c.entries (ShapeEntry.of("mathMinus" "Minus" "Math" ""))
+        push c.entries (ShapeEntry.of("mathMultiply" "Multiply" "Math" ""))
+        push c.entries (ShapeEntry.of("mathNotEqual" "Not equal" "Math" ""))
+        push c.entries (ShapeEntry.of("mathPlus" "Plus" "Math" ""))
+        ; --- Brackets ---
+        push c.entries (ShapeEntry.of("bracePair" "Brace pair" "Brackets" ""))
+        push c.entries (ShapeEntry.of("bracketPair" "Bracket pair" "Brackets" ""))
+        push c.entries (ShapeEntry.of("leftBrace" "Left Brace" "Brackets" ""))
+        push c.entries (ShapeEntry.of("leftBracket" "Left Bracket" "Brackets" ""))
+        push c.entries (ShapeEntry.of("rightBrace" "Right Brace" "Brackets" ""))
+        push c.entries (ShapeEntry.of("rightBracket" "Right Bracket" "Brackets" ""))
+        ; --- Action buttons ---
+        push c.entries (ShapeEntry.of("actionButtonBackPrevious" "Back Previous" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonBeginning" "Beginning" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonBlank" "Blank" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonDocument" "Document" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonEnd" "End" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonForwardNext" "Forward Next" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonHelp" "Help" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonHome" "Home" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonInformation" "Information" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonMovie" "Movie" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonReturn" "Return" "Action buttons" ""))
+        push c.entries (ShapeEntry.of("actionButtonSound" "Sound" "Action buttons" ""))
+    }
+}
