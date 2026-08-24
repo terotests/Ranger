@@ -34,6 +34,16 @@ backendEl.textContent = "webgl2";
 const FONTS = [
   ["Open Sans", "OpenSans-Regular.ttf"],
   [null, "OpenSans-Bold.ttf"],
+  // The fallback pool the desktop build has. `FontManager` falls back per
+  // CODEPOINT, so loading these is the whole of it — none becomes the face
+  // Latin is drawn in. Without the Arabic one a browser MEASURES Arabic with
+  // notdef widths while the canvas DRAWS it with the system's own font: the
+  // glyphs look right and every number about them is wrong, which shows up as
+  // a column that wraps early and a caret that sits short.
+  [null, "NotoEmoji-Regular.ttf"],
+  [null, "NotoSans-Regular.ttf"],
+  [null, "ElMessiri-Regular.ttf"],
+  [null, "ElMessiri-Bold.ttf"],
 ];
 
 /** A Ranger `buffer` is an ArrayBuffer with a DataView hung off it — that is

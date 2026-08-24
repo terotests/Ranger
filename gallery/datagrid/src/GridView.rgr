@@ -404,20 +404,32 @@ class GridView {
         return (to_int first)
     }
 
-    fn alignedX:double (rect:GridRect st:CellStyle textW:int) {
-        if (st.align == "right") {
+    fn alignedX:double (rect:GridRect st:CellStyle textW:int text:string) {
+        if st.alignSet {
+            if (st.align == "right") {
+                return (to_double ((rect.x + rect.w) - textW - 4))
+            }
+            if (st.align == "center") {
+                return (to_double (rect.x + (to_int ((to_double (rect.w - textW)) / 2.0))))
+            }
+            return (to_double (rect.x + 4))
+        }
+        ; Nothing stated, which is Excel's `general`: the side comes from the
+        ; cell's reading order, and a right-to-left cell belongs against the
+        ; RIGHT edge. Excel writes no `horizontal` for that — the reading
+        ; order IS the alignment — so a reader that looks only at `horizontal`
+        ; puts every Arabic cell in the sheet hard against the left edge.
+        ;
+        ; Reading order 0 is Excel's "Context", and it is the DEFAULT: the
+        ; direction is the text's own. That case was being missed, so a sheet
+        ; that simply had Arabic typed into it — which is most of them — was
+        ; still aligned left while a sheet that had been explicitly marked
+        ; right-to-left was not. Same rule, one case short.
+        if (st.readingOrder == 2) {
             return (to_double ((rect.x + rect.w) - textW - 4))
         }
-        if (st.align == "center") {
-            return (to_double (rect.x + (to_int ((to_double (rect.w - textW)) / 2.0))))
-        }
-        ; A right-to-left cell with no stated alignment sits against the
-        ; RIGHT edge. Excel does not write a `horizontal` for that — the
-        ; reading order IS the alignment — so a reader that looks only at
-        ; `horizontal` puts every Arabic cell in the sheet hard against the
-        ; left edge, which is the first thing anyone notices.
-        if (st.readingOrder == 2) {
-            if (st.align == "left") {
+        if (st.readingOrder == 0) {
+            if (OfficeText.isRtl(text)) {
                 return (to_double ((rect.x + rect.w) - textW - 4))
             }
         }
@@ -453,7 +465,7 @@ class GridView {
         while (i < (array_length lines)) {
             def line:string (itemAt lines i)
             def lw:int (to_int (ctx.tr.measureWidth(line cellPx)))
-            def lx:double (this.alignedX(rect st lw))
+            def lx:double (this.alignedX(rect st lw line))
             def ly:int (top + (i * lineH))
             textDir = (st.textDirection())
             this.pushStyledText(dl line lx (to_double ly) cellPx col st.fontName st.bold st.italic)
@@ -589,7 +601,8 @@ class GridView {
             lineH = 8
         }
         def top:int (this.textTopFor(rect base lineH 1 cellPx))
-        def x:double (this.alignedX(rect base total))
+        def rtText:string (rt.text())
+        def x:double (this.alignedX(rect base total rtText))
         def k:int 0
         while (k < (rt.count())) {
             def run2:CellRun (itemAt rt.runs k)
@@ -660,7 +673,7 @@ class GridView {
             lineH = 8
         }
         def top:int (this.textTopFor(rect st lineH 1 cellPx))
-        def tx:double (this.alignedX(rect st textW))
+        def tx:double (this.alignedX(rect st textW txt))
         ; Room the text may use: its own cell, plus any empty neighbours in the
         ; direction it actually grows — which depends on the alignment, and for
         ; a centred label is BOTH. A centred label used to be given room only

@@ -103,6 +103,37 @@ class Paragraph {
     ; reads in, because the text alone would say the wrong one.
     def bidi:int -1
 
+    ; ALL of this paragraph's formatting onto another, which is what splitting
+    ; one in half needs.
+    ;
+    ; A method rather than a list of assignments at the call site, for the
+    ; reason the PowerPoint reader learned the same way: a hand-written list
+    ; goes stale. `splitParagraph` copied thirteen fields and not `bidi`, so
+    ; pressing Enter in an Arabic paragraph gave a left-to-right one — which
+    ; then took the left margin, because in Word the direction IS the
+    ; alignment when no `w:jc` was written.
+    ;
+    ; What is deliberately NOT copied: the text and its spans, which the split
+    ; divides; the images, which belong where they were anchored; and
+    ; `pageBreakBefore`, which belongs to the paragraph that starts the page
+    ; and not to the one that continues it.
+    fn copyFormatTo:void (o:Paragraph) {
+        o.styleId = styleId
+        o.align = align
+        o.bidi = bidi
+        o.spaceBeforePt = spaceBeforePt
+        o.spaceAfterPt = spaceAfterPt
+        o.lineSpacing = lineSpacing
+        o.indentLeftPt = indentLeftPt
+        o.indentRightPt = indentRightPt
+        o.indentFirstLinePt = indentFirstLinePt
+        o.listKind = listKind
+        o.listLevel = listLevel
+        o.listNumId = listNumId
+        o.listFmt = listFmt
+        o.listText = listText
+    }
+
     Constructor () {
     }
 

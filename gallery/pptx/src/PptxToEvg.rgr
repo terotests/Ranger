@@ -193,6 +193,28 @@ class PptxToEvg {
         mapped.y = ((child.y - shape.chY) * sy)
         mapped.width = (child.width * sx)
         mapped.height = (child.height * sy)
+        ; A turned group carries its children ROUND, it does not spin each of
+        ; them where it stands.
+        ;
+        ; The line above gives the child the group's angle on top of its own,
+        ; which is right for how the child itself sits — but nothing moved it,
+        ; so turning a group left every child exactly where it was and rotated
+        ; each in place. The frame turned and the contents did not follow it,
+        ; which is what it was reported as.
+        ;
+        ; So the child's CENTRE orbits the group's centre, and its own angle
+        ; stays the sum. The two together are what a rotation about a point
+        ; is: everything moves, and everything keeps its orientation relative
+        ; to the thing it moved with.
+        if ((shape.rotation > 0.001) || (shape.rotation < -0.001)) {
+            def gcx:double (shape.width * 0.5)
+            def gcy:double (shape.height * 0.5)
+            def ccx:double (mapped.x + (mapped.width * 0.5))
+            def ccy:double (mapped.y + (mapped.height * 0.5))
+            def moved:[double] (PptxToEvg.rotateAbout(ccx ccy gcx gcy shape.rotation))
+            mapped.x = ((itemAt moved 0) - (mapped.width * 0.5))
+            mapped.y = ((itemAt moved 1) - (mapped.height * 0.5))
+        }
         mapped.hasXfrm = true
         return mapped
     }

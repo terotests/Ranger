@@ -68,6 +68,11 @@ cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 FONT_SRC=gallery/pdf_writer/assets/fonts
 cp "$FONT_SRC/Open_Sans/OpenSans-Regular.ttf" "$OUT/fonts/OpenSans-Regular.ttf"
 cp "$FONT_SRC/Open_Sans/OpenSans-Bold.ttf" "$OUT/fonts/OpenSans-Bold.ttf"
+# The fallback pool: emoji, the geometric bullets, and Arabic.
+cp "$FONT_SRC/Noto_Emoji/NotoEmoji-Regular.ttf" "$OUT/fonts/NotoEmoji-Regular.ttf"
+cp "$FONT_SRC/Noto_Sans/NotoSans-Regular.ttf" "$OUT/fonts/NotoSans-Regular.ttf"
+cp "$FONT_SRC/El_Messiri/ElMessiri-Regular.ttf" "$OUT/fonts/ElMessiri-Regular.ttf"
+cp "$FONT_SRC/El_Messiri/ElMessiri-Bold.ttf" "$OUT/fonts/ElMessiri-Bold.ttf"
 
 printf '  %s\n' "$OUT/index.html" "$OUT/code_editor_web.js" "$OUT/editor.mjs"
 echo "open it with:  python3 -m http.server -d $OUT 8001"

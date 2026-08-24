@@ -108,6 +108,15 @@ class CellStyle {
     ; is not loaded.
     def fontName:string ""
     def align:string "left"
+    ; Whether that alignment was STATED.
+    ;
+    ; Excel's default is `general`, not left: a cell with no `horizontal`
+    ; takes its side from its reading order, and a right-to-left one belongs
+    ; against the right edge. `align` alone cannot express that — "left" is
+    ; both the default and a real value someone may have chosen — so an
+    ; Arabic cell that said nothing was indistinguishable from one that asked
+    ; for the left margin, and both went left.
+    def alignSet:boolean false
     ; `<alignment readingOrder="…">`: 0 or absent is "work it out from the
     ; text", 1 is left to right, 2 is right to left. Excel's own numbering,
     ; kept rather than translated, so the value that was read is the value
@@ -185,6 +194,7 @@ class CellStyle {
         o.fontSizePt = fontSizePt
         o.fontName = fontName
         o.align = align
+        o.alignSet = alignSet
         o.readingOrder = readingOrder
         o.valign = valign
         o.wrapText = wrapText
@@ -222,6 +232,9 @@ class CellStyle {
             return false
         }
         if (fontName != o.fontName) {
+            return false
+        }
+        if (alignSet != o.alignSet) {
             return false
         }
         if (align != o.align) {

@@ -189,6 +189,19 @@ class OfficeRtlPropsTest {
         def plain:CellStyle (this.cellStyle(" horizontal=\"left\""))
         c.eqInt("a cell that says nothing has no reading order" plain.readingOrder 0)
 
+
+        ; `general` is Excel's default, and it is not "left" — it means "work
+        ; the side out". A reader that cannot tell it from a stated left
+        ; aligns an Arabic cell against the left edge, because `align`
+        ; defaults to the string "left" and nothing distinguishes the two.
+        def unset:CellStyle (this.cellStyle(" vertical=\"top\""))
+        c.ok("a cell that states no horizontal has none stated" ((unset.alignSet) == false))
+        def general:CellStyle (this.cellStyle(" horizontal=\"general\""))
+        c.ok("and Excel's own word for it counts as unstated" ((general.alignSet) == false))
+        def leftSaid:CellStyle (this.cellStyle(" horizontal=\"left\""))
+        c.ok("while a stated left IS stated" leftSaid.alignSet)
+        c.ok("which makes the two different styles" ((unset.sameAs(leftSaid)) == false))
+
         def rtl:CellStyle (this.cellStyle(" readingOrder=\"2\""))
         c.eqInt("readingOrder 2 is right to left" rtl.readingOrder 2)
         def ltr:CellStyle (this.cellStyle(" readingOrder=\"1\""))

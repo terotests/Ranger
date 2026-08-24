@@ -80,6 +80,13 @@ cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
 done
+# The fallback pool: emoji, the geometric bullets, and Arabic. The desktop
+# build loads every face in the font directory and the browser build only ever
+# shipped Open Sans, so a browser measured Arabic with notdef widths and drew
+# it with the system's own font — right-looking glyphs, wrong every number.
+for face in Noto_Emoji/NotoEmoji-Regular Noto_Sans/NotoSans-Regular El_Messiri/ElMessiri-Regular El_Messiri/ElMessiri-Bold; do
+  cp "gallery/pdf_writer/assets/fonts/$face.ttf" "$OUT/fonts/$(basename "$face").ttf"
+done
 # A deck to open on load. The page reads it with fetch and hands the bytes to
 # the viewer, exactly as it does with a file the user picks.
 cp gallery/docx_viewer/fixtures/20-business-report.docx "$OUT/document.docx"

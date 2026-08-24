@@ -575,6 +575,13 @@ class XlsxStyles {
                                     def h:string (at.attr("horizontal"))
                                     if ((strlen h) > 0) {
                                         st.align = h
+                                        ; `general` is Excel's way of saying
+                                        ; "work it out", which is what an
+                                        ; unstated alignment means too — so it
+                                        ; is recorded as not stated.
+                                        if (h != "general") {
+                                            st.alignSet = true
+                                        }
                                     }
                                     def vv:string (at.attr("vertical"))
                                     if ((strlen vv) > 0) {

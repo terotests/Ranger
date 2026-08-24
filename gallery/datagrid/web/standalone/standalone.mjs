@@ -56,6 +56,14 @@ const FONTS = [
   [null, "JosefinSans-Bold.ttf"],
   [null, "JosefinSans-Italic.ttf"],
   [null, "JosefinSans-BoldItalic.ttf"],
+  // The rest of the fallback pool the desktop build has: an emoji face and an
+  // Arabic one. `FontManager` falls back per CODEPOINT, so loading them is
+  // the whole of it. Without the Arabic face the browser MEASURED Arabic with
+  // notdef widths while the canvas DREW it with the system's own font — the
+  // glyphs looked right and every number about them was wrong.
+  [null, "NotoEmoji-Regular.ttf"],
+  [null, "ElMessiri-Regular.ttf"],
+  [null, "ElMessiri-Bold.ttf"],
 ];
 const WORKBOOK = "./business-workbook.xlsx";
 
