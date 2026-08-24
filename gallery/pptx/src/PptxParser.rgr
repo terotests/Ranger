@@ -885,11 +885,62 @@ class PptxParser {
         if (null? pathLst) {
             return
         }
-        def path@(optional):PptxXmlNode ((unwrap pathLst).firstChild("path"))
-        if (null? path) {
+        ; EVERY path, not the first one.
+        ;
+        ; This read `firstChild("path")` and stopped, which is correct for the
+        ; one-ring shapes a viewer draws and wrong for anything with a hole in
+        ; it: a `<a:pathLst>` with four `<a:path>` under it came back as its
+        ; outer contour and nothing else. It also silently discarded the other
+        ; half of every shape this writer now produces.
+        def paths:[PptxXmlNode] ((unwrap pathLst).childrenNamed("path"))
+        if ((array_length paths) == 0) {
             return
         }
-        def pnode:PptxXmlNode (unwrap path)
+        def data:string ""
+        def pi:int 0
+        while (pi < (array_length paths)) {
+            data = (data + (this.custPathData((itemAt paths pi))))
+            pi = (pi + 1)
+        }
+        if ((strlen data) == 0) {
+            return
+        }
+        ; One contour per `<a:path>`, kept apart. `pathEnds` is left empty for
+        ; the ordinary one-ring case so nothing downstream has to look at it.
+        def rings:[PathRing] (PptxGeom.flattenDataRings(data))
+        def pts:[double]
+        def ends:[int]
+        def ri:int 0
+        while (ri < (array_length rings)) {
+            def ring:PathRing (itemAt rings ri)
+            def k:int 0
+            while (k < (array_length ring.pts)) {
+                push pts (itemAt ring.pts k)
+                k = (k + 1)
+            }
+            push ends (array_length pts)
+            ri = (ri + 1)
+        }
+        if ((array_length pts) >= 4) {
+            shape.hasPath = true
+            shape.pathUnit = pts
+            if ((array_length rings) > 1) {
+                shape.pathEnds = ends
+            }
+            ; Kept, because the flattening above is about to lose it and the
+            ; painter cannot tell a filled shape from a drawn line without it.
+            shape.pathClosed = ((indexOf data "Z") >= 0)
+        }
+    }
+
+    ; @internal One `<a:path>` as SVG path data.
+    ;
+    ; DrawingML's path grammar is not SVG's, but it says the same things, so it
+    ; is TRANSLATED here and flattened by EVG's own path stack. That is what
+    ; makes `cubicBezTo`, `quadBezTo` and `arcTo` draw at all: they used to be
+    ; skipped, so a curved custom shape came out as a polygon of whichever of
+    ; its points happened to be straight lines.
+    fn custPathData:string (pnode:PptxXmlNode) {
         def wS:string (pnode.attr("w"))
         def hS:string (pnode.attr("h"))
         def pw:double 1.0
@@ -904,11 +955,6 @@ class PptxParser {
         }
         if (pw < 1.0) { pw = 1.0 }
         if (ph < 1.0) { ph = 1.0 }
-        ; DrawingML's path grammar is not SVG's, but it says the same things,
-        ; so it is TRANSLATED here and flattened by EVG's own path stack. That
-        ; is what makes `cubicBezTo`, `quadBezTo` and `arcTo` draw at all: they
-        ; used to be skipped, so a curved custom shape came out as a polygon of
-        ; whichever of its points happened to be straight lines.
         def data:string ""
         def curX:double 0.0
         def curY:double 0.0
@@ -994,21 +1040,7 @@ class PptxParser {
             }
             i = (i + 1)
         }
-        if ((strlen data) == 0) {
-            return
-        }
-        def pts:[double] (PptxGeom.flattenData(data))
-        ; Two points is a path. The threshold was three, which quietly dropped
-        ; a straight two-point custGeom back onto whatever preset the shape
-        ; carried underneath — a rectangle where a line had been drawn. The
-        ; writer states two-point paths now, so reading them back matters.
-        if ((array_length pts) >= 4) {
-            shape.hasPath = true
-            shape.pathUnit = pts
-            ; Kept, because the flattening below is about to lose it and the
-            ; painter cannot tell a filled shape from a drawn line without it.
-            shape.pathClosed = ((indexOf data "Z") >= 0)
-        }
+        return data
     }
 
     fn parseSpPr:void (spPr:PptxXmlNode shape:PptxShape) {

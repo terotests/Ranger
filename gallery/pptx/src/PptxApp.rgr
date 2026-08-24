@@ -26,6 +26,7 @@ Import "../../evg/EVGCommands.rgr"
 Import "../../evg/EVGSelectChrome.rgr"
 Import "../../office/geom/OfficeShapeCatalog.rgr"
 Import "../../office/ui/OfficeShapePicker.rgr"
+Import "../../office/geom/OfficeEmojiShapes.rgr"
 
 ; Which buttons a slide viewer has. The strip is the shared one — the same
 ; component the spreadsheet's and the document's are — and this is the only
@@ -319,13 +320,13 @@ class PptxApp {
     def wantRaster:boolean true
 
     Constructor () {
+        ; The emoji outlines. They cost the /office/ page about a megabyte —
+        ; the playground bundle goes from 2.39 MB to 3.40 MB — which was not
+        ; worth paying while this editor could only hold ONE contour per shape
+        ; and had to refuse them. `PptxShape.pathEnds` fixed that, so they are
+        ; here now and a panda keeps its eye patches.
+        OfficeEmojiShapes.fill(shapes)
         picker.attach(shapes)
-        ; NO EMOJI HERE, deliberately. `OfficeEmojiShapes.fill(shapes)` is one
-        ; line and it costs the /office/ page a megabyte — the playground
-        ; bundle goes from 2.39 MB to 3.40 MB — for 262 shapes this editor
-        ; then REFUSES to insert, because `PptxShape.pathUnit` holds one ring
-        ; and a panda's eye patches are rings of their own. Add the line back
-        ; when a slide shape can hold several rings, not before.
     }
 
     fn init:void (fontDir:string) {
@@ -3434,19 +3435,28 @@ class PptxApp {
             if (entry.id != arg) {
                 return false
             }
-            ; An entry that carries its own outline — every emoji — cannot go
-            ; in as a slide shape yet. `PptxShape.pathUnit` is ONE ring, and a
-            ; mushroom's spots and a panda's eye patches are rings of their
-            ; own: the outer ring alone is a blank blob, and one shape per ring
-            ; fills the holes in. Refusing is the honest answer until a shape
-            ; can hold several rings. The book editor takes them today because
-            ; a `BookFrame` holds the whole path.
-            if (entry.hasPath()) {
-                return false
-            }
             def sw:double ((this.slideW()) * 0.25)
             def sh2:double ((this.slideH()) * 0.22)
-            def madeId:int (editor.addShapeAt(arg ((this.slideW()) * 0.3) ((this.slideH()) * 0.3) sw sh2))
+            ; A shape that states the proportion it needs is inserted in it.
+            ; A panda dropped into a 25-by-22 box is a wide panda, and the
+            ; catalogue already knows which shapes mind — the same `aspect`
+            ; the picker sizes its previews to.
+            if (entry.aspect > 0.0) {
+                sw = (sh2 * entry.aspect)
+            }
+            def px:double ((this.slideW()) * 0.3)
+            def py:double ((this.slideH()) * 0.3)
+            ; An entry that carries its own outline — every emoji — goes in as
+            ; a custom geometry rather than a preset name, because there is no
+            ; preset called "panda". Everything else stays a NAME: PowerPoint
+            ; draws a preset from its own geometry at whatever size the shape
+            ; is dragged to, and a flattened copy of it would not.
+            if (entry.hasPath()) {
+                def madePath:int (this.insertOutline(entry px py sw sh2))
+                this.setEditMode(true)
+                return (madePath > 0)
+            }
+            def madeId:int (editor.addShapeAt(arg px py sw sh2))
             this.setEditMode(true)
             return (madeId > 0)
         }
@@ -4372,6 +4382,42 @@ class PptxApp {
     }
 
     ; The same, in wheel notches, for hosts that speak notches.
+    ; One catalogue outline as a slide shape.
+    ;
+    ; The path arrives in the 0..1 box and `pathUnit` wants the same, so the
+    ; only work here is keeping the contours apart: `flattenRingsPlain` gives
+    ; them as rings and `pathEnds` is where each one stops.
+    fn insertOutline:int (entry:ShapeEntry x:double y:double w:double h:double) {
+        def parser (new SVGPathParser())
+        parser.parse(entry.pathData)
+        def rings:[PathRing] (parser.flattenRingsPlain(16))
+        def pts:[double]
+        def ends:[int]
+        def i:int 0
+        while (i < (array_length rings)) {
+            def ring:PathRing (itemAt rings i)
+            if ((array_length ring.pts) >= 6) {
+                def k:int 0
+                while (k < (array_length ring.pts)) {
+                    push pts (itemAt ring.pts k)
+                    k = (k + 1)
+                }
+                push ends (array_length pts)
+            }
+            i = (i + 1)
+        }
+        if ((array_length pts) < 6) {
+            return 0
+        }
+        ; One ring needs no boundaries, and leaving them off keeps the shape
+        ; identical to everything that existed before `pathEnds` did.
+        def only:[int]
+        if ((array_length ends) > 1) {
+            only = ends
+        }
+        return (editor.addPathShapeAt(pts only x y w h))
+    }
+
     ; A shape was chosen. Everything above this line is shared with the book
     ; editor; this is the line that is not, and it is one line: the deck stores
     ; the preset NAME for PowerPoint to draw.

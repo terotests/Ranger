@@ -73,6 +73,18 @@ class PptxGeom {
     }
 
     ; Flatten path data into the unit-space point list the painter consumes.
+    ; The same flattening, but keeping the contours apart.
+    ;
+    ; `flattenData` returns one flat list, which is right for a shape that is
+    ; one ring and wrong for one that is several: an outline with holes comes
+    ; back with every contour joined to the next by a line that is not in the
+    ; shape. Callers that can draw more than one ring ask for this instead.
+    sfn flattenDataRings:[PathRing] (data:string) {
+        def parser (new SVGPathParser())
+        parser.parse(data)
+        return (parser.flattenRingsPlain((PptxGeom.curveSteps())))
+    }
+
     sfn flattenData:[double] (data:string) {
         def parser (new SVGPathParser())
         parser.parse(data)

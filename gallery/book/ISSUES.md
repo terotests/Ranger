@@ -331,6 +331,14 @@ U-turn and the four navigation arrows.
   transform, not a second frame — two frames would scale independently and
   could not be moved together. The slide editor is unaffected: it stores the
   preset name and its renderer draws every path.
+* ~~A `BookFrame` also holds one contour.~~ **Fixed.** `BookToEvg.paintPath`
+  filled each ring of a path on its own, so a letter O came out solid and every
+  emoji was a blob — a panda with no eye patches. It needed no new field at
+  all: the rings were already in hand from the path parser and were simply
+  being handed over one at a time. One `addPolyRings` under the even-odd rule
+  instead of a loop of `addPolygon`. The SVG and XAML exports were never
+  affected — they write the path data as one `<path>` and let the renderer
+  apply the fill rule.
 * **The book editor paints one colour.** It can now ask for the parts but has
   nowhere to put their shades, for the same reason.
 

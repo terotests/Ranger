@@ -172,6 +172,7 @@ class PptxResolver {
         out.fontRefColor = (this.cloneColor(shape.fontRefColor))
         out.hasPath = shape.hasPath
         out.pathUnit = shape.pathUnit
+        out.pathEnds = shape.pathEnds
         ; Dropping this drew every custom path closed, whatever the file said:
         ; the parser reads `Z` and the renderer asks for it, and the resolved
         ; copy in between was answering `false`... which the renderer's own

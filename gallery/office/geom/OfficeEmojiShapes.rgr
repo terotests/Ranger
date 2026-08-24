@@ -31,6 +31,10 @@ class OfficeEmojiShapes {
     sfn entryOf:ShapeEntry (id:string label:string category:string keywords:string path:string) {
         def e (ShapeEntry.of(id label category keywords))
         e.pathData = path
+        ; Square. `pathOf` fits every glyph into the unit box with ONE
+        ; scale and centres the short axis, so a wide box stretches the
+        ; artwork rather than showing more of it.
+        e.aspect = 1.0
         return e
     }
 

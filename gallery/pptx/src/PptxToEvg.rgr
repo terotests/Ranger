@@ -181,6 +181,7 @@ class PptxToEvg {
         mapped.shadow = child.shadow
         mapped.hasPath = child.hasPath
         mapped.pathUnit = child.pathUnit
+        mapped.pathEnds = child.pathEnds
         mapped.pathClosed = child.pathClosed
         def sx:double 1.0
         def sy:double 1.0
@@ -871,6 +872,33 @@ class PptxToEvg {
         dl.addPolygon(pts col)
     }
 
+    ; A path of several contours, filled together. `ends` are indices into
+    ; `pts`, as `PptxShape.pathEnds` states them, and the transforms that got
+    ; the points here are all point-wise so the boundaries still line up.
+    fn pushPathRings:void (dl:EVGDisplayList pts:[double] ends:[int] col:EVGColor) {
+        def rings:[PathRing]
+        def start:int 0
+        def i:int 0
+        while (i < (array_length ends)) {
+            def upto:int (itemAt ends i)
+            if ((upto - start) >= 6) {
+                def ring (new PathRing())
+                def k:int start
+                while (k < upto) {
+                    push ring.pts (itemAt pts k)
+                    k = (k + 1)
+                }
+                push rings ring
+            }
+            start = upto
+            i = (i + 1)
+        }
+        if ((array_length rings) == 0) {
+            return
+        }
+        dl.addPolyRings(rings col true)
+    }
+
     fn pushGradRect:void (dl:EVGDisplayList x:double y:double w:double h:double grad:PptxGradient) {
         def c (new EVGDrawCmd())
         c.kind = 0
@@ -1497,7 +1525,15 @@ class PptxToEvg {
                     ; points are still the shape the border follows, they are
                     ; simply not filled in.
                     if doFill {
-                        this.pushPathFill(dl pts col)
+                        ; A shape with several contours is filled as ONE path
+                        ; under the even-odd rule, so its holes stay holes.
+                        ; Filling each contour separately - which is what
+                        ; `pushPathFill` does - paints the holes in.
+                        if ((array_length shape.pathEnds) > 1) {
+                            this.pushPathRings(dl pts shape.pathEnds col)
+                        } {
+                            this.pushPathFill(dl pts col)
+                        }
                     }
                     outlinePts = pts
                     hasOutline = true

@@ -249,12 +249,14 @@ class BookToEvg {
         def fill:string frame.fill
         if ((strlen fill) > 0) {
             def col:EVGColor (EVGColor.parse(fill))
-            def ri:int 0
-            while (ri < (array_length rings)) {
-                def ring:PathRing (itemAt rings ri)
-                dl.addPolygon(ring.pts col)
-                ri = (ri + 1)
-            }
+            ; ONE command for all the contours, under the even-odd rule.
+            ;
+            ; This filled each ring on its own, which is the same picture for
+            ; a shape that is one ring and wrong for anything with a hole: a
+            ; letter O comes out solid, and so does every emoji — a panda with
+            ; no eye patches, a mushroom with no spots. The rings were already
+            ; in hand; they were simply handed over one at a time.
+            dl.addPolyRings(rings col true)
         }
         if ((strlen frame.stroke) > 0) {
             def sc:EVGColor (EVGColor.parse(frame.stroke))
