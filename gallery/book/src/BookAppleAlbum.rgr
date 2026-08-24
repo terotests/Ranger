@@ -82,6 +82,32 @@ class AppleTime {
         return ((to_string y) + "-" + (AppleTime.pad2(m)) + "-" + (AppleTime.pad2(d)))
     }
 
+    ; The inverse: a civil date back to an Apple timer interval. Days-from-civil
+    ; is the mirror of the algorithm above, and having both means a date can be
+    ; compared as a number - which is what a search over a date RANGE needs, and
+    ; what string comparison of "2019-6-3" against "2019-06-23" would get wrong.
+    sfn fromCivil:double (y:int m:int d:int hh:int mm:int ss:int) {
+        def yy:int y
+        if (m <= 2) {
+            yy = (y - 1)
+        }
+        def era:int (idiv yy 400)
+        if (yy < 0) {
+            era = (idiv (yy - 399) 400)
+        }
+        def yoe:int (yy - (era * 400))
+        def mp:int (m + 9)
+        if (m > 2) {
+            mp = (m - 3)
+        }
+        def doy:int ((idiv ((153 * mp) + 2) 5) + (d - 1))
+        def leapDays:int ((idiv yoe 4) - (idiv yoe 100))
+        def doe:int (((yoe * 365) + leapDays) + doy)
+        def days:int (((era * 146097) + doe) - 719468)
+        def unix:double (((to_double days) * 86400.0) + (to_double (((hh * 3600) + (mm * 60)) + ss)))
+        return (unix - 978307200.0)
+    }
+
     sfn monthText:string (appleSeconds:double) {
         def full:string (AppleTime.dateText(appleSeconds))
         if ((strlen full) < 7) {

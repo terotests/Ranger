@@ -109,6 +109,50 @@ class BookWeb {
         return out
     }
 
+    ; --- photographs, searched by when and where ------------------------------
+    ;
+    ; The page hands over pictures; this reads each one's EXIF and keeps a
+    ; searchable index of them. Nothing leaves the page: the parser, the index
+    ; and the search are all compiled into this file, so "the ones from that
+    ; week near the cottage" is answered where the photographs already are.
+
+    fn indexPhoto:boolean (fileName:string data:buffer imageRoot:string) {
+        return (app.indexPhoto(fileName data imageRoot))
+    }
+
+    ; An index made by `tools/mac_photos.mjs` - the path that reaches a Photos
+    ; library, where the pictures are HEIC and this page could not read them.
+    fn addPhotoIndex:boolean (text:string) {
+        return (app.addPhotoIndexJson(text))
+    }
+
+    fn photoCount:int () {
+        return (app.photoCount())
+    }
+
+    fn photoSummary:string () {
+        return (app.photoSummary())
+    }
+
+    ; Empty strings and zeros mean "no bound", so the page can send whatever
+    ; its fields hold. Answers how many matched.
+    fn searchPhotos:int (fromDay:string toDay:string lat:double lon:double radiusKm:double text:string) {
+        return (app.searchPhotos(fromDay toDay lat lon radiusKm text))
+    }
+
+    fn foundCount:int () {
+        return (app.foundCount())
+    }
+
+    fn lastQuery:string () {
+        return (app.lastQueryText())
+    }
+
+    ; Turn the last search into the book on the canvas.
+    fn openFound:boolean (title:string) {
+        return (app.openFound(title))
+    }
+
     fn assetCount:int () {
         def paths:[string] (app.assetPaths())
         return (array_length paths)

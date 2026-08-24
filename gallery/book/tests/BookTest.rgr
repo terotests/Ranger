@@ -22,6 +22,7 @@
 
 Import "../src/BookApi.rgr"
 Import "../src/BookAlbumImport.rgr"
+Import "../src/PhotoScan.rgr"
 
 class Check {
     def passed:int 0
@@ -914,6 +915,217 @@ class BookTest {
         return (new BookFrame())
     }
 
+
+    ; ---------------------------------------------------------------------
+    ; The photo index: searching a folder by when and where
+    ; ---------------------------------------------------------------------
+
+    sfn indexJson:string () {
+        def out:string "{\"version\": 1, \"root\": \"/Users/me/Pictures\","
+        out = (out + "\"places\": [{\"name\": \"cottage\", \"lat\": 61.5, \"lon\": 25.0, \"radiusKm\": 20}],")
+        out = (out + "\"photos\": [")
+        out = (out + "{\"path\": \"a/IMG_1.HEIC\", \"export\": \"jpeg/IMG_1.jpg\", \"date\": \"2019-06-23T10:12:33Z\",")
+        out = (out + " \"lat\": 61.5084, \"lon\": 25.0217, \"w\": 4032, \"h\": 3024, \"camera\": \"Apple iPhone 12\",")
+        out = (out + " \"favorite\": true, \"rating\": 5},")
+        out = (out + "{\"path\": \"a/IMG_2.HEIC\", \"date\": \"2019-08-02T09:00:00Z\",")
+        out = (out + " \"lat\": 43.467082, \"lon\": 11.884538, \"w\": 3024, \"h\": 4032, \"camera\": \"Apple iPhone 12\"},")
+        out = (out + "{\"path\": \"a/scan.jpg\", \"w\": 800, \"h\": 600}")
+        out = (out + "]}")
+        return out
+    }
+
+    sfn testPhotoTime:void (c:Check) {
+        print "-- photo time --"
+        ; EXIF puts colons in the date, which is not a typo and not ISO 8601.
+        def exif:double (PhotoTime.fromExif("2008:10:22 16:38:20"))
+        c.eqStr("EXIF's own date format is read" (AppleTime.dateText(exif)) "2008-10-22")
+        c.eqStr("down to the second" (PhotoTime.isoStamp(exif)) "2008-10-22T16:38:20Z")
+        c.near("and it survives the round trip" (PhotoTime.fromIso("2008-10-22T16:38:20Z" false)) exif 0.5)
+
+        ; A bare day is the start of it; the end of a range has to be the end
+        ; of it, or "to the 31st" excludes everything taken on the 31st.
+        def dayStart:double (PhotoTime.fromIso("2019-08-31" false))
+        def dayEnd:double (PhotoTime.fromIso("2019-08-31" true))
+        c.near("a day is 86399 seconds wide" (dayEnd - dayStart) 86399.0 0.5)
+
+        c.near("nonsense is no date" (PhotoTime.fromExif("not a date at all")) 0.0 0.0001)
+        c.near("and so is an empty string" (PhotoTime.fromIso("" false)) 0.0 0.0001)
+        ; `str2int` would accept " 12" and "+3"; a date field must not.
+        c.near("a field that is not digits is not a year" (PhotoTime.fromIso("20x9-06-01" false)) 0.0 0.0001)
+    }
+
+    sfn testPhotoDistance:void (c:Check) {
+        print "-- distance --"
+        ; Helsinki to Tampere, which is 160 km by the great circle.
+        def far:double (PhotoIndex.distanceKm(60.1699 24.9384 61.4978 23.7610))
+        c.near("a real distance is right to a kilometre" far 160.0 2.0)
+        c.near("nowhere to nowhere is nothing" (PhotoIndex.distanceKm(61.5 25.0 61.5 25.0)) 0.0 0.0001)
+        ; A degree of longitude is 111 km at the equator and 55 at 60 degrees
+        ; north - which is the whole reason this is not the flat formula.
+        def atEquator:double (PhotoIndex.distanceKm(0.0 0.0 0.0 1.0))
+        def atNorth:double (PhotoIndex.distanceKm(60.0 0.0 60.0 1.0))
+        c.near("a degree of longitude at the equator" atEquator 111.19 0.5)
+        c.near("and half that at sixty north" atNorth 55.6 0.5)
+        ; Across the date line, where subtracting longitudes goes wrong.
+        def dateLine:double (PhotoIndex.distanceKm(0.0 179.5 0.0 (0.0 - 179.5)))
+        c.near("across the date line it is one degree, not 359" dateLine 111.19 0.5)
+    }
+
+    sfn testPhotoIndex:void (c:Check) {
+        print "-- photo index --"
+        def index:PhotoIndex (PhotoIndex.fromJson((BookTest.indexJson())))
+        c.eqStr("an index parses" index.error "")
+        c.eqInt("with every photograph in it" (index.count()) 3)
+        c.eqStr("and it says what it holds" (index.describe()) "3 photograph(s), 2 dated, 2 with a position")
+
+        def undated:PhotoRecord (index.at(2))
+        ; 0,0 is a real place off the coast of Ghana. A photograph with no
+        ; position must not land inside a radius search centred there.
+        c.ok("no position is not a position at zero" (undated.located == false))
+
+        def dateRange (new PhotoQuery())
+        dateRange.between("2019-06-01" "2019-06-30")
+        c.eqInt("a date range" (array_length (index.search(dateRange))) 1)
+
+        def august (new PhotoQuery())
+        august.between("2019-08-01" "2019-08-31")
+        c.eqInt("and another one" (array_length (index.search(august))) 1)
+
+        ; An undated photograph cannot answer "that week in June" yes.
+        def wide (new PhotoQuery())
+        wide.between("1990-01-01" "2030-01-01")
+        c.eqInt("a dated search excludes the undated" (array_length (index.search(wide))) 2)
+
+        def place:PhotoPlace (index.placeNamed("cottage"))
+        c.eqStr("a place is read out of the index" place.name "cottage")
+        def atCottage (new PhotoQuery())
+        atCottage.atPlace(place)
+        c.eqInt("and searched by name" (array_length (index.search(atCottage))) 1)
+
+        def elsewhere (new PhotoQuery())
+        elsewhere.near(43.47 11.88 30.0)
+        c.eqInt("a radius somewhere else finds the other one" (array_length (index.search(elsewhere))) 1)
+
+        def tiny (new PhotoQuery())
+        tiny.near(61.5 25.0 0.5)
+        c.eqInt("a radius too small finds nothing" (array_length (index.search(tiny))) 0)
+
+        def both (new PhotoQuery())
+        both.between("2019-06-01" "2019-06-30")
+        both.atPlace(place)
+        c.eqInt("when and where together" (array_length (index.search(both))) 1)
+
+        def text (new PhotoQuery())
+        text.text = "iphone"
+        c.eqInt("the camera is searchable, case and all" (array_length (index.search(text))) 2)
+
+        def stars (new PhotoQuery())
+        stars.minRating = 5
+        c.eqInt("so is what the owner thought of it" (array_length (index.search(stars))) 1)
+
+        def favs (new PhotoQuery())
+        favs.favoritesOnly = true
+        c.eqInt("and whether they starred it" (array_length (index.search(favs))) 1)
+
+        def few (new PhotoQuery())
+        few.limit = 1
+        c.eqInt("a limit is a limit" (array_length (index.search(few))) 1)
+
+        def anything (new PhotoQuery())
+        c.eqInt("an empty question matches everything" (array_length (index.search(anything))) 3)
+        c.eqStr("and says so" (anything.describe()) "everything")
+    }
+
+    sfn testPhotoIndexRoundTrip:void (c:Check) {
+        print "-- photo index round trip --"
+        def first:PhotoIndex (PhotoIndex.fromJson((BookTest.indexJson())))
+        def again:PhotoIndex (PhotoIndex.fromJson((first.toJson())))
+        c.eqStr("written and read back" again.error "")
+        c.eqInt("holds the same photographs" (again.count()) (first.count()))
+        c.eqInt("and the same places" (array_length again.places) (array_length first.places))
+
+        def a:PhotoRecord (first.at(1))
+        def b:PhotoRecord (again.at(1))
+        ; Six decimals, not the two a typographic point needs: rounding a
+        ; latitude to two decimals moves a photograph up to a kilometre, which
+        ; changes what a radius search answers.
+        c.near("the position survives to a metre" b.lat a.lat 0.000002)
+        c.near("in both directions" b.lon a.lon 0.000002)
+        ; And the time, not just the day - "that afternoon" is a real question.
+        c.near("the instant survives, not just the day" b.appleSeconds a.appleSeconds 0.5)
+
+        def cottage:PhotoQuery (new PhotoQuery())
+        def place:PhotoPlace (again.placeNamed("cottage"))
+        cottage.atPlace(place)
+        c.eqInt("and the search still answers the same" (array_length (again.search(cottage))) 1)
+
+        def bad:PhotoIndex (PhotoIndex.fromJson("this is not JSON at all"))
+        c.ok("rubbish is refused" ((strlen bad.error) > 0))
+    }
+
+    sfn testPhotoToBook:void (c:Check) {
+        print "-- photographs into a book --"
+        def index:PhotoIndex (PhotoIndex.fromJson((BookTest.indexJson())))
+        def q (new PhotoQuery())
+        q.between("2019-01-01" "2019-12-31")
+        def found:[PhotoRecord] (index.search(q))
+        c.eqInt("two were taken that year" (array_length found) 2)
+
+        def album:AppleAlbum (PhotoIndex.asAlbum("Kesa" found))
+        c.eqInt("they become an album" (album.count()) 2)
+        ; The book must place the JPEG somebody converted, not the HEIC nobody
+        ; can print.
+        def first:AlbumPhoto (album.at(0))
+        c.eqStr("and the album names the exported copy" first.path "jpeg/IMG_1.jpg")
+        def second:AlbumPhoto (album.at(1))
+        c.eqStr("or the original, when there is no copy" second.path "a/IMG_2.HEIC")
+        c.near("the size comes with them" first.width 4032.0 0.001)
+
+        def imp (new BookAlbumImport())
+        def api:BookApi (imp.build(album))
+        c.eqInt("and the album becomes a book" (api.doc.pageCount()) 4)
+        ; 4032x3024 is landscape and 3024x4032 is portrait, so the two
+        ; photographs must not get the same page.
+        def landscape:BookPage (api.doc.pageAt(1))
+        def portrait:BookPage (api.doc.pageAt(2))
+        c.ok("the landscape one fills its page" (BookSample.isFullBleed(landscape)))
+        c.ok("the portrait one does not" ((BookSample.isFullBleed(portrait)) == false))
+    }
+
+    sfn testPhotoScan:void (c:Check) {
+        print "-- scanning real photographs --"
+        ; A real geotagged JPEG, taken in Tuscany in 2008. Every other fixture
+        ; here is written by the same hand as the reader; this one is not.
+        def names:[string]
+        push names "GPS_test.jpg"
+        push names "Example_scaled.jpg"
+        push names "not-a-file.jpg"
+        def index:PhotoIndex (PhotoScan.folder("./gallery/pdf_writer/assets/images" names "photos"))
+        c.eqInt("every name becomes a record" (index.count()) 3)
+
+        def gps:PhotoRecord (index.at(0))
+        c.ok("the geotagged one knows where it was" gps.located)
+        c.near("to six decimal places" gps.lat 43.467082 0.0001)
+        c.near("in both directions" gps.lon 11.884538 0.0001)
+        c.eqStr("and when" (gps.dateText()) "2008-10-22")
+        c.eqStr("and what took it" gps.camera "NIKON COOLPIX P6000")
+        c.near("and how big it is" gps.width 640.0 0.001)
+        c.eqStr("the path is the one a book will use" gps.path "photos/GPS_test.jpg")
+
+        def plain:PhotoRecord (index.at(1))
+        c.ok("a picture with no EXIF has no position" (plain.located == false))
+        c.near("but still has a size" plain.width 600.0 0.001)
+
+        def missing:PhotoRecord (index.at(2))
+        c.near("a file that is not there has nothing" missing.width 0.0 0.001)
+
+        def near (new PhotoQuery())
+        near.near(43.47 11.88 30.0)
+        c.eqInt("a radius over real EXIF finds it" (array_length (index.search(near))) 1)
+        def far (new PhotoQuery())
+        far.near(60.17 24.94 30.0)
+        c.eqInt("and a radius elsewhere does not" (array_length (index.search(far))) 0)
+    }
     sfn main:void () {
         print "== BookTest =="
         def c (new Check())
@@ -940,6 +1152,12 @@ class BookTest {
         BookTest.testAppleTime(c)
         BookTest.testAppleAlbum(c)
         BookTest.testAlbumImport(c)
+        BookTest.testPhotoTime(c)
+        BookTest.testPhotoDistance(c)
+        BookTest.testPhotoIndex(c)
+        BookTest.testPhotoIndexRoundTrip(c)
+        BookTest.testPhotoToBook(c)
+        BookTest.testPhotoScan(c)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

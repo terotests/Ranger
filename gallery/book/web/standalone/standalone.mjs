@@ -79,6 +79,25 @@ const texCache = new Map();
  */
 const localImages = new Map();
 
+/**
+ * Where a picture the document names actually is.
+ *
+ * An index made on a Mac names its exported JPEGs by whatever path suited the
+ * machine that made them, and the reader then drops those same JPEGs on this
+ * page, where they are known by file name alone. So an exact match is tried
+ * first and the file's own name second — that second lookup is what lets a
+ * `selected-index.json` and a pile of photographs be dropped together and
+ * simply work.
+ */
+function urlFor(src) {
+  const exact = localImages.get(src);
+  if (exact) return exact;
+  const base = src.split("/").pop();
+  const byName = localImages.get(base);
+  if (byName) return byName;
+  return "./" + src;
+}
+
 async function texturesFor(doc) {
   const srcs = new Set(
     (doc.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src)
@@ -91,10 +110,10 @@ async function texturesFor(doc) {
     // The base is applied here rather than by `loadImages`: a dropped
     // picture's URL is a `blob:` one, already absolute, and prefixing it with
     // "./" makes a URL that loads nothing and fails silently as a blank page.
-    const cmds = missing.map((src) => ({ k: 2, src: localImages.get(src) || "./" + src }));
+    const cmds = missing.map((src) => ({ k: 2, src: urlFor(src) }));
     const fresh = await loadImages({ list: { cmds } }, { base: "" });
     for (const src of missing) {
-      const url = localImages.get(src) || "./" + src;
+      const url = urlFor(src);
       if (fresh.get(url)) texCache.set(src, fresh.get(url));
     }
   }
@@ -154,6 +173,25 @@ async function boot() {
   // `?album=1` opens the bundled iPhoto fixture instead of the sample book, so
   // the album path can be looked at - or screenshotted - without dropping
   // files on the page by hand.
+  // `?photos=1` indexes the three bundled photographs and opens the finder,
+  // so the search can be looked at - or screenshotted - without a folder to
+  // drop. `?photos=1&find=1` also runs the query in the other fields.
+  if (new URLSearchParams(location.search).has("photos")) {
+    await openPhotos(await bundledPictures());
+    const params = new URLSearchParams(location.search);
+    for (const [id, key] of [["q-from", "from"], ["q-to", "to"], ["q-near", "near"], ["q-radius", "radius"], ["q-text", "text"]]) {
+      const v = params.get(key);
+      if (v) document.getElementById(id).value = v;
+    }
+    runSearch();
+    if (params.has("find")) {
+      web.openFound(params.get("title") || "");
+      // Opening a book puts the reader on its first spread, so `?spread=` has
+      // to be honoured again - after, not before.
+      for (let i = 0; i < wanted; i++) web.command("nav.next", "");
+      await redraw();
+    }
+  }
   if (new URLSearchParams(location.search).has("album")) {
     await openBundledAlbum();
     // Opening a book puts the reader on its first spread, so `?spread=` has to
@@ -163,15 +201,30 @@ async function boot() {
   }
 }
 
+/**
+ * The three photographs that ship in the build, as `File`s, fetched once.
+ *
+ * They are the album's pictures and the finder's pictures, and one of them —
+ * GPS_test.jpg — is a real geotagged photograph taken in Tuscany in 2008,
+ * which is the only honest fixture for a search by date and by place.
+ */
+let bundledCache = null;
+async function bundledPictures() {
+  if (bundledCache) return bundledCache;
+  const out = [];
+  for (const img of ["Example_scaled.jpg", "GPS_test.jpg", "Canon_40D_scaled.jpg"]) {
+    const blob = await fetch("./assets/" + img).then((r) => r.blob());
+    out.push(new File([blob], img, { type: "image/jpeg" }));
+  }
+  bundledCache = out;
+  return out;
+}
+
 /** The fixture library that ships in the build, opened as if it were dropped. */
 async function openBundledAlbum() {
   const wanted = new URLSearchParams(location.search).get("albumName") || "";
   const xml = await fetch("./fixtures/AlbumData.xml").then((r) => r.text());
-  const files = [new File([xml], "AlbumData.xml", { type: "text/xml" })];
-  for (const img of ["Example_scaled.jpg", "GPS_test.jpg", "Canon_40D_scaled.jpg"]) {
-    const blob = await fetch("./assets/" + img).then((r) => r.blob());
-    files.push(new File([blob], img, { type: "image/jpeg" }));
-  }
+  const files = [new File([xml], "AlbumData.xml", { type: "text/xml" }), ...(await bundledPictures())];
   return openAlbum(files, wanted);
 }
 
@@ -400,7 +453,117 @@ for (const type of ["dragleave", "drop"]) {
 window.addEventListener("drop", (e) => {
   e.preventDefault();
   const files = [...(e.dataTransfer?.files || [])];
-  if (files.length) openAlbum(files, "");
+  if (!files.length) return;
+  // An Apple library index makes it an album; anything else is photographs to
+  // search. Deciding from the files rather than from which button was pressed
+  // means a drop does the obvious thing either way.
+  if (files.some(isIndexFile)) openAlbum(files, "");
+  else openPhotos(files);
+});
+
+// --- a folder of photographs, searched by when and where ---------------------
+//
+// The other way in. An Apple library index says which photographs belong
+// together; a folder says nothing, so the question has to be asked of the
+// pictures themselves — and every JPEG carries the answer in its EXIF.
+//
+// Reading it happens HERE, in the page: `indexPhoto` hands the bytes to the
+// same EXIF reader the command line uses, and the index it builds is searched
+// by the same code. Nothing is uploaded and nothing is asked of a server,
+// which for somebody's photographs is not a performance detail.
+//
+// HEIC is the gap, and it is not one this page can close: an iPhone writes
+// HEIC, no browser but Safari will draw one, and a PDF cannot hold one either.
+// That is what `tools/mac_photos.mjs` is for — it converts on the Mac and
+// writes an index, and dropping THAT index here reaches the same search.
+
+const finderEl = document.getElementById("finder");
+const resultEl = document.getElementById("q-result");
+
+function isIndexJson(f) {
+  return f.name.toLowerCase().endsWith(".json");
+}
+function isPicture(f) {
+  return /\.(jpe?g|png)$/i.test(f.name);
+}
+
+const PHOTO_ROOT = "photos/";
+
+async function openPhotos(files) {
+  const list = [...files];
+  let added = 0;
+  let dated = 0;
+
+  for (const f of list.filter(isIndexJson)) {
+    if (web.addPhotoIndex(await f.text())) {
+      say("read " + f.name, false);
+    } else {
+      say(web.albumError() || "that index could not be read", true);
+      return false;
+    }
+  }
+
+  for (const f of list.filter(isPicture)) {
+    const url = URL.createObjectURL(f);
+    // Under both names: the document may refer to it by the root the index was
+    // built with, or by the file's own name if a collector wrote it that way.
+    localImages.set(PHOTO_ROOT + f.name, url);
+    localImages.set(f.name, url);
+    const bytes = asRangerBuffer(await f.arrayBuffer());
+    if (web.indexPhoto(f.name, bytes, PHOTO_ROOT)) dated++;
+    added++;
+  }
+
+  finderEl.hidden = false;
+  say(`${web.photoSummary()}`, false);
+  runSearch();
+  return added > 0 || list.some(isIndexJson);
+}
+
+function numberOrZero(text) {
+  const n = Number(text);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function runSearch() {
+  const near = (document.getElementById("q-near").value || "").split(",");
+  const lat = numberOrZero(near[0]);
+  const lon = numberOrZero(near[1]);
+  // A radius with no centre is not a place, and a centre with no radius is a
+  // point nothing is exactly at; both halves or neither.
+  const radius = near.length === 2 && near[0] ? numberOrZero(document.getElementById("q-radius").value) : 0;
+  const n = web.searchPhotos(
+    document.getElementById("q-from").value || "",
+    document.getElementById("q-to").value || "",
+    lat,
+    lon,
+    radius,
+    document.getElementById("q-text").value || ""
+  );
+  resultEl.textContent = `${n} of ${web.photoCount()} — ${web.lastQuery()}`;
+  resultEl.className = n > 0 ? "hit" : "";
+  return n;
+}
+
+document.getElementById("open-photos")?.addEventListener("click", () =>
+  document.getElementById("photo-files")?.click()
+);
+document.getElementById("photo-files")?.addEventListener("change", (e) => {
+  if (e.target.files?.length) openPhotos(e.target.files);
+});
+for (const id of ["q-from", "q-to", "q-near", "q-radius", "q-text"]) {
+  document.getElementById(id)?.addEventListener("change", runSearch);
+}
+document.getElementById("q-run")?.addEventListener("click", runSearch);
+document.getElementById("q-book")?.addEventListener("click", async () => {
+  if (runSearch() === 0) return;
+  const title = document.getElementById("q-text").value || "";
+  if (!web.openFound(title)) {
+    say(web.albumError() || "that made no book", true);
+    return;
+  }
+  await redraw();
+  say(`${web.foundCount()} photograph(s) laid out`, false);
 });
 
 // The book leaves the page the way it would leave a print shop: as the same
@@ -419,7 +582,19 @@ document.getElementById("save")?.addEventListener("click", () => {
 /** A scripted run of the editor, reported into the DOM for smoke.mjs. */
 async function selftest() {
   const results = [];
-  const check = (name, ok) => results.push((ok ? "ok " : "FAIL ") + name);
+  // Reported as it goes, not only at the end. A self test that writes its
+  // whole answer in one go tells you nothing when it does not reach the end -
+  // and the way this one fails is by running out of time somewhere in the
+  // middle, which used to look exactly like "the page ran no self test".
+  const report = (done) => {
+    const passed = results.filter((r) => r.startsWith("ok ")).length;
+    const state = done ? "" : " (running)";
+    selftestEl.textContent = `selftest ${passed}/${results.length}${state} :: ` + results.join(" :: ");
+  };
+  const check = (name, ok) => {
+    results.push((ok ? "ok " : "FAIL ") + name);
+    report(false);
+  };
   try {
     const before = JSON.parse(web.metaJson());
     check("the book opened with pages", before.pages > 1);
@@ -489,11 +664,11 @@ async function selftest() {
     check("and Apple's own \u201cPhotos\u201d is not among them", !names.includes("Photos"));
     check("including the one with an entity in its name", names.includes("Kes\u00e4 rannalla"));
 
-    const files = [new File([fixture], "AlbumData.xml", { type: "text/xml" })];
-    for (const img of ["Example_scaled.jpg", "GPS_test.jpg", "Canon_40D_scaled.jpg"]) {
-      const blob = await fetch("./assets/" + img).then((r) => r.blob());
-      files.push(new File([blob], img, { type: "image/jpeg" }));
-    }
+    // Fetched once and used twice - by the album section here and by the photo
+    // finder below. The page runs under a virtual-time budget, and two rounds
+    // of the same three fetches was enough to run out of it half way through.
+    const pictures = await bundledPictures();
+    const files = [new File([fixture], "AlbumData.xml", { type: "text/xml" }), ...pictures];
     const opened = await openAlbum(files, "Kes\u00e4 rannalla");
     check("the album opens in the page", opened === true);
     const album = JSON.parse(web.metaJson());
@@ -515,11 +690,41 @@ async function selftest() {
     // A picture the page measured is a picture preflight can check, so the
     // "no known pixel size" warning must be gone.
     check("the pictures were measured in the page", !web.preflightText().includes("unknown-size"));
+
+    // The photo finder, driven through the same functions the inputs drive.
+    // GPS_test.jpg is a real geotagged photograph taken in Tuscany in 2008,
+    // which is the only honest fixture for a search by date and place: its
+    // EXIF is read here, in the page, by the compiled Ranger parser.
+    await openPhotos(await bundledPictures());
+    check("three photographs were indexed", web.photoCount() === 3);
+    check("the finder appeared", finderEl.hidden === false);
+    check("one of them knows where it was", web.photoSummary().includes("1 with a position"));
+
+    const all = web.searchPhotos("", "", 0, 0, 0, "");
+    check("an empty question matches everything", all === 3);
+    check("a date range narrows it", web.searchPhotos("2008-01-01", "2008-12-31", 0, 0, 0, "") === 1);
+    check("a range with nothing in it matches nothing", web.searchPhotos("2020-01-01", "2020-12-31", 0, 0, 0, "") === 0);
+    // 43.47,11.88 is where that photograph was taken; Helsinki is 2000 km away,
+    // which is the check that would fail if the radius were computed flat or
+    // the coordinate had been rounded on the way in.
+    check("a radius finds it", web.searchPhotos("", "", 43.47, 11.88, 30, "") === 1);
+    check("and a radius elsewhere does not", web.searchPhotos("", "", 60.17, 24.94, 30, "") === 0);
+    check("the camera is searchable", web.searchPhotos("", "", 0, 0, 0, "coolpix") === 1);
+    check("the query says what it asked", web.lastQuery().includes("coolpix"));
+
+    web.searchPhotos("2008-01-01", "2008-12-31", 43.47, 11.88, 30, "");
+    check("a book can be made of what matched", web.openFound("Toscana") === true);
+    const made = JSON.parse(web.metaJson());
+    check("and it is that book", made.title === "Toscana");
+    check("with the photograph in it", made.pages >= 2);
+    web.command("nav.next", "");
+    await redraw();
+    const shot = (JSON.parse(web.sceneJson())?.list?.cmds || []).filter((c) => c.k === 2 && c.src);
+    check("whose picture is drawn", shot.length > 0 && shot.every((c) => texCache.get(c.src)));
   } catch (e) {
     results.push("FAIL threw " + e);
   }
-  const passed = results.filter((r) => r.startsWith("ok ")).length;
-  selftestEl.textContent = `selftest ${passed}/${results.length} :: ` + results.join(" :: ");
+  report(true);
 }
 
 boot()

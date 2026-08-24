@@ -107,6 +107,11 @@ class BookAlbumImport {
         if ((strlen sub) == 0) {
             sub = (album.periodText())
         }
+        ; A title page that says "June 2019" twice is what happens when the
+        ; title was derived from the dates as well.
+        if (sub == bookTitle) {
+            sub = ""
+        }
         api.doc.author = sub
         BookSample.addStyles(api.doc)
         this.addMaster(api)

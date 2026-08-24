@@ -1,0 +1,486 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; book_photos.rgr - choose photographs out of an index, and make a book of them
+; ==============================================================================
+;
+;   npm run book:photos -- -index photo-index.json -from 2019-06-01 \
+;                          -to 2019-08-31 -near 61.5,25.0 -radius 20
+;
+; The index is made once, by whoever can see the pictures - `PhotoScan` here,
+; or `tools/mac_photos.mjs` on a Mac, which is the one that reaches a Photos
+; library and its HEIC files. This end does the two things that have to happen
+; every time: ask the question, and lay out the answer.
+;
+; TWO MODES, because a host may have work to do in between:
+;
+;   default    search, then build the book and write it
+;   -select F  search, write the matching ORIGINALS to F as JSON, and stop
+;
+; The second is for a Mac: a HEIC cannot go in a PDF and a browser will not
+; draw one, so something has to convert the chosen pictures - and converting
+; the twenty that were chosen is a different proposition from converting the
+; nine thousand that were not. `mac_photos.mjs` runs this mode, converts, and
+; runs the first mode against the index it has rewritten.
+;
+; ARGUMENTS
+;
+;   -index FILE      the photo index (default ./photo-index.json)
+;   -scan DIR        build the index first, by reading the JPEGs in DIR, and
+;   -names FILE      write it to -index. FILE is one file name per line, from
+;                    `tools/photo_files.mjs` - Ranger cannot list a directory.
+;   -from YYYY-MM-DD  -to YYYY-MM-DD       taken between these days, inclusive
+;   -near LAT,LON    -radius KM            taken within KM of there (default 5)
+;   -place NAME      a place the index names, with its own radius
+;   -text WORD       file name, camera, album or caption contains WORD
+;   -min-rating N    -favorites            what the owner thought of it
+;   -located         only photographs that know where they were
+;   -limit N         at most N of them
+;   -select FILE     write the selection and stop, instead of building a book
+;   -summary         print what matched and stop
+;   -out DIR         where to write the book (default gallery/book/output/photos)
+;   -images PREFIX   the path a book should name the pictures by
+;   -title TEXT      the book's title (default: what the query asked for)
+;   -format NAME     square-210, a4, ... (default square-210)
+; ==============================================================================
+
+Import "PhotoScan.rgr"
+Import "BookAlbumImport.rgr"
+Import "../../pdf_writer/src/fonts/EVGFontSetup.rgr"
+
+class BookPhotosCli {
+    sfn main:void () {
+        print "== Ranger book engine: photographs =="
+
+        def indexPath:string "./photo-index.json"
+        def scanDir:string ""
+        def namesFile:string ""
+        def fromDay:string ""
+        def toDay:string ""
+        def nearText:string ""
+        def radiusKm:double 5.0
+        def placeName:string ""
+        def text:string ""
+        def minRating:int 0
+        def favorites:boolean false
+        def located:boolean false
+        def limit:int 0
+        def selectPath:string ""
+        def summaryOnly:boolean false
+        def out:string "./gallery/book/output/photos"
+        def images:string ""
+        def title:string ""
+        def format:string "square-210"
+
+        def argCount:int (shell_arg_cnt)
+        def i:int 0
+        while (i < argCount) {
+            def flag:string (shell_arg i)
+            def value:string ""
+            if ((i + 1) < argCount) {
+                value = (shell_arg (i + 1))
+            }
+            if (flag == "-index") {
+                indexPath = value
+                i = (i + 1)
+            }
+            if (flag == "-scan") {
+                scanDir = value
+                i = (i + 1)
+            }
+            if (flag == "-names") {
+                namesFile = value
+                i = (i + 1)
+            }
+            if (flag == "-from") {
+                fromDay = value
+                i = (i + 1)
+            }
+            if (flag == "-to") {
+                toDay = value
+                i = (i + 1)
+            }
+            if (flag == "-near") {
+                nearText = value
+                i = (i + 1)
+            }
+            if (flag == "-radius") {
+                def r@(optional):double (to_double value)
+                if r {
+                    radiusKm = (unwrap r)
+                }
+                i = (i + 1)
+            }
+            if (flag == "-place") {
+                placeName = value
+                i = (i + 1)
+            }
+            if (flag == "-text") {
+                text = value
+                i = (i + 1)
+            }
+            if (flag == "-min-rating") {
+                def n@(optional):int (str2int value)
+                if n {
+                    minRating = (unwrap n)
+                }
+                i = (i + 1)
+            }
+            if (flag == "-limit") {
+                def l@(optional):int (str2int value)
+                if l {
+                    limit = (unwrap l)
+                }
+                i = (i + 1)
+            }
+            if (flag == "-favorites") {
+                favorites = true
+            }
+            if (flag == "-located") {
+                located = true
+            }
+            if (flag == "-summary") {
+                summaryOnly = true
+            }
+            if (flag == "-select") {
+                selectPath = value
+                i = (i + 1)
+            }
+            if (flag == "-out") {
+                out = value
+                i = (i + 1)
+            }
+            if (flag == "-images") {
+                images = value
+                i = (i + 1)
+            }
+            if (flag == "-title") {
+                title = value
+                i = (i + 1)
+            }
+            if (flag == "-format") {
+                format = value
+                i = (i + 1)
+            }
+            i = (i + 1)
+        }
+
+        if ((strlen scanDir) > 0) {
+            if ((BookPhotosCli.scanFolder(scanDir namesFile indexPath)) == false) {
+                return
+            }
+        }
+
+        def dir:string (BookPhotosCli.dirOf(indexPath))
+        def name:string (AppleAlbum.baseName(indexPath))
+        def index:PhotoIndex (PhotoIndex.fromFile(dir name))
+        if ((strlen index.error) > 0) {
+            print ("Could not read the index: " + index.error)
+            print "Make one with tools/mac_photos.mjs, or with PhotoScan on a folder of JPEGs."
+            return
+        }
+        print (("Index " + indexPath + ": ") + (index.describe()))
+
+        def q (new PhotoQuery())
+        if ((strlen fromDay) > 0) {
+            q.fromSeconds = (PhotoTime.fromIso(fromDay false))
+        }
+        if ((strlen toDay) > 0) {
+            q.toSeconds = (PhotoTime.fromIso(toDay true))
+        }
+        if ((strlen placeName) > 0) {
+            def place:PhotoPlace (index.placeNamed(placeName))
+            if ((strlen place.name) == 0) {
+                print ("The index names no place called '" + placeName + "'")
+                return
+            }
+            q.atPlace(place)
+        }
+        if ((strlen nearText) > 0) {
+            def lat:double (BookPhotosCli.beforeComma(nearText))
+            def lon:double (BookPhotosCli.afterComma(nearText))
+            q.near(lat lon radiusKm)
+        }
+        q.text = text
+        q.minRating = minRating
+        q.favoritesOnly = favorites
+        q.locatedOnly = located
+        q.limit = limit
+
+        def found:[PhotoRecord] (index.search(q))
+        def n:int (array_length found)
+        print (("Query: " + (q.describe())))
+        print ((to_string n) + " photograph(s) matched")
+        if (n == 0) {
+            print "Nothing to make a book out of. Widen the dates or the radius."
+            return
+        }
+        BookPhotosCli.listFew(found)
+
+        if summaryOnly {
+            return
+        }
+
+        if ((strlen selectPath) > 0) {
+            def selDir:string (BookPhotosCli.dirOf(selectPath))
+            def selName:string (AppleAlbum.baseName(selectPath))
+            BookPhotosCli.ensureDir(selDir)
+            write_file selDir selName (BookPhotosCli.selectionJson(found q))
+            print ("Wrote the selection to " + selectPath)
+            print "A host that has to convert these - HEIC to JPEG - reads that file."
+            return
+        }
+
+        ; A picture nobody has converted cannot be laid out. Saying so here is
+        ; better than a book of empty frames.
+        def unplaceable:int (BookPhotosCli.countUnplaceable(found))
+        if (unplaceable > 0) {
+            print ((to_string unplaceable) + " of them are not JPEG and have no exported copy in the index")
+            print "  Run tools/mac_photos.mjs to convert them; a HEIC cannot go into a PDF."
+        }
+
+        def bookTitle:string title
+        if ((strlen bookTitle) == 0) {
+            bookTitle = (BookPhotosCli.titleFor(q))
+        }
+        def album:AppleAlbum (PhotoIndex.asAlbum(bookTitle found))
+
+        def setup (new EVGFontSetup())
+        setup.init("./gallery/book/" "")
+        def manager:FontManager (setup.getManager())
+        def measurer (new TTFTextMeasurer(manager))
+        def engine (new EVGTextEngine())
+        engine.setMeasurer(measurer)
+
+        def imp (new BookAlbumImport())
+        imp.format = format
+        imp.imageRoot = images
+        imp.title = bookTitle
+        def api:BookApi (imp.buildWith(album engine))
+
+        print (api.summary())
+        def report:BookPreflightReport (api.runPreflight())
+        print "Preflight:"
+        print (report.asText())
+
+        BookPhotosCli.ensureDir(out)
+        def spreads:int (api.writeSpreads(out "spread-"))
+        api.writeTsx(out "photos.tsx")
+        write_file out "photos.json" (api.toJson())
+        write_file out "preflight.txt" (report.asText())
+        print ((("Wrote " + (to_string spreads)) + " spread(s), photos.tsx, photos.json and preflight.txt to ") + out)
+    }
+
+    ; Read the JPEGs the host listed, and write the index. Doing it here rather
+    ; than in the host keeps the EXIF reading in one place - the same code the
+    ; tests exercise on JavaScript, Go and Python - and leaves the host with
+    ; the one job it alone can do, which is naming the files.
+    sfn scanFolder:boolean (scanDir:string namesFile:string indexPath:string) {
+        if ((strlen namesFile) == 0) {
+            print "-scan needs -names FILE, a list of file names in that folder."
+            print "  Make one with: node gallery/book/tools/photo_files.mjs DIR --out names.txt"
+            return false
+        }
+        def listDir:string (BookPhotosCli.dirOf(namesFile))
+        def listName:string (AppleAlbum.baseName(namesFile))
+        def body@(optional):string (read_file listDir listName)
+        def text:string ""
+        if body {
+            text = (unwrap body)
+        } {
+            print ("Could not read the file list " + namesFile)
+            return false
+        }
+        def names:[string] (BookPhotosCli.lines(text))
+        print (("Scanning " + (to_string (array_length names))) + " file(s) in " + scanDir)
+        def index:PhotoIndex (PhotoScan.folder(scanDir names scanDir))
+        def outDir:string (BookPhotosCli.dirOf(indexPath))
+        def outName:string (AppleAlbum.baseName(indexPath))
+        BookPhotosCli.ensureDir(outDir)
+        write_file outDir outName (index.toJson())
+        print (("Wrote " + indexPath + ": ") + (index.describe()))
+        return true
+    }
+
+    sfn lines:[string] (body:string) {
+        def out:[string]
+        def n:int (strlen body)
+        def cur:string ""
+        def i:int 0
+        while (i < n) {
+            def c:string (substring body i (i + 1))
+            if (c == "\n") {
+                if ((strlen cur) > 0) {
+                    push out cur
+                }
+                cur = ""
+            } {
+                if (c != "\r") {
+                    cur = (cur + c)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    ; The first few, so a search that matched the wrong thing says so before a
+    ; book is made of it.
+    sfn listFew:void (found:[PhotoRecord]) {
+        def n:int (array_length found)
+        def show:int n
+        if (show > 8) {
+            show = 8
+        }
+        def i:int 0
+        while (i < show) {
+            def r:PhotoRecord (itemAt found i)
+            def where:string ""
+            if r.located {
+                where = ("  " + (PhotoIndex.coord(r.lat)) + "," + (PhotoIndex.coord(r.lon)))
+            }
+            print (("  " + (r.dateText()) + "  " + r.fileName) + where)
+            i = (i + 1)
+        }
+        if (n > show) {
+            print ("  ... and " + (to_string (n - show)) + " more")
+        }
+    }
+
+    ; A title from the question, when nobody gave one: a book of one August is
+    ; better called "August 2019" than "Photos". The dates the search asked for
+    ; are used rather than the dates it found, because that is what the reader
+    ; typed and will recognise.
+    sfn titleFor:string (q:PhotoQuery) {
+        if (q.fromSeconds > 0.0) {
+            def a:string (AppleTime.monthText(q.fromSeconds))
+            if (q.toSeconds > 0.0) {
+                def b:string (AppleTime.monthText(q.toSeconds))
+                if (a == b) {
+                    return a
+                }
+                return (a + " - " + b)
+            }
+            return a
+        }
+        if ((strlen q.text) > 0) {
+            return q.text
+        }
+        return "Photographs"
+    }
+
+    sfn countUnplaceable:int (found:[PhotoRecord]) {
+        def bad:int 0
+        def i:int 0
+        while (i < (array_length found)) {
+            def r:PhotoRecord (itemAt found i)
+            def p:string (r.placeable())
+            if ((PhotoScan.isJpeg(p)) == false) {
+                bad = (bad + 1)
+            }
+            i = (i + 1)
+        }
+        return bad
+    }
+
+    ; What a converting host needs: the originals, and where the book will
+    ; expect to find the copies. Deliberately not the whole index - the host
+    ; should convert what was chosen, not everything that was indexed.
+    sfn selectionJson:string (found:[PhotoRecord] q:PhotoQuery) {
+        def out:string "{\n"
+        out = (out + "  \"query\": \"" + (BookApi.jsonString((q.describe()))) + "\",\n")
+        out = (out + "  \"count\": " + (to_string (array_length found)) + ",\n")
+        out = (out + "  \"photos\": [\n")
+        def i:int 0
+        while (i < (array_length found)) {
+            def r:PhotoRecord (itemAt found i)
+            out = (out + "    " + (PhotoIndex.recordJson(r)))
+            if (i < ((array_length found) - 1)) {
+                out = (out + ",")
+            }
+            out = (out + "\n")
+            i = (i + 1)
+        }
+        out = (out + "  ]\n}\n")
+        return out
+    }
+
+    sfn beforeComma:double (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == ",") {
+                return (BookPhotosCli.toNumber((substring text 0 i)))
+            }
+            i = (i + 1)
+        }
+        return (BookPhotosCli.toNumber(text))
+    }
+
+    sfn afterComma:double (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == ",") {
+                return (BookPhotosCli.toNumber((substring text (i + 1) n)))
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    sfn toNumber:double (text:string) {
+        def v@(optional):double (to_double text)
+        if v {
+            return (unwrap v)
+        }
+        return 0.0
+    }
+
+    sfn dirOf:string (path:string) {
+        def n:int (strlen path)
+        def cut:int -1
+        def i:int 0
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if (c == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        if (cut == 0) {
+            return "/"
+        }
+        return (substring path 0 cut)
+    }
+
+    sfn ensureDir:void (path:string) {
+        def n:int (strlen path)
+        def cut:int -1
+        def i:int 0
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if (c == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut > 0) {
+            def parent:string (substring path 0 cut)
+            try {
+                create_dir parent
+            } {
+            }
+        }
+        try {
+            create_dir path
+        } {
+        }
+    }
+}

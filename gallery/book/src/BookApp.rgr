@@ -32,6 +32,7 @@ Import "BookView.rgr"
 Import "BookPreflight.rgr"
 Import "BookSample.rgr"
 Import "BookAlbumImport.rgr"
+Import "PhotoScan.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
@@ -145,6 +146,13 @@ class BookApp {
     def albumSizeNames:[string]
     def albumSizeW:[double]
     def albumSizeH:[double]
+    ; Photographs the host has shown this editor, and the last search over
+    ; them. The index is the editor's, not the document's: it survives opening
+    ; and closing books, which is what makes "now show me the ones from
+    ; August" a second question rather than a second import.
+    def photos:PhotoIndex (new PhotoIndex())
+    def found:[PhotoRecord]
+    def lastQuery:string ""
     def status:string ""
 
     ; How far ink may run past the trim, and whether the canvas shows it. With
@@ -332,6 +340,101 @@ class BookApp {
         push albumSizeNames fileName
         push albumSizeW w
         push albumSizeH h
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Photographs, searched by when and where
+    ; ---------------------------------------------------------------------
+
+    ; One picture, read into the index out of its own bytes. The EXIF gives the
+    ; date, the position and the size, so a folder dropped on the editor
+    ; becomes searchable without anything else being consulted.
+    fn indexPhoto:boolean (fileName:string bytes:buffer imageRoot:string) {
+        def r:PhotoRecord (PhotoScan.fromBuffer(fileName bytes imageRoot))
+        photos.add(r)
+        return (r.appleSeconds > 0.0)
+    }
+
+    ; An index somebody else made - `tools/mac_photos.mjs`, which is the path
+    ; that reaches a Photos library and its HEIC files. Merged rather than
+    ; replacing, so a collector's index and a folder dropped on the page can
+    ; both be in front of the same search.
+    fn addPhotoIndexJson:boolean (text:string) {
+        def incoming:PhotoIndex (PhotoIndex.fromJson(text))
+        if ((strlen incoming.error) > 0) {
+            albumError = incoming.error
+            return false
+        }
+        def i:int 0
+        while (i < (incoming.count())) {
+            def r:PhotoRecord (incoming.at(i))
+            photos.add(r)
+            i = (i + 1)
+        }
+        def p:int 0
+        while (p < (array_length incoming.places)) {
+            photos.addPlace((itemAt incoming.places p))
+            p = (p + 1)
+        }
+        return true
+    }
+
+    fn photoCount:int () {
+        return (photos.count())
+    }
+
+    fn photoSummary:string () {
+        return (photos.describe())
+    }
+
+    ; Ask the question. Empty strings and zeros mean "no bound", so a page can
+    ; send whatever its fields hold without deciding which of them are set.
+    ; Answers how many matched, and remembers them for `openFound`.
+    fn searchPhotos:int (fromDay:string toDay:string lat:double lon:double radiusKm:double text:string) {
+        def q (new PhotoQuery())
+        if ((strlen fromDay) > 0) {
+            q.fromSeconds = (PhotoTime.fromIso(fromDay false))
+        }
+        if ((strlen toDay) > 0) {
+            q.toSeconds = (PhotoTime.fromIso(toDay true))
+        }
+        if (radiusKm > 0.0) {
+            q.near(lat lon radiusKm)
+        }
+        q.text = text
+        def hits:[PhotoRecord] (photos.search(q))
+        found = hits
+        lastQuery = (q.describe())
+        return (array_length hits)
+    }
+
+    fn foundCount:int () {
+        return (array_length found)
+    }
+
+    fn lastQueryText:string () {
+        return lastQuery
+    }
+
+    ; The last search's answer, as a book. The pictures are named by the paths
+    ; the index carries, which is what the host served them under, so the same
+    ; texture cache that drew the album draws these.
+    fn openFound:boolean (title:string) {
+        if ((array_length found) == 0) {
+            albumError = "nothing matched, so there is no book to make"
+            return false
+        }
+        def name:string title
+        if ((strlen name) == 0) {
+            name = "Photographs"
+        }
+        def album:AppleAlbum (PhotoIndex.asAlbum(name found))
+        def imp (new BookAlbumImport())
+        imp.title = name
+        def api:BookApi (imp.buildUsing(album editor.flow))
+        albumError = ""
+        this.attach(api.doc)
+        return true
     }
 
     ; The album names in a library index, so a host can ask which one before

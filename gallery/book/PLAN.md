@@ -143,16 +143,25 @@ The parts of that worth keeping when the next source is added:
 - The picture's own metadata is not automatically a caption. A file name under
   a photograph is worse than nothing.
 
+Since then the second source is in as well: `PhotoIndex` + `PhotoScan` index a
+folder of photographs and search it by date range, by radius and by text, and
+`tools/mac_photos.mjs` reaches a real Photos library through Photos.app and
+Spotlight and converts what was chosen out of HEIC. The editor searches the
+same index in the page.
+
 Left, in the order it would be worth doing:
 
 1. **Google Photos Takeout**, which is a folder of JPEGs beside a `.json` per
    picture — the same reader shape, a different index.
-2. **A folder with no index at all**, ordered by EXIF date. `fromPaths` takes
-   it already; what is missing is the host that enumerates a directory, since
-   Ranger has no directory listing.
-3. **Faces and places**, which iPhoto's index carries and a photo book uses
-   for its chapter openings.
-4. **A picture the reader has cropped in the editor**, written back to the
+2. **HEIC read directly**, so a Mac is not needed to see an iPhone photograph.
+   It is a HEIF container around HEVC; the metadata alone would be enough for
+   indexing and is much less work than decoding one.
+3. **Place names**, which needs a gazetteer — or, more cheaply, the names the
+   library already knows: Photos stores reverse-geocoded place names per
+   picture and AppleScript does not expose them, but an export does.
+4. **Faces**, which iPhoto's index carries and a photo book uses for its
+   chapter openings.
+5. **A picture the reader has cropped in the editor**, written back to the
    album rather than only to the book.
 
 ## Stage 5 — output that a printer accepts

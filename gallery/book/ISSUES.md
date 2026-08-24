@@ -132,3 +132,42 @@ end.
 `indexOfFrom` is the same class of trap from the other side: a static method
 whose name starts with an existing global operator is swallowed by it, and the
 class then does not have the method at all.
+
+## 10. Two decimal places is a kilometre of latitude
+
+`BookRenderer.num` rounds to two decimals, which is exactly right for a
+typographic point and wrong by up to a kilometre for a coordinate. Writing a
+photo index with it and reading it back moved every photograph, and a radius
+search then answered differently for no visible reason — the file looked
+plausible either way, because `61.51` is a perfectly ordinary-looking latitude.
+
+`PhotoIndex.coord` writes six decimals (about a tenth of a metre) and the round
+trip is asserted to a metre. The general lesson is that a number formatter
+carries a precision assumption from wherever it was written, and moving one to
+a new domain moves that assumption with it.
+
+## 11. An empty field is not zero, and 0,0 is a real place
+
+Both photo collectors have to say "this picture has no position", and the
+tempting encoding is 0,0. That is a real coordinate in the Gulf of Guinea, and
+a search for photographs within 30 km of it would return every untagged picture
+in the library.
+
+`PhotoRecord.located` is a separate flag, the index format omits `lat`/`lon`
+rather than writing zeros, both halves must be present for either to be
+believed, and the collector's self test asserts that an empty `mdls` field
+becomes absent rather than zero.
+
+## 12. A self test that reports only at the end cannot say where it stopped
+
+The serverless page runs its checks under a virtual-time budget. When the photo
+finder's checks were added the run started, occasionally, to end before the
+last of them — and because the page wrote its results in one go at the end, the
+DOM was empty and the smoke runner said "the page ran no self test", which is
+what it also says when the script fails to load. Two very different faults, one
+message.
+
+The page now writes its results after every check and drops a `(running)`
+marker when it finishes; the runner fails a run that still says `(running)` and
+reports how far it got. The budget was raised as well, but that is the smaller
+half of the fix: the diagnosis was.

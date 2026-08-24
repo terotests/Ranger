@@ -1,0 +1,173 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PhotoScan.rgr - building the index by reading the pictures
+; ==============================================================================
+;
+; The other way to get a `PhotoIndex` is to be handed one: the macOS collector
+; asks Spotlight and Photos.app, which have already read every file, and writes
+; `photo-index.json`. That is the fast path and the one that reaches HEIC.
+;
+; This is the slow, portable path: open each JPEG, read its EXIF, write down
+; what it says. It needs nothing but the files, so it works on an exported
+; folder, on a NAS, on a machine that is not a Mac, and - crucially - in the
+; tests, where a real geotagged JPEG is the only honest fixture for a search by
+; place.
+;
+; It is kept apart from `PhotoIndex` for the same reason `BookAlbumMeasure` is
+; kept apart from `BookAlbumImport`: this touches a disk, and the index and the
+; search must stay usable in a browser.
+;
+; ONLY THE HEADER IS READ. A photograph is a few megabytes and its EXIF is in
+; the first few kilobytes; `JPEGMetadataParser` stops at the markers it wants.
+; Indexing ten thousand pictures is IO, not decoding.
+;
+; WHAT IT CANNOT DO
+;
+; List a directory - Ranger has no such operator, so the caller passes the file
+; names. And HEIC: an iPhone writes HEIC by default, this reads JPEG, and a
+; HEIC cannot be printed or drawn by a browser either. Both of those are the
+; host's job, which is what `tools/mac_photos.sh` is for.
+; ==============================================================================
+
+Import "PhotoIndex.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGMetadata.rgr"
+
+class PhotoScan {
+    ; Index every named file in `dir`. `pathPrefix` is written into the index
+    ; instead of `dir` when the two differ - the index says where a book will
+    ; look for the picture, which is not always where this is reading it from.
+    sfn folder:PhotoIndex (dir:string names:[string] pathPrefix:string) {
+        def index (new PhotoIndex())
+        index.root = dir
+        def prefix:string pathPrefix
+        if ((strlen prefix) == 0) {
+            prefix = dir
+        }
+        def parser (new JPEGMetadataParser())
+        def i:int 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            def r:PhotoRecord (PhotoScan.oneFile(parser dir name prefix))
+            if ((strlen r.path) > 0) {
+                push index.photos r
+            }
+            i = (i + 1)
+        }
+        return index
+    }
+
+    ; One file. A file that is not there, or is not a JPEG, still becomes a
+    ; record - with no date and no position - rather than disappearing: a book
+    ; can place a picture nobody can read the metadata of, and preflight is
+    ; where "no known pixel size" gets reported. What it must not do is claim a
+    ; date it does not have.
+    sfn oneFile:PhotoRecord (parser:JPEGMetadataParser dir:string name:string prefix:string) {
+        def r (new PhotoRecord())
+        r.fileName = name
+        r.path = ((AppleAlbum.withSlash(prefix)) + name)
+        if ((file_exists dir name) == false) {
+            return r
+        }
+        if ((PhotoScan.isJpeg(name)) == false) {
+            return r
+        }
+        def info:JPEGMetadataInfo (parser.parseMetadata(dir name))
+        PhotoScan.applyExif(r info)
+        return r
+    }
+
+    ; One photograph from bytes somebody is holding - a file dropped on a page,
+    ; a blob out of an input. Same reading as `oneFile`, no file system, so the
+    ; editor can index a folder of JPEGs in the browser and search it there.
+    sfn fromBuffer:PhotoRecord (name:string bytes:buffer prefix:string) {
+        def r (new PhotoRecord())
+        r.fileName = name
+        r.path = ((AppleAlbum.withSlash(prefix)) + name)
+        if ((PhotoScan.isJpeg(name)) == false) {
+            return r
+        }
+        def parser (new JPEGMetadataParser())
+        def info:JPEGMetadataInfo (parser.parseBuffer(bytes))
+        PhotoScan.applyExif(r info)
+        return r
+    }
+
+    ; What the EXIF says, written onto a record. Shared by both entry points so
+    ; the file path and the buffer path cannot answer differently.
+    sfn applyExif:void (r:PhotoRecord info:JPEGMetadataInfo) {
+        if ((info.isValid) == false) {
+            return
+        }
+        def w:double (to_double info.width)
+        def h:double (to_double info.height)
+        ; A quarter turn in the EXIF means the stored picture is on its side,
+        ; and the size a layout needs is the size after the turn.
+        if (info.orientation >= 5) {
+            if (info.orientation <= 8) {
+                def swap:double w
+                w = h
+                h = swap
+            }
+        }
+        r.width = w
+        r.height = h
+        r.appleSeconds = (PhotoTime.fromExif(info.dateTimeOriginal))
+        if (r.appleSeconds <= 0.0) {
+            ; `DateTimeOriginal` is when the shutter opened; `DateTime` is when
+            ; the file was last written, which is a worse answer and better
+            ; than none.
+            r.appleSeconds = (PhotoTime.fromExif(info.dateTime))
+        }
+        r.camera = (PhotoScan.cameraName(info))
+        if info.hasGPS {
+            ; Both halves or neither. A camera that wrote a latitude and no
+            ; longitude has not told us where it was.
+            if ((strlen info.gpsLatitude) > 0) {
+                if ((strlen info.gpsLongitude) > 0) {
+                    r.lat = info.gpsLatitudeDeg
+                    r.lon = info.gpsLongitudeDeg
+                    r.located = true
+                }
+            }
+        }
+    }
+
+    ; "Apple iPhone 12", or whichever half of it the file carries. Worth an
+    ; index field because it is the one thing that separates the pictures
+    ; somebody took from the pictures somebody was sent.
+    sfn cameraName:string (info:JPEGMetadataInfo) {
+        def make:string info.cameraMake
+        def model:string info.cameraModel
+        if ((strlen make) == 0) {
+            return model
+        }
+        if ((strlen model) == 0) {
+            return make
+        }
+        ; Phones write "Apple" and "iPhone 12"; some cameras write the make
+        ; twice, which reads badly on a status line.
+        if (BookAlbumSearch.hasSub(model make)) {
+            return model
+        }
+        return (make + " " + model)
+    }
+
+    sfn isJpeg:boolean (name:string) {
+        def lower:string (PhotoIndex.lowerAscii(name))
+        def n:int (strlen lower)
+        if (n < 4) {
+            return false
+        }
+        if ((substring lower (n - 4) n) == ".jpg") {
+            return true
+        }
+        if (n < 5) {
+            return false
+        }
+        if ((substring lower (n - 5) n) == ".jpeg") {
+            return true
+        }
+        return false
+    }
+}

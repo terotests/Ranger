@@ -12,8 +12,9 @@ npm run book:demo           # lay the book out, check it, write SVG + TSX
 npm run book:pdf            # …and turn it into a PDF with the existing EVG tooling
 npm run book:print          # the files a printer wants: interior + cover + manifest
 npm run book:album          # make a book out of an Apple photo album
-npm run book:test           # 161 assertions on the engine, JavaScript
-npm run book:test:go        # the same 161 on Go (and book:test:python on Python)
+npm run book:photos         # search a photo index by date and place, and lay it out
+npm run book:test           # 220 assertions on the engine, JavaScript
+npm run book:test:go        # the same 220 on Go (and book:test:python on Python)
 npm run book:editor:test    # 79 more on the editor and the host seam
 npm run book:web:test       # drive the page in a real browser, on WebGL
 ```
@@ -95,6 +96,10 @@ BookAlbumImport.rgr  an album → a laid-out book. No file access, so it runs in
                      the browser too.
 BookAlbumMeasure.rgr the pictures' pixel sizes, off their JPEG headers. The
                      only part of the album path that touches a disk.
+
+PhotoIndex.rgr       a folder of photographs, made searchable: one small record
+                     each, searched by date range, by radius, by text.
+PhotoScan.rgr        building that index by reading the JPEGs themselves.
 ```
 
 Output goes out through machinery that already existed:
@@ -411,6 +416,93 @@ three photographs, two albums plus one of Apple's own, a movie, and Finnish
 captions written as numeric character references exactly as iPhoto writes them.
 The browser build ships it, so `?album=1` opens it without a Mac.
 
+## Choosing photographs by when and where
+
+![Searching by date and place](artifacts/03_photos.png)
+
+A modern Photos library is not an album file. It is tens of thousands of
+pictures with a date and a position buried in each one, and choosing the twenty
+that belong in a book means asking questions of the whole pile — *that week in
+June*, *within twenty kilometres of the cottage*. A question you cannot ask
+until you have opened forty thousand files is not a question anybody asks
+twice, so the pile is **indexed once** and the searches run over the index.
+
+```
+scan  ─►  photo-index.json  ─►  query  ─►  album  ─►  a book
+           (once, slow)          (fast)
+```
+
+**In the editor.** Press *Open photos…* or drop a folder of JPEGs on the page.
+Each one's EXIF is read **in the page** — the same Ranger parser the command
+line uses, compiled into `book_web.js` — and the search bar then answers from
+dates, coordinates and camera. Nothing is uploaded, which for somebody's
+photographs is not a performance detail.
+
+**On the command line**, for a folder of JPEGs anywhere:
+
+```bash
+node gallery/book/tools/photo_files.mjs ~/Pictures/Export --out names.txt
+npm run book:photos -- -scan ~/Pictures/Export -names names.txt \
+                       -index photo-index.json -summary
+npm run book:photos -- -index photo-index.json \
+                       -from 2019-06-01 -to 2019-08-31 -near 61.5,25.0 -radius 20
+```
+
+`photo_files.mjs` exists because Ranger has `file_exists` and `read_file` and
+no operator that lists a directory — a reasonable place to draw the line for a
+language that compiles to six targets, and one line of host code to cross.
+Everything else, including the EXIF reading, is Ranger and is tested on all
+three targets.
+
+### On a Mac, against the real Photos library
+
+```bash
+node gallery/book/tools/mac_photos.mjs --index --out ~/book
+node gallery/book/tools/mac_photos.mjs --book  --out ~/book \
+     --from 2019-06-01 --to 2019-08-31 --near 61.5,25.0 --radius 20
+```
+
+Three things need a Mac, and they are all in that one file:
+
+**Reaching the library.** Photos.app stopped writing `AlbumData.xml` and its
+database is inside a package the system guards, so the supported way in is to
+*ask* Photos.app over AppleScript. macOS puts up a permission dialog the first
+time; that is the system asking on the user's behalf, and it is the right thing
+to happen.
+
+**HEIC.** An iPhone writes HEIC. It cannot go into a PDF and no browser but
+Safari will draw one, so a chosen photograph is converted with `sips`. Only the
+**chosen** ones — converting twenty pictures is a second and converting nine
+thousand is an afternoon, and that asymmetry is the whole reason the index
+exists. `--book` runs the search first, converts what matched, and lays that
+out.
+
+**Spotlight.** For a plain folder — an export, a NAS, a camera card —
+`mdls` answers faster than opening the files would, because it has already read
+them, and it reaches HEIC too. That is `--folder DIR`.
+
+Spawning `osascript` and `sips` cannot be tested off a Mac, so the file is
+written the other way round: the part that can be wrong on any machine —
+parsing what those tools print — is pure, and `npm run book:photos:test` feeds
+recorded output through it (17 checks, no Mac needed). The process calls around
+them are deliberately thin. **They have not been run on a Mac from here**; the
+parsers have.
+
+### What the index does not know
+
+Place *names*. "Helsinki" is a question for a gazetteer, and shipping one would
+be a bigger dependency than the whole book engine. What is here is a coordinate
+and a radius — plus `PhotoPlace`, so a coordinate can be given a name once and
+used by name afterwards, which is what somebody making a book about the same
+cottage every summer actually wants.
+
+Two details that decide whether a search is right rather than merely plausible.
+Distances are **great-circle**: a degree of longitude is 111 km at the equator
+and 55 km at sixty north, and the flat formula is wrong by half a Finland.
+Coordinates are written with **six decimal places**, not the two a typographic
+point needs — rounding a latitude to two decimals moves a photograph up to a
+kilometre, which silently changes what a radius search answers.
+
 ## Formats
 
 `square-210`, `square-250`, `square-8.5in`, `a4`, `a4-landscape`, `a5`,
@@ -421,7 +513,7 @@ convert; the model stores points.
 ## Targets
 
 The engine is plain Ranger with no host dependencies beyond `gallery/evg`, and
-the full test suite passes on **JavaScript, Go and Python** — 161 assertions
+the full test suite passes on **JavaScript, Go and Python** — 220 assertions
 each. The demo additionally uses `gallery/pdf_writer`'s `FontManager` for real
 font metrics, which is why it lives in `src/book_demo.rgr` rather than in the
 library.
