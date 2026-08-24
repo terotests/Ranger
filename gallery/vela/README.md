@@ -1053,16 +1053,12 @@ precisely the class of bug a single-target suite is blind to. The scale is a
 double now, and the digits are taken from the top a place at a time so no
 intermediate value is ever larger than a digit.
 
-## Where the time went
+## Four faults a profile found, and one wrong algorithm
 
-`gallery/evg/bench` put Vela next to the reference implementation and Chart.js
-and found it costing about three times official Vega's SVG renderer per mark.
-Three times is not a mystery to be theorised about, so it was profiled — and
-almost all of it was four things that have nothing to do with drawing a chart.
-
-Every one of them is the same mistake in a different place: **a string built one
-character at a time, or a value computed for everybody because somebody needs
-it.**
+Profiling a chart of ten thousand marks turned up four places where the cost
+had nothing to do with drawing charts — all of them the same mistake in a
+different place: **a string built one character at a time, or a value computed
+for everybody because somebody needs it.**
 
 | Where | What it was doing | Why it cost that |
 | --- | --- | --- |
@@ -1071,65 +1067,20 @@ it.**
 | `VlRuntime.parseExpr` | built the syntax tree for an expression **every time the expression was evaluated** | an encode rule is a string in the specification and a tree in the evaluator. `isValid(datum["x"]) && isFinite(+datum["x"])` is one string and ten thousand trees — the expression parser was a sixth of the whole render |
 | `VlExprEval.evalCall` | read its first argument **as an instant** before dispatching, and allocated three null arguments per call | reading a string as an instant parses it as a date. `scale('colour', datum.c)` ran a full date parse of a category name, once per datum, and threw the answer away |
 
-The fixes are the obvious ones once the profile says where to look: copy the
-**run** between two characters that need escaping rather than each character;
-keep one syntax tree per expression source for as long as the run lasts; and
-compute the instant only for the ten functions that want one. Two smaller ones
-came with them — a whole number leaves `formatNumber` without going through the
-decimal loop, and `VectorShapes.num` trims its trailing zeros as digits rather
-than as text.
+Each escape copies the **run** between two characters that need escaping rather
+than each character; one syntax tree per expression source lives as long as the
+run does, because the evaluator only ever reads them; and the instant is read
+only for the ten functions that want one. Two smaller ones came with them: a
+whole number leaves `formatNumber` without going through the decimal loop, and
+`VectorShapes.num` trims its trailing zeros as digits rather than as text.
 
-Nothing about what is drawn changed, and that is checked rather than asserted:
-the same five charts — a scatter of ten thousand points, bars, a time-axis
-line, a pie, and one of awkward numbers (0.0001, −2.5, 10⁹, 1000000000.5) —
-come out **byte for byte identical** before and after, and the whole suite
-still passes, including the 4848 drawn primitives compared against the
-reference renderer.
-
-### What it bought
-
-One 600×400 scatter plot, ten thousand point marks, `VelaWeb.render` end to
-end, medians of nine on an idle machine:
-
-| stage | before | after |
-| --- | ---: | ---: |
-| parse the specification | 20 ms | 18 ms |
-| compile Vega-Lite | 1 ms | 1 ms |
-| pretty-print the compiled Vega | 55 ms | 59 ms |
-| **run the dataflow** | **485 ms** | **242 ms** |
-| scene to draw commands | 23 ms | 18 ms |
-| **write the SVG** | **239 ms** | **191 ms** |
-| **JSON-encode the answer** | **589 ms** | **168 ms** |
-| **total** | **1412 ms** | **697 ms** |
-
-and across sizes, the whole call:
-
-| marks | before | after |
-| ---: | ---: | ---: |
-| 1 000 | 146 ms | 80 ms |
-| 10 000 | 1 520 ms | 667 ms |
-| 30 000 | 5 225 ms | 2 354 ms |
-
-In the browser, against the libraries, the marginal cost of one more mark went
-from **144 µs to 67 µs** over the two passes, and a hundred-mark chart from
-18.5 ms to 12.3 ms — which is now *faster than official Vega draws the same
-specification* (23.5 ms), as it is at three hundred and at a thousand. The two
-are level at three thousand marks, and past that Vela is behind by about 1.7×
-rather than the 3× it was. The remaining gap is no longer one function: it is
-the scene evaluation and the per-mark path building, which allocate an object
-per segment and take a hash lookup per property read. The numbers, and
-everything they were measured against, are in
-[`gallery/evg/bench`](../evg/bench/).
-
-### And then a second pass, when the question became "how many points"
-
-Asking where Vela *stops* rather than how it compares found two more, and the
-first of them was not a slow function but the wrong algorithm:
+Then a second pass, asking where the runtime *stops* rather than what it costs,
+found the one that was not a slow function but the wrong algorithm:
 
 | Where | What it was | Why it mattered |
 | --- | --- | --- |
 | `VlRuntime.sortMarkItems` | an **insertion sort**, on the reasoning that "a mark's item count is small" | for a bar chart it is. For a LINE the item count is the number of data points, and Vega-Lite puts a `sort` on every line it compiles — so a line through ten thousand points ran fifty million comparisons, each a hash lookup of the sort field. 2 000 points cost 226 ms and 8 000 cost 2 369: quadratic, in the one chart type whose whole purpose is carrying a lot of points |
-| `VelaWeb.render` | answered JSON with the whole SVG document **inside a JSON string** | a hundred thousand marks is a 40 MB document. Escaping it into JSON and parsing it back out was 53% of everything the page waited for — to carry a string that was already a string |
+| `VelaWeb.render` | answered JSON with the whole SVG document **inside a JSON string** | a hundred thousand marks is a 40 MB document. Escaping it into JSON and parsing it back out was half of everything the page waited for — to carry a string that was already a string |
 
 The sort is a bottom-up merge sort now — stable, because two points at the same
 x must be joined in data order — with each item's key read once instead of once
@@ -1139,6 +1090,7 @@ callers that want it, implemented in terms of the same code.
 
 | | before | after |
 | --- | ---: | ---: |
+| a 10 000-mark scatter, whole render | 1 412 ms | 697 ms |
 | a line through 8 000 points (scene) | 2 369 ms | 185 ms |
 | a line through 100 000 points (scene) | ~6 minutes¹ | 2.3 s |
 | a 100 000-mark scatter, what the page waits for | 11.8 s | 6.1 s |
@@ -1146,11 +1098,13 @@ callers that want it, implemented in terms of the same code.
 ¹ extrapolated from the quadratic — 10 000 points took 3.9 s of sorting, and
 the measurement was stopped rather than left to find out.
 
-Where it stops now, and what it costs per point by chart shape, is
-[`gallery/evg/bench`](../evg/bench/#how-many-points-fit): a million points come
-out of every shape measured, a line-shaped chart costs about 20 µs a point and
-a mark-shaped one about 45 µs plus a DOM node, and nothing in the sweep failed
-or ran out of memory.
+Nothing about what is drawn changed, and that is checked rather than asserted:
+five charts — a scatter of ten thousand points, bars, a time-axis line, a pie,
+and one of awkward numbers (0.0001, −2.5, 10⁹, 1000000000.5) — come out **byte
+for byte identical** before and after; the suite still passes, including the
+4848 drawn primitives compared against the reference renderer; and the C++
+build still reproduces every golden byte for byte, which is what says the
+changes are portable rather than JavaScript-shaped.
 
 ## What is not there yet
 

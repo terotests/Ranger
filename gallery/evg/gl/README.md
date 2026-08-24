@@ -109,17 +109,6 @@ The honest gap: none of that is compiled or run here, because this container
 has neither SDL2 nor a GPU. Treat the C++ compile as evidence that the
 portable half holds, not that the app runs.
 
-## Is it faster than the DOM?
-
-Measured, at a hundred to thirty thousand marks, against Vela's SVG, SVG built
-from this same list, and the list as `<div>`s: [`../bench/`](../bench/)
-(`npm run evg:bench`). The short answer is that this viewer is the slowest of
-them all — it retains nothing, so every frame re-tessellates every path and
-issues a draw call per path — and that the display list hands it a point marker
-as a 190-point polygon. Drawing each mark as one instanced quad instead, the
-way this file already draws a rounded box, is 28× quicker to first paint at ten
-thousand marks and 92× at thirty thousand. The bench directory says what that implies for the seam.
-
 ## Nobody can read it — so there is a second list
 
 A GPU frame is invisible to a screen reader: NVDA asks the platform for a tree
