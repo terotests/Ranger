@@ -239,14 +239,20 @@ Two lessons for anything extracted from here on:
 
 ## 7. The language constraint that shapes the kernel
 
-**Ranger has no generics**, and no interfaces in use anywhere in `gallery/`.
-A shared editing kernel therefore cannot be parameterised over "the app's node
-type". Two idioms are available, both already proven here:
+**Ranger has generics now** — `class History @params(Op)`, `History@(int)` —
+so a shared kernel *can* be parameterised over the app's node type, and
+`OfficeHistory` is the proof. There are still no bounds and no interfaces,
+which was the recommendation and remains the constraint: a kernel may hold a
+`T`, and it may not ask anything of one. Where it needs to compare, hash or
+order, the comparison is passed in.
 
-> **When generics arrive**, the first two rows below stop being workarounds and
-> the kernel can hold its own operations. The use cases, with what each needs
-> from the type system, are written up for the implementer in
-> [`PLAN_GENERICS.md`](../PLAN_GENERICS.md).
+The two older idioms are still the right answer where a type parameter is not
+what is wanted:
+
+> **Generics arrived**, so the kernel holds its own operations and the rows
+> below are choices rather than workarounds. What was asked for, what shipped,
+> and the one warning still open — the representation of `@(optional)`, which a
+> `Maybe<T>` would inherit — are in [`PLAN_GENERICS.md`](../PLAN_GENERICS.md).
 
 | idiom | example | use it for |
 |---|---|---|

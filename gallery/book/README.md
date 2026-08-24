@@ -19,6 +19,7 @@ npm run book:sdl:smoke      # …30 frames headless, which is how CI can check i
 npm run book:test           # 220 assertions on the engine, JavaScript
 npm run book:test:go        # the same 220 on Go (and book:test:python on Python)
 npm run book:editor:test    # 79 more on the editor and the host seam
+npm run book:slides:test    # 9 on the PowerPoint export, incl. what it cannot carry
 npm run book:web:test       # drive the page in a real browser, on WebGL
 ```
 
