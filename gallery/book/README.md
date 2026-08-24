@@ -13,11 +13,13 @@ npm run book:pdf            # …and turn it into a PDF with the existing EVG to
 npm run book:print          # the files a printer wants: interior + cover + manifest
 npm run book:album          # make a book out of an Apple photo album
 npm run book:photos         # search a photo index by date and place, and lay it out
+npm run book:slides         # the book's pages as a PowerPoint deck
 npm run book:sdl            # the same editor as a native SDL2 + OpenGL window
 npm run book:sdl:smoke      # …30 frames headless, which is how CI can check it
 npm run book:test           # 220 assertions on the engine, JavaScript
 npm run book:test:go        # the same 220 on Go (and book:test:python on Python)
 npm run book:editor:test    # 79 more on the editor and the host seam
+npm run book:slides:test    # 9 on the PowerPoint export, incl. what it cannot carry
 npm run book:web:test       # drive the page in a real browser, on WebGL
 ```
 
@@ -545,6 +547,49 @@ reach the system Photos library from it: a TCC permission attaches to a signed
 `.app` with a usage string in its `Info.plist`, and a binary run from a terminal
 inherits the terminal's grants instead. Reading a Photos library still goes
 through `tools/mac_photos.mjs`, which writes an index this host then opens.
+
+## Out to PowerPoint, for free
+
+```bash
+npm run book:slides         # one slide per page, in reading order
+```
+
+`BookToPptx.rgr` contains no conversion, which is the point of it:
+
+```text
+BookToEvg  ─►  EVGDisplayList  ─►  PptxFromEvg  ─►  slides
+```
+
+The book already draws into a display list — that is what the browser, the SDL
+window and the software canvas all paint — and `gallery/pptx` already turns a
+display list into DrawingML, because a Vela chart and a data grid needed it.
+Neither side was written with the other in mind, so putting a book page on a
+slide is about forty lines of wiring rather than a second renderer. It is the
+clearest thing in this directory in favour of a **data** seam over a shared base
+class.
+
+The editor's furniture comes off with one switch. `showBleed = false` zeroes the
+overhang, which also skips the translucent veil that marks the trim on screen —
+the veil is guarded by `if (over > 0.0)` — so neither reaches the slide.
+
+**What does not survive the trip is counted and printed, per page.** Two things
+today, and neither belongs to this module:
+
+- **Pictures do not go at all.** `PptxFromEvg` counts an IMAGE command and
+  emits nothing, deliberately: a display list *names* a picture, it does not
+  carry the bytes. The seam for fixing it is a byte registry on the converter,
+  the way `EVGPDFRenderer.registerImage` already works — and it belongs there,
+  because a chart and a grid want it too.
+- **An image frame's crop is ignored.** Turning the bleed off removes the veil
+  but not the clip `paintImage` puts around each picture frame, which is what
+  crops a `cover`-fitted photograph. DrawingML *can* express that one, as
+  `a:srcRect` on the blip, and nothing does yet.
+
+So a photo book exports today as its text and its ornaments. That is stated by
+the tool on every run rather than discovered in PowerPoint, and
+`npm run book:slides:test` asserts that the counting happens — a converter that
+silently dropped the pictures would pass a test that only checked the slides
+came out.
 
 ## Formats
 

@@ -81,6 +81,9 @@ class BookSdl {
         def measured:int 0
         def drawn:int 0
         def first:boolean true
+        ; Whether the rasterizer has a real face bound yet, which is a
+        ; different question from how many files loaded.
+        def bound:boolean false
         def i:int 0
         while (i < (array_length cfg.fontFiles)) {
             def rel:string (itemAt cfg.fontFiles i)
@@ -100,11 +103,27 @@ class BookSdl {
             } {
                 print ("  missing face: " + cfg.fontDir + "/" + rel)
             }
-            ; And the same file into the painter's own manager, by path. Both
-            ; counted separately: they are two loads that can fail apart, and
-            ; the failure that matters - measuring with one set of widths and
-            ; drawing with another - is invisible if only one number is shown.
-            if (tr.fm.loadFont(rel)) {
+            ; And the same file into the painter's renderer.
+            ;
+            ; The FIRST one must go through `tr.loadFont(family path)`, not
+            ; through `tr.fm.loadFont(path)`. The second loads the face into
+            ; the MANAGER and stops: it does not bind the face to the
+            ; rasterizer, does not install the TrueType measurer, and does not
+            ; set `hasFont` - and `applyFace` returns immediately while that is
+            ; false, so every glyph is drawn in the built-in bitmap font. It
+            ; returns true either way, which is why counting loads did not
+            ; catch it. The rest go in as bare faces, joining the pool the
+            ; manager searches for bold, italic and per-codepoint fallback.
+            def ok:boolean false
+            if bound {
+                ok = (tr.addFace(rel))
+            } {
+                ok = (tr.loadFont("Open Sans" rel))
+                if ok {
+                    bound = true
+                }
+            }
+            if ok {
                 drawn = (drawn + 1)
             }
             i = (i + 1)
@@ -117,6 +136,14 @@ class BookSdl {
         painter.fontFamily = "Open Sans"
         if (measured != drawn) {
             print ("  WARNING: measuring with " + (to_string measured) + " face(s) and drawing with " + (to_string drawn))
+        }
+        ; The question that actually matters, asked of the renderer rather than
+        ; of a counter. Seven files can load into the manager and leave the
+        ; rasterizer with no face at all, and then the book is measured in
+        ; Cinzel and drawn in a bitmap font - which is what happened, and which
+        ; the count of loaded files reported as fine.
+        if ((tr.hasFont) == false) {
+            print "  WARNING: no face is bound to the rasterizer - text will be drawn in the built-in bitmap font"
         }
         return drawn
     }
@@ -457,6 +484,14 @@ class BookSdl {
         print (("pages      " + (to_string (d.pageCount()))) + " in " + (to_string (d.spreadCount())) + " spread(s)")
         def r:BookPreflightReport (app.runPreflight())
         print (("preflight  " + (to_string (r.errorCount()))) + " error(s), " + (to_string (r.warningCount())) + " warning(s)")
+        ; Whether the type on screen is the type that was measured. Printed
+        ; every run because the failure is silent and looks like a style
+        ; choice rather than a bug.
+        if tr.hasFont {
+            print ("face       " + tr.fontFamily + " bound to the rasterizer")
+        } {
+            print "face       NONE bound - drawn in the built-in bitmap font"
+        }
     }
 
     fn run:int (maxFrames:int) {

@@ -1,0 +1,452 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; emoji_shapes.rgr — an emoji font's glyph outlines, turned into shapes
+; ==============================================================================
+;
+;   npm run office:emoji:build
+;
+; The 187 DrawingML presets are a 1990s clip-art set: a cloud is eleven arcs, a
+; smiley is two dots and a curve, and every one of them is drawn from a
+; formula. An emoji font is the opposite — real vector artwork, drawn by
+; illustrators, in a format this repository already parses for text.
+;
+; So this reads `NotoEmoji-Regular.ttf`, pulls the glyph outline for each
+; codepoint named in `assets/emoji.txt`, and writes the outlines out as a
+; Ranger source file of `ShapeEntry` rows. The catalogue has always been able
+; to hold an entry that carries its own `pathData` — that is what `hasPath`
+; is for — so nothing about the catalogue changes to accept them.
+;
+; It is a BUILD tool, not a runtime one. The generated file is checked in, the
+; font is not needed to use the shapes, and a browser build gets the artwork
+; without loading a megabyte of font.
+;
+;   TrueType is quadratic, so a contour becomes `M … Q … Z`, and the implied
+;   on-curve midpoint between two consecutive control points is put back —
+;   dropping it is what turns a rounded corner into a spike.
+;
+;   Font space has y going UP from the baseline and shapes have y going DOWN
+;   from the top, so every contour is flipped as it is written.
+;
+; LICENCE. Noto Emoji is SIL OFL-1.1, which is not the AGPL this directory is
+; under. The generated file carries its own notice and the licence travels with
+; the font in `gallery/pdf_writer/assets/fonts/Noto_Emoji/LICENSE.txt`. The OFL
+; permits this: the outlines are embedded in a document, not redistributed as a
+; font, and nothing here is called Noto.
+; ==============================================================================
+
+Import "../../../pdf_writer/src/raster/RasterText.rgr"
+
+class EmojiRow {
+    def code:int 0
+    def id:string ""
+    def label:string ""
+    def category:string ""
+    def keywords:string ""
+
+    Constructor () {
+    }
+}
+
+class EmojiShapes {
+    sfn main:void () {
+        def fontPath:string "gallery/pdf_writer/assets/fonts/Noto_Emoji/NotoEmoji-Regular.ttf"
+        def ttf (new TrueTypeFont())
+        if ((ttf.loadFromFile(fontPath)) == false) {
+            print ("could not read " + fontPath)
+            return
+        }
+        if (ttf.unitsPerEm <= 0) {
+            print "the font loaded but has no unitsPerEm - nothing can be scaled"
+            return
+        }
+        def tr (new RasterText())
+        tr.setFont(ttf)
+
+        def table:string (?? (read_file "gallery/office/geom/assets" "emoji.txt") "")
+        if ((strlen table) == 0) {
+            print "could not read gallery/office/geom/assets/emoji.txt"
+            return
+        }
+        def rows:[EmojiRow] (EmojiShapes.parseTable(table))
+        print (("read " + (to_string (array_length rows))) + " row(s)")
+
+        def body:string ""
+        def made:int 0
+        def missing:int 0
+        def blank:int 0
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:EmojiRow (itemAt rows i)
+            def gid:int (ttf.getGlyphIndex(r.code))
+            if (gid <= 0) {
+                print ("  no glyph for " + r.id + " (U+" + (to_string r.code) + ")")
+                missing = (missing + 1)
+            } {
+                ; The size is arbitrary — the path is normalised to the unit
+                ; box afterwards — but it must be big enough that the integer
+                ; grid the outline is read on does not round detail away.
+                def g:GlyphOutline (tr.parseGlyph(gid 1000.0))
+                def path:string (EmojiShapes.pathOf(g))
+                if ((strlen path) == 0) {
+                    print ("  empty outline for " + r.id)
+                    blank = (blank + 1)
+                } {
+                    body = (body + "        " + (EmojiShapes.rowFor(r path)) + "\n")
+                    made = (made + 1)
+                }
+            }
+            i = (i + 1)
+        }
+
+        def out:string ((EmojiShapes.header(made)) + body + (EmojiShapes.footer()))
+        write_file "gallery/office/geom" "OfficeEmojiShapes.rgr" out
+        print (("wrote " + (to_string made)) + " shape(s) to gallery/office/geom/OfficeEmojiShapes.rgr")
+        if (missing > 0) {
+            print (("  " + (to_string missing)) + " codepoint(s) the font does not have")
+        }
+        if (blank > 0) {
+            print (("  " + (to_string blank)) + " glyph(s) with no outline")
+        }
+    }
+
+    ; --- the outline ---------------------------------------------------------
+
+    ; One glyph as SVG path data in the unit box.
+    ;
+    ; The glyph's own bounding box is what it is fitted to, not the em square:
+    ; an emoji that sits low and narrow in its em would otherwise arrive as a
+    ; small shape floating in the corner of its frame, and a shape somebody
+    ; inserts should fill the frame they drew.
+    sfn pathOf:string (g:GlyphOutline) {
+        def n:int (array_length g.contours)
+        if (n == 0) {
+            return ""
+        }
+        ; The header box is in font units and `parseGlyph` scaled the points,
+        ; so the extent is measured from the points themselves.
+        def minX:double 0.0
+        def minY:double 0.0
+        def maxX:double 0.0
+        def maxY:double 0.0
+        def first:boolean true
+        def c:int 0
+        while (c < n) {
+            def ct:GlyphContour (itemAt g.contours c)
+            def p:int 0
+            while (p < (array_length ct.points)) {
+                def pt:GlyphPoint (itemAt ct.points p)
+                if first {
+                    minX = pt.x
+                    maxX = pt.x
+                    minY = pt.y
+                    maxY = pt.y
+                    first = false
+                } {
+                    if (pt.x < minX) { minX = pt.x }
+                    if (pt.x > maxX) { maxX = pt.x }
+                    if (pt.y < minY) { minY = pt.y }
+                    if (pt.y > maxY) { maxY = pt.y }
+                }
+                p = (p + 1)
+            }
+            c = (c + 1)
+        }
+        def spanX:double (maxX - minX)
+        def spanY:double (maxY - minY)
+        if (spanX <= 0.0) {
+            return ""
+        }
+        if (spanY <= 0.0) {
+            return ""
+        }
+        ; One scale for both axes, so nothing is stretched, and the shorter
+        ; axis is centred in the box.
+        def k:double (1.0 / spanX)
+        if ((1.0 / spanY) < k) {
+            k = (1.0 / spanY)
+        }
+        def offX:double ((1.0 - (spanX * k)) * 0.5)
+        def offY:double ((1.0 - (spanY * k)) * 0.5)
+
+        def out:string ""
+        def ci:int 0
+        while (ci < n) {
+            def ct:GlyphContour (itemAt g.contours ci)
+            out = (out + (EmojiShapes.contourOf(ct minX maxY k offX offY)))
+            ci = (ci + 1)
+        }
+        return out
+    }
+
+    ; One contour as `M … Q … Z`.
+    ;
+    ; TrueType stores a contour as a ring of points, each on or off the curve,
+    ; and TWO off-curve points in a row imply an on-curve point exactly between
+    ; them. Putting that point back is not an optimisation: without it the two
+    ; controls join with a straight line and every smooth corner in the font
+    ; becomes a spike.
+    ;
+    ; The ring may also START on a control point, which is why the first
+    ; on-curve point is searched for rather than assumed.
+    sfn contourOf:string (ct:GlyphContour minX:double maxY:double k:double offX:double offY:double) {
+        def n:int (array_length ct.points)
+        if (n < 2) {
+            return ""
+        }
+        def start:int -1
+        def i:int 0
+        while (i < n) {
+            if ((itemAt ct.points i).onCurve) {
+                start = i
+                i = n
+            } {
+                i = (i + 1)
+            }
+        }
+        ; A ring with no on-curve point at all is a circle of controls. Its
+        ; midpoints are all implied, so starting between the last and the
+        ; first is as good a place as any.
+        def out:string ""
+        def curX:double 0.0
+        def curY:double 0.0
+        if (start < 0) {
+            def a:GlyphPoint (itemAt ct.points (n - 1))
+            def b:GlyphPoint (itemAt ct.points 0)
+            curX = ((a.x + b.x) * 0.5)
+            curY = ((a.y + b.y) * 0.5)
+            start = 0
+        } {
+            def s:GlyphPoint (itemAt ct.points start)
+            curX = s.x
+            curY = s.y
+            start = (start + 1)
+        }
+        out = ("M " + (EmojiShapes.xy(curX curY minX maxY k offX offY)) + " ")
+
+        def ctrlX:double 0.0
+        def ctrlY:double 0.0
+        def haveCtrl:boolean false
+        def firstX:double curX
+        def firstY:double curY
+        def step:int 0
+        while (step < n) {
+            def idx:int (start + step)
+            while (idx >= n) {
+                idx = (idx - n)
+            }
+            def pt:GlyphPoint (itemAt ct.points idx)
+            if (pt.onCurve) {
+                if haveCtrl {
+                    out = (out + "Q " + (EmojiShapes.xy(ctrlX ctrlY minX maxY k offX offY)) + " " + (EmojiShapes.xy(pt.x pt.y minX maxY k offX offY)) + " ")
+                    haveCtrl = false
+                } {
+                    out = (out + "L " + (EmojiShapes.xy(pt.x pt.y minX maxY k offX offY)) + " ")
+                }
+            } {
+                if haveCtrl {
+                    ; Two controls in a row: the on-curve point between them.
+                    def mx:double ((ctrlX + pt.x) * 0.5)
+                    def my:double ((ctrlY + pt.y) * 0.5)
+                    out = (out + "Q " + (EmojiShapes.xy(ctrlX ctrlY minX maxY k offX offY)) + " " + (EmojiShapes.xy(mx my minX maxY k offX offY)) + " ")
+                }
+                ctrlX = pt.x
+                ctrlY = pt.y
+                haveCtrl = true
+            }
+            step = (step + 1)
+        }
+        ; Close back onto the point the contour began at, through the control
+        ; that is still in hand if the ring ended on one.
+        if haveCtrl {
+            out = (out + "Q " + (EmojiShapes.xy(ctrlX ctrlY minX maxY k offX offY)) + " " + (EmojiShapes.xy(firstX firstY minX maxY k offX offY)) + " ")
+        }
+        return (out + "Z ")
+    }
+
+    ; A point, flipped and fitted. Font y goes up from the baseline; a shape's
+    ; y goes down from the top of its box.
+    sfn xy:string (x:double y:double minX:double maxY:double k:double offX:double offY:double) {
+        def px:double (offX + ((x - minX) * k))
+        def py:double (offY + ((maxY - y) * k))
+        return ((EmojiShapes.num(px)) + " " + (EmojiShapes.num(py)))
+    }
+
+    ; Four decimals of the unit box, for the reason `OfficeShapeCatalog.num`
+    ; gives: two is a hundredth of the whole shape.
+    sfn num:string (v:double) {
+        def scaled:double (v * 10000.0)
+        def r:int (floor (scaled + 0.5))
+        if (scaled < 0.0) {
+            r = (floor (scaled - 0.5))
+        }
+        def whole:int (idiv r 10000)
+        def frac:int (r - (whole * 10000))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        if (frac == 0) {
+            return (to_string whole)
+        }
+        def digits:string (to_string frac)
+        while ((strlen digits) < 4) {
+            digits = ("0" + digits)
+        }
+        while ((strlen digits) > 1) {
+            if ((substring digits ((strlen digits) - 1) (strlen digits)) != "0") {
+                break
+            }
+            digits = (substring digits 0 ((strlen digits) - 1))
+        }
+        return ((to_string whole) + "." + digits)
+    }
+
+    ; --- the table -----------------------------------------------------------
+
+    sfn parseTable:[EmojiRow] (text:string) {
+        def out:[EmojiRow]
+        def lines:[string] (EmojiShapes.splitOn(text 10))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def ln:string (itemAt lines i)
+            if ((strlen ln) > 0) {
+                if ((substring ln 0 1) != ";") {
+                    def f:[string] (EmojiShapes.splitOn(ln 9))
+                    if ((array_length f) >= 4) {
+                        def r (new EmojiRow())
+                        def cs:string (itemAt f 0)
+                        def rid:string (itemAt f 1)
+                        def lab:string (itemAt f 2)
+                        def cat:string (itemAt f 3)
+                        r.code = (EmojiShapes.digits(cs))
+                        r.id = rid
+                        r.label = lab
+                        r.category = cat
+                        if ((array_length f) > 4) {
+                            def kw:string (itemAt f 4)
+                            r.keywords = kw
+                        }
+                        if (r.code > 0) {
+                            push out r
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Decimal digits to an int. `to_int` on a string answers an optional,
+    ; which a field cannot take, and the table holds nothing but positive
+    ; codepoints — so this reads them and answers 0 for anything else, which
+    ; `parseTable` drops.
+    sfn digits:int (s:string) {
+        def v:int 0
+        def i:int 0
+        def n:int (strlen s)
+        if (n == 0) {
+            return 0
+        }
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c < 48) {
+                return 0
+            }
+            if (c > 57) {
+                return 0
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return v
+    }
+
+    ; Split on one codepoint. `split` is not available here and the table has
+    ; two separators — newline between rows, tab between fields — so one
+    ; function takes the character to cut on.
+    sfn splitOn:[string] (text:string sep:int) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == sep) {
+                push out cur
+                cur = ""
+            } {
+                if (c != 13) {
+                    cur = (cur + (substring text i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push out cur
+        }
+        return out
+    }
+
+    ; --- the generated file --------------------------------------------------
+
+    sfn rowFor:string (r:EmojiRow path:string) {
+        return ("push c.entries (OfficeEmojiShapes.entryOf(\"" + r.id + "\" \"" + (EmojiShapes.esc(r.label)) + "\" \"" + r.category + "\" \"" + (EmojiShapes.esc(r.keywords)) + "\" \"" + path + "\"))")
+    }
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:string (substring s i (i + 1))
+            if (ch == "\"") {
+                out = (out + "'")
+            } {
+                out = (out + ch)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn header:string (n:int) {
+        def out:string "; SPDX-License-Identifier: AGPL-3.0-or-later\n"
+        out = (out + "; Font outlines: Copyright the Noto Project Authors, SIL Open Font License 1.1\n")
+        out = (out + "; The licence text is at gallery/pdf_writer/assets/fonts/Noto_Emoji/LICENSE.txt\n\n")
+        out = (out + "; ==============================================================================\n")
+        out = (out + "; OfficeEmojiShapes.rgr - GENERATED. Do not edit.\n")
+        out = (out + "; ==============================================================================\n")
+        out = (out + ";\n")
+        out = (out + ";     npm run office:emoji:build\n")
+        out = (out + ";\n")
+        out = (out + "; " + (to_string n) + " emoji glyph outlines as shape entries, from\n")
+        out = (out + "; NotoEmoji-Regular.ttf by way of gallery/office/geom/tools/emoji_shapes.rgr.\n")
+        out = (out + "; The paths are in the 0..1 unit box with y going down, which is what every\n")
+        out = (out + "; consumer of `ShapeEntry.pathData` expects.\n")
+        out = (out + ";\n")
+        out = (out + "; To add one, put a line in gallery/office/geom/assets/emoji.txt and run the\n")
+        out = (out + "; build again. Editing this file by hand loses the change on the next run.\n")
+        out = (out + ";\n")
+        out = (out + "; This imports the catalogue rather than the catalogue importing this, and\n")
+        out = (out + "; that direction is deliberate: it is a megabyte of path data, and an editor\n")
+        out = (out + "; that only wants the DrawingML presets should not carry it. Ask for it with\n")
+        out = (out + ";\n")
+        out = (out + ";     Import \"../../office/geom/OfficeEmojiShapes.rgr\"\n")
+        out = (out + ";     OfficeEmojiShapes.fill(shapes)\n")
+        out = (out + ";\n")
+        out = (out + "; ==============================================================================\n\n")
+        out = (out + "Import \"OfficeShapeCatalog.rgr\"\n\n")
+        out = (out + "class OfficeEmojiShapes {\n")
+        out = (out + "    sfn entryOf:ShapeEntry (id:string label:string category:string keywords:string path:string) {\n")
+        out = (out + "        def e (ShapeEntry.of(id label category keywords))\n")
+        out = (out + "        e.pathData = path\n")
+        out = (out + "        return e\n")
+        out = (out + "    }\n\n")
+        out = (out + "    sfn fill:void (c:OfficeShapeCatalog) {\n")
+        return out
+    }
+
+    sfn footer:string () {
+        return "    }\n}\n"
+    }
+}

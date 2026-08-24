@@ -1,0 +1,159 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; BookToPptx.rgr — a book's pages, as PowerPoint slides
+; ==============================================================================
+;
+; This file contains no conversion. That is the point of it.
+;
+;     BookToEvg  ─►  EVGDisplayList  ─►  PptxFromEvg  ─►  slides
+;
+; The book already draws into a display list, because that is what the browser,
+; the SDL window and the software canvas all paint. `PptxFromEvg` already turns
+; a display list into DrawingML, because that is what a Vela chart and a data
+; grid needed. Neither side was written with the other in mind, and putting a
+; book page on a slide is therefore about forty lines of wiring rather than a
+; second renderer — which is the whole argument for a data seam, cashed in.
+;
+; WHAT THE EXPORT TURNS OFF, AND WHY IT IS ONE SWITCH
+;
+; A page on screen is drawn with the editor's furniture: a bleed overhang past
+; the trim, and a translucent VEIL over that overhang so a reader can see where
+; the paper is cut. Neither belongs on a slide, and both come off with
+; `showBleed = false` rather than by special-casing — the veil is guarded by
+; `if (over > 0.0)`, so a zero overhang skips it, and the page's own clip
+; collapses to exactly the page rectangle. Leave the bleed on and both faults
+; appear at once: four grey bands across the slide, and every bleeding
+; photograph drawn past the edge instead of cut at it.
+;
+; WHAT DOES NOT SURVIVE THE TRIP, MEASURED RATHER THAN ASSUMED
+;
+; Run it on the sample book and it reports, per page, what it could not carry.
+; Two things, and neither is this file's to fix:
+;
+;   PICTURES DO NOT GO AT ALL. `PptxFromEvg` counts an IMAGE command in
+;   `unresolvedImages` and emits nothing — deliberately, and it says why: "a
+;   display list names a picture; it does not carry it. The bytes belong to
+;   whoever built the list, so this counts what it cannot place rather than
+;   inventing an empty frame." So a photo book becomes a deck of its text and
+;   its ornaments. The seam for fixing that is a byte registry on the
+;   converter, the way `EVGPDFRenderer.registerImage` already works, and it
+;   belongs there rather than here because a Vela chart and a data grid want it
+;   too.
+;
+;   A CLIP THAT MATTERS IS STILL A CLIP THAT IS IGNORED. Turning the bleed off
+;   removes the veil, but it does not remove the page clip, and it does not
+;   touch the clip `paintImage` puts around every picture frame — which is what
+;   crops a `cover`-fitted photograph. DrawingML can express that one, as
+;   `a:srcRect` on the blip, and nothing here does yet.
+;
+; Both are counted and reported per page rather than discovered later: this
+; module's contract is that it never claims a page went out whole when it did
+; not.
+;
+; WHAT A SLIDE CANNOT CARRY AT ALL. A book is a spread of two facing pages; a
+; slide is one rectangle. Pages are exported one per slide, in reading order,
+; which is also how a printer wants them (`book_print.rgr` writes single pages
+; for the same reason). Nothing here tries to put a spread on one slide: it
+; would look right and print wrong.
+; ==============================================================================
+
+Import "BookToEvg.rgr"
+Import "../../pptx/api/PptxApi.rgr"
+Import "../../pptx/src/PptxFromEvg.rgr"
+
+class BookSlideResult {
+    def slides:int 0
+    ; Clips `PptxFromEvg` could not express. Never zero for a page with a
+    ; picture on it: one for the page's own sheet, which is harmless because it
+    ; is the page's own bounds, and one per picture frame, which is not — that
+    ; is the crop, and it is drawn uncropped.
+    def clipped:int 0
+    def shapes:int 0
+    def texts:int 0
+    def images:int 0
+    def notes:[string]
+
+    Constructor () {
+    }
+
+    fn note:void (msg:string) {
+        push notes msg
+    }
+
+    fn describe:string () {
+        def out:string ((to_string slides) + " slide(s), " + (to_string shapes) + " shape(s), ")
+        out = (out + (to_string texts) + " text(s), " + (to_string images) + " picture(s)")
+        if (clipped > 0) {
+            out = (out + " — " + (to_string clipped) + " clip(s) could not be expressed")
+        }
+        return out
+    }
+}
+
+class BookToPptx {
+    ; A slide is 96 dots per inch and a book page is in typographic points, so
+    ; one page point is 96/72 of a slide unit. Stated once here rather than
+    ; sprinkled: `PptxFromEvg.unit` does the same conversion in the other
+    ; direction and the two have to agree.
+    def scale:double 1.3333333333333333
+    ; Pictures the book names by path. A slide carries its media inside the
+    ; package, so an exporter that cannot read the file leaves the frame empty
+    ; rather than pretending.
+    def assetBase:string ""
+
+    Constructor () {
+    }
+
+    ; Every page of the book, one per slide, in reading order.
+    fn deck:PptxDeck (doc:BookDocument flow:BookFlowResult engine:BookFlowEngine result:BookSlideResult) {
+        ; `PptxApi.create` and not `PptxDeck.create`: the facade is the
+        ; published entry point and the one the API test drives.
+        def d:PptxDeck (PptxApi.create())
+        def i:int 0
+        while (i < (doc.pageCount())) {
+            def page:BookPage (doc.pageAt(i))
+            this.addPage(d doc flow engine page (i + 1) result)
+            i = (i + 1)
+        }
+        return d
+    }
+
+    fn addPage:void (d:PptxDeck doc:BookDocument flow:BookFlowResult engine:BookFlowEngine page:BookPage pageNo:int result:BookSlideResult) {
+        def dl:EVGDisplayList (this.pageList(doc flow engine page))
+
+        def conv (new PptxFromEvg())
+        def group:PptxShape (conv.build(dl 0.0 0.0))
+
+        def ref:PptxSlideRef (d.addSlide())
+        def slide:PptxSlide (ref.model())
+        slide.width = (page.width * scale)
+        slide.height = (page.height * scale)
+        push slide.shapes group
+
+        result.slides = (result.slides + 1)
+        result.shapes = (result.shapes + conv.shapeCount)
+        result.texts = (result.texts + conv.textCount)
+        result.clipped = (result.clipped + conv.clipped)
+        if (conv.unresolvedImages > 0) {
+            result.images = (result.images + 0)
+            result.note(("page " + (to_string pageNo) + ": " + (to_string conv.unresolvedImages) + " picture(s) could not be resolved"))
+        }
+        if (conv.clipped > 0) {
+            result.note(("page " + (to_string pageNo) + ": " + (to_string conv.clipped) + " clip(s) ignored — content meant to be cut is drawn"))
+        }
+    }
+
+    ; The page as the printer sees it: no bleed overhang, no veil over it, no
+    ; frame edges, no margin guides. See the header — this is one switch and
+    ; not four, because the furniture is all derived from the overhang.
+    fn pageList:EVGDisplayList (doc:BookDocument flow:BookFlowResult engine:BookFlowEngine page:BookPage) {
+        def painter (new BookToEvg())
+        painter.setFlowEngine(engine)
+        painter.setScale(scale)
+        painter.showBleed = false
+        painter.showFrames = false
+        painter.assetBase = assetBase
+        return (painter.pageList(doc flow page))
+    }
+}

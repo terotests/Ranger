@@ -24,6 +24,8 @@ Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
 Import "../../evg/EVGCommands.rgr"
 Import "../../evg/EVGSelectChrome.rgr"
+Import "../../office/geom/OfficeShapeCatalog.rgr"
+Import "../../office/ui/OfficeShapePicker.rgr"
 
 ; Which buttons a slide viewer has. The strip is the shared one — the same
 ; component the spreadsheet's and the document's are — and this is the only
@@ -75,6 +77,7 @@ class PptxToolbar extends EVGToolbar {
         this.addSeparator()
         this.add("shape.rect" "" "Insert a box" (ToolIcon.shapeRect()))
         this.add("shape.ellipse" "" "Insert an ellipse" (ToolIcon.shapeEllipse()))
+        this.add("shape.pick" "" "Browse the shapes" (ToolIcon.merge()))
         this.add("picture.add" "" "Insert a picture" (ToolIcon.picture()))
 
         this.addTab("Arrange")
@@ -316,6 +319,13 @@ class PptxApp {
     def wantRaster:boolean true
 
     Constructor () {
+        picker.attach(shapes)
+        ; NO EMOJI HERE, deliberately. `OfficeEmojiShapes.fill(shapes)` is one
+        ; line and it costs the /office/ page a megabyte — the playground
+        ; bundle goes from 2.39 MB to 3.40 MB — for 262 shapes this editor
+        ; then REFUSES to insert, because `PptxShape.pathUnit` holds one ring
+        ; and a panda's eye patches are rings of their own. Add the line back
+        ; when a slide shape can hold several rings, not before.
     }
 
     fn init:void (fontDir:string) {
@@ -334,7 +344,23 @@ class PptxApp {
     ; hands them over here, before anything is drawn.
     fn loadPresets:void (text:string) {
         view.converter.loadPresets(text)
+        ; The same bytes to the catalogue. It can list its shapes without them
+        ; but cannot produce an outline, and the book editor needs outlines —
+        ; so both are fed from the one call a host already makes.
+        shapes.loadPresets(text)
     }
+
+    ; The 187 preset geometries as a catalogue somebody can browse. This
+    ; editor has been able to DRAW all of them since the presets landed and
+    ; could only ever INSERT two of them, because nothing named the rest.
+    ; Shared with the book editor, which turns an entry into a path instead.
+    def shapes:OfficeShapeCatalog (new OfficeShapeCatalog())
+
+    ; The shared shape browser. Both editors put up the SAME window over the
+    ; same catalogue; what differs is only the one line that acts on the id it
+    ; hands back — which is the whole claim the shared work makes.
+    def picker:OfficeShapePicker (new OfficeShapePicker)
+
 
     ; The strip, the command table, and the room they take out of the window.
     ; `view.chromeH` is what the slide's fit-to-window scale keeps clear, so it
@@ -639,6 +665,7 @@ class PptxApp {
         commands.addArg("edit.text" "Set the text" "Format" "")
         commands.add("shape.rect" "Insert a box" "Insert" "")
         commands.add("shape.ellipse" "Insert an ellipse" "Insert" "")
+        commands.add("shape.pick" "Browse the shapes" "Insert" "")
         commands.add("text.add" "Insert a text box" "Insert" "")
         commands.add("picture.add" "Insert a picture" "Insert" "")
         commands.add("slide.add" "New slide" "Slides" "")
@@ -1217,7 +1244,13 @@ class PptxApp {
         if presenting {
             return (this.showPointer(px py pressed down released))
         }
+        ; Before the window manager, which consumes anything inside a window —
+        ; right for a caption, wrong for a body the picker drew itself.
+        if (this.pickerPointer(px py pressed)) {
+            return true
+        }
         if (windows.handlePointer(px py pressed down released)) {
+            picker.pollClose()
             this.pollDialogs()
             return true
         }
@@ -1645,6 +1678,8 @@ class PptxApp {
             wnd.paintOverlay(framed view.ctx.tr)
             wi = (wi + 1)
         }
+        ; The picker's body, over its own window's chrome.
+        picker.paint(framed)
         return framed
     }
 
@@ -3396,6 +3431,40 @@ class PptxApp {
             def sh:PptxShape (unwrap sel)
             return (editor.setShapeText(sh.editId arg))
         }
+        ; Any shape in the catalogue, by id. `shape.rect` and `shape.ellipse`
+        ; below are what a toolbar button with no argument sends, and they are
+        ; left alone: this is the same insert with a name in it.
+        ; The shared browser. The SAME command id in the book editor opens
+        ; the same window over its own catalogue.
+        if (id == "shape.pick") {
+            picker.open(windows W H)
+            return true
+        }
+        if (id == "shape.insert") {
+            if ((strlen arg) == 0) {
+                return false
+            }
+            ; Bound to a local: `(obj.m()).field` does not resolve in Ranger.
+            def entry:ShapeEntry (shapes.find(arg))
+            if (entry.id != arg) {
+                return false
+            }
+            ; An entry that carries its own outline — every emoji — cannot go
+            ; in as a slide shape yet. `PptxShape.pathUnit` is ONE ring, and a
+            ; mushroom's spots and a panda's eye patches are rings of their
+            ; own: the outer ring alone is a blank blob, and one shape per ring
+            ; fills the holes in. Refusing is the honest answer until a shape
+            ; can hold several rings. The book editor takes them today because
+            ; a `BookFrame` holds the whole path.
+            if (entry.hasPath()) {
+                return false
+            }
+            def sw:double ((this.slideW()) * 0.25)
+            def sh2:double ((this.slideH()) * 0.22)
+            def madeId:int (editor.addShapeAt(arg ((this.slideW()) * 0.3) ((this.slideH()) * 0.3) sw sh2))
+            this.setEditMode(true)
+            return (madeId > 0)
+        }
         if (id == "shape.rect") {
             def w:double ((this.slideW()) * 0.25)
             def h:double ((this.slideH()) * 0.18)
@@ -4318,7 +4387,31 @@ class PptxApp {
     }
 
     ; The same, in wheel notches, for hosts that speak notches.
+    ; A shape was chosen. Everything above this line is shared with the book
+    ; editor; this is the line that is not, and it is one line: the deck stores
+    ; the preset NAME for PowerPoint to draw.
+    fn pickerPointer:boolean (px:int py:int pressed:boolean) {
+        if (pressed == false) {
+            return false
+        }
+        if ((picker.isOpen()) == false) {
+            return false
+        }
+        if ((picker.press(px py)) == false) {
+            return false
+        }
+        if (picker.hasChoice()) {
+            def id:string (picker.take())
+            this.runCommand("shape.insert" id)
+        }
+        return true
+    }
+
     fn scrollPanel:void (delta:int) {
+        ; While the browser is up it is the thing being read.
+        if (picker.wheel(delta)) {
+            return
+        }
         this.scrollPanelPixels((0 - (delta * 40)))
     }
 
