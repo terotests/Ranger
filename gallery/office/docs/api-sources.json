@@ -1,5 +1,5 @@
 {
-  "$comment": "Registry of the Ranger sources that declare a published API surface. docs/tools/extract-api.mjs reads this file and writes docs/site/src/data/*-api.json; render-api-pages.mjs turns that into pages under /docs/office/. A facade added to gallery/*/api/ and not listed here is documented nowhere, which docs:api:coverage reports.",
+  "$comment": "Registry of the Ranger sources that declare a published API surface. gallery/office/docs/tools/extract-api.mjs reads this file and writes gallery/office/docs/.model/*-api.json; render-reference.mjs turns that into the pages published at /office/reference/. It lives here rather than under docs/ because the pages quote AGPL comments and the documentation site is MIT. A facade added to gallery/*/api/ and not listed here is documented nowhere, which check-api-coverage.mjs reports.",
   "apis": [
     {
       "id": "pptx",

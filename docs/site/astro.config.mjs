@@ -97,18 +97,6 @@ export default defineConfig({
           ],
         },
         {
-          // Generated from the Ranger sources that declare each facade, by
-          // docs/tools/extract-api.mjs — see docs/api-sources.json. The pages
-          // are written into src/content/docs/office/ at build time and are
-          // not checked in, so an entry here for an API that was removed from
-          // the registry fails the build rather than 404ing quietly.
-          label: "Office APIs",
-          items: [
-            { label: "Overview", slug: "office" },
-            { label: "PowerPoint", slug: "office/pptx" },
-          ],
-        },
-        {
           label: "Targets",
           items: [
             { label: "Target languages", slug: "targets/overview" },

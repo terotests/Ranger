@@ -128,9 +128,11 @@ gallery/pdf_writer/bin/print_finishing_test.js
 # Built JavaScript API bundles — compiled from the Ranger sources beside them.
 gallery/pptx/api/js/dist/
 
-# API reference pages, generated from the Ranger facades by docs/tools.
-docs/site/src/content/docs/office/
-docs/site/src/data/*-api.json
+# The Office API reference, generated from the Ranger facades by
+# gallery/office/docs/tools. It is built under gallery/ rather than under
+# docs/ because it quotes AGPL comments and the documentation site is MIT.
+gallery/office/docs/.model/
+gallery/office/docs/dist/
 
 # The playground build output.
 gallery/pptx/web/playground/dist/

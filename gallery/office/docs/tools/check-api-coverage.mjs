@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Does the JavaScript package still expose what the reference describes?
  *
@@ -12,12 +13,12 @@
  * a documentation build on a clean checkout has no module to load, and a check
  * that quietly skips itself when its input is missing is worse than none.
  *
- * Exits non-zero on a gap, so `docs:generate` stops rather than publishing a
- * page describing methods that are not there.
+ * Exits non-zero on a gap, so the reference build stops rather than
+ * publishing a page describing methods that are not there.
  */
 import fs from "node:fs";
 import path from "node:path";
-import { DATA, DOCS, ROOT, readJson } from "./lib/paths.mjs";
+import { DATA, REGISTRY, ROOT, readJson } from "./paths.mjs";
 
 let problems = 0;
 
@@ -31,7 +32,7 @@ function check(api) {
     }
     const wrapperFile = path.join(ROOT, js.wrapper);
     if (!fs.existsSync(wrapperFile)) {
-      console.error(`  MISSING  ${js.wrapper} — recorded in docs/api-sources.json and not on disk`);
+      console.error(`  MISSING  ${js.wrapper} — recorded in gallery/office/docs/api-sources.json and not on disk`);
       problems++;
       continue;
     }
@@ -61,7 +62,7 @@ function check(api) {
   }
 }
 
-const registry = readJson(path.join(DOCS, "api-sources.json"));
+const registry = readJson(REGISTRY);
 for (const api of registry.apis) check(api);
 
 if (problems) {
