@@ -2868,6 +2868,12 @@ class RangerFlowParser {
   }
 
   fn EnterClass:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; `class Foo @params(T)` is a template, not a class. Its body says `T`,
+    ; which is not a type, so there is nothing here to check -- the copies
+    ; made at each `Foo@(Arg)` reference are what gets checked.
+    if (node.hasExpressionProperty("params")) {
+      return
+    }
     def body_index ( (node.chlen())  - 1)
     if( (size node.children) != 3) {
       if( (node.chlen()) == 5 ) {
@@ -4036,9 +4042,58 @@ class RangerFlowParser {
   }
 
   ; myClass@(xxx)
+  ; `History@(SlideOp)` -> the name of its concrete class, `History_SlideOp`.
+  ; Each type argument is resolved first, so `Store@(History@(int))` expands
+  ; the inner class before it names the outer one.
+  fn genericInstanceName:string (baseName:string tAnn:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def tstr:string ""
+    for tAnn.children ch:CodeNode i {
+      this.CheckVRefTypeAnnotationOf( ch ctx wr )
+      def part:string (this.typeArgKey(ch.vref))
+      tstr = ((tstr + "_") + part)
+    }
+    return (baseName + tstr)
+  }
+
+  ; A type argument as a piece of an identifier. `[string]` and `[string:int]`
+  ; are legal Ranger types and illegal names everywhere, so `History@([string])`
+  ; instantiates `History_arr_string` rather than `History_[string]`.
+  fn typeArgKey:string (spelling:string) {
+    def res:string ""
+    def ii:int 0
+    def ilen:int (strlen spelling)
+    while (ii < ilen) {
+      def c:int (charAt spelling ii)
+      def nextAt:int (ii + 1)
+      if (c == (charcode "[")) {
+        res = (res + "arr_")
+      } {
+        if (c == (charcode "]")) {
+          ; the closing bracket adds nothing a reader needs
+        } {
+          if ((c == (charcode ":")) || (c == (charcode " "))) {
+            res = (res + "_")
+          } {
+            res = (res + (substring spelling ii nextAt))
+          }
+        }
+      }
+      ii = nextAt
+    }
+    return res
+  }
+
   fn CheckVRefTypeAnnotationOf:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if(node.has_vref_annotation) {
       def tAnn (node.vref_annotation)
+      ; `new History@(SlideOp) ()` -- expand the class, then point the `new` at it
+      if (ctx.hasTemplateNode(node.vref)) {
+        def instName:string (this.genericInstanceName(node.vref (unwrap tAnn) ctx wr))
+        ctx.createGenericClassInstance( node.vref instName (unwrap tAnn) this wr )
+        node.vref = instName
+        node.has_vref_annotation = false
+        return true
+      }
       if(false == (ctx.isDefinedClass(node.vref))) {
         ctx.addError(node ('Trait class ' + node.vref + ' is not defined'))
       } {
@@ -4070,6 +4125,15 @@ class RangerFlowParser {
   fn CheckTypeAnnotationOf:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if(node.has_type_annotation) {
       def tAnn (node.type_annotation)
+      ; `def h:History@(SlideOp)`, a parameter of that type or a method
+      ; returning one -- all three arrive here
+      if (ctx.hasTemplateNode(node.type_name)) {
+        def instName:string (this.genericInstanceName(node.type_name (unwrap tAnn) ctx wr))
+        ctx.createGenericClassInstance( node.type_name instName (unwrap tAnn) this wr )
+        node.type_name = instName
+        node.has_type_annotation = false
+        return true
+      }
       if(false == (ctx.isDefinedClass(node.type_name))) {
         ctx.addError(node ('Trait class ' + node.type_name + ' is not defined'))
       } {
@@ -6474,10 +6538,36 @@ class RangerFlowParser {
     push ParentClass.child_classes childName
   }
 
+  ; Register `class X @params(T)` everywhere in the tree, imports included.
+  ; Nothing else is collected here: the body of a template says `T`, which is
+  ; not a type, and only the copies made at each reference are ever checked.
+  fn WalkCollectTemplates:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((size node.children) > 1) {
+      def isClassDecl:boolean (((node.isFirstVref("class")) || (node.isFirstVref("CreateClass"))) || (node.isFirstVref("record")))
+      if (isClassDecl && (node.hasExpressionProperty("params"))) {
+        def s:string (node.getVRefAt(1))
+        if ((ctx.hasTemplateNode(s)) == false) {
+          ctx.addTemplateClass(s node)
+        }
+        return
+      }
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.WalkCollectTemplates(ch ctx wr)
+    }
+  }
+
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     ; shapes first: everything below this line sees ordinary records and unions
     this.DesugarShapes(node ctx wr)
+    ; then every generic class declaration, before anything can refer to one.
+    ; A reference expands the class where it is found, so a class variable of
+    ; type `OfficeHistory@(DocEditOp)` collected before the file that declares
+    ; OfficeHistory would see an undeclared name -- which is import order
+    ; deciding whether a program compiles. Four of the docx suites compiled and
+    ; two did not, on the same source.
+    this.WalkCollectTemplates(node ctx wr)
     this.WalkCollectMethods(node ctx wr)
     def allTypes:[string]
 
@@ -7231,6 +7321,21 @@ class RangerFlowParser {
       }
 
       def s:string (node.getVRefAt(1))
+
+      ; `class History @params(Op)` declares a GENERIC class. Nothing in its
+      ; body may be collected: `Op` is not a type, and a method registered
+      ; against it would be a method of a class that is never written. It is
+      ; kept as a template and every `History@(Arg)` reference expands one
+      ; concrete copy. No class descriptor is made either, which is what keeps
+      ; templates out of the class loops all fourteen writers run.
+      if (node.hasExpressionProperty("params")) {
+        if ((ctx.hasTemplateNode(s)) == false) {
+          ctx.addTemplateClass(s node)
+        }
+        find_more = false
+        return
+      }
+
       ; Already fully collected (e.g. the same file imported via two different
       ; path strings)? Don't re-walk the body — that registers the methods on a
       ; throw-away desc and breaks inherited-method lookup in subclasses.

@@ -535,7 +535,7 @@ class PptxEditorTest {
         def ed (new PptxEditor())
         def deck:PptxPresentation (this.buildDeck())
         ed.attach(deck)
-        ed.historyLimit = 5
+        ed.history.limit = 5
         def slide:PptxSlide (itemAt deck.slides 0)
         def a:PptxShape (itemAt slide.shapes 1)
         ed.select(a.editId)
@@ -1203,8 +1203,9 @@ class PptxEditorTest {
         def sh:PptxShape (itemAt shapes 0)
         ed.select(sh.editId)
         ed.moveSelection(10.0 0.0)
-        def a:PptxEditSnapshot (itemAt ed.history ((array_length ed.history) - 2))
-        def b:PptxEditSnapshot (itemAt ed.history ((array_length ed.history) - 1))
+        def hn:int (ed.history.depth())
+        def a:PptxEditSnapshot (ed.history.opAt((hn - 2)))
+        def b:PptxEditSnapshot (ed.history.opAt((hn - 1)))
         def shared:PptxSlide (itemAt a.slides 0)
         def shared2:PptxSlide (itemAt b.slides 0)
         this.check("the slide that did not change is the same copy" (shared.revision == shared2.revision))

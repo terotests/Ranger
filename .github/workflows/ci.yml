@@ -220,6 +220,74 @@ jobs:
       - name: Run gallery smoke test
         run: npm run engine:pong:runner
 
+  # Generic classes are expanded before any writer runs, so the risk they carry
+  # is not "does the feature work" but "does every one of the fourteen writers
+  # still produce a program". This job compiles one generic class instantiated
+  # at four type arguments to all fourteen targets and runs it on every
+  # toolchain the runner has, comparing output.
+  test-generics:
+    name: test-generics
+    needs: changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Gallery-only — required check no-op
+        if: needs.changes.outputs.gallery_only == 'true'
+        run: echo "Skipping generics suite for gallery-only PR"
+
+      - name: Checkout repository
+        if: needs.changes.outputs.gallery_only != 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: needs.changes.outputs.gallery_only != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Setup Go
+        if: needs.changes.outputs.gallery_only != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: Install dependencies
+        if: needs.changes.outputs.gallery_only != 'true'
+        run: npm ci
+
+      - name: Run the generics suite
+        if: needs.changes.outputs.gallery_only != 'true'
+        run: npm run test:generics
+
+  # Every visual editor's own suite. Until this job existed a fix crossed from
+  # one editor to the next only when a human remembered to run five suites by
+  # hand, which is what the JPEGDecoder change actually cost. None of
+  # book:test, pptx:test, docx_viewer:test, datagrid:test or office:*:test ran
+  # anywhere in CI. Ungated on purpose: a compiler change breaks these exactly
+  # as easily as a gallery change does, and the shared office/ modules are the
+  # seam both sides meet at.
+  gallery-editors:
+    name: gallery-editors
+    needs: changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the gallery editor suites
+        run: npm run gallery:editors:test
+
   # The interpreter realm is gallery code but its tests live in tests/, so this
   # job is deliberately ungated: a change on either side must re-check that the
   # evaluator still produces the values Node produces. A parser score alone says
@@ -285,13 +353,17 @@ jobs:
   test-gate:
     name: test-gate
     runs-on: ubuntu-latest
-    needs: [changes, test-es6, test-go, test-python, test-dart, gallery-smoke, runtime-conformance, engine-contract]
+    needs: [changes, test-es6, test-go, test-python, test-dart, test-generics, gallery-smoke, gallery-editors, runtime-conformance, engine-contract]
     if: always()
     steps:
       - name: Check test results
         run: |
           if [ "${{ needs.runtime-conformance.result }}" != "success" ]; then
             echo "Runtime conformance tests failed or were cancelled"
+            exit 1
+          fi
+          if [ "${{ needs.gallery-editors.result }}" != "success" ]; then
+            echo "Gallery editor suites failed or were cancelled"
             exit 1
           fi
           # engine-contract is temporarily disabled (if: false → skipped).
@@ -322,6 +394,10 @@ jobs:
               echo "Dart no-op job failed"
               exit 1
             fi
+            if [ "${{ needs.test-generics.result }}" != "success" ]; then
+              echo "Generics no-op job failed"
+              exit 1
+            fi
             echo "Gallery-only change: smoke + required no-ops + runtime conformance passed"
             exit 0
           fi
@@ -340,6 +416,10 @@ jobs:
           fi
           if [ "${{ needs.test-dart.result }}" != "success" ]; then
             echo "Dart tests failed or were cancelled"
+            exit 1
+          fi
+          if [ "${{ needs.test-generics.result }}" != "success" ]; then
+            echo "Generics tests failed or were cancelled"
             exit 1
           fi
           echo "All tests passed!"

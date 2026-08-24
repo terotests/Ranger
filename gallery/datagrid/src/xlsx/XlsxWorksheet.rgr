@@ -837,8 +837,7 @@ class XlsxWorksheet {
                 }
             }
         }
-        clear model.undoStack
-        clear model.redoStack
+        model.history.reset()
         model.version = (model.version + 1)
     }
 

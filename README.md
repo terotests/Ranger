@@ -1231,8 +1231,9 @@ class foo {
 
 Traits are very useful when used together with custom operators, because operators can also match traits.
 
-Another useful feature of traits is their genericity. While classes can not be generic, traits can and thus
-it is possible to implement for example generic collections using generic traits.
+Another useful feature of traits is their genericity. Traits take type
+parameters, and so do classes — see [Generic classes](#generic-classes) below —
+so a generic collection can be written either way.
 
 ```
 trait GenericCollection @params(T S) {
@@ -1272,6 +1273,64 @@ class Main {
     }
 }
 ```
+
+## Generic classes
+
+A class takes type parameters with the same `@params(...)` annotation a trait
+uses, and a reference names the arguments with `@(...)`:
+
+```
+class History @params(Op) {
+    def ops:[Op]
+
+    fn record:void (op:Op) {
+        push ops op
+    }
+    fn count:int () {
+        return (array_length ops)
+    }
+    fn newest:Op () {
+        def v:Op (last ops)
+        return v
+    }
+}
+
+class Main {
+    fn run:void () {
+        def ints:History@(int) (new History@(int) ())
+        ints.record(3)
+        def strs:History@(string) (new History@(string) ())
+        strs.record("a")
+    }
+}
+```
+
+A type parameter can be used as an array element, a parameter type and a
+return type. There are no bounds, no constraints and no variance: nothing is
+asked of the argument type, so a class, a record, a `shape` and a collection
+type all fit. Where a generic container needs to compare two values, pass the
+comparison in rather than reaching for a constraint.
+
+**How it compiles.** Each distinct instantiation is expanded into an ordinary
+concrete class before any writer runs — `History@(int)` becomes `History_int`
+— so the fourteen targets need no notion of generics at all. Two
+instantiations are two unrelated classes; neither can see the other's fields.
+Type arguments may themselves be collections (`History@([string])`
+instantiates `History_arr_string`), and a nested element type is spelled by
+nesting, as everywhere else in the language.
+
+Because expansion happens at each reference, a generic class is declared once
+and never emitted on its own: nothing is written for `History` itself, only
+for the instantiations a program actually asks for.
+
+**`@(optional)` is deliberately outside this.** An optional is not one thing
+across the targets — an optional string is a pointer on es6 and a plain
+`std::string` on C++, so `if body` compiles on JavaScript, Go and Python and
+does not compile on C++ at all (`gallery/book/ISSUES.md` #13). A `Maybe@(T)`
+built on top of that inconsistency would inherit it and spread it into every
+generic container, so the representation has to be settled first. Until it is,
+write a generic container over concrete values and let the caller decide what
+absence means.
 
 ## Variable definitions
 

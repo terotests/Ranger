@@ -1,0 +1,91 @@
+; Test: a generic class instantiated at four different type arguments.
+;
+; The one test worth writing first (PLAN_EDITOR_KERNEL): one generic class at
+; two different types in the same program, one at an ARRAY type and one at a
+; SHAPE type. Nesting is where parameterised types have failed before --
+; TARGET_NOTES records `[string:[string]]` reaching a writer with its Ranger
+; spelling intact, and twice as an LLVM ownership defect -- so the array
+; instantiation is the point of the case, not a bonus.
+
+shape EditOp {
+    group AnyEdit @(value)
+
+    case Insert does AnyEdit {
+        def at:int 0
+    }
+    case Remove does AnyEdit {
+        def at:int 0
+    }
+}
+
+; The type parameter is used as an array element, as a parameter type and as a
+; return type. That is all the kernel asks of it: no bounds, no variance.
+class History @params(Op) {
+    def ops:[Op]
+
+    fn record:void (op:Op) {
+        push ops op
+    }
+    fn count:int () {
+        return (array_length ops)
+    }
+    fn newest:Op () {
+        def v:Op (last ops)
+        return v
+    }
+}
+
+class GenericClassTest {
+
+    fn atTwoTypes:void () {
+        def ints:History@(int) (new History@(int) ())
+        ints.record(3)
+        ints.record(9)
+        def n (ints.count())
+        def v (ints.newest())
+        print ("ints: " + n + " " + v)
+
+        def strs:History@(string) (new History@(string) ())
+        strs.record("a")
+        strs.record("b")
+        def sn (strs.count())
+        def sv (strs.newest())
+        print ("strs: " + sn + " " + sv)
+    }
+
+    fn atAnArrayType:void () {
+        def rows:History@([string]) (new History@([string]) ())
+        def r1:[string] ([] _:string ( "x" "y" ))
+        def r2:[string] ([] _:string ( "z" ))
+        rows.record(r1)
+        rows.record(r2)
+        def rn (rows.count())
+        def back:[string] (rows.newest())
+        def joined (join back "|")
+        print ("rows: " + rn + " " + joined)
+    }
+
+    fn atAShapeType:void () {
+        def edits:History@(EditOp) (new History@(EditOp) ())
+        edits.record( (new EditOp.Insert ( at 3 )) )
+        edits.record( (new EditOp.Remove ( at 7 )) )
+        def en (edits.count())
+        ; the case survives the round trip through the generic class, so the
+        ; type argument is the shape and not some erased base
+        def top:EditOp (edits.newest())
+        def isRemove:boolean (is top _:EditOp.Remove)
+        def tail:string "insert"
+        if isRemove {
+            tail = "remove"
+        }
+        print ("edits: " + en + " " + tail)
+    }
+
+    sfn m@(main):void () {
+        def t (new GenericClassTest())
+        t.atTwoTypes()
+        t.atAnArrayType()
+        t.atAShapeType()
+        print "Done"
+    }
+}

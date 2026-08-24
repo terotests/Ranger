@@ -2624,11 +2624,11 @@ class GridApp {
     ; Snapshot formulas on every sheet except the active one onto the last
     ; structural undo op — active-sheet formulas are already in savedKeys.
     fn snapshotOtherSheetFormulas:void () {
-        def n:int (array_length model.undoStack)
+        def n:int (array_length model.history.ops)
         if (n <= 0) {
             return
         }
-        def op:SpreadsheetUndoOp (itemAt model.undoStack (n - 1))
+        def op:SpreadsheetUndoOp (itemAt model.history.ops (n - 1))
         clear op.otherSheetIdx
         clear op.otherKeys
         clear op.otherTexts
@@ -5889,9 +5889,9 @@ class GridApp {
         if model.structDirty {
             model.structDirty = false
             ; Op just moved to redoStack — restore cross-sheet formula text.
-            def rn:int (array_length model.redoStack)
+            def rn:int (array_length model.history.redoOps)
             if (rn > 0) {
-                def op:SpreadsheetUndoOp (itemAt model.redoStack (rn - 1))
+                def op:SpreadsheetUndoOp (itemAt model.history.redoOps (rn - 1))
                 this.restoreOtherSheetFormulas(op)
             }
             this.afterStructuralChange()
@@ -5911,9 +5911,9 @@ class GridApp {
         if model.structDirty {
             model.structDirty = false
             ; Raw geometry replayed; formula text must be shifted again.
-            def un:int (array_length model.undoStack)
+            def un:int (array_length model.history.ops)
             if (un > 0) {
-                def op:SpreadsheetUndoOp (itemAt model.undoStack (un - 1))
+                def op:SpreadsheetUndoOp (itemAt model.history.ops (un - 1))
                 this.reapplyStructFormulaAdjust(op)
             }
             this.afterStructuralChange()

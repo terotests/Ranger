@@ -1444,6 +1444,85 @@ class RangerAppWriterContext {
     return res
   }
 
+  ; class History @params(Op), referenced as History@(SlideOp): one concrete
+  ; copy of the whole class, expanded before any writer runs.
+  ;
+  ; Fourteen targets read this AST. PHP has no generics, Python erases them,
+  ; C++ wants templates, Rust wants bounds it can check and the LLVM path here
+  ; does its own retain/release -- so none of them is asked to learn a type
+  ; system. They are handed `History_SlideOp`, an ordinary class. `shape`
+  ; already desugars into case classes the same way.
+  ;
+  ; Unlike createTraitInstanceClass above, the whole class node is copied, so
+  ; the copy keeps its constructor, its statics and what it extends.
+  fn createGenericClassInstance@(optional weak):RangerAppClassDesc ( templateName:string instanceName:string typeArgs:CodeNode flowParser:RangerFlowParser wr:CodeWriter ) {
+    def res@(optional weak):RangerAppClassDesc
+    def root:RangerAppWriterContext (this.getRoot())
+    if (root.isDefinedClass(instanceName)) {
+      res = (root.findClass(instanceName))
+      return res
+    }
+    if ((root.hasTemplateNode(templateName)) == false) {
+      this.addError(typeArgs ("Could not find the generic class " + templateName))
+      return res
+    }
+    def tplNode@(lives):CodeNode (root.findTemplateNode(templateName))
+    def params@(optional weak):CodeNode (tplNode.getExpressionProperty("params"))
+    if (null? params) {
+      this.addError(typeArgs (templateName + " is not a generic class"))
+      return res
+    }
+    def declared:CodeNode (unwrap params)
+    def givenCnt:int (size typeArgs.children)
+    def wantCnt:int (size declared.children)
+    if (givenCnt != wantCnt) {
+      def wantStr:string ("" + wantCnt)
+      def gotStr:string ("" + givenCnt)
+      this.addError(typeArgs ((((templateName + " expects ") + wantStr) + " type arguments, got ") + gotStr))
+      return res
+    }
+    def match:RangerArgMatch (new RangerArgMatch ())
+    for declared.children pName:CodeNode i {
+      def given:CodeNode (itemAt typeArgs.children i)
+      if ((match.addTypeParam(pName.vref given.vref)) == false) {
+        this.addError(typeArgs ("Conflicting type argument for " + pName.vref))
+      }
+    }
+    def copyNode@(lives):CodeNode (tplNode.rebuildWithType(match true))
+
+    ; The copy is a concrete class. Its @params(...) has to go, or the
+    ; collector reads the copy as another template and never collects a
+    ; method of it; every other annotation the declaration carried stays.
+    def instCode:SourceCode (unwrap copyNode.code)
+    def instSp:int copyNode.sp
+    def instEp:int copyNode.ep
+    def instNode@(lives):CodeNode (new CodeNode (instCode instSp instEp))
+    instNode.expression = true
+    for copyNode.prop_keys key:string i {
+      if (key == "params") {
+        continue
+      }
+      push instNode.prop_keys key
+      def pv:CodeNode (unwrap (get copyNode.props key))
+      set instNode.props key pv
+    }
+    for copyNode.children ch@(lives):CodeNode i {
+      ch.parent = instNode
+      push instNode.children ch
+    }
+    def cName:CodeNode (instNode.getSecond())
+    cName.vref = instanceName
+    cName.has_vref_annotation = false
+
+    def subCtx@(lives):RangerAppWriterContext (root.fork())
+    flowParser.WalkCollectMethods( instNode subCtx wr )
+    flowParser.WalkNode( instNode subCtx wr )
+    if (root.isDefinedClass(instanceName)) {
+      res = (root.findClass(instanceName))
+    }
+    return res
+  }
+
   fn createOperator:void (fromNode@(strong):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
     if (root.initStdCommands()) {

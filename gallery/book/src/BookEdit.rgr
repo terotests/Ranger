@@ -34,6 +34,7 @@
 ; ==============================================================================
 
 Import "BookAutoLayout.rgr"
+Import "../../office/editor/OfficeHistory.rgr"
 Import "../../evg/EVGSelectChrome.rgr"
 
 class BookEditRect {
@@ -121,21 +122,23 @@ class BookEditor {
     def dragBoundsW:double 0.0
     def dragBoundsH:double 0.0
 
-    def history:[BookDocument]
-    def redoStack:[BookDocument]
-    def historyLimit:int 60
+    ; The snapshots and the cap — `gallery/office/editor`, the same file the
+    ; document and the spreadsheet keep their ops in. A book step is a whole
+    ; document rather than an operation, and the shared history does not care:
+    ; nothing is asked of the type it holds.
+    def history:OfficeHistory@(BookDocument) (new OfficeHistory@(BookDocument) ())
     def dirty:boolean false
 
     Constructor () {
         layout.setEngine(flow)
+        history.limit = 60
     }
 
     fn attach:void (d:BookDocument) {
         doc = d
         layout.setEngine(flow)
         clear selection
-        clear history
-        clear redoStack
+        history.reset()
         pageIndex = 0
         dirty = false
         this.reflow()
@@ -1369,31 +1372,35 @@ class BookEditor {
     ; ---------------------------------------------------------------------
 
     fn pushSnapshot:void () {
-        def snap:BookDocument (doc.copyOf())
-        push history snap
-        clear redoStack
-        while ((array_length history) > historyLimit) {
-            remove_index history 0
+        ; One call, and the cap and the dropped redo stack are both the
+        ; shared file's rules rather than a third copy of them here.
+        history.record((doc.copyOf()))
+    }
+
+    ; A drag that moved nothing pushed a snapshot on press that says nothing:
+    ; the caller drops it rather than leaving an undo that does not undo.
+    fn dropLastSnapshot:void () {
+        if (history.canUndo()) {
+            def noise:BookDocument (history.popUndo())
         }
     }
 
     fn canUndo:boolean () {
-        return ((array_length history) > 0)
+        return (history.canUndo())
     }
 
     fn canRedo:boolean () {
-        return ((array_length redoStack) > 0)
+        return (history.canRedo())
     }
 
     fn undo:boolean () {
-        if ((array_length history) == 0) {
+        if ((history.canUndo()) == false) {
             return false
         }
-        def current:BookDocument (doc.copyOf())
-        push redoStack current
-        def last:int ((array_length history) - 1)
-        def snap:BookDocument (itemAt history last)
-        remove_index history last
+        ; The live document is what crosses to the redo side; the history
+        ; holds the states it was in BEFORE each step.
+        history.pushRedo((doc.copyOf()))
+        def snap:BookDocument (history.popUndo())
         doc.restoreFrom(snap)
         clear selection
         this.gotoPage(pageIndex)
@@ -1402,14 +1409,12 @@ class BookEditor {
     }
 
     fn redo:boolean () {
-        if ((array_length redoStack) == 0) {
+        if ((history.canRedo()) == false) {
             return false
         }
-        def current:BookDocument (doc.copyOf())
-        push history current
-        def last:int ((array_length redoStack) - 1)
-        def snap:BookDocument (itemAt redoStack last)
-        remove_index redoStack last
+        ; The same function with the direction turned around.
+        history.pushUndo((doc.copyOf()))
+        def snap:BookDocument (history.popRedo())
         doc.restoreFrom(snap)
         clear selection
         this.gotoPage(pageIndex)

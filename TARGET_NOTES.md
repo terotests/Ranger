@@ -541,6 +541,15 @@ same every time: the Node build compiles these files (with
     `Number::toString` directly; it agrees with `String(v)` on 4623 values —
     4000 random 64-bit patterns and every power of ten from 1e-320 to 1e308.
 
+29. **An ARRAY whose elements are arrays still owns nothing** — the third of
+    the family and the one still open. 25 and 26 fixed the map side;
+    `[[string]]` on LLVM keeps the outer array and comes back with the inner
+    one empty (`rows 1  ,` where every other target prints `rows 1 x,y`).
+    Reproduces with no generic class anywhere in the program, so it is the
+    element-kind classification and not the monomorphiser, and the generics
+    conformance case (`tests/conformance/generic_class/`, one generic class
+    instantiated at `[string]`) is simply where it was noticed. ISSUES.md #73.
+
 `EvalValue.rgr`, `EvHandle.rgr`, `ComponentEngine.rgr` (2.09 MB of output) and
 `RgRegistryBridge.rgr` (2.58 MB) now come out of the native binary byte for
 byte the same as out of the Node build.
@@ -1315,6 +1324,13 @@ without a message from the Ranger compiler:
 - **Inheritance is not in the layout.** The subclass struct does not receive the
   fields of the parent: `no field 'name' on type 'Cat'`.
 - **`weak` does not compile**, and the `Rc` that it downgrades is a temporary.
+
+**A nested array takes `.to_vec()`, not `.clone()`.** An array-typed parameter
+is a borrowed slice (`&[String]`), and `.clone()` of a `&[T]` is another `&[T]`
+— so pushing an argument into a `[[string]]` field never compiled
+(`expected Vec<String>, found &[String]`). The push path asks `rustSliceRefRead`
+and writes `.to_vec()` for the owned element. Reached by any nested array, and
+by every generic class instantiated at a collection type.
 
 See [RUST_ISSUES.md](RUST_ISSUES.md) for the measurements and the order of the
 work, and [RUST_TODO.md](RUST_TODO.md).

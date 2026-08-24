@@ -659,6 +659,14 @@ extension CodeNode {
     newNode.array_type = (match.getTypeName(array_type))
     newNode.value_type = value_type
     newNode.parsed_type = parsed_type
+    ; `History@([string])` binds Op to a collection, and a collection is not a
+    ; type NAME. Left as one, every writer spells the class "[string]" -- the
+    ; defect TARGET_NOTES records for C# and, as an ownership bug, twice for
+    ; LLVM. `def x:Op` becomes the array node it stands for; `def xs:[Op]`
+    ; needs no help, since a nested element type is spelled by nesting.
+    if (match.isCollectionParam(type_name)) {
+      match.applyCollectionType(newNode type_name)
+    }
     if has_vref_annotation {
       newNode.has_vref_annotation = true
       def ann:CodeNode vref_annotation

@@ -23,85 +23,59 @@
 ; None of those is a hard problem. They are what happens when the rules live
 ; in three places and only one of them is complete.
 ;
-; WHAT IS SHARED AND WHAT IS NOT.
+; WHAT IS SHARED — AND, AS OF GENERICS, THE OPS THEMSELVES.
 ;
-; Not the operations. `SheetSetCell` is not `SlideMoveShape` is not
-; `DocInsertText`, and a base class over them would be a place to put nothing.
-; Ranger has no generics either, so this deliberately does not try to hold the
-; ops themselves — each editor keeps its own array.
+; This file used to end its own explanation with an apology:
 ;
-; What IS shared is every rule about that array:
+;     `SheetSetCell` is not `SlideMoveShape` is not `DocInsertText`, and a base
+;     class over them would be a place to put nothing. Ranger has no generics
+;     either, so this deliberately does not try to hold the ops themselves —
+;     each editor keeps its own array.
+;
+; The first half of that is still true and the second half is not. A type
+; parameter is not a base class: `OfficeHistory@(DocEditOp)` and
+; `OfficeHistory@(SpreadsheetUndoOp)` are two separate concrete classes after
+; the compiler expands them, neither of which knows anything about the other's
+; operations. Nothing is asked of `Op` — no bound, no interface, no shared
+; field — so a shape, a snapshot and a record all fit.
+;
+; So the array lives here now, and with it every rule about the array:
 ;
 ;   begin / end     what counts as one action, nested safely
-;   stamp           the transaction an op belongs to
-;   noteEdit        a new edit makes the redo stack meaningless
-;   dropCount       how many ops fall off the bottom at the limit — always
-;                   whole transactions, so a surviving op can never be half
-;                   of an action
-;   spanAt          how many ops off the top are one undo
+;   record          stamping an op with its transaction, and killing redo
+;   the cap         how many ops fall off the bottom — always whole
+;                   transactions, so a surviving op can never be half of an
+;                   action, and never mid-action
+;   undoSpan        how many ops off the top are one undo
 ;
 ; And one discipline, which is not code but is the reason two of the three
 ; bugs above existed: UNDO AND REDO ARE ONE FUNCTION WITH A DIRECTION. Written
 ; as two switches over the same kind they drift, and the drift is silent until
-; a user presses redo.
+; a user presses redo. Every pair below is that one function twice.
+;
+; TWO KINDS OF EDITOR, ONE SET OF RULES.
+;
+; The four editors do not agree on what an entry IS, and they do not have to:
+;
+;   * The document and the spreadsheet record OPERATIONS and undo by inverting
+;     them. One press of undo is a whole transaction, so they walk `undoSpan`
+;     ops with `peekUndo` / `moveUndoToRedo` and the mirror — one op at a
+;     time, because an op that will not apply has to stay where it is.
+;   * The book and the deck record SNAPSHOTS and undo by swapping states. One
+;     entry is one press either way, so they use `popUndo` / `pushRedo` and
+;     the mirror, and decide themselves which state crosses.
+;
+; Both get the cap, the transaction stamping and the redo invalidation from
+; here, which is the whole point: those are the rules that were wrong in two
+; editors out of three.
 ; ==============================================================================
 
-class OfficeHistory {
-    ; How many ops to keep. Whole transactions are dropped, so the real length
-    ; can sit under this rather than exactly on it.
-    def limit:int 200
-    ; Nesting depth of `begin` … `end`. An editor that composes actions out of
-    ; other actions — a paste that is an insert and a split and another insert
-    ; — nests, and only the outermost pair closes the transaction.
-    def txDepth:int 0
-    def txCounter:int 0
-    def curTx:int 0
+; The two rules that are pure arithmetic over transaction ids, kept callable
+; on their own. A static of a generic class can only be reached through an
+; instantiated name (`OfficeHistory_DocEditOp.dropCount`), which is not a name
+; anybody should have to write, so these live on a plain class.
+class OfficeHistoryRules {
 
-    Constructor () {
-    }
-
-    fn reset:void () {
-        txDepth = 0
-        curTx = 0
-    }
-
-    ; --- one action -----------------------------------------------------------
-
-    fn begin:void () {
-        if (txDepth == 0) {
-            txCounter = (txCounter + 1)
-            curTx = txCounter
-        }
-        txDepth = (txDepth + 1)
-    }
-
-    fn end:void () {
-        if (txDepth > 0) {
-            txDepth = (txDepth - 1)
-        }
-        if (txDepth == 0) {
-            curTx = 0
-        }
-    }
-
-    fn inTransaction:boolean () {
-        return (txDepth > 0)
-    }
-
-    ; The transaction id an op pushed right now belongs to. Zero means "on its
-    ; own" — a single keystroke outside any `begin`.
-    fn stamp:int () {
-        return curTx
-    }
-
-    ; Trimming mid-transaction would drop the first half of an action and keep
-    ; the second, so it waits for the action to finish.
-    fn mayTrim:boolean () {
-        return (txDepth == 0)
-    }
-
-    ; --- the limit ------------------------------------------------------------
-    ;
     ; How many ops to drop from the BOTTOM so the stack fits. Always whole
     ; transactions: dropping half of one leaves an undo that can only put a
     ; document into a state it was never in.
@@ -127,8 +101,6 @@ class OfficeHistory {
         return drop
     }
 
-    ; --- one undo -------------------------------------------------------------
-    ;
     ; How many ops off the TOP are one press of undo: the topmost op, plus
     ; every op below it in the same transaction. An op stamped 0 is alone.
     sfn spanAt:int (txIds:[int] top:int) {
@@ -153,5 +125,240 @@ class OfficeHistory {
             }
         }
         return count
+    }
+}
+
+class OfficeHistory @params(Op) {
+    ; How many ops to keep. Whole transactions are dropped, so the real length
+    ; can sit under this rather than exactly on it.
+    def limit:int 200
+    ; Nesting depth of `begin` … `end`. An editor that composes actions out of
+    ; other actions — a paste that is an insert and a split and another insert
+    ; — nests, and only the outermost pair closes the transaction.
+    def txDepth:int 0
+    def txCounter:int 0
+    def curTx:int 0
+
+    ; The operations. Oldest first, so the top of the undo stack is the last
+    ; element. `txIds` runs parallel to `ops`: one transaction id per op, which
+    ; is what makes a cap able to drop whole actions.
+    def ops:[Op]
+    def txIds:[int]
+    ; What undo has taken off. Also oldest first, so the next redo is its last
+    ; element.
+    def redoOps:[Op]
+    def redoTxIds:[int]
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        txDepth = 0
+        curTx = 0
+        clear ops
+        clear txIds
+        clear redoOps
+        clear redoTxIds
+    }
+
+    ; --- one action -----------------------------------------------------------
+
+    fn begin:void () {
+        if (txDepth == 0) {
+            txCounter = (txCounter + 1)
+            curTx = txCounter
+        }
+        txDepth = (txDepth + 1)
+    }
+
+    fn end:void () {
+        if (txDepth > 0) {
+            txDepth = (txDepth - 1)
+        }
+        if (txDepth == 0) {
+            curTx = 0
+        }
+        if (txDepth == 0) {
+            this.trim()
+        }
+    }
+
+    fn inTransaction:boolean () {
+        return (txDepth > 0)
+    }
+
+    ; The transaction id an op pushed right now belongs to. Zero means "on its
+    ; own" — a single keystroke outside any `begin`.
+    fn stamp:int () {
+        return curTx
+    }
+
+    ; Trimming mid-transaction would drop the first half of an action and keep
+    ; the second, so it waits for the action to finish.
+    fn mayTrim:boolean () {
+        return (txDepth == 0)
+    }
+
+    ; --- the array ------------------------------------------------------------
+
+    ; The one way an op enters the history: stamped with the action it belongs
+    ; to, and with the redo stack dropped, because a new edit makes every
+    ; undone op unreachable — redoing one after it would apply it to a document
+    ; it was never recorded against.
+    fn record:void (op:Op) {
+        push ops op
+        push txIds curTx
+        clear redoOps
+        clear redoTxIds
+        this.trim()
+    }
+
+    fn depth:int () {
+        return (array_length ops)
+    }
+
+    fn redoDepth:int () {
+        return (array_length redoOps)
+    }
+
+    fn canUndo:boolean () {
+        return ((array_length ops) > 0)
+    }
+
+    fn canRedo:boolean () {
+        return ((array_length redoOps) > 0)
+    }
+
+    fn opAt:Op (i:int) {
+        def v:Op (itemAt ops i)
+        return v
+    }
+
+    ; How many ops off the top are one press of undo.
+    fn undoSpan:int () {
+        def n:int (array_length ops)
+        return (OfficeHistoryRules.spanAt(txIds (n - 1)))
+    }
+
+    ; Drop whole transactions off the bottom until the cap is met. Does
+    ; nothing while an action is still being recorded.
+    fn trim:void () {
+        if (txDepth > 0) {
+            return
+        }
+        def drop:int (OfficeHistoryRules.dropCount(txIds limit))
+        def k:int 0
+        while (k < drop) {
+            remove_index ops 0
+            remove_index txIds 0
+            k = (k + 1)
+        }
+    }
+
+    ; --- one press, for an editor that inverts operations ---------------------
+    ;
+    ; UNDO AND REDO ARE ONE FUNCTION WITH A DIRECTION. Written as two switches
+    ; over the same op kind they drift, and the drift is silent until a user
+    ; presses redo — which is exactly how redoing a multi-paragraph delete came
+    ; to do nothing and then invent text on the NEXT undo.
+    ;
+    ; One op at a time rather than a whole action in one call, because an op
+    ; that cannot be applied has to stay where it is: moving it anyway is how
+    ; the two stacks come apart. The caller walks `undoSpan()` ops and stops
+    ; early if one of them refuses.
+
+    fn peekUndo:Op () {
+        def n:int (array_length ops)
+        def v:Op (itemAt ops (n - 1))
+        return v
+    }
+
+    fn peekRedo:Op () {
+        def n:int (array_length redoOps)
+        def v:Op (itemAt redoOps (n - 1))
+        return v
+    }
+
+    ; The op crosses WITH its transaction id, so the action it belonged to is
+    ; still one press on the way back.
+    fn moveUndoToRedo:void () {
+        def n:int (array_length ops)
+        def top:int (n - 1)
+        push redoOps (itemAt ops top)
+        push redoTxIds (itemAt txIds top)
+        remove_index ops top
+        remove_index txIds top
+    }
+
+    fn moveRedoToUndo:void () {
+        def n:int (array_length redoOps)
+        def top:int (n - 1)
+        push ops (itemAt redoOps top)
+        push txIds (itemAt redoTxIds top)
+        remove_index redoOps top
+        remove_index redoTxIds top
+    }
+
+    ; How many ops off the top of the REDO side are one press of redo. The
+    ; ops crossed one at a time and kept their stamps, so this is the same
+    ; question `undoSpan` asks, of the other stack.
+    fn redoSpan:int () {
+        def n:int (array_length redoTxIds)
+        return (OfficeHistoryRules.spanAt(redoTxIds (n - 1)))
+    }
+
+    ; --- one press, for an editor that swaps whole states ---------------------
+    ;
+    ; A snapshot editor decides for itself which state crosses to the other
+    ; side — the book keeps the live document outside the history, the deck
+    ; keeps it as the top entry — so it takes one entry off and puts another
+    ; one on, rather than moving one across. The cap, the stamping and the
+    ; redo invalidation are still this file's, which is the part that was
+    ; wrong in two editors out of three.
+
+    fn popUndo:Op () {
+        def n:int (array_length ops)
+        def top:int (n - 1)
+        def op:Op (itemAt ops top)
+        remove_index ops top
+        remove_index txIds top
+        return op
+    }
+
+    fn popRedo:Op () {
+        def n:int (array_length redoOps)
+        def top:int (n - 1)
+        def op:Op (itemAt redoOps top)
+        remove_index redoOps top
+        remove_index redoTxIds top
+        return op
+    }
+
+    ; Put a state on the redo side without touching the undo side. Never
+    ; trims: the redo stack is bounded by the undo stack it came from.
+    fn pushRedo:void (op:Op) {
+        push redoOps op
+        push redoTxIds curTx
+    }
+
+    ; Put a state back on the undo side, on a redo. Not `record`: a redo is not
+    ; a new edit, so it must not drop the redo stack it is walking.
+    fn pushUndo:void (op:Op) {
+        push ops op
+        push txIds curTx
+        this.trim()
+    }
+
+    ; Replace the newest entry instead of adding one: a burst of typing is one
+    ; step, not one step per keystroke. The redo side is left alone — this is
+    ; not a new entry, it is the same one, changed.
+    fn replaceTop:void (op:Op) {
+        def n:int (array_length ops)
+        set_at ops (n - 1) op
+    }
+
+    fn clearRedo:void () {
+        clear redoOps
+        clear redoTxIds
     }
 }

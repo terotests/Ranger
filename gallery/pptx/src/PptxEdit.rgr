@@ -22,6 +22,7 @@
 Import "PptxModel.rgr"
 Import "PptxTextEdit.rgr"
 Import "PptxResolver.rgr"
+Import "../../office/editor/OfficeHistory.rgr"
 
 ; A rectangle in slide points. Ranger returns one value; a bounding box is four.
 class PptxEditRect {
@@ -429,9 +430,11 @@ class PptxEditor {
     def doc:PptxPresentation (new PptxPresentation())
     def slideIndex:int 0
     def selection:[int]
-    def history:[PptxEditSnapshot]
-    def historyPos:int -1
-    def historyLimit:int 60
+    ; The snapshots and the cap — `gallery/office/editor`, the same file the
+    ; document and the spreadsheet keep their ops in. A deck step is a whole
+    ; snapshot rather than an operation, and the shared history does not care
+    ; what it holds: nothing is asked of the type parameter.
+    def history:OfficeHistory@(PptxEditSnapshot) (new OfficeHistory@(PptxEditSnapshot) ())
     def nextId:int 1
     def dirty:boolean false
     def attached:boolean false
@@ -518,9 +521,8 @@ class PptxEditor {
         attached = true
         this.assignIds()
         this.clearSelection()
-        def h:[PptxEditSnapshot]
-        history = h
-        historyPos = -1
+        history.reset()
+        history.limit = 60
         this.pushSnapshot("open")
         dirty = false
     }
@@ -996,30 +998,12 @@ class PptxEditor {
                 this.touchSlide((unwrap cur0))
             }
         }
-        def kept:[PptxEditSnapshot]
-        def i:int 0
-        while (i <= historyPos) {
-            if (i < (array_length history)) {
-                push kept (itemAt history i)
-            }
-            i = (i + 1)
-        }
         def snap:PptxEditSnapshot (this.captureSnapshot(label))
-        push kept snap
-        ; The oldest steps fall off the bottom rather than the stack growing
-        ; without end — a deck copy is not free.
-        if ((array_length kept) > historyLimit) {
-            def trimmed:[PptxEditSnapshot]
-            def drop:int ((array_length kept) - historyLimit)
-            def k:int drop
-            while (k < (array_length kept)) {
-                push trimmed (itemAt kept k)
-                k = (k + 1)
-            }
-            kept = trimmed
-        }
-        history = kept
-        historyPos = ((array_length history) - 1)
+        ; Everything a step does to the stack: the redo tail goes, because a
+        ; new step makes it unreachable, and the oldest steps fall off the
+        ; bottom rather than the stack growing without end — a deck copy is
+        ; not free. Both rules are the shared file's.
+        history.record(snap)
         dirty = true
         ; An operation inside a master writes through to the sheet: the ops
         ; replace the shape array rather than mutating it in place.
@@ -1151,38 +1135,44 @@ class PptxEditor {
         }
     }
 
+    ; The top of the undo side is the state the deck is IN, so there has to be
+    ; one below it to go back to.
     fn canUndo:boolean () {
-        return (historyPos > 0)
+        return ((history.depth()) > 1)
     }
 
     fn canRedo:boolean () {
-        return (historyPos < ((array_length history) - 1))
+        return (history.canRedo())
     }
 
     fn undo:boolean () {
         if ((this.canUndo()) == false) {
             return false
         }
-        historyPos = (historyPos - 1)
-        def snap:PptxEditSnapshot (itemAt history historyPos)
+        def cur:PptxEditSnapshot (history.popUndo())
+        history.pushRedo(cur)
+        def snap:PptxEditSnapshot (history.peekUndo())
         this.restoreSnapshot(snap)
         dirty = true
         return true
     }
 
+    ; The same function with the direction turned around.
     fn redo:boolean () {
         if ((this.canRedo()) == false) {
             return false
         }
-        historyPos = (historyPos + 1)
-        def snap:PptxEditSnapshot (itemAt history historyPos)
+        def snap:PptxEditSnapshot (history.popRedo())
+        history.pushUndo(snap)
         this.restoreSnapshot(snap)
         dirty = true
         return true
     }
 
+    ; Every step the deck can reach, forwards and back — the stack used to be
+    ; one array with a cursor in it, and this is the same number.
     fn historyDepth:int () {
-        return (array_length history)
+        return ((history.depth()) + (history.redoDepth()))
     }
 
     ; --- transforms ----------------------------------------------------------
@@ -2602,23 +2592,21 @@ class PptxEditor {
     ; Keystrokes are one edit, not one edit each: a step whose label matches
     ; the one on top of the stack replaces it instead of pushing.
     fn pushCoalesced:void (label:string) {
-        if (historyPos >= 0) {
-            if (historyPos < (array_length history)) {
-                def top:PptxEditSnapshot (itemAt history historyPos)
-                if (top.label == label) {
-                    ; A coalesced step replaces the one on top rather than
-                    ; adding another, and it still changed a slide — so the
-                    ; slide is marked before the capture, exactly as it is for
-                    ; a step of its own.
-                    def cur@(optional):PptxSlide (this.currentSlide())
-                    if (!null? cur) {
-                        this.touchSlide((unwrap cur))
-                    }
-                    def snap:PptxEditSnapshot (this.captureSnapshot(label))
-                    set_at history historyPos snap
-                    dirty = true
-                    return
+        if ((history.depth()) > 0) {
+            def top:PptxEditSnapshot (history.peekUndo())
+            if (top.label == label) {
+                ; A coalesced step replaces the one on top rather than
+                ; adding another, and it still changed a slide — so the
+                ; slide is marked before the capture, exactly as it is for
+                ; a step of its own.
+                def cur@(optional):PptxSlide (this.currentSlide())
+                if (!null? cur) {
+                    this.touchSlide((unwrap cur))
                 }
+                def snap:PptxEditSnapshot (this.captureSnapshot(label))
+                history.replaceTop(snap)
+                dirty = true
+                return
             }
         }
         this.pushSnapshot(label)
