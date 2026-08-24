@@ -1119,6 +1119,37 @@ evaluation and the per-mark path building, which allocate an object per segment
 and take a hash lookup per property read. The numbers, and everything they were
 measured against, are in [`gallery/evg/bench`](../evg/bench/).
 
+### And then a second pass, when the question became "how many points"
+
+Asking where Vela *stops* rather than how it compares found two more, and the
+first of them was not a slow function but the wrong algorithm:
+
+| Where | What it was | Why it mattered |
+| --- | --- | --- |
+| `VlRuntime.sortMarkItems` | an **insertion sort**, on the reasoning that "a mark's item count is small" | for a bar chart it is. For a LINE the item count is the number of data points, and Vega-Lite puts a `sort` on every line it compiles — so a line through ten thousand points ran fifty million comparisons, each a hash lookup of the sort field. 2 000 points cost 226 ms and 8 000 cost 2 369: quadratic, in the one chart type whose whole purpose is carrying a lot of points |
+| `VelaWeb.render` | answered JSON with the whole SVG document **inside a JSON string** | a hundred thousand marks is a 40 MB document. Escaping it into JSON and parsing it back out was 53% of everything the page waited for — to carry a string that was already a string |
+
+The sort is a bottom-up merge sort now — stable, because two points at the same
+x must be joined in data order — with each item's key read once instead of once
+per comparison. And `renderAnswer` returns an object with the fields on it, so
+nothing is escaped and nothing is parsed back; `render` still answers JSON for
+callers that want it, implemented in terms of the same code.
+
+| | before | after |
+| --- | ---: | ---: |
+| a line through 8 000 points (scene) | 2 369 ms | 185 ms |
+| a line through 100 000 points (scene) | ~6 minutes¹ | 2.3 s |
+| a 100 000-mark scatter, what the page waits for | 11.8 s | 6.1 s |
+
+¹ extrapolated from the quadratic — 10 000 points took 3.9 s of sorting, and
+the measurement was stopped rather than left to find out.
+
+Where it stops now, and what it costs per point by chart shape, is
+[`gallery/evg/bench`](../evg/bench/#how-many-points-fit): a million points come
+out of every shape measured, a line-shaped chart costs about 20 µs a point and
+a mark-shaped one about 45 µs plus a DOM node, and nothing in the sweep failed
+or ran out of memory.
+
 ## What is not there yet
 
 * **Transitions that are not rules.** A zone's eras cover the rule changes; the

@@ -124,7 +124,10 @@
     "vela-svg": {
       async first(rows) {
         const text = JSON.stringify(vlSpec(rows));
-        const answer = JSON.parse(window.VelaWeb.render(text, "UTC"));
+        // `renderAnswer`, which is what the playground page calls: the same
+        // work without the JSON envelope around the SVG, and without writing
+        // out the compiled Vega specification nothing here would look at.
+        const answer = window.VelaWeb.renderAnswer(text, "UTC", false);
         if (!answer.ok) throw new Error("Vela: " + JSON.stringify(answer.errors));
         $("host").innerHTML = answer.svg;
         state.bytes = answer.svg.length;
@@ -141,7 +144,7 @@
     "vela-svg-vg": {
       async first(rows) {
         const text = JSON.stringify(window.vegaLite.compile(vlSpec(rows)).spec);
-        const answer = JSON.parse(window.VelaWeb.render(text, "UTC"));
+        const answer = window.VelaWeb.renderAnswer(text, "UTC", false);
         if (!answer.ok) throw new Error("Vela: " + JSON.stringify(answer.errors));
         $("host").innerHTML = answer.svg;
         state.bytes = answer.svg.length;

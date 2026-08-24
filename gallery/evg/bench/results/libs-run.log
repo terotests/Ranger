@@ -4,52 +4,45 @@ marks: 100, 300, 1000, 3000, 10000, 30000 · median of 3 first renders · up to 
 warming up… done
 
 N=100
-  vela-svg    first      12.6ms · update      11.9ms (83.7 fps) · 204 nodes · 12 updates
-  vela-svg-vg first      13.0ms · update      13.6ms (73.8 fps) · 204 nodes · 12 updates
-  evg-webgl   first     111.0ms · update      92.1ms (10.9 fps) · 141 nodes · 12 updates
-  vega-svg    first      20.1ms · update       9.1ms (110.5 fps) · 234 nodes · 12 updates
-  vega-canvas first      18.5ms · update       4.4ms (224.7 fps) · 105 nodes · 12 updates
-  chartjs     first      11.0ms · update       3.9ms (259.7 fps) · 100 nodes · 12 updates
+  vela-svg    first      35.2ms · update      13.9ms (71.7 fps) · 204 nodes · 12 updates
+  vela-svg-vg first      16.5ms · update      14.1ms (70.7 fps) · 204 nodes · 12 updates
+  evg-webgl   first     106.8ms · update     106.1ms (9.4 fps) · 141 nodes · 12 updates
+  vega-svg    first      32.6ms · update      11.2ms (89.3 fps) · 234 nodes · 12 updates
+  vega-canvas first      22.0ms · update       6.0ms (165.3 fps) · 105 nodes · 12 updates
+  chartjs     first      10.4ms · update       6.8ms (147.1 fps) · 100 nodes · 12 updates
 
 N=300
-  vela-svg    first      23.5ms · update      22.2ms (45.0 fps) · 404 nodes · 12 updates
-  vela-svg-vg first      20.3ms · update      21.2ms (47.2 fps) · 404 nodes · 12 updates
-  evg-webgl   first     222.5ms · update     251.6ms (4.0 fps) · 341 nodes · 12 updates
-  vega-svg    first      26.5ms · update      15.1ms (66.0 fps) · 434 nodes · 12 updates
-  vega-canvas first      20.9ms · update       7.0ms (142.9 fps) · 305 nodes · 12 updates
-  chartjs     first       9.1ms · update       4.8ms (208.3 fps) · 300 nodes · 12 updates
+  vela-svg    first      29.4ms · update      21.6ms (46.2 fps) · 404 nodes · 12 updates
+  vela-svg-vg first      20.1ms · update      22.6ms (44.2 fps) · 404 nodes · 12 updates
+  evg-webgl   first     279.6ms · update     271.2ms (3.7 fps) · 341 nodes · 12 updates
+  vega-svg    first      28.9ms · update      17.2ms (58.3 fps) · 434 nodes · 12 updates
+  vega-canvas first      23.3ms · update      13.5ms (74.1 fps) · 305 nodes · 12 updates
+  chartjs     first       9.9ms · update       7.3ms (137.0 fps) · 300 nodes · 12 updates
 
 N=1000
-  vela-svg    first      55.6ms · update      56.7ms (17.6 fps) · 1104 nodes · 12 updates
-  vela-svg-vg first      50.9ms · update      57.4ms (17.4 fps) · 1104 nodes · 12 updates
-  evg-webgl   first     803.3ms · update     804.0ms (1.2 fps) · 1041 nodes · 6 updates
-  vega-svg    first      46.7ms · update      37.1ms (27.0 fps) · 1134 nodes · 12 updates
-  vega-canvas first      30.3ms · update      16.1ms (61.9 fps) · 1005 nodes · 12 updates
-  chartjs     first      12.8ms · update       9.7ms (103.1 fps) · 1000 nodes · 12 updates
+  vela-svg    first      82.2ms · update      57.1ms (17.5 fps) · 1104 nodes · 12 updates
+  vela-svg-vg first      58.5ms · update      51.7ms (19.4 fps) · 1104 nodes · 12 updates
+  evg-webgl   first     884.5ms · update     853.9ms (1.2 fps) · 1041 nodes · 5 updates
+  vega-svg    first      69.0ms · update      60.2ms (16.6 fps) · 1134 nodes · 12 updates
+  vega-canvas first      36.7ms · update      24.3ms (41.2 fps) · 1005 nodes · 12 updates
+  chartjs     first      20.6ms · update      10.4ms (96.2 fps) · 1000 nodes · 12 updates
 
 N=3000
-  vela-svg    first     171.8ms · update     179.7ms (5.6 fps) · 3104 nodes · 12 updates
-  vela-svg-vg first     141.8ms · update     186.0ms (5.4 fps) · 3104 nodes · 12 updates
-  evg-webgl   first    2200.2ms · update    2278.7ms (0.4 fps) · 3041 nodes · 3 updates
-  vega-svg    first     118.9ms · update     107.8ms (9.3 fps) · 3134 nodes · 12 updates
-  vega-canvas first      56.5ms · update      45.9ms (21.8 fps) · 3005 nodes · 12 updates
-  chartjs     first      16.2ms · update       8.6ms (115.6 fps) · 3000 nodes · 12 updates
+  vela-svg    first     122.9ms · update     159.3ms (6.3 fps) · 3104 nodes · 12 updates
+  vela-svg-vg first     176.2ms · update     192.4ms (5.2 fps) · 3104 nodes · 12 updates
+  evg-webgl   first    2537.5ms · update    2779.0ms (0.4 fps) · 3041 nodes · 3 updates
+  vega-svg    first     141.3ms · update     124.7ms (8.0 fps) · 3134 nodes · 12 updates
+  vega-canvas first      80.1ms · update      50.1ms (20.0 fps) · 3005 nodes · 12 updates
+  chartjs     first      29.1ms · update      11.0ms (90.9 fps) · 3000 nodes · 12 updates
 
 N=10000
-  vela-svg    first     605.7ms · update     635.2ms (1.6 fps) · 10104 nodes · 6 updates
-  vela-svg-vg first     650.6ms · update     595.1ms (1.7 fps) · 10104 nodes · 7 updates
-  evg-webgl   first   10439.5ms · update    8071.0ms (0.1 fps) · 10041 nodes · 3 updates
-  vega-svg    first     360.7ms · update     417.1ms (2.4 fps) · 10134 nodes · 10 updates
-  vega-canvas first     155.3ms · update     165.9ms (6.0 fps) · 10005 nodes · 12 updates
-  chartjs     first      60.8ms · update      43.2ms (23.1 fps) · 10000 nodes · 12 updates
+  vela-svg    first     675.6ms · update     600.4ms (1.7 fps) · 10104 nodes · 7 updates
+  vela-svg-vg first     534.0ms · update     559.8ms (1.8 fps) · 10104 nodes · 7 updates
+  evg-webgl   first    8102.7ms · update    7837.1ms (0.1 fps) · 10041 nodes · 3 updates
+  vega-svg    first     452.2ms · update     511.1ms (2.0 fps) · 10134 nodes · 8 updates
+  vega-canvas first     166.9ms · update     172.8ms (5.8 fps) · 10005 nodes · 12 updates
+  chartjs     first      79.5ms · update      48.8ms (20.5 fps) · 10000 nodes · 12 updates
 
 N=30000
-  vela-svg    first    2138.7ms · update    2109.4ms (0.5 fps) · 30104 nodes · 3 updates
-  vela-svg-vg first    1964.8ms · update    1812.1ms (0.6 fps) · 30104 nodes · 3 updates
-  evg-webgl   first   26531.3ms · update   25161.6ms (0.0 fps) · 30041 nodes · 3 updates
-  vega-svg    first    1288.6ms · update    1457.2ms (0.7 fps) · 30134 nodes · 3 updates
-  vega-canvas first     428.3ms · update     541.1ms (1.8 fps) · 30005 nodes · 8 updates
-  chartjs     first     161.6ms · update      65.5ms (15.3 fps) · 30000 nodes · 12 updates
-
-wrote gallery/evg/bench/results/libs.json and libs.md
-screenshots at 1000 nodes: gallery/evg/bench/results/shots-libs
+  vela-svg    first    1995.3ms · update    1868.3ms (0.5 fps) · 30104 nodes · 3 updates
+  vela-svg-vg first    1615.6ms · update    1950.6ms (0.5 fps) · 30104 nodes · 3 updates

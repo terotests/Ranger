@@ -553,7 +553,10 @@ void main() {
     const spec = specFor(n, width, height);
 
     let t0 = now();
-    const answer = JSON.parse(window.VelaWeb.render(spec, "UTC"));
+    // `renderAnswer` is what the playground calls: the same work without the
+    // JSON envelope around the SVG document, which at these sizes is a third
+    // of the wait on its own.
+    const answer = window.VelaWeb.renderAnswer(spec, "UTC", false);
     const tVelaSvg = now() - t0;
     if (!answer.ok) throw new Error("Vela would not draw this: " + JSON.stringify(answer.errors));
 

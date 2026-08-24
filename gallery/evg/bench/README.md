@@ -294,3 +294,115 @@ Read plainly:
 - One chart type — a scatter of point marks — at one size, four series, on
   data that is regenerated per update. A line chart or a bar chart would
   shift the numbers; the pipeline shape they measure is the same.
+
+---
+
+# How many points fit
+
+The two benchmarks above compare Vela at ordinary sizes. This one asks where it
+*stops*, which is the question a point-intensive chart actually raises.
+
+```
+npm run evg:bench:capacity
+node gallery/evg/bench/capacity.mjs --sizes 10000,100000 --shapes line,scatter
+node gallery/evg/bench/capacity.mjs --budget 60000 --no-reference
+```
+
+Headless — no browser, no compositor — so what it measures is the runtime and
+the renderer. The reference implementation is measured the same way, through
+`view.toSVG()`, which is vega's own SVG renderer with no page under it either.
+A shape stops when one render passes the budget (20 s by default). Tables in
+[`results/capacity.md`](results/capacity.md).
+
+## The distinction that decides everything
+
+**A scatter of N points is N marks and N elements. A line through N points is
+ONE mark and one element with N vertices.** They look alike on the page and
+cost nothing like the same — so "how many points can it handle" has no single
+answer, only an answer per shape.
+
+| shape | what the renderer is asked for | ≤ 100 ms | ≤ 1 s | ≤ 10 s | largest measured |
+| --- | --- | ---: | ---: | ---: | --- |
+| `line` | one path, N vertices | 1 000 | 30 000 | **300 000** | 1 000 000 in 22 s |
+| `area` | one path, 2N vertices | 1 000 | 30 000 | **300 000** | 1 000 000 in 35 s |
+| `line-8` | eight paths | 3 000 | 30 000 | **300 000** | 1 000 000 in 29 s |
+| `tick` | N rules | 3 000 | 30 000 | 100 000 | 1 000 000 in 44 s |
+| `scatter` | N symbols, four colour series | 1 000 | 10 000 | 100 000 | 300 000 in 23 s |
+| `rect` | N cells | — | 10 000 | 100 000 | 1 000 000 in 39 s |
+
+Nothing failed. There is no size in this sweep where Vela refuses, runs out of
+memory or produces a wrong chart — a million points come out of every shape,
+and the largest document it wrote was 379 MB of SVG. The ceiling is patience,
+not capacity.
+
+## Two numbers to carry away
+
+**Per point, for a line-shaped chart: ~20 µs.** A hundred thousand points in
+2.3 s of scene building and 0.6 s of SVG. The vertices are cheap; it is the
+dataflow — a filter expression per row, a description string per row, an extent
+pass — that is being paid for, and Vega pays the same bill at about half the
+price.
+
+**Per point, for a mark-shaped chart: ~45 µs, and one DOM node each.** A
+hundred thousand symbols is a 38 MB document. The renderer will write it in
+under five seconds; the browser is the part that will not enjoy it (below).
+
+## What it costs against the reference
+
+Consistently **1.5–2.9×** vega's own SVG renderer, at every shape and every
+size — no shape where Vela falls off a cliff the reference does not, and none
+where it wins. The ratio is flat with N, which is what says both are linear.
+
+| points | `line` vela / vega | `scatter` vela / vega | `tick` vela / vega |
+| ---: | --- | --- | --- |
+| 10 000 | 248 / 95 ms | 531 / 210 ms | 346 / 155 ms |
+| 100 000 | 3 287 / 1 568 ms | 4 753 / 2 117 ms | 2 902 / 1 927 ms |
+| 300 000 | 7 090 / 3 064 ms | 23 311 / 14 121 ms | 12 939 / 5 878 ms |
+
+## The browser is a lower ceiling than the renderer
+
+`results/browser-capacity/` runs the same scatter to pixels in Chromium. An SVG
+chart puts one element per mark into the DOM, and that — not the runtime — is
+what decides how many marks a page can hold:
+
+| marks | Vela → pixels | vega SVG | vega canvas | Chart.js (canvas) |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 000 | 1.0 s | 0.20 s | 0.15 s | 0.08 s |
+| 30 000 | 2.6 s | 0.89 s | 0.43 s | 0.17 s |
+| 100 000 | 12 s | 3.3 s | 1.2 s | 0.84 s |
+| 300 000 | 35 s | 22 s | 5.0 s | 1.7 s |
+
+The canvas renderers are two orders of magnitude ahead at the top not because
+their arithmetic is better but because they draw pixels instead of building a
+document. **Past about thirty thousand marks, no SVG renderer is the right
+answer — the answer is a canvas, or fewer marks.**
+
+## What to do with a lot of points
+
+1. **If it can be a line, an area or a band, it can carry ten times more.** One
+   path with 300 000 vertices renders in 7 s and is one DOM node; 300 000
+   symbols are 23 s and 300 000 DOM nodes.
+2. **If it must be marks, bin or aggregate first.** `bar-agg`, `histogram` and
+   `stacked` in the sweep are large *data* and small *drawings*: the rows go
+   through the dataflow and come out as twenty bars.
+3. **Past ~30 000 marks, stop rendering SVG.** EVG's display list already has
+   a raster and a GPU backend; that seam exists for exactly this, even if the
+   viewer behind it is not ready yet (the first half of this document).
+
+## What this benchmark found
+
+Running it the first time found a quadratic, which is the reason a capacity
+benchmark is worth having at all:
+
+- `VlRuntime.sortMarkItems` was an **insertion sort** — fine for a bar chart,
+  which is what its comment assumed, and quadratic for a line, whose item count
+  is the number of data points. Vega-Lite puts a `sort` on every line it
+  compiles, so a line through 10 000 points spent 3.9 s of its 4.0 s sorting.
+  It is a stable merge sort now: the same chart takes 0.17 s.
+- `VelaWeb.render` answered JSON with the whole SVG document **inside a JSON
+  string** — 40 MB escaped and parsed back at 100 000 marks, 53% of everything
+  the page waited for. `renderAnswer` returns the object instead, which halved
+  the wait; `render` still answers JSON for callers that want it.
+
+Both are in [`gallery/vela/README.md`](../../vela/README.md#where-the-time-went)
+with the before and after.

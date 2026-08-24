@@ -1,0 +1,199 @@
+{
+  "versions": {
+    "vega": "6.4.0",
+    "vegaLite": "6.4.3",
+    "chartjs": "4.5.1"
+  },
+  "dpr": 1,
+  "updates": 3,
+  "firsts": 1,
+  "ids": [
+    "vela-svg",
+    "vega-svg",
+    "vega-canvas",
+    "chartjs"
+  ],
+  "rows": [
+    {
+      "n": 10000,
+      "measured": {
+        "vela-svg": {
+          "firstMs": 1019.7999999998137,
+          "firstCpuMs": 1008.1999999999534,
+          "firstSamples": 1,
+          "updateMs": 911.1000000000931,
+          "updateCpuMs": 761.9000000001397,
+          "updates": 3,
+          "nodes": 10104,
+          "bytes": 3981571
+        },
+        "vega-svg": {
+          "firstMs": 198.60000000009313,
+          "firstCpuMs": 198.4000000001397,
+          "firstSamples": 1,
+          "updateMs": 477.10000000009313,
+          "updateCpuMs": 205.4000000001397,
+          "updates": 3,
+          "nodes": 10134,
+          "bytes": 2948209
+        },
+        "vega-canvas": {
+          "firstMs": 149.5,
+          "firstCpuMs": 140.39999999990687,
+          "firstSamples": 1,
+          "updateMs": 156.30000000004657,
+          "updateCpuMs": 127,
+          "updates": 3,
+          "nodes": 10005,
+          "bytes": 0
+        },
+        "chartjs": {
+          "firstMs": 79.89999999990687,
+          "firstCpuMs": 50.0999999998603,
+          "firstSamples": 1,
+          "updateMs": 44.699999999953434,
+          "updateCpuMs": 19.399999999906868,
+          "updates": 3,
+          "nodes": 10000,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "n": 30000,
+      "measured": {
+        "vela-svg": {
+          "firstMs": 2624.5,
+          "firstCpuMs": 2600.7999999998137,
+          "firstSamples": 1,
+          "updateMs": 3552.399999999907,
+          "updateCpuMs": 3134.100000000093,
+          "updates": 3,
+          "nodes": 30104,
+          "bytes": 11916822
+        },
+        "vega-svg": {
+          "firstMs": 887.8999999999069,
+          "firstCpuMs": 887.6000000000931,
+          "firstSamples": 1,
+          "updateMs": 1498.5,
+          "updateCpuMs": 639.1999999999534,
+          "updates": 3,
+          "nodes": 30134,
+          "bytes": 8808294
+        },
+        "vega-canvas": {
+          "firstMs": 428.69999999995343,
+          "firstCpuMs": 402.5,
+          "firstSamples": 1,
+          "updateMs": 515.6999999999534,
+          "updateCpuMs": 483.0999999998603,
+          "updates": 3,
+          "nodes": 30005,
+          "bytes": 0
+        },
+        "chartjs": {
+          "firstMs": 171.9000000001397,
+          "firstCpuMs": 135.4000000001397,
+          "firstSamples": 1,
+          "updateMs": 70.79999999981374,
+          "updateCpuMs": 37.5999999998603,
+          "updates": 3,
+          "nodes": 30000,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "n": 100000,
+      "measured": {
+        "vela-svg": {
+          "firstMs": 12127.59999999986,
+          "firstCpuMs": 12020,
+          "firstSamples": 1,
+          "updateMs": 10113.399999999907,
+          "updateCpuMs": 9036.199999999953,
+          "updates": 3,
+          "nodes": 100104,
+          "bytes": 39690499
+        },
+        "vega-svg": {
+          "firstMs": 3303.4000000001397,
+          "firstCpuMs": 2069.4000000001397,
+          "firstSamples": 1,
+          "updateMs": 5447.09999999986,
+          "updateCpuMs": 2180.4000000001397,
+          "updates": 3,
+          "nodes": 100134,
+          "bytes": 29318702
+        },
+        "vega-canvas": {
+          "firstMs": 1210.7999999998137,
+          "firstCpuMs": 1187.2999999998137,
+          "firstSamples": 1,
+          "updateMs": 1627,
+          "updateCpuMs": 1594.6000000000931,
+          "updates": 3,
+          "nodes": 100005,
+          "bytes": 0
+        },
+        "chartjs": {
+          "firstMs": 843.6999999999534,
+          "firstCpuMs": 829.2999999998137,
+          "firstSamples": 1,
+          "updateMs": 420.89999999990687,
+          "updateCpuMs": 398.30000000004657,
+          "updates": 3,
+          "nodes": 100000,
+          "bytes": 0
+        }
+      }
+    },
+    {
+      "n": 300000,
+      "measured": {
+        "vela-svg": {
+          "firstMs": 35366.30000000005,
+          "firstCpuMs": 35104,
+          "firstSamples": 1,
+          "updateMs": 40038,
+          "updateCpuMs": 34500.09999999986,
+          "updates": 3,
+          "nodes": 300104,
+          "bytes": 119044179
+        },
+        "vega-svg": {
+          "firstMs": 21922.100000000093,
+          "firstCpuMs": 9978.800000000047,
+          "firstSamples": 1,
+          "updateMs": 17380.5,
+          "updateCpuMs": 8258.300000000047,
+          "updates": 3,
+          "nodes": 300134,
+          "bytes": 87919838
+        },
+        "vega-canvas": {
+          "firstMs": 4962.5,
+          "firstCpuMs": 4941.199999999953,
+          "firstSamples": 1,
+          "updateMs": 6066.600000000093,
+          "updateCpuMs": 6044.100000000093,
+          "updates": 3,
+          "nodes": 300005,
+          "bytes": 0
+        },
+        "chartjs": {
+          "firstMs": 1657.9000000001397,
+          "firstCpuMs": 1622.9000000001397,
+          "firstSamples": 1,
+          "updateMs": 762.2999999998137,
+          "updateCpuMs": 732.2999999998137,
+          "updates": 3,
+          "nodes": 300000,
+          "bytes": 0
+        }
+      }
+    }
+  ],
+  "problems": []
+}

@@ -48,7 +48,12 @@ const OUT = path.resolve(flag("out", path.join(HERE, "results")));
 const SHOTS = argv.includes("--shots") ? path.join(OUT, "shots-libs") : null;
 const SHOT_AT = Number(flag("shot-at", "1000"));
 
-const IDS = ["vela-svg", "vela-svg-vg", "evg-webgl", "vega-svg", "vega-canvas", "chartjs"];
+const ALL_IDS = ["vela-svg", "vela-svg-vg", "evg-webgl", "vega-svg", "vega-canvas", "chartjs"];
+// `--only vela-svg,chartjs` runs a subset. At a hundred thousand marks the
+// slowest column takes minutes, and a capacity question does not need it.
+const IDS = flag("only", "").split(",").filter(Boolean).length
+  ? flag("only", "").split(",").filter(Boolean).filter((id) => ALL_IDS.includes(id))
+  : ALL_IDS;
 
 // The three libraries, fetched once into a directory of their own so the
 // repository's own dependencies are not touched.
