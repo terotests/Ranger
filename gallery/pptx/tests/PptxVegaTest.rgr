@@ -195,6 +195,30 @@ class PptxVegaTest {
         def out2:int (PptxVegaTest.outsideBox(g2))
         this.eqInt("and still fits inside it" out2 0)
 
+        print "--- one config for the whole deck ---"
+        ; The specification says nothing about its axes; the deck does.
+        def themed (new PptxVega())
+        themed.config("{\"axis\":{\"labelColor\":\"#AA0000\"},\"view\":{\"stroke\":null}}")
+        def deck4:PptxDeck (PptxApi.create())
+        def slide4:PptxSlideRef (deck4.addSlide())
+        def ref4:PptxShapeRef (themed.addTo(slide4 (PptxVegaTest.barSpec()) 0.0 0.0 400.0 300.0))
+        this.check("a themed chart compiles" themed.ok)
+        def g4:PptxShape (ref4.model())
+        def red:int (PptxVegaTest.runsColoured(g4 "AA0000"))
+        this.check("the deck's axis colour reached the labels" (red > 0))
+
+        ; …and a chart that states one of the blocks keeps the others.
+        def partly (new PptxVega())
+        partly.config("{\"axis\":{\"labelColor\":\"#AA0000\"},\"view\":{\"stroke\":null}}")
+        def deck5:PptxDeck (PptxApi.create())
+        def slide5:PptxSlideRef (deck5.addSlide())
+        def own:string "{\"width\":420,\"height\":240,\"data\":{\"values\":[{\"a\":\"Q1\",\"b\":28},{\"a\":\"Q2\",\"b\":55}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"a\",\"type\":\"nominal\"},\"y\":{\"field\":\"b\",\"type\":\"quantitative\"}},\"config\":{\"view\":{\"stroke\":\"#00FF00\"}}}"
+        def ref5:PptxShapeRef (partly.addTo(slide5 own 0.0 0.0 400.0 300.0))
+        this.check("it still compiles" partly.ok)
+        def g5:PptxShape (ref5.model())
+        def stillRed:int (PptxVegaTest.runsColoured(g5 "AA0000"))
+        this.check("the block it did not state survived" (stillRed > 0))
+
         print "--- the font is stated ---"
         def named (new PptxVega())
         named.font("Arial")
@@ -259,6 +283,33 @@ class PptxVegaTest {
         while (i < (array_length sh.children)) {
             def child:PptxShape (itemAt sh.children i)
             n = (n + (PptxVegaTest.openPathsIn(child)))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn runsColoured:int (sh:PptxShape hex:string) {
+        def n:int 0
+        if sh.hasText {
+            def paras:[PptxParagraph] sh.text.paragraphs
+            def p:int 0
+            while (p < (array_length paras)) {
+                def para:PptxParagraph (itemAt paras p)
+                def r:int 0
+                while (r < (array_length para.runs)) {
+                    def run:PptxTextRun (itemAt para.runs r)
+                    if (run.color.srgb == hex) {
+                        n = (n + 1)
+                    }
+                    r = (r + 1)
+                }
+                p = (p + 1)
+            }
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def child:PptxShape (itemAt sh.children i)
+            n = (n + (PptxVegaTest.runsColoured(child hex)))
             i = (i + 1)
         }
         return n

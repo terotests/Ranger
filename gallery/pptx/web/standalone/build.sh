@@ -86,6 +86,12 @@ fi
 
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
+# The pointer, the keyboard and the picture cache, shared with the API
+# playground. A page that failed to copy this loads nothing at all — the
+# import throws before the first line of standalone.mjs runs — so it is
+# stamped into the build id below with everything else.
+mkdir -p "$OUT/host"
+cp "$WEB/../host/pptx-host.mjs" "$OUT/host/pptx-host.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
@@ -119,7 +125,7 @@ cp gallery/pptx/fixtures/20-business-deck.pptx "$OUT/deck.pptx"
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/pptx_web.js', '$OUT/standalone.mjs', '$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$OUT/pptx_web.js', '$OUT/standalone.mjs', '$OUT/host/pptx-host.mjs', '$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0, 10));
 ")
 node -e "

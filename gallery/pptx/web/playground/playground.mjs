@@ -14,6 +14,7 @@
  * a page that generated with one copy of the code and drew with another could
  * show a slide no reader would ever get.
  */
+import { attachPointer, attachKeys, createMediaCache } from "./host/pptx-host.mjs";
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback }
   from "./gl/evg-webgl.js";
 
@@ -154,6 +155,189 @@ slide.addShape("rect", 70, 370, 300, 8)
 
 return deck;`,
 
+  "Six chart slides": `// Six chart slides. Everything that never changes is said ONCE: the text
+// styles in a stylesheet, the axis look in one chart config, and the page
+// furniture in two small helpers. What is left below each heading is the
+// DATA and the one encoding choice that makes each chart a different chart.
+const deck = Pptx.create();
+
+const BLUE = "#5577F2", GREEN = "#35B7A5", RED = "#E9877F", GOLD = "#F4B84A";
+
+deck.addStyleSheet(\`
+  slide     { background-color: #FFFFFF }
+  .title    { font-family: Calibri; font-size: 28pt; font-weight: bold; color: #1F3864 }
+  .subtitle { font-family: Calibri; font-size: 12pt; color: #6F8098 }
+  .page     { font-family: Calibri; font-size: 11pt; font-weight: bold; color: #A8B2C1 }
+  .note     { font-family: Calibri; font-size: 10pt; color: #A0AABA }
+\`);
+
+// One axis look for the whole deck, instead of on every encoding of every
+// spec. A chart's own config still wins, block by block.
+const chart = Chart().font("Calibri").config({
+  background: null,
+  view:  { stroke: null },
+  axis:  { domain: false, ticks: false, labelColor: "#6F8098", titleColor: "#6F8098" },
+  axisY: { grid: true, gridColor: "#E7ECF2" },
+  axisX: { grid: false, labelPadding: 10, labelAngle: 0 },
+});
+
+let page = 0;
+const sheet = (title, subtitle) => {
+  const s = deck.addSlide();
+  s.addTextBox(70, 38, 760, 45, title).addClass("title");
+  s.addTextBox(70, 82, 760, 28, subtitle).addClass("subtitle");
+  s.addTextBox(860, 48, 60, 24, "0" + ++page).addClass("page");
+  return s;
+};
+const plot = (s, spec) => {
+  chart.addTo(s, { width: 620, height: 300, ...spec }, 70, 125, 820, 370);
+  s.addTextBox(70, 515, 820, 24, chart.shapeCount + " editable shapes").addClass("note");
+};
+
+const X = (f, sort) => ({ field: f, type: "ordinal", title: null, ...(sort ? { sort } : {}) });
+const Y = (f, domain) => ({ field: f, type: "quantitative", title: null,
+                            ...(domain ? { scale: { domain } } : {}) });
+const quiet = (enc) => ({ ...enc, x: { ...enc.x, axis: null }, y: { ...enc.y, axis: null } });
+
+// 01 — one quarter picked out of four
+{
+  const s = sheet("Revenue acceleration", "Quarterly revenue · M€");
+  const rows = [28, 55, 43, 91].map((revenue, i) => ({ quarter: "Q" + (i + 1), revenue }));
+  const enc = { x: X("quarter", ["Q1", "Q2", "Q3", "Q4"]), y: Y("revenue", [0, 100]) };
+  plot(s, {
+    data: { values: rows },
+    layer: [
+      { mark: { type: "bar", width: 72, cornerRadiusTopLeft: 9, cornerRadiusTopRight: 9 },
+        encoding: { ...enc,
+          color: { condition: { test: "datum.quarter === 'Q4'", value: BLUE }, value: "#D4DCE8" } } },
+      { mark: { type: "text", dy: -13, fontSize: 14, fontWeight: 700, color: "#1F3864" },
+        encoding: { ...quiet(enc), text: { field: "revenue" } } },
+    ],
+  });
+}
+
+// 02 — actual against plan
+{
+  const s = sheet("Recurring revenue momentum", "Actual ARR versus operating plan · M€");
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
+  const actual = [82, 88, 95, 101, 108, 117, 124, 136];
+  const target = [86, 89, 92, 96, 101, 106, 112, 118];
+  const rows = months.map((month, i) => ({ month, actual: actual[i], target: target[i] }));
+  // No sort: an ordinal axis is alphabetical unless told, and Jan is not first.
+  const enc = { x: { ...X("month", months), sort: months }, y: { ...Y("actual", [70, 145]), scale: { domain: [70, 145], clamp: true } } };
+  const curve = { interpolate: "monotone" };
+  plot(s, {
+    data: { values: rows },
+    layer: [
+      { mark: { type: "area", ...curve, color: BLUE, opacity: 0.1 }, encoding: enc },
+      { mark: { type: "line", ...curve, strokeWidth: 4, color: BLUE }, encoding: quiet(enc) },
+      { mark: { type: "line", ...curve, strokeWidth: 2, strokeDash: [7, 5], color: "#9DA8B7" },
+        encoding: { ...quiet(enc), y: { ...Y("target"), axis: null } } },
+      { mark: { type: "point", filled: true, size: 80, color: BLUE, stroke: "#FFFFFF", strokeWidth: 2 },
+        encoding: quiet(enc) },
+    ],
+  });
+}
+
+// 03 — revenue against growth, sized by customers
+{
+  const s = sheet("Product portfolio", "Revenue × growth · bubble size is the customer base");
+  const rows = [
+    ["Atlas", 84, 32, 71, 420], ["Nova", 68, 18, 64, 610], ["Pulse", 51, 44, 58, 330],
+    ["Vertex", 39, 27, 76, 210], ["Orbit", 24, 61, 49, 175], ["Echo", 18, 12, 42, 290],
+    ["Flux", 46, 36, 68, 250],
+  ].map(([product, revenue, growth, margin, customers]) => ({ product, revenue, growth, margin, customers }));
+  const enc = { x: { ...Y("revenue", [0, 100]), title: "Revenue · M€" },
+                y: { ...Y("growth", [0, 70]), title: "Growth · %" } };
+  plot(s, {
+    height: 310,
+    data: { values: rows },
+    layer: [
+      { mark: { type: "circle", opacity: 0.82, stroke: "#FFFFFF", strokeWidth: 2 },
+        encoding: { ...enc,
+          size: { field: "customers", type: "quantitative", legend: null, scale: { range: [250, 1600] } },
+          color: { field: "margin", type: "quantitative", legend: null,
+                   scale: { domain: [40, 80], range: ["#DDE6F5", BLUE] } } } },
+      { mark: { type: "text", dy: -21, fontSize: 11, fontWeight: 700, color: "#1F3864" },
+        encoding: { ...quiet(enc), text: { field: "product" } } },
+    ],
+  });
+}
+
+// 04 — a heat map, coloured by threshold rather than by ramp
+{
+  const s = sheet("Target attainment by region", "Quarterly performance versus operating plan");
+  const regions = ["Nordics", "DACH", "UK", "France", "Spain", "Benelux"];
+  const table = [[103, 108, 112, 118], [94, 97, 101, 106], [99, 104, 109, 115],
+                 [87, 91, 96, 102], [82, 89, 93, 98], [97, 101, 107, 111]];
+  const rows = regions.flatMap((region, r) =>
+    table[r].map((attainment, q) => ({ region, quarter: "Q" + (q + 1), attainment })));
+  const enc = { x: { ...X("quarter", ["Q1", "Q2", "Q3", "Q4"]), axis: { orient: "top" } },
+                y: { ...X("region", regions), axis: { labelPadding: 12, labelColor: "#53657E" } } };
+  // Three bands read faster than a gradient: under plan, near it, over it.
+  const band = (low, high, plain) => ({
+    condition: [{ test: "datum.attainment < 95", value: low },
+                { test: "datum.attainment >= 105", value: high }],
+    value: plain,
+  });
+  plot(s, {
+    data: { values: rows },
+    layer: [
+      { mark: { type: "rect", cornerRadius: 8, stroke: "#FFFFFF", strokeWidth: 5 },
+        encoding: { ...enc, color: band(RED, GREEN, "#E7ECF3") } },
+      { transform: [{ calculate: "datum.attainment + '%'", as: "label" }],
+        mark: { type: "text", fontSize: 12, fontWeight: 700 },
+        encoding: { ...quiet(enc), text: { field: "label" },
+                    color: band("#FFFFFF", "#FFFFFF", "#1F3864") } },
+    ],
+  });
+}
+
+// 05 — the gap between actual and target, per region
+{
+  const s = sheet("Actual versus target", "Regional performance index");
+  const rows = [["Nordics", 118, 105], ["UK", 112, 108], ["Benelux", 107, 101],
+                ["DACH", 96, 102], ["France", 91, 100], ["Spain", 84, 94]]
+    .map(([region, actual, target]) => ({ region, actual, target }));
+  const enc = { y: { field: "region", type: "nominal", title: null },
+                x: Y("target", [75, 125]) };
+  const at = (f) => ({ ...quiet(enc), x: { ...Y(f), axis: null } });
+  plot(s, {
+    data: { values: rows },
+    layer: [
+      { mark: { type: "rule", strokeWidth: 5, strokeCap: "round", color: "#DCE3EC" },
+        encoding: { ...enc, x2: { field: "actual" } } },
+      { mark: { type: "point", filled: true, size: 150, color: "#A9B4C3" }, encoding: at("target") },
+      { mark: { type: "point", filled: true, size: 250, stroke: "#FFFFFF", strokeWidth: 2 },
+        encoding: { ...at("actual"),
+          color: { condition: { test: "datum.actual >= datum.target", value: GREEN }, value: RED } } },
+      { mark: { type: "text", dx: 15, align: "left", fontSize: 11, fontWeight: 700, color: "#1F3864" },
+        encoding: { ...at("actual"), text: { field: "actual" } } },
+    ],
+  });
+}
+
+// 06 — the same total, split three ways
+{
+  const s = sheet("Customer mix evolution", "Revenue contribution by segment · M€");
+  const mix = { Enterprise: [38, 44, 51, 63], SMB: [29, 31, 36, 42], Consumer: [16, 18, 22, 27] };
+  const rows = Object.entries(mix).flatMap(([segment, vals]) =>
+    vals.map((revenue, i) => ({ quarter: "Q" + (i + 1), segment, revenue })));
+  plot(s, {
+    data: { values: rows },
+    mark: { type: "bar", cornerRadiusTopLeft: 5, cornerRadiusTopRight: 5 },
+    encoding: {
+      x: X("quarter", ["Q1", "Q2", "Q3", "Q4"]),
+      y: { ...Y("revenue"), stack: "zero" },
+      color: { field: "segment", type: "nominal",
+               scale: { domain: ["Enterprise", "SMB", "Consumer"], range: [BLUE, GREEN, GOLD] },
+               legend: { orient: "top", direction: "horizontal", title: null, symbolType: "circle" } },
+    },
+  });
+}
+
+return deck;`,
+
   "A Vega chart, as vectors": `// A Vega-Lite specification, compiled and put on the slide as SHAPES.
 // No image: every bar below is a DrawingML rectangle in the .pptx the
 // editor on the right opened, and the labels are in the slide's text.
@@ -203,12 +387,25 @@ function fail(message) {
   statusEl.textContent = message;
 }
 
-function draw() {
+/**
+ * The editor's own size, in the coordinates the display list uses.
+ *
+ * A pointer position has to be expressed in these and in nothing else: the
+ * canvas is drawn at whatever width the pane happens to be and at whatever
+ * device pixel ratio the screen has, and the editor knows about neither.
+ */
+let sceneW = canvas.width;
+let sceneH = canvas.height;
+const sceneSize = () => ({ width: sceneW, height: sceneH });
+
+async function draw() {
   if (!web) return;
   const text = web.scene();
   if (text === lastScene) return;
   lastScene = text;
   const doc = JSON.parse(text);
+  sceneW = doc.width;
+  sceneH = doc.height;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.round(doc.width * dpr), h = Math.round(doc.height * dpr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -216,7 +413,12 @@ function draw() {
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.055, 0.067, 0.086, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-  renderDisplayList(gl, doc, { dpr, images: window.__pptxImages || new Map() });
+  const images = media ? await media.imagesFor(doc) : new Map();
+  renderDisplayList(gl, doc, { dpr, images });
+  // Published so the smoke test can ask the app what it thinks is true rather
+  // than inferring it from pixels — the same hook the standalone page exposes.
+  window.__pptxDoc = doc;
+  window.__pptxWeb = web;
 }
 
 async function showDeck(bytes) {
@@ -224,15 +426,29 @@ async function showDeck(bytes) {
   if (!web.openDeck(toRanger(bytes), "playground.pptx")) {
     return fail("the editor could not open the bytes the API produced: " + web.note);
   }
-  window.__pptxImages = await loadImages(JSON.parse(web.scene()), {
-    partBytes: (part) => fromRanger(web.imageBytes(part)),
-    parts: JSON.parse(web.imageParts() || "[]"),
-  }).catch(() => new Map());
+  // The deck's own pictures, straight off the model — nothing is fetched.
+  if (media) media.refresh();
   slideCount = web.slideCount() | 0;
   slideIndex = 0;
   web.gotoSlide(0);
   lastScene = "";
-  draw();
+  await draw();
+  where();
+}
+
+/**
+ * The chrome, after anything that could have changed what the app is doing.
+ *
+ * The editor turns its own pages — a click on a thumbnail, Page Down, a
+ * command from the toolbar — so the page's slide counter has to follow the
+ * APP rather than the other way round. Read from `slideIndex` alone it went
+ * stale the first time somebody clicked in the editor rather than on the
+ * arrows beside it.
+ */
+function afterInput() {
+  if (!web) return;
+  slideCount = web.slideCount() | 0;
+  slideIndex = web.slideIndex() | 0;
   where();
 }
 
@@ -247,6 +463,33 @@ function step(delta) {
   lastScene = "";
   draw();
   where();
+}
+
+/**
+ * The editor, wired up.
+ *
+ * Everything here comes from the shared host module, which is also what the
+ * standalone viewer at /pptx/ attaches — so the two pages cannot drift into
+ * disagreeing about what a click means. This page used to attach NONE of it:
+ * it drew the editor, toolbar and all, and listened to nothing, so the pane
+ * on the right was a picture of an editor rather than one.
+ *
+ * The keyboard is the one thing that had to be different. This page has a
+ * TEXTAREA beside the canvas, and a listener that sent every keystroke to the
+ * deck would make writing code impossible — typing `const` would select all,
+ * delete it and put the letters in a shape. So the keys are the deck's only
+ * while the canvas has focus, which clicking it gives.
+ */
+let media = null;
+function attachEditor() {
+  media = createMediaCache({ web, loadImages });
+  attachPointer({ canvas, web, sceneSize, draw, afterInput });
+  attachKeys({
+    web,
+    draw,
+    afterInput,
+    enabled: () => document.activeElement === canvas,
+  });
 }
 
 /** Run the reader's code. It returns a Deck; anything else is a mistake worth naming. */
@@ -367,6 +610,10 @@ function Chart() {
   const o = {
     font: (f) => { ref.font(String(f)); return o; },
     curveSteps: (n) => { ref.curveSteps(n | 0); return o; },
+    config: (spec) => {
+      ref.config(typeof spec === "string" ? spec : JSON.stringify(spec));
+      return o;
+    },
     addTo: (slide, spec, x, y, w, h) => {
       const text = typeof spec === "string" ? spec : JSON.stringify(spec);
       const made = ref.addTo(slide._ref, text, +x, +y, +w, +h);
@@ -410,6 +657,7 @@ async function boot() {
     if (family) { web.addFont(family, faces[i]); renderer.addFont(family, faces[i]); }
     else { web.addFace(faces[i]); renderer.addFace(faces[i]); }
   });
+  attachEditor();
   await registerBrowserFaces(faces);
   setFontFallback(dedupe(FONTS.map(([, , css]) => css && css.family)));
   await document.fonts.ready;

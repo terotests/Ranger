@@ -9455,6 +9455,51 @@ class VlCompile {
 
     ; What the whole chart's configuration says about one guide property, or
     ; nothing at all if it does not say.
+    ; The `config` block itself, or a null value when the specification has
+    ; none. `configFlag` reads ONE property out of one; this hands over the
+    ; whole block, because an axis wants everything it says.
+    fn configBlock:VlJson (block:string) {
+        def config:VlJson (rootSource.get("config"))
+        if (! (config.isObject())) {
+            config = (source.get("config"))
+        }
+        if (! (config.isObject())) {
+            return (VlJson.nullValue())
+        }
+        return (config.get(block))
+    }
+
+    ; Everything `config.axis` and `config.axisX` / `config.axisY` say, onto an
+    ; axis, before what the channel itself says.
+    ;
+    ; Only a handful of these were ever read — `title`, `grid`, `labelAngle`,
+    ; `labelOverlap` — each by a rule that asked for it by name. Everything
+    ; else in the block was dropped, so a deck that set its axis colours once
+    ; in `config` got black labels on every chart and had to repeat the block
+    ; on every encoding of every specification. Which is exactly what a config
+    ; exists to stop.
+    ;
+    ; `grid` is left out here for the same reason the channel's own `grid` is:
+    ; it belongs to the GRID axis, and copied onto the labelled one it draws
+    ; the grid a second time, over the marks instead of under them.
+    fn applyAxisConfig:void (a:VlJson orient:string) {
+        VlCompile.copyAxisBlock(a (this.configBlock("axis")))
+        VlCompile.copyAxisBlock(a (this.configBlock((VlCompile.sidedBlock(orient)))))
+    }
+
+    sfn copyAxisBlock:void (a:VlJson block:VlJson) {
+        if (! (block.isObject())) {
+            return
+        }
+        for block.keys key:string ki {
+            if (key != "grid") {
+                if (! (VlCompile.isConditional((block.get(key))))) {
+                    a.setMember(key (block.get(key)))
+                }
+            }
+        }
+    }
+
     fn configFlag:VlJson (block:string key:string) {
         def config:VlJson (rootSource.get("config"))
         if (! (config.isObject())) {
@@ -9816,6 +9861,9 @@ class VlCompile {
         }
         }
         }
+        ; The chart's own configuration first, so that the channel's own `axis`
+        ; overrides it rather than the other way round.
+        this.applyAxisConfig(a orient)
         def given:VlJson (ch.def0.get("axis"))
         if (given.isObject()) {
             for given.keys key:string ki {
