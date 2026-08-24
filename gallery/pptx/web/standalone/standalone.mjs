@@ -103,11 +103,75 @@ function engineOrExplain(name, script, command) {
 }
 
 const web = new (engineOrExplain("PptxWeb", "pptx_web.js", "pptx:web"))();
-web.start(canvas.width, canvas.height);
+
+/** Is a finger what is pointing at this page?
+ *
+ *  Nothing about the window's size answers this — a laptop with a
+ *  touchscreen is wide and coarse at once, a phone in landscape is neither
+ *  narrow nor a mouse — so it is asked directly, and asked again when it
+ *  changes, which it does when a tablet is put in a keyboard case.
+ */
+const coarse = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+const isCoarse = () => !!(coarse && coarse.matches);
+
+/** The app's surface, in CSS pixels.
+ *
+ *  The canvas used to be a fixed 1000x600 that CSS scaled to the width it
+ *  had. On a desktop that is invisible; on a phone it is an editor whose
+ *  30-pixel buttons are drawn at twelve. The app is told the size it is
+ *  really being shown at instead, and its own chrome folds at the
+ *  breakpoints that size crosses.
+ */
+function surface() {
+  const frame = canvas.parentElement;
+  const box = frame ? frame.getBoundingClientRect() : { width: 0, height: 0 };
+  let w = Math.round(box.width) || canvas.clientWidth || 1000;
+  let h = Math.round(box.height) || 0;
+  // A tall enough surface is the point of the phone layout; when the frame
+  // does not state a height (the desktop layout does not), keep the shape
+  // the page has always had.
+  if (h < 200) h = Math.round(w * 0.6);
+  return { w: Math.max(320, w), h: Math.max(240, h) };
+}
+
+let started = false;
+async function fitToWindow() {
+  const { w, h } = surface();
+  if (!started) {
+    web.start(w, h);
+    web.setCoarsePointer(isCoarse());
+    started = true;
+    return;
+  }
+  web.resize(w, h);
+  web.setCoarsePointer(isCoarse());
+  lastScene = null;
+  await draw();
+}
+
+web.start(surface().w, surface().h);
+web.setCoarsePointer(isCoarse());
+started = true;
 
 let lastScene = "";
 let sceneW = canvas.width;
 let sceneH = canvas.height;
+
+// A window that changes shape — a desktop window dragged, a phone rotated —
+// re-evaluates the chrome's breakpoints. `visualViewport` is what moves when
+// a phone raises its keyboard, and resize alone does not fire for that.
+let fitPending = 0;
+function scheduleFit() {
+  if (fitPending) return;
+  fitPending = requestAnimationFrame(async () => {
+    fitPending = 0;
+    await fitToWindow();
+  });
+}
+window.addEventListener("resize", scheduleFit);
+window.addEventListener("orientationchange", scheduleFit);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", scheduleFit);
+if (coarse && coarse.addEventListener) coarse.addEventListener("change", scheduleFit);
 const imageCache = new Map();
 const blobUrls = new Map();
 
@@ -204,6 +268,9 @@ function afterInput() {
     cancelAnimationFrame(showFrame);
     showFrame = 0;
   }
+  // Anything that could have put a caret in a shape, or taken one out, is a
+  // reason for the phone's keyboard to come up or go away.
+  syncSoftKeys();
 }
 
 function coords(ev) {
@@ -247,6 +314,55 @@ canvas.addEventListener("pointerup", async (ev) => {
 
 canvas.addEventListener("pointercancel", () => {
   pointerHeld = false;
+});
+
+// --- typing with no keyboard attached ---------------------------------------
+//
+// A phone raises its keyboard for a focused input and for nothing else. A
+// canvas cannot be that input, so an off-screen one is: when the app puts a
+// caret in a shape, the field takes focus and the keyboard comes up; what is
+// typed into it is forwarded and the field is emptied again, so it never
+// accumulates and never has to agree with the app about what the text is.
+//
+// The app remains the only thing that owns the text. This is a keyboard, not
+// a second editor.
+const softkeys = document.getElementById("softkeys");
+let softkeysOn = false;
+
+function syncSoftKeys() {
+  if (!softkeys || !isCoarse()) return;
+  const wants = web.editingText ? web.editingText() === true : false;
+  if (wants === softkeysOn) return;
+  softkeysOn = wants;
+  if (wants) {
+    softkeys.value = "";
+    softkeys.focus({ preventScroll: true });
+  } else if (document.activeElement === softkeys) {
+    softkeys.blur();
+    canvas.focus({ preventScroll: true });
+  }
+}
+
+softkeys?.addEventListener("input", async () => {
+  const text = softkeys.value;
+  softkeys.value = "";
+  if (!text) return;
+  web.type(text, false, false);
+  await draw();
+  afterInput();
+});
+
+// Backspace and Enter produce no `input` value to forward, so they come
+// through as keys. Everything else the app already understands by name.
+softkeys?.addEventListener("keydown", async (ev) => {
+  const named = { Backspace: "backspace", Enter: "enter", Escape: "escape",
+                  ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+  const name = named[ev.key];
+  if (!name) return;
+  ev.preventDefault();
+  web.keyMod(name, !!ev.shiftKey, !!(ev.ctrlKey || ev.metaKey));
+  await draw();
+  afterInput();
 });
 
 canvas.addEventListener("wheel", async (ev) => {
@@ -648,11 +764,21 @@ async function selftest() {
     ok("paste is a command", web.run("edit.paste", ""));
     await draw();
     ok("pasting kept a selection", (web.selectionCount() | 0) >= 1);
+    // The grid draws itself only where its dots would be more than six pixels
+    // apart — closer than that it is a grey wash rather than a grid — so this
+    // asks for a surface big enough to have one. At the size a headless
+    // window happens to be, "the grid drew nothing" is the right answer and
+    // would make this check pass for the wrong reason.
+    web.resize(1400, 900);
+    lastScene = null;
+    await draw();
     const before = JSON.parse(web.scene()).list.cmds.length;
     ok("the grid turns on", web.run("view.grid", ""));
     await draw();
-    ok("and it is drawn", JSON.parse(web.scene()).list.cmds.length > before);
+    ok("and it is drawn where there is room for it",
+       JSON.parse(web.scene()).list.cmds.length > before);
     web.run("view.grid", "");
+    await fitToWindow();
     web.run("edit.undo", "");
     web.run("edit.undo", "");
     web.run("edit.undo", "");
@@ -708,6 +834,32 @@ async function selftest() {
   ok("redrawing the same slide reuses the text atlas", (frame2.atlasRebuilt | 0) === 0);
   ok("and uploads no picture a second time", (frame2.texturesUploaded | 0) === 0);
   ok("while still drawing the same thing", (frame2.drawn | 0) === (frame1.drawn | 0));
+
+  // The chrome folds. A phone-sized window puts the deck across the top
+  // instead of down the side — a phone is narrow and tall, and a column
+  // spends the dimension there is least of — and the notes go away. This is
+  // the app's own stylesheet deciding, so it is worth checking through the
+  // page rather than only in Ranger: a breakpoint that works in a unit test
+  // and not in a browser is a breakpoint that does not work.
+  {
+    web.resize(1280, 800);
+    lastScene = null;
+    await draw();
+    const wide = web.slidePanelWidth() | 0;
+    ok("a desktop keeps the deck down the side", wide > 100);
+
+    web.resize(420, 780);
+    lastScene = null;
+    await draw();
+    ok("a phone takes nothing out of the width for it", (web.slidePanelWidth() | 0) === 0);
+    ok("and still draws the deck", JSON.parse(web.scene()).list.cmds.length > 20);
+
+    web.resize(1280, 800);
+    lastScene = null;
+    await draw();
+    ok("and going back puts it where it was", (web.slidePanelWidth() | 0) === wide);
+    await fitToWindow();
+  }
 
   // The show: the deck without any chrome around it, driven by the page's own
   // clock. A browser is the only host here that HAS a clock, so this is the

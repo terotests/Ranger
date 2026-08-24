@@ -1290,6 +1290,101 @@ class EVGTest {
         root.addChild(mid)
         treeSheet.applyTree(root "")
         t.near("applyTree reaches nested children" leaf.width.pixels 7.0)
+
+        ; ---- @media -----------------------------------------------------------
+        ; A media block is a CONDITION on the rules inside it, not a new kind
+        ; of selector: they keep the specificity they would have had outside,
+        ; and a block that does not match contributes nothing.
+        def mq (new EVGStyleSheet())
+        mq.parse(".panel { width: 200px } @media (max-width: 640px) { .panel { width: 40px } }")
+        t.eqInt("a media block does not change the rule count" (mq.getRuleCount()) 2)
+        t.eqInt("and parses without complaint" (mq.getErrorCount()) 0)
+
+        def wide (new EVGElement())
+        wide.className = "panel"
+        mq.applyTreeIn(wide "" 1200.0 800.0 false)
+        t.near("a wide viewport keeps the unconditional width" wide.width.pixels 200.0)
+
+        def narrow (new EVGElement())
+        narrow.className = "panel"
+        mq.applyTreeIn(narrow "" 390.0 844.0 false)
+        t.near("a narrow one takes the media rule" narrow.width.pixels 40.0)
+
+        ; With no viewport stated a query cannot be evaluated, and guessing
+        ; "yes" would style a print page for a phone.
+        def unknown (new EVGElement())
+        unknown.className = "panel"
+        def mq2 (new EVGStyleSheet())
+        mq2.parse(".panel { width: 200px } @media (max-width: 640px) { .panel { width: 40px } }")
+        mq2.applyTree(unknown "")
+        t.near("with no viewport, nothing conditional applies" unknown.width.pixels 200.0)
+
+        ; Orientation, from the viewport's own shape.
+        def orient (new EVGStyleSheet())
+        orient.parse("@media (orientation: portrait) { .b { width: 5px } } @media (orientation: landscape) { .b { width: 9px } }")
+        def tall (new EVGElement())
+        tall.className = "b"
+        orient.applyTreeIn(tall "" 400.0 900.0 false)
+        t.near("a tall viewport is portrait" tall.width.pixels 5.0)
+        def flat (new EVGElement())
+        flat.className = "b"
+        orient.applyTreeIn(flat "" 900.0 400.0 false)
+        t.near("a wide one is landscape" flat.width.pixels 9.0)
+
+        ; A finger is not a mouse, and a hit target sized for one is wrong for
+        ; the other. Nothing in the viewport's size says which it is.
+        def touch (new EVGStyleSheet())
+        touch.parse(".hit { height: 24px } @media (pointer: coarse) { .hit { height: 44px } }")
+        def finger (new EVGElement())
+        finger.className = "hit"
+        touch.applyTreeIn(finger "" 390.0 844.0 true)
+        t.near("a coarse pointer gets the bigger target" finger.height.pixels 44.0)
+        def mouse (new EVGElement())
+        mouse.className = "hit"
+        touch.applyTreeIn(mouse "" 390.0 844.0 false)
+        t.near("a mouse at the same size does not" mouse.height.pixels 24.0)
+
+        ; `and` narrows; the bounds have to hold together.
+        def both (new EVGStyleSheet())
+        both.parse("@media (min-width: 600px) and (max-width: 900px) { .c { width: 3px } }")
+        def inBand (new EVGElement())
+        inBand.className = "c"
+        both.applyTreeIn(inBand "" 700.0 500.0 false)
+        t.near("inside the band the rule applies" inBand.width.pixels 3.0)
+        def below (new EVGElement())
+        below.className = "c"
+        below.width = (EVGUnit.px(1.0))
+        both.applyTreeIn(below "" 500.0 500.0 false)
+        t.near("below it the rule does not" below.width.pixels 1.0)
+
+        ; A media block holds several rules, and the brace that ends it is the
+        ; one that BALANCES it — reading to the first `}` would end the block
+        ; at the first rule and read the rest as top-level.
+        def multiRule (new EVGStyleSheet())
+        multiRule.parse("@media (max-width: 500px) { .d { width: 1px } .e { width: 2px } }")
+        t.eqInt("every rule in the block is kept" (multiRule.getRuleCount()) 2)
+        def dOut (new EVGElement())
+        dOut.className = "e"
+        dOut.width = (EVGUnit.px(8.0))
+        multiRule.applyTreeIn(dOut "" 900.0 600.0 false)
+        t.near("and the last one is still conditional" dOut.width.pixels 8.0)
+
+        ; A query nobody can evaluate must style NOTHING. A misspelt feature
+        ; that applied everywhere would be invisible until it was not.
+        def bad (new EVGStyleSheet())
+        bad.parse("@media (max-widht: 500px) { .f { width: 4px } }")
+        t.ok("a misspelt feature is reported" ((bad.getErrorCount()) > 0))
+        def notStyled (new EVGElement())
+        notStyled.className = "f"
+        notStyled.width = (EVGUnit.px(6.0))
+        bad.applyTreeIn(notStyled "" 300.0 600.0 false)
+        t.near("and its rules never apply" notStyled.width.pixels 6.0)
+
+        ; A comma is an OR, which this subset does not do. Refused rather than
+        ; read as an AND, which is the opposite meaning.
+        def orQuery (new EVGStyleSheet())
+        orQuery.parse("@media (max-width: 400px), (min-width: 900px) { .g { width: 4px } }")
+        t.ok("a comma list is refused out loud" ((orQuery.getErrorCount()) > 0))
     }
 
     ; ---- grid: track lists ----------------------------------------------------
