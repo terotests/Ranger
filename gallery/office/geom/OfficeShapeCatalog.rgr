@@ -127,8 +127,30 @@ class OfficeShapeCatalog {
     ; that forgot to load them should see rather than a rectangle.
     def presets:OfficePresetShapes (new OfficePresetShapes())
     def presetsLoaded:boolean false
+    def built:boolean false
 
+    ; The catalogue is filled on FIRST USE, not in the constructor.
+    ;
+    ; `fill`, `markNoFill` and `markAspect` take the catalogue and write to it,
+    ; so calling them from the constructor means handing `this` out before the
+    ; object exists as an owned reference. Every language that owns objects by
+    ; reference count rejects that: C++ throws `std::bad_weak_ptr` from
+    ; `shared_from_this()`, and the Rust backend refuses to emit the call at
+    ; all ("the constructor runs before the object is inside its Rc"). On
+    ; JavaScript it happens to work, so this compiled and shipped and then
+    ; aborted the moment the WebAssembly build opened anything — the trace ran
+    ; straight through `make_shared<OfficeShapeCatalog>`.
+    ;
+    ; One branch per call answers it, and the work is the same 187 entries
+    ; whenever they are first asked for.
     Constructor () {
+    }
+
+    fn ensure:void () {
+        if built {
+            return
+        }
+        built = true
         OfficeShapeCatalog.fill(this)
         OfficeShapeCatalog.markNoFill(this)
         OfficeShapeCatalog.markAspect(this)
@@ -142,10 +164,20 @@ class OfficeShapeCatalog {
     }
 
     fn count:int () {
+        this.ensure()
         return (array_length entries)
     }
 
+    ; The whole catalogue. Read through this rather than through the field:
+    ; the entries are built on first use, and a reader that reaches past the
+    ; method sees an empty list before anything has asked for one.
+    fn all:[ShapeEntry] () {
+        this.ensure()
+        return entries
+    }
+
     fn at:ShapeEntry (i:int) {
+        this.ensure()
         if (i < 0) {
             return (new ShapeEntry())
         }
@@ -157,6 +189,7 @@ class OfficeShapeCatalog {
 
     ; The category names, in the order an editor should offer them.
     fn categories:[string] () {
+        this.ensure()
         def out:[string]
         def i:int 0
         while (i < (array_length entries)) {
@@ -170,6 +203,7 @@ class OfficeShapeCatalog {
     }
 
     fn inCategory:[ShapeEntry] (category:string) {
+        this.ensure()
         def out:[ShapeEntry]
         def i:int 0
         while (i < (array_length entries)) {
@@ -183,6 +217,7 @@ class OfficeShapeCatalog {
     }
 
     fn find:ShapeEntry (id:string) {
+        this.ensure()
         def i:int 0
         while (i < (array_length entries)) {
             def e:ShapeEntry (itemAt entries i)
@@ -198,6 +233,7 @@ class OfficeShapeCatalog {
     ; empty query answers with everything, which is what an empty search box
     ; should show.
     fn search:[ShapeEntry] (query:string) {
+        this.ensure()
         def q:string (OfficeShapeCatalog.lower(query))
         def out:[ShapeEntry]
         def i:int 0

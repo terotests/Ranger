@@ -161,7 +161,7 @@ class OfficeShapePicker {
         if (hasCat == false) {
             return
         }
-        def all:[ShapeEntry] (cat.entries)
+        def all:[ShapeEntry] (cat.all())
         if ((strlen category) > 0) {
             all = (cat.inCategory(category))
         }
