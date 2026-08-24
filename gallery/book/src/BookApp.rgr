@@ -877,6 +877,34 @@ class BookApp {
         return r
     }
 
+    ; The current spread as SVG, and preflight as text. Both hosts wanted
+    ; them - the browser page to hand the reader a download, the desktop
+    ; window to write a file - and both had built their own `BookApi` around
+    ; the editor's document to get them. Once is enough.
+    fn spreadSvgAt:string (index:int) {
+        return ((this.exportApi()).spreadSvg(index))
+    }
+
+    fn documentTsxText:string () {
+        return ((this.exportApi()).tsx())
+    }
+
+    fn runPreflightText:string () {
+        def r:BookPreflightReport (this.runPreflight())
+        return (r.asText())
+    }
+
+    ; An API over the editor's own document and its own flow result. The flow
+    ; is marked valid because the editor keeps it so: re-flowing here would
+    ; measure a second time and could disagree with what is on the screen.
+    fn exportApi:BookApi () {
+        def api (new BookApi())
+        api.doc = editor.doc
+        api.flow = editor.flowResult
+        api.flowValid = true
+        return api
+    }
+
     fn openPreflight:void () {
         def r:BookPreflightReport (this.runPreflight())
         preflightWindow.reset()

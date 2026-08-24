@@ -283,12 +283,11 @@ class BookPhotosCli {
         }
         def listDir:string (BookPhotosCli.dirOf(namesFile))
         def listName:string (AppleAlbum.baseName(namesFile))
-        def body@(optional):string (read_file listDir listName)
-        def text:string ""
-        if body {
-            text = (unwrap body)
-        } {
-            print ("Could not read the file list " + namesFile)
+        ; See the note at ApplePlist.parseFile: an optional string is a pointer
+        ; on es6 and a std::string on C++, so it is coalesced rather than tested.
+        def text:string (?? (read_file listDir listName) "")
+        if ((strlen text) == 0) {
+            print ("Could not read the file list " + namesFile + ", or it is empty")
             return false
         }
         def names:[string] (BookPhotosCli.lines(text))

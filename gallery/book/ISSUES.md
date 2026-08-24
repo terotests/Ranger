@@ -171,3 +171,41 @@ The page now writes its results after every check and drops a `(running)`
 marker when it finishes; the runner fails a run that still says `(running)` and
 reports how far it got. The budget was raised as well, but that is the smaller
 half of the fix: the diagnosis was.
+
+## 13. `if optional` does not compile on C++, and only C++ says so
+
+Three places read a file as `def body@(optional):string (read_file dir name)`
+and then tested it with `if body`. An optional string is a POINTER on es6 and
+a plain `std::string` on C++, so that becomes `if (body != NULL)` there — which
+is not merely wrong, it does not compile. The es6, Go and Python builds were
+all happy; the defect surfaced the first time the book was compiled for the
+native host, in code that had been passing 220 assertions on three targets.
+
+All three now read `(?? (read_file dir name) "")` and check the length, which
+is what the schema editor already did. An empty file and a missing one become
+the same answer, which for a plist or an index is correct: neither is parseable.
+
+## 14. Passing `this` out of a constructor throws on C++ only
+
+`BookSdlConfig`'s constructor called a helper with `this` to fill in the default
+font list. On C++ an object is not yet owned by its `shared_ptr` while its
+constructor runs, so `shared_from_this()` throws `std::bad_weak_ptr` — and the
+native host died before printing a single line, on its first run, from a line
+that is correct on every other target.
+
+The fields are filled in the constructor itself now. The general rule: a
+constructor may not hand `this` to anything.
+
+## 15. The JPEG decoder narrates, which nobody noticed until a terminal saw it
+
+`JPEGDecoder` printed twenty-five lines per photograph — every marker, every
+Huffman table, every tenth row of MCUs. In a browser that goes to a console
+nobody has open, and in the PDF tools it is arguably the point. In a native
+window it goes to the user's terminal, so a book of forty pictures opens behind
+a thousand lines of scrolling.
+
+There is now a `quiet` flag, off by default so every existing caller is
+unchanged, and the two places that decode a picture *as a side effect of
+drawing something* — `EVGImageDecode` and `GridImages` — turn it on. It has to
+be propagated into `HuffmanDecoder` at decode time rather than in the
+constructor, because a caller can only set it after constructing the decoder.

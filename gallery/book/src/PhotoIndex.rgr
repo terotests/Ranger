@@ -637,9 +637,14 @@ class PhotoIndex {
     }
 
     sfn fromFile:PhotoIndex (dir:string name:string) {
-        def body@(optional):string (read_file dir name)
-        if body {
-            return (PhotoIndex.fromJson((unwrap body)))
+        ; `?? … ""` rather than testing the optional. An optional string is a
+        ; POINTER on es6 and a plain std::string on C++, so `if body` compiles
+        ; to `body != NULL` there and does not compile at all - which only the
+        ; C++ target ever says. An empty file and a missing one become the same
+        ; answer, which for this is correct: neither is parseable.
+        def body:string (?? (read_file dir name) "")
+        if ((strlen body) > 0) {
+            return (PhotoIndex.fromJson(body))
         }
         def bad (new PhotoIndex())
         bad.error = ("could not read " + dir + "/" + name)

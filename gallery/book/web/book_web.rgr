@@ -281,23 +281,14 @@ class BookWeb {
     ; The printable book: the same SVG the demo writes, for the page to hand
     ; the reader as a download. No server, and no second layout.
     fn spreadSvg:string (index:int) {
-        def api (new BookApi())
-        api.doc = (app.document())
-        api.flow = app.editor.flowResult
-        api.flowValid = true
-        return (api.spreadSvg(index))
+        return (app.spreadSvgAt(index))
     }
 
     fn documentTsx:string () {
-        def api (new BookApi())
-        api.doc = (app.document())
-        api.flow = app.editor.flowResult
-        api.flowValid = true
-        return (api.tsx())
+        return (app.documentTsxText())
     }
 
     fn preflightText:string () {
-        def report:BookPreflightReport (app.runPreflight())
-        return (report.asText())
+        return (app.runPreflightText())
     }
 }

@@ -13,6 +13,8 @@ npm run book:pdf            # …and turn it into a PDF with the existing EVG to
 npm run book:print          # the files a printer wants: interior + cover + manifest
 npm run book:album          # make a book out of an Apple photo album
 npm run book:photos         # search a photo index by date and place, and lay it out
+npm run book:sdl            # the same editor as a native SDL2 + OpenGL window
+npm run book:sdl:smoke      # …30 frames headless, which is how CI can check it
 npm run book:test           # 220 assertions on the engine, JavaScript
 npm run book:test:go        # the same 220 on Go (and book:test:python on Python)
 npm run book:editor:test    # 79 more on the editor and the host seam
@@ -100,6 +102,10 @@ BookAlbumMeasure.rgr the pictures' pixel sizes, off their JPEG headers. The
 PhotoIndex.rgr       a folder of photographs, made searchable: one small record
                      each, searched by date range, by radius, by text.
 PhotoScan.rgr        building that index by reading the JPEGs themselves.
+
+platform/sdl/        the same editor as a native window: `book_sdl.rgr` over
+                     the DataGrid's SDL2 layer, configured by a JSON file
+                     because a window has no URL to carry the answer.
 ```
 
 Output goes out through machinery that already existed:
@@ -502,6 +508,43 @@ and 55 km at sixty north, and the flat formula is wrong by half a Finland.
 Coordinates are written with **six decimal places**, not the two a typographic
 point needs — rounding a latitude to two decimals moves a photograph up to a
 kilometre, which silently changes what a radius search answers.
+
+## Three hosts, one editor
+
+```text
+                         BookApp  ─►  EVGDisplayList
+                            ▲               │
+   pointer / keys ──────────┘               ├─► evg-webgl.js   → a browser tab
+                                            ├─► EvgGlPainter   → an SDL2 window
+                                            └─► SoftCanvas     → a bitmap, tests
+```
+
+The editor has never heard of a window. That is what lets the same `BookApp`
+run in a page with no server behind it, in a Node process posting events over
+HTTP, and — since `platform/sdl` — as a native binary, without a second copy of
+anything.
+
+```bash
+npm run book:sdl            # Ranger → C++ → native binary (SDL2, OpenGL)
+npm run book:sdl:run        # …and open the window
+npm run book:sdl:smoke      # …or 30 frames headless
+```
+
+A window is opened by double-clicking it, so it has no URL and no argument list
+to say what to show: `platform/sdl/book.config.json` does that, and **every
+field has a default**, so `{ "spread": 3 }` is a complete config meaning "like
+the default, but that". It can open the sample, an Apple album, or a photo
+query — the same query `book:photos` takes, written as data. The host prints
+the settings actually in force before it opens anything, because a host that
+silently fell back to a default looks exactly like one that read your file.
+
+`platform/sdl/README.md` has the keys, the fields and the headless check.
+
+**It is not a macOS application bundle**, which matters if the hope was to
+reach the system Photos library from it: a TCC permission attaches to a signed
+`.app` with a usage string in its `Info.plist`, and a binary run from a terminal
+inherits the terminal's grants instead. Reading a Photos library still goes
+through `tools/mac_photos.mjs`, which writes an index this host then opens.
 
 ## Formats
 
