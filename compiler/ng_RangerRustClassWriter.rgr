@@ -10601,7 +10601,16 @@ class RangerRustClassWriter {
         if ((arr_type == "string") && (this.rustStrRefRead(right))) {
           wr.out(".to_string()" false)
         } {
-          wr.out(".clone()" false)
+          ; a borrowed slice into an owned Vec element -- pushing `r:[string]`
+          ; into `rows:[[string]]`. `.clone()` of a `&[T]` is another `&[T]`,
+          ; so the owned element takes `.to_vec()`. Reached whenever the
+          ; element type is itself a collection, which is what a generic class
+          ; instantiated at an array type produces.
+          if (this.rustSliceRefRead(right)) {
+            wr.out(".to_vec()" false)
+          } {
+            wr.out(".clone()" false)
+          }
         }
       } {
         if ((arr_type == "string") && (this.rustStrRefRead(right))) {
@@ -10613,7 +10622,11 @@ class RangerRustClassWriter {
             if (arr_type != "int") {
               if (arr_type != "double") {
                 if (arr_type != "boolean") {
-                  wr.out(".clone()" false)
+                  if (this.rustSliceRefRead(right)) {
+                    wr.out(".to_vec()" false)
+                  } {
+                    wr.out(".clone()" false)
+                  }
                 }
               }
             }

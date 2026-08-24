@@ -12,6 +12,8 @@ class RangerArgMatch {
   def nodes@(weak):[string:CodeNode]
   def builtNodes@(weak):[string:CodeNode]
   def matchedLambdas@(weak):[string:CodeNode]
+  ; the names bound by addTypeParam, in declaration order
+  def typeParamNames:[string]
 
   fn matchArguments:boolean (args:CodeNode callArgs:CodeNode ctx:RangerAppWriterContext firstArgIndex:int) {
     def fc:CodeNode (itemAt callArgs.children 0)
@@ -592,6 +594,93 @@ class RangerArgMatch {
     return (t_name == type2)
   }
   
+  ; A DECLARED type parameter, from `class History @params(Op)` or
+  ; `trait Bag @params(T)`. `add` above is the operator matcher's entry point
+  ; and answers true for any keyword longer than one character without
+  ; recording it -- there a long name is a concrete type to match against, not
+  ; a variable. That silently dropped every parameter not spelled with a
+  ; single letter, so `@params(Op)` bound nothing and the copy kept `Op` as a
+  ; type name. A declaration says what its variables are, so this one records
+  ; whatever it is given.
+  fn addTypeParam:boolean ( tplKeyword:string typeName:string ) {
+    if (has matched tplKeyword) {
+      def prev:string (unwrap (get matched tplKeyword))
+      def same:boolean (prev == typeName)
+      return same
+    }
+    (set matched tplKeyword typeName)
+    push typeParamNames tplKeyword
+    return true
+  }
+
+  ; True when `n` is a type parameter bound to a collection spelling --
+  ; `History@([string])` binds Op to "[string]". Those may not stay type
+  ; NAMES: a writer asked to spell a class called "[string]" emits the Ranger
+  ; spelling verbatim, which is TARGET_NOTES' C# item 4 and both of its LLVM
+  ; ownership defects.
+  fn isCollectionParam:boolean (n:string) {
+    if ((has matched n) == false) {
+      return false
+    }
+    def t_name:string (unwrap (get matched n))
+    def tlen:int (strlen t_name)
+    if (tlen < 3) {
+      return false
+    }
+    def lastAt:int (tlen - 1)
+    if ((charAt t_name 0) != (charcode "[")) {
+      return false
+    }
+    def endsOk:boolean ((charAt t_name lastAt) == (charcode "]"))
+    return endsOk
+  }
+
+  ; Rewrite a node whose type NAME is a collection-bound type parameter into
+  ; the array or hash node it stands for. After this the writers see an
+  ; ordinary `[string]` parameter -- a shape all fourteen already emit.
+  fn applyCollectionType:void (node:CodeNode n:string) {
+    if ((this.isCollectionParam(n)) == false) {
+      return
+    }
+    def t_name:string (unwrap (get matched n))
+    def tlen:int (strlen t_name)
+    def innerEnd:int (tlen - 1)
+    def inner:string (substring t_name 1 innerEnd)
+    def ilen:int (strlen inner)
+    ; the key/value separator of the OUTERMOST spelling only: the colon of
+    ; `[string:[int:string]]` is the first one at depth zero
+    def sep:int (0 - 1)
+    def depth:int 0
+    def ii:int 0
+    while (ii < ilen) {
+      def c:int (charAt inner ii)
+      if (c == (charcode "[")) {
+        depth = (depth + 1)
+      }
+      if (c == (charcode "]")) {
+        depth = (depth - 1)
+      }
+      if (c == (charcode ":")) {
+        if ((depth == 0) && (sep < 0)) {
+          sep = ii
+        }
+      }
+      ii = (ii + 1)
+    }
+    node.type_name = ""
+    if (sep < 0) {
+      node.value_type = RangerNodeType.Array
+      node.parsed_type = RangerNodeType.Array
+      node.array_type = inner
+      return
+    }
+    def valueFrom:int (sep + 1)
+    node.value_type = RangerNodeType.Hash
+    node.parsed_type = RangerNodeType.Hash
+    node.key_type = (substring inner 0 sep)
+    node.array_type = (substring inner valueFrom ilen)
+  }
+
   fn getTypeName:string (n:string) {
     def t_name:string n
     if (has matched t_name) {

@@ -1,0 +1,39 @@
+;; topic: faq/generic-class
+;; title: One class over several types
+;; category: generic
+
+; A type parameter is declared with @params and given with @(...). Nothing is
+; asked of the argument type, so each of these is a separate concrete class
+; after the compiler expands it.
+class History @params(Op) {
+    def ops:[Op]
+
+    fn record:void (op:Op) {
+        push ops op
+    }
+    fn count:int () {
+        return (array_length ops)
+    }
+    fn newest:Op () {
+        def v:Op (last ops)
+        return v
+    }
+}
+
+class Main {
+    sfn main:void () {
+        def numbers:History@(int) (new History@(int) ())
+        numbers.record(3)
+        numbers.record(9)
+        def n (numbers.count())
+        def top (numbers.newest())
+        print (("numbers " + n) + " newest " + top)
+
+        def words:History@(string) (new History@(string) ())
+        words.record("first")
+        words.record("second")
+        def wn (words.count())
+        def wtop (words.newest())
+        print (("words " + wn) + " newest " + wtop)
+    }
+}

@@ -96,7 +96,9 @@ class CellPos {
 
 ; One tracked cell edit. Both the display value and the formula text are
 ; captured so undo of "=A1+B1" restores the formula, not just the number.
-; Ops sharing a non-zero txId undo/redo together (paste, fill, delete range).
+; Ops recorded inside one begin/end undo and redo together (paste, fill,
+; delete range); the transaction id lives in the shared history rather than
+; on the op.
 ; ------------------------------------------------------------------------------
 ; Which structural change an undo op is.
 ;
@@ -190,7 +192,6 @@ class SpreadsheetUndoOp {
     def otherSheetIdx:[int]
     def otherKeys:[string]
     def otherTexts:[string]
-    def txId:int 0
 
     Constructor () {
     }
@@ -265,7 +266,6 @@ class SpreadsheetUndoOp {
             push otherTexts (itemAt o.otherTexts ot)
             ot = (ot + 1)
         }
-        txId = o.txId
     }
 }
 
@@ -358,19 +358,17 @@ class SpreadsheetModel {
     def scrollYSaved:int 0
     def rowGeomDirty:boolean true
     def colGeomDirty:boolean true
-    def undoStack:[SpreadsheetUndoOp]
-    def redoStack:[SpreadsheetUndoOp]
     def touched:[CellPos]
     ; Set when an undo / redo replayed a structural op, so the caller knows to
     ; rebuild the formula engine rather than sync a few cells.
     def structDirty:boolean false
     def usedMaxRow:int 0
     def usedMaxCol:int 0
-    def txCounter:int 0
-    def txDepth:int 0
-    def history:OfficeHistory (new OfficeHistory)
-    def curTx:int 0
-    def maxUndo:int 200
+    ; The ops and every rule about them — `gallery/office/editor`, shared with
+    ; the document editor. The two stacks, the cap and the transaction
+    ; counters used to be fields here; a type parameter lets the shared file
+    ; hold `SpreadsheetUndoOp` without knowing anything about it.
+    def history:OfficeHistory@(SpreadsheetUndoOp) (new OfficeHistory@(SpreadsheetUndoOp) ())
     def version:int 0
     ; When true, `setCellRaw` / style / height writers skip bumping `version`
     ; on every cell. Xlsx load writes millions of cells; a version stamp per
@@ -401,8 +399,7 @@ class SpreadsheetModel {
         clear rowSuppressed
         clear filterValues
         clear tables
-        clear undoStack
-        clear redoStack
+        history.reset()
         freezeRows = 0
         freezeCols = 0
         filterCol = -1
@@ -2085,34 +2082,10 @@ class SpreadsheetModel {
     ; in a .docx became five undos that never got back to the start.
     fn beginTx:void () {
         history.begin()
-        txDepth = history.txDepth
-        curTx = (history.stamp())
     }
 
     fn endTx:void () {
         history.end()
-        txDepth = history.txDepth
-        curTx = (history.stamp())
-        if (history.mayTrim()) {
-            this.trimUndo()
-        }
-    }
-
-    ; Drop oldest history over the cap, whole transactions at a time, so a
-    ; surviving op can never be half of an action.
-    fn trimUndo:void () {
-        def ids:[int]
-        def i:int 0
-        while (i < (array_length undoStack)) {
-            push ids ((itemAt undoStack i).txId)
-            i = (i + 1)
-        }
-        def drop:int (OfficeHistory.dropCount(ids maxUndo))
-        def k:int 0
-        while (k < drop) {
-            remove_index undoStack 0
-            k = (k + 1)
-        }
     }
 
     fn pushUndoOp:void (row:int col:int before:string after:string beforeF:string afterF:string) {
@@ -2123,13 +2096,9 @@ class SpreadsheetModel {
         op.after = after
         op.beforeF = beforeF
         op.afterF = afterF
-        op.txId = curTx
-        push undoStack op
-        ; Never trim mid-transaction: that would split one action in half.
-        if (txDepth == 0) {
-            this.trimUndo()
-        }
-        clear redoStack
+        ; Stamped with the action it belongs to, never trimmed mid-action,
+        ; and the redo stack dropped because a new edit makes it unreachable.
+        history.record(op)
     }
 
     ; Tracked edit of value + formula together. formula "" means "no formula",
@@ -2155,9 +2124,9 @@ class SpreadsheetModel {
             return
         }
         this.pushUndoOp(row col before value beforeF formula)
-        def n:int (array_length undoStack)
+        def n:int (history.depth())
         if (n > 0) {
-            def op:SpreadsheetUndoOp (itemAt undoStack (n - 1))
+            def op:SpreadsheetUndoOp (history.peekUndo())
             op.beforeStyle = beforeSid
             op.afterStyle = afterSid
             op.touchStyle = true
@@ -2187,18 +2156,13 @@ class SpreadsheetModel {
     fn pushReorderOp:void (order:[int]) {
         def op:SpreadsheetUndoOp (new SpreadsheetUndoOp)
         op.structKind = (SheetStructKind.reorderRows())
-        op.txId = curTx
         def i:int 0
         while (i < (array_length order)) {
             push op.structOrder (itemAt order i)
             i = (i + 1)
         }
         this.snapshotFormulas(op.savedKeys op.savedTexts)
-        push undoStack op
-        if (txDepth == 0) {
-            this.trimUndo()
-        }
-        clear redoStack
+        history.record(op)
     }
 
     fn pushStructOp:void (kind:int at:int to:int) {
@@ -2206,7 +2170,6 @@ class SpreadsheetModel {
         op.structKind = kind
         op.structAt = at
         op.structTo = to
-        op.txId = curTx
         if (SheetStructKind.isColumnOp(kind)) {
             op.colWidthSaved = (this.colWidth(at))
         } {
@@ -2219,11 +2182,7 @@ class SpreadsheetModel {
             this.snapshotRow(at op.colValues op.colFormulas op.colStyles)
         }
         this.snapshotFormulas(op.savedKeys op.savedTexts)
-        push undoStack op
-        if (txDepth == 0) {
-            this.trimUndo()
-        }
-        clear redoStack
+        history.record(op)
     }
 
     fn applyStructOp:void (op:SpreadsheetUndoOp toAfter:boolean) {
@@ -2327,86 +2286,45 @@ class SpreadsheetModel {
     ; are reported in `touched` so the caller can resync the formula engine.
     fn undo:CellPos () {
         clear touched
-        def n:int (array_length undoStack)
-        if (n <= 0) {
+        if ((history.canUndo()) == false) {
             return (CellPos.create(0 0))
         }
-        def top:SpreadsheetUndoOp (itemAt undoStack (n - 1))
-        def tx:int top.txId
-        def lastRow:int top.row
-        def lastCol:int top.col
-        def more:boolean true
-        while more {
-            def cnt:int (array_length undoStack)
-            if (cnt <= 0) {
-                more = false
-            } {
-                def op:SpreadsheetUndoOp (itemAt undoStack (cnt - 1))
-                def take:boolean false
-                if (cnt == n) {
-                    take = true
-                } {
-                    if (tx > 0) {
-                        if (op.txId == tx) {
-                            take = true
-                        }
-                    }
-                }
-                if take {
-                    removeLast undoStack
-                    this.applyOp(op false)
-                    lastRow = op.row
-                    lastCol = op.col
-                    def keep:SpreadsheetUndoOp (new SpreadsheetUndoOp)
-                    keep.copyFrom(op)
-                    push redoStack keep
-                } {
-                    more = false
-                }
-            }
+        ; One press is one action: the top op and every op below it stamped
+        ; with the same transaction. The rule is `gallery/office/editor`'s now
+        ; rather than a second copy of it written here.
+        def span:int (history.undoSpan())
+        def lastRow:int 0
+        def lastCol:int 0
+        def moved:int 0
+        while (moved < span) {
+            def op:SpreadsheetUndoOp (history.peekUndo())
+            ; The op crosses to the redo side carrying its stamp, so the
+            ; action is still one press on the way back.
+            history.moveUndoToRedo()
+            this.applyOp(op false)
+            lastRow = op.row
+            lastCol = op.col
+            moved = (moved + 1)
         }
         return (CellPos.create(lastRow lastCol))
     }
 
     fn redo:CellPos () {
         clear touched
-        def n:int (array_length redoStack)
-        if (n <= 0) {
+        if ((history.canRedo()) == false) {
             return (CellPos.create(0 0))
         }
-        def top:SpreadsheetUndoOp (itemAt redoStack (n - 1))
-        def tx:int top.txId
-        def lastRow:int top.row
-        def lastCol:int top.col
-        def more:boolean true
-        while more {
-            def cnt:int (array_length redoStack)
-            if (cnt <= 0) {
-                more = false
-            } {
-                def op:SpreadsheetUndoOp (itemAt redoStack (cnt - 1))
-                def take:boolean false
-                if (cnt == n) {
-                    take = true
-                } {
-                    if (tx > 0) {
-                        if (op.txId == tx) {
-                            take = true
-                        }
-                    }
-                }
-                if take {
-                    removeLast redoStack
-                    this.applyOp(op true)
-                    lastRow = op.row
-                    lastCol = op.col
-                    def keep:SpreadsheetUndoOp (new SpreadsheetUndoOp)
-                    keep.copyFrom(op)
-                    push undoStack keep
-                } {
-                    more = false
-                }
-            }
+        def span:int (history.redoSpan())
+        def lastRow:int 0
+        def lastCol:int 0
+        def moved:int 0
+        while (moved < span) {
+            def op:SpreadsheetUndoOp (history.peekRedo())
+            history.moveRedoToUndo()
+            this.applyOp(op true)
+            lastRow = op.row
+            lastCol = op.col
+            moved = (moved + 1)
         }
         return (CellPos.create(lastRow lastCol))
     }
@@ -2607,8 +2525,7 @@ class SpreadsheetModel {
         this.clearSheet()
         this.name = "Sheet1"
         this.resize(1000 26)
-        clear undoStack
-        clear redoStack
+        history.reset()
     }
 
     ; Seed a demo sheet: headers + a few sample rows. Sparse — rest stay empty.
@@ -2639,8 +2556,7 @@ class SpreadsheetModel {
         this.setColWidth(0 160)
         this.setColWidth(3 110)
         this.setRowHeight(0 28)
-        clear undoStack
-        clear redoStack
+        history.reset()
     }
 
     ; Fill many cells for scroll benches without storing empty rows.
@@ -2657,7 +2573,6 @@ class SpreadsheetModel {
             }
             r = (r + 1)
         }
-        clear undoStack
-        clear redoStack
+        history.reset()
     }
 }

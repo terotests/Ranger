@@ -1231,8 +1231,9 @@ class foo {
 
 Traits are very useful when used together with custom operators, because operators can also match traits.
 
-Another useful feature of traits is their genericity. While classes can not be generic, traits can and thus
-it is possible to implement for example generic collections using generic traits.
+Another useful feature of traits is their genericity. Traits take type
+parameters, and so do classes — see [Generic classes](#generic-classes) below —
+so a generic collection can be written either way.
 
 ```
 trait GenericCollection @params(T S) {
@@ -1272,6 +1273,101 @@ class Main {
     }
 }
 ```
+
+## Generic classes
+
+A class takes type parameters with the same `@params(...)` annotation a trait
+uses, and a reference names the arguments with `@(...)`:
+
+```
+class History @params(Op) {
+    def ops:[Op]
+
+    fn record:void (op:Op) {
+        push ops op
+    }
+    fn count:int () {
+        return (array_length ops)
+    }
+    fn newest:Op () {
+        def v:Op (last ops)
+        return v
+    }
+}
+
+class Main {
+    fn run:void () {
+        def ints:History@(int) (new History@(int) ())
+        ints.record(3)
+        def strs:History@(string) (new History@(string) ())
+        strs.record("a")
+    }
+}
+```
+
+A type parameter can be used as an array element, a map value, a parameter
+type and a return type, and a generic class may hold another one at its own
+parameter:
+
+```
+class Store @params(T) {
+    def byId:[string:T]         ; a map value
+    def slot:Cell@(T) (new Cell@(T) ())   ; another generic, at T
+    fn take:T (id:string) {     ; a return type
+        def v:T (unwrap (get byId id))
+        return v
+    }
+}
+```
+
+An instantiation is an ordinary type, so it can be the element type of a
+collection, and a generic class may name itself at its own parameter:
+
+```
+class Tree @params(T) {
+    def held:[T]
+    def kids:[Tree@(T)]                 ; an array of instantiations
+    fn adopt:void (k:Tree@(T)) {        ; and itself as a parameter type
+        push kids k
+    }
+}
+
+def byName:[string:Tree@(int)]          ; and as a map value
+```
+
+A generic class may have a constructor with arguments and may `Extends` a
+plain class. The type argument itself may be a class, a record, a `shape`, a
+primitive, an array (`History@([string])`) or a map (`Store@([string:int])`).
+
+There are no bounds, no constraints and no variance: nothing is asked of the
+argument type. Where a generic container needs to compare two values, pass the
+comparison in rather than reaching for a constraint.
+
+**A generic class has no static side.** `sfn` inside one is not reachable —
+only the instantiations exist at run time, and `History_int.describe()` is not
+a name anybody should have to write. Put statics on a plain class beside it;
+`gallery/office/editor/OfficeHistory.rgr` splits exactly that way.
+
+**How it compiles.** Each distinct instantiation is expanded into an ordinary
+concrete class before any writer runs — `History@(int)` becomes `History_int`
+— so the fourteen targets need no notion of generics at all. Two
+instantiations are two unrelated classes; neither can see the other's fields.
+Type arguments may themselves be collections (`History@([string])`
+instantiates `History_arr_string`), and a nested element type is spelled by
+nesting, as everywhere else in the language.
+
+Because expansion happens at each reference, a generic class is declared once
+and never emitted on its own: nothing is written for `History` itself, only
+for the instantiations a program actually asks for.
+
+**`@(optional)` is deliberately outside this.** An optional is not one thing
+across the targets — an optional string is a pointer on es6 and a plain
+`std::string` on C++, so `if body` compiles on JavaScript, Go and Python and
+does not compile on C++ at all (`gallery/book/ISSUES.md` #13). A `Maybe@(T)`
+built on top of that inconsistency would inherit it and spread it into every
+generic container, so the representation has to be settled first. Until it is,
+write a generic container over concrete values and let the caller decide what
+absence means.
 
 ## Variable definitions
 

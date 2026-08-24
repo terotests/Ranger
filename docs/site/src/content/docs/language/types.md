@@ -127,3 +127,67 @@ read an optional value.
 The letter `T` in an operator signature is a type parameter. The operator
 accepts a value of any type, and the compiler holds the type through the call.
 The [generic operators](/Ranger/docs/reference/operators/generic/) use this.
+
+A class takes type parameters with the `@params(...)` annotation. A reference
+gives the arguments with `@(...)`.
+
+```lisp
+class History @params(Op) {
+    def ops:[Op]
+
+    fn record:void (op:Op) {
+        push ops op
+    }
+    fn newest:Op () {
+        def v:Op (last ops)
+        return v
+    }
+}
+
+def ints:History@(int) (new History@(int) ())
+def texts:History@(string) (new History@(string) ())
+```
+
+A type parameter is usable as an array element, as a map value, as a parameter
+type and as a return type. A generic class can hold another generic class at
+its own parameter, can have a constructor with arguments, and can extend a
+plain class.
+
+An instantiation is an ordinary type. It can be the element type of a
+collection, and a generic class can name itself.
+
+```lisp
+class Tree @params(T) {
+    def held:[T]
+    def kids:[Tree@(T)]
+
+    fn adopt:void (k:Tree@(T)) {
+        push kids k
+    }
+}
+
+def byName:[string:Tree@(int)]
+```
+
+| The argument can be | Example |
+| --- | --- |
+| A primitive | `History@(int)` |
+| A class or a record | `History@(SlideOp)` |
+| A shape | `History@(EditOp)` |
+| An array | `History@([string])` |
+| A map | `Store@([string:int])` |
+
+There are no bounds and no constraints. Nothing is asked of the argument type.
+When a generic class must compare two values, give it the comparison function
+at construction.
+
+The compiler makes one concrete class for each set of arguments before it
+writes the target code. `History@(int)` becomes the class `History_int`. Two
+instantiations are two separate classes. A target language does not need
+generics of its own, and no target writes the type parameter.
+
+A generic class has no static side. Only the instantiations exist, so a `sfn`
+in a generic class is not reachable. Put the static functions in a plain class.
+
+A trait takes `@params(...)` in the same way. See
+[Structure](/Ranger/docs/language/structure/).

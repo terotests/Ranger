@@ -1103,10 +1103,7 @@ class BookApp {
                 if (dragMoved == false) {
                     ; Nothing moved, so the snapshot pushed on press is noise.
                     if (dragMode < 3) {
-                        def n:int (array_length editor.history)
-                        if (n > 0) {
-                            remove_index editor.history (n - 1)
-                        }
+                        editor.dropLastSnapshot()
                     }
                 }
             }

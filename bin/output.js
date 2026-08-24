@@ -2788,6 +2788,9 @@ class CodeNode  {
     newNode.array_type = match.getTypeName(this.array_type);
     newNode.value_type = this.value_type;
     newNode.parsed_type = this.parsed_type;
+    if ( match.isCollectionParam(this.type_name) ) {
+      match.applyCollectionType(newNode, this.type_name);
+    }
     if ( this.has_vref_annotation ) {
       newNode.has_vref_annotation = true;
       const ann = this.vref_annotation;
@@ -4417,7 +4420,11 @@ class RangerAppWriterContext  {
     } else {
       if ( node.value_type == 20 ) {
       } else {
-        this.addError(node, (("Unknown type: " + node.type_name) + " type ID : ") + node.value_type);
+        if ( this.hasTemplateNode(node.type_name) ) {
+          this.addError(node, ((node.type_name + " is a generic class and needs a type argument, for example ") + node.type_name) + "@(int)");
+        } else {
+          this.addError(node, (("Unknown type: " + node.type_name) + " type ID : ") + node.value_type);
+        }
       }
     }
     return false;
@@ -4650,6 +4657,83 @@ class RangerAppWriterContext  {
       res = new_class;
       const rootCtx = this.getRoot();
       await flowParser.WalkNode(new_class.node, ctx, wr);
+    }
+    return res;
+  };
+  async createGenericClassInstance (templateName, instanceName, typeArgs, flowParser, wr) {
+    let res;
+    const root = this.getRoot();
+    if ( root.isDefinedClass(instanceName) ) {
+      res = root.findClass(instanceName);
+      return res;
+    }
+    if ( root.hasTemplateNode(templateName) == false ) {
+      this.addError(typeArgs, "Could not find the generic class " + templateName);
+      return res;
+    }
+    const tplNode = root.findTemplateNode(templateName);
+    const params = tplNode.getExpressionProperty("params");
+    if ( typeof(params) === "undefined" ) {
+      this.addError(typeArgs, templateName + " is not a generic class");
+      return res;
+    }
+    const declared = params;
+    const givenCnt = typeArgs.children.length;
+    const wantCnt = declared.children.length;
+    if ( givenCnt != wantCnt ) {
+      const wantStr = "" + wantCnt;
+      const gotStr = "" + givenCnt;
+      let declared_names = "";
+      for ( let pi = 0; pi < declared.children.length; pi++) {
+        var pn = declared.children[pi];
+        if ( pi > 0 ) {
+          declared_names = declared_names + " ";
+        }
+        declared_names = declared_names + pn.vref;
+      };
+      let wantWord = " type arguments";
+      if ( wantCnt == 1 ) {
+        wantWord = " type argument";
+      }
+      this.addError(typeArgs, ((((((templateName + " is declared @params(") + declared_names) + ") and takes ") + wantStr) + wantWord) + ", given ") + gotStr);
+      return res;
+    }
+    const match = new RangerArgMatch();
+    for ( let i = 0; i < declared.children.length; i++) {
+      var pName = declared.children[i];
+      const given = typeArgs.children[i];
+      if ( match.addTypeParam(pName.vref, given.vref) == false ) {
+        this.addError(typeArgs, "Conflicting type argument for " + pName.vref);
+      }
+    };
+    const copyNode = tplNode.rebuildWithType(match, true);
+    const instCode = copyNode.code;
+    const instSp = copyNode.sp;
+    const instEp = copyNode.ep;
+    const instNode = new CodeNode(instCode, instSp, instEp);
+    instNode.expression = true;
+    for ( let i_1 = 0; i_1 < copyNode.prop_keys.length; i_1++) {
+      var key = copyNode.prop_keys[i_1];
+      if ( key == "params" ) {
+        continue;
+      }
+      instNode.prop_keys.push(key);
+      const pv = (( Object.prototype.hasOwnProperty.call(copyNode.props, key) ? copyNode.props[key] : undefined ));
+      instNode.props[key] = pv;
+    };
+    for ( let i_2 = 0; i_2 < copyNode.children.length; i_2++) {
+      var ch = copyNode.children[i_2];
+      ch.parent = instNode;
+      instNode.children.push(ch);
+    };
+    const cName = instNode.getSecond();
+    cName.vref = instanceName;
+    cName.has_vref_annotation = false;
+    const subCtx = root.fork();
+    await flowParser.WalkCollectMethods(instNode, subCtx, wr);
+    await flowParser.WalkNode(instNode, subCtx, wr);
+    if ( root.isDefinedClass(instanceName) ) {
+      res = root.findClass(instanceName);
     }
     return res;
   };
@@ -7300,6 +7384,7 @@ class RangerArgMatch  {
     this.nodes = {};
     this.builtNodes = {};
     this.matchedLambdas = {};
+    this.typeParamNames = [];
   }
   matchArguments (args, callArgs, ctx, firstArgIndex) {
     const fc = callArgs.children[0];
@@ -7766,6 +7851,72 @@ class RangerArgMatch  {
     } else {
     }
     return t_name == type2;
+  };
+  addTypeParam (tplKeyword, typeName) {
+    if ( ( typeof(this.matched[tplKeyword] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, tplKeyword) ) ) {
+      const prev = (( Object.prototype.hasOwnProperty.call(this.matched, tplKeyword) ? this.matched[tplKeyword] : undefined ));
+      const same = prev == typeName;
+      return same;
+    }
+    this.matched[tplKeyword] = typeName;
+    this.typeParamNames.push(tplKeyword);
+    return true;
+  };
+  isCollectionParam (n) {
+    if ( (( typeof(this.matched[n] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.matched, n) )) == false ) {
+      return false;
+    }
+    const t_name = (( Object.prototype.hasOwnProperty.call(this.matched, n) ? this.matched[n] : undefined ));
+    const tlen = t_name.length;
+    if ( tlen < 3 ) {
+      return false;
+    }
+    const lastAt = tlen - 1;
+    if ( (t_name.charCodeAt(0 )) != ("[".charCodeAt(0)) ) {
+      return false;
+    }
+    const endsOk = (t_name.charCodeAt(lastAt )) == ("]".charCodeAt(0));
+    return endsOk;
+  };
+  applyCollectionType (node, n) {
+    if ( this.isCollectionParam(n) == false ) {
+      return;
+    }
+    const t_name = (( Object.prototype.hasOwnProperty.call(this.matched, n) ? this.matched[n] : undefined ));
+    const tlen = t_name.length;
+    const innerEnd = tlen - 1;
+    const inner = t_name.substring(1, innerEnd );
+    const ilen = inner.length;
+    let sep = 0 - 1;
+    let depth = 0;
+    let ii = 0;
+    while (ii < ilen) {
+      const c = inner.charCodeAt(ii );
+      if ( c == ("[".charCodeAt(0)) ) {
+        depth = depth + 1;
+      }
+      if ( c == ("]".charCodeAt(0)) ) {
+        depth = depth - 1;
+      }
+      if ( c == (":".charCodeAt(0)) ) {
+        if ( (depth == 0) && (sep < 0) ) {
+          sep = ii;
+        }
+      }
+      ii = ii + 1;
+    };
+    node.type_name = "";
+    if ( sep < 0 ) {
+      node.value_type = 6;
+      node.parsed_type = 6;
+      node.array_type = inner;
+      return;
+    }
+    const valueFrom = sep + 1;
+    node.value_type = 7;
+    node.parsed_type = 7;
+    node.key_type = inner.substring(0, sep );
+    node.array_type = inner.substring(valueFrom, ilen );
   };
   getTypeName (n) {
     let t_name = n;
@@ -12050,6 +12201,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     EnterTemplateClass (node, ctx, wr) {
     };
     async EnterClass (node, ctx, wr) {
+      if ( node.hasExpressionProperty("params") ) {
+        return;
+      }
       const body_index = node.chlen() - 1;
       if ( (node.children.length) != 3 ) {
         if ( node.chlen() == 5 ) {
@@ -12984,13 +13138,109 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }));
       }
     };
+    annotationIsTypeArgs (tAnn, ctx) {
+      if ( (tAnn.children.length) == 0 ) {
+        return false;
+      }
+      for ( let i = 0; i < tAnn.children.length; i++) {
+        var ch = tAnn.children[i];
+        const nm = ch.vref;
+        if ( (nm.length) == 0 ) {
+          return false;
+        }
+        if ( ctx.hasTemplateNode(nm) ) {
+          continue;
+        }
+        if ( ctx.isDefinedType(nm) == false ) {
+          return false;
+        }
+      };
+      return true;
+    };
+    normalizeTypeArg (ch) {
+      const v = ch.vref;
+      const vlen = v.length;
+      if ( vlen < 2 ) {
+        return;
+      }
+      if ( (v.charCodeAt(0 )) != ("[".charCodeAt(0)) ) {
+        return;
+      }
+      const vLast = vlen - 1;
+      if ( (v.charCodeAt(vLast )) == ("]".charCodeAt(0)) ) {
+        return;
+      }
+      const t = ch.type_name;
+      const tlen = t.length;
+      if ( tlen < 1 ) {
+        return;
+      }
+      const tLast = tlen - 1;
+      if ( (t.charCodeAt(tLast )) != ("]".charCodeAt(0)) ) {
+        return;
+      }
+      ch.vref = (v + ":") + t;
+      ch.type_name = "";
+      ch.has_type_annotation = false;
+    };
+    async genericInstanceName (baseName, tAnn, ctx, wr) {
+      let tstr = "";
+      for ( let i = 0; i < tAnn.children.length; i++) {
+        var ch = tAnn.children[i];
+        this.normalizeTypeArg(ch);
+        await this.CheckVRefTypeAnnotationOf(ch, ctx, wr);
+        const part = this.typeArgKey(ch.vref);
+        tstr = (tstr + "_") + part;
+      };
+      return baseName + tstr;
+    };
+    typeArgKey (spelling) {
+      let res = "";
+      let ii = 0;
+      const ilen = spelling.length;
+      while (ii < ilen) {
+        const c = spelling.charCodeAt(ii );
+        const nextAt = ii + 1;
+        if ( c == ("[".charCodeAt(0)) ) {
+          res = res + "arr_";
+        } else {
+          if ( c == ("]".charCodeAt(0)) ) {
+          } else {
+            if ( (c == (":".charCodeAt(0))) || (c == (" ".charCodeAt(0))) ) {
+              res = res + "_";
+            } else {
+              res = res + (spelling.substring(ii, nextAt ));
+            }
+          }
+        }
+        ii = nextAt;
+      };
+      return res;
+    };
     async CheckVRefTypeAnnotationOf (node, ctx, wr) {
       if ( node.has_vref_annotation ) {
         const tAnn = node.vref_annotation;
+        if ( ctx.hasTemplateNode(node.vref) ) {
+          const instName = await this.genericInstanceName(node.vref, (tAnn), ctx, wr);
+          const made = await ctx.createGenericClassInstance(node.vref, instName, (tAnn), this, wr);
+          if ( typeof(made) === "undefined" ) {
+            return true;
+          }
+          node.vref = instName;
+          node.has_vref_annotation = false;
+          return true;
+        }
         if ( false == ctx.isDefinedClass(node.vref) ) {
           ctx.addError(node, ("Trait class " + node.vref) + " is not defined");
         } else {
           const testC = ctx.findClass(node.vref);
+          if ( (testC.is_trait == false) && (testC.node.hasExpressionProperty("params") == false) ) {
+            if ( this.annotationIsTypeArgs((tAnn), ctx) ) {
+              ctx.addError(node, node.vref + " takes no type arguments: it is not declared with @params(...)");
+              node.has_vref_annotation = false;
+            }
+            return false;
+          }
           if ( testC.is_trait ) {
             if ( testC.node.hasExpressionProperty("params") ) {
               const params = testC.node.getExpressionProperty("params");
@@ -13016,10 +13266,39 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     async CheckTypeAnnotationOf (node, ctx, wr) {
       if ( node.has_type_annotation ) {
         const tAnn = node.type_annotation;
-        if ( false == ctx.isDefinedClass(node.type_name) ) {
-          ctx.addError(node, ("Trait class " + node.type_name) + " is not defined");
+        let onElement = false;
+        let targetName = node.type_name;
+        if ( (targetName.length) == 0 ) {
+          if ( (node.array_type.length) > 0 ) {
+            targetName = node.array_type;
+            onElement = true;
+          }
+        }
+        if ( ctx.hasTemplateNode(targetName) ) {
+          const instName = await this.genericInstanceName(targetName, (tAnn), ctx, wr);
+          const made = await ctx.createGenericClassInstance(targetName, instName, (tAnn), this, wr);
+          if ( typeof(made) === "undefined" ) {
+            return true;
+          }
+          if ( onElement ) {
+            node.array_type = instName;
+          } else {
+            node.type_name = instName;
+          }
+          node.has_type_annotation = false;
+          return true;
+        }
+        if ( false == ctx.isDefinedClass(targetName) ) {
+          ctx.addError(node, ("Trait class " + targetName) + " is not defined");
         } else {
-          const testC = ctx.findClass(node.type_name);
+          const testC = ctx.findClass(targetName);
+          if ( (testC.is_trait == false) && (testC.node.hasExpressionProperty("params") == false) ) {
+            if ( this.annotationIsTypeArgs((tAnn), ctx) ) {
+              ctx.addError(node, targetName + " takes no type arguments: it is not declared with @params(...)");
+              node.has_type_annotation = false;
+            }
+            return false;
+          }
           if ( testC.is_trait ) {
             if ( testC.node.hasExpressionProperty("params") ) {
               const params = testC.node.getExpressionProperty("params");
@@ -13033,7 +13312,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const my_class_name = testC.name + tstr;
               const ann = tAnn;
               await ctx.createTraitInstanceClass(testC.name, my_class_name, ann, this, wr);
-              node.type_name = my_class_name;
+              if ( onElement ) {
+                node.array_type = my_class_name;
+              } else {
+                node.type_name = my_class_name;
+              }
               node.has_type_annotation = false;
               return true;
             }
@@ -15243,8 +15526,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       ParentClass.is_extended_by_children = true;
       ParentClass.child_classes.push(childName);
     };
+    WalkCollectTemplates (node, ctx, wr) {
+      if ( (node.children.length) > 1 ) {
+        const isClassDecl = (node.isFirstVref("class") || node.isFirstVref("CreateClass")) || node.isFirstVref("record");
+        if ( isClassDecl && node.hasExpressionProperty("params") ) {
+          const s = node.getVRefAt(1);
+          if ( ctx.hasTemplateNode(s) == false ) {
+            ctx.addTemplateClass(s, node);
+          }
+          return;
+        }
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.WalkCollectTemplates(ch, ctx, wr);
+      };
+    };
     async CollectMethods (node, ctx, wr) {
       this.DesugarShapes(node, ctx, wr);
+      this.WalkCollectTemplates(node, ctx, wr);
       await this.WalkCollectMethods(node, ctx, wr);
       let allTypes = [];
       const serviceBuilder = new RangerServiceBuilder();
@@ -15864,6 +16164,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return;
         }
         const s_1 = node.getVRefAt(1);
+        if ( node.hasExpressionProperty("params") ) {
+          if ( ctx.hasTemplateNode(s_1) == false ) {
+            ctx.addTemplateClass(s_1, node);
+          }
+          find_more = false;
+          return;
+        }
         if ( ctx.hasClass(s_1) ) {
           const existingCl = ctx.findClass(s_1);
           if ( existingCl.is_collected ) {
@@ -16305,7 +16612,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 classRefDesc = ctx.getVariableDef(strname);
                 if ( (typeof(classRefDesc) === "undefined") || (typeof(classRefDesc.nameNode) === "undefined") ) {
-                  ctx.addError(obj, "Error, no description for called object: " + strname);
+                  if ( ctx.hasTemplateNode(strname) ) {
+                    ctx.addError(obj, strname + " is a generic class, so it has no static side: only its instantiations exist. Move the static to a plain class.");
+                  } else {
+                    ctx.addError(obj, "Error, no description for called object: " + strname);
+                  }
                   break;
                 }
                 classRefDesc.ref_cnt = 1 + classRefDesc.ref_cnt;
@@ -32625,7 +32936,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               if ( (arr_type == "string") && this.rustStrRefRead(right_1) ) {
                                 wr.out(".to_string()", false);
                               } else {
-                                wr.out(".clone()", false);
+                                if ( this.rustSliceRefRead(right_1) ) {
+                                  wr.out(".to_vec()", false);
+                                } else {
+                                  wr.out(".clone()", false);
+                                }
                               }
                             } else {
                               if ( (arr_type == "string") && this.rustStrRefRead(right_1) ) {
@@ -32636,7 +32951,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   if ( arr_type != "int" ) {
                                     if ( arr_type != "double" ) {
                                       if ( arr_type != "boolean" ) {
-                                        wr.out(".clone()", false);
+                                        if ( this.rustSliceRefRead(right_1) ) {
+                                          wr.out(".to_vec()", false);
+                                        } else {
+                                          wr.out(".clone()", false);
+                                        }
                                       }
                                     }
                                   }

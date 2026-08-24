@@ -21,6 +21,8 @@
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
 
 ### Still Open
+- Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
+- Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
 - Issue #59: System classes have hardcoded type handling (Design Issue)
 - Issue #15: Adding new primitive types requires changes in multiple files (partially addressed by `TTypeRegistry`; full `primitivetype` registry not done)
@@ -2622,6 +2624,143 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #74: Rust writes `&self` for a method whose only job is to mutate a field object
+
+**Status:** open. Reproduces with no generic class in the program.
+
+### Reproduction
+
+```ranger
+class SlotI {
+    def held:[int]
+    fn put:void (v:int) {
+        clear held
+        push held v
+    }
+}
+class HolderI {
+    def slot:SlotI (new SlotI ())
+    fn keep:void (v:int) {
+        slot.put(v)
+    }
+}
+```
+
+`rustc` rejects the output:
+
+```
+error[E0596]: cannot borrow `self.slot` as mutable, as it is behind a `&` reference
+    self.slot.put(v);
+```
+
+`fn keep` is emitted `&self`. Writing it `this.slot.put(v)` makes no difference.
+
+### Cause
+
+`fnBodyDirectlyMutatesThis` recognises a mutating call on a field, but only in
+the shape the front end produces for a call in VALUE position. `return
+(slot.get())` is desugared to `(call slot get ())` — three children, receiver
+at index 1 — and the check reads exactly that. A call in STATEMENT position is
+left as `(slot.put (v))`: two children, the whole dotted path in the first.
+That shape never reaches the member-call branch, so a method that mutates a
+field object *and does nothing else* is analysed as non-mutating.
+
+Traced with a print at the top of `fnBodyDirectlyMutatesThis`: it visits
+`(slot.put (v))`, and the `node.has_call` branch below never fires for it.
+
+### Fix
+
+Recognise the statement-position shape as well. The two guards the desugared
+branch applies — a collection target only counts for a mutating operator, and a
+cell-wrapped or Rc field does not count at all — both read the RECEIVER node,
+which the statement shape does not hand over, so they have to be re-expressed
+over the field's `RangerAppParamDesc` instead. Not attempted here: this decides
+`&self` vs `&mut self` for every method on the target, and getting it wrong in
+the other direction produces E0499 double borrows rather than a clean error.
+
+### Where it shows
+
+`tests/conformance/generic_class_kernel/` has this shape (`Holder@(T)` holding
+a `Slot@(T)`), because one generic class holding another at its own type
+parameter is what `Transaction<Op>` inside `History<Op>` needs. It runs on
+thirteen targets; the Rust RUN is skipped with a pointer here, and Rust codegen
+is still asserted.
+
+## Issue #73: LLVM mishandles a collection nested inside a collection
+
+**Status:** open. Reproduces with no generic class anywhere in the program, so
+this is a Low IR ownership defect and not part of the generics work — it is
+written down here because the generics conformance case is what surfaced it.
+
+### Reproduction
+
+```ranger
+class A {
+    def rows:[[string]]
+    fn addRow:void (r:[string]) {
+        push rows r
+    }
+    fn lastRow:[string] () {
+        def v:[string] (last rows)
+        return v
+    }
+}
+```
+
+Push one `["x" "y"]` and read it back:
+
+| target | output |
+| --- | --- |
+| es6, go, python, php, cpp, rust | `rows 1 x,y` |
+| **llvm** | `rows 1  ,` — the row survives, its elements do not |
+
+`tests/conformance/generic_class/program.rgr` instantiates a generic class at
+`[string]` and hits the same thing (`rows: 2 @>` instead of `rows: 2 z`), which
+is why `tests/compiler-generics.test.ts` compares every line but that one on
+LLVM and says so in a comment.
+
+### The map form is worse: it crashes, and only past one entry
+
+```ranger
+class Rows {
+    def byId:[string:[string:int]]
+    def ids:[string]
+    fn put:void (id:string v:[string:int]) {
+        set byId id v
+        push ids id
+    }
+    fn take:[string:int] (id:string) {
+        def v:[string:int] (unwrap (get byId id))
+        return v
+    }
+}
+```
+
+Put a `[string:int]` with **one** entry into it and read it back: correct on
+every target, LLVM included. Put one with **two** entries in: LLVM segfaults,
+every other target is fine. One entry surviving and two not is what an
+under-retained buffer looks like — the inner map's storage is freed at the end
+of the scope that built it, and the outer map is left pointing at it; with one
+entry the read happens to land inside memory that has not been reused yet.
+
+No generic class appears anywhere in that program, which is why
+`tests/conformance/generic_class_kernel/` asserts LLVM CODEGEN and skips the
+LLVM run.
+
+### Cause (not yet confirmed)
+
+Same family as TARGET_NOTES #25 and #26: a collection whose element type is
+itself a collection reaches the Low IR builder as a descriptor with no retain,
+so the outer array holds a pointer into memory that has already been released.
+`smapValueOwnKind` answering 0 for a nested value type is the shape of the two
+recorded map defects, and the array path looks like a third.
+
+### Fix
+
+Not attempted here. The element-kind classification has to be recursive on the
+Low IR side, the same way the C# and Dart writers had to be given a recursive
+type spelling.
 
 ## Issue #71: `tryDesugarNewMethodChain` exists only as hand-written JavaScript, so every self-hosted compiler is missing it
 

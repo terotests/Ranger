@@ -117,6 +117,37 @@ Extends(ParentClass)
 def p (new Point(3 4))      ; record: positional
 ```
 
+## Generic classes
+
+```ranger
+class History @params(Op) {     ; declare with @params
+    def ops:[Op]                ; T as an array element
+    fn record:void (op:Op) {    ; …as a parameter
+        push ops op
+    }
+    fn newest:Op () {           ; …and as a return type
+        def v:Op (last ops)
+        return v
+    }
+}
+
+def h:History@(int) (new History@(int) ())     ; instantiate with @(...)
+def rows:History@([string]) (new History@([string]) ())
+def byId:Store@([string:int]) (new Store@([string:int]) ())
+```
+
+Also allowed: `[string:T]` fields, a constructor with arguments, `Extends`, one
+generic class holding another at its own parameter (`def slot:Cell@(T)`), an
+instantiation as a collection element (`def kids:[Tree@(T)]`,
+`def byName:[string:Tree@(int)]`), and a generic class naming itself.
+
+No bounds, no constraints, no variance. Each instantiation is expanded into a
+concrete class (`History_int`, `History_arr_string`) before codegen, so every
+target sees ordinary classes. Traits take `@params` the same way.
+
+**No static side:** `sfn` in a generic class is unreachable — only the
+instantiations exist. Put statics on a plain class beside it.
+
 ## Arrays
 
 ```ranger

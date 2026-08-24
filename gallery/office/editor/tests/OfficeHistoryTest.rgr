@@ -45,7 +45,7 @@ class OfficeHistoryTest {
         print "== OfficeHistoryTest =="
 
         print "-- one action, however many primitives --"
-        def h (new OfficeHistory)
+        def h:OfficeHistory@(int) (new OfficeHistory@(int) ())
         c.eqInt("nothing open to begin with" (h.stamp()) 0)
         c.ok("and nothing in progress" ((h.inTransaction()) == false))
         c.ok("so trimming is allowed" (h.mayTrim()))
@@ -84,38 +84,38 @@ class OfficeHistoryTest {
         push stack 0
         push stack 7
         push stack 7
-        c.eqInt("the top two undo together" (OfficeHistory.spanAt(stack 3)) 2)
-        c.eqInt("an op on its own is one" (OfficeHistory.spanAt(stack 1)) 1)
-        c.eqInt("and so is the first" (OfficeHistory.spanAt(stack 0)) 1)
-        c.eqInt("past the end is nothing" (OfficeHistory.spanAt(stack 9)) 0)
-        c.eqInt("and before the start is nothing" (OfficeHistory.spanAt(stack -1)) 0)
+        c.eqInt("the top two undo together" (OfficeHistoryRules.spanAt(stack 3)) 2)
+        c.eqInt("an op on its own is one" (OfficeHistoryRules.spanAt(stack 1)) 1)
+        c.eqInt("and so is the first" (OfficeHistoryRules.spanAt(stack 0)) 1)
+        c.eqInt("past the end is nothing" (OfficeHistoryRules.spanAt(stack 9)) 0)
+        c.eqInt("and before the start is nothing" (OfficeHistoryRules.spanAt(stack -1)) 0)
         ; A whole stack that is one action.
         def all:[int]
         push all 3
         push all 3
         push all 3
-        c.eqInt("an action that is the whole stack" (OfficeHistory.spanAt(all 2)) 3)
+        c.eqInt("an action that is the whole stack" (OfficeHistoryRules.spanAt(all 2)) 3)
         ; Two actions that happen to be adjacent must not run together.
         def two:[int]
         push two 4
         push two 4
         push two 5
         push two 5
-        c.eqInt("the second action stops at its own ops" (OfficeHistory.spanAt(two 3)) 2)
+        c.eqInt("the second action stops at its own ops" (OfficeHistoryRules.spanAt(two 3)) 2)
 
         print "-- the cap drops whole actions --"
         ; Under the cap, nothing goes.
         def small:[int]
         push small 0
         push small 0
-        c.eqInt("under the cap nothing is dropped" (OfficeHistory.dropCount(small 5)) 0)
-        c.eqInt("exactly at the cap, nothing either" (OfficeHistory.dropCount(small 2)) 0)
+        c.eqInt("under the cap nothing is dropped" (OfficeHistoryRules.dropCount(small 5)) 0)
+        c.eqInt("exactly at the cap, nothing either" (OfficeHistoryRules.dropCount(small 2)) 0)
         ; Over the cap by one, and the op at the cut is alone: drop just it.
         def loose:[int]
         push loose 0
         push loose 0
         push loose 0
-        c.eqInt("one over, one goes" (OfficeHistory.dropCount(loose 2)) 1)
+        c.eqInt("one over, one goes" (OfficeHistoryRules.dropCount(loose 2)) 1)
         ; Now the op at the cut is the middle of an action — the rest of that
         ; action has to go with it, or an undo can only reach a state the
         ; document was never in.
@@ -125,9 +125,9 @@ class OfficeHistoryTest {
         push grouped 9
         push grouped 0
         c.eqInt("the cut lands inside an action, so the whole action goes"
-            (OfficeHistory.dropCount(grouped 3)) 3)
+            (OfficeHistoryRules.dropCount(grouped 3)) 3)
         c.ok("which leaves less than the cap, deliberately"
-            (((array_length grouped) - (OfficeHistory.dropCount(grouped 3))) < 3))
+            (((array_length grouped) - (OfficeHistoryRules.dropCount(grouped 3))) < 3))
         ; An action at the bottom that is entirely below the cut goes whole.
         def mixed:[int]
         push mixed 1
@@ -135,7 +135,112 @@ class OfficeHistoryTest {
         push mixed 2
         push mixed 2
         push mixed 0
-        c.eqInt("a whole action below the cut" (OfficeHistory.dropCount(mixed 3)) 2)
+        c.eqInt("a whole action below the cut" (OfficeHistoryRules.dropCount(mixed 3)) 2)
+
+        print "-- and the history holds the ops --"
+        ; The type argument is `int` here only because the rules do not care
+        ; what an op is: two instantiations of this class are two separate
+        ; concrete classes, and neither can see the other's operations.
+        def hh:OfficeHistory@(int) (new OfficeHistory@(int) ())
+        hh.record(10)
+        hh.record(11)
+        c.eqInt("two ops in" (hh.depth()) 2)
+        c.ok("so undo is available" (hh.canUndo()))
+        c.ok("and redo is not" ((hh.canRedo()) == false))
+        c.eqInt("an op on its own is one undo" (hh.undoSpan()) 1)
+
+        ; A paste is one action however many ops it took.
+        hh.begin()
+        hh.record(20)
+        hh.record(21)
+        hh.record(22)
+        hh.end()
+        c.eqInt("five ops in" (hh.depth()) 5)
+        c.eqInt("but the last three are one undo" (hh.undoSpan()) 3)
+        ; One press, walked one op at a time, newest first — the order they
+        ; have to be inverted in.
+        def span:int (hh.undoSpan())
+        def undone:[int]
+        def moved:int 0
+        while (moved < span) {
+            push undone (hh.peekUndo())
+            hh.moveUndoToRedo()
+            moved = (moved + 1)
+        }
+        c.eqInt("one press took the whole action" (array_length undone) 3)
+        c.eqInt("newest first, so they invert in order" (itemAt undone 0) 22)
+        c.eqInt("down to the oldest of the action" (itemAt undone 2) 20)
+        c.eqInt("and the stack is back to two" (hh.depth()) 2)
+        c.ok("with a redo waiting" (hh.canRedo()))
+
+        ; The same function with the direction turned around. The ops crossed
+        ; carrying their stamps, so redo knows the action is still one press.
+        def rspan:int (hh.redoSpan())
+        c.eqInt("and the redo is the same one action" rspan 3)
+        def again:[int]
+        def rmoved:int 0
+        while (rmoved < rspan) {
+            push again (hh.peekRedo())
+            hh.moveRedoToUndo()
+            rmoved = (rmoved + 1)
+        }
+        c.eqInt("redo puts the whole action back" (array_length again) 3)
+        c.eqInt("oldest first, so they replay in order" (itemAt again 0) 20)
+        c.eqInt("up to the newest" (itemAt again 2) 22)
+        c.eqInt("and the stack is five again" (hh.depth()) 5)
+        c.ok("with nothing left to redo" ((hh.canRedo()) == false))
+
+        ; A new edit makes every undone op unreachable: redoing one after it
+        ; would apply it to a document it was never recorded against.
+        hh.moveUndoToRedo()
+        c.ok("something to redo" (hh.canRedo()))
+        hh.record(99)
+        c.ok("until a new edit lands" ((hh.canRedo()) == false))
+
+        ; The cap trims the array the class now owns, and it waits for the
+        ; action being recorded to finish.
+        def cap:OfficeHistory@(int) (new OfficeHistory@(int) ())
+        cap.limit = 3
+        cap.begin()
+        cap.record(1)
+        cap.record(2)
+        cap.record(3)
+        cap.record(4)
+        c.eqInt("nothing is trimmed while the action is open" (cap.depth()) 4)
+        cap.end()
+        ; The action is longer than the cap, so all of it goes rather than the
+        ; front of it: half an action is an undo that can only reach a state
+        ; the document was never in.
+        c.eqInt("and an action longer than the cap goes whole" (cap.depth()) 0)
+
+        def cap2:OfficeHistory@(int) (new OfficeHistory@(int) ())
+        cap2.limit = 5
+        cap2.begin()
+        cap2.record(1)
+        cap2.record(2)
+        cap2.record(3)
+        cap2.end()
+        cap2.record(4)
+        cap2.record(5)
+        c.eqInt("at the cap, nothing goes" (cap2.depth()) 5)
+        cap2.record(6)
+        ; The cut lands in the middle of the first action, so the rest of that
+        ; action goes with it — three off, not one.
+        c.eqInt("one over the cap takes the whole action at the cut" (cap2.depth()) 3)
+
+        ; A snapshot editor moves states across itself, and still gets the cap.
+        def snap:OfficeHistory@(string) (new OfficeHistory@(string) ())
+        snap.record("a")
+        snap.record("b")
+        def prev:string (snap.popUndo())
+        snap.pushRedo("live")
+        c.ok("popUndo gives the state to restore" (prev == "b"))
+        c.eqInt("and takes it off the undo side" (snap.depth()) 1)
+        c.ok("with the state it replaced waiting to redo" (snap.canRedo()))
+        def back:string (snap.popRedo())
+        snap.pushUndo(prev)
+        c.ok("popRedo gives it back" (back == "live"))
+        c.eqInt("and the undo side has it again" (snap.depth()) 2)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

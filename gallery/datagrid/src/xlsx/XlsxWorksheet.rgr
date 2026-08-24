@@ -730,8 +730,7 @@ class XlsxWorksheet {
             ; `readConditionalFormatting`. It cannot be read here: the capture
             ; above has already consumed the element.
         }
-        clear model.undoStack
-        clear model.redoStack
+        model.history.reset()
         model.version = (model.version + 1)
     }
 

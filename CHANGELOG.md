@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Generic classes, and the first thing they were wanted for** — `class History @params(Op)` takes a type parameter and a reference names its argument, `History@(int)`. A parameter can be an array element, a parameter type and a return type; there are **no bounds, no constraints and no variance**, which was a decision rather than an omission — the case that would have forced a constraint system is `Selection<T>`'s `contains`, and passing the comparison in costs one field where designing bounds costs fourteen backends. Traits have taken `@params` for years; classes could not, and the file that most wanted them said so in its own header.
+
+  **Each instantiation is expanded into an ordinary class before any writer runs.** `History@(int)` becomes `History_int`, `History@([string])` becomes `History_arr_string`, and the fourteen targets — es6, go, python, cpp, rust, swift3, swift6, java7, kotlin, php, csharp, scala, dart, llvm — were not touched at all. That is the whole design: PHP has no generics, Python erases them, C++ wants templates, Rust wants bounds it can check, and the LLVM path here does its own retain/release, so none of them is asked to learn a type system. `shape` already desugars this way. A generic class is never emitted on its own; only the instantiations a program asks for exist, and two of them are unrelated classes that cannot see each other's fields.
+
+  Three things had to be fixed under it. `RangerArgMatch.add` answered *true* for any type-parameter name longer than one character **without recording it** — reasonable for the operator matcher, where a long name is a concrete type to match against, and fatal for a declaration, so `@params(Op)` bound nothing and every copy kept `Op` as a type name. Declared parameters now bind whatever they are called. A type argument that is itself a collection may not stay a type NAME — left as one, every writer spells a class called `[string]` — so `def x:Op` with `Op` bound to `[string]` becomes the array node it stands for, and the writers see an ordinary `[string]` parameter. And templates are registered in a pass of their own before collection: a class variable of a generic type collected before the file declaring it saw an undeclared name, which made **import order** decide whether a program compiled — four of the docx suites built and two did not, on the same source.
+
+  **What a type parameter may be and where it may go**, after working through
+  what an author reaches for next: an array element, a **map value**
+  (`[string:T]`, which is `Store<T>`), a parameter, a return type, and the
+  parameter of **another generic class held as a field** — `Cell@(T)` inside
+  `Holder@(T)`, which is the shape `Transaction<Op>` inside `History<Op>`
+  needs, and the one that proves expansion recurses rather than stopping at the
+  outermost reference. A generic class may take constructor arguments and may
+  `Extends` a plain class. A type ARGUMENT may be a class, a record, a shape, a
+  primitive, an array or a map — the map form needed a fix of its own, because
+  the annotation's own parse splits `[string:int]` at the colon (a colon inside
+  a word is a type separator everywhere else in the language) and the argument
+  arrived as `[string`, silently. It is put back together rather than teaching
+  the tokeniser about brackets, which would put every other token in the
+  language up for re-checking.
+
+  **An instantiation is an ordinary type**, so it can be a collection's element
+  type — `def kids:[Tree@(T)]`, `def byName:[string:Tree@(int)]` — and a
+  generic class can name ITSELF at its own parameter. The element type of a
+  collection lives in `array_type` rather than in `type_name`, and the
+  annotation was being looked up against an empty name, so the program was told
+  "Trait class  is not defined" with a blank where the class should be. Naming
+  itself does not send the expansion round for ever: the instance is registered
+  before its body is walked.
+
+  **A generic class has no static side**, and now says so. Only instantiations
+  exist at run time, so `sfn` inside one is unreachable; the error used to be
+  "no description for called object", which sends the reader looking for a
+  missing import. Three more messages went the same way: naming a generic class
+  with no argument at all said "Unknown type: Box" and now says it is a generic
+  class and shows the spelling; the wrong number of arguments now names what
+  the class was declared with; and a type argument list on a class that takes
+  none was **dropped in silence**, so `new Plain@(int)` compiled as
+  `new Plain` and left the author believing Plain was generic.
+
+  `tests/conformance/generic_class/` is the case worth writing first: one generic class at **two different types** in one program, one at an **array type**, one at a **shape type**. `npm run test:generics` compiles it for all fourteen targets and runs it on every toolchain present, comparing output. It found two defects. The Rust writer pushed a borrowed slice parameter into a nested array with `.clone()`, which clones the reference rather than the elements — `[[string]]` never compiled on Rust, with or without a generic class; it takes `.to_vec()` now. And LLVM loses the elements of a nested array entirely, which also reproduces with no generic class in sight and is left open as ISSUES #73 rather than papered over.
+
+  A second case, `tests/conformance/generic_class_kernel/`, covers the shapes the editors actually ask for, and turned up two more target defects of the same character — both reproducible in twenty lines with no generic class in them. **ISSUES #73 grew a worse form**: `[string:[string:int]]` does not merely come back wrong on LLVM, it segfaults, and only once the inner map holds a *second* entry — one entry reads back correctly, which is what a freed-but-not-yet-reused buffer looks like. **ISSUES #74 is new**: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. The cause is pinned down — a call in statement position keeps the shape `(slot.put (v))` while the mutability analysis only reads the desugared `(call slot get ())` that a call in value position becomes — but the fix decides `&self` vs `&mut self` for every method on the target and belongs in its own change. Both are skipped by name, with the issue number, and codegen is still asserted for both targets.
+
+  Documented where a reader will actually look: the language guide's *Types*
+  page, the FAQ (with a compiled example whose output the site shows for all
+  thirteen documented targets — `History_int` and `History_string` side by
+  side, which is the design in one screenshot), the README and the offline
+  syntax card.
+
+- **`OfficeHistory` holds the operations, and three editors deleted their undo stacks** — the shared undo file used to end its explanation with an apology: *"Ranger has no generics either, so this deliberately does not try to hold the ops themselves — each editor keeps its own array."* It held the *rules* — what one action is, what falls off at the cap, when trimming is safe — and two of the three editors that needed them ignored it, because taking the rules without the array meant rebuilding a parallel `[int]` of transaction ids at every call site. The apology is gone: `OfficeHistory@(DocEditOp)`, `OfficeHistory@(SpreadsheetUndoOp)`, `OfficeHistory@(BookDocument)` and `OfficeHistory@(PptxEditSnapshot)` are four separate concrete classes, none of which knows anything about the others' entries.
+
+  The four editors do not agree on what an entry IS, and no longer have to. The document and the spreadsheet record **operations** and undo by inverting them, so they walk `undoSpan()` entries with `peekUndo` / `moveUndoToRedo` — one at a time, because an op that will not apply has to stay where it is. The book and the deck record **snapshots** and undo by swapping states, so they use `popUndo` / `pushRedo` and decide themselves which state crosses. Both get the cap, the transaction stamping and the redo invalidation from the one file, which is the part that was wrong in two editors out of three. `PptxEdit` gave up its `history` array, its `historyPos` cursor, its own trim loop and its `set_at` coalescing; `SpreadsheetModel` gave up two stacks, `maxUndo`, `txDepth`, `curTx`, `txCounter` and `trimUndo`; `DocxEditController` gave up two stacks, `maxUndo` and `trimUndo`; `BookEdit` gave up two arrays and `historyLimit`. `DocEditOp.txId` and `SpreadsheetUndoOp.txId` went with them — the history stamps now. Net: **356 lines deleted against 528 added**, and the added ones are almost all in the shared file and its suite (`npm run office:history:test`, 55 checks, JavaScript and C++).
+
+- **Every visual editor's suite runs in CI** — none of `book:test`, `pptx:test`, `docx_viewer:test`, `datagrid:test` or `office:*:test` ran anywhere in `.github/workflows/ci.yml`. A fix crossed from one editor to the next only when a human remembered to run five suites by hand, which is literally what the `JPEGDecoder` change cost. The new `gallery-editors` job runs nineteen of them and is required by `test-gate`; it is deliberately **ungated**, since a compiler change breaks these exactly as easily as a gallery change does. It runs through `scripts/run-gallery-editor-tests.sh` rather than a chain of npm scripts for a reason worth stating: **the compiler prints `[FAIL]` and still exits 0**, so a chain runs the stale build from the previous compile and reports a pass — a CI job that goes green on a compile error is worse than no CI job. Each suite fails on `[FAIL]` in the output, on a missing pass marker, and on a non-zero exit.
+
 - **The book editor as a native window, configured by a file** — `gallery/book/platform/sdl` compiles the whole editor to C++ and runs it on SDL2 + OpenGL. Nothing in the editor changed to make that possible, which is the point of the display-list seam: `evg-webgl.js` draws the list in a browser tab and `EvgGlPainter` draws the same list in a window, from the same commands, with no second copy of the tree walk. The window, the input and the GL present path are the DataGrid's `dgfx_*` layer, borrowed the way the schema editor borrows it.
 
   **A window has no URL and no argument list**, so what it opens comes from `book.config.json`, and **every field has a default**: `{ "spread": 3 }` is a complete config meaning "like the default, but that". A missing file is not an error, it is the defaults — the first run of a fresh build should show a book rather than a diagnostic, and a half-written config is the normal state of a config. What the host will not do is hide what it decided: it prints the settings actually in force before opening anything, because a host that silently fell back to a default is indistinguishable from one that read your file correctly, and the difference matters the moment a path is wrong. It opens the sample, an Apple album, or a photo query — the same query `book:photos` takes, written as data.

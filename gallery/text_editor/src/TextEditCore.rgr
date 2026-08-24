@@ -93,10 +93,6 @@ class DocEditOp {
     def secondId:int 0
     def boldSet:boolean false
     def boldVal:boolean false
-    ; Which action this op belongs to. Ops sharing an id undo together, so a
-    ; paste that is five primitives is one press of undo. Zero means the op
-    ; stands alone.
-    def txId:int 0
 
     Constructor () {
     }
