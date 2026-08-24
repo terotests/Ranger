@@ -557,7 +557,7 @@
     "evgcomp:build:rust": "npm run evgcomp:compile:rust && cd gallery/pdf_writer/bin && rustc -O -o evg_component_tool_rust.exe evg_component_tool.rs",
     "evgcomp:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=cpp ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_component_tool.cpp -nodecli",
     "evgcomp:build:cpp": "npm run evgcomp:compile:cpp && wsl x86_64-w64-mingw32-g++-posix -std=c++17 -static -O3 gallery/pdf_writer/bin/evg_component_tool.cpp -o gallery/pdf_writer/bin/evg_component_tool_cpp.exe",
-    "evgcomp:run": "node ./gallery/pdf_writer/bin/evg_component_tool.js ./gallery/pdf_writer/examples/test_component_simple.tsx ./gallery/pdf_writer/output/pdfs/component_output.pdf",
+    "evgcomp:run": "node ./gallery/pdf_writer/bin/evg_component_tool.js ./gallery/pdf_writer/examples/test_component_simple.tsx ./gallery/pdf_writer/output/pdfs/component_output.pdf \"--assets=./gallery/pdf_writer/assets/fonts;./gallery/pdf_writer/examples/components\"",
     "evgcomp:test": "npm run evgcomp:compile && npm run evgcomp:run",
     "evgcomp": "npm run evgcomp:compile && npm run evgcomp:run",
     "evg:tool:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_tool.js -nodecli",

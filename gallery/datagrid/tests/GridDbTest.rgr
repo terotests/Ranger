@@ -237,6 +237,24 @@ class GridDbTest {
         ; A shortcut is not a discoverable feature, and in a browser Ctrl+D is
         ; the bookmark. Both windows have a button, and the button is clicked
         ; here the way a pointer clicks it.
+        ; The database buttons live on the DATA tab, and a button on an
+        ; inactive tab is not laid out at all — `w` stays 0, the pointer hits
+        ; nothing, and the window never opens. The test used to look for the
+        ; button and click it without choosing the tab, which worked when the
+        ; strip had no tabs. Choosing it is what a person does first.
+        def dataTab:int -1
+        def dti:int 0
+        while (dti < (app.view.toolbar.tabCount())) {
+            def tab:ToolTab (app.view.toolbar.tabAt(dti))
+            if (tab.name == "Data") {
+                dataTab = dti
+            }
+            dti = (dti + 1)
+        }
+        check.ok("there is a Data tab" (dataTab >= 0))
+        app.view.toolbar.selectTab(dataTab)
+        app.render()
+
         def dbButton:int (GridDbTest.toolIndexFor(app "db.connection"))
         check.ok("there is a database button on the toolbar" (dbButton >= 0))
         def sqlButton:int (GridDbTest.toolIndexFor(app "db.sql.dialog"))
