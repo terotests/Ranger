@@ -49,6 +49,23 @@ class Chart {
   curveSteps(n) { this._.curveSteps(n | 0); return this; }
 
   /**
+   * Vega-Lite `config` for every chart this object draws.
+   *
+   * A deck of six charts otherwise states the same thing six times — the same
+   * axis colours, the same absent domain line, the same view with no border —
+   * and the interesting half of each specification, its DATA, ends up buried
+   * in the half that never changes.
+   *
+   * A chart's own `config` still wins, key by key and one level down: setting
+   * `view` on one chart replaces the view block and leaves the axis block from
+   * here standing.
+   */
+  config(spec) {
+    this._.config(typeof spec === "string" ? spec : JSON.stringify(spec));
+    return this;
+  }
+
+  /**
    * Compile `spec` and put it on `slide`, inside the box, in points.
    *
    * `spec` may be the JSON text or the object; an object is stringified here.

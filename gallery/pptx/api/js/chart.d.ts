@@ -14,6 +14,12 @@ export declare class Chart {
   font(family: string): this;
   /** How finely a curve is subdivided. Sixteen segments unless told otherwise. */
   curveSteps(n: number): this;
+  /**
+   * Vega-Lite `config` for every chart this object draws, so six charts need
+   * not repeat it six times. A chart's own `config` wins, key by key and one
+   * level down.
+   */
+  config(spec: string | object): this;
 
   /**
    * Compile `spec` and put it on `slide`, inside the box, in points. The

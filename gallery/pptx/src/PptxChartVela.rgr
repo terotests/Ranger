@@ -109,7 +109,9 @@ class PptxChartVela {
             return
         }
         def compiler (new VlCompile())
-        def vg:VlJson (compiler.compile(vl))
+        ; The outer one: see PptxVegaShapes. The inner `compile` drops the
+        ; chart's whole configuration on the floor.
+        def vg:VlJson (compiler.compileSpec(vl))
         def rt (new VlRuntime())
         def scene:VlSceneMark (rt.run(vg))
         def list:VlCommandList (VlSceneCommands.build(scene))

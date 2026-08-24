@@ -98,6 +98,15 @@ class PptxVegaShapes {
     ; What the specification asked to be, before it was fitted to the box.
     def viewWidth:double 0.0
     def viewHeight:double 0.0
+    ; Vega-Lite `config` applied to every specification this object compiles,
+    ; as JSON text. Empty until a caller sets one.
+    ;
+    ; A deck of six charts states the same thing six times otherwise — the
+    ; same axis colours, the same absent domain line, the same view with no
+    ; border round it — and the interesting half of each specification, which
+    ; is its DATA, is buried in it. Vega-Lite already has the place for this
+    ; and calls it `config`; all this adds is somewhere to say it once.
+    def defaultConfig:string ""
 
     Constructor () {
     }
@@ -139,8 +148,30 @@ class PptxVegaShapes {
             error = ("the specification is not JSON: " + parser.err)
             return group
         }
+        ; The deck's config under the specification's own, key by key and one
+        ; level down, so `config: {view: {…}}` on a chart replaces the view
+        ; block and leaves the axis block that came from the deck standing.
+        ; Replacing the whole `config` instead would make setting one property
+        ; on one chart silently drop every default it also wanted.
+        if ((strlen defaultConfig) > 0) {
+            def baseParser (new VlJsonParser())
+            def base:VlJson (baseParser.parse(defaultConfig))
+            if (baseParser.ok == false) {
+                error = ("the chart defaults are not JSON: " + baseParser.err)
+                return group
+            }
+            def merged:VlJson (PptxVegaShapes.underlay(base (vl.get("config"))))
+            vl.setMember("config" merged)
+        }
         def compiler (new VlCompile())
-        def vg:VlJson (compiler.compile(vl))
+        ; `compileSpec`, not `compile`. The inner one is called again for every
+        ; layer and every pane, so the things that belong to the CHART rather
+        ; than to a piece of it — the configuration above all — are attached by
+        ; the outer one. Calling the inner one directly dropped `config`
+        ; entirely, which is why `view: {stroke: null}` drew a border anyway
+        ; and every chart in a deck had to repeat on each encoding what it had
+        ; already said once at the top.
+        def vg:VlJson (compiler.compileSpec(vl))
         def rt (new VlRuntime())
         def scene:VlSceneMark (rt.run(vg))
         def errs:int (rt.errorCount())
@@ -389,6 +420,49 @@ class PptxVegaShapes {
         sh.name = ("Label " + (to_string ((array_length group.children) + 1)))
         textCount = (textCount + 1)
         this.attach(group sh)
+    }
+
+    ; `over` wins, `under` fills in. One level of nesting deep, which is the
+    ; shape a Vega-Lite config has: blocks of properties, not a tree.
+    sfn underlay:VlJson (under:VlJson over:VlJson) {
+        if ((under.isObject()) == false) {
+            return over
+        }
+        if ((over.isObject()) == false) {
+            return under
+        }
+        def out:VlJson (VlJson.objectValue())
+        def keys:[string] under.keys
+        def i:int 0
+        while (i < (array_length keys)) {
+            def key:string (itemAt keys i)
+            def mine:VlJson (under.get(key))
+            if (over.has(key)) {
+                def theirs:VlJson (over.get(key))
+                def bothObjects:boolean false
+                if (mine.isObject()) {
+                    bothObjects = (theirs.isObject())
+                }
+                if bothObjects {
+                    out.setMember(key (PptxVegaShapes.underlay(mine theirs)))
+                } {
+                    out.setMember(key theirs)
+                }
+            } {
+                out.setMember(key mine)
+            }
+            i = (i + 1)
+        }
+        def theirKeys:[string] over.keys
+        def k:int 0
+        while (k < (array_length theirKeys)) {
+            def key2:string (itemAt theirKeys k)
+            if ((under.has(key2)) == false) {
+                out.setMember(key2 (over.get(key2)))
+            }
+            k = (k + 1)
+        }
+        return out
     }
 
     ; --- shared -------------------------------------------------------------
