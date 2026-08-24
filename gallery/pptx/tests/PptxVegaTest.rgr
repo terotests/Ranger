@@ -1,0 +1,326 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxVegaTest — a Vega specification becomes shapes, and stays shapes
+; ==============================================================================
+;
+; The claim this file has to defend is not "a chart appeared". It is that what
+; appeared is DrawingML — that the deck carries no picture, that the numbers
+; and the labels are in the slide's TEXT, and that the shapes survive being
+; written out and read back by our own parser. A test that only counted shapes
+; in memory would pass with a writer that dropped every one of them.
+;
+; So the shape of most cases is: build, save, reopen, look. That is slower than
+; asserting on the model and it is the only way to catch the class of bug this
+; work actually hit — a `custGeom` the writer closed when the specification
+; said open, and a two-point path the parser then refused to read back.
+; ==============================================================================
+
+Import "../api/PptxChartApi.rgr"
+
+class PptxVegaTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxVegaTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    ; A bar chart with four categories and both axes.
+    sfn barSpec:string () {
+        def rows:string "{\"a\":\"Q1\",\"b\":28},{\"a\":\"Q2\",\"b\":55},{\"a\":\"Q3\",\"b\":43},{\"a\":\"Q4\",\"b\":91}"
+        return ("{\"width\":420,\"height\":240,\"data\":{\"values\":[" + rows + "]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"a\",\"type\":\"nominal\"},\"y\":{\"field\":\"b\",\"type\":\"quantitative\"}}}")
+    }
+
+    ; A line chart, which is the case that produces an OPEN path.
+    sfn lineSpec:string () {
+        def rows:string "{\"a\":1,\"b\":28},{\"a\":2,\"b\":55},{\"a\":3,\"b\":43},{\"a\":4,\"b\":91}"
+        return ("{\"width\":300,\"height\":200,\"data\":{\"values\":[" + rows + "]},\"mark\":\"line\",\"encoding\":{\"x\":{\"field\":\"a\",\"type\":\"quantitative\"},\"y\":{\"field\":\"b\",\"type\":\"quantitative\"}}}")
+    }
+
+    fn run:void () {
+        print "=== PptxVegaTest ==="
+        this.testItBecomesShapes()
+        this.testItSurvivesTheRoundTrip()
+        this.testOpenPaths()
+        this.testFailuresAreValues()
+        this.testGeometryAndFit()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --- it becomes shapes, not a picture ------------------------------------
+    fn testItBecomesShapes:void () {
+        print "--- a chart is a group of shapes ---"
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        def vega (new PptxVega())
+        def ref:PptxShapeRef (vega.addTo(slide (PptxVegaTest.barSpec()) 60.0 60.0 600.0 360.0))
+        this.check("the specification compiled" vega.ok)
+        this.check("the handle is real" (ref.exists()))
+        this.eqInt("one shape on the slide" (slide.shapeCount()) 1)
+        def group:PptxShape (ref.model())
+        this.eqInt("and it is a group" group.kind (PptxShapeKind.group()))
+        this.check("with a chart's worth of children in it" ((array_length group.children) > 20))
+        this.eqInt("as many as were reported" (array_length group.children) vega.shapeCount)
+        this.check("and alt text for a screen reader" ((strlen group.altText) > 0))
+
+        ; The whole point: no picture anywhere under it.
+        def pics:int (PptxVegaTest.picturesIn(group))
+        this.eqInt("no picture in the tree" pics 0)
+        ; Bars are presets rather than paths, which is what keeps them editable.
+        def rects:int (PptxVegaTest.presetsIn(group "rect"))
+        this.check("the bars are rectangles" (rects >= 4))
+        def lines:int (PptxVegaTest.presetsIn(group "line"))
+        this.check("the gridlines are lines" (lines >= 4))
+    }
+
+    ; --- the round trip -------------------------------------------------------
+    fn testItSurvivesTheRoundTrip:void () {
+        print "--- written out and read back ---"
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        def vega (new PptxVega())
+        def made:PptxShapeRef (vega.addTo(slide (PptxVegaTest.barSpec()) 60.0 60.0 600.0 360.0))
+        def before:int vega.shapeCount
+        def bytes:buffer (deck.saveNew())
+        this.check("the deck saved" ((buffer_length bytes) > 0))
+        def again:PptxDeck (PptxApi.open(bytes))
+        def s2:PptxSlideRef (again.slideAt(0))
+        this.eqInt("one shape came back" (s2.shapeCount()) 1)
+        def back:PptxShapeRef (s2.shapeAt(0))
+        def group:PptxShape (back.model())
+        this.eqInt("still a group" group.kind (PptxShapeKind.group()))
+        this.eqInt("with every child" (array_length group.children) before)
+
+        ; The categories are in the slide's text, which is what a search index
+        ; and a screen reader read. A picture of a chart offers neither.
+        def words:string (s2.text())
+        this.check("the categories are text" ((indexOf words "Q3") >= 0))
+        this.check("and so are the tick values" ((indexOf words "100") >= 0))
+    }
+
+    ; --- open paths -----------------------------------------------------------
+    ;
+    ; A line mark is a stroke, not an outline. Closing it draws a segment from
+    ; the last datum back to the first — a diagonal across the plot — and the
+    ; writer used to write `<a:close/>` on every custom path there was.
+    fn testOpenPaths:void () {
+        print "--- a line mark stays open ---"
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        def vega (new PptxVega())
+        def made:PptxShapeRef (vega.addTo(slide (PptxVegaTest.lineSpec()) 40.0 40.0 400.0 300.0))
+        this.check("the specification compiled" vega.ok)
+        def group:PptxShape (made.model())
+        def open:int (PptxVegaTest.openPathsIn(group))
+        this.check("the series is an open path" (open >= 1))
+
+        def bytes:buffer (deck.saveNew())
+        def again:PptxDeck (PptxApi.open(bytes))
+        def s2:PptxSlideRef (again.slideAt(0))
+        def back:PptxShapeRef (s2.shapeAt(0))
+        def reread:PptxShape (back.model())
+        def stillOpen:int (PptxVegaTest.openPathsIn(reread))
+        this.check("and is still open after a round trip" (stillOpen >= 1))
+    }
+
+    ; --- failures are values --------------------------------------------------
+    fn testFailuresAreValues:void () {
+        print "--- a bad specification says so ---"
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        def vega (new PptxVega())
+        def bad:PptxShapeRef (vega.addTo(slide "{not json" 0.0 0.0 100.0 100.0))
+        this.check("it did not pretend to work" (vega.ok == false))
+        this.check("and said why" ((strlen vega.error) > 0))
+        this.check("the handle is dead" ((bad.exists()) == false))
+        this.eqInt("and nothing was put on the slide" (slide.shapeCount()) 0)
+
+        def gone (new PptxVega())
+        def noSlide:PptxSlideRef (deck.slideAt(9))
+        def nope:PptxShapeRef (gone.addTo(noSlide (PptxVegaTest.barSpec()) 0.0 0.0 100.0 100.0))
+        this.check("a slide that is not there is not a crash" (gone.ok == false))
+    }
+
+    ; --- geometry -------------------------------------------------------------
+    fn testGeometryAndFit:void () {
+        print "--- the box and the fit ---"
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        def vega (new PptxVega())
+        def made:PptxShapeRef (vega.addTo(slide (PptxVegaTest.barSpec()) 60.0 50.0 600.0 360.0))
+        def group:PptxShape (made.model())
+        this.check("the group is where it was asked for" ((PptxVegaTest.near(group.x 60.0)) && (PptxVegaTest.near(group.y 50.0))))
+        this.check("and the size it was asked for" ((PptxVegaTest.near(group.width 600.0)) && (PptxVegaTest.near(group.height 360.0))))
+        ; A child in the group's own coordinate space, so nothing is scaled
+        ; twice: chOff and chExt equal off and ext.
+        this.check("children share the group's space" ((PptxVegaTest.near(group.chX group.x)) && (PptxVegaTest.near(group.chW group.width))))
+        ; Every child inside the box it was given. A chart that overflows its
+        ; box lands on the text beside it, and nothing else here would notice.
+        def outside:int (PptxVegaTest.outsideBox(group))
+        this.eqInt("nothing drawn outside the box" outside 0)
+
+        ; The aspect ratio is the specification's, not the box's.
+        def tall (new PptxVega())
+        def deck2:PptxDeck (PptxApi.create())
+        def slide2:PptxSlideRef (deck2.addSlide())
+        def wide:PptxShapeRef (tall.addTo(slide2 (PptxVegaTest.barSpec()) 0.0 0.0 600.0 100.0))
+        this.check("a short box still compiles" tall.ok)
+        def g2:PptxShape (wide.model())
+        def out2:int (PptxVegaTest.outsideBox(g2))
+        this.eqInt("and still fits inside it" out2 0)
+
+        print "--- the font is stated ---"
+        def named (new PptxVega())
+        named.font("Arial")
+        def deck3:PptxDeck (PptxApi.create())
+        def slide3:PptxSlideRef (deck3.addSlide())
+        def ref3:PptxShapeRef (named.addTo(slide3 (PptxVegaTest.barSpec()) 0.0 0.0 400.0 300.0))
+        def g3:PptxShape (ref3.model())
+        def arial:int (PptxVegaTest.runsNamed(g3 "Arial"))
+        this.check("every label names the font it was given" (arial > 0))
+        def sans:int (PptxVegaTest.runsNamed(g3 "sans-serif"))
+        this.eqInt("and none of them says sans-serif" sans 0)
+    }
+
+    ; --- walking the tree -----------------------------------------------------
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.51)
+    }
+
+    sfn picturesIn:int (sh:PptxShape) {
+        def n:int 0
+        if (sh.kind == (PptxShapeKind.picture())) {
+            n = 1
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def child:PptxShape (itemAt sh.children i)
+            n = (n + (PptxVegaTest.picturesIn(child)))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn presetsIn:int (sh:PptxShape preset:string) {
+        def n:int 0
+        if (sh.hasPath == false) {
+            if (sh.preset == preset) {
+                n = 1
+            }
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def child:PptxShape (itemAt sh.children i)
+            n = (n + (PptxVegaTest.presetsIn(child preset)))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn openPathsIn:int (sh:PptxShape) {
+        def n:int 0
+        if sh.hasPath {
+            if (sh.pathClosed == false) {
+                n = 1
+            }
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def child:PptxShape (itemAt sh.children i)
+            n = (n + (PptxVegaTest.openPathsIn(child)))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn runsNamed:int (sh:PptxShape family:string) {
+        def n:int 0
+        if sh.hasText {
+            def paras:[PptxParagraph] sh.text.paragraphs
+            def p:int 0
+            while (p < (array_length paras)) {
+                def para:PptxParagraph (itemAt paras p)
+                def r:int 0
+                while (r < (array_length para.runs)) {
+                    def run:PptxTextRun (itemAt para.runs r)
+                    if (run.fontFamily == family) {
+                        n = (n + 1)
+                    }
+                    r = (r + 1)
+                }
+                p = (p + 1)
+            }
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def child:PptxShape (itemAt sh.children i)
+            n = (n + (PptxVegaTest.runsNamed(child family)))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; How many children reach outside the group's box. A label's BOX is
+    ; deliberately wider than its text — that is how the anchor is honoured
+    ; without a font metric — so the box itself is allowed to overhang; what is
+    ; checked is the geometry, which is not.
+    sfn outsideBox:int (group:PptxShape) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length group.children)) {
+            def child:PptxShape (itemAt group.children i)
+            if (child.hasText == false) {
+                if (child.x < (group.x - 0.6)) {
+                    n = (n + 1)
+                } {
+                    if (child.y < (group.y - 0.6)) {
+                        n = (n + 1)
+                    } {
+                        def right:double (child.x + child.width)
+                        def bottom:double (child.y + child.height)
+                        if (right > ((group.x + group.width) + 0.6)) {
+                            n = (n + 1)
+                        } {
+                            if (bottom > ((group.y + group.height) + 0.6)) {
+                                n = (n + 1)
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}

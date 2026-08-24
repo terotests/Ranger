@@ -20,6 +20,7 @@ Import "../../../evg/SvgParser.rgr"
 Import "Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
+Import "PdfFlate.rgr"
 Import "../fonts/TTFSubset.rgr"
 Import "../../../evg/EVGGrapheme.rgr"
 Import "../jpeg/JPEGReader.rgr"
@@ -178,6 +179,74 @@ class EVGPDFRenderer {
     def jpegDecoder:JPEGDecoder (new JPEGDecoder())
     def jpegEncoder:JPEGEncoder (new JPEGEncoder())
     def metadataParser:JPEGMetadataParser (new JPEGMetadataParser())
+    ; --- pictures handed over rather than found ---------------------------------
+    ;
+    ; Everything below resolves a picture's `src` as a PATH: it is split into a
+    ; directory and a file name and read from disk, and every decoder under it
+    ; takes the same pair. That is right for a page written as TSX beside its
+    ; images, and impossible for two other callers this renderer now has:
+    ;
+    ;   * a document. A .pptx, a .docx and a .xlsx name their pictures by
+    ;     PACKAGE PART — "ppt/media/image1.png" — and carry the bytes inside
+    ;     the ZIP. There is no such file on disk, and the reader that opened
+    ;     the document already decoded them.
+    ;   * a browser. There is no disk at all.
+    ;
+    ; So a caller can hand the pixels over by name. `registerImage` takes the
+    ; `src` a display list will use and the decoded image, and both the
+    ; measuring pass and the embedding pass look here before they look at the
+    ; file system. Nothing else changes: the pixels go through the same resize
+    ; and the same JPEG encoding as a picture read from a file, so a supplied
+    ; picture and a found one produce the same PDF object.
+    ;
+    ; Before this, a document with a logo in it did not print without one — it
+    ; called `readJPEG` on a path that does not exist and the process died on
+    ; ENOENT.
+    def suppliedImages:[string:ImageBuffer]
+
+    ; face key → the object number of the FontFile2 stream already written for
+    ; it, so a second name resolving to the same face points at the first copy.
+    def fontFileByFace:[string:int]
+
+    ; --- streams, written small --------------------------------------------------
+    ;
+    ; Every stream here used to be written raw. `/FlateDecode` is what PDF has
+    ; for that, and it is the same deflate the PNG writer uses. Compressed data
+    ; that is already compressed grows, so a stream that did not shrink is
+    ; written as it was — see `PdfFlate.worthIt`.
+    fn writeStream:void (pdf:GrowableBuffer body:buffer extra:string) {
+        def packed:buffer (PdfFlate.zlib(body))
+        def raw:int (buffer_length body)
+        if (PdfFlate.worthIt(body packed)) {
+            pdf.writeString("<< /Length " + (to_string (buffer_length packed)) + " /Filter /FlateDecode" + extra + " >>\n")
+            pdf.writeString("stream\n")
+            pdf.writeBuffer(packed)
+        } {
+            pdf.writeString("<< /Length " + (to_string raw) + extra + " >>\n")
+            pdf.writeString("stream\n")
+            pdf.writeBuffer(body)
+        }
+        pdf.writeString("\nendstream\n")
+        pdf.writeString("endobj\n\n")
+    }
+
+    ; The face a name resolves to, as a key. Two NAMES can resolve to one FACE
+    ; — a family whose italic was never loaded answers the regular one for both
+    ; — and each was embedding the whole file again. On a five-slide deck that
+    ; was 217KB of byte-identical duplicate in a 531KB file.
+    sfn faceKey:string (f:TrueTypeFont) {
+        return (f.fontFamily + "/" + f.fontStyle)
+    }
+
+    fn registerImage:void (src:string pixels:ImageBuffer) {
+        set suppliedImages src pixels
+    }
+
+    fn suppliedImage@(optional):ImageBuffer (src:string) {
+        def hit@(optional):ImageBuffer (get suppliedImages src)
+        return hit
+    }
+
     def baseDir:string "./"
     def assetPaths:[string]  ; Multiple asset directories for image resolution
     def maxImageWidth:int 800
@@ -324,6 +393,18 @@ class EVGPDFRenderer {
             i = i + 1
         }
         
+        ; Handed over by the caller? Then the pixels are already here and there
+        ; is no file to open — see `suppliedImages`. Cached like any other, so
+        ; a picture used on twenty slides is measured once.
+        def suppliedDims@(optional):ImageBuffer (this.suppliedImage(src))
+        if (!null? suppliedDims) {
+            def sp:ImageBuffer (unwrap suppliedDims)
+            def known:EVGImageDimensions (EVGImageDimensions.create(sp.width sp.height))
+            push imageDimensionsCacheKeys src
+            push imageDimensionsCache known
+            return known
+        }
+
         ; Not in cache, load from file
         def dims (new EVGImageDimensions())
         
@@ -795,20 +876,25 @@ class EVGPDFRenderer {
             def ttfFont:TrueTypeFont (fontManager.getFont(fontName))
             
             if (ttfFont.unitsPerEm > 0) {
-                ; Embed TrueType font
-                def fontFileData:buffer (ttfFont.getFontData())
-                def fontFileLen:int (buffer_length fontFileData)
-                
-                ; Font file stream object
-                push objectOffsets (pdf.size())
-                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-                pdf.writeString("<< /Length " + (to_string fontFileLen) + " /Length1 " + (to_string fontFileLen) + " >>\n")
-                pdf.writeString("stream\n")
-                pdf.writeBuffer(fontFileData)
-                pdf.writeString("\nendstream\n")
-                pdf.writeString("endobj\n\n")
-                def fontFileObjNum:int nextObjNum
-                nextObjNum = nextObjNum + 1
+                ; Embed TrueType font — once per FACE, not once per name.
+                def key:string (EVGPDFRenderer.faceKey(ttfFont))
+                def already@(optional):int (get fontFileByFace key)
+                def fontFileObjNum:int 0
+                if (!null? already) {
+                    fontFileObjNum = (unwrap already)
+                } {
+                    def fontFileData:buffer (ttfFont.pdfFontData())
+                    def fontFileLen:int (buffer_length fontFileData)
+                    push objectOffsets (pdf.size())
+                    pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                    ; `/Length1` is the size BEFORE the filter: a reader needs
+                    ; the original length to parse the TrueType tables, and the
+                    ; compressed length is what `/Length` says.
+                    this.writeStream(pdf fontFileData (" /Length1 " + (to_string fontFileLen)))
+                    fontFileObjNum = nextObjNum
+                    set fontFileByFace key fontFileObjNum
+                    nextObjNum = nextObjNum + 1
+                }
                 
                 ; Font descriptor object
                 push objectOffsets (pdf.size())
@@ -934,38 +1020,56 @@ class EVGPDFRenderer {
                 imgFile = imgSrc
             }
             
-            print ("Loading image: dir=" + imgDir + " file=" + imgFile)
+            ; The pixels, from the caller if they were handed over and from
+            ; the file system otherwise. A document names its pictures by
+            ; package part and there is no such path — see `suppliedImages`.
+            def supplied@(optional):ImageBuffer (this.suppliedImage(embImg.src))
+            def imgBuffer (new ImageBuffer())
+            if (!null? supplied) {
+                imgBuffer = (unwrap supplied)
+                ; Already decoded, so already upright: EXIF orientation is a
+                ; property of a JPEG file and applying it again would turn a
+                ; picture that is the right way up.
+                embImg.orientation = 1
+                print ("Image supplied in memory: " + embImg.src)
+            } {
+                print ("Loading image: dir=" + imgDir + " file=" + imgFile)
             
-            def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
+                def metaInfo:JPEGMetadataInfo (metadataParser.parseMetadata(imgDir imgFile))
             
-            ; If file not found, try with ./assets/ prefix (same fallback as ResourceLoader)
-            if (metaInfo.isValid == false) {
-                def origImgSrc:string embImg.src
-                def altDirPath:string ""
-                if ((indexOf origImgSrc "./") == 0) {
-                    ; ./images/photo.jpg -> ./assets/images/photo.jpg
-                    altDirPath = baseDir + "assets/" + (substring origImgSrc 2 (strlen origImgSrc))
-                } {
-                    altDirPath = baseDir + "assets/" + origImgSrc
+                ; If file not found, try with ./assets/ prefix (same fallback as ResourceLoader)
+                if (metaInfo.isValid == false) {
+                    def origImgSrc:string embImg.src
+                    def altDirPath:string ""
+                    if ((indexOf origImgSrc "./") == 0) {
+                        ; ./images/photo.jpg -> ./assets/images/photo.jpg
+                        altDirPath = baseDir + "assets/" + (substring origImgSrc 2 (strlen origImgSrc))
+                    } {
+                        altDirPath = baseDir + "assets/" + origImgSrc
+                    }
+                    ; Extract dir and file from altDirPath
+                    def altLastSlash:int (lastIndexOf altDirPath "/")
+                    if (altLastSlash >= 0) {
+                        imgDir = (substring altDirPath 0 (altLastSlash + 1))
+                        imgFile = (substring altDirPath (altLastSlash + 1) (strlen altDirPath))
+                    }
+                    print ("  Trying alternative: dir=" + imgDir + " file=" + imgFile)
+                    metaInfo = (metadataParser.parseMetadata(imgDir imgFile))
                 }
-                ; Extract dir and file from altDirPath
-                def altLastSlash:int (lastIndexOf altDirPath "/")
-                if (altLastSlash >= 0) {
-                    imgDir = (substring altDirPath 0 (altLastSlash + 1))
-                    imgFile = (substring altDirPath (altLastSlash + 1) (strlen altDirPath))
-                }
-                print ("  Trying alternative: dir=" + imgDir + " file=" + imgFile)
-                metaInfo = (metadataParser.parseMetadata(imgDir imgFile))
+            
+                embImg.orientation = metaInfo.orientation
+            
+                imgBuffer = (jpegDecoder.decode(imgDir imgFile))
             }
             
-            embImg.orientation = metaInfo.orientation
-            
-            def imgBuffer:ImageBuffer (jpegDecoder.decode(imgDir imgFile))
-            
             if ((imgBuffer.width > 1) && (imgBuffer.height > 1)) {
-                if (metaInfo.orientation > 1) {
-                    print ("  Applying EXIF orientation: " + (to_string metaInfo.orientation))
-                    imgBuffer = (imgBuffer.applyExifOrientation(metaInfo.orientation))
+                ; `embImg.orientation`, not `metaInfo` — the metadata is read
+                ; only on the branch that opened a file, and a supplied
+                ; picture has none. Both branches write the orientation onto
+                ; `embImg`, so this reads the one field that is always set.
+                if (embImg.orientation > 1) {
+                    print ("  Applying EXIF orientation: " + (to_string embImg.orientation))
+                    imgBuffer = (imgBuffer.applyExifOrientation(embImg.orientation))
                 }
                 
                 def origW:int imgBuffer.width
@@ -1032,11 +1136,7 @@ class EVGPDFRenderer {
             
             push objectOffsets (pdf.size())
             pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-            pdf.writeString("<< /Length " + (to_string contentLen) + " >>\n")
-            pdf.writeString("stream\n")
-            pdf.writeBuffer(contentData)
-            pdf.writeString("\nendstream\n")
-            pdf.writeString("endobj\n\n")
+            this.writeStream(pdf contentData "")
             push contentObjNumList nextObjNum
             nextObjNum = nextObjNum + 1
             ci = ci + 1
@@ -1216,20 +1316,25 @@ class EVGPDFRenderer {
             def ttfFont:TrueTypeFont (fontManager.getFont(fontName))
             
             if (ttfFont.unitsPerEm > 0) {
-                ; Embed TrueType font
-                def fontFileData:buffer (ttfFont.getFontData())
-                def fontFileLen:int (buffer_length fontFileData)
-                
-                ; Font file stream object
-                push objectOffsets (pdf.size())
-                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-                pdf.writeString("<< /Length " + (to_string fontFileLen) + " /Length1 " + (to_string fontFileLen) + " >>\n")
-                pdf.writeString("stream\n")
-                pdf.writeBuffer(fontFileData)
-                pdf.writeString("\nendstream\n")
-                pdf.writeString("endobj\n\n")
-                def fontFileObjNum:int nextObjNum
-                nextObjNum = nextObjNum + 1
+                ; Embed TrueType font — once per FACE, not once per name.
+                def key:string (EVGPDFRenderer.faceKey(ttfFont))
+                def already@(optional):int (get fontFileByFace key)
+                def fontFileObjNum:int 0
+                if (!null? already) {
+                    fontFileObjNum = (unwrap already)
+                } {
+                    def fontFileData:buffer (ttfFont.pdfFontData())
+                    def fontFileLen:int (buffer_length fontFileData)
+                    push objectOffsets (pdf.size())
+                    pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                    ; `/Length1` is the size BEFORE the filter: a reader needs
+                    ; the original length to parse the TrueType tables, and the
+                    ; compressed length is what `/Length` says.
+                    this.writeStream(pdf fontFileData (" /Length1 " + (to_string fontFileLen)))
+                    fontFileObjNum = nextObjNum
+                    set fontFileByFace key fontFileObjNum
+                    nextObjNum = nextObjNum + 1
+                }
                 
                 ; Font descriptor object
                 push objectOffsets (pdf.size())
@@ -1461,11 +1566,7 @@ class EVGPDFRenderer {
         ; Content stream object
         push objectOffsets (pdf.size())
         pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-        pdf.writeString("<< /Length " + (to_string contentLen) + " >>\n")
-        pdf.writeString("stream\n")
-        pdf.writeBuffer(contentData)
-        pdf.writeString("\nendstream\n")
-        pdf.writeString("endobj\n\n")
+        this.writeStream(pdf contentData "")
         def contentObjNum:int nextObjNum
         nextObjNum = nextObjNum + 1
         
@@ -1714,8 +1815,17 @@ class EVGPDFRenderer {
             this.renderDivider(el x pdfY w h)
         }
         
-        ; Handle image element
-        if (el.tagName == "image") {
+        ; Handle image element.
+        ;
+        ; Three spellings, because there are three. `EVGLayout`, the HTML
+        ; renderer, the resource loader, the preview server and the component
+        ; engine all accept "image", "Image" and "img"; this was the one place
+        ; that took only the first, and `EVGElement.createImg()` — this
+        ; repository's own constructor — produces the third. An element built
+        ; that way was laid out, measured, given a background, and then not
+        ; drawn: a page with a picture on it printed with a hole where the
+        ; picture was, and nothing reported anything.
+        if (((el.tagName == "image") || (el.tagName == "Image")) || (el.tagName == "img")) {
             this.renderImage(el x pdfY w h)
         }
         

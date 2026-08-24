@@ -1,0 +1,194 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxApiTest — the published surface, exercised the way a caller uses it.
+; ==============================================================================
+;
+; This is deliberately not a test of the parser or the writer: both have their
+; own, and both are the layer under this one. What is tested here is the
+; PROMISE the API makes — open, read, change, write, and read back what was
+; written — because that promise is what the documentation states and what a
+; program outside this repository depends on.
+;
+; The round trip is the shape of every case: nothing is asserted about the XML,
+; only about what the reader finds in the bytes the writer produced. A test
+; that checked the XML would pass while PowerPoint refused the file.
+; ==============================================================================
+
+Import "../api/PptxApi.rgr"
+
+class PptxApiTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxApiTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn run:void () {
+        print "=== PptxApiTest ==="
+        this.testCreateAndSave()
+        this.testOpenReadEditSave()
+        this.testHandlesAndLimits()
+        this.testColours()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --- a deck built from nothing ---------------------------------------------
+    fn testCreateAndSave:void () {
+        print "--- create, fill, save, reopen ---"
+        def deck:PptxDeck (PptxApi.create())
+        this.check("a created deck is usable" deck.ok)
+        this.eqInt("and starts empty" (deck.slideCount()) 0)
+        this.check("at the 16:9 size" ((deck.width()) == 960.0))
+
+        def slide:PptxSlideRef (deck.addSlide())
+        this.eqInt("adding a slide counts" (deck.slideCount()) 1)
+        slide.background("FFFFFF")
+        def title:PptxShapeRef (slide.addTextBox(60.0 60.0 840.0 120.0 "Quarterly review"))
+        title.setName("Title")
+        def r0:PptxRunRef (title.runAt(0 0))
+        r0.font("Calibri" 40.0)
+        r0.bold(true)
+        r0.color("#1F3864")
+        def box:PptxShapeRef (slide.addShape("roundRect" 60.0 220.0 300.0 160.0))
+        box.fill("4472C4")
+        box.line("1F3864" 2.0)
+        this.eqInt("two shapes on the slide" (slide.shapeCount()) 2)
+
+        ; The round trip. Nothing above is asserted from the model — it is
+        ; asserted from what the reader finds in the bytes.
+        def bytes:buffer (deck.save())
+        this.check("saving produced bytes" ((buffer_length bytes) > 0))
+        def back:PptxDeck (PptxApi.open(bytes))
+        this.check("and they reopen" back.ok)
+        this.eqInt("with the slide" (back.slideCount()) 1)
+        def bs:PptxSlideRef (back.slideAt(0))
+        this.eqInt("and both shapes" (bs.shapeCount()) 2)
+        def bt:PptxShapeRef (bs.shapeNamed("Title"))
+        this.check("the title is found by name" (bt.exists()))
+        this.eqStr("with its text" (bt.text()) "Quarterly review")
+        def br:PptxRunRef (bt.runAt(0 0))
+        ; An intermediate `def` because the language will not read a field off
+        ; a call result inside a larger expression — `(f()).field` compiles to
+        ; nothing usable and the compiler says so.
+        def brm:PptxTextRun (br.model())
+        this.check("at the size it was given" (brm.fontSizePt == 40.0))
+        this.check("and bold" brm.bold)
+        def bb:PptxShapeRef (bs.shapeAt(1))
+        this.eqStr("the second shape kept its geometry" (bb.preset()) "roundRect")
+        this.check("and its position" ((bb.x()) == 60.0))
+        this.check("and its width" ((bb.width()) == 300.0))
+    }
+
+    ; --- a deck opened from a file ---------------------------------------------
+    fn testOpenReadEditSave:void () {
+        print "--- open a real deck, change one word, save over it ---"
+        def raw:buffer (buffer_read_file "gallery/pptx/fixtures" "01-text.pptx")
+        this.check("the fixture is there" ((buffer_length raw) > 0))
+        if ((buffer_length raw) == 0) {
+            return
+        }
+        def deck:PptxDeck (PptxApi.open(raw))
+        this.check("it opens" deck.ok)
+        this.check("with slides in it" ((deck.slideCount()) > 0))
+        def all:string (deck.text())
+        this.check("and text that can be read out whole" ((strlen all) > 0))
+
+        def slide:PptxSlideRef (deck.slideAt(0))
+        def target:PptxShapeRef (slide.shapeAt(0))
+        def before:string (target.text())
+        this.check("the first shape has text" ((strlen before) > 0))
+        target.setText("Vaihdettu otsikko")
+
+        ; `save` writes OVER the package that was opened, so everything this
+        ; API does not model survives. That is the difference between editing a
+        ; document and replacing it, and the assertion below is the one that
+        ; would catch it silently becoming the latter.
+        def out:buffer (deck.save())
+        this.check("saving over the original produced bytes" ((buffer_length out) > 0))
+        def back:PptxDeck (PptxApi.open(out))
+        this.check("which reopen" back.ok)
+        this.eqInt("with the same slide count" (back.slideCount()) (deck.slideCount()))
+        def bs:PptxSlideRef (back.slideAt(0))
+        def bt:PptxShapeRef (bs.shapeAt(0))
+        this.eqStr("and the new text" (bt.text()) "Vaihdettu otsikko")
+        this.eqInt("and every shape still there" (bs.shapeCount()) (slide.shapeCount()))
+    }
+
+    ; --- what a stale or out-of-range handle does -------------------------------
+    fn testHandlesAndLimits:void () {
+        print "--- a handle that names nothing ---"
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        slide.addTextBox(10.0 10.0 100.0 40.0 "one")
+        def sh:PptxShapeRef (slide.shapeAt(0))
+        this.check("the shape is there" (sh.exists()))
+
+        def gone:PptxShapeRef (slide.shapeAt(7))
+        this.check("a shape past the end does not exist" ((gone.exists()) == false))
+        this.eqStr("and reading it is empty rather than a crash" (gone.text()) "")
+        def wrote:PptxShapeRef (gone.setText("x"))
+        this.check("and it can be written to without effect" ((wrote.exists()) == false))
+        this.eqStr("the real shape is untouched" (sh.text()) "one")
+
+        def missing:PptxShapeRef (slide.shapeNamed("nobody"))
+        this.check("a name nobody has answers a handle that says so" ((missing.exists()) == false))
+
+        ; A handle held across the removal of what it named.
+        slide.removeShape(0)
+        this.eqInt("removing takes the shape away" (slide.shapeCount()) 0)
+        this.check("and the handle now says it is gone" ((sh.exists()) == false))
+
+        def noSlide:PptxSlideRef (deck.slideAt(4))
+        this.check("a slide past the end does not exist" ((noSlide.exists()) == false))
+        this.eqInt("and has no shapes" (noSlide.shapeCount()) 0)
+    }
+
+    ; --- the colour parser -----------------------------------------------------
+    fn testColours:void () {
+        print "--- colours ---"
+        def a:PptxColor (PptxApi.colorOf("4472C4"))
+        this.check("six hex digits are a colour" a.isSet)
+        def b:PptxColor (PptxApi.colorOf("#4472C4"))
+        this.check("a leading hash is accepted" b.isSet)
+        this.eqStr("and means the same colour" b.srgb a.srgb)
+        def c:PptxColor (PptxApi.colorOf(""))
+        this.check("nothing at all is not a colour" (c.isSet == false))
+
+        print "--- newlines become paragraphs ---"
+        def one:[string] (PptxApi.lines("a\nb\nc"))
+        this.eqInt("three lines" (array_length one) 3)
+        this.eqStr("in order" (itemAt one 1) "b")
+        def blank:[string] (PptxApi.lines("a\n\nb"))
+        this.eqInt("a blank line is kept" (array_length blank) 3)
+        this.eqStr("and is empty" (itemAt blank 1) "")
+        def none:[string] (PptxApi.lines("solo"))
+        this.eqInt("one line with no newline in it" (array_length none) 1)
+    }
+}

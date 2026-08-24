@@ -2,6 +2,8 @@
 
 ; EVGTextMeasurer.rgr - Abstract text measurement interface for EVG layout
 
+Import "EVGCodepoint.rgr"
+
 class EVGTextMetrics {
     def width:double 0.0
     def height:double 0.0
@@ -110,6 +112,9 @@ class EVGTextMeasurer {
         def currentLine:string ""
         def currentWidth:double 0.0
         def wordStart:int 0
+        ; What goes between this word and the next: a space, or nothing when
+        ; the break was a hyphen the word already carries.
+        def joiner:string " "
         def textLen:int (strlen text)
         def i:int 0
         
@@ -120,7 +125,12 @@ class EVGTextMeasurer {
                 ch = (charAt text i)
             }
             
-            ; Check for word boundary (space, newline, or end)
+            ; Where a line may be broken: a space, a newline, the end — and
+            ; after a hyphen. The last one was missing, so a hyphenated
+            ; compound was one unbreakable word: a box too narrow for the whole
+            ; of "Liiketoiminta-logiikka" had nowhere to break it. The rule is
+            ; `EVGCodepoint.breaksAfter`, shared with the .pptx wrapper so the
+            ; two cannot disagree.
             def isWordEnd:boolean false
             if isEnd {
                 isWordEnd = true
@@ -131,31 +141,53 @@ class EVGTextMeasurer {
             if (ch == 10) {  ; newline
                 isWordEnd = true
             }
+            def hyphen:boolean false
+            if (isEnd == false) {
+                if (EVGCodepoint.breaksAfter(ch)) {
+                    ; …but not on the first character of a word: "-5" is not a
+                    ; place to break, and an empty word would loop.
+                    if (i > wordStart) {
+                        isWordEnd = true
+                        hyphen = true
+                    }
+                }
+            }
             
             if isWordEnd {
-                ; Extract word
+                ; Extract word. A hyphen belongs to the word BEFORE it and
+                ; stays on that line — which is the whole point of breaking
+                ; there rather than one character earlier.
+                def wordEnd:int i
+                if hyphen {
+                    wordEnd = (i + 1)
+                }
                 def word:string ""
-                if (i > wordStart) {
-                    word = (substring text wordStart i)
+                if (wordEnd > wordStart) {
+                    word = (substring text wordStart wordEnd)
                 }
                 def wordWidth:double (this.measureTextWidth(word fontFamily fontSize))
                 
-                ; Check if word fits on current line
+                ; What joins this word to the one before it: a space normally,
+                ; nothing when the line before ended in a hyphen.
                 def spaceWidth:double 0.0
                 if ((strlen currentLine) > 0) {
-                    spaceWidth = (this.measureTextWidth(" " fontFamily fontSize))
+                    if ((strlen joiner) > 0) {
+                        spaceWidth = (this.measureTextWidth(joiner fontFamily fontSize))
+                    }
                 }
                 
                 if ((currentWidth + spaceWidth + wordWidth) <= maxWidth) {
                     ; Word fits
                     if ((strlen currentLine) > 0) {
-                        currentLine = (currentLine + " ")
+                        currentLine = (currentLine + joiner)
                         currentWidth = currentWidth + spaceWidth
                     }
                     currentLine = (currentLine + word)
                     currentWidth = currentWidth + wordWidth
                 } {
-                    ; Word doesn't fit - start new line
+                    ; Word doesn't fit - start new line. A word wider than the
+                    ; box goes on one anyway and overflows, which is what every
+                    ; office program does; none of them hyphenates on its own.
                     if ((strlen currentLine) > 0) {
                         push lines currentLine
                     }
@@ -170,6 +202,10 @@ class EVGTextMeasurer {
                     currentWidth = 0.0
                 }
                 
+                joiner = " "
+                if hyphen {
+                    joiner = ""
+                }
                 wordStart = i + 1
             }
             

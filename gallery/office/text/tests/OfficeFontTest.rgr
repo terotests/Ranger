@@ -124,6 +124,45 @@ class OfficeFontTest {
         c.eqStr("no name at all is the default" (OfficeFont.aliasFamily("")) "Open Sans")
         c.eqStr("and a name nobody knows is too" (OfficeFont.aliasFamily("Wingdings")) "Open Sans")
 
+        print "-- the family a run is actually DRAWN in --"
+        ; `aliasFamily` says what a name MEANS; this says what a renderer can
+        ; do about it, and the two differ whenever the alias lands on a family
+        ; nobody loaded. A backend told the alias would name a font it has no
+        ; bytes for and fall through to something nobody measured.
+        ;
+        ; This is the display list's half of the .pptx caret bug: the list used
+        ; to carry the DECK's name — "Calibri" — and a browser drew the system
+        ; sans at widths that came from Open Sans. Nineteen pixels on a 40pt
+        ; title, which is where the caret sat past the end of the word.
+        c.eqStr("Calibri is drawn in the sans that is loaded"
+            (OfficeFont.drawnFamily(fm "Calibri" false false "Open Sans")) "Open Sans")
+        c.eqStr("and its bold is the same family"
+            (OfficeFont.drawnFamily(fm "Calibri" true false "Open Sans")) "Open Sans")
+        c.eqStr("Courier New keeps its own family, because that one is loaded too"
+            (OfficeFont.drawnFamily(fm "Courier New" false false "Open Sans")) "Josefin Sans")
+        ; Josefin Sans is loaded here without its italic, and an italic run in
+        ; it still belongs to it: the style is lost inside the family rather
+        ; than the family being given up.
+        c.eqStr("an italic it has no face for stays in the family"
+            (OfficeFont.drawnFamily(fm "Courier New" false true "Open Sans")) "Josefin Sans")
+        ; Arial's alias IS a family, and this renderer has not loaded it.
+        c.eqStr("Arial means Noto Sans" (OfficeFont.aliasFamily("Arial")) "Noto Sans")
+        c.eqStr("but without it loaded the answer is the fallback"
+            (OfficeFont.drawnFamily(fm "Arial" false false "Open Sans")) "Open Sans")
+        c.eqStr("a name nobody knows lands on the fallback"
+            (OfficeFont.drawnFamily(fm "Wingdings" false false "Open Sans")) "Open Sans")
+        ; The case the alias map alone gets wrong: Cinzel is a name the map
+        ; knows and this renderer has not loaded, so the ANSWER is the
+        ; fallback and not the alias.
+        c.ok("the alias knows Cinzel" ((OfficeFont.aliasFamily("Cinzel")) == "Cinzel"))
+        c.eqStr("but a renderer without it draws the fallback"
+            (OfficeFont.drawnFamily(fm "Cinzel" false false "Open Sans")) "Open Sans")
+        ; And it is idempotent on its own answers, which is what lets a
+        ; painter run the family it was handed back through the same map.
+        def once:string (OfficeFont.drawnFamily(fm "Courier New" false false "Open Sans"))
+        c.eqStr("asking again with the answer gives the answer"
+            (OfficeFont.drawnFamily(fm once false false "Open Sans")) "Josefin Sans")
+
         print "-- the name a face is NOT called --"
         ; The bug this whole file exists to make impossible. The spreadsheet
         ; built its own face names and built one that does not exist:

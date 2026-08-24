@@ -649,6 +649,488 @@ class TrueTypeFont {
     fn getFontData:buffer () {
         return fontData
     }
+
+    ; --- the font, with the tables a PDF cannot use taken out ---------------------
+    ;
+    ; A .ttf carries a great deal that only a layout engine wants. PDF 32000
+    ; asks a `/FontFile2` for `glyf`, `head`, `hhea`, `hmtx`, `loca` and
+    ; `maxp`, plus `cvt `, `fpgm` and `prep` when the glyphs are hinted, and
+    ; `cmap` for a non-symbolic font. Everything else is the producer's
+    ; business, and by the time a PDF is written the producer has already done
+    ; its work: the kerning is baked into the text positions this writer emits,
+    ; so `kern` describes adjustments nobody will apply again.
+    ;
+    ; It is worth being exact about the size of that, because it is not a
+    ; rounding: in Open Sans Regular, `kern` is 112,182 bytes of a 217,360-byte
+    ; file. More than half of every embedded copy was a table the reader would
+    ; never open. With `post`, `DSIG`, `name`, `GSUB`, `GPOS`, `GDEF`, `OS/2`
+    ; and `gasp` beside it, 60% of the file goes.
+    ;
+    ; The kept tables are copied BYTE FOR BYTE, so their checksums stay true
+    ; and no glyph is touched. `head.checkSumAdjustment` covers the whole file
+    ; and will no longer match, which is the one thing a subsetter cannot avoid
+    ; without recomputing it; every reader treats it as advisory.
+    sfn keepsInPdf:boolean (tag:string) {
+        if (tag == "glyf") { return true }
+        if (tag == "head") { return true }
+        if (tag == "hhea") { return true }
+        if (tag == "hmtx") { return true }
+        if (tag == "loca") { return true }
+        if (tag == "maxp") { return true }
+        if (tag == "cvt ") { return true }
+        if (tag == "fpgm") { return true }
+        if (tag == "prep") { return true }
+        if (tag == "cmap") { return true }
+        ; PDF does not need these three, and they are kept anyway.
+        ;
+        ; A `/FontFile2` is read by the PDF reader's own parser, but an
+        ; embedded font does not always stop there — a reader that hands the
+        ; program to the system's font machinery, or a tool that extracts it,
+        ; meets a STRICTER parser. Chromium runs every face through the
+        ; OpenType Sanitiser, which refuses a font with no `name`, `OS/2` or
+        ; `post`, and refusing is what it did to the first version of this:
+        ; structurally perfect, every offset in range, every checksum intact,
+        ; and rejected.
+        ;
+        ; They cost 11,346 bytes in Open Sans against the 112,182 that `kern`
+        ; alone was costing, so this is not the trade it looks like. It also
+        ; means the stripped font can be handed to a real font engine and
+        ; checked, which is worth more than the bytes.
+        if (tag == "name") { return true }
+        if (tag == "OS/2") { return true }
+        if (tag == "post") { return true }
+        return false
+    }
+
+    ; --- the glyphs a PDF will ask for, and no others -----------------------------
+    ;
+    ; After the unused TABLES go, `glyf` is what is left: 77,748 bytes of the
+    ; 98,516 that Open Sans Regular still weighed. Almost none of it is
+    ; reachable. The font dictionary this writer emits declares
+    ; `/FirstChar 32 /LastChar 255 /Encoding /WinAnsiEncoding`, so a reader can
+    ; ask for 224 codepoints and not one more — 192 glyphs in this face, 18,766
+    ; bytes. The other 746 glyphs are Cyrillic, Greek, and every accented form
+    ; the document did not use.
+    ;
+    ; The technique is glyph BLANKING rather than renumbering: the kept glyphs
+    ; stay at their own glyph ids and the rest become zero-length entries in
+    ; `loca`. Nothing has to be remapped — `cmap` still points where it pointed,
+    ; `hmtx` still lists a width per glyph id, and the `/Widths` array in the
+    ; PDF is untouched. A subsetter that renumbers has to rewrite all three and
+    ; get every one of them right; this one cannot put a glyph in the wrong
+    ; place because it never moves one.
+    ;
+    ; Composite glyphs are the catch. A composite is drawn from other glyphs by
+    ; id — "é" is "e" plus an acute — so keeping one and blanking its parts
+    ; draws nothing. The keep set is closed over components before anything is
+    ; written.
+    fn keepSet:[boolean] () {
+        def keep:[boolean]
+        def i:int 0
+        while (i < numGlyphs) {
+            push keep false
+            i = (i + 1)
+        }
+        ; Glyph 0 is `.notdef` and is what a reader draws for anything missing.
+        if (numGlyphs > 0) {
+            set_at keep 0 true
+        }
+        def c:int 32
+        while (c < 256) {
+            def cp:int (TrueTypeFont.winAnsiToUnicode(c))
+            def g:int (this.getGlyphIndex(cp))
+            if ((g > 0) && (g < numGlyphs)) {
+                set_at keep g true
+            }
+            c = (c + 1)
+        }
+        ; Close over composites. A component can itself be composite, so this
+        ; runs until nothing new is added rather than once.
+        def again:boolean true
+        while again {
+            again = false
+            def gi:int 0
+            while (gi < numGlyphs) {
+                if (itemAt keep gi) {
+                    def added:boolean (this.addComponents(gi keep))
+                    if added {
+                        again = true
+                    }
+                }
+                gi = (gi + 1)
+            }
+        }
+        return keep
+    }
+
+    ; What a WinAnsi byte actually MEANS.
+    ;
+    ; The font dictionary this writer emits says `/Encoding /WinAnsiEncoding`,
+    ; and WinAnsi is Latin-1 everywhere except 0x80..0x9F, where Latin-1 has
+    ; control characters and Windows put the typography: the euro sign, the
+    ; en and em dashes, the curly quotes, the ellipsis, the bullet, the
+    ; trademark. Treating the byte as a codepoint asks the font's `cmap` for a
+    ; control character, gets nothing, and drops exactly those glyphs.
+    ;
+    ; That is not hypothetical. The first version of this subset did treat the
+    ; byte as a codepoint, and a glyph-by-glyph pixel comparison against the
+    ; unmodified font came back identical for every character tested but one:
+    ; the euro sign, which was simply not there. An em dash in a title would
+    ; have printed as a blank.
+    sfn winAnsiToUnicode:int (b:int) {
+        if ((b < 128) || (b > 159)) {
+            return b
+        }
+        def map:[int] (
+            [] _:int (
+                8364 129 8218 402 8222 8230 8224 8225
+                710 8240 352 8249 338 141 381 143
+                144 8216 8217 8220 8221 8226 8211 8212
+                732 8482 353 8250 339 157 382 376
+            )
+        )
+        return (itemAt map (b - 128))
+    }
+
+    ; Marks this glyph's components, and says whether any were new.
+    fn addComponents:boolean (gid:int keep:[boolean]) {
+        def glyf:TTFTableRecord (this.findTable("glyf"))
+        def start:int (this.glyphStart(gid))
+        def end:int (this.glyphEnd(gid))
+        if ((end - start) < 10) {
+            return false
+        }
+        def at:int (glyf.offset + start)
+        def contours:int (this.readInt16(at))
+        if (contours >= 0) {
+            return false
+        }
+        def added:boolean false
+        def p:int (at + 10)
+        def more:boolean true
+        while (more) {
+            def flags:int (this.readUInt16(p))
+            def comp:int (this.readUInt16(p + 2))
+            if ((comp >= 0) && (comp < numGlyphs)) {
+                if ((itemAt keep comp) == false) {
+                    set_at keep comp true
+                    added = true
+                }
+            }
+            p = (p + 4)
+            ; ARG_1_AND_2_ARE_WORDS
+            if ((bit_and flags 1) != 0) {
+                p = (p + 4)
+            } {
+                p = (p + 2)
+            }
+            ; WE_HAVE_A_SCALE / X_AND_Y_SCALE / TWO_BY_TWO
+            if ((bit_and flags 8) != 0) {
+                p = (p + 2)
+            }
+            if ((bit_and flags 64) != 0) {
+                p = (p + 4)
+            }
+            if ((bit_and flags 128) != 0) {
+                p = (p + 8)
+            }
+            ; MORE_COMPONENTS
+            more = ((bit_and flags 32) != 0)
+            if (p >= (glyf.offset + end)) {
+                more = false
+            }
+        }
+        return added
+    }
+
+    fn glyphStart:int (gid:int) {
+        return (this.locaAt(gid))
+    }
+
+    fn glyphEnd:int (gid:int) {
+        return (this.locaAt(gid + 1))
+    }
+
+    ; `loca` is offsets into `glyf`, held as 16-bit halves or 32-bit words
+    ; depending on `head.indexToLocFormat`. The short form stores offset/2,
+    ; which is why every glyph in such a font begins on an even byte.
+    fn locaAt:int (i:int) {
+        def loca:TTFTableRecord (this.findTable("loca"))
+        if (indexToLocFormat == 0) {
+            return ((this.readUInt16(loca.offset + (i * 2))) * 2)
+        }
+        return (this.readUInt32(loca.offset + (i * 4)))
+    }
+
+    ; The subset `glyf`, and the `loca` that indexes it. Kept glyphs keep their
+    ; ids and their bytes; the rest become zero-length. Every glyph is padded
+    ; to an even offset because the short `loca` form stores offset/2 and
+    ; cannot express an odd one.
+    fn buildGlyf:[int] () {
+        def keep:[boolean] (this.keepSet())
+        def total:int 0
+        def g:int 0
+        while (g < numGlyphs) {
+            if (itemAt keep g) {
+                def len:int ((this.glyphEnd(g)) - (this.glyphStart(g)))
+                if (len > 0) {
+                    total = (total + len)
+                    while ((total % 2) != 0) {
+                        total = (total + 1)
+                    }
+                }
+            }
+            g = (g + 1)
+        }
+        def out:[int]
+        push out total
+        def gi:int 0
+        while (gi < numGlyphs) {
+            def k:int 0
+            if (itemAt keep gi) {
+                k = 1
+            }
+            push out k
+            gi = (gi + 1)
+        }
+        return out
+    }
+
+    fn pdfFontData:buffer () {
+        def kept:[TTFTableRecord]
+        def i:int 0
+        while (i < (array_length tables)) {
+            def t:TTFTableRecord (itemAt tables i)
+            if (TrueTypeFont.keepsInPdf(t.tag)) {
+                push kept t
+            }
+            i = (i + 1)
+        }
+        if ((array_length kept) == 0) {
+            return fontData
+        }
+        ; A table directory is sorted by tag, and a reader is entitled to
+        ; binary-search it. The records are already in tag order in a
+        ; well-formed font, but a font is not always well formed.
+        def n:int (array_length kept)
+        def a:int 0
+        while (a < n) {
+            def b:int (a + 1)
+            while (b < n) {
+                def x:TTFTableRecord (itemAt kept a)
+                def y:TTFTableRecord (itemAt kept b)
+                if (TrueTypeFont.tagLess(y.tag x.tag)) {
+                    set_at kept a y
+                    set_at kept b x
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+
+        ; The subset glyph table, and which glyphs it holds.
+        def plan:[int] (this.buildGlyf())
+        def newGlyfLen:int (itemAt plan 0)
+
+        ; What each kept table will WEIGH in the output. Only `glyf` changes
+        ; size — `loca` keeps one entry per glyph whether the glyph is there or
+        ; not, which is exactly why blanking needs no renumbering.
+        def lengths:[int]
+        def li:int 0
+        while (li < n) {
+            def rl:TTFTableRecord (itemAt kept li)
+            if (rl.tag == "glyf") {
+                push lengths newGlyfLen
+            } {
+                push lengths rl.length
+            }
+            li = (li + 1)
+        }
+
+        def headerLen:int (12 + (16 * n))
+        def offsets:[int]
+        def at:int headerLen
+        def k:int 0
+        while (k < n) {
+            push offsets at
+            at = (at + (itemAt lengths k))
+            while ((at % 4) != 0) {
+                at = (at + 1)
+            }
+            k = (k + 1)
+        }
+        def total:int at
+
+        def out:buffer (buffer_alloc total)
+        ; sfnt version 1.0 for TrueType outlines.
+        TrueTypeFont.put32(out 0 65536)
+        TrueTypeFont.put16(out 4 n)
+        ; searchRange / entrySelector / rangeShift: the binary-search hints.
+        def pow2:int 1
+        def log2:int 0
+        while ((pow2 * 2) <= n) {
+            pow2 = (pow2 * 2)
+            log2 = (log2 + 1)
+        }
+        TrueTypeFont.put16(out 6 (pow2 * 16))
+        TrueTypeFont.put16(out 8 log2)
+        TrueTypeFont.put16(out 10 ((n * 16) - (pow2 * 16)))
+
+        def d:int 0
+        while (d < n) {
+            def rec:TTFTableRecord (itemAt kept d)
+            def dst:int (itemAt offsets d)
+            def len:int (itemAt lengths d)
+            if (rec.tag == "glyf") {
+                this.writeGlyf(out dst plan)
+            } {
+                if (rec.tag == "loca") {
+                    this.writeLoca(out dst plan)
+                } {
+                    def src:int rec.offset
+                    def c:int 0
+                    while (c < rec.length) {
+                        buffer_set out (dst + c) (buffer_get fontData (src + c))
+                        c = (c + 1)
+                    }
+                }
+            }
+            d = (d + 1)
+        }
+
+        ; The directory last, because `glyf` and `loca` are rebuilt and their
+        ; checksums have to be computed over what was actually written. The
+        ; others are copied byte for byte, so recomputing them costs a pass and
+        ; removes a way to be subtly wrong.
+        def e:int 0
+        while (e < n) {
+            def r2:TTFTableRecord (itemAt kept e)
+            def base:int (12 + (16 * e))
+            def ti:int 0
+            while (ti < 4) {
+                def ch:int 32
+                if (ti < (strlen r2.tag)) {
+                    ch = (charAt r2.tag ti)
+                }
+                buffer_set out (base + ti) ch
+                ti = (ti + 1)
+            }
+            def off2:int (itemAt offsets e)
+            def len2:int (itemAt lengths e)
+            TrueTypeFont.put32(out (base + 4) (TrueTypeFont.tableSum(out off2 len2)))
+            TrueTypeFont.put32(out (base + 8) off2)
+            TrueTypeFont.put32(out (base + 12) len2)
+            e = (e + 1)
+        }
+        return out
+    }
+
+    ; A table's checksum: the big-endian 32-bit words of it, added up with the
+    ; overflow thrown away, over a length rounded up to four bytes.
+    sfn tableSum:int (b:buffer at:int len:int) {
+        def sum:int 0
+        def i:int 0
+        while (i < len) {
+            def w:int 0
+            def j:int 0
+            while (j < 4) {
+                def byte:int 0
+                if ((i + j) < len) {
+                    byte = (buffer_get b (at + i + j))
+                }
+                w = ((w * 256) + byte)
+                j = (j + 1)
+            }
+            sum = (bit_and (sum + w) 4294967295)
+            i = (i + 4)
+        }
+        return sum
+    }
+
+    ; `plan` is [totalGlyfBytes, keep0, keep1, …] — see `buildGlyf`.
+    fn writeGlyf:void (out:buffer dst:int plan:[int]) {
+        def w:int dst
+        def g:int 0
+        while (g < numGlyphs) {
+            if ((itemAt plan (g + 1)) == 1) {
+                def from:int (this.glyphStart(g))
+                def to:int (this.glyphEnd(g))
+                def len:int (to - from)
+                if (len > 0) {
+                    def glyf:TTFTableRecord (this.findTable("glyf"))
+                    def c:int 0
+                    while (c < len) {
+                        buffer_set out (w + c) (buffer_get fontData (glyf.offset + from + c))
+                        c = (c + 1)
+                    }
+                    w = (w + len)
+                    while (((w - dst) % 2) != 0) {
+                        buffer_set out w 0
+                        w = (w + 1)
+                    }
+                }
+            }
+            g = (g + 1)
+        }
+    }
+
+    fn writeLoca:void (out:buffer dst:int plan:[int]) {
+        def at:int 0
+        def g:int 0
+        while (g < numGlyphs) {
+            TrueTypeFont.putLoca(out dst g at indexToLocFormat)
+            if ((itemAt plan (g + 1)) == 1) {
+                def len:int ((this.glyphEnd(g)) - (this.glyphStart(g)))
+                if (len > 0) {
+                    at = (at + len)
+                    while ((at % 2) != 0) {
+                        at = (at + 1)
+                    }
+                }
+            }
+            g = (g + 1)
+        }
+        TrueTypeFont.putLoca(out dst numGlyphs at indexToLocFormat)
+    }
+
+    sfn putLoca:void (out:buffer dst:int i:int value:int format:int) {
+        if (format == 0) {
+            TrueTypeFont.put16(out (dst + (i * 2)) (to_int (value / 2)))
+        } {
+            TrueTypeFont.put32(out (dst + (i * 4)) value)
+        }
+    }
+
+    sfn tagLess:boolean (a:string b:string) {
+        def i:int 0
+        while (i < 4) {
+            def ca:int 32
+            def cb:int 32
+            if (i < (strlen a)) {
+                ca = (charAt a i)
+            }
+            if (i < (strlen b)) {
+                cb = (charAt b i)
+            }
+            if (ca != cb) {
+                return (ca < cb)
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn put16:void (b:buffer at:int v:int) {
+        buffer_set b at (bit_and (bit_shr v 8) 255)
+        buffer_set b (at + 1) (bit_and v 255)
+    }
+
+    sfn put32:void (b:buffer at:int v:int) {
+        buffer_set b at (bit_and (bit_shr v 24) 255)
+        buffer_set b (at + 1) (bit_and (bit_shr v 16) 255)
+        buffer_set b (at + 2) (bit_and (bit_shr v 8) 255)
+        buffer_set b (at + 3) (bit_and v 255)
+    }
     
     ; Get PostScript name for PDF
     fn getPostScriptName:string () {

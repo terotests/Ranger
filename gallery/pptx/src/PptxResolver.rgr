@@ -172,6 +172,12 @@ class PptxResolver {
         out.fontRefColor = (this.cloneColor(shape.fontRefColor))
         out.hasPath = shape.hasPath
         out.pathUnit = shape.pathUnit
+        ; Dropping this drew every custom path closed, whatever the file said:
+        ; the parser reads `Z` and the renderer asks for it, and the resolved
+        ; copy in between was answering `false`... which the renderer's own
+        ; default then turned back into "closed". A hand-drawn open stroke came
+        ; out joined end to end.
+        out.pathClosed = shape.pathClosed
         out.fill = (this.cloneColor(shape.fill))
         out.line = (this.cloneColor(shape.line))
         out.lineWidthPt = shape.lineWidthPt
@@ -275,6 +281,52 @@ class PptxResolver {
             return master.bodyStyle
         }
         return master.otherStyle
+    }
+
+    ; The typography a shape inherits when it is not a placeholder: the
+    ; master's `otherStyle`, with whatever the shape itself said over it.
+    ;
+    ; `p:defaultTextStyle` in presentation.xml is the step below this one and
+    ; is not read here. In every deck seen so far it repeats what `otherStyle`
+    ; says — the one this was reported on states 14 points in both — so it
+    ; would change nothing; a deck that has the second and not the first would
+    ; still fall back to this reader's own default.
+    fn applyOtherStyle:void (shape:PptxShape master@(optional):PptxSheet) {
+        if (null? master) {
+            return
+        }
+        def mas:PptxSheet (unwrap master)
+        if (mas.otherStyle.isSet == false) {
+            return
+        }
+        def inherited (new PptxListStyle())
+        inherited.mergeFrom(mas.otherStyle)
+        inherited.mergeFrom(shape.text.listStyle)
+        shape.text.listStyle = inherited
+    }
+
+    ; The same inheritance, down through a group.
+    ;
+    ; `resolveShape` already walks a group's children — for their fills, their
+    ; lines and their own text bodies — but the typography was applied only to
+    ; the shapes a slide lists directly, so anything inside a `p:grpSp` got
+    ; none of it. On the deck this was reported from, four boxes sat in one
+    ; group and were the only four still drawn in this reader's defaults: 18
+    ; points where the deck said 14, and WHITE where the deck said black,
+    ; because a missing inherited style loses the colour exactly as it loses
+    ; the size. They were also the only four that looked wrong after the size
+    ; was fixed everywhere else, which is what pointed at the group.
+    fn inheritChildren:void (shape:PptxShape master@(optional):PptxSheet theme:PptxTheme) {
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            def kid:PptxShape (itemAt shape.children i)
+            if (kid.isPlaceholder == false) {
+                this.applyOtherStyle(kid master)
+            }
+            this.applyListStyle(kid.text theme)
+            this.inheritChildren(kid master theme)
+            i = (i + 1)
+        }
     }
 
     ; Put the effective list style onto the paragraphs: each one takes the
@@ -867,6 +919,11 @@ class PptxResolver {
                 if (lshape.isPlaceholder == false) {
                     def lc:PptxShape (this.cloneShape(lshape))
                     lc.inherited = true
+                    ; Decoration from the layout is still a shape with text in
+                    ; it, and inherits the same way a slide's own does.
+                    this.applyOtherStyle(lc master)
+                    this.applyListStyle(lc.text theme)
+                    this.inheritChildren(lc master theme)
                     this.resolveShape(lc theme)
                     push resolved lc
                 }
@@ -919,8 +976,26 @@ class PptxResolver {
                 }
                 inherited.mergeFrom(shape.text.listStyle)
                 shape.text.listStyle = inherited
+            } {
+                ; …and a shape that is NOT a placeholder inherits too. The rule
+                ; is written a page up on `styleForPh` — "everything else, and
+                ; every shape that is not a placeholder at all, takes the other
+                ; style" — and this branch is where it was missing: the whole
+                ; block above sat inside the placeholder test, so a plain box
+                ; with words in it inherited nothing and fell back to THIS
+                ; READER's defaults.
+                ;
+                ; That is 18 points against the 14 the deck asked for, which is
+                ; a quarter too big: reported on a diagram of boxes where every
+                ; label overflowed its box and wrapped mid-word — "Prosess/i",
+                ; "Terveys-/tietokan/ta" — while the title, which states its own
+                ; size, was correct. A deck exported from Google Slides is
+                ; entirely such shapes; there is not one placeholder on the
+                ; slide.
+                this.applyOtherStyle(shape master)
             }
             this.applyListStyle(shape.text theme)
+            this.inheritChildren(shape master theme)
             this.resolveShape(shape theme)
             push resolved shape
             i = (i + 1)

@@ -252,6 +252,34 @@ class BorderRenderTest {
         tb.sheetView.markDirty()
         tb.sheetView.rebuild()
         tb.render()
+        ; Two deliberate changes to the toolbar left this test behind, and each
+        ; on its own would have kept the dialog shut:
+        ;
+        ;   * the border commands moved to the FORMAT tab, and a button on an
+        ;     inactive tab is not laid out at all;
+        ;   * the four of them went behind a DROPDOWN, and an entry in a closed
+        ;     one has no rectangle either — `w` is 0, because it takes no room
+        ;     on the strip.
+        ;
+        ; The old test found the entry whose argument is empty and clicked its
+        ; centre, which by then was a zero-width point on a tab nobody was
+        ; looking at. The button was there and the command was wired; only the
+        ; route to it had moved. So the test now takes the route a person
+        ; takes: choose the tab, open the list, pick the entry.
+        c.ok("there is a Format tab" ((tb.view.toolbar.tabCount()) > 1))
+        def fmtTab:int -1
+        def ti:int 0
+        while (ti < (tb.view.toolbar.tabCount())) {
+            def tab:ToolTab (tb.view.toolbar.tabAt(ti))
+            if (tab.name == "Format") {
+                fmtTab = ti
+            }
+            ti = (ti + 1)
+        }
+        c.ok("and it can be found by name" (fmtTab >= 0))
+        tb.view.toolbar.selectTab(fmtTab)
+        tb.render()
+
         def idx:int -1
         def bi:int 0
         while (bi < (tb.view.toolbar.count())) {
@@ -263,20 +291,58 @@ class BorderRenderTest {
             }
             bi = (bi + 1)
         }
-        c.ok("the toolbar has a Borders… button" (idx >= 0))
-        def item:ToolItem (tb.view.toolbar.at(idx))
-        def bx:int (item.x + (idiv item.w 2))
-        def by:int (item.y + (idiv item.h 2))
+        c.ok("the toolbar has a Borders… entry" (idx >= 0))
+        def entry:ToolItem (tb.view.toolbar.at(idx))
+        c.ok("which is folded away rather than on the strip" (entry.w == 0))
+
+        ; The owner of the list is the dropdown itself: the last item before
+        ; the entries that still has a rectangle.
+        def ownerIdx:int -1
+        def oi:int 0
+        while (oi < idx) {
+            def cand:ToolItem (tb.view.toolbar.at(oi))
+            if (cand.w > 0) {
+                ownerIdx = oi
+            }
+            oi = (oi + 1)
+        }
+        c.ok("and it hangs under a button that is" (ownerIdx >= 0))
+
+        def owner:ToolItem (tb.view.toolbar.at(ownerIdx))
+        def ox:int (owner.x + (idiv owner.w 2))
+        def oy:int (owner.y + (idiv owner.h 2))
         def bin (new UIInput)
         bin.newFrame()
-        bin.setPointerPos(bx by)
+        bin.setPointerPos(ox oy)
         bin.setPointerDown(true)
         tb.update(bin)
         bin.newFrame()
-        bin.setPointerPos(bx by)
+        bin.setPointerPos(ox oy)
         bin.setPointerDown(false)
         tb.update(bin)
-        c.ok("clicking it opens the gallery" tb.borderDialog.visible)
+        c.eqInt("clicking it opens the list" tb.view.toolbar.openMenu ownerIdx)
+
+        ; The entries get their rectangles in the NEXT layout, not in the press
+        ; that opened the list — a closed dropdown lays its entries out as
+        ; nothing, and the strip is laid out once per frame. Asking for their
+        ; positions before drawing again reads the closed ones.
+        tb.render()
+
+        ; Now the entries have rectangles, and the one that opens the gallery
+        ; can be clicked the way a person clicks it.
+        def open:ToolItem (tb.view.toolbar.at(idx))
+        c.ok("the entry has a rectangle now" (open.w > 0))
+        def ex:int (open.x + (idiv open.w 2))
+        def ey:int (open.y + (idiv open.h 2))
+        bin.newFrame()
+        bin.setPointerPos(ex ey)
+        bin.setPointerDown(true)
+        tb.update(bin)
+        bin.newFrame()
+        bin.setPointerPos(ex ey)
+        bin.setPointerDown(false)
+        tb.update(bin)
+        c.ok("and choosing it opens the gallery" tb.borderDialog.visible)
         c.ok("and it draws with the gallery up" ((strlen (tb.sceneJson())) > 100))
 
         print ""

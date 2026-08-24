@@ -181,6 +181,7 @@ class PptxToEvg {
         mapped.shadow = child.shadow
         mapped.hasPath = child.hasPath
         mapped.pathUnit = child.pathUnit
+        mapped.pathClosed = child.pathClosed
         def sx:double 1.0
         def sy:double 1.0
         if ((shape.chW > 0.0) && (shape.width > 0.0)) {
@@ -538,7 +539,7 @@ class PptxToEvg {
                 if ((measure.hasFamily(run.fontFamily)) == false) {
                     substituted = true
                 }
-                natural = (natural + (measure.widthOf(run.text (run.fontSizePt * s) run.bold run.italic)))
+                natural = (natural + (measure.widthOfIn(run.text (run.fontSizePt * s) run.bold run.italic run.fontFamily)))
                 ri = (ri + 1)
             }
             ; The indent this paragraph's level pushes it in by counts against
@@ -784,7 +785,7 @@ class PptxToEvg {
                 def run:PptxTextRun (itemAt para.runs vr.style)
                 def piece:string vr.text
                 def fontSize:double (run.fontSizePt * s)
-                def pieceW:double (measure.widthOf(piece fontSize run.bold run.italic))
+                def pieceW:double (measure.widthOfIn(piece fontSize run.bold run.italic run.fontFamily))
                 def drawX:double penX
                 def drawY:double line.y
                 if hasRot {
@@ -794,10 +795,20 @@ class PptxToEvg {
                     drawX = ((itemAt rp 0) - (pieceW * 0.5))
                     drawY = ((itemAt rp 1) - (line.h * 0.5))
                 }
-                def fontFamily:string "Calibri"
-                if ((strlen run.fontFamily) > 0) {
-                    fontFamily = run.fontFamily
-                }
+                ; The family the run is DRAWN in, not the one the deck
+                ; named. Those are rarely the same — Calibri is not shipped
+                ; here and every width above came from whatever the alias map
+                ; sent it to — and this line used to carry the deck's name
+                ; through to the backends unchanged.
+                ;
+                ; The software painter ignores it and paints Open Sans, so the
+                ; desktop never showed the disagreement. A browser does not
+                ; ignore it: `ctx.font` was handed "Calibri", found no such
+                ; face registered, and drew the system sans at the same size —
+                ; 292px of title where the layout had measured 311. The text
+                ; came out narrow, the caret did not, and the two met a fifth
+                ; of a letter apart at 12pt and most of one at 40.
+                def fontFamily:string (measure.drawnFamily(run.fontFamily run.bold run.italic))
                 def col:EVGColor (EVGColor.rgb(0 0 0))
                 if (run.color.isSet) {
                     col = (this.colorFrom(run.color))

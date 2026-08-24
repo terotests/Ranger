@@ -1,0 +1,46 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; pptx_playground.rgr — the API and the editor, in one page.
+; ==============================================================================
+;
+; The playground writes a deck with the published API and then shows it in the
+; EDITOR — not in a picture of one. That is the whole claim the page makes, and
+; it only means anything if the two are the same build: a page that generated a
+; deck with one copy of the code and drew it with another could show a slide
+; that no reader would ever get.
+;
+; So one bundle holds all of it. `PptxWeb` is the viewer the standalone page
+; already uses, unchanged; `PptxApi`, `PptxRenderer` and `PptxVega` are the
+; published surface — the npm package splits those three into separate entry
+; points so a caller carries only what they name, and a single page that
+; offers all three has nothing to split. The
+; page runs the reader's JavaScript against the second, takes the bytes it
+; produces, and opens them in the first — which is exactly the round trip a
+; caller makes when they write a deck and someone opens it in PowerPoint,
+; except that here the reader watches it happen.
+;
+; Nothing is added to either side for the page's benefit. If the playground can
+; draw it, the API produced it.
+; ==============================================================================
+
+Import "../pptx_web.rgr"
+Import "../../api/PptxRenderApi.rgr"
+Import "../../api/PptxChartApi.rgr"
+
+class PptxPlayground {
+    ; @internal The viewer, so the page can hand a generated deck straight to it.
+    def viewer:PptxWeb (new PptxWeb)
+    ; @internal The renderer, for the PNG and PDF buttons.
+    def renderer:PptxRenderer (new PptxRenderer)
+
+    Constructor () {
+    }
+
+    ; The faces this page must fetch, in the order the fallback walk takes
+    ; them. Handed out rather than written into the HTML so the page and the
+    ; desktop cannot disagree about which fonts a deck is measured in.
+    sfn faces:[string] () {
+        return (PptxRenderer.standardFaces())
+    }
+}

@@ -27,6 +27,53 @@
 
 class EVGCodepoint {
 
+    ; --- where a line may be broken ---------------------------------------------
+    ;
+    ; A space is the obvious opportunity and was the only one any wrapper here
+    ; knew. It is not the only one, and the gap shows on the commonest kind of
+    ; text there is: a hyphenated compound. "Liiketoiminta-logiikka" is ONE
+    ; word to a space-only wrapper, so a box too narrow for the whole of it has
+    ; nothing to break at and falls through to breaking between letters —
+    ; "Liiketoimint" / "a-logiikka", where every other program gives
+    ; "Liiketoiminta-" / "logiikka".
+    ;
+    ; The break goes AFTER the character, so the hyphen stays on the line it
+    ; belongs to. That is the whole difference between a compound that reads
+    ; and one that looks like a typo.
+    ;
+    ; This is the small, uncontroversial part of UAX #14 — the part every
+    ; implementation agrees on — and deliberately not the rest of it: no line
+    ; breaking around CJK, no numeric-range rules, no soft hyphen. Those want
+    ; a property table, and a wrapper that gets hyphens right is most of the
+    ; distance for the documents these editors open.
+    sfn breaksAfter:boolean (c:int) {
+        ; - hyphen-minus, and the real hyphen nobody types
+        if ((c == 45) || (c == 8208)) {
+            return true
+        }
+        ; – en dash, — em dash
+        if ((c == 8211) || (c == 8212)) {
+            return true
+        }
+        ; / solidus: a path or a date breaks after it, not before
+        if (c == 47) {
+            return true
+        }
+        return false
+    }
+
+    ; A space, a tab — where a break costs nothing because the character it
+    ; breaks at is invisible.
+    sfn isSpace:boolean (c:int) {
+        if (c == 32) {
+            return true
+        }
+        if (c == 9) {
+            return true
+        }
+        return false
+    }
+
     ; Is a string BYTES here, or UTF-16 code units?
     ;
     ; Ranger's `string` does not mean the same thing on every target it

@@ -427,6 +427,42 @@ class VlExprEval {
     ; What a time function was handed, as an instant. A number is one already;
     ; a string is a date that nothing has parsed yet, which is what a column
     ; read straight out of a JSON file holds.
+    ; The functions whose first argument is a date. Everything else never
+    ; touches `when` and must not pay for it.
+    sfn wantsInstant:boolean (name:string) {
+        if (name == "time") {
+            return true
+        }
+        if (name == "timeFormat") {
+            return true
+        }
+        if (name == "utcFormat") {
+            return true
+        }
+        if (name == "year") {
+            return true
+        }
+        if (name == "month") {
+            return true
+        }
+        if (name == "date") {
+            return true
+        }
+        if (name == "hours") {
+            return true
+        }
+        if (name == "minutes") {
+            return true
+        }
+        if (name == "seconds") {
+            return true
+        }
+        if (name == "day") {
+            return true
+        }
+        return false
+    }
+
     sfn instantOf:double (v:VlJson) {
         if (v.isString()) {
             ; A string of digits is a NUMBER of milliseconds rather than a
@@ -467,9 +503,13 @@ class VlExprEval {
     sfn evalCall:VlJson (node:VlExprNode scope:VlExprScope) {
         def name:string node.name
         def argc:int (array_length node.children)
-        def a0:VlJson (VlJson.nullValue())
-        def a1:VlJson (VlJson.nullValue())
-        def a2:VlJson (VlJson.nullValue())
+        ; One null for the arguments that were not given, rather than three:
+        ; every call allocated three and overwrote the ones it had. The three
+        ; names share ONE fresh value per call, so nothing leaks between calls.
+        def missing:VlJson (VlJson.nullValue())
+        def a0:VlJson missing
+        def a1:VlJson missing
+        def a2:VlJson missing
         if (argc > 0) {
             a0 = (VlExprEval.eval((itemAt node.children 0) scope))
         }
@@ -486,7 +526,14 @@ class VlExprEval {
         ; date as written because nothing has parsed it yet; read as a number a
         ; written date is zero, and `year(datum.Year)` answered 1970 for every
         ; row of a file that spans a decade.
-        def when:double (VlExprEval.instantOf(a0))
+        ; Reading the first argument AS AN INSTANT parses it as a date when it
+        ; is a string, and only the ten functions below want that. It used to
+        ; be done for every call: `scale('colour', datum.c)` ran a full date
+        ; parse of a category name, once per datum, and threw the answer away.
+        def when:double 0.0
+        if (VlExprEval.wantsInstant(name)) {
+            when = (VlExprEval.instantOf(a0))
+        }
         ; An instant is a number of milliseconds. `toDate` is what a
         ; specification calls on a temporal field before anything scales it, and
         ; a chart's dates arrive as ISO strings.

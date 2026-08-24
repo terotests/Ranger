@@ -1053,6 +1053,59 @@ precisely the class of bug a single-target suite is blind to. The scale is a
 double now, and the digits are taken from the top a place at a time so no
 intermediate value is ever larger than a digit.
 
+## Four faults a profile found, and one wrong algorithm
+
+Profiling a chart of ten thousand marks turned up four places where the cost
+had nothing to do with drawing charts — all of them the same mistake in a
+different place: **a string built one character at a time, or a value computed
+for everybody because somebody needs it.**
+
+| Where | What it was doing | Why it cost that |
+| --- | --- | --- |
+| `VlJsonWriter.quote` | escaped a string by walking it character by character, appending `substring s k (k + 1)` to a growing string | the playground's answer carries the whole SVG document inside a JSON string. Ten thousand marks is a 3.9 MB document, so this was four million allocations and four million concatenations — **more than the runtime and the renderer put together** |
+| `VlSvgWriter.escapeText` / `escapeAttribute` | the same walk, over every label and every aria-label on the page | same shape, smaller string |
+| `VlRuntime.parseExpr` | built the syntax tree for an expression **every time the expression was evaluated** | an encode rule is a string in the specification and a tree in the evaluator. `isValid(datum["x"]) && isFinite(+datum["x"])` is one string and ten thousand trees — the expression parser was a sixth of the whole render |
+| `VlExprEval.evalCall` | read its first argument **as an instant** before dispatching, and allocated three null arguments per call | reading a string as an instant parses it as a date. `scale('colour', datum.c)` ran a full date parse of a category name, once per datum, and threw the answer away |
+
+Each escape copies the **run** between two characters that need escaping rather
+than each character; one syntax tree per expression source lives as long as the
+run does, because the evaluator only ever reads them; and the instant is read
+only for the ten functions that want one. Two smaller ones came with them: a
+whole number leaves `formatNumber` without going through the decimal loop, and
+`VectorShapes.num` trims its trailing zeros as digits rather than as text.
+
+Then a second pass, asking where the runtime *stops* rather than what it costs,
+found the one that was not a slow function but the wrong algorithm:
+
+| Where | What it was | Why it mattered |
+| --- | --- | --- |
+| `VlRuntime.sortMarkItems` | an **insertion sort**, on the reasoning that "a mark's item count is small" | for a bar chart it is. For a LINE the item count is the number of data points, and Vega-Lite puts a `sort` on every line it compiles — so a line through ten thousand points ran fifty million comparisons, each a hash lookup of the sort field. 2 000 points cost 226 ms and 8 000 cost 2 369: quadratic, in the one chart type whose whole purpose is carrying a lot of points |
+| `VelaWeb.render` | answered JSON with the whole SVG document **inside a JSON string** | a hundred thousand marks is a 40 MB document. Escaping it into JSON and parsing it back out was half of everything the page waited for — to carry a string that was already a string |
+
+The sort is a bottom-up merge sort now — stable, because two points at the same
+x must be joined in data order — with each item's key read once instead of once
+per comparison. And `renderAnswer` returns an object with the fields on it, so
+nothing is escaped and nothing is parsed back; `render` still answers JSON for
+callers that want it, implemented in terms of the same code.
+
+| | before | after |
+| --- | ---: | ---: |
+| a 10 000-mark scatter, whole render | 1 412 ms | 697 ms |
+| a line through 8 000 points (scene) | 2 369 ms | 185 ms |
+| a line through 100 000 points (scene) | ~6 minutes¹ | 2.3 s |
+| a 100 000-mark scatter, what the page waits for | 11.8 s | 6.1 s |
+
+¹ extrapolated from the quadratic — 10 000 points took 3.9 s of sorting, and
+the measurement was stopped rather than left to find out.
+
+Nothing about what is drawn changed, and that is checked rather than asserted:
+five charts — a scatter of ten thousand points, bars, a time-axis line, a pie,
+and one of awkward numbers (0.0001, −2.5, 10⁹, 1000000000.5) — come out **byte
+for byte identical** before and after; the suite still passes, including the
+4848 drawn primitives compared against the reference renderer; and the C++
+build still reproduces every golden byte for byte, which is what says the
+changes are portable rather than JavaScript-shaped.
+
 ## What is not there yet
 
 * **Transitions that are not rules.** A zone's eras cover the rule changes; the

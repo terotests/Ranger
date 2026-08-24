@@ -216,6 +216,35 @@ class OfficeFont {
         return ((fm.hasFont(family)) == false)
     }
 
+    ; --- the FAMILY, for a backend that cannot be handed a face -----------------
+    ;
+    ; `resolve` answers with a FACE — "Open Sans-Bold" — which is what a
+    ; renderer keyed by family-and-style wants, and what no browser canvas
+    ; understands: `ctx.font` takes a CSS family and a weight in two separate
+    ; parts. A display list that has to cross into one carries them in two
+    ; fields too, so the family half is needed on its own.
+    ;
+    ; What it is for. A .pptx says "Calibri". Calibri is not here, so every
+    ; width in the layout comes from whatever `aliasFamily` sent it to — and
+    ; the display list still carried the name the DOCUMENT said. A browser
+    ; then drew a face nobody had measured: the system's sans, or on Windows
+    ; the real Calibri. At 12pt the disagreement is under two pixels and
+    ; nobody ever saw it. On a 40pt title it is nineteen, and the caret sat
+    ; two thirds of a letter to the right of the text it belonged to.
+    ;
+    ; So: the alias map, then a check that the family it named is actually
+    ; loaded, and the fallback when it is not — the same three steps `resolve`
+    ; takes, answered as a family. Ask this and measure with it, and a backend
+    ; told the answer draws what was measured whatever fonts it has of its own.
+    sfn drawnFamily:string (fm:FontManager name:string bold:boolean italic:boolean fallback:string) {
+        def fam:string (OfficeFont.aliasFamily(name))
+        def hit:string (OfficeFont.nearestInFamily(fm fam bold italic))
+        if ((strlen hit) > 0) {
+            return fam
+        }
+        return fallback
+    }
+
     ; Point the renderer at a face, and answer which one it ended up on.
     ;
     ; It MUST go through `fontFamily` rather than `rt.setFont`: `UITextRenderer`

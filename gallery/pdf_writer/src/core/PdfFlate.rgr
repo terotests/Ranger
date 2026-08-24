@@ -1,0 +1,85 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PdfFlate — /FlateDecode, so a PDF is not stored raw.
+; ==============================================================================
+;
+; Every stream this writer produced was written out uncompressed: content
+; streams, embedded font files, ToUnicode maps, all of them. A PDF reader is
+; perfectly happy with that and the files were correct — they were simply as
+; large as their contents, which for a deck of slides means a font file per
+; face at full size and a page of path operators written out as text.
+;
+; Measured on a five-slide business deck: 531 KB of PDF from a 13 KB .pptx,
+; 98% of it in raw streams. A slide with the single word "Hei" on it came to
+; 220 KB, of which 217 KB was one uncompressed font.
+;
+; `/FlateDecode` is the answer PDF has for this and it is the same deflate the
+; PNG writer already uses — LZ77 against a three-byte hash, fixed Huffman. The
+; zlib framing around it is two header bytes and an Adler-32, which is what
+; separates a zlib stream from a bare deflate one: a PDF `/FlateDecode` filter
+; expects zlib, and a bare deflate stream is the classic way to produce a file
+; that every reader rejects.
+;
+; WHEN NOT TO USE IT. Compressed data that is already compressed grows. A JPEG
+; inside an image XObject is `/DCTDecode` and must not be wrapped again — the
+; filter chain would be honest and the file would be bigger. `shrink` answers
+; whether it was worth it so a caller can write the raw bytes instead.
+; ==============================================================================
+
+Import "../raster/Deflate.rgr"
+Import "Buffer.rgr"
+
+class PdfFlate {
+    ; The zlib stream for `src`, ready to be a `/FlateDecode` stream.
+    sfn zlib:buffer (src:buffer) {
+        def n:int (buffer_length src)
+        def out (new GrowableBuffer)
+        ; CMF = 0x78: deflate, 32K window. FLG = 0x01: no dictionary.
+        out.writeByte(120)
+        out.writeByte(1)
+        def w (new DeflateWriter)
+        def d (new Deflate)
+        d.compress(src n w)
+        w.align()
+        def body:buffer (w.out.toBuffer())
+        def bi:int 0
+        while (bi < (buffer_length body)) {
+            out.writeByte((buffer_get body bi))
+            bi = (bi + 1)
+        }
+        def adler:int (PdfFlate.adler32(src n))
+        out.writeByte((bit_and (bit_shr adler 24) 255))
+        out.writeByte((bit_and (bit_shr adler 16) 255))
+        out.writeByte((bit_and (bit_shr adler 8) 255))
+        out.writeByte((bit_and adler 255))
+        return (out.toBuffer())
+    }
+
+    sfn adler32:int (data:buffer n:int) {
+        def a:int 1
+        def b:int 0
+        def i:int 0
+        while (i < n) {
+            a = ((a + (buffer_get data i)) % 65521)
+            b = ((b + a) % 65521)
+            i = (i + 1)
+        }
+        return (bit_or (bit_shl b 16) a)
+    }
+
+    ; Did it help? A stream that grew is written raw instead — see the note
+    ; above. The margin is deliberate rather than `<`: saving twenty bytes on a
+    ; kilobyte is not worth a filter entry and a decoder pass.
+    sfn worthIt:boolean (raw:buffer packed:buffer) {
+        def r:int (buffer_length raw)
+        def p:int (buffer_length packed)
+        if (r < 64) {
+            return false
+        }
+        ; `/` on two ints answers a double here, so the margin is computed in
+        ; whole bytes before the comparison rather than inside it.
+        def margin:int (to_int (r / 32))
+        return (p < (r - margin))
+    }
+}
