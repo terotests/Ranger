@@ -108,6 +108,13 @@ class VlRuntime {
     def lastBoxes:[VlGroupBox]
     def cleanMarks:[string:int]
     def reusing:boolean false
+    ; One syntax tree per expression SOURCE, for as long as this run lasts. An
+    ; encode rule is a string on the specification and a tree in the evaluator,
+    ; and the tree was being built again for every datum it was applied to: on
+    ; a scatter of ten thousand points the expression parser was a sixth of the
+    ; whole render. The trees are read and never written by the evaluator, so
+    ; one tree can serve every datum.
+    def exprCache:[string:VlExprNode]
     def dataSets:[string:VlDataSet]
     def dataOrder:[string]
     def scaleOrder:[string]
@@ -2068,11 +2075,18 @@ class VlRuntime {
 
     ; ------------------------------------------------------------ expressions ---
     fn parseExpr:VlExprNode (src:string) {
+        if (has exprCache src) {
+            return (unwrap (get exprCache src))
+        }
         def p (new VlExprParser())
         def node:VlExprNode (p.parse(src))
         if (! p.ok) {
+            ; A failure is not remembered: it is reported once per attempt, and
+            ; the caller decides what that means.
             this.fail((("expression: " + p.err) + " in: ") + src)
+            return node
         }
+        set exprCache src node
         return node
     }
 

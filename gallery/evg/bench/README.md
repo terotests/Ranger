@@ -73,10 +73,10 @@ benchmark like this one.
 
 | nodes | best DOM redraw | `webgl` redraw | of which JavaScript |
 | ---: | ---: | ---: | ---: |
-| 100 | 3.8 ms | 82.6 ms | 7.2 ms |
-| 1 000 | 13.7 ms | 552 ms | 56 ms |
-| 10 000 | 136 ms | 4 873 ms | 544 ms |
-| 30 000 | 364 ms | 13 839 ms | 1 599 ms |
+| 100 | 4.6 ms | 90.7 ms | 7.1 ms |
+| 1 000 | 12.1 ms | 692 ms | 50 ms |
+| 10 000 | 124 ms | 5 013 ms | 578 ms |
+| 30 000 | 384 ms | 15 550 ms | 1 962 ms |
 
 Not because it is on the GPU — because of what it does before it gets there.
 `evg-webgl.js` is a *viewer*: it holds nothing between calls, so every frame
@@ -100,31 +100,31 @@ changes the picture completely:
 
 | nodes | `webgl` first paint | `webgl-sdf` first paint | `html-evg` first paint |
 | ---: | ---: | ---: | ---: |
-| 1 000 | 55.6 ms | **3.0 ms** | 14.7 ms |
-| 10 000 | 788 ms | **27.7 ms** | 129 ms |
-| 30 000 | 4 167 ms | **45.2 ms** | 468 ms |
+| 1 000 | 53 ms | **1.9 ms** | 18 ms |
+| 10 000 | 542 ms | **17 ms** | 144 ms |
+| 30 000 | 2 207 ms | **59 ms** | 466 ms |
 
 ### 3. On this machine there is no crossover — and the reason is measurable
 
-`webgl-sdf` still loses the redraw race: 748 ms against the DOM's 364 ms at
+`webgl-sdf` still loses the redraw race: 749 ms against the DOM's 384 ms at
 30 000 nodes. But look at where those milliseconds go. Per additional mark,
 between 10 000 and 30 000 nodes:
 
 | | `html-evg` | `svg-vela` | `webgl-sdf` |
 | --- | ---: | ---: | ---: |
-| whole frame | 11.2 µs | 25.4 µs | 19.6 µs |
-| JavaScript | 4.3 µs | 6.9 µs | **0.0 µs** |
+| whole frame | 13.0 µs | 31.5 µs | 25.3 µs |
+| JavaScript | 4.8 µs | 8.1 µs | **0.0 µs** |
 
-The GPU column's JavaScript is *flat*: 0.1 ms at a hundred nodes, 0.6 ms at
+The GPU column's JavaScript is *flat*: 0.1 ms at a hundred nodes, 0.65 ms at
 thirty thousand, because a frame is one `bufferSubData` and two draw calls
-however many marks are in it. Every one of its remaining 19.6 µs per mark is
+however many marks are in it. Every one of its remaining 25 µs per mark is
 **SwiftShader** — software rasterisation, on a machine with no GPU, in the one
 column that cannot fall back to Skia.
 
 So the honest reading is a conditional one, and the condition is quantified:
 
 > **`webgl-sdf` overtakes the best DOM backend as soon as its rasteriser costs
-> less than ~11 µs per mark — that is, as soon as it is about 2× faster than
+> less than ~13 µs per mark — that is, as soon as it is about 2× faster than
 > SwiftShader.** Any real GPU is orders of magnitude past that, and the
 > JavaScript half is already 20–200× cheaper than the DOM's at every size
 > measured.
@@ -133,9 +133,9 @@ So the honest reading is a conditional one, and the condition is quantified:
 
 | nodes | `svg-vela` total | `webgl-sdf` total | of which EVG layout + display list |
 | ---: | ---: | ---: | ---: |
-| 1 000 | 121 ms | 450 ms | 447 ms |
-| 10 000 | 1 684 ms | 3 943 ms | 3 915 ms |
-| 30 000 | 5 494 ms | 12 748 ms | 12 704 ms |
+| 1 000 | 85 ms | 261 ms | 259 ms |
+| 10 000 | 931 ms | 3 584 ms | 3 567 ms |
+| 30 000 | 2 938 ms | 11 061 ms | 11 002 ms |
 
 The GPU route's first picture is dominated by work that has nothing to do with
 the GPU: `evgSource` writes the chart out as a TSX document, the layout engine
@@ -203,66 +203,77 @@ finding, not a handicap imposed by the harness.
 
 ## Where Ranger stands
 
+> These are the numbers **after** the optimisation pass the first run of this
+> benchmark set off — the four allocations-per-character and
+> work-for-everybody faults documented in
+> [`gallery/vela/README.md`](../../vela/README.md#where-the-time-went). Vela's
+> marginal cost per mark was 144 µs when this comparison was first run and is
+> 71 µs now; the "before" column below is that first run.
+
 Marginal cost of one more mark, least squares over every size measured:
 
-| µs per node | `vela-svg` | `vela-svg-vg` | `evg-webgl` | `vega-svg` | `vega-canvas` | `chartjs` |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| first render | 144 | 141 | 783 | **46** | **15** | **3.7** |
-| update | 139 | 117 | 892 | **46** | **17** | **2.0** |
+| µs per node | `vela-svg` (before) | `vela-svg` | `vela-svg-vg` | `evg-webgl` | `vega-svg` | `vega-canvas` | `chartjs` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| first render | 144 | **71** | 66 | 894 | 42 | 14 | 5.2 |
+| update | 139 | **70** | 60 | 839 | 49 | 18 | 2.1 |
 
 In whole milliseconds — first render, median of three:
 
 | nodes | `vela-svg` | `vega-svg` | `vega-canvas` | `chartjs` |
 | ---: | ---: | ---: | ---: | ---: |
-| 100 | **18.5** | 28.8 | 21.6 | 7.7 |
-| 300 | 41.6 | 30.7 | 25.5 | 12.3 |
-| 1 000 | 91 | 50 | 30 | 17 |
-| 3 000 | 304 | 124 | 58 | 23 |
-| 10 000 | 1 199 | 404 | 160 | 75 |
-| 30 000 | 4 301 | 1 394 | 454 | 120 |
+| 100 | **12.6** | 20.1 | 18.5 | 11.0 |
+| 300 | **23.5** | 26.5 | 20.9 | 9.1 |
+| 1 000 | 56 | 47 | 30 | 13 |
+| 3 000 | 172 | 119 | 57 | 16 |
+| 10 000 | 606 | 361 | 155 | 61 |
+| 30 000 | 2 139 | 1 289 | 428 | 162 |
 
 and an update, where the gap is wider because Vela has nothing to reuse:
 
 | nodes | `vela-svg` | `vega-svg` | `vega-canvas` | `chartjs` | Vela ÷ best |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100 | 21 | 12 | 4.0 | 4.4 | 5.2× |
-| 1 000 | 91 | 39 | 17 | 10 | 8.8× |
-| 10 000 | 1 220 | 422 | 152 | 48 | 25× |
-| 30 000 | 4 139 | 1 386 | 516 | 62 | 66× |
+| 100 | 12 | 9.1 | 4.4 | 3.9 | 3.1× |
+| 1 000 | 57 | 37 | 16 | 9.7 | 5.8× |
+| 10 000 | 635 | 417 | 166 | 43 | 15× |
+| 30 000 | 2 109 | 1 457 | 541 | 66 | 32× |
 
 Read plainly:
 
-1. **At a hundred marks Ranger wins.** `vela-svg` draws that chart in 18.5 ms
-   against official Vega's 28.8 ms — the same specification, the same
-   renderer's worth of work, from a runtime compiled out of Ranger. Small
-   charts are most charts, and on those this holds its own.
-2. **From a few hundred marks up it falls behind, and settles at about 3×.**
-   1.4× Vega's SVG at three hundred, 1.8× at a thousand, 2.5× at three
-   thousand, 3.1× at thirty thousand — which is exactly the ratio of the
-   marginal costs, 144 µs a mark against 46. Against a canvas renderer it is
-   10×, against Chart.js 39×.
+1. **Up to a few hundred marks Ranger is the faster of the two grammars.**
+   12.6 ms against official Vega's 20.1 at a hundred marks, 23.5 against 26.5
+   at three hundred — the same specification, the same drawing, from a runtime
+   compiled out of Ranger. Small charts are most charts.
+2. **Above a thousand it is behind by about 1.7×**, and evenly: 1.2× at a
+   thousand, 1.4× at three thousand, 1.7× at ten and thirty thousand, which is
+   the ratio of the marginal costs (71 µs a mark against 42). Against a canvas
+   renderer it is 5×, against Chart.js 14×.
 3. **The Vega-Lite compiler is not where it goes.** `vela-svg-vg` — the same
    Vela runtime and renderer, handed the Vega specification vega-lite itself
-   compiled — costs 141 µs a mark against 144. The compiler is free; the
-   scene evaluation and the SVG writing are the bill.
-4. **Updates are the weak point, by an order of magnitude and then some.**
-   Everything else here keeps a scene and touches what changed. Vela
-   recompiles the specification, recomputes every scale and re-serialises
-   every path because one point moved: 4.1 s at thirty thousand marks against
-   Chart.js's 62 ms.
-5. **The GPU route is the slowest thing measured** — 783 µs a mark, five times
-   Ranger's own SVG — for the reasons the first half of this document lays
-   out: a marker arriving as a 190-point polygon, and a viewer that retains
-   nothing between frames. It also pays for an 80 MB JSON document at thirty
-   thousand marks, which is a garbage collector's worth of cost on its own.
+   compiled — costs 66 µs a mark against 71. The scene evaluation and the SVG
+   writing are the bill.
+4. **Updates are still the weak point.** Everything else here keeps a scene and
+   touches what changed. Vela recompiles the specification, recomputes every
+   scale and re-serialises every path because one point moved — 2.1 s at thirty
+   thousand marks against Chart.js's 66 ms. It was 4.1 s before the
+   optimisation pass; the pass made the whole pipeline quicker, not
+   incremental.
+5. **The GPU route is the slowest thing measured** — 894 µs a mark, twelve
+   times Ranger's own SVG — for the reasons the first half of this document
+   lays out: a marker arriving as a 190-point polygon, and a viewer that
+   retains nothing between frames. It also pays for an 80 MB JSON document at
+   thirty thousand marks, which is a garbage collector's worth of cost on its
+   own.
 
 ## What this says to do about it
 
 - **Keep the scene between renders.** Everything in the top half of these
   tables does. A `VlRuntime` that can be handed new data without re-reading
-  the specification would close most of the update gap on its own.
+  the specification would close most of the update gap on its own, and it is
+  now the largest single thing left.
 - **Look at the SVG renderer and the scale evaluation, not the compiler.**
-  Point 3 says where the milliseconds are.
+  Point 3 says where the milliseconds are. The cheap wins there have been
+  taken; what is left allocates an object per path segment and a hash lookup
+  per property read, which is a change of shape rather than a change of line.
 - **Canvas is worth having as a target.** `vega-canvas` is 1.5–3× `vega-svg` at
   every size, with no GPU involved — the same 2-D canvas the display list
   could be painted onto directly, without a TSX document in the middle.
