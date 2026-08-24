@@ -624,3 +624,80 @@ in the two sections above.
 2. **Inheritance.** The subclass struct needs the fields of the parent.
 3. **The inner attribute.** A polyfill must not write `#![…]` below the top of
    the file. This one is local and small.
+
+---
+
+## The PPTX viewer: where the Rust backend stands on a large program
+
+_August 2026._ The question that prompted this was whether the browser PPTX
+viewer at `gallery/pptx/web/` could be compiled Ranger → Rust → WASM as a
+second, faster path beside the JavaScript one. The spike got as far as it can
+without compiler work, and this records exactly where it stopped so the next
+attempt does not start from zero.
+
+### What the program is
+
+`gallery/pptx/web/pptx_web.rgr` pulls in the whole stack: the OOXML reader and
+writer, the shape geometry, the text layout, the EVG display list, the CSS
+core, and the Vela chart compiler. It is 2.87 MB / 78 042 lines of generated
+Rust — for scale, `evg_component_tool` (the program the table above tracks) is
+a fraction of that.
+
+### Stage one: the Ranger frontend — DONE
+
+The `-l=rust` frontend reported 45 errors, all one diagnostic:
+
+> This method stores `this`, so its Rust form needs the receiver's Rc. Bind the
+> receiver to a variable first: `def recv:T (expr)` — then `recv.method(...)`.
+
+Every one was the same shape: a method called on a FIELD-ACCESS expression,
+`ch.def0.get("scale")`, where the receiver has to exist as an `Rc` before a
+method can borrow it. They were fixed at the source, by binding the receiver to
+a local first — 39 sites in `VlCompile.rgr`, `VlCommand.rgr`, `VlScene.rgr` and
+`PptxResolver.rgr`, plus `CRC32`'s constructor, which called a method that
+writes through `this` before the object was inside its `Rc`.
+
+Four of the 45 were invisible to the error report: `(! (ch.def0.has(k)))`
+expands through a macro, so the compiler could only name `<macro >:1:11`. Worth
+knowing — a macro-expanded location is not a missing error.
+
+`-l=rust` now emits the viewer with no failures. **The Ranger side is done.**
+
+### Stage two: rustc — 396 errors, three families
+
+The emitted Rust does not compile. 396 errors over 415 distinct lines, and they
+are not spread thin — three families are 85% of them:
+
+| Errors | Code | What the emitter did |
+| --- | --- | --- |
+| 275 | E0596 | emitted `&self` for a method that calls a mutating method on a field: `self.reader.seek(x)` where `reader` is another object |
+| 51 | E0599 | treated an optional object field as an `Option` when it was emitted as a bare `RefCell<T>`: `self.fontManager.clone().unwrap()` |
+| 15 | E0308 | mismatched types, mostly borrowed-vs-owned at an assignment |
+| 1 | — | `fn type(&self, …)` — a Ranger method named after a Rust keyword, needing `r#type` |
+
+The rest (E0594, E0507, E0382, E0499 …) are the borrow-checker tail this
+document's table has walked down before.
+
+This is the same class of work that took `evg_component_tool` from 365 errors
+to 11, one program larger. Nothing here is a source-level fix: these are all
+decisions the Rust emitter makes.
+
+### The performance question this was asked for
+
+Worth stating plainly, because it changes what a WASM port would be worth. On
+the six-slide chart deck, one slide, 10 084 commands — `npm run
+pptx:scene:bench`, all three from the same run:
+
+    buildFrame   10 ms    the layout, in Ranger
+    toJson       62 ms    handing the frame to the page as text
+    toBinary      7 ms    handing the same frame over as Int32Arrays
+
+The cost was never the layout, so a WASM port would not have touched it — the
+same `toJson` would have run, and across a WASM boundary a megabyte of text
+costs MORE to hand over, not less. Replacing that bridge (see
+`gallery/pptx/web/bridge.mjs`) took the hand-over from ~70 ms to ~7 ms with no
+port at all.
+
+What is left for a WASM build to win is the 10 ms of layout. That is the
+honest size of the prize, and it should be weighed against the three families
+above before anyone starts.

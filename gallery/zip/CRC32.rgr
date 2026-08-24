@@ -7,8 +7,15 @@ class CRC32 {
     def table:[int]
     def tableBuilt:boolean false
     
+    ; The table is built on first use rather than in the constructor.
+    ; `buildTable` pushes onto a field, and on the Rust backend a method that
+    ; writes through `this` cannot be called from a constructor at all: the
+    ; object is not inside its Rc yet, so there is no `this` to write through.
+    ; Building it lazily is the same 256 entries, one branch later, and it
+    ; keeps this class compiling for every backend rather than only for
+    ; JavaScript. `tableBuilt` already existed for exactly this and was never
+    ; read.
     Constructor () {
-        this.buildTable()
     }
     
     ; Unused — kept so older call sites that named u32 still type-check.
@@ -39,6 +46,9 @@ class CRC32 {
     }
 
     fn update:int (crc:int data:buffer offset:int length:int) {
+        if (tableBuilt == false) {
+            this.buildTable()
+        }
         ; `crc` is a 32-bit bit pattern (may look negative as a signed int).
         def i 0
         while (i < length) {

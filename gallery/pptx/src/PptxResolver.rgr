@@ -339,7 +339,8 @@ class PptxResolver {
         def i:int 0
         while (i < (array_length body.paragraphs)) {
             def para:PptxParagraph (itemAt body.paragraphs i)
-            def lvl:PptxLevelStyle (body.listStyle.at(para.level))
+            def bodyListStyle (body.listStyle)
+            def lvl:PptxLevelStyle (bodyListStyle.at(para.level))
             if (para.alignSet == false) {
                 if lvl.alignSet {
                     para.align = lvl.align
