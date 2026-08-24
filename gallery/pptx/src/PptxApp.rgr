@@ -732,6 +732,12 @@ class PptxApp {
     fn initBare:void () {
         view.initBare(W H)
         this.initFrame()
+        ; Through the same path a later resize takes. Setting W and H and
+        ; calling this is how every host starts, and without it the FIRST
+        ; frame is the only one the chrome's breakpoints never reached: the
+        ; deck went to the top of a phone and the slide was still being fitted
+        ; around a column that was no longer there.
+        this.resize(W H)
     }
 
     fn addFontBytes:boolean (family:string data:buffer) {

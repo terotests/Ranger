@@ -8,6 +8,11 @@
 #   /evg/     -> the EVG showcase: the layout engine's own example pages, each
 #                rendered under two themes and to PDF, PNG and HTML from one
 #                source tree and one stylesheet.
+#   /pptx/    -> the PowerPoint viewer and editor, running with no server: the
+#                deck is parsed and drawn in the page (OPC/ZIP →
+#                PresentationML → EVGDisplayList → WebGL 2), and it opens
+#                ready to edit. Works on a phone — the chrome folds at
+#                breakpoints the app's own stylesheet states.
 #   /vela/    -> paste a Vega or Vega-Lite specification and see what the
 #                Ranger runtime draws. The compiler and the SVG renderer it
 #                loads are built from gallery/vela/src, so the page shows this
@@ -49,6 +54,8 @@ on:
       - "docs/**"
       - "gallery/evg/**"
       - "gallery/vela/**"
+      - "gallery/pptx/**"
+      - "gallery/office/**"
       - "gallery/pdf_writer/src/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -154,6 +161,27 @@ jobs:
       # the C++ build uses, so the page shows this commit's own renderer.
       - name: Build the Vela page
         run: bash gallery/vela/web/build.sh --out "$GITHUB_WORKSPACE/_site/vela"
+
+      # ---- PPTX playground at /pptx/ --------------------------------------
+      # The viewer and editor with no server behind them: the page fetches a
+      # deck, parses the package and draws it, and everything after that —
+      # editing, undo, the show, saving a .pptx back out — happens in the tab.
+      # Nothing is uploaded, which is the point of shipping it as a static
+      # page rather than as a service.
+      - name: Build the PPTX playground
+        run: bash gallery/pptx/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/pptx"
+
+      # A page whose engine failed to copy looks exactly like a page whose
+      # engine failed to compile, and both look fine until someone opens
+      # them. The build script checks its own output; this checks that what
+      # the artifact will actually carry is there.
+      - name: Check the PPTX playground has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
+          test -s "$GITHUB_WORKSPACE/_site/pptx/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/pptx/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/pptx/deck.pptx"
+          grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
 
       # ---- Playground at the site root -----------------------------------
       - name: Install playground dependencies

@@ -835,6 +835,32 @@ async function selftest() {
   ok("and uploads no picture a second time", (frame2.texturesUploaded | 0) === 0);
   ok("while still drawing the same thing", (frame2.drawn | 0) === (frame1.drawn | 0));
 
+  // The chrome folds. A phone-sized window puts the deck across the top
+  // instead of down the side — a phone is narrow and tall, and a column
+  // spends the dimension there is least of — and the notes go away. This is
+  // the app's own stylesheet deciding, so it is worth checking through the
+  // page rather than only in Ranger: a breakpoint that works in a unit test
+  // and not in a browser is a breakpoint that does not work.
+  {
+    web.resize(1280, 800);
+    lastScene = null;
+    await draw();
+    const wide = web.slidePanelWidth() | 0;
+    ok("a desktop keeps the deck down the side", wide > 100);
+
+    web.resize(420, 780);
+    lastScene = null;
+    await draw();
+    ok("a phone takes nothing out of the width for it", (web.slidePanelWidth() | 0) === 0);
+    ok("and still draws the deck", JSON.parse(web.scene()).list.cmds.length > 20);
+
+    web.resize(1280, 800);
+    lastScene = null;
+    await draw();
+    ok("and going back puts it where it was", (web.slidePanelWidth() | 0) === wide);
+    await fitToWindow();
+  }
+
   // The show: the deck without any chrome around it, driven by the page's own
   // clock. A browser is the only host here that HAS a clock, so this is the
   // only place the time-varying half of a transition is exercised for real.
