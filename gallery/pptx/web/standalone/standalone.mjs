@@ -11,6 +11,7 @@
  * appear in the GL path at all now.
  */
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback } from "./gl/evg-webgl.js";
+import { attachPointer, attachKeys, createMediaCache } from "./host/pptx-host.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -223,46 +224,11 @@ window.addEventListener("resize", scheduleFit);
 window.addEventListener("orientationchange", scheduleFit);
 if (window.visualViewport) window.visualViewport.addEventListener("resize", scheduleFit);
 if (coarse && coarse.addEventListener) coarse.addEventListener("change", scheduleFit);
-const imageCache = new Map();
-const blobUrls = new Map();
-
-/** The deck's own image parts, as object URLs. The bytes are already on the
- *  model; nothing is fetched. */
-function refreshMedia() {
-  for (const url of blobUrls.values()) if (url) URL.revokeObjectURL(url);
-  blobUrls.clear();
-  imageCache.clear();
-  let parts = [];
-  try {
-    parts = JSON.parse(web.imageParts() || "[]");
-  } catch (_) {
-    parts = [];
-  }
-  for (const part of parts) {
-    const raw = web.imageBytes(part);
-    const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw;
-    if (!view || !(view.length || view.byteLength)) continue;
-    const type = /\.png$/i.test(part) ? "image/png" : "image/jpeg";
-    blobUrls.set(part, URL.createObjectURL(new Blob([view], { type })));
-  }
-}
-
-async function imagesFor(doc) {
-  const wanted = new Set(doc.list.cmds.filter((c) => c.k === 2 && c.src).map((c) => c.src));
-  for (const src of wanted) {
-    if (imageCache.has(src)) continue;
-    const url = blobUrls.get(src) || "";
-    if (!url) {
-      imageCache.set(src, null);
-      continue;
-    }
-    const got = await loadImages({ list: { cmds: [{ k: 2, src: url }] } }, { base: "" });
-    imageCache.set(src, got.get(url) || null);
-  }
-  const out = new Map();
-  for (const src of wanted) out.set(src, imageCache.get(src) || null);
-  return out;
-}
+// The deck's own pictures, as textures. Shared with the playground — see
+// gallery/pptx/web/host/pptx-host.mjs.
+const media = createMediaCache({ web, loadImages });
+const refreshMedia = () => media.refresh();
+const imagesFor = (doc) => media.imagesFor(doc);
 
 async function draw() {
   const text = web.scene();
@@ -327,57 +293,22 @@ function afterInput() {
   syncSoftKeys();
 }
 
-function coords(ev) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: Math.max(0, Math.min(sceneW - 1, Math.floor((ev.clientX - rect.left) * (sceneW / Math.max(1, rect.width))))),
-    y: Math.max(0, Math.min(sceneH - 1, Math.floor((ev.clientY - rect.top) * (sceneH / Math.max(1, rect.height))))),
-  };
-}
-
-// Whether the button is still held is this file's to remember: the app is
-// told down/pressed/released and a move that says "not down" cannot be a drag,
-// which is the whole of dragging a shape.
-let pointerHeld = false;
-
-canvas.addEventListener("pointerdown", async (ev) => {
-  canvas.focus();
-  const { x, y } = coords(ev);
-  pointerHeld = true;
-  web.mods(!!ev.shiftKey, !!(ev.ctrlKey || ev.metaKey));
-  // Through the frame: a press lands on a window, then the toolbar, then the
-  // slide — in that order, decided by the app rather than by this file.
-  web.pointerAt(x, y, true, true, false);
-  // BEFORE any await. iOS raises its keyboard only for a `focus()` that
-  // happens synchronously inside the handler for a real gesture; once the
-  // task has been yielded — and `await draw()` yields — the same call is
-  // ignored, silently. That is why this used to do nothing on a phone.
-  syncSoftKeys();
-  await draw();
-  afterInput();
-  await servicePendingFile();
+// Pointer and keyboard both come from the shared host module: the standalone
+// page and the API playground load the same engine and draw the same toolbar,
+// and an editor that only one of them could be clicked in was a difference in
+// the PAGE rather than in the editor.
+const pointer = attachPointer({
+  canvas,
+  web,
+  sceneSize: () => ({ width: sceneW, height: sceneH }),
+  draw,
+  afterInput,
+  onFileRequest: (want) => {
+    if (want === "open") fileEl?.click();
+    if (want === "image") imageEl?.click();
+  },
 });
-
-canvas.addEventListener("pointermove", async (ev) => {
-  const { x, y } = coords(ev);
-  if (web.pointerAt(x, y, false, pointerHeld, false)) await draw();
-});
-
-canvas.addEventListener("pointerup", async (ev) => {
-  const { x, y } = coords(ev);
-  pointerHeld = false;
-  web.pointerAt(x, y, false, false, true);
-  // The release is where a caret actually appears — clicking a shape that is
-  // already selected is what asks to type in it — so this is the call that
-  // matters, and it has to come before the redraw for the reason above.
-  syncSoftKeys();
-  await draw();
-  afterInput();
-});
-
-canvas.addEventListener("pointercancel", () => {
-  pointerHeld = false;
-});
+const coords = (ev) => pointer.coords(ev);
 
 // --- typing with no keyboard attached ---------------------------------------
 //
@@ -465,56 +396,7 @@ canvas.addEventListener("wheel", async (ev) => {
   await draw();
 }, { passive: false });
 
-const KEYS = {
-  ArrowLeft: "left",
-  ArrowRight: "right",
-  ArrowUp: "up",
-  ArrowDown: "down",
-  Home: "home",
-  End: "end",
-  PageUp: "pageUp",
-  PageDown: "pageDown",
-  Delete: "del",
-  Backspace: "backspace",
-  Escape: "escape",
-  Enter: "enter",
-  F2: "f2",
-  F5: "f5",
-};
-
-window.addEventListener("keydown", async (ev) => {
-  const ctrl = !!(ev.ctrlKey || ev.metaKey);
-  // Ctrl chords are characters with the modifier held — undo, redo, select
-  // all, group, bold — and the app decides which of them mean anything.
-  if (ctrl && (ev.key === "s" || ev.key === "S")) {
-    ev.preventDefault();
-    downloadDeck();
-    return;
-  }
-  if (ctrl && ev.key.length === 1) {
-    ev.preventDefault();
-    web.type(ev.key, !!ev.shiftKey, true);
-    await draw();
-    return;
-  }
-  const name = KEYS[ev.key];
-  if (name) {
-    ev.preventDefault();
-    web.keyMod(name, !!ev.shiftKey, ctrl);
-    await draw();
-    afterInput();
-    return;
-  }
-  // Typing into the selected shape — and, while a show is running, the
-  // letters a presenter reaches for: space goes on, P and L put a pen or a
-  // laser out, B blanks the screen, N shows the presenter's own view.
-  if (ev.key.length === 1 && (web.editing() || web.presenting())) {
-    ev.preventDefault();
-    web.type(ev.key, !!ev.shiftKey, false);
-    await draw();
-    afterInput();
-  }
-});
+attachKeys({ web, draw, afterInput, onSave: () => { downloadDeck(); } });
 
 // The current slide as a picture, on its own. Printing goes through the
 // browser's dialog — which is also where a phone turns a deck into a PDF —

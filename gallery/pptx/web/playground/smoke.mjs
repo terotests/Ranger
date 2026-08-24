@@ -150,6 +150,61 @@ await page.waitForTimeout(300);
 const second = await page.locator("#screen").screenshot();
 ok("paging to the next slide draws something else", first.length !== second.length);
 
+// --- the editor on the right is an EDITOR ---------------------------------
+//
+// The page drew the editor and its toolbar from the first day and listened to
+// nothing, so the pane was a picture of one: clicking a shape did nothing at
+// all. What is checked here is that a real gesture reaches the app — not that
+// pixels changed, which a redraw would also do.
+await page.evaluate(() => {
+  const sel = document.getElementById("preset");
+  sel.value = "A title slide";
+  sel.dispatchEvent(new Event("change"));
+});
+await page.waitForTimeout(600);
+
+/** A click in the middle of the slide, in the canvas's own pixels. */
+async function clickSlide(dx = 0.5, dy = 0.5) {
+  const box = await page.locator("#screen").boundingBox();
+  await page.mouse.click(box.x + box.width * dx, box.y + box.height * dy);
+  await page.waitForTimeout(200);
+}
+
+const before = await page.evaluate(() => window.__pptxWeb && window.__pptxWeb.selectionCount());
+await clickSlide(0.25, 0.35);
+const after = await page.evaluate(() => window.__pptxWeb && window.__pptxWeb.selectionCount());
+ok("the app is reachable from the page", before !== undefined && before !== null);
+ok("clicking the slide selects a shape", (after | 0) > 0);
+
+// Typing has to reach the DECK, and the only way to know is to ask the deck.
+await clickSlide(0.25, 0.35);
+const editing = await page.evaluate(() => window.__pptxWeb.editing());
+ok("clicking the shape again puts a caret in it", editing === true);
+// The scene carries the drawn text runs, so it is the deck's own answer to
+// "what does this slide say" rather than a reading of the pixels.
+const typed = await page.evaluate(async () => {
+  const web = window.__pptxWeb;
+  const was = web.scene();
+  document.getElementById("screen").focus();
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Z", bubbles: true }));
+  await new Promise((r) => setTimeout(r, 250));
+  return { changed: web.scene() !== was };
+});
+ok("what is typed reaches the slide", typed.changed);
+
+// …and NOT while the code editor has focus, or writing code would be
+// impossible: every `const` would select all, delete it and type the letters
+// into a shape.
+const guarded = await page.evaluate(async () => {
+  const web = window.__pptxWeb;
+  document.getElementById("code").focus();
+  const before = web.scene();
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "Q", bubbles: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  return { same: web.scene() === before };
+});
+ok("typing in the code pane does not reach the deck", guarded.same);
+
 // A 404 for the page's own favicon is the browser asking, not the page
 // failing; anything else the page requested and did not get is a real hole.
 const realMissing = missing.filter((m) => m !== "favicon.ico");

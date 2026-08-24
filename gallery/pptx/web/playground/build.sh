@@ -68,6 +68,11 @@ node --input-type=module -e "
 cp "$STAGE/pptx_playground.js" "$OUT/pptx_playground.js"
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/playground.mjs" "$OUT/playground.mjs"
+# The pointer, the keyboard and the picture cache — the same module the
+# standalone viewer attaches. A page that failed to copy it loads nothing at
+# all, because the import throws before the first line of playground.mjs runs.
+mkdir -p "$OUT/host"
+cp "$WEB/../host/pptx-host.mjs" "$OUT/host/pptx-host.mjs"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 for face in Open_Sans/OpenSans-Regular Open_Sans/OpenSans-Bold Open_Sans/OpenSans-Italic \
             Open_Sans/OpenSans-BoldItalic Noto_Emoji/NotoEmoji-Regular Noto_Sans/NotoSans-Regular \
@@ -78,7 +83,7 @@ cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
 
 STAMP=$(node -e "
   const fs=require('fs'),c=require('crypto');const h=c.createHash('sha1');
-  for (const f of ['$STAGE/pptx_playground.js','$OUT/playground.mjs','$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$STAGE/pptx_playground.js','$OUT/playground.mjs','$OUT/host/pptx-host.mjs','$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0,10));
 ")
 node -e "

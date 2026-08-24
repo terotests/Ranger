@@ -14,6 +14,7 @@
  * a page that generated with one copy of the code and drew with another could
  * show a slide no reader would ever get.
  */
+import { attachPointer, attachKeys, createMediaCache } from "./host/pptx-host.mjs";
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback }
   from "./gl/evg-webgl.js";
 
@@ -203,12 +204,25 @@ function fail(message) {
   statusEl.textContent = message;
 }
 
-function draw() {
+/**
+ * The editor's own size, in the coordinates the display list uses.
+ *
+ * A pointer position has to be expressed in these and in nothing else: the
+ * canvas is drawn at whatever width the pane happens to be and at whatever
+ * device pixel ratio the screen has, and the editor knows about neither.
+ */
+let sceneW = canvas.width;
+let sceneH = canvas.height;
+const sceneSize = () => ({ width: sceneW, height: sceneH });
+
+async function draw() {
   if (!web) return;
   const text = web.scene();
   if (text === lastScene) return;
   lastScene = text;
   const doc = JSON.parse(text);
+  sceneW = doc.width;
+  sceneH = doc.height;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.round(doc.width * dpr), h = Math.round(doc.height * dpr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -216,7 +230,12 @@ function draw() {
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.055, 0.067, 0.086, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-  renderDisplayList(gl, doc, { dpr, images: window.__pptxImages || new Map() });
+  const images = media ? await media.imagesFor(doc) : new Map();
+  renderDisplayList(gl, doc, { dpr, images });
+  // Published so the smoke test can ask the app what it thinks is true rather
+  // than inferring it from pixels — the same hook the standalone page exposes.
+  window.__pptxDoc = doc;
+  window.__pptxWeb = web;
 }
 
 async function showDeck(bytes) {
@@ -224,15 +243,29 @@ async function showDeck(bytes) {
   if (!web.openDeck(toRanger(bytes), "playground.pptx")) {
     return fail("the editor could not open the bytes the API produced: " + web.note);
   }
-  window.__pptxImages = await loadImages(JSON.parse(web.scene()), {
-    partBytes: (part) => fromRanger(web.imageBytes(part)),
-    parts: JSON.parse(web.imageParts() || "[]"),
-  }).catch(() => new Map());
+  // The deck's own pictures, straight off the model — nothing is fetched.
+  if (media) media.refresh();
   slideCount = web.slideCount() | 0;
   slideIndex = 0;
   web.gotoSlide(0);
   lastScene = "";
-  draw();
+  await draw();
+  where();
+}
+
+/**
+ * The chrome, after anything that could have changed what the app is doing.
+ *
+ * The editor turns its own pages — a click on a thumbnail, Page Down, a
+ * command from the toolbar — so the page's slide counter has to follow the
+ * APP rather than the other way round. Read from `slideIndex` alone it went
+ * stale the first time somebody clicked in the editor rather than on the
+ * arrows beside it.
+ */
+function afterInput() {
+  if (!web) return;
+  slideCount = web.slideCount() | 0;
+  slideIndex = web.slideIndex() | 0;
   where();
 }
 
@@ -247,6 +280,33 @@ function step(delta) {
   lastScene = "";
   draw();
   where();
+}
+
+/**
+ * The editor, wired up.
+ *
+ * Everything here comes from the shared host module, which is also what the
+ * standalone viewer at /pptx/ attaches — so the two pages cannot drift into
+ * disagreeing about what a click means. This page used to attach NONE of it:
+ * it drew the editor, toolbar and all, and listened to nothing, so the pane
+ * on the right was a picture of an editor rather than one.
+ *
+ * The keyboard is the one thing that had to be different. This page has a
+ * TEXTAREA beside the canvas, and a listener that sent every keystroke to the
+ * deck would make writing code impossible — typing `const` would select all,
+ * delete it and put the letters in a shape. So the keys are the deck's only
+ * while the canvas has focus, which clicking it gives.
+ */
+let media = null;
+function attachEditor() {
+  media = createMediaCache({ web, loadImages });
+  attachPointer({ canvas, web, sceneSize, draw, afterInput });
+  attachKeys({
+    web,
+    draw,
+    afterInput,
+    enabled: () => document.activeElement === canvas,
+  });
 }
 
 /** Run the reader's code. It returns a Deck; anything else is a mistake worth naming. */
@@ -410,6 +470,7 @@ async function boot() {
     if (family) { web.addFont(family, faces[i]); renderer.addFont(family, faces[i]); }
     else { web.addFace(faces[i]); renderer.addFace(faces[i]); }
   });
+  attachEditor();
   await registerBrowserFaces(faces);
   setFontFallback(dedupe(FONTS.map(([, , css]) => css && css.family)));
   await document.fonts.ready;
