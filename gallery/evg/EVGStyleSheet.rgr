@@ -11,6 +11,20 @@
 ;   .a, .b                    { ... }   ; selector lists
 ;   /* comments */
 ;
+;   @media (max-width: 640px) { .caption { ... } }
+;   @media (min-width: 900px) and (orientation: landscape) { ... }
+;   @media (pointer: coarse)  { ... }   ; a finger, not a mouse
+;
+; A media block is a CONDITION on the rules inside it, not a new kind of
+; selector: the rules keep the same specificity they would have had outside,
+; and a block that does not match contributes nothing. Conditions are
+; evaluated against a viewport the caller states — width, height and whether
+; the pointer is coarse — because a Ranger program has no window to ask.
+;
+; With no viewport stated, a conditional rule does NOT apply: a media query
+; that cannot be evaluated has no truth value, and guessing "yes" would style
+; a print page for a phone.
+;
 ; No IDs, no element selectors, no `!important`, no specificity arithmetic
 ; beyond "theme-scoped beats unscoped". Resolution order is:
 ;
@@ -37,6 +51,83 @@ class EVGStyleDecl {
     }
 }
 
+; What a `@media` block asks about the surface being drawn on.
+;
+; Each bound is in CSS pixels, and -1 means "not asked about". `coarse` is a
+; tri-state for the same reason: a sheet that says nothing about the pointer
+; must match whether there is a finger on the screen or not.
+class EVGMediaQuery {
+    def minWidth:double (0.0 - 1.0)
+    def maxWidth:double (0.0 - 1.0)
+    def minHeight:double (0.0 - 1.0)
+    def maxHeight:double (0.0 - 1.0)
+    ; "", "portrait" or "landscape".
+    def orientation:string ""
+    ; 0 = not asked, 1 = must be coarse, 2 = must be fine.
+    def pointer:int 0
+    ; A condition nobody could parse. Kept rather than dropped so the rules
+    ; inside never apply — a misspelt query that styles everything is worse
+    ; than one that styles nothing, because it is invisible until it is not.
+    def broken:boolean false
+
+    Constructor () {
+    }
+
+    fn isEmpty:boolean () {
+        if broken {
+            return false
+        }
+        if (minWidth >= 0.0) { return false }
+        if (maxWidth >= 0.0) { return false }
+        if (minHeight >= 0.0) { return false }
+        if (maxHeight >= 0.0) { return false }
+        if ((strlen orientation) > 0) { return false }
+        if (pointer != 0) { return false }
+        return true
+    }
+
+    ; `w` and `h` in CSS pixels; `coarse` says the pointer is a finger. A
+    ; viewport of zero width means the caller never said, so nothing
+    ; conditional matches.
+    fn matches:boolean (w:double h:double coarse:boolean) {
+        if broken {
+            return false
+        }
+        if (this.isEmpty()) {
+            return true
+        }
+        if (w <= 0.0) {
+            return false
+        }
+        if (minWidth >= 0.0) {
+            if (w < minWidth) { return false }
+        }
+        if (maxWidth >= 0.0) {
+            if (w > maxWidth) { return false }
+        }
+        if (minHeight >= 0.0) {
+            if (h < minHeight) { return false }
+        }
+        if (maxHeight >= 0.0) {
+            if (h > maxHeight) { return false }
+        }
+        if ((strlen orientation) > 0) {
+            def want:string "landscape"
+            if (h > w) {
+                want = "portrait"
+            }
+            if (orientation != want) { return false }
+        }
+        if (pointer == 1) {
+            if (coarse == false) { return false }
+        }
+        if (pointer == 2) {
+            if coarse { return false }
+        }
+        return true
+    }
+}
+
 class EVGStyleRule {
     ; Theme this rule is scoped to, or "" when it applies in every theme.
     def theme:string ""
@@ -45,6 +136,9 @@ class EVGStyleRule {
     def decls:[EVGStyleDecl]
     ; Source order, used to break ties between rules of equal specificity.
     def order:int 0
+    ; The `@media` block this rule was written inside, if any. It gates the
+    ; rule; it does not change how strong it is.
+    def media:EVGMediaQuery (new EVGMediaQuery())
 
     Constructor () {
         theme = ""
@@ -63,9 +157,25 @@ class EVGStyleSheet {
     ; silently rendering an unstyled page.
     def errors:[string]
     def ruleCounter:int 0
+    ; The `@media` condition the rules being parsed right now sit under.
+    def pendingMedia:EVGMediaQuery (new EVGMediaQuery())
+    ; The surface the sheet is being applied to. Zero width means the caller
+    ; never said, and then nothing conditional matches — see the header.
+    def viewportW:double 0.0
+    def viewportH:double 0.0
+    def coarsePointer:boolean false
 
     Constructor () {
         ruleCounter = 0
+    }
+
+    ; State the surface once; `applyTree` then honours the media blocks.
+    ; Width and height are CSS pixels, and `coarse` says the pointer is a
+    ; finger rather than a mouse.
+    fn setViewport:void (w:double h:double coarse:boolean) {
+        viewportW = w
+        viewportH = h
+        coarsePointer = coarse
     }
 
     fn getRuleCount:int () {
@@ -86,6 +196,13 @@ class EVGStyleSheet {
 
     fn parse:void (css:string) {
         def src:string (this.stripComments(css))
+        this.parseBlock(src (new EVGMediaQuery()))
+    }
+
+    ; One level of rules, all under the same media condition. A `@media` block
+    ; recurses with its own condition; the nesting is one deep in CSS and one
+    ; deep here, because a query inside a query means the same as `and`.
+    fn parseBlock:void (src:string cond:EVGMediaQuery) {
         def len:int (strlen src)
         def i:int 0
         while (i < len) {
@@ -99,16 +216,276 @@ class EVGStyleSheet {
                 }
                 return
             }
-            def selectorText:string (substring src i braceAt)
-            def closeAt:int (this.findChar(src (braceAt + 1) 125))
-            if (closeAt < 0) {
-                push errors ("Unclosed rule body for selector: " + (trim selectorText))
+            def selectorText:string (trim (substring src i braceAt))
+            ; `@media (...) { ... }` — the body is itself a list of rules, and
+            ; it holds nested braces, so the end of it is the brace that
+            ; balances the opening one rather than the first `}` after it.
+            if (this.startsWith(selectorText "@media")) {
+                def endAt:int (this.matchingBrace(src braceAt))
+                if (endAt < 0) {
+                    push errors ("Unclosed @media block: " + selectorText)
+                    return
+                }
+                def inner:string (substring src (braceAt + 1) endAt)
+                def q:EVGMediaQuery (this.parseMedia((trim (substring selectorText 6 (strlen selectorText)))))
+                ; Nested queries combine: both have to hold.
+                this.parseBlock(inner (this.andQuery(cond q)))
+                i = (endAt + 1)
+            } {
+                if ((strlen selectorText) > 0) {
+                    if ((charAt selectorText 0) == 64) {
+                        ; Some other at-rule. Skipped as a whole, and said so,
+                        ; rather than its body being read as bare selectors.
+                        def skipTo:int (this.matchingBrace(src braceAt))
+                        if (skipTo < 0) {
+                            push errors ("Unclosed at-rule: " + selectorText)
+                            return
+                        }
+                        push errors ("Unsupported at-rule ignored: " + selectorText)
+                        i = (skipTo + 1)
+                        continue
+                    }
+                }
+                def closeAt:int (this.findChar(src (braceAt + 1) 125))
+                if (closeAt < 0) {
+                    push errors ("Unclosed rule body for selector: " + selectorText)
+                    return
+                }
+                def body:string (substring src (braceAt + 1) closeAt)
+                this.addRulesIn(selectorText body cond)
+                i = (closeAt + 1)
+            }
+        }
+    }
+
+    ; The index of the `}` that closes the `{` at `open`, or -1.
+    fn matchingBrace:int (s:string open:int) {
+        def len:int (strlen s)
+        def depth:int 0
+        def i:int open
+        while (i < len) {
+            def c:int (charAt s i)
+            if (c == 123) {
+                depth = (depth + 1)
+            }
+            if (c == 125) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; "(max-width: 640px) and (orientation: portrait)".
+    ;
+    ; `and` is the only combinator: a comma-separated list is an OR in CSS and
+    ; would need a rule per branch, which the subset does not do — so it is
+    ; reported rather than half-implemented.
+    fn parseMedia:EVGMediaQuery (text:string) {
+        def q (new EVGMediaQuery())
+        def body:string (trim text)
+        if ((strlen body) == 0) {
+            push errors "Empty @media condition"
+            q.broken = true
+            return q
+        }
+        ; A comma is an OR, which needs one rule per branch. Refused rather
+        ; than silently read as an AND, which would be the opposite meaning.
+        if ((this.findChar(body 0 44)) >= 0) {
+            push errors ("Comma-separated media queries are not supported: " + body)
+            q.broken = true
+            return q
+        }
+        def parts:[string] (this.splitFeatures(body))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def feat:string (trim (itemAt parts i))
+            if ((strlen feat) > 0) {
+                this.applyFeature(q feat body)
+            }
+            i = (i + 1)
+        }
+        return q
+    }
+
+    ; "(a: 1) and (b: 2)" -> ["a: 1", "b: 2"]. Splitting on the parentheses
+    ; rather than on the word `and` keeps a value containing "and" intact and
+    ; makes a missing bracket visible as an empty feature.
+    fn splitFeatures:[string] (body:string) {
+        def out:[string]
+        def len:int (strlen body)
+        def i:int 0
+        while (i < len) {
+            def open:int (this.findChar(body i 40))
+            if (open < 0) {
+                def tail:string (trim (substring body i len))
+                if ((strlen tail) > 0) {
+                    if (tail != "and") {
+                        push out tail
+                    }
+                }
+                return out
+            }
+            def close:int (this.findChar(body (open + 1) 41))
+            if (close < 0) {
+                push out (substring body (open + 1) len)
+                return out
+            }
+            push out (substring body (open + 1) close)
+            i = (close + 1)
+        }
+        return out
+    }
+
+    fn applyFeature:void (q:EVGMediaQuery feat:string whole:string) {
+        def colon:int (this.findChar(feat 0 58))
+        if (colon < 0) {
+            push errors ("Media feature without a value: " + feat)
+            q.broken = true
+            return
+        }
+        def name:string (trim (substring feat 0 colon))
+        def value:string (trim (substring feat (colon + 1) (strlen feat)))
+        if (name == "orientation") {
+            if ((value == "portrait") || (value == "landscape")) {
+                q.orientation = value
                 return
             }
-            def body:string (substring src (braceAt + 1) closeAt)
-            this.addRules(selectorText body)
-            i = (closeAt + 1)
+            push errors ("Unknown orientation: " + value)
+            q.broken = true
+            return
         }
+        if (name == "pointer") {
+            if (value == "coarse") {
+                q.pointer = 1
+                return
+            }
+            if (value == "fine") {
+                q.pointer = 2
+                return
+            }
+            push errors ("Unknown pointer value: " + value)
+            q.broken = true
+            return
+        }
+        def px@(optional):double (this.parsePx(value))
+        if (null? px) {
+            push errors ("Media feature value is not a length: " + feat)
+            q.broken = true
+            return
+        }
+        def v:double (unwrap px)
+        if (name == "min-width") {
+            q.minWidth = v
+            return
+        }
+        if (name == "max-width") {
+            q.maxWidth = v
+            return
+        }
+        if (name == "min-height") {
+            q.minHeight = v
+            return
+        }
+        if (name == "max-height") {
+            q.maxHeight = v
+            return
+        }
+        push errors ("Unsupported media feature: " + name)
+        q.broken = true
+    }
+
+    ; "640px" or "640". Anything with a unit this subset cannot resolve
+    ; without a font or a viewport — em, rem, vw — is refused, because the
+    ; number it would silently become is not the one the author meant.
+    fn parsePx@(optional):double (value:string) {
+        ; `return null` is not a thing in this language; an unset optional is.
+        def __none@(optional):double
+        def v:string (trim value)
+        def len:int (strlen v)
+        if (len == 0) {
+            return __none
+        }
+        def digits:string v
+        if (len > 2) {
+            if ((substring v (len - 2) len) == "px") {
+                digits = (trim (substring v 0 (len - 2)))
+            }
+        }
+        if ((strlen digits) == 0) {
+            return __none
+        }
+        def i:int 0
+        def dots:int 0
+        while (i < (strlen digits)) {
+            def c:int (charAt digits i)
+            if (c == 46) {
+                dots = (dots + 1)
+            } {
+                if ((c < 48) || (c > 57)) {
+                    return __none
+                }
+            }
+            i = (i + 1)
+        }
+        if (dots > 1) {
+            return __none
+        }
+        return (to_double digits)
+    }
+
+    ; Nested `@media` blocks mean both conditions hold. The tighter bound
+    ; wins on each axis, which is what `and` does.
+    fn andQuery:EVGMediaQuery (a:EVGMediaQuery b:EVGMediaQuery) {
+        if (a.isEmpty()) {
+            return b
+        }
+        if (b.isEmpty()) {
+            return a
+        }
+        def q (new EVGMediaQuery())
+        q.broken = (a.broken || b.broken)
+        q.minWidth = (EVGStyleSheet.larger(a.minWidth b.minWidth))
+        q.maxWidth = (EVGStyleSheet.smaller(a.maxWidth b.maxWidth))
+        q.minHeight = (EVGStyleSheet.larger(a.minHeight b.minHeight))
+        q.maxHeight = (EVGStyleSheet.smaller(a.maxHeight b.maxHeight))
+        q.orientation = a.orientation
+        if ((strlen b.orientation) > 0) {
+            if ((strlen a.orientation) > 0) {
+                if (a.orientation != b.orientation) {
+                    ; Cannot be both at once.
+                    q.broken = true
+                }
+            }
+            q.orientation = b.orientation
+        }
+        q.pointer = a.pointer
+        if (b.pointer != 0) {
+            if (a.pointer != 0) {
+                if (a.pointer != b.pointer) {
+                    q.broken = true
+                }
+            }
+            q.pointer = b.pointer
+        }
+        return q
+    }
+
+    sfn larger:double (a:double b:double) {
+        if (a < 0.0) { return b }
+        if (b < 0.0) { return a }
+        if (a > b) { return a }
+        return b
+    }
+
+    sfn smaller:double (a:double b:double) {
+        if (a < 0.0) { return b }
+        if (b < 0.0) { return a }
+        if (a < b) { return a }
+        return b
     }
 
     ; Replace /* ... */ spans with a single space so tokens either side stay apart.
@@ -166,16 +543,22 @@ class EVGStyleSheet {
     ; A selector list ("`.a, .theme-x .b`") plus one body becomes one rule per
     ; selector, all sharing the same declarations.
     fn addRules:void (selectorText:string body:string) {
+        this.addRulesIn(selectorText body (new EVGMediaQuery()))
+    }
+
+    fn addRulesIn:void (selectorText:string body:string cond:EVGMediaQuery) {
         def decls:[EVGStyleDecl] (this.parseDeclarations(body))
         def selectors:[string] (this.splitOn(selectorText 44))
         def i:int 0
         while (i < (array_length selectors)) {
             def sel:string (trim (itemAt selectors i))
             if ((strlen sel) > 0) {
+                pendingMedia = cond
                 this.addRuleForSelector(sel decls)
             }
             i = (i + 1)
         }
+        pendingMedia = (new EVGMediaQuery())
     }
 
     ; ".caption" -> class rule; ".theme-classic .caption" -> theme-scoped rule.
@@ -220,6 +603,7 @@ class EVGStyleSheet {
 
     fn pushRule:void (rule:EVGStyleRule decls:[EVGStyleDecl]) {
         rule.decls = decls
+        rule.media = pendingMedia
         rule.order = ruleCounter
         ruleCounter = (ruleCounter + 1)
         push rules rule
@@ -343,6 +727,13 @@ class EVGStyleSheet {
     ; -----------------------------------------------------------------------
 
     ; Apply this stylesheet to `root` and everything below it.
+    ; Apply with the surface stated in the same call, for a caller that has a
+    ; window and no reason to keep the sheet around between frames.
+    fn applyTreeIn:void (root:EVGElement theme:string w:double h:double coarse:boolean) {
+        this.setViewport(w h coarse)
+        this.applyTree(root theme)
+    }
+
     fn applyTree:void (root:EVGElement theme:string) {
         this.applyTo(root theme)
         def i:int 0
@@ -374,6 +765,9 @@ class EVGStyleSheet {
                 def applies:boolean true
                 if themeScoped {
                     applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
                 }
                 if applies {
                     if (this.matchesClass(classes rule.className)) {
