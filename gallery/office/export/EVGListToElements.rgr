@@ -186,7 +186,7 @@ class EVGListToElements {
     ; The optional is the point: a clip push is not an error and not a shape,
     ; and returning an empty div for it would put an invisible box in the tree
     ; that a later reader has to know to ignore.
-    sfn elementFor@(optional):EVGElement (c:EVGDrawCmd pageW:double pageH:double) {
+    sfn elementFor@(optional):EVGElement (c:EVGDrawCmd pageW:double pageH:double withImages:boolean) {
         if (c.kind == 0) {
             def el:EVGElement (EVGListToElements.boxAt(c.x c.y c.w c.h))
             el.backgroundColor = (EVGListToElements.colorOf(c))
@@ -226,6 +226,25 @@ class EVGListToElements {
             return outEl
         }
         if (c.kind == 2) {
+            ; A display list names a picture by its PACKAGE PART —
+            ; "ppt/media/image1.png" — because that is what the document calls
+            ; it, and the painters resolve it through a cache of decoded bytes
+            ; they were handed. `EVGPDFRenderer` resolves `src` as a FILE PATH
+            ; relative to a base directory, and every decoder under it takes a
+            ; directory and a file name, so there is no way to give it bytes at
+            ; all. It does not fail politely either: it calls `readJPEG` and the
+            ; process dies on ENOENT.
+            ;
+            ; So the caller says whether pictures can be resolved. A target
+            ; that can — one with the media on disk and a base directory set —
+            ; passes true. The PDF path passes false today and prints
+            ; everything else rather than crashing on the first slide with a
+            ; logo on it. Teaching the PDF writer to take image BYTES is the
+            ; piece of work that removes this argument.
+            if (withImages == false) {
+                def __noImg@(optional):EVGElement
+                return __noImg
+            }
             def el (EVGElement.createImg())
             el.position = "absolute"
             el.left = (EVGUnit.px(c.x))
@@ -339,15 +358,69 @@ class EVGListToElements {
         return __none
     }
 
+    ; --- a document of several pages -------------------------------------------
+    ;
+    ; `EVGPDFRenderer.render` branches on the ROOT's tag: `print` means a
+    ; multi-page document and anything else means one page. Under a `print`
+    ; come `section` elements — a section carries the page size and the margin,
+    ; and every `page` inside it is laid out at the section's content size and
+    ; drawn offset by its margin.
+    ;
+    ; The margin is the trap. `getSectionMargin` answers 40 when the section
+    ; states none, which for a book is a sensible default and for a slide is
+    ; a page an inch and a bit too small with the deck shrunk inside it. So it
+    ; is set to zero here explicitly — and it can be, because `EVGUnit.px(0.0)`
+    ; is genuinely SET rather than merely zero, which is the distinction the
+    ; default turns on.
+    sfn printRoot:EVGElement (w:double h:double) {
+        def root (EVGElement.createDiv())
+        root.tagName = "print"
+        def section (EVGElement.createDiv())
+        section.tagName = "section"
+        section.width = (EVGUnit.px(w))
+        section.height = (EVGUnit.px(h))
+        section.box.marginTop = (EVGUnit.px(0.0))
+        section.box.marginRight = (EVGUnit.px(0.0))
+        section.box.marginBottom = (EVGUnit.px(0.0))
+        section.box.marginLeft = (EVGUnit.px(0.0))
+        root.addChild(section)
+        return root
+    }
+
+    ; The section a `printRoot` made, so pages can be hung off it.
+    sfn sectionOf:EVGElement (root:EVGElement) {
+        return (root.getChild(0))
+    }
+
+    ; One page of a multi-page document, filled from a display list. It is the
+    ; same conversion as `convert` below; only the tag differs, and it differs
+    ; because that tag is what makes the renderer treat it as a page rather
+    ; than as a box on one.
+    sfn pageFrom:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor withImages:boolean) {
+        def pg:EVGElement (EVGListToElements.fillOpt(dl w h bg withImages))
+        pg.tagName = "page"
+        return pg
+    }
+
     ; The whole list, in the order it was painted — which is the order it has to
     ; be drawn in, because a display list carries no z and says what is on top
     ; by saying it last.
+    ; Pictures resolved from disk. Use this when the target can find them —
+    ; see the note on kind 2 for why that is not every target.
     sfn convert:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor) {
+        return (EVGListToElements.fillOpt(dl w h bg true))
+    }
+
+    sfn fill:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor) {
+        return (EVGListToElements.fillOpt(dl w h bg true))
+    }
+
+    sfn fillOpt:EVGElement (dl:EVGDisplayList w:double h:double bg:EVGColor withImages:boolean) {
         def root:EVGElement (EVGListToElements.page(w h bg))
         def i:int 0
         while (i < (array_length dl.cmds)) {
             def c:EVGDrawCmd (itemAt dl.cmds i)
-            def made@(optional):EVGElement (EVGListToElements.elementFor(c w h))
+            def made@(optional):EVGElement (EVGListToElements.elementFor(c w h withImages))
             if (!null? made) {
                 root.addChild((unwrap made))
             }

@@ -89,6 +89,7 @@ class PptxRenderApiTest {
         print "=== PptxRenderApiTest ==="
         this.testPng()
         this.testPdf()
+        this.testPdfDeck()
         this.testRefusals()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
@@ -246,6 +247,86 @@ class PptxRenderApiTest {
         def pdf2:buffer (r.toPdf(deck 0))
         this.check("a different fill prints differently"
             ((PptxRenderApiTest.sameBytes(pdf pdf2)) == false))
+    }
+
+    ; --- the whole deck, one file ----------------------------------------------
+    fn testPdfDeck:void () {
+        print "--- a deck, printed as one document ---"
+        def r (new PptxRenderer())
+        r.useFontDir("gallery/pdf_writer/assets/fonts")
+
+        def deck:PptxDeck (PptxApi.create())
+        def words:[string] (
+            [] _:string ( "Ensimmainen" "Toinen" "Kolmas" )
+        )
+        def i:int 0
+        while (i < 3) {
+            def slide:PptxSlideRef (deck.addSlide())
+            slide.background("FFFFFF")
+            def box:PptxShapeRef (slide.addShape("rect" 80.0 80.0 300.0 160.0))
+            box.fill("4472C4")
+            slide.addTextBox(80.0 300.0 700.0 60.0 (itemAt words i))
+            i = (i + 1)
+        }
+        this.eqInt("three slides" (deck.slideCount()) 3)
+
+        def pdf:buffer (r.toPdfDeck(deck))
+        this.check("a PDF came out" (PptxRenderApiTest.isPdf(pdf)))
+
+        ; Three pages, and the count is stated in the page tree rather than
+        ; inferred: `/Count 3`. A one-page file with three slides drawn on top
+        ; of each other would pass every size and content check below.
+        def count3:int (PptxRenderApiTest.countOf(pdf "/Count 3"))
+        this.check("with three pages in its page tree" (count3 > 0))
+        def pageObjs:int (PptxRenderApiTest.countOf(pdf "/Type /Page "))
+        this.eqInt("and three page objects" pageObjs 3)
+
+        ; Each page carries its OWN slide. All three words have to be in the
+        ; file, or the pages are copies of one slide.
+        def w1:int (PptxRenderApiTest.countOf(pdf "(Ensimmainen) Tj"))
+        def w2:int (PptxRenderApiTest.countOf(pdf "(Toinen) Tj"))
+        def w3:int (PptxRenderApiTest.countOf(pdf "(Kolmas) Tj"))
+        this.check("the first slide's words are on it" (w1 > 0))
+        this.check("and the second's" (w2 > 0))
+        this.check("and the third's" (w3 > 0))
+
+        ; The reason for doing this in one pass rather than stitching three
+        ; files: the face is embedded ONCE, not once per page.
+        def embeds:int (PptxRenderApiTest.countOf(pdf "/FontFile2"))
+        this.eqInt("with the font embedded once for the whole document" embeds 1)
+
+        ; Every page is the slide's own size, with no margin around it. The
+        ; renderer defaults a section with no stated margin to 40 points,
+        ; which would shrink the deck inside a border on every page.
+        def mb:int (PptxRenderApiTest.countOf(pdf "/MediaBox [0 0 960 540]"))
+        this.eqInt("each page at the slide's size" mb 3)
+
+        ; …and the slide FILLS it. `getSectionMargin` answers 40 points when a
+        ; section states none, which is sensible for a book and wrong for a
+        ; slide: the deck would be drawn inside a border on every page.
+        ; MediaBox does not move when that happens — it is the section's size —
+        ; so this has to look at where the page's own background lands. At the
+        ; origin means no margin; "40 40 880 460 re" would be the default
+        ; quietly applied.
+        def flush:int (PptxRenderApiTest.countOf(pdf "0 0 960 540 re"))
+        this.check("with the slide flush to the page corner" (flush >= 3))
+
+        ; And it must be smaller than three separate files, which is the
+        ; claim the single embedding makes.
+        def one:buffer (r.toPdf(deck 0))
+        this.check("and smaller than three single-slide files"
+            ((buffer_length pdf) < ((buffer_length one) * 3)))
+
+        print "--- a real deck ---"
+        def raw:buffer (buffer_read_file "gallery/pptx/fixtures" "20-business-deck.pptx")
+        if ((buffer_length raw) > 0) {
+            def real:PptxDeck (PptxApi.open(raw))
+            this.check("it opens" real.ok)
+            def all:buffer (r.toPdfDeck(real))
+            this.check("and prints" (PptxRenderApiTest.isPdf(all)))
+            def pages:int (PptxRenderApiTest.countOf(all "/Type /Page "))
+            this.eqInt("with a page per slide" pages (real.slideCount()))
+        }
     }
 
     fn testRefusals:void () {

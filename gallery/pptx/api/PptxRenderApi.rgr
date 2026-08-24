@@ -42,6 +42,13 @@ class PptxRenderer {
     def view:PptxView (new PptxView())
     def ready:boolean false
     def error:string ""
+    ; False, and stated on the object rather than buried in a comment: a PDF
+    ; from here carries the shapes and the text and not the pictures. The PDF
+    ; writer takes an image as a path on disk and every decoder under it takes
+    ; a directory and a file name, while a document names its pictures by
+    ; package part and hands the bytes around. Until that takes bytes, a deck
+    ; with a logo on it prints without the logo.
+    def imagesPrinted:boolean false
 
     Constructor () {
         view.initBare(64 64)
@@ -190,26 +197,97 @@ class PptxRenderer {
         def slide:PptxSlide (slideRef.model())
         view.cachePresentationImages(deck.pres)
 
-        ; 72/96. `ptToPx` multiplies by 96/72 for the screen, and a PDF unit is
-        ; a point, so this cancels it and one slide point becomes one PDF unit.
-        ; Setting it to 1.0 would give a page a third too large in both
-        ; directions — and it would still look right on its own, which is how
-        ; that kind of mistake survives review.
+        ; The scale is 72/96 — see `slideList`. `ptToPx` multiplies by 96/72
+        ; for the screen and a PDF unit IS a point, so this cancels it and one
+        ; slide point becomes one PDF unit. Left at 1.0 the page comes out a
+        ; third too large in both directions and still looks right on its own,
+        ; which is how that kind of mistake survives review.
+        def dl:EVGDisplayList (this.slideList(deck slide index))
+        def bg:EVGColor (this.slideBg(slide))
+        ; `false`: the PDF writer resolves a picture's `src` as a path on
+        ; disk, and a display list names one by its package part. See the note
+        ; in `EVGListToElements` — the shapes and the text print, the pictures
+        ; do not, and `imagesPrinted` says so rather than leaving it to be
+        ; noticed in the output.
+        def root:EVGElement (EVGListToElements.fillOpt(dl slide.width slide.height bg false))
+
+        def renderer:EVGPDFRenderer (this.pdfRenderer(slide.width slide.height))
+        def out:buffer (renderer.render(root))
+        return out
+    }
+
+    ; The renderer, set up the way both PDF paths need it. It is one method
+    ; because the two used to be two, and the multi-page one quietly missed
+    ; `setMeasurer` — which does not fail, it falls back to guessed widths, so
+    ; every line on every page was laid out against a font nobody measured.
+    fn pdfRenderer:EVGPDFRenderer (w:double h:double) {
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(w h)
+        renderer.setFontManager(view.ctx.tr.fm)
+        def measurer (new TTFTextMeasurer(view.ctx.tr.fm))
+        renderer.setMeasurer(measurer)
+        return renderer
+    }
+
+    ; The display list for one slide, at PDF scale. Shared by both PDF paths
+    ; so a page in a deck and the same page on its own cannot come out
+    ; differently.
+    fn slideList:EVGDisplayList (deck:PptxDeck slide:PptxSlide index:int) {
         view.converter.setScale(72.0 / 96.0)
         view.converter.slideNumber = (index + 1)
-        def dl:EVGDisplayList (view.converter.slideToDisplayList(slide))
+        return (view.converter.slideToDisplayList(slide))
+    }
+
+    fn slideBg:EVGColor (slide:PptxSlide) {
         def bg:EVGColor (EVGColor.parse("#FFFFFF"))
         if slide.bg.isSet {
             bg = (view.converter.colorFrom(slide.bg))
         }
-        def root:EVGElement (EVGListToElements.convert(dl slide.width slide.height bg))
+        return bg
+    }
 
-        def renderer (new EVGPDFRenderer())
-        renderer.init(renderer)
-        renderer.setPageSize(slide.width slide.height)
-        renderer.setFontManager(view.ctx.tr.fm)
-        def measurer (new TTFTextMeasurer(view.ctx.tr.fm))
-        renderer.setMeasurer(measurer)
+    ; --- the whole deck, one file -----------------------------------------------
+    ;
+    ; Every slide becomes a page of one PDF, in order. This is what a deck IS
+    ; to anyone who wants to print it or send it, and doing it slide by slide
+    ; and stitching afterwards would embed the fonts once per page — the same
+    ; face, subsetted separately, as many times as there are slides.
+    ;
+    ; A deck whose slides differ in size gets the FIRST slide's size for every
+    ; page, because a section states one page size for all the pages under it.
+    ; That is a real limit and it is stated rather than hidden: PowerPoint has
+    ; one size per presentation, so a deck that hits it was assembled from two.
+    fn toPdfDeck:buffer (deck:PptxDeck) {
+        def empty:buffer (buffer_alloc 0)
+        if (deck.ok == false) {
+            error = "the deck is not open"
+            return empty
+        }
+        def n:int (deck.slideCount())
+        if (n == 0) {
+            error = "the deck has no slides"
+            return empty
+        }
+        def firstRef:PptxSlideRef (deck.slideAt(0))
+        def first:PptxSlide (firstRef.model())
+        def pw:double first.width
+        def ph:double first.height
+
+        view.cachePresentationImages(deck.pres)
+        def root:EVGElement (EVGListToElements.printRoot(pw ph))
+        def section:EVGElement (EVGListToElements.sectionOf(root))
+        def i:int 0
+        while (i < n) {
+            def ref:PptxSlideRef (deck.slideAt(i))
+            def slide:PptxSlide (ref.model())
+            def dl:EVGDisplayList (this.slideList(deck slide i))
+            def bg:EVGColor (this.slideBg(slide))
+            def pg:EVGElement (EVGListToElements.pageFrom(dl pw ph bg false))
+            section.addChild(pg)
+            i = (i + 1)
+        }
+        def renderer:EVGPDFRenderer (this.pdfRenderer(pw ph))
         def out:buffer (renderer.render(root))
         return out
     }
