@@ -437,6 +437,33 @@ window.addEventListener("keydown", async (ev) => {
   }
 });
 
+// The current slide as a picture, on its own. Printing goes through the
+// browser's dialog — which is also where a phone turns a deck into a PDF —
+// and this is the other thing a reader wants a slide out of the page for.
+document.getElementById("png")?.addEventListener("click", async () => {
+  const i = web.slideIndex() | 0;
+  const doc = JSON.parse(web.slideScene(i, PRINT_WIDTH));
+  if (!doc.width || !doc.height) return;
+  const off = document.createElement("canvas");
+  off.width = Math.round(doc.width);
+  off.height = Math.round(doc.height);
+  const ctx = off.getContext("webgl2", { alpha: true, antialias: true, stencil: true, preserveDrawingBuffer: true });
+  if (!ctx) { statusEl.textContent = "no WebGL 2 to draw with"; return; }
+  ctx.viewport(0, 0, off.width, off.height);
+  ctx.clearColor(1, 1, 1, 1);
+  ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT | ctx.STENCIL_BUFFER_BIT);
+  renderDisplayList(ctx, doc, { dpr: 1, images: await imagesFor(doc) });
+  const blob = await new Promise((r) => off.toBlob(r, "image/png"));
+  if (!blob) { statusEl.textContent = "could not draw the slide"; return; }
+  const name = (web.deckName() || "slide").replace(/\.pptx$/i, "") + "-" + (i + 1) + ".png";
+  const how = await deliverFile(await blob.arrayBuffer(), name, "image/png");
+  statusEl.textContent = how === "cancelled" ? "not exported" : "exported " + name;
+});
+
+document.getElementById("print")?.addEventListener("click", async () => {
+  await printDeck();
+});
+
 document.getElementById("next")?.addEventListener("click", async () => {
   web.next();
   await draw();
@@ -452,29 +479,136 @@ async function servicePendingFile() {
   const want = web.takeFileRequest();
   if (want === "open") fileEl?.click();
   if (want === "image") imageEl?.click();
-  if (want === "save") downloadDeck();
+  if (want === "save") await downloadDeck();
+  // `print` used to fall off the end of this list: the app raised the
+  // request, this function took it and matched none of the three, and the
+  // button did nothing at all — on every platform, silently.
+  if (want === "print") await printDeck();
 }
 
-// Saving, in a tab: the app writes the package into memory and the browser is
-// asked to keep it. There is no path to save to and nothing to save it with.
-function downloadDeck() {
-  const raw = web.saveBytes();
-  const view = raw instanceof ArrayBuffer ? new Uint8Array(raw) : raw;
-  if (!view || !(view.length || view.byteLength)) {
-    statusEl.textContent = "nothing to save";
-    return;
+// --- printing, and getting a file out of a tab ------------------------------
+//
+// `<a download>` is not a way to save a file on iOS: Safari ignores the
+// attribute, so clicking the link NAVIGATES the tab to the blob instead, and
+// a .pptx it cannot display leaves the reader looking at a page that has gone
+// nowhere. The Web Share API is the supported path there, and it is the one
+// that puts the file into Files, Mail or anywhere else the system knows
+// about. Everywhere else the link is still the right answer.
+async function deliverFile(bytes, name, mime) {
+  const view = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+  if (!view || !(view.length || view.byteLength)) return "empty";
+  const blob = new Blob([view], { type: mime });
+  const file = new File([blob], name, { type: mime });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name });
+      return "shared";
+    } catch (e) {
+      // The reader dismissed the sheet. That is an answer, not a failure,
+      // and falling through to a download they did not ask for would be
+      // worse than doing nothing.
+      if (e && e.name === "AbortError") return "cancelled";
+    }
   }
-  const url = URL.createObjectURL(
-    new Blob([view], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }),
-  );
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = web.suggestedName() || "deck.pptx";
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
-  statusEl.textContent = "saved " + a.download;
+  return "downloaded";
+}
+
+// Saving, in a tab: the app writes the package into memory and the browser is
+// asked to keep it. There is no path to save to and nothing to save it with.
+async function downloadDeck() {
+  const name = web.suggestedName() || "deck.pptx";
+  statusEl.textContent = "writing " + name + "…";
+  const how = await deliverFile(
+    web.saveBytes(),
+    name,
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  );
+  if (how === "empty") statusEl.textContent = "nothing to save";
+  else if (how === "cancelled") statusEl.textContent = "not saved";
+  else statusEl.textContent = "saved " + name;
+}
+
+// --- print ------------------------------------------------------------------
+//
+// One image per slide, laid out one to a page, and then the browser's own
+// print dialog — which on a phone is also how a deck becomes a PDF, because
+// iOS offers "Save as PDF" from the same sheet. That is why this draws the
+// slides rather than printing the page: what is on screen is the EDITOR, with
+// its panel, its handles and its dark chrome, and none of that belongs on
+// paper.
+//
+// The slides are drawn one at a time into an offscreen canvas through the
+// same WebGL renderer the page already uses, so a printed slide is the slide
+// the reader was looking at rather than a second implementation of it.
+const PRINT_WIDTH = 1600;
+
+async function slideImages(onProgress) {
+  const out = [];
+  const n = web.slideCount() | 0;
+  const off = document.createElement("canvas");
+  const ctx = off.getContext("webgl2", { alpha: true, antialias: true, stencil: true, preserveDrawingBuffer: true });
+  if (!ctx) return out;
+  for (let i = 0; i < n; i += 1) {
+    if (onProgress) onProgress(i, n);
+    const doc = JSON.parse(web.slideScene(i, PRINT_WIDTH));
+    if (!doc.width || !doc.height) continue;
+    off.width = Math.round(doc.width);
+    off.height = Math.round(doc.height);
+    ctx.viewport(0, 0, off.width, off.height);
+    ctx.clearColor(1, 1, 1, 1);
+    ctx.clear(ctx.COLOR_BUFFER_BIT | ctx.DEPTH_BUFFER_BIT | ctx.STENCIL_BUFFER_BIT);
+    renderDisplayList(ctx, doc, { dpr: 1, images: await imagesFor(doc) });
+    out.push(off.toDataURL("image/png"));
+    // The main thread has to breathe between slides or a long deck freezes
+    // the tab it is being printed from — which on a phone is indistinguish-
+    // able from the page having crashed.
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  return out;
+}
+
+let printing = false;
+
+async function printDeck() {
+  if (printing) return;
+  printing = true;
+  const was = statusEl.textContent;
+  try {
+    const shots = await slideImages((i, n) => {
+      statusEl.textContent = "preparing to print — slide " + (i + 1) + " of " + n;
+    });
+    if (!shots.length) {
+      statusEl.textContent = "nothing to print";
+      return;
+    }
+    const sheet = document.getElementById("printout");
+    sheet.innerHTML = "";
+    for (const src of shots) {
+      const img = document.createElement("img");
+      img.src = src;
+      sheet.appendChild(img);
+    }
+    // Every image has to have decoded before the dialog opens, or the pages
+    // print blank — the dialog does not wait for pending loads.
+    await Promise.all(
+      Array.from(sheet.querySelectorAll("img")).map(
+        (img) => img.decode ? img.decode().catch(() => {}) : Promise.resolve(),
+      ),
+    );
+    statusEl.textContent = "printing " + shots.length + " slides";
+    window.print();
+  } finally {
+    printing = false;
+    setTimeout(() => { if (statusEl.textContent.startsWith("printing")) statusEl.textContent = was; }, 2000);
+  }
 }
 
 imageEl?.addEventListener("change", async (ev) => {
@@ -859,6 +993,39 @@ async function selftest() {
     await draw();
     ok("and going back puts it where it was", (web.slidePanelWidth() | 0) === wide);
     await fitToWindow();
+  }
+
+  // Print. The button used to raise a request that this page took and matched
+  // against nothing, so it did nothing at all — silently, on every platform.
+  // What it produces is checked here rather than left to a reader with a
+  // printer: one image per slide, each of them the slide and not the editor.
+  {
+    const oneSlide = JSON.parse(web.slideScene(0, 800));
+    ok("a slide can be asked for on its own", oneSlide.width > 700);
+    ok("at the size that was asked for", Math.abs(oneSlide.width - 800) < 2);
+    ok("in the slide's own shape", Math.abs(oneSlide.height / oneSlide.width - 405 / 720) < 0.02);
+    ok("with the slide's contents in it", oneSlide.list.cmds.length > 3);
+    // …and without the editor's: no panel band, no selection frame, nothing
+    // drawn to the left of the slide, because there is nothing to the left.
+    const leftOfSlide = oneSlide.list.cmds.filter((c) => (c.x | 0) < 0).length;
+    ok("and nothing outside it", leftOfSlide === 0);
+
+    const shots = await slideImages(null);
+    ok("printing draws every slide", shots.length === (web.slideCount() | 0));
+    ok("each as a picture", shots.every((s) => s.startsWith("data:image/png;base64,")));
+    ok("that is not blank", shots.every((s) => s.length > 2000));
+
+    // A slide out of range is an empty scene, not a crash: the print loop
+    // walks indices and a deck can be edited while it does.
+    const none = JSON.parse(web.slideScene(999, 800));
+    ok("a slide that is not there is empty rather than fatal", none.list.cmds.length === 0);
+
+    // The buttons that reach all of this are on the page, not only on the
+    // strip: a reader who cannot find a toolbar icon on a phone can still
+    // print and export.
+    ok("there is a print button", !!document.getElementById("print"));
+    ok("and an export one", !!document.getElementById("png"));
+    ok("and a sheet for the printed slides to go in", !!document.getElementById("printout"));
   }
 
   // The show: the deck without any chrome around it, driven by the page's own

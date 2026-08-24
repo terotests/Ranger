@@ -2002,6 +2002,32 @@ class PptxApp {
         return ("{\"width\":" + (EVGDisplayList.num((to_double W))) + ",\"height\":" + (EVGDisplayList.num((to_double H))) + ",\"list\":" + body + "}")
     }
 
+    ; One slide as its own scene, at a stated width in pixels.
+    ;
+    ; `sceneJson` is the editor — chrome, panel, handles and all. Printing and
+    ; exporting want the slide by itself, and at a size they choose rather
+    ; than the size the window happens to be, so this builds it directly
+    ; instead of trying to subtract the editor from the frame.
+    fn slideSceneJson:string (i:int widthPx:int) {
+        if (i < 0) {
+            return "{\"width\":0,\"height\":0,\"list\":{\"cmds\":[]}}"
+        }
+        if (i >= (this.slideCount())) {
+            return "{\"width\":0,\"height\":0,\"list\":{\"cmds\":[]}}"
+        }
+        def slide:PptxSlide (itemAt presentation.slides i)
+        def px:double (96.0 / 72.0)
+        def natural:double (slide.width * px)
+        if (natural <= 0.0) {
+            return "{\"width\":0,\"height\":0,\"list\":{\"cmds\":[]}}"
+        }
+        def scale:double ((to_double widthPx) / natural)
+        def dl:EVGDisplayList (view.buildDisplayListAt(slide scale))
+        def w:double (natural * scale)
+        def h:double ((slide.height * px) * scale)
+        return ("{\"width\":" + (EVGDisplayList.num(w)) + ",\"height\":" + (EVGDisplayList.num(h)) + ",\"list\":" + (dl.toJson()) + "}")
+    }
+
     ; Build an EVGElement tree for the current slide (PDF/HTML/export path).
     fn currentEvg@(optional):EVGElement () {
         def slide@(optional):PptxSlide (this.currentSlide())
