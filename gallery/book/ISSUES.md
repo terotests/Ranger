@@ -333,3 +333,41 @@ U-turn and the four navigation arrows.
   preset name and its renderer draws every path.
 * **The book editor paints one colour.** It can now ask for the parts but has
   nowhere to put their shades, for the same reason.
+
+## 18. The shape catalogue aborted the native editor before it drew a frame
+
+`OfficeShapeCatalog`'s constructor read:
+
+```
+Constructor () {
+    OfficeShapeCatalog.fill(this)
+    OfficeShapeCatalog.markNoFill(this)
+    OfficeShapeCatalog.markAspect(this)
+}
+```
+
+which is legal Ranger, compiles clean on all fourteen targets, and passes every
+JavaScript test. On C++ it throws. The writer reaches a shared pointer to the
+object through `shared_from_this()`, and inside a constructor there is no
+shared pointer yet, so the SDL book editor died on `std::bad_weak_ptr` after
+printing its banner and before drawing anything.
+
+This is the same defect as §14, in a different file, found the same way — by
+running the native binary. Nothing else can find it: the browser build, the
+Node tests and the twelve other targets are all fine.
+
+The table is built as a plain list now and assigned:
+
+```
+Constructor () {
+    entries = (OfficeShapeCatalog.build())
+}
+```
+
+**And there is a test for it this time.** `npm run office:shapes:native` builds
+the catalogue and uses it on JavaScript *and* on C++, because the whole point
+is that the two disagree. The main suite cannot do this — it imports both
+editors, and compiling the whole book and the whole deck to C++ is more than a
+constructor check is worth — so the native half is a separate, small file. It
+does not merely construct the catalogue: a `build` that quietly returned
+nothing would pass that, so it counts, finds and draws as well.
