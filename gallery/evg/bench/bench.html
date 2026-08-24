@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EVG chart backends — benchmark</title>
+<style>
+  html, body { margin: 0; background: #fff; }
+  #stage { position: relative; width: 900px; height: 620px; overflow: hidden; }
+  #stage svg { display: block; }
+  #dom { position: absolute; inset: 0; }
+  #gl { display: block; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="svgHost"></div>
+  <div id="dom" class="hide"></div>
+  <canvas id="gl" class="hide"></canvas>
+</div>
+
+<script src="vela_web.js"></script>
+<script src="vela_targets.js"></script>
+<script type="module">
+  import { renderDisplayList } from "./gl/evg-webgl.js";
+  window.__evgRender = renderDisplayList;
+</script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------- helpers --
+  const $ = (id) => document.getElementById(id);
+  const now = () => performance.now();
+
+  // The rAF that follows a mutation fires only once the previous frame has been
+  // through the whole compositor, because the browser is launched with
+  // --run-all-compositor-stages-before-draw. So "mutate, then wait one frame"
+  // is a to-the-pixels measurement rather than a main-thread one.
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+  function median(xs) {
+    const s = [...xs].sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  const rgba = (c) => `rgba(${c[0]},${c[1]},${c[2]},${c[3]})`;
+
+  // ------------------------------------------------------------------ spec --
+  // One scatter plot, N marks. Every mark is a shape of its own in both
+  // pipelines — Vela emits one <path> per point, EVG one stroked polygon per
+  // point — so "N" is the node count the question is about.
+  function specFor(n, width, height) {
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      rows.push({
+        x: (i * 37) % 997,
+        y: Math.sin(i / 13) * 100 + 100 + (i % 17),
+        c: "s" + (i % 4),
+      });
+    }
+    return JSON.stringify({
+      width, height,
+      data: { values: rows },
+      mark: "point",
+      encoding: {
+        x: { field: "x", type: "quantitative" },
+        y: { field: "y", type: "quantitative" },
+        color: { field: "c", type: "nominal" },
+      },
+    });
+  }
+
+  // ----------------------------------------------------- the three backends --
+
+  // SVG, from EVG's own display list, so this and WebGL draw the SAME geometry
+  // from the SAME numbers and differ only in what puts it on screen.
+  function svgFromList(doc) {
+    const out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">`];
+    for (const c of doc.list.cmds) {
+      if (c.k === 0) {
+        out.push(`<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}"${c.r ? ` rx="${c.r}"` : ""} fill="${rgba(c.c)}"/>`);
+      } else if (c.k === 1) {
+        out.push(`<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" fill="none" stroke="${rgba(c.c)}" stroke-width="${c.t || 1}"/>`);
+      } else if (c.k === 3) {
+        out.push(`<text x="${c.x}" y="${c.y + (c.h || c.size) * 0.8}" font-family="${c.font || "sans-serif"}" font-size="${c.size}" fill="${rgba(c.c)}">${escapeXml(c.text)}</text>`);
+      } else if ((c.k === 6 || c.k === 7) && c.pts && c.pts.length) {
+        const d = pathData(c);
+        if (c.k === 6) out.push(`<path d="${d}" fill="${rgba(c.c)}"${c.eo ? ' fill-rule="evenodd"' : ""}/>`);
+        else out.push(`<path d="${d}" fill="none" stroke="${rgba(c.c)}" stroke-width="${c.t || 1}"/>`);
+      }
+    }
+    out.push("</svg>");
+    return out.join("");
+  }
+
+  function pathData(c) {
+    const pts = c.pts, ends = c.ends && c.ends.length ? c.ends : [pts.length];
+    let d = "", start = 0;
+    for (const end of ends) {
+      for (let i = start; i + 1 < end; i += 2) {
+        d += (i === start ? "M" : "L") + pts[i] + "," + pts[i + 1];
+      }
+      d += "Z";
+      start = end;
+    }
+    return d;
+  }
+
+  function escapeXml(s) {
+    return String(s).replace(/[<>&]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[ch]));
+  }
+
+  // HTML, from the same display list. A div cannot hold an arbitrary polygon,
+  // so each path becomes the box that bounds it, rounded — which is what a
+  // DOM-based chart library actually draws for a marker, and is strictly LESS
+  // work than the other two backends do. The HTML column is therefore a
+  // best case for the DOM, not a like-for-like drawing.
+  function htmlFromList(doc) {
+    const out = [];
+    for (const c of doc.list.cmds) {
+      if (c.k === 0) {
+        out.push(`<div style="position:absolute;left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;background:${rgba(c.c)}${c.r ? `;border-radius:${c.r}px` : ""}"></div>`);
+      } else if (c.k === 1) {
+        out.push(`<div style="position:absolute;left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;border:${c.t || 1}px solid ${rgba(c.c)};box-sizing:border-box"></div>`);
+      } else if (c.k === 3) {
+        out.push(`<div style="position:absolute;left:${c.x}px;top:${c.y}px;font:${c.size}px ${c.font || "sans-serif"};color:${rgba(c.c)};white-space:pre">${escapeXml(c.text)}</div>`);
+      } else if ((c.k === 6 || c.k === 7) && c.pts && c.pts.length) {
+        const b = bounds(c.pts);
+        // Small enough to be a mark: one div, round, the way a DOM chart draws
+        // a point. Bigger than that it is the grid or an axis, and those are
+        // straight lines — one thin div each, which is also what a DOM chart
+        // does and what keeps the picture honest.
+        if (b.w <= 32 && b.h <= 32) {
+          const stroke = c.k === 7;
+          out.push(`<div style="position:absolute;left:${b.x}px;top:${b.y}px;width:${Math.max(b.w, 1)}px;height:${Math.max(b.h, 1)}px;border-radius:50%;${stroke ? `border:${c.t || 1}px solid ${rgba(c.c)};box-sizing:border-box` : `background:${rgba(c.c)}`}"></div>`);
+        } else {
+          const t = Math.max(c.t || 1, 1);
+          const ends = c.ends && c.ends.length ? c.ends : [c.pts.length];
+          let start = 0;
+          for (const end of ends) {
+            for (let i = start; i + 3 < end; i += 2) {
+              const x1 = c.pts[i], y1 = c.pts[i + 1], x2 = c.pts[i + 2], y2 = c.pts[i + 3];
+              const x = Math.min(x1, x2), y = Math.min(y1, y2);
+              const w = Math.max(Math.abs(x2 - x1), t), h = Math.max(Math.abs(y2 - y1), t);
+              out.push(`<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${rgba(c.c)}"></div>`);
+            }
+            start = end;
+          }
+        }
+      }
+    }
+    return out.join("");
+  }
+
+  function bounds(pts) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i + 1 < pts.length; i += 2) {
+      if (pts[i] < x0) x0 = pts[i];
+      if (pts[i] > x1) x1 = pts[i];
+      if (pts[i + 1] < y0) y0 = pts[i + 1];
+      if (pts[i + 1] > y1) y1 = pts[i + 1];
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+
+
+  // --------------------------------------------- WebGL, the way a chart lib --
+  // The shipped viewer (evg-webgl.js) is a viewer: it tessellates every path
+  // and issues a draw call per path, on every frame, because it is asked to
+  // draw a page once. That is not what a GPU chart does, and measuring only it
+  // would answer "is this viewer fast" rather than "is the GPU faster".
+  //
+  // So the same display list is also drawn the way a GPU charting library
+  // would: every mark's triangles are built ONCE into two flat arrays, and a
+  // frame is one buffer upload and one draw call. Text is left out of this
+  // one — it is a fixed ~30 labels whatever N is — and that is said in the
+  // report rather than hidden.
+  const BATCH_VERT = `#version 300 es
+in vec2 aPos;
+in vec4 aColor;
+uniform vec2 uPage;
+out vec4 vColor;
+void main() {
+  vColor = aColor;
+  vec2 p = vec2(aPos.x / uPage.x * 2.0 - 1.0, 1.0 - aPos.y / uPage.y * 2.0);
+  gl_Position = vec4(p, 0.0, 1.0);
+}`;
+  const BATCH_FRAG = `#version 300 es
+precision mediump float;
+in vec4 vColor;
+out vec4 outColor;
+void main() { outColor = vec4(vColor.rgb * vColor.a, vColor.a); }`;
+
+  function compileProgram(gl, vs, fs) {
+    const mk = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+      return s;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, mk(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  }
+
+  // Fans for a fill, segment quads for a stroke — the same triangles the
+  // shipped viewer makes, made once instead of per frame.
+  function batchGeometry(cmds) {
+    // Counted first, then filled into typed arrays. Built as plain arrays this
+    // ran out of address space at thirty thousand marks — a JS array cannot
+    // hold seventy million numbers — and the failure said "Invalid array
+    // length", which is not a useful thing to learn about a renderer.
+    let verts = 0;
+    for (const c of cmds) {
+      if (!c.pts || !c.pts.length) continue;
+      const ends = c.ends && c.ends.length ? c.ends : [c.pts.length];
+      let start = 0;
+      for (const end of ends) {
+        const n = (end - start) / 2;
+        start = end;
+        // A gridline is a ring of TWO points. Counting it as a fill's minimum
+        // of three dropped every axis and every gridline on the floor, in
+        // both GPU columns, which is a quiet way to win a benchmark.
+        if (c.k === 6) { if (n >= 3) verts += (n - 2) * 3; }
+        else if (n >= 2) verts += (n - 1) * 6;
+      }
+    }
+    const bytes = verts * 2 * 4 + verts * 4 * 4;
+    if (bytes > 1.5e9) {
+      throw new Error(`this needs ${(bytes / 1e9).toFixed(1)} GB of vertices — the display list's `
+        + `flattened polygons do not fit in memory at this size`);
+    }
+    const pos = new Float32Array(verts * 2), col = new Float32Array(verts * 4);
+    let vi = 0;
+    const push = (x, y, c) => {
+      pos[vi * 2] = x; pos[vi * 2 + 1] = y;
+      col[vi * 4] = c[0] / 255; col[vi * 4 + 1] = c[1] / 255;
+      col[vi * 4 + 2] = c[2] / 255; col[vi * 4 + 3] = c[3];
+      vi += 1;
+    };
+    for (const c of cmds) {
+      if (!c.pts || !c.pts.length) continue;
+      const ends = c.ends && c.ends.length ? c.ends : [c.pts.length];
+      let start = 0;
+      for (const end of ends) {
+        const ring = c.pts.subarray ? c.pts.subarray(start, end) : c.pts.slice(start, end);
+        start = end;
+        if (ring.length < (c.k === 6 ? 6 : 4)) continue;
+        if (c.k === 6) {
+          for (let i = 2; i + 3 < ring.length; i += 2) {
+            push(ring[0], ring[1], c.c);
+            push(ring[i], ring[i + 1], c.c);
+            push(ring[i + 2], ring[i + 3], c.c);
+          }
+        } else {
+          const half = Math.max(c.t || 1, 0.75) / 2;
+          for (let i = 0; i + 3 < ring.length; i += 2) {
+            const x1 = ring[i], y1 = ring[i + 1], x2 = ring[i + 2], y2 = ring[i + 3];
+            const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
+            if (len < 1e-6) { vi += 6; continue; }
+            const nx = (-dy / len) * half, ny = (dx / len) * half;
+            push(x1 + nx, y1 + ny, c.c); push(x2 + nx, y2 + ny, c.c); push(x2 - nx, y2 - ny, c.c);
+            push(x1 + nx, y1 + ny, c.c); push(x2 - nx, y2 - ny, c.c); push(x1 - nx, y1 - ny, c.c);
+          }
+        }
+      }
+    }
+    return { pos, col };
+  }
+
+  async function runGlBatched(frames, dpr) {
+    const gl = glCanvasFor(dpr);
+    const t0 = now();
+    const geo = scene.batch || (scene.batch = batchGeometry(scene.doc.list.cmds));
+    const tBuild = now() - t0;
+
+    const prog = compileProgram(gl, BATCH_VERT, BATCH_FRAG);
+    gl.useProgram(prog);
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const posBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, geo.pos, gl.DYNAMIC_DRAW);
+    const posLoc = gl.getAttribLocation(prog, "aPos");
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+    const colBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, geo.col, gl.STATIC_DRAW);
+    const colLoc = gl.getAttribLocation(prog, "aColor");
+    gl.enableVertexAttribArray(colLoc);
+    gl.vertexAttribPointer(colLoc, 4, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(gl.getUniformLocation(prog, "uPage"), scene.width, scene.height);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    const verts = geo.pos.length / 2;
+    const draw = () => {
+      gl.clearColor(1, 1, 1, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, verts);
+    };
+
+    const t1 = now();
+    draw();
+    gl.finish();
+    const tMain = now() - t1;
+    await nextFrame();
+    const tFirst = now() - t1;
+
+    // Every vertex is moved in JS and the whole buffer re-uploaded, so the
+    // frame does the same "touch every node" the DOM backends are made to do.
+    let cpu = [];
+    const times = await animate(frames, (i) => {
+      const dx = (i % 2) ? 1 : -1;
+      for (let k = 0; k < geo.pos.length; k += 2) geo.pos[k] += dx;
+      const c0 = now();
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, geo.pos);
+      draw();
+      gl.finish();
+      cpu.push(now() - c0);
+    });
+    return {
+      attachMs: tMain + tBuild, firstPaintMs: tFirst + tBuild, frameMs: median(times),
+      cpuMs: median(cpu), frames: times, nodes: verts / 3, tessellateMs: tBuild, drawCalls: 1,
+    };
+  }
+
+  // What a frame costs when the canvas draws NOTHING: the compositor's own
+  // per-frame cost for a surface this size. On a machine with no GPU that is
+  // not small, and it is charged to every WebGL number here — so it is
+  // measured rather than argued about.
+  async function runGlBaseline(frames, dpr) {
+    const gl = glCanvasFor(dpr);
+    const times = await animate(frames, () => {
+      gl.clearColor(1, 1, 1, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.finish();
+    });
+    return { attachMs: 0, firstPaintMs: 0, frameMs: median(times), frames: times, nodes: 0 };
+  }
+
+
+  // ------------------------------------- WebGL, one quad per mark (SDF) ------
+  // The two variants above draw what the display list says: a point marker is
+  // a polygon of ~70 flattened segments, so a thousand markers is a quarter of
+  // a million triangles. No GPU charting library draws a marker that way, and
+  // neither does the shipped viewer when the thing is a rounded rectangle — it
+  // sends two triangles and lets the fragment shader find the shape.
+  //
+  // So this draws every mark as ONE instanced quad with a signed distance
+  // function, which is the same trick evg-webgl.js already uses for rounded
+  // boxes, applied to what the chart is actually made of. It is the ceiling
+  // the display list could reach if it carried a marker as a shape rather than
+  // as a polygon — and it is the fair partner for the html-evg column, which
+  // draws each mark as one div with border-radius: 50%.
+  const SDF_VERT = `#version 300 es
+in vec2 aCorner;
+in vec4 aRect;
+in vec4 aColor;
+in vec2 aShape;          // radius, stroke thickness (0 = filled)
+uniform vec2 uPage;
+out vec4 vColor;
+out vec2 vLocal;
+out vec2 vHalf;
+out vec2 vShape;
+void main() {
+  vec2 p = aRect.xy + aCorner * aRect.zw;
+  vColor = aColor;
+  vHalf = aRect.zw * 0.5;
+  vLocal = (aCorner - 0.5) * aRect.zw;
+  vShape = aShape;
+  gl_Position = vec4(p.x / uPage.x * 2.0 - 1.0, 1.0 - p.y / uPage.y * 2.0, 0.0, 1.0);
+}`;
+  const SDF_FRAG = `#version 300 es
+precision mediump float;
+in vec4 vColor;
+in vec2 vLocal;
+in vec2 vHalf;
+in vec2 vShape;
+out vec4 outColor;
+float sdRoundedBox(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+void main() {
+  float d = sdRoundedBox(vLocal, vHalf, min(vShape.x, min(vHalf.x, vHalf.y)));
+  if (vShape.y > 0.0) d = abs(d + vShape.y * 0.5) - vShape.y * 0.5;
+  float aa = clamp(fwidth(d), 0.0009, 2.0);
+  float cov = 1.0 - smoothstep(-aa, aa, d);
+  if (cov <= 0.0) discard;
+  outColor = vec4(vColor.rgb * vColor.a, vColor.a) * cov;
+}`;
+
+  // Every path command becomes the box that bounds it, drawn as a disc when it
+  // is as wide as it is tall and as a rounded rectangle otherwise. Rect and
+  // border commands come across as themselves.
+  const MARK_MAX = 32;      // a shape bigger than this is chrome, not a mark
+
+  function sdfInstances(doc) {
+    const rect = [], color = [], shape = [];
+    const chrome = [];
+    for (const c of doc.list.cmds) {
+      let x, y, w, h, r = c.r || 0, t = 0;
+      if (c.k === 0) { x = c.x; y = c.y; w = c.w; h = c.h; }
+      else if (c.k === 1) { x = c.x; y = c.y; w = c.w; h = c.h; t = c.t || 1; }
+      else if ((c.k === 6 || c.k === 7) && c.pts && c.pts.length) {
+        const b = bounds(c.pts);
+        // The axes, the grid and the frame are one path each covering the whole
+        // plot: as a quad that is the entire canvas shaded by the marker
+        // shader, which is both wrong and the most expensive thing on the page.
+        // They stay triangles. Only the marks become quads.
+        if (b.w > MARK_MAX || b.h > MARK_MAX) { chrome.push(c); continue; }
+        x = b.x; y = b.y; w = Math.max(b.w, 0.5); h = Math.max(b.h, 0.5);
+        r = Math.min(w, h) / 2;
+        t = c.k === 7 && Math.min(w, h) > 2 ? (c.t || 1) : 0;
+      } else continue;
+      rect.push(x, y, w, h);
+      color.push(c.c[0] / 255, c.c[1] / 255, c.c[2] / 255, c.c[3]);
+      shape.push(r, t);
+    }
+    return {
+      rect: new Float32Array(rect), color: new Float32Array(color), shape: new Float32Array(shape),
+      count: shape.length / 2, chrome: batchGeometry(chrome), chromeCmds: chrome.length,
+    };
+  }
+
+  async function runGlSdf(frames, dpr) {
+    const gl = glCanvasFor(dpr);
+    const t0 = now();
+    const inst = scene.sdf || (scene.sdf = sdfInstances(scene.doc));
+    const tBuild = now() - t0;
+
+    const prog = compileProgram(gl, SDF_VERT, SDF_FRAG);
+    gl.useProgram(prog);
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+
+    const corner = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, corner);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    const cLoc = gl.getAttribLocation(prog, "aCorner");
+    gl.enableVertexAttribArray(cLoc);
+    gl.vertexAttribPointer(cLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const attribs = [
+      { name: "aRect", data: inst.rect, size: 4 },
+      { name: "aColor", data: inst.color, size: 4 },
+      { name: "aShape", data: inst.shape, size: 2 },
+    ];
+    for (const a of attribs) {
+      a.buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, a.buf);
+      gl.bufferData(gl.ARRAY_BUFFER, a.data, gl.DYNAMIC_DRAW);
+      a.loc = gl.getAttribLocation(prog, a.name);
+      gl.enableVertexAttribArray(a.loc);
+      gl.vertexAttribPointer(a.loc, a.size, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribDivisor(a.loc, 1);
+    }
+    gl.uniform2f(gl.getUniformLocation(prog, "uPage"), scene.width, scene.height);
+    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    // The chrome — axes, grid, frame — as triangles, in its own small program.
+    const chromeProg = compileProgram(gl, BATCH_VERT, BATCH_FRAG);
+    const chromeVao = gl.createVertexArray();
+    gl.bindVertexArray(chromeVao);
+    for (const [name, data, size] of [["aPos", inst.chrome.pos, 2], ["aColor", inst.chrome.col, 4]]) {
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(chromeProg, name);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+    }
+    gl.useProgram(chromeProg);
+    gl.uniform2f(gl.getUniformLocation(chromeProg, "uPage"), scene.width, scene.height);
+    const chromeVerts = inst.chrome.pos.length / 2;
+
+    const draw = () => {
+      gl.clearColor(1, 1, 1, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      if (chromeVerts) {
+        gl.useProgram(chromeProg);
+        gl.bindVertexArray(chromeVao);
+        gl.drawArrays(gl.TRIANGLES, 0, chromeVerts);
+      }
+      gl.useProgram(prog);
+      gl.bindVertexArray(vao);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, inst.count);
+    };
+
+    const t1 = now();
+    draw();
+    gl.finish();
+    const tMain = now() - t1;
+    await nextFrame();
+    const tFirst = now() - t1;
+
+    const cpu = [];
+    const times = await animate(frames, (i) => {
+      const dx = (i % 2) ? 1 : -1;
+      const c0 = now();
+      for (let k = 0; k < inst.rect.length; k += 4) inst.rect[k] += dx;
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, attribs[0].buf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, inst.rect);
+      draw();
+      gl.finish();
+      cpu.push(now() - c0);
+    });
+    return {
+      attachMs: tMain + tBuild, firstPaintMs: tFirst + tBuild, frameMs: median(times),
+      cpuMs: median(cpu), frames: times, nodes: inst.count,
+      drawCalls: inst.chrome.pos.length ? 2 : 1, prepareMs: tBuild, chromeCmds: inst.chromeCmds,
+    };
+  }
+
+  // ------------------------------------------------------------------ state --
+  const FACES = [
+    ["Noto Sans", "gl/fonts/NotoSans-Regular.ttf"],
+    ["Noto Sans-Bold", "gl/fonts/NotoSans-Bold.ttf"],
+  ];
+  let targets = null;
+  let scene = null;     // what build() left behind
+
+  async function init() {
+    targets = new window.VelaTargets();
+    for (const [name, url] of FACES) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(url + " — HTTP " + res.status);
+      const bytes = await res.arrayBuffer();
+      bytes._view = new DataView(bytes);
+      if (!targets.addFont(name, bytes)) throw new Error(url + " is not a TrueType font");
+    }
+    await document.fonts.ready;
+    return { faces: FACES.length };
+  }
+
+  // Everything upstream of a pixel: the runtime, the two emitters, the parse.
+  async function build(n, width, height) {
+    const spec = specFor(n, width, height);
+
+    let t0 = now();
+    const answer = JSON.parse(window.VelaWeb.render(spec, "UTC"));
+    const tVelaSvg = now() - t0;
+    if (!answer.ok) throw new Error("Vela would not draw this: " + JSON.stringify(answer.errors));
+
+    t0 = now();
+    const tsx = targets.evgSource(spec, "UTC");
+    const tEvgSource = now() - t0;
+    if (!tsx) throw new Error("evgSource: " + targets.errors.join(" · "));
+
+    t0 = now();
+    const json = targets.displayList(tsx, "", "", targets.pageWidth, targets.pageHeight);
+    const tDisplayList = now() - t0;
+    if (!json) throw new Error("displayList: " + targets.errors.join(" · "));
+
+    t0 = now();
+    const doc = JSON.parse(json);
+    const tParse = now() - t0;
+
+    // The strings each backend attaches, built once and timed, so "build" and
+    // "attach" stay separate numbers.
+    t0 = now();
+    const svgMarkup = svgFromList(doc);
+    const tSvgMarkup = now() - t0;
+    t0 = now();
+    const htmlMarkup = htmlFromList(doc);
+    const tHtmlMarkup = now() - t0;
+
+    const kinds = {};
+    for (const c of doc.list.cmds) kinds[c.k] = (kinds[c.k] || 0) + 1;
+
+    scene = { n, doc, svgVela: answer.svg, svgMarkup, htmlMarkup, width: doc.width, height: doc.height };
+
+    return {
+      n,
+      velaCommands: answer.commands,
+      displayCmds: doc.list.cmds.length,
+      kinds,
+      points: doc.list.cmds.reduce((a, c) => a + (c.pts ? c.pts.length / 2 : 0), 0),
+      bytes: { velaSvg: answer.svg.length, dlJson: json.length, svgFromList: svgMarkup.length, html: htmlMarkup.length },
+      ms: { velaSvg: tVelaSvg, evgSource: tEvgSource, displayList: tDisplayList, jsonParse: tParse, svgMarkup: tSvgMarkup, htmlMarkup: tHtmlMarkup },
+    };
+  }
+
+  function clearStage() {
+    $("svgHost").innerHTML = "";
+    $("dom").innerHTML = "";
+    $("dom").classList.add("hide");
+    $("gl").classList.add("hide");
+    $("stage").style.width = (scene ? scene.width : 900) + "px";
+    $("stage").style.height = (scene ? scene.height : 620) + "px";
+  }
+
+  // ---- SVG ------------------------------------------------------------------
+  async function runSvg(markup, frames) {
+    clearStage();
+    const host = $("svgHost");
+    const t0 = now();
+    host.innerHTML = markup;
+    const el = host.firstElementChild;
+    el.getBoundingClientRect();               // force style + layout now
+    const tMain = now() - t0;
+    await nextFrame();
+    const tFirst = now() - t0;
+
+    const nodes = el.querySelectorAll("path, rect, text");
+    const cpu = [];
+    const times = await animate(frames, (i) => {
+      const dx = (i % 2) ? 1 : -1;
+      const c0 = now();
+      for (let k = 0; k < nodes.length; k++) nodes[k].setAttribute("transform", `translate(${dx},0)`);
+      el.getBoundingClientRect();           // style + layout, not yet the raster
+      cpu.push(now() - c0);
+    });
+    return { attachMs: tMain, firstPaintMs: tFirst, frameMs: median(times), cpuMs: median(cpu), frames: times, nodes: nodes.length };
+  }
+
+  // ---- HTML -----------------------------------------------------------------
+  async function runHtml(frames) {
+    clearStage();
+    const host = $("dom");
+    host.classList.remove("hide");
+    const t0 = now();
+    host.innerHTML = scene.htmlMarkup;
+    host.getBoundingClientRect();
+    const tMain = now() - t0;
+    await nextFrame();
+    const tFirst = now() - t0;
+
+    const nodes = host.children;
+    const cpu = [];
+    const times = await animate(frames, (i) => {
+      const dx = (i % 2) ? 1 : -1;
+      const c0 = now();
+      for (let k = 0; k < nodes.length; k++) nodes[k].style.transform = `translate(${dx}px,0)`;
+      host.getBoundingClientRect();
+      cpu.push(now() - c0);
+    });
+    return { attachMs: tMain, firstPaintMs: tFirst, frameMs: median(times), cpuMs: median(cpu), frames: times, nodes: nodes.length };
+  }
+
+  // ---- WebGL ----------------------------------------------------------------
+  function glCanvasFor(dpr) {
+    clearStage();
+    const canvas = $("gl");
+    canvas.classList.remove("hide");
+    canvas.style.width = scene.width + "px";
+    canvas.style.height = scene.height + "px";
+    canvas.width = Math.round(scene.width * dpr);
+    canvas.height = Math.round(scene.height * dpr);
+    const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+    if (!gl) throw new Error("no WebGL 2 in this browser");
+    return gl;
+  }
+
+  // The shipped viewer. Each frame rebuilds every instance buffer, tessellates
+  // every path again and issues its draw calls again — which is all the module
+  // offers, since it is a one-shot viewer with nothing retained between calls.
+  async function runGl(frames, dpr) {
+    const gl = glCanvasFor(dpr);
+    const t0 = now();
+    const stats = window.__evgRender(gl, scene.doc, { dpr });
+    gl.finish();
+    const tMain = now() - t0;
+    await nextFrame();
+    const tFirst = now() - t0;
+
+    // Split the frame: what JavaScript spent making and submitting the frame,
+    // and what the driver spent finishing it.
+    const cpu = [], gpu = [];
+    const times = await animate(frames, () => {
+      const c0 = now();
+      window.__evgRender(gl, scene.doc, { dpr });
+      const c1 = now();
+      gl.finish();
+      cpu.push(c1 - c0);
+      gpu.push(now() - c1);
+    });
+    return {
+      attachMs: tMain, firstPaintMs: tFirst, frameMs: median(times),
+      cpuMs: median(cpu), gpuMs: median(gpu), frames: times,
+      nodes: stats && stats.drawn, drawCalls: stats && stats.paths, stats,
+    };
+  }
+
+  // A frame budget as well as a frame count: at thirty thousand nodes a
+  // backend that needs ten seconds a frame would otherwise take three minutes
+  // to say what three frames already said. At least three are always timed.
+  let BUDGET_MS = 4000;
+
+  async function animate(frames, mutate) {
+    for (let i = 0; i < 2; i++) { mutate(i); await nextFrame(); }   // warm up
+    const times = [];
+    let spent = 0;
+    for (let i = 0; i < frames; i++) {
+      const t0 = now();
+      mutate(i);
+      await nextFrame();
+      const dt = now() - t0;
+      times.push(dt);
+      spent += dt;
+      if (spent > BUDGET_MS && times.length >= 3) break;
+    }
+    return times;
+  }
+
+  window.__bench = {
+    init,
+    build,
+    svgVela: (frames) => runSvg(scene.svgVela, frames),
+    svgList: (frames) => runSvg(scene.svgMarkup, frames),
+    html: runHtml,
+    gl: runGl,
+    glBatched: runGlBatched,
+    glSdf: runGlSdf,
+    glBaseline: runGlBaseline,
+    clear: () => { scene = null; clearStage(); },
+    budget: (ms) => { BUDGET_MS = ms; },
+    ready: () => typeof window.VelaWeb === "function" && typeof window.VelaTargets === "function" && typeof window.__evgRender === "function",
+  };
+})();
+</script>
+</body>
+</html>

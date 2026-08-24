@@ -1,0 +1,74 @@
+renderer: ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)
+marks: 100, 300, 1000, 3000, 10000, 30000 · frames per backend: 15 · dpr: 1
+
+N=100
+  scene: 235 vela commands, 141 display commands, 20212 polygon points
+  build: vela-svg 99ms · evg-source 91ms · display-list 107ms · parse 3ms
+  svg-vela    attach     12.8ms · first paint     13.9ms · frame     4.30ms (232.6 fps) · cpu 1.30ms · 15 frames
+  svg-evg     attach     13.2ms · first paint     13.8ms · frame     9.10ms (109.9 fps) · cpu 1.50ms · 15 frames
+  html-evg    attach      3.6ms · first paint      4.2ms · frame     3.80ms (263.2 fps) · cpu 1.10ms · 15 frames
+  webgl       attach     37.1ms · first paint     37.4ms · frame    82.60ms (12.1 fps) · cpu 7.20ms · 111 draw calls · 15 frames
+  webgl-batch attach     14.7ms · first paint     14.9ms · frame    73.00ms (13.7 fps) · cpu 0.40ms · 1 draw calls · 15 frames
+  webgl-sdf   attach      1.2ms · first paint      1.4ms · frame    15.40ms (64.9 fps) · cpu 0.10ms · 2 draw calls · 15 frames
+  gl-empty    attach      0.0ms · first paint      0.0ms · frame     4.00ms (250.0 fps) · 15 frames
+
+N=300
+  scene: 435 vela commands, 341 display commands, 58812 polygon points
+  build: vela-svg 65ms · evg-source 44ms · display-list 99ms · parse 8ms
+  svg-vela    attach      5.7ms · first paint      6.3ms · frame     7.20ms (138.9 fps) · cpu 2.20ms · 15 frames
+  svg-evg     attach     14.7ms · first paint     15.3ms · frame    22.90ms (43.7 fps) · cpu 2.30ms · 15 frames
+  html-evg    attach      3.8ms · first paint      4.6ms · frame     6.80ms (147.1 fps) · cpu 1.90ms · 15 frames
+  webgl       attach     20.2ms · first paint     20.4ms · frame   190.50ms (5.2 fps) · cpu 17.60ms · 311 draw calls · 15 frames
+  webgl-batch attach     20.6ms · first paint     25.9ms · frame   158.40ms (6.3 fps) · cpu 0.90ms · 1 draw calls · 15 frames
+  webgl-sdf   attach      0.9ms · first paint      1.1ms · frame    18.00ms (55.6 fps) · cpu 0.10ms · 2 draw calls · 15 frames
+  gl-empty    attach      0.0ms · first paint      0.0ms · frame     4.20ms (238.1 fps) · 15 frames
+
+N=1000
+  scene: 1135 vela commands, 1041 display commands, 193912 polygon points
+  build: vela-svg 99ms · evg-source 94ms · display-list 330ms · parse 23ms
+  svg-vela    attach     19.3ms · first paint     21.6ms · frame    13.80ms (72.5 fps) · cpu 4.50ms · 15 frames
+  svg-evg     attach     47.1ms · first paint     48.7ms · frame    61.60ms (16.2 fps) · cpu 6.00ms · 15 frames
+  html-evg    attach     13.2ms · first paint     14.7ms · frame    13.70ms (73.0 fps) · cpu 4.50ms · 15 frames
+  webgl       attach     55.4ms · first paint     55.6ms · frame   552.40ms (1.8 fps) · cpu 56.00ms · 1011 draw calls · 8 frames
+  webgl-batch attach     44.3ms · first paint     44.6ms · frame   615.90ms (1.6 fps) · cpu 2.80ms · 1 draw calls · 7 frames
+  webgl-sdf   attach      3.0ms · first paint      3.0ms · frame    33.20ms (30.1 fps) · cpu 0.10ms · 2 draw calls · 15 frames
+  gl-empty    attach      0.0ms · first paint      0.0ms · frame     3.60ms (277.8 fps) · 15 frames
+
+N=3000
+  scene: 3135 vela commands, 3041 display commands, 579912 polygon points
+  build: vela-svg 433ms · evg-source 190ms · display-list 845ms · parse 71ms
+  svg-vela    attach     35.7ms · first paint     38.1ms · frame    38.70ms (25.8 fps) · cpu 13.30ms · 15 frames
+  svg-evg     attach    133.6ms · first paint    135.8ms · frame   174.60ms (5.7 fps) · cpu 16.80ms · 15 frames
+  html-evg    attach     39.9ms · first paint     43.9ms · frame    34.70ms (28.8 fps) · cpu 13.00ms · 15 frames
+  webgl       attach    188.2ms · first paint    188.5ms · frame  1418.70ms (0.7 fps) · cpu 159.30ms · 3011 draw calls · 3 frames
+  webgl-batch attach    164.9ms · first paint    165.0ms · frame  1386.20ms (0.7 fps) · cpu 13.60ms · 1 draw calls · 3 frames
+  webgl-sdf   attach      5.9ms · first paint      6.0ms · frame   125.20ms (8.0 fps) · cpu 0.40ms · 2 draw calls · 15 frames
+  gl-empty    attach      0.0ms · first paint      0.0ms · frame     4.10ms (243.9 fps) · 15 frames
+
+N=10000
+  scene: 10135 vela commands, 10041 display commands, 1930912 polygon points
+  build: vela-svg 1494ms · evg-source 830ms · display-list 2837ms · parse 248ms
+  svg-vela    attach    180.6ms · first paint    190.0ms · frame   135.90ms (7.4 fps) · cpu 49.60ms · 15 frames
+  svg-evg     attach    851.1ms · first paint    857.7ms · frame   557.30ms (1.8 fps) · cpu 43.05ms · 8 frames
+  html-evg    attach    112.1ms · first paint    129.0ms · frame   140.00ms (7.1 fps) · cpu 43.00ms · 15 frames
+  webgl       attach    787.2ms · first paint    787.6ms · frame  4872.60ms (0.2 fps) · cpu 544.30ms · 10011 draw calls · 3 frames
+  webgl-batch attach    741.1ms · first paint    741.3ms · frame  4926.60ms (0.2 fps) · cpu 54.00ms · 1 draw calls · 3 frames
+  webgl-sdf   attach     27.4ms · first paint     27.7ms · frame   355.25ms (2.8 fps) · cpu 0.20ms · 2 draw calls · 12 frames
+  gl-empty    attach      0.0ms · first paint      0.0ms · frame     4.40ms (227.3 fps) · 15 frames
+
+N=30000
+  scene: 30135 vela commands, 30041 display commands, 5790912 polygon points
+  build: vela-svg 4187ms · evg-source 2193ms · display-list 9017ms · parse 1494ms
+  svg-vela    attach   1225.5ms · first paint   1307.7ms · frame   644.60ms (1.6 fps) · cpu 187.40ms · 7 frames
+  svg-evg     attach   4826.4ms · first paint   4849.6ms · frame  1606.20ms (0.6 fps) · cpu 140.40ms · 3 frames
+  html-evg    attach    412.1ms · first paint    468.0ms · frame   364.40ms (2.7 fps) · cpu 128.70ms · 12 frames
+  webgl       attach   4166.5ms · first paint   4166.7ms · frame 13839.10ms (0.1 fps) · cpu 1599.30ms · 30011 draw calls · 3 frames
+  webgl-batch attach   1820.6ms · first paint   1820.8ms · frame 15062.10ms (0.1 fps) · cpu 160.20ms · 1 draw calls · 3 frames
+  webgl-sdf   attach     45.0ms · first paint     45.2ms · frame   747.90ms (1.3 fps) · cpu 0.60ms · 2 draw calls · 6 frames
+  gl-empty    attach      0.0ms · first paint      0.0ms · frame     5.20ms (192.3 fps) · 15 frames
+
+screenshots of every backend at 1000 nodes: gallery/evg/bench/results/shots
+wrote gallery/evg/bench/results/bench.json and bench.md
+webgl: never faster than the DOM in this sweep.
+webgl-batch: never faster than the DOM in this sweep.
+webgl-sdf: never faster than the DOM in this sweep.
