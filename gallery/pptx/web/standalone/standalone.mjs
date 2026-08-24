@@ -10,7 +10,7 @@
  * here rather than being fetched from a server — which is also why pictures
  * appear in the GL path at all now.
  */
-import { renderDisplayList, loadImages, markColoredSlots, verbatim } from "./gl/evg-webgl.js";
+import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback } from "./gl/evg-webgl.js";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -31,11 +31,21 @@ if (!gl) {
 }
 backendEl.textContent = "webgl2";
 
+// family — the name FontManager registers the face under, or null to add it to
+//          the per-codepoint fallback pool without naming a family
+// file   — the file under ./fonts/
+// css    — how the BROWSER is told about the same bytes: family, weight, style
+//
+// The third column is not a duplicate of the first. FontManager keys a face by
+// family AND style and is handed the four Open Sans files separately; CSS keys
+// by family with the weight and slant as descriptors, so all four are "Open
+// Sans" there. Both halves have to exist or the two disagree — see
+// `registerBrowserFaces` below for what that disagreement cost.
 const FONTS = [
-  ["Open Sans", "OpenSans-Regular.ttf"],
-  [null, "OpenSans-Bold.ttf"],
-  [null, "OpenSans-Italic.ttf"],
-  [null, "OpenSans-BoldItalic.ttf"],
+  ["Open Sans", "OpenSans-Regular.ttf", { family: "Open Sans", weight: "400", style: "normal" }],
+  [null, "OpenSans-Bold.ttf", { family: "Open Sans", weight: "700", style: "normal" }],
+  [null, "OpenSans-Italic.ttf", { family: "Open Sans", weight: "400", style: "italic" }],
+  [null, "OpenSans-BoldItalic.ttf", { family: "Open Sans", weight: "700", style: "italic" }],
   // The fallback pool the desktop build has always had, and the browser
   // build did not: an emoji face, a face with the geometric bullets in it,
   // and an Arabic one.
@@ -46,11 +56,47 @@ const FONTS = [
   // notdef widths while the canvas DREW it with the system's own Arabic font:
   // the glyphs looked right and every number about them was wrong, so a title
   // wrapped a word early and the caret sat a letter short of where it looked.
-  [null, "NotoEmoji-Regular.ttf"],
-  [null, "NotoSans-Regular.ttf"],
-  [null, "ElMessiri-Regular.ttf"],
-  [null, "ElMessiri-Bold.ttf"],
+  [null, "NotoEmoji-Regular.ttf", { family: "Noto Emoji", weight: "400", style: "normal" }],
+  [null, "NotoSans-Regular.ttf", { family: "Noto Sans", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Regular.ttf", { family: "El Messiri", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Bold.ttf", { family: "El Messiri", weight: "700", style: "normal" }],
 ];
+
+/** The same faces again, this time to the BROWSER — and it is the half that
+ *  was missing.
+ *
+ *  Everything above loads the fonts into OUR FontManager, which is what the
+ *  layout measures with: how wide "RealTrainer" is, where the line breaks,
+ *  where the caret goes. Nothing told `document.fonts` about them, so when the
+ *  GL backend rasterized a run through a 2D canvas the browser had never heard
+ *  of "Open Sans" and drew the system sans instead. Same string, same pixel
+ *  size, different face, different width.
+ *
+ *  Measured in headless Chromium on the deck that was reported: a 40pt bold
+ *  title measured 311.30px in our layout and rasterized to 292.02px in the
+ *  browser. Registering the real face and asking for it gives 311.19. The
+ *  caret is placed from the layout, so those 19 pixels were the caret sitting
+ *  most of a letter past the end of the word — which is exactly what a title
+ *  looked like while every 12pt field on the slide, where the same 6% is under
+ *  two pixels, looked fine.
+ */
+const dedupe = (list) => [...new Set(list.filter(Boolean))];
+
+async function registerBrowserFaces(bytes) {
+  if (typeof FontFace !== "function" || !document.fonts) return;
+  await Promise.all(FONTS.map(async ([, file, css], i) => {
+    if (!css) return;
+    try {
+      const face = new FontFace(css.family, bytes[i], { weight: css.weight, style: css.style });
+      await face.load();
+      document.fonts.add(face);
+    } catch (e) {
+      // A face the browser refuses to parse is one family drawn in a
+      // substitute — bad, but not a reason to leave the page blank.
+      console.warn("could not register " + file + " with the browser:", e);
+    }
+  }));
+}
 const DECK = "./deck.pptx";
 
 function asRangerBuffer(ab) {
@@ -174,6 +220,9 @@ async function draw() {
   slideEl.textContent = `${(web.slideIndex() | 0) + 1} / ${web.slideCount() | 0}`;
   window.__evgStats = stats;
   window.__pptxDoc = doc;
+  // Published so a test can ask the app what it thinks is true rather than
+  // inferring it from pixels — the same hook the code editor page exposes.
+  window.__pptxWeb = web;
 }
 
 // The show has a clock and the app has none: while one is running the page
@@ -740,6 +789,34 @@ async function selftest() {
     await draw();
     ok("and the editor is back", JSON.parse(web.scene()).list.cmds.length > 0);
   }
+  // The fonts, from both ends. The layout measures with OUR FontManager and
+  // the GL backend rasterizes through a 2D canvas, so the two only agree while
+  // the browser has the same faces registered and the display list names one
+  // of them. It named the DECK's font — "Calibri", which is not shipped here
+  // and was never registered — so the canvas quietly drew the system sans at
+  // widths nobody had measured, and the caret, placed from the layout, sat
+  // most of a letter past the end of a 40pt title.
+  {
+    const known = new Set(dedupe(FONTS.map(([, , css]) => css && css.family)));
+    // The page's own stylesheet declares three Open Sans faces and nothing
+    // else, so the Arabic face is one only `registerBrowserFaces` can have
+    // put there. Measuring is the only honest way to ask: `document.fonts
+    // .check` answers TRUE for a family nobody declared — no rule matches, so
+    // nothing is unloaded — and would pass whatever this page did.
+    const probe = document.createElement("canvas").getContext("2d");
+    probe.font = '40px "El Messiri", sans-serif';
+    const arabic = probe.measureText("\u0645\u0631\u062d\u0628\u0627").width;
+    probe.font = '40px "A Face Nobody Has", sans-serif';
+    ok("the canvas draws with the faces the layout measured, not the system's",
+      Math.abs(probe.measureText("\u0645\u0631\u062d\u0628\u0627").width - arabic) > 0.5);
+    web.gotoSlide(0);
+    lastScene = "";
+    await draw();
+    const cmds = JSON.parse(web.scene()).list.cmds.filter((c) => c.k === 3 && c.text);
+    const strangers = dedupe(cmds.map((c) => c.font)).filter((f) => !known.has(f));
+    ok("every family the slide asks for is one the page loaded", cmds.length > 0 && strangers.length === 0);
+  }
+
   web.gotoSlide(0);
   lastScene = "";
   await draw();
@@ -764,6 +841,11 @@ async function boot() {
     if (family) web.addFont(family, faces[i]);
     else web.addFace(faces[i]);
   });
+  await registerBrowserFaces(faces);
+  // And the order FontManager falls back in, so a codepoint the named face has
+  // no glyph for — an emoji, a bullet, an Arabic letter — is answered from the
+  // same face on both sides of the measurement.
+  setFontFallback(dedupe(FONTS.map(([, , css]) => css && css.family)));
   await document.fonts.ready;
 
   // The 187 preset geometries. Without them the viewer falls back to the

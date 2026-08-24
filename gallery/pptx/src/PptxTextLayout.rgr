@@ -92,7 +92,7 @@ class PptxTextLayout {
             if (b > a) {
                 def piece:string (substring run.text (a - s0) (b - s0))
                 def size:double (run.fontSizePt * scale)
-                total = (total + (m.widthOf(piece size run.bold run.italic)))
+                total = (total + (m.widthOfIn(piece size run.bold run.italic run.fontFamily)))
             }
             at = s1
             i = (i + 1)

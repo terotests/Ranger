@@ -9,6 +9,7 @@ Import "../src/PptxXml.rgr"
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"
 Import "../src/PptxToEvg.rgr"
+Import "../../office/text/OfficeFont.rgr"
 Import "../src/PptxWriter.rgr"
 Import "../src/PptxModel.rgr"
 Import "../../evg/EVGElement.rgr"
@@ -48,6 +49,7 @@ class PptxTest {
         this.testAdjustments()
         this.testInheritedText()
         this.testStatedVersusSilent()
+        this.testDrawnFontFamily()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -351,6 +353,75 @@ class PptxTest {
         def sh:PptxShape (unwrap hit)
         this.check("the words are not run together" ((sh.text.plainText()) == "The Ultimate Diary"))
         parser.close()
+    }
+
+    ; --- the family the display list names ---------------------------------------
+    ;
+    ; A deck says "Calibri". Calibri is not shipped here, and every width in
+    ; the layout — a line break, a caret column, the box a shape is judged
+    ; against — comes from whatever the shared alias map sent that name to.
+    ; The display list used to carry the DECK's name regardless.
+    ;
+    ; Nothing on the desktop noticed, because the software painter ignores the
+    ; field and paints Open Sans. A browser does not ignore it: `ctx.font` was
+    ; handed "Calibri", found no such face registered, and drew the system sans
+    ; at the same pixel size. The two faces differ by about six per cent, which
+    ; is under two pixels on a 12pt field and nineteen on a 40pt title — so a
+    ; deck looked right everywhere except its heading, where the caret sat most
+    ; of a letter past the end of the word. Reported exactly that way.
+    fn testDrawnFontFamily:void () {
+        print "--- the display list names the family it measured ---"
+        def bp (new PptxXmlParser())
+        def doc@(optional):PptxXmlNode (bp.parse("<p:txBody xmlns:a=\"x\" xmlns:p=\"y\"><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang=\"en\" sz=\"4000\" b=\"1\"><a:latin typeface=\"Calibri\"/></a:rPr><a:t>RealTrainer</a:t></a:r></a:p></p:txBody>"))
+        this.check("the title body parses" (!null? doc))
+        if (null? doc) {
+            return
+        }
+        def tp (new PptxParser())
+        def body:PptxTextBody (tp.parseTextBody((unwrap doc)))
+        def para:PptxParagraph (itemAt body.paragraphs 0)
+        def run:PptxTextRun (itemAt para.runs 0)
+        this.check("and the run carries the deck's own font name" (run.fontFamily == "Calibri"))
+
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.x = 40.0
+        sh.y = 40.0
+        sh.width = 400.0
+        sh.height = 80.0
+        sh.hasText = true
+        sh.text = body
+        def slide (new PptxSlide())
+        push slide.shapes sh
+
+        def conv (new PptxToEvg())
+        def dl:EVGDisplayList (conv.slideToDisplayList(slide))
+        def texts:int 0
+        def named:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 3) {
+                texts = (texts + 1)
+                if (c.fontFamily == "Calibri") {
+                    named = (named + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        this.check("the title reached the display list" (texts > 0))
+        this.check("and no command carries the name the deck used" (named == 0))
+        def first:string ""
+        def j:int 0
+        while (j < (array_length dl.cmds)) {
+            def c2:EVGDrawCmd (itemAt dl.cmds j)
+            if ((c2.kind == 3) && ((strlen first) == 0)) {
+                first = c2.fontFamily
+            }
+            j = (j + 1)
+        }
+        def wanted:string (OfficeFont.aliasFamily("Calibri"))
+        this.check("it carries the family the widths came from" (first == wanted))
     }
 
     fn testConnectors:void () {

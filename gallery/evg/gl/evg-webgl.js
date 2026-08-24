@@ -351,6 +351,33 @@ export async function loadImages(doc, opts = {}) {
 const LRO = "\u202D", PDF = "\u202C";
 export const verbatim = (t) => LRO + t + PDF;
 
+/** The families the browser may fall back to, after the one a command names.
+ *
+ *  It matters because our own FontManager falls back per CODEPOINT across
+ *  every loaded face — that is how an emoji, a geometric bullet or an Arabic
+ *  letter gets drawn at all when the text face has no glyph for it — and every
+ *  width in the layout was measured through that walk. A canvas that ends its
+ *  font list at `sans-serif` answers those same codepoints from whatever the
+ *  system has, so the glyphs appear (looking fine) at widths nobody measured.
+ *
+ *  A page sets this to its own pool, in the order it loaded the faces, so the
+ *  two walks agree. Default is what it always was.
+ */
+let fallbackStack = "sans-serif";
+export function setFontFallback(families) {
+  const list = (families || []).filter((f) => f && f.length).map((f) => `"${f}"`);
+  list.push("sans-serif");
+  fallbackStack = list.join(", ");
+}
+
+/** One place that turns a TEXT command into a CSS font shorthand — it was
+ *  written twice, once for measuring and once for rasterizing, and the two
+ *  had to stay identical or a run was drawn at a size it was not measured at.
+ */
+function fontSpec(c, dpr) {
+  return `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${c.font}", ${fallbackStack}`;
+}
+
 function runKey(c, dpr) {
   return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
 }
@@ -370,7 +397,7 @@ function buildTextAtlas(cmds, dpr) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   const measured = runs.map((c) => {
-    ctx.font = `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${c.font}", sans-serif`;
+    ctx.font = fontSpec(c, dpr);
     const m = ctx.measureText(verbatim(c.text));
     // Two different ascents, and the difference between them is the whole of
     // where a run sits. `actualBoundingBox*` is the INK of these particular
@@ -404,7 +431,7 @@ function buildTextAtlas(cmds, dpr) {
   c2.fillStyle = "#fff";
   const slots = new Map();
   for (const m of measured) {
-    c2.font = `${m.c.italic ? "italic " : ""}${m.c.weight ? m.c.weight + " " : ""}${m.c.size * dpr}px "${m.c.font}", sans-serif`;
+    c2.font = fontSpec(m.c, dpr);
     c2.fillText(verbatim(m.c.text), m.x + pad, m.y + pad + m.asc);
     slots.set(runKey(m.c, dpr), {
       u0: m.x / canvas.width, v0: m.y / canvas.height,

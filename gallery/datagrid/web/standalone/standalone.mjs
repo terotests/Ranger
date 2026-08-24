@@ -12,7 +12,7 @@
  * The only things fetched are the ones a browser cannot make for itself: the
  * font faces, and a workbook to open. Both are handed to the app as bytes.
  */
-import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+import { renderDisplayList, loadImages, setFontFallback } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 
 // The page watches for this: if the imports above fail, nothing below runs
@@ -39,32 +39,66 @@ if (!gl) {
 backendEl.textContent = "webgl2";
 
 const FONTS = [
-  ["Open Sans", "OpenSans-Regular.ttf"],
-  [null, "OpenSans-Bold.ttf"],
-  [null, "OpenSans-Italic.ttf"],
-  [null, "OpenSans-BoldItalic.ttf"],
-  ["Noto Sans", "NotoSans-Regular.ttf"],
-  [null, "NotoSans-Bold.ttf"],
-  [null, "NotoSans-Italic.ttf"],
-  [null, "NotoSans-BoldItalic.ttf"],
-  ["Helvetica", "Helvetica.ttf"],
-  ["Droid Serif", "DroidSerif.ttf"],
-  [null, "DroidSerif-Bold.ttf"],
-  [null, "DroidSerif-Italic.ttf"],
-  [null, "DroidSerif-BoldItalic.ttf"],
-  ["Josefin Sans", "JosefinSans-Regular.ttf"],
-  [null, "JosefinSans-Bold.ttf"],
-  [null, "JosefinSans-Italic.ttf"],
-  [null, "JosefinSans-BoldItalic.ttf"],
+  ["Open Sans", "OpenSans-Regular.ttf", { family: "Open Sans", weight: "400", style: "normal" }],
+  [null, "OpenSans-Bold.ttf", { family: "Open Sans", weight: "700", style: "normal" }],
+  [null, "OpenSans-Italic.ttf", { family: "Open Sans", weight: "400", style: "italic" }],
+  [null, "OpenSans-BoldItalic.ttf", { family: "Open Sans", weight: "700", style: "italic" }],
+  ["Noto Sans", "NotoSans-Regular.ttf", { family: "Noto Sans", weight: "400", style: "normal" }],
+  [null, "NotoSans-Bold.ttf", { family: "Noto Sans", weight: "700", style: "normal" }],
+  [null, "NotoSans-Italic.ttf", { family: "Noto Sans", weight: "400", style: "italic" }],
+  [null, "NotoSans-BoldItalic.ttf", { family: "Noto Sans", weight: "700", style: "italic" }],
+  ["Helvetica", "Helvetica.ttf", { family: "Helvetica", weight: "400", style: "normal" }],
+  ["Droid Serif", "DroidSerif.ttf", { family: "Droid Serif", weight: "400", style: "normal" }],
+  [null, "DroidSerif-Bold.ttf", { family: "Droid Serif", weight: "700", style: "normal" }],
+  [null, "DroidSerif-Italic.ttf", { family: "Droid Serif", weight: "400", style: "italic" }],
+  [null, "DroidSerif-BoldItalic.ttf", { family: "Droid Serif", weight: "700", style: "italic" }],
+  ["Josefin Sans", "JosefinSans-Regular.ttf", { family: "Josefin Sans", weight: "400", style: "normal" }],
+  [null, "JosefinSans-Bold.ttf", { family: "Josefin Sans", weight: "700", style: "normal" }],
+  [null, "JosefinSans-Italic.ttf", { family: "Josefin Sans", weight: "400", style: "italic" }],
+  [null, "JosefinSans-BoldItalic.ttf", { family: "Josefin Sans", weight: "700", style: "italic" }],
   // The rest of the fallback pool the desktop build has: an emoji face and an
   // Arabic one. `FontManager` falls back per CODEPOINT, so loading them is
   // the whole of it. Without the Arabic face the browser MEASURED Arabic with
   // notdef widths while the canvas DREW it with the system's own font — the
   // glyphs looked right and every number about them was wrong.
-  [null, "NotoEmoji-Regular.ttf"],
-  [null, "ElMessiri-Regular.ttf"],
-  [null, "ElMessiri-Bold.ttf"],
+  [null, "NotoEmoji-Regular.ttf", { family: "Noto Emoji", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Regular.ttf", { family: "El Messiri", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Bold.ttf", { family: "El Messiri", weight: "700", style: "normal" }],
 ];
+
+const dedupe = (list) => [...new Set(list.filter(Boolean))];
+
+/** The same faces again, this time to the BROWSER — and it is the half that
+ *  was missing.
+ *
+ *  Everything above loads the fonts into OUR FontManager, which is what the
+ *  layout measures with: how wide a word is, where the line breaks, where the
+ *  caret goes. Nothing told `document.fonts` about them, so when the GL
+ *  backend rasterized a run through a 2D canvas the browser had never heard of
+ *  the family and drew the system sans instead. Same string, same pixel size,
+ *  different face, different width — and the caret, placed from the layout,
+ *  ends up somewhere the glyphs are not.
+ *
+ *  It shows up first at large sizes: the two faces differ by a few per cent,
+ *  which is under two pixels on body text and most of a letter on a 40pt
+ *  heading.
+ */
+async function registerBrowserFaces(bytes) {
+  if (typeof FontFace !== "function" || !document.fonts) return;
+  await Promise.all(FONTS.map(async ([, file, css], i) => {
+    if (!css) return;
+    try {
+      const face = new FontFace(css.family, bytes[i], { weight: css.weight, style: css.style });
+      await face.load();
+      document.fonts.add(face);
+    } catch (e) {
+      // A face the browser refuses to parse is one family drawn in a
+      // substitute — bad, but not a reason to leave the page blank.
+      console.warn("could not register " + file + " with the browser:", e);
+    }
+  }));
+}
+
 const WORKBOOK = "./business-workbook.xlsx";
 
 /** A Ranger `buffer` is an ArrayBuffer with a DataView hung off it — that is
@@ -566,6 +600,11 @@ async function boot() {
     if (family) web.addFont(family, faces[i]);
     else web.addFace(faces[i]);
   });
+  await registerBrowserFaces(faces);
+  // And the order FontManager falls back in, so a codepoint the named face has
+  // no glyph for — an emoji, a bullet, an Arabic letter — is answered from the
+  // same face on both sides of the measurement.
+  setFontFallback(dedupe(FONTS.map(([, , css]) => css && css.family)));
   await document.fonts.ready;
 
   statusEl.textContent = "loading workbook";

@@ -8,7 +8,7 @@
  * make those for itself. Everything else — the buffer, the lexer, the layout,
  * the caret — is the compiled Ranger beside this file.
  */
-import { renderDisplayList } from "./gl/evg-webgl.js";
+import { renderDisplayList, setFontFallback } from "./gl/evg-webgl.js";
 
 window.__pageStarted = true;
 
@@ -32,19 +32,53 @@ if (!gl) {
 backendEl.textContent = "webgl2";
 
 const FONTS = [
-  ["Open Sans", "OpenSans-Regular.ttf"],
-  [null, "OpenSans-Bold.ttf"],
+  ["Open Sans", "OpenSans-Regular.ttf", { family: "Open Sans", weight: "400", style: "normal" }],
+  [null, "OpenSans-Bold.ttf", { family: "Open Sans", weight: "700", style: "normal" }],
   // The fallback pool the desktop build has. `FontManager` falls back per
   // CODEPOINT, so loading these is the whole of it — none becomes the face
   // Latin is drawn in. Without the Arabic one a browser MEASURES Arabic with
   // notdef widths while the canvas DRAWS it with the system's own font: the
   // glyphs look right and every number about them is wrong, which shows up as
   // a column that wraps early and a caret that sits short.
-  [null, "NotoEmoji-Regular.ttf"],
-  [null, "NotoSans-Regular.ttf"],
-  [null, "ElMessiri-Regular.ttf"],
-  [null, "ElMessiri-Bold.ttf"],
+  [null, "NotoEmoji-Regular.ttf", { family: "Noto Emoji", weight: "400", style: "normal" }],
+  [null, "NotoSans-Regular.ttf", { family: "Noto Sans", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Regular.ttf", { family: "El Messiri", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Bold.ttf", { family: "El Messiri", weight: "700", style: "normal" }],
 ];
+
+const dedupe = (list) => [...new Set(list.filter(Boolean))];
+
+/** The same faces again, this time to the BROWSER — and it is the half that
+ *  was missing.
+ *
+ *  Everything above loads the fonts into OUR FontManager, which is what the
+ *  layout measures with: how wide a word is, where the line breaks, where the
+ *  caret goes. Nothing told `document.fonts` about them, so when the GL
+ *  backend rasterized a run through a 2D canvas the browser had never heard of
+ *  the family and drew the system sans instead. Same string, same pixel size,
+ *  different face, different width — and the caret, placed from the layout,
+ *  ends up somewhere the glyphs are not.
+ *
+ *  It shows up first at large sizes: the two faces differ by a few per cent,
+ *  which is under two pixels on body text and most of a letter on a 40pt
+ *  heading.
+ */
+async function registerBrowserFaces(bytes) {
+  if (typeof FontFace !== "function" || !document.fonts) return;
+  await Promise.all(FONTS.map(async ([, file, css], i) => {
+    if (!css) return;
+    try {
+      const face = new FontFace(css.family, bytes[i], { weight: css.weight, style: css.style });
+      await face.load();
+      document.fonts.add(face);
+    } catch (e) {
+      // A face the browser refuses to parse is one family drawn in a
+      // substitute — bad, but not a reason to leave the page blank.
+      console.warn("could not register " + file + " with the browser:", e);
+    }
+  }));
+}
+
 
 /** A Ranger `buffer` is an ArrayBuffer with a DataView hung off it — that is
  *  what the compiled runtime reads through, so bytes from fetch() have to be
@@ -604,11 +638,18 @@ function runSelftest() {
 
 (async function boot() {
   try {
+    const loaded = [];
     for (const [family, file] of FONTS) {
       const bytes = await bytesOf("./fonts/" + file);
+      loaded.push(bytes);
       if (family) web.addFont(family, bytes);
       else web.addFace(bytes);
     }
+    await registerBrowserFaces(loaded);
+    // And the order FontManager falls back in, so a codepoint the named face
+    // has no glyph for — an emoji, a bullet, an Arabic letter — is answered
+    // from the same face on both sides of the measurement.
+    setFontFallback(dedupe(FONTS.map(([, , css]) => css && css.family)));
     statusEl.textContent = "ready";
   } catch (err) {
     statusEl.textContent = "font load failed: " + err.message;
