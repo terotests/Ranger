@@ -63,6 +63,22 @@ class PptxVega {
         return this
     }
 
+    ; Vega-Lite `config` for every chart this object draws.
+    ;
+    ; A deck of six charts otherwise states the same thing six times — the same
+    ; axis colours, the same absent domain line, the same view with no border
+    ; round it — and the interesting half of each specification, which is its
+    ; DATA, ends up buried in the half that never changes. Say it once here and
+    ; the specifications carry only what differs.
+    ;
+    ; A chart's own `config` still wins, key by key and one level down: setting
+    ; `view` on one chart replaces the view block and leaves the axis block
+    ; from here standing, rather than dropping every default it also wanted.
+    fn config:PptxVega (json:string) {
+        shapes.defaultConfig = json
+        return this
+    }
+
     ; How finely a curve is subdivided — an area's top edge, a pie wedge, a
     ; smoothed line. Sixteen segments is under a tenth of a point of error at
     ; chart size; raise it for a chart that fills the slide, lower it for a
