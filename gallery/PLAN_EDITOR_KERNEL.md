@@ -29,8 +29,9 @@ to live in a folder called `office/`.
 > Don't merge Word, Excel and PowerPoint into one document model. Merge the
 > infrastructure underneath them.
 
-The book is a fourth editor that sentence does not yet mention. It imports
-**11** things from `gallery/evg` and **zero** from `gallery/office`.
+The book is a fourth editor that sentence did not mention. It imports **11**
+things from `gallery/evg` and, since the shape catalogue (Stage D0), **one**
+from `gallery/office` — where it had none.
 
 ---
 
@@ -315,6 +316,31 @@ test named in [`PLAN_GENERICS.md`](../PLAN_GENERICS.md), and it is met.
 all four editors and asserts that one action is one undo in each. Four
 instantiations prove the type-checker is happy; they do not prove the rules are
 reached. This is §4's rule, and it is the one part of Stage C not yet done.
+
+### Stage D0 — the shape catalogue — ✅ done
+
+The smallest possible piece of Stage D, and it needed no new geometry at all.
+`presets.txt` has held **187 DrawingML shapes** since the preset work landed,
+both editors already *rendered* every one of them, and
+`PptxEdit.addShapeAt(preset …)` has always taken any preset name as a string.
+The slide editor offered two and the book editor offered one, because nothing
+named the rest.
+
+`gallery/office/geom/OfficeShapeCatalog.rgr` is that missing table — id, label,
+category, keywords — and nothing else. It holds no drawing code, because the
+two editors want different things from an entry: the slide editor stores the
+preset name, the book editor asks `OfficePresetShapes` for the outline and
+stores a path. That difference is why the catalogue holds neither.
+
+It ships with the wiring test §4 asks of every shared module:
+`OfficeShapeCatalogTest` drives `frame.shape` in `BookApp` and `shape.insert`
+in `PptxApp` and looks at what appeared on the page, so a catalogue that is
+correct and that nobody calls fails. It is also the book's **first import from
+`gallery/office`**, which §1 noted it had none of.
+
+*Open:* the picker is still per-editor chrome. Categories and search are in the
+catalogue; what is missing is one shared window in `gallery/evg` over
+`EVGToolbar`, which both editors already extend.
 
 ### Stage D — selection and manipulation (the biggest win the user named)
 

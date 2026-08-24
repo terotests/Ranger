@@ -1,0 +1,366 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeShapeCatalogTest — the catalogue, and that both editors actually use it
+; ==============================================================================
+;
+;   npm run office:shapes:test
+;
+; Two halves, and the second is the one that would not pass on its own.
+;
+; The first checks the catalogue: every preset in `presets.txt` is named, every
+; entry lands in a category, search finds a synonym, and an outline comes out as
+; path data.
+;
+; The second drives the REAL insert command in each editor — `BookApp` with
+; `frame.shape` and a shape id, `PptxApp` with `shape.insert` — and looks at
+; what appeared on the page. That is the wiring test the kernel plan asks every
+; shared module to ship: a catalogue that is correct and that nobody calls
+; passes the first half and fails here.
+; ==============================================================================
+
+Import "../OfficeShapeCatalog.rgr"
+Import "../OfficeEmojiShapes.rgr"
+Import "../../ui/OfficeShapePicker.rgr"
+Import "../../../book/src/BookApp.rgr"
+Import "../../../pptx/src/PptxApp.rgr"
+Import "../../../pptx/api/PptxApi.rgr"
+
+class ShapeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class OfficeShapeCatalogTest {
+    sfn presetText:string () {
+        def t:string (?? (read_file "gallery/office/geom/assets" "presets.txt") "")
+        return t
+    }
+
+    sfn testCatalogue:void (c:ShapeCheck) {
+        print "-- the catalogue --"
+        def cat (new OfficeShapeCatalog())
+        c.eqInt("every preset is named" (cat.count()) 187)
+
+        def cats:[string] (cat.categories())
+        c.ok("and grouped" ((array_length cats) > 5))
+
+        ; Every entry belongs to a category that the category list reports, or
+        ; a shape exists that no picker can ever show.
+        def orphan:int 0
+        def i:int 0
+        while (i < (cat.count())) {
+            def e:ShapeEntry (cat.at(i))
+            if ((OfficeShapeCatalog.hasString(cats e.category)) == false) {
+                orphan = (orphan + 1)
+            }
+            if ((strlen e.label) == 0) {
+                orphan = (orphan + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("no entry is unreachable or unlabelled" orphan 0)
+
+        ; The categories partition the catalogue: every shape in exactly one.
+        def total:int 0
+        def k:int 0
+        while (k < (array_length cats)) {
+            total = (total + (array_length (cat.inCategory((itemAt cats k)))))
+            k = (k + 1)
+        }
+        c.eqInt("the categories partition it" total 187)
+
+        c.ok("search finds a shape by a word not in its name" ((array_length (cat.search("circle"))) > 0))
+        c.ok("an empty query is everything" ((array_length (cat.search(""))) == 187))
+        c.ok("an unknown id is not found" ((strlen ((cat.find("nosuchshape")).id)) == 0))
+
+        ; Without presets it still lists, and honestly answers with no outline.
+        c.ok("no presets means no outline, not a substitute" ((strlen (cat.pathFor("star5" 100.0 100.0))) == 0))
+
+        cat.loadPresets((OfficeShapeCatalogTest.presetText()))
+        def star:string (cat.pathFor("star5" 100.0 100.0))
+        c.ok("a preset becomes path data" ((strlen star) > 20))
+        c.ok("and it is a path" ((substring star 0 1) == "M"))
+        c.ok("a shape the catalogue lacks still answers empty" ((strlen (cat.pathFor("nope" 10.0 10.0))) == 0))
+
+        ; --- the fill and the stroke are different geometry ------------------
+        ;
+        ; These four assertions exist because the contact sheet showed three
+        ; solid black squares where the chart markers should be and nothing at
+        ; all where the eleven lines should be, and every assertion above this
+        ; one passed while that was true. A path that starts with "M" is not
+        ; the same claim as a path that draws the shape.
+        def plusFill:string (cat.pathFor("chartPlus" 100.0 100.0))
+        def plusLine:string (cat.strokePathFor("chartPlus" 100.0 100.0))
+        c.ok("a chart marker has a box to fill" ((strlen plusFill) > 20))
+        c.ok("and a cross that only a stroke draws" ((strlen plusLine) > 20))
+        c.ok("which is not the same geometry" (plusFill != plusLine))
+        ; The box is a closed ring; the cross is two open runs. If the cross
+        ; were closed it would gain a diagonal across the middle.
+        c.ok("the filled ring closes" ((OfficeShapeCatalogTest.hasZ(plusFill))))
+        c.ok("the stroked run does not" ((OfficeShapeCatalogTest.hasZ(plusLine)) == false))
+
+        ; `line` says `fill norm` in the preset file but is two points, so a
+        ; fill of it has no area. Eleven shapes are like this.
+        c.ok("a line has nothing to fill" ((strlen (cat.pathFor("line" 100.0 100.0))) == 0))
+        c.ok("but it has something to stroke" ((strlen (cat.strokePathFor("line" 100.0 100.0))) > 0))
+        c.ok("and it says so" (cat.isStrokeOnly("line" 100.0 100.0)))
+        c.ok("a star is not stroke-only" ((cat.isStrokeOnly("star5" 100.0 100.0)) == false))
+    }
+
+    ; --- the emoji ---------------------------------------------------------
+
+    sfn testEmoji:void (c:ShapeCheck) {
+        print "-- the emoji outlines --"
+        def cat (new OfficeShapeCatalog())
+        def before:int (cat.count())
+        OfficeEmojiShapes.fill(cat)
+        def after:int (cat.count())
+        c.ok("the emoji join the catalogue" (after > (before + 200)))
+
+        ; They carry their own outline, so unlike a preset they draw with no
+        ; presets loaded and no font present. That is the whole point of
+        ; generating them at build time.
+        def dog:ShapeEntry (cat.find("emojiDogFace"))
+        c.ok("an emoji is found by id" (dog.id == "emojiDogFace"))
+        c.ok("and carries its own path" (dog.hasPath()))
+        def path:string (cat.pathFor("emojiDogFace" 100.0 100.0))
+        c.ok("which pathFor answers with" ((strlen path) > 100))
+        c.ok("and it is a path" ((substring path 0 1) == "M"))
+
+        ; A dog's face is an outline with eyes and a nose inside it. If the
+        ; extractor kept only the outer contour they would be gone, and the
+        ; only cheap way to say "the holes are still there" is to count the
+        ; subpaths.
+        c.ok("with more than one contour" ((OfficeShapeCatalogTest.countOf(path "M")) > 3))
+        c.ok("every one of them closed" ((OfficeShapeCatalogTest.countOf(path "M")) == (OfficeShapeCatalogTest.countOf(path "Z"))))
+        ; Quadratic, because TrueType is. A path of nothing but lines would
+        ; mean the curves were flattened, which is what makes a font look
+        ; like the 1990s clip art it is meant to replace.
+        c.ok("and curved" ((OfficeShapeCatalogTest.countOf(path "Q")) > 20))
+
+        ; The ids are prefixed because the presets already own these words.
+        c.ok("emoji ids do not collide with presets" ((cat.find("cloud")).hasPath()) == false)
+        c.ok("the emoji cloud is a separate entry" ((cat.find("emojiCloud")).hasPath()))
+
+        c.ok("they are grouped" ((array_length (cat.inCategory("Animals"))) > 20))
+        c.ok("and searchable" ((array_length (cat.search("rabbit"))) > 0))
+    }
+
+    ; @internal How many times one character appears.
+    sfn countOf:int (s:string ch:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((substring s i (i + 1)) == ch) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; @internal Whether a path string closes any of its rings.
+    sfn hasZ:boolean (path:string) {
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((substring path i (i + 1)) == "Z") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- the wiring --------------------------------------------------------
+
+    sfn testBookInserts:void (c:ShapeCheck) {
+        print "-- the book editor calls it --"
+        def app (new BookApp)
+        app.W = 900
+        app.H = 600
+        app.initBare()
+        ; `initBare` gives a window, not a book. Insert refuses on a document
+        ; with no pages, which is correct and is why one is attached here.
+        def api (BookApi.create("Shapes" "a4"))
+        api.defaultStyles()
+        api.master("plain")
+        api.page("plain")
+        app.attach(api.doc)
+        app.loadShapePresets((OfficeShapeCatalogTest.presetText()))
+        app.runCommand("edit.toggle" "")
+
+        def before:int (array_length ((app.editor.currentPage()).frames))
+        def ok:boolean (app.runCommand("frame.shape" "star5"))
+        c.ok("frame.shape with a catalogue id inserts" ok)
+        def after:int (array_length ((app.editor.currentPage()).frames))
+        c.eqInt("one frame more" after (before + 1))
+
+        ; What matters is that it took the CATALOGUE's outline rather than
+        ; drawing a box: a path frame with real path data on it.
+        def page:BookPage (app.editor.currentPage())
+        def last:BookFrame (itemAt page.frames (after - 1))
+        c.ok("and it is a path frame" (last.kind == "path"))
+        c.ok("carrying the star's outline" ((strlen last.pathData) > 20))
+        c.ok("and filled, because a star has an inside" ((strlen last.fill) > 0))
+
+        ; A connector has no inside. Inserting it FILLED puts an invisible
+        ; frame on the page that the author then has to find and delete, so it
+        ; is inserted stroked instead.
+        def okLine:boolean (app.runCommand("frame.shape" "straightConnector1"))
+        c.ok("a stroke-only shape inserts too" okLine)
+        def page2:BookPage (app.editor.currentPage())
+        def line:BookFrame (itemAt page2.frames ((array_length page2.frames) - 1))
+        c.ok("with an outline" ((strlen line.pathData) > 10))
+        c.ok("stroked" ((strlen line.stroke) > 0))
+        c.ok("and not filled" ((strlen line.fill) == 0))
+        c.ok("with a width to stroke it at" (line.strokeWidth > 0.0))
+
+        ; A shape that cannot be produced must not leave an invisible frame.
+        def n0:int (array_length ((app.editor.currentPage()).frames))
+        def bad:boolean (app.runCommand("frame.shape" "nosuchshape"))
+        c.ok("an unknown shape does not insert" (bad == false))
+        c.eqInt("and leaves no empty frame" (array_length ((app.editor.currentPage()).frames)) n0)
+    }
+
+    ; --- the shared picker -------------------------------------------------
+    ;
+    ; The point of this one is not that a picker works. It is that the SAME
+    ; window, opened by the SAME command id, with the SAME press at the SAME
+    ; place in its grid, drives two editors that share no other code — and
+    ; that each of them ends up with the thing its own document is made of.
+    ;
+    ; If either editor ever needs its own picker, this test is where that
+    ; shows up: the two halves below would stop being copies of each other.
+    sfn testSharedPicker:void (c:ShapeCheck) {
+        print "-- one picker, two editors --"
+
+        ; ---- the book ----
+        def book (new BookApp)
+        book.W = 900
+        book.H = 600
+        book.initBare()
+        def api (BookApi.create("Picker" "a4"))
+        api.defaultStyles()
+        api.master("plain")
+        api.page("plain")
+        book.attach(api.doc)
+        book.loadShapePresets((OfficeShapeCatalogTest.presetText()))
+        book.runCommand("edit.toggle" "")
+
+        c.ok("the book opens the shared picker" (book.runCommand("shape.pick" "")))
+        c.ok("and it is on screen" (book.picker.isOpen()))
+        c.ok("showing the whole catalogue" ((array_length book.picker.shown) > 400))
+
+        def bBefore:int (array_length ((book.editor.currentPage()).frames))
+        def bx:int (((book.picker.win.contentX()) + book.picker.sideW) + (book.picker.gap + 10))
+        def by:int ((book.picker.win.contentY()) + (book.picker.gap + 10))
+        c.ok("a press in its grid is taken by the picker" (book.pickerPointer(bx by true)))
+        def bPage:BookPage (book.editor.currentPage())
+        def bAfter:int (array_length bPage.frames)
+        c.eqInt("and the book gained a frame" bAfter (bBefore + 1))
+        def frame:BookFrame (itemAt bPage.frames (bAfter - 1))
+        c.ok("carrying an outline the book owns" ((strlen frame.pathData) > 20))
+
+        ; ---- the deck: the same command, the same press ----
+        def deckApp (new PptxApp)
+        deckApp.W = 900
+        deckApp.H = 600
+        deckApp.initBare()
+        def deck:PptxDeck (PptxApi.create())
+        deck.addSlide()
+        deckApp.attachPresentation(deck.pres "test")
+        deckApp.loadPresets((OfficeShapeCatalogTest.presetText()))
+
+        c.ok("the deck opens the same picker" (deckApp.runCommand("shape.pick" "")))
+        c.ok("and it is on screen" (deckApp.picker.isOpen()))
+
+        def slide:PptxSlide (itemAt deck.pres.slides 0)
+        def sBefore:int (array_length slide.shapes)
+        def sx:int (((deckApp.picker.win.contentX()) + deckApp.picker.sideW) + (deckApp.picker.gap + 10))
+        def sy:int ((deckApp.picker.win.contentY()) + (deckApp.picker.gap + 10))
+        c.ok("the same press is taken there too" (deckApp.pickerPointer(sx sy true)))
+        def sAfter:int (array_length slide.shapes)
+        c.eqInt("and the deck gained a shape" sAfter (sBefore + 1))
+        def sh:PptxShape (itemAt slide.shapes (sAfter - 1))
+
+        ; The two documents got DIFFERENT things out of the one id, which is
+        ; what makes the picker shareable rather than merely shared: the book
+        ; holds an outline, the deck holds a preset name for PowerPoint to
+        ; draw from its own geometry.
+        c.ok("the deck stored a preset name" ((strlen sh.preset) > 0))
+        c.ok("not an outline" ((sh.hasPath) == false))
+
+        ; Both pressed cell 0 of the unfiltered grid, so both chose the same
+        ; entry. If that ever stops being true the assertion below is what
+        ; says so, rather than the two halves quietly drifting apart.
+        def firstBook:ShapeEntry (itemAt book.picker.shown 0)
+        def firstDeck:ShapeEntry (itemAt deckApp.picker.shown 0)
+        c.ok("both grids start at the same shape" (firstBook.id == firstDeck.id))
+        c.ok("and that is what the deck inserted" (sh.preset == firstDeck.id))
+
+        ; The categories are the picker's, not either editor's. The book's
+        ; catalogue carries the emoji and the deck's does not, and the same
+        ; window shows each host exactly what that host can insert.
+        c.ok("the book's picker offers the emoji groups" ((array_length (book.picker.cat.inCategory("Animals"))) > 20))
+        c.ok("the deck's does not" ((array_length (deckApp.picker.cat.inCategory("Animals"))) == 0))
+
+        ; Choosing a category is the picker's own business in both.
+        book.picker.setCategory("Brackets")
+        c.eqInt("a category narrows the grid" (array_length book.picker.shown) 6)
+        book.picker.setCategory("")
+        c.ok("and All puts it back" ((array_length book.picker.shown) > 400))
+    }
+
+    sfn testSlideInserts:void (c:ShapeCheck) {
+        print "-- the slide editor calls it --"
+        def app (new PptxApp)
+        app.W = 900
+        app.H = 600
+        app.initBare()
+        ; A deck with one slide, for the same reason the book needed a page:
+        ; the insert refuses when there is nothing to insert into.
+        def deck:PptxDeck (PptxApi.create())
+        deck.addSlide()
+        app.attachPresentation(deck.pres "test")
+        app.loadPresets((OfficeShapeCatalogTest.presetText()))
+
+        def ok:boolean (app.runCommand("shape.insert" "heart"))
+        c.ok("shape.insert with a catalogue id inserts" ok)
+        def bad:boolean (app.runCommand("shape.insert" "nosuchshape"))
+        c.ok("and refuses one the catalogue does not have" (bad == false))
+        def empty:boolean (app.runCommand("shape.insert" ""))
+        c.ok("and refuses an empty id" (empty == false))
+    }
+
+    sfn main:void () {
+        print "== OfficeShapeCatalogTest =="
+        def c (new ShapeCheck())
+        OfficeShapeCatalogTest.testCatalogue(c)
+        OfficeShapeCatalogTest.testEmoji(c)
+        OfficeShapeCatalogTest.testBookInserts(c)
+        OfficeShapeCatalogTest.testSlideInserts(c)
+        OfficeShapeCatalogTest.testSharedPicker(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

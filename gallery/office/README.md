@@ -29,6 +29,13 @@ gallery/office/
         OfficeHistory.rgr      what "one undo" means
     drawing/
         OfficeColor.rgr        the theme palette, and what is done to a colour
+    geom/
+        OfficeGeomFormula.rgr  the guide language DrawingML geometry is written in
+        OfficePresetShapes.rgr the 187 preset geometries, evaluated
+        OfficeEmojiShapes.rgr  GENERATED - 262 emoji glyph outlines as shapes
+        OfficeShapeCatalog.rgr the same 187, named and grouped, so a picker can
+                               offer them — the slide editor could draw every
+                               one and insert two
     text/
         OfficeFont.rgr         which face draws this run
         OfficeTextRun.rgr      a stretch of text drawn in one face
@@ -42,9 +49,93 @@ npm run office:font:test       # JavaScript and C++
 npm run office:metrics:test    # likewise
 npm run office:style:test      # likewise
 npm run office:color:test      # likewise
+npm run office:geom:test       # the guide evaluator and the presets
+npm run office:shapes:test     # the catalogue, and that both editors call it
 npm run office:history:test    # likewise
 npm run office:asset:test      # likewise
 ```
+
+There is also one thing that is not a test:
+
+```bash
+npm run office:shapes:sheet    # all 449 onto gallery/office/geom/out/shapes.svg
+npm run office:emoji:build     # re-extract the emoji outlines from the font
+```
+
+It asserts nothing. It draws every shape in the catalogue, grouped by
+category, each under its label, as one SVG a browser opens — so somebody can
+answer the question no assertion can: *does `swooshArrow` look like a swoosh
+arrow.* Shapes with both a fill and a stroke are drawn pale-body-dark-line, the
+way PowerPoint draws them, because that is the only way the line shows.
+
+The first time it ran it turned up three solid black squares where the chart
+markers belong, twelve more where the action buttons belong, and nothing at all
+where the eleven lines belong — a real defect that eleven passing assertions
+had not noticed. `gallery/book/ISSUES.md` §17 is the account of it.
+
+### The shape picker
+
+`ui/OfficeShapePicker.rgr` is the window both editors put up to choose from the
+catalogue, and it exists as much to test the shared layer as to be useful: if a
+picker has to know which editor it is in, the seam was never a seam.
+
+```
+    BookApp ─┐                            ┌─► BookApp.insertShape(id)
+             ├─► OfficeShapePicker ──id──►┤     (path frame, own outline)
+    PptxApp ─┘        ▲                   └─► PptxEdit.addShapeAt(id …)
+                      │                         (preset NAME on the slide)
+             OfficeShapeCatalog
+```
+
+It knows a catalogue and a window. It hands back an id and stops — and the two
+editors then do **completely different things** with that id, which is what
+makes it shareable rather than merely shared. Each host wires it in five
+places (a field, `attach`, a toolbar button, a line in `pointer`, a line in the
+paint loop) and the only line that differs is the one that acts on the id.
+
+The window body is one content region the picker paints itself rather than a
+grid of `EVGControl`s: a picker is a lot of little pictures, `EVGControl` has
+no picture kind, and adding one would push shape drawing down into
+`gallery/evg`, which has no business knowing what a preset is.
+
+`OfficeShapeCatalogTest.testSharedPicker` is the proof — the same command id
+opens it in both, the same press at the same place in the grid picks the same
+entry, and the book ends up with an outline while the deck ends up with a
+preset name.
+
+### The emoji shapes
+
+The 187 DrawingML presets are a 1990s clip-art set drawn from formulae — a
+cloud is eleven arcs, a smiley is two dots and a curve. An emoji font is real
+vector artwork in a format this repository already parses for text, so
+`geom/tools/emoji_shapes.rgr` reads `NotoEmoji-Regular.ttf`, pulls the glyph
+outline for each codepoint named in `geom/assets/emoji.txt`, and writes them
+out as `ShapeEntry` rows that carry their own `pathData`. **262 shapes** in
+eight groups: Nature, Animals, Food, Travel, Objects, Activities, Symbols,
+Faces.
+
+Two things the extractor has to get right, both of which look like details and
+are not:
+
+* TrueType is **quadratic**, and two consecutive control points imply an
+  on-curve point exactly between them. Drop it and every smooth corner in the
+  font becomes a spike.
+* Font space has **y going up** from the baseline; a shape's box has y going
+  down from the top.
+
+Adding one is a line in `emoji.txt` and a rebuild. The generated file imports
+the catalogue rather than the other way round, so an editor that only wants
+the presets does not carry the megabyte of path data.
+
+**Licence.** Noto Emoji is SIL OFL-1.1, not the AGPL the rest of `gallery/` is
+under. The generated file carries its own notice, the licence text travels with
+the font at `gallery/pdf_writer/assets/fonts/Noto_Emoji/LICENSE.txt`, and
+nothing here is called Noto. Apple's shapes are **not** copied and must not be.
+
+*Open:* the **slide** editor refuses them. `PptxShape.pathUnit` holds one ring,
+and a mushroom's spots and a panda's eye patches are rings of their own — the
+outer ring alone is a blank blob, one shape per ring fills the holes in. The
+book editor takes them today because a `BookFrame` holds the whole path.
 
 ### `OfficeFont`
 

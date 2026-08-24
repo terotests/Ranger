@@ -29,6 +29,7 @@ SUITES=(
   office:style:test
   office:bidi:test
   office:geom:test
+  office:shapes:test
   office:color:test
   office:asset:test
   office:rtl:editors:test

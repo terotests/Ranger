@@ -234,3 +234,102 @@ host asks `tr.hasFont` and prints the bound face on every run. `EvgGlPainter`
 has an early return when the wanted face is already the current one, which was
 harmless before only by accident: with nothing bound, "already current" meant
 "still the bitmap font".
+
+## 17. Every shape drawn as one filled path, so 71 of the 187 were wrong
+
+`OfficeShapeCatalog.pathFor` flattened all of a preset's paths into a single
+`M … L … Z` run and handed it back as one filled path. That is not what a
+preset is: each of its paths states its own fill and stroke, and 69 of the 187
+carry geometry that a fill cannot draw.
+
+* **`chartPlus`, `chartStar`, `chartX`** are a filled square *plus* a cross of
+  `fill none` runs. Merged, the square fills and swallows the cross — three
+  solid black squares.
+* **The 23 callouts and the 12 action buttons** are the same shape: a filled
+  body with an unfilled leader line or glyph over it. Every leader line and
+  every button glyph was lost; the twelve action buttons were twelve squares.
+* **`line`, `lineInv` and the nine connectors** say `fill norm` in the preset
+  file but are runs of two or three points. Filling one has no area at all, so
+  they rendered as nothing.
+
+The geometry is now split per ring: a ring is on the fill side when its path is
+filled and it has three points or more, and on the stroke side when it would
+otherwise be invisible. `pathFor` answers the first, the new `strokePathFor`
+the second, and `isStrokeOnly` says when a caller that can draw only one of
+them must stroke. A stroked run is not closed, because closing a cross draws a
+diagonal through it.
+
+**What found it was looking at the shapes.** The unit test asserted that a
+preset "becomes path data" and that the data "is a path" — both true of a
+solid black square standing in for a plus sign. `npm run office:shapes:sheet`
+draws all 187 onto one SVG for exactly this reason, and the three squares were
+obvious the moment the sheet existed. There are assertions for it now, written
+after the fact from what the picture showed.
+
+### The same picture, looked at again, found four more
+
+Fixing the fill/stroke split was not the end of it. A second reading of the
+sheet — this time by the person who asked for the shapes — turned up a house
+with no roof, a smiley with no eyes, braces drawn as beige blocks, and a pie
+wedge whose curve was a run of flats. All four were real, and three of them
+were one bug.
+
+**Shading was thrown away.** A preset's path states `norm`, `darken`,
+`darkenLess`, `lighten` or `lightenLess`, and 34 of them use a modifier to
+shade a bevel, a cube's third face, a cylinder's lid, a smiley's eyes and the
+glyph on every one of the twelve action buttons. The catalogue merged all of it
+into one fill, so the roof of the house was painted in the same colour as the
+wall — present, and invisible. `partsFor` now returns the shape's pieces, each
+with its shade and a `shadeFactor` to apply it by; `pathFor` and
+`strokePathFor` are two views of that list. The parts also come back **fills
+first, then lines**, because the file lists `chartPlus`'s cross *before* the
+square it sits in and drawing them in file order hides the cross under the box.
+
+**Seven shapes are stroke-first, and the geometry cannot say so.** `arc` and
+the six braces and brackets each supply a closed `fill norm` body — the pie
+sector under an arc, the block behind a brace — that nobody wants. Which of
+the two you get is decided by the shape's default *style*, which is not in the
+geometry file, so it is a flag on the entry: `ShapeEntry.noFill`.
+
+**A few shapes have a proportion they need.** `leftBracket` puts its arms
+across the full width of its box, so in a wide box it is a rounded rectangle,
+not a bracket; a gear stretched sideways has splayed teeth. `ShapeEntry.aspect`
+records it for the 46 shapes built on a circle and the 7 that want to be tall,
+and is 0 — "any box will do" — for the other 134. Nothing is forced to obey it;
+it is what a picker sizes a preview to and what an editor can offer as an
+insert size.
+
+**Two decimals of a UNIT box is 1% of the shape.** `num` rounded path
+coordinates to two places, which reads as generous until you notice the paths
+are in 0..1 and not in points. A pie wedge's quarter circle is 32 points of
+smooth geometry, and every one of them snapped onto a 1% grid: hence the run of
+visible flats along the curve. Four decimals now, trailing zeros trimmed.
+
+With those in, the gears count 6 and 9 teeth, the sun 8 rays, and the twelve
+action buttons are a house, a question mark, an *i*, a camera, a speaker, a
+U-turn and the four navigation arrows.
+
+### Still open
+
+* **`moon` does not close.** Its ring ends at `(1, 0.6934)` and the `z` closes
+  it with a straight run up the right edge, so the crescent has one horn
+  instead of two. The evaluator is faithful here — the arc genuinely ends
+  there given the guides in `presets.txt` — and for the ring to close, the
+  inner arc's `dy1` would have to be `sqrt(dx2p² + hd2²)` = 0.9014 rather than
+  the 0.625 the guides produce. Either the extraction dropped something or one
+  guide is being read wrongly; settling it needs the original
+  `presetShapeDefinitions.xml`, which is not in the repo. **Not fudged in the
+  meantime**: a hand-tuned constant in one shape's guides would be a lie about
+  where the geometry comes from.
+* **`cloud`'s scallops are specks.** Its second path is eleven arcs of about 4%
+  of the width each, so they draw as short marks rather than the inner curves
+  a cloud usually shows. Faithful to the guides as written; worth the same
+  check as the moon when the XML is to hand.
+* **A `BookFrame` holds one path.** For the 60 shapes that have both a body and
+  a line the book takes the body and drops the line, so an inserted callout has
+  no leader. Fixing it means a second path on the frame sharing the first's
+  transform, not a second frame — two frames would scale independently and
+  could not be moved together. The slide editor is unaffected: it stores the
+  preset name and its renderer draws every path.
+* **The book editor paints one colour.** It can now ask for the parts but has
+  nowhere to put their shades, for the same reason.
