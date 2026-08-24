@@ -112,7 +112,12 @@ const web = new (engineOrExplain("PptxWeb", "pptx_web.js", "pptx:web"))();
  *  changes, which it does when a tablet is put in a keyboard case.
  */
 const coarse = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
-const isCoarse = () => !!(coarse && coarse.matches);
+const isCoarse = () => {
+  const forced = new URLSearchParams(location.search).get("coarse");
+  if (forced === "1") return true;
+  if (forced === "0") return false;
+  return !!(coarse && coarse.matches);
+};
 
 /** The app's surface, in CSS pixels.
  *
@@ -294,6 +299,11 @@ canvas.addEventListener("pointerdown", async (ev) => {
   // Through the frame: a press lands on a window, then the toolbar, then the
   // slide — in that order, decided by the app rather than by this file.
   web.pointerAt(x, y, true, true, false);
+  // BEFORE any await. iOS raises its keyboard only for a `focus()` that
+  // happens synchronously inside the handler for a real gesture; once the
+  // task has been yielded — and `await draw()` yields — the same call is
+  // ignored, silently. That is why this used to do nothing on a phone.
+  syncSoftKeys();
   await draw();
   afterInput();
   await servicePendingFile();
@@ -308,6 +318,10 @@ canvas.addEventListener("pointerup", async (ev) => {
   const { x, y } = coords(ev);
   pointerHeld = false;
   web.pointerAt(x, y, false, false, true);
+  // The release is where a caret actually appears — clicking a shape that is
+  // already selected is what asks to type in it — so this is the call that
+  // matters, and it has to come before the redraw for the reason above.
+  syncSoftKeys();
   await draw();
   afterInput();
 });
@@ -329,15 +343,31 @@ canvas.addEventListener("pointercancel", () => {
 const softkeys = document.getElementById("softkeys");
 let softkeysOn = false;
 
+// `?coarse=1` forces the touch path on a machine that has a mouse, which is
+// the only way to exercise the keyboard field in a test — and the only way to
+// look at the phone layout on a desktop without a phone.
+const forcedCoarse = new URLSearchParams(location.search).get("coarse");
+function wantsSoftKeys() {
+  if (forcedCoarse === "1") return true;
+  if (forcedCoarse === "0") return false;
+  return isCoarse();
+}
+
 function syncSoftKeys() {
-  if (!softkeys || !isCoarse()) return;
+  if (!softkeys || !wantsSoftKeys()) return;
   const wants = web.editingText ? web.editingText() === true : false;
-  if (wants === softkeysOn) return;
+  // Not `if (wants === softkeysOn) return`: a phone takes its keyboard away
+  // on its own — a tap elsewhere, the done button — and the app is still in
+  // text edit, so the flag says "on" while the keyboard is not. Ask the
+  // document rather than a flag we kept.
+  const focused = document.activeElement === softkeys;
   softkeysOn = wants;
   if (wants) {
-    softkeys.value = "";
-    softkeys.focus({ preventScroll: true });
-  } else if (document.activeElement === softkeys) {
+    if (!focused) {
+      softkeys.value = "";
+      softkeys.focus({ preventScroll: true });
+    }
+  } else if (focused) {
     softkeys.blur();
     canvas.focus({ preventScroll: true });
   }
@@ -993,6 +1023,60 @@ async function selftest() {
     await draw();
     ok("and going back puts it where it was", (web.slidePanelWidth() | 0) === wide);
     await fitToWindow();
+  }
+
+  // The phone keyboard. A canvas cannot be focused into a keyboard, so an
+  // invisible input is — and iOS raises one only for a `focus()` that happens
+  // synchronously inside a real gesture's handler. The first version called
+  // it after `await draw()`, which is a yield, and the keyboard never came
+  // up. So this drives the pointer the way the page's own listeners do, with
+  // NO awaits between the press and the check.
+  {
+    web.run("edit.toggle", "");
+    if (!web.editing()) web.run("edit.toggle", "");
+    await draw();
+    const box0 = JSON.parse(web.selectionBox());
+    // Pick something to type in: insert a box, which selects it.
+    web.run("text.add", "");
+    await draw();
+    const box = JSON.parse(web.selectionBox());
+    const mx = Math.round(box.x + box.w / 2);
+    const my = Math.round(box.y + box.h / 2);
+    const field = document.getElementById("softkeys");
+    ok("there is a field for a phone keyboard to type into", !!field);
+    ok("and it is inside the page, where iOS will focus it",
+       !!field && field.getBoundingClientRect().left >= 0);
+
+    // Two clicks: the first picks the shape up, the second puts a caret in
+    // it. No await between the release and the focus check — that gap is the
+    // bug this is here to catch.
+    web.pointerAt(mx, my, true, true, false); syncSoftKeys();
+    web.pointerAt(mx, my, false, false, true); syncSoftKeys();
+    web.pointerAt(mx, my, true, true, false); syncSoftKeys();
+    web.pointerAt(mx, my, false, false, true); syncSoftKeys();
+    ok("clicking twice put a caret in the shape", web.editingText() === true);
+    // This proves the field is focused at all — which it was not, because
+    // nothing called for it after a release. It does NOT prove the part iOS
+    // actually enforces: that the focus happen before the handler yields.
+    // Desktop Chrome has no such rule, so no headless test can show it; that
+    // half is a code shape, kept honest by the comments at the call sites.
+    ok("and the keyboard field took focus", document.activeElement === field);
+
+    // What the keyboard types reaches the shape.
+    const before = JSON.parse(web.scene()).list.cmds.length;
+    field.value = "Hei";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await draw();
+    ok("what it types reaches the slide", JSON.parse(web.scene()).list.cmds.length >= before);
+    ok("and the field never keeps it", field.value === "");
+
+    // Giving the caret up gives the keyboard back.
+    web.keyMod("escape", false, false);
+    syncSoftKeys();
+    ok("escape ends the edit", web.editingText() === false);
+    ok("and lets the keyboard go", document.activeElement !== field);
+    web.run("edit.undo", "");
+    await draw();
   }
 
   // Print. The button used to raise a request that this page took and matched

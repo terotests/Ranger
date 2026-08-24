@@ -60,11 +60,18 @@
       @media (max-width: 900px) { .siteline { display: none; } }
       details.about { color: #9fb0c4; font-size: 0.9rem; margin: 0 0 14px; }
       details.about summary { cursor: pointer; color: #ffb27a; }
-      /* Where a phone's own keyboard types. Off screen rather than
-         `display:none`, because a field that is not laid out cannot be
-         focused and a field that cannot be focused raises no keyboard. */
-      #softkeys { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px;
-                  opacity: 0; border: 0; padding: 0; }
+      /* Where a phone's own keyboard types.
+         Inside the viewport, not off screen: iOS will not raise a keyboard
+         for a field it considers outside the page, so `left: -9999px` looked
+         right and did nothing. Invisible instead — no size to speak of, no
+         paint, and behind everything.
+         `font-size: 16px` is not a style choice: iOS zooms the whole page in
+         when a field smaller than that takes focus, and the reader is then
+         looking at a slide four times too big with no obvious way back. */
+      #softkeys { position: fixed; left: 0; top: 0; width: 1px; height: 1px;
+                  opacity: 0; z-index: -1; border: 0; padding: 0; margin: 0;
+                  font-size: 16px; background: transparent; color: transparent;
+                  caret-color: transparent; }
       /* Print: the slides, one to a page, and nothing else. `hidden` keeps
          the container out of the way on screen; the print sheet takes it
          back and hides everything around it instead. */

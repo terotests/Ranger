@@ -127,7 +127,11 @@ async function main() {
   }
   const server = await serve();
   try {
-    const url = `http://127.0.0.1:${PORT}/index.html?selftest=1`;
+    // `coarse=1` forces the touch path: a headless desktop Chrome reports a
+    // fine pointer, and the phone keyboard is the part of this most likely to
+    // break without anyone noticing, because it is the part nobody has a
+    // phone plugged in to check.
+    const url = `http://127.0.0.1:${PORT}/index.html?selftest=1&coarse=1`;
     const shot = process.argv.includes("--shot")
       ? path.resolve(HERE, "../../../datagrid/artifacts/20_pptx_browser_only.png")
       : "";
