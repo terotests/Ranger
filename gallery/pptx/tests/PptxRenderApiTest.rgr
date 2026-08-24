@@ -18,6 +18,7 @@
 Import "../api/PptxRenderApi.rgr"
 Import "../../zip/Inflate.rgr"
 Import "../../pdf_writer/src/core/Buffer.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
 class PptxRenderApiTest {
     def passed:int 0
@@ -94,6 +95,7 @@ class PptxRenderApiTest {
         this.testPdfDeck()
         this.testPdfImages()
         this.testPdfSize()
+        this.testFontSubset()
         this.testRefusals()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
@@ -563,6 +565,110 @@ class PptxRenderApiTest {
             this.check("which is less than half what it was"
                 ((buffer_length big) < 265000))
         }
+    }
+
+    ; --- the embedded font, glyph by glyph ---------------------------------------
+    ;
+    ; `pdfFontData` keeps the glyphs the PDF's own encoding can name and blanks
+    ; the rest — 197 of Open Sans Regular's 938. The glyphs keep their ids, so
+    ; `cmap`, `hmtx` and the `/Widths` array need no rewriting and a glyph
+    ; cannot end up in the wrong place.
+    ;
+    ; What CAN go wrong is keeping the wrong set, and it did. WinAnsi is
+    ; Latin-1 everywhere except 0x80..0x9F, where Latin-1 has control
+    ; characters and Windows put the typography: the euro, the en and em
+    ; dashes, the curly quotes, the ellipsis, the bullet. The first version
+    ; treated the byte as a codepoint, asked `cmap` for a control character,
+    ; got nothing, and dropped exactly those. Every other glyph was byte-
+    ; perfect, so nothing looked wrong until a euro sign printed as a blank.
+    ;
+    ; Verified outside this repository too: the subset was handed to Chromium
+    ; as a FontFace — a Skia/FreeType parser behind the OpenType Sanitiser —
+    ; and 31 characters were drawn one at a time with it and with the
+    ; unmodified font. 12,598 ink pixels, zero differing.
+    fn testFontSubset:void () {
+        print "--- the embedded font carries the glyphs the encoding names ---"
+        def fm (new FontManager)
+        fm.setFontsDirectory("gallery/pdf_writer/assets/fonts")
+        fm.loadFont("Open_Sans/OpenSans-Regular.ttf")
+        def face:TrueTypeFont (fm.getFont("Open Sans"))
+        this.check("the face loaded" (face.unitsPerEm > 0))
+        if (face.unitsPerEm == 0) {
+            return
+        }
+
+        def full:int (buffer_length (face.getFontData()))
+        def sub:buffer (face.pdfFontData())
+        def small:int (buffer_length sub)
+        this.check("the subset is a quarter of the file or less" (small < (to_int (full / 4))))
+        this.check("and is not empty" (small > 4000))
+
+        ; WinAnsi's high range is where the first version went wrong.
+        this.eqInt("0x80 is the euro sign" (TrueTypeFont.winAnsiToUnicode(128)) 8364)
+        this.eqInt("0x97 is an em dash" (TrueTypeFont.winAnsiToUnicode(151)) 8212)
+        this.eqInt("0x92 is a right single quote" (TrueTypeFont.winAnsiToUnicode(146)) 8217)
+        this.eqInt("0x85 is an ellipsis" (TrueTypeFont.winAnsiToUnicode(133)) 8230)
+        this.eqInt("and below it the byte is the codepoint" (TrueTypeFont.winAnsiToUnicode(65)) 65)
+        this.eqInt("as it is above it" (TrueTypeFont.winAnsiToUnicode(228)) 228)
+
+        ; …and the glyphs those name really are in the subset. `loca` gives a
+        ; glyph's extent; an empty one is a blanked glyph.
+        def keptEuro:boolean (PptxRenderApiTest.hasOutline(sub (face.getGlyphIndex(8364))))
+        this.check("the euro sign has an outline in the subset" keptEuro)
+        def keptDash:boolean (PptxRenderApiTest.hasOutline(sub (face.getGlyphIndex(8212))))
+        this.check("so does the em dash" keptDash)
+        def keptA:boolean (PptxRenderApiTest.hasOutline(sub (face.getGlyphIndex(65))))
+        this.check("and a plain A" keptA)
+        def keptAuml:boolean (PptxRenderApiTest.hasOutline(sub (face.getGlyphIndex(228))))
+        this.check("and an a-umlaut, which is built from components" keptAuml)
+
+        ; A glyph the encoding cannot name is gone — which is where the space
+        ; came from. Cyrillic small a is in this face and not in WinAnsi.
+        def cyr:int (face.getGlyphIndex(1072))
+        if (cyr > 0) {
+            def keptCyr:boolean (PptxRenderApiTest.hasOutline(sub cyr))
+            this.check("a glyph WinAnsi cannot name is blanked" (keptCyr == false))
+        }
+    }
+
+    ; Does this glyph have outline bytes in the subset? Reads the font's own
+    ; table directory rather than trusting the builder that wrote it.
+    sfn hasOutline:boolean (font:buffer gid:int) {
+        def num:int (PptxRenderApiTest.be16(font 4))
+        def locaAt:int 0
+        def locaLen:int 0
+        def headAt:int 0
+        def i:int 0
+        while (i < num) {
+            def rec:int (12 + (16 * i))
+            def tag:string (PptxRenderApiTest.textOf(font rec (rec + 4)))
+            if (tag == "loca") {
+                locaAt = (PptxRenderApiTest.be32(font (rec + 8)))
+                locaLen = (PptxRenderApiTest.be32(font (rec + 12)))
+            }
+            if (tag == "head") {
+                headAt = (PptxRenderApiTest.be32(font (rec + 8)))
+            }
+            i = (i + 1)
+        }
+        if ((locaLen == 0) || (headAt == 0)) {
+            return false
+        }
+        def fmt:int (PptxRenderApiTest.be16(font (headAt + 50)))
+        def a:int 0
+        def b:int 0
+        if (fmt == 0) {
+            a = ((PptxRenderApiTest.be16(font (locaAt + (gid * 2)))) * 2)
+            b = ((PptxRenderApiTest.be16(font (locaAt + ((gid + 1) * 2)))) * 2)
+        } {
+            a = (PptxRenderApiTest.be32(font (locaAt + (gid * 4))))
+            b = (PptxRenderApiTest.be32(font (locaAt + ((gid + 1) * 4))))
+        }
+        return (b > a)
+    }
+
+    sfn be16:int (b:buffer at:int) {
+        return (((buffer_get b at) * 256) + (buffer_get b (at + 1)))
     }
 
     fn testRefusals:void () {
