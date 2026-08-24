@@ -1,0 +1,176 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; shape_sheet.rgr — every shape in the catalogue, on one page, to be looked at
+; ==============================================================================
+;
+;   npm run office:shapes:sheet
+;
+; The catalogue's test proves the table is complete and that both editors call
+; it. It cannot prove the shapes look like their names, and neither can a
+; headless box with no display. This writes a contact sheet instead: all 187
+; outlines, grouped by category, each under its label, as one SVG a browser
+; opens.
+;
+; It is a tool rather than a test on purpose — nothing here asserts. What it is
+; for is the question a test cannot answer: does `swooshArrow` look like a
+; swoosh arrow.
+;
+; Two things it does deliberately, both because the first version got them
+; wrong and the picture said so:
+;
+;   - It draws the shape's PARTS, each in its own shade. A preset is a face and
+;     a roof and a door, not one outline, and painting all of it one colour is
+;     a house with no roof.
+;   - It draws into a WIDE box, not a square one. A preset computes its
+;     geometry from the box it is given, so an ellipse in a square box is a
+;     circle — correctly, and uselessly, since the point of the picture is to
+;     recognise the shape.
+; ==============================================================================
+
+Import "../OfficeShapeCatalog.rgr"
+
+class ShapeSheet {
+    sfn main:void () {
+        def cat (new OfficeShapeCatalog())
+        def text:string (?? (read_file "gallery/office/geom/assets" "presets.txt") "")
+        if ((strlen text) == 0) {
+            print "could not read gallery/office/geom/assets/presets.txt"
+            return
+        }
+        cat.loadPresets(text)
+
+        def cell:double 110.0
+        def boxW:double 80.0
+        def boxH:double 60.0
+        def cols:int 8
+        def out:string ""
+        def y:double 40.0
+        def drawn:int 0
+        def empty:int 0
+
+        def cats:[string] (cat.categories())
+        def ci:int 0
+        while (ci < (array_length cats)) {
+            def name:string (itemAt cats ci)
+            def items:[ShapeEntry] (cat.inCategory(name))
+            out = (out + "<text x=\"16\" y=\"" + (OfficeShapeCatalog.num(y)) + "\" font-family=\"sans-serif\" font-size=\"17\" font-weight=\"bold\">" + name + " (" + (to_string (array_length items)) + ")</text>\n")
+            y = (y + 22.0)
+
+            def i:int 0
+            while (i < (array_length items)) {
+                def e:ShapeEntry (itemAt items i)
+                def col:int (i - ((idiv i cols) * cols))
+                def row:int (idiv i cols)
+                def cx:double (20.0 + ((to_double col) * cell))
+                def cy:double (y + ((to_double row) * cell))
+
+                ; A shape with a proportion it needs is drawn in it, centred
+                ; in the cell the others fill. `leftBracket` puts its arms
+                ; across the full width, so in the wide box it came out a
+                ; rounded rectangle.
+                def bw:double boxW
+                def bh:double boxH
+                if (e.aspect > 0.0) {
+                    bh = boxH
+                    bw = (boxH * e.aspect)
+                    if (bw > boxW) {
+                        bw = boxW
+                        bh = (boxW / e.aspect)
+                    }
+                }
+                def ox:double (cx + ((boxW - bw) * 0.5))
+                def oy:double (cy + ((boxH - bh) * 0.5))
+                def parts:[ShapePart] (cat.partsFor(e.id bw bh))
+                if ((array_length parts) == 0) {
+                    empty = (empty + 1)
+                } {
+                    drawn = (drawn + 1)
+                    ; The catalogue's paths are 0..1 of the box, so one
+                    ; transform places and sizes every one of them. The two
+                    ; scales differ because the box does.
+                    out = (out + "<g transform=\"translate(" + (OfficeShapeCatalog.num(ox)) + "," + (OfficeShapeCatalog.num(oy)) + ") scale(" + (OfficeShapeCatalog.num(bw)) + "," + (OfficeShapeCatalog.num(bh)) + ")\">")
+                    ; `non-scaling-stroke` takes the width in SCREEN units, so
+                    ; the group's two scales do not touch it — which is the
+                    ; point, since they differ and a line scaled by both comes
+                    ; out thicker across than down.
+                    def sw:double 1.2
+                    def k:int 0
+                    while (k < (array_length parts)) {
+                        def part:ShapePart (itemAt parts k)
+                        if (part.isFill()) {
+                            out = (out + "<path d=\"" + part.path + "\" fill=\"" + (ShapeSheet.tone((part.shadeFactor()))) + "\" stroke=\"none\"/>")
+                        } {
+                            out = (out + "<path d=\"" + part.path + "\" fill=\"none\" stroke=\"#2e2a26\" stroke-width=\"" + (OfficeShapeCatalog.num(sw)) + "\" vector-effect=\"non-scaling-stroke\"/>")
+                        }
+                        k = (k + 1)
+                    }
+                    out = (out + "</g>\n")
+                }
+                def ly:double ((cy + boxH) + 14.0)
+                out = (out + "<text x=\"" + (OfficeShapeCatalog.num(cx)) + "\" y=\"" + (OfficeShapeCatalog.num(ly)) + "\" font-family=\"sans-serif\" font-size=\"9\" fill=\"#666\">" + (ShapeSheet.esc(e.label)) + "</text>\n")
+                i = (i + 1)
+            }
+            def rows:int (idiv ((array_length items) + (cols - 1)) cols)
+            y = (y + ((to_double rows) * cell) + 26.0)
+            ci = (ci + 1)
+        }
+
+        def w:double ((to_double cols) * cell) + 40.0
+        def head:string ("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + (OfficeShapeCatalog.num(w)) + "\" height=\"" + (OfficeShapeCatalog.num(y)) + "\" viewBox=\"0 0 " + (OfficeShapeCatalog.num(w)) + " " + (OfficeShapeCatalog.num(y)) + "\">\n<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>\n")
+        def dir:string "gallery/office/geom/out"
+        try {
+            create_dir dir
+        } {
+        }
+        write_file dir "shapes.svg" (head + out + "</svg>\n")
+        print (("drew " + (to_string drawn)) + " shape(s), " + (to_string empty) + " with no outline")
+        print ("wrote " + dir + "/shapes.svg")
+    }
+
+    ; The shape's own colour, shaded the way DrawingML asks. One base colour
+    ; for every shape, so the picture is about the geometry and not a palette.
+    sfn tone:string (f:double) {
+        def r:int (ShapeSheet.channel(0.72 f))
+        def g:int (ShapeSheet.channel(0.68 f))
+        def b:int (ShapeSheet.channel(0.62 f))
+        return ("#" + (ShapeSheet.hex(r)) + (ShapeSheet.hex(g)) + (ShapeSheet.hex(b)))
+    }
+
+    sfn channel:int (base:double f:double) {
+        def v:double (base * f)
+        if (v > 1.0) {
+            v = 1.0
+        }
+        if (v < 0.0) {
+            v = 0.0
+        }
+        return (floor ((v * 255.0) + 0.5))
+    }
+
+    sfn hex:string (v:int) {
+        def digits:string "0123456789abcdef"
+        def hi:int (idiv v 16)
+        def lo:int (v - (hi * 16))
+        return ((substring digits hi (hi + 1)) + (substring digits lo (lo + 1)))
+    }
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:string (substring s i (i + 1))
+            if (c == "&") {
+                out = (out + "&amp;")
+            } {
+                if (c == "<") {
+                    out = (out + "&lt;")
+                } {
+                    out = (out + c)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

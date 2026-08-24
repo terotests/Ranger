@@ -94,6 +94,42 @@ class OfficeShapeCatalogTest {
         c.ok("a preset becomes path data" ((strlen star) > 20))
         c.ok("and it is a path" ((substring star 0 1) == "M"))
         c.ok("a shape the catalogue lacks still answers empty" ((strlen (cat.pathFor("nope" 10.0 10.0))) == 0))
+
+        ; --- the fill and the stroke are different geometry ------------------
+        ;
+        ; These four assertions exist because the contact sheet showed three
+        ; solid black squares where the chart markers should be and nothing at
+        ; all where the eleven lines should be, and every assertion above this
+        ; one passed while that was true. A path that starts with "M" is not
+        ; the same claim as a path that draws the shape.
+        def plusFill:string (cat.pathFor("chartPlus" 100.0 100.0))
+        def plusLine:string (cat.strokePathFor("chartPlus" 100.0 100.0))
+        c.ok("a chart marker has a box to fill" ((strlen plusFill) > 20))
+        c.ok("and a cross that only a stroke draws" ((strlen plusLine) > 20))
+        c.ok("which is not the same geometry" (plusFill != plusLine))
+        ; The box is a closed ring; the cross is two open runs. If the cross
+        ; were closed it would gain a diagonal across the middle.
+        c.ok("the filled ring closes" ((OfficeShapeCatalogTest.hasZ(plusFill))))
+        c.ok("the stroked run does not" ((OfficeShapeCatalogTest.hasZ(plusLine)) == false))
+
+        ; `line` says `fill norm` in the preset file but is two points, so a
+        ; fill of it has no area. Eleven shapes are like this.
+        c.ok("a line has nothing to fill" ((strlen (cat.pathFor("line" 100.0 100.0))) == 0))
+        c.ok("but it has something to stroke" ((strlen (cat.strokePathFor("line" 100.0 100.0))) > 0))
+        c.ok("and it says so" (cat.isStrokeOnly("line" 100.0 100.0)))
+        c.ok("a star is not stroke-only" ((cat.isStrokeOnly("star5" 100.0 100.0)) == false))
+    }
+
+    ; @internal Whether a path string closes any of its rings.
+    sfn hasZ:boolean (path:string) {
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((substring path i (i + 1)) == "Z") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; --- the wiring --------------------------------------------------------
@@ -126,6 +162,19 @@ class OfficeShapeCatalogTest {
         def last:BookFrame (itemAt page.frames (after - 1))
         c.ok("and it is a path frame" (last.kind == "path"))
         c.ok("carrying the star's outline" ((strlen last.pathData) > 20))
+        c.ok("and filled, because a star has an inside" ((strlen last.fill) > 0))
+
+        ; A connector has no inside. Inserting it FILLED puts an invisible
+        ; frame on the page that the author then has to find and delete, so it
+        ; is inserted stroked instead.
+        def okLine:boolean (app.runCommand("frame.shape" "straightConnector1"))
+        c.ok("a stroke-only shape inserts too" okLine)
+        def page2:BookPage (app.editor.currentPage())
+        def line:BookFrame (itemAt page2.frames ((array_length page2.frames) - 1))
+        c.ok("with an outline" ((strlen line.pathData) > 10))
+        c.ok("stroked" ((strlen line.stroke) > 0))
+        c.ok("and not filled" ((strlen line.fill) == 0))
+        c.ok("with a width to stroke it at" (line.strokeWidth > 0.0))
 
         ; A shape that cannot be produced must not leave an invisible frame.
         def n0:int (array_length ((app.editor.currentPage()).frames))

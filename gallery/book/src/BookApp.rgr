@@ -874,6 +874,14 @@ class BookApp {
         def w:double (d.pageWidth * 0.3)
         def h:double (d.pageHeight * 0.2)
         def path:string (shapes.pathFor(shapeId w h))
+        ; Eleven of the 187 — `line`, `lineInv` and the nine connectors — have
+        ; no area to fill: they are a run of two or three points. Filling one
+        ; puts an invisible frame on the page, so they are stroked instead.
+        def strokeOnly:boolean false
+        if ((strlen path) == 0) {
+            path = (shapes.strokePathFor(shapeId w h))
+            strokeOnly = ((strlen path) > 0)
+        }
         if ((strlen path) == 0) {
             albumError = ("no outline for shape '" + shapeId + "' - are the presets loaded?")
             return false
@@ -886,7 +894,12 @@ class BookApp {
         }
         def frame:BookFrame (editor.frameById(id))
         frame.pathData = path
-        frame.fill = "#3b2f2a"
+        if strokeOnly {
+            frame.stroke = "#3b2f2a"
+            frame.strokeWidth = 1.0
+        } {
+            frame.fill = "#3b2f2a"
+        }
         this.refreshStatus()
         return true
     }

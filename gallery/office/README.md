@@ -54,6 +54,23 @@ npm run office:history:test    # likewise
 npm run office:asset:test      # likewise
 ```
 
+There is also one thing that is not a test:
+
+```bash
+npm run office:shapes:sheet    # all 187 onto gallery/office/geom/out/shapes.svg
+```
+
+It asserts nothing. It draws every shape in the catalogue, grouped by
+category, each under its label, as one SVG a browser opens — so somebody can
+answer the question no assertion can: *does `swooshArrow` look like a swoosh
+arrow.* Shapes with both a fill and a stroke are drawn pale-body-dark-line, the
+way PowerPoint draws them, because that is the only way the line shows.
+
+The first time it ran it turned up three solid black squares where the chart
+markers belong, twelve more where the action buttons belong, and nothing at all
+where the eleven lines belong — a real defect that eleven passing assertions
+had not noticed. `gallery/book/ISSUES.md` §17 is the account of it.
+
 ### `OfficeFont`
 
 "The document says Calibri, bold and italic — what do I draw with?" was

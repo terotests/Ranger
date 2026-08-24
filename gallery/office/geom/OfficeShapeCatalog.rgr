@@ -38,6 +38,29 @@ class ShapeEntry {
     def keywords:string ""
     ; Set only for an entry that is not a preset. See the header.
     def pathData:string ""
+    ; Whether Office draws this one with **no fill by default**.
+    ;
+    ; It cannot be read off the geometry. `arc` and the braces and brackets all
+    ; supply a closed, `fill norm` body AND the open run that is the shape
+    ; people actually mean — an arc is a curve, not a pie sector; a brace is a
+    ; squiggle, not a beige block — and which of the two you get is decided by
+    ; the shape's default STYLE, which is not in the geometry file. So it is
+    ; recorded here, per entry, as the small table it is.
+    def noFill:boolean false
+    ; Width ÷ height this shape wants, or **0 for "any box will do"**.
+    ;
+    ; Most shapes are happy at any proportion — a rectangle, an arrow, a
+    ; callout — and 0 says so. A few are not, and it is not a matter of taste:
+    ;
+    ;   - A gear, a sun, a star and the twelve action buttons are built on a
+    ;     circle. Stretched, the teeth splay and the button glyphs skew.
+    ;   - A brace and a bracket put arms across the FULL width of the box, so
+    ;     in a wide box a bracket is a rounded rectangle. They want to be tall.
+    ;
+    ; Nothing is forced to obey it. It is what a picker sizes its preview to
+    ; and what an editor can offer as an insert size, so that inserting a gear
+    ; gives you a gear.
+    def aspect:double 0.0
 
     Constructor () {
     }
@@ -56,6 +79,46 @@ class ShapeEntry {
     }
 }
 
+; One drawable piece of a shape: an outline plus how it is painted.
+;
+; A preset is not one path. `actionButtonHome` is four — a face, a roof and a
+; door in a darker tone, a chimney in a lighter one, and an outline — and every
+; one of the twelve action buttons is built the same way. Handing back a single
+; merged path throws that away, and painting all of it in one colour is why the
+; house had no roof: the roof was there, in the same beige as the wall.
+class ShapePart {
+    def path:string ""
+    ; `norm`, `darken`, `darkenLess`, `lighten`, `lightenLess`, or `none`.
+    ; Anything but `none` is an area to fill; `none` is an outline only.
+    def shade:string "norm"
+    def stroked:boolean false
+
+    Constructor () {
+    }
+
+    fn isFill:boolean () {
+        return (shade != "none")
+    }
+
+    ; A number to shade the shape's own colour by: 1.0 leaves it alone, below
+    ; 1.0 darkens, above lightens. The proportions are DrawingML's own.
+    fn shadeFactor:double () {
+        if (shade == "darken") {
+            return 0.5
+        }
+        if (shade == "darkenLess") {
+            return 0.75
+        }
+        if (shade == "lighten") {
+            return 1.5
+        }
+        if (shade == "lightenLess") {
+            return 1.25
+        }
+        return 1.0
+    }
+}
+
 class OfficeShapeCatalog {
     def entries:[ShapeEntry]
     ; The preset geometry, loaded once by whoever has the file. A catalogue
@@ -67,6 +130,8 @@ class OfficeShapeCatalog {
 
     Constructor () {
         OfficeShapeCatalog.fill(this)
+        OfficeShapeCatalog.markNoFill(this)
+        OfficeShapeCatalog.markAspect(this)
     }
 
     ; `gallery/office/geom/assets/presets.txt`, read by the caller — this file
@@ -174,29 +239,205 @@ class OfficeShapeCatalog {
         if (e.hasPath()) {
             return e.pathData
         }
-        if (presetsLoaded == false) {
+        return (this.geometry(id w h true))
+    }
+
+    ; The part of a shape that only a STROKE can show.
+    ;
+    ; A preset is a list of paths and each states its own fill and stroke, and
+    ; **69 of the 187 carry geometry that filling cannot draw**:
+    ;
+    ;   - `chartPlus` is a filled square PLUS a cross of two `fill none` runs;
+    ;     the 23 callouts and the 17 action buttons are the same shape —
+    ;     a filled body and an unfilled accent line or glyph over it.
+    ;   - `line`, `lineInv` and the 9 connectors say `fill norm` but have only
+    ;     two points, so their fill has no area at all.
+    ;
+    ; Merging every path into one filled run — which is what the first version
+    ; of this did — fills the square solid and swallows the cross, and turns a
+    ; line into nothing. So the geometry is split, and the split is per RING:
+    ; a ring goes to the fill when its path is filled and it has three points
+    ; or more, and to the stroke when it would otherwise be invisible.
+    ;
+    ; A plain rectangle is therefore fill-only here even though DrawingML also
+    ; strokes it. Its outline is already where its fill ends, and a caller that
+    ; wants a border has one: `BookFrame.stroke`, `<a:ln>` on a slide.
+    ;
+    ; The contact sheet in `tools/shape_sheet.rgr` is what caught this; the
+    ; unit test did not, because a wrong path is still a path that starts
+    ; with `M`.
+    fn strokePathFor:string (id:string w:double h:double) {
+        def e:ShapeEntry (this.find(id))
+        if ((strlen e.id) == 0) {
             return ""
         }
-        if ((presets.has(id)) == false) {
+        if (e.hasPath()) {
             return ""
+        }
+        return (this.geometry(id w h false))
+    }
+
+    ; True when a shape has no fillable geometry at all, so a caller that can
+    ; only draw one path must stroke it rather than fill it. Eleven shapes are:
+    ; `line`, `lineInv` and the nine connectors.
+    fn isStrokeOnly:boolean (id:string w:double h:double) {
+        if ((strlen (this.pathFor(id w h))) > 0) {
+            return false
+        }
+        return ((strlen (this.strokePathFor(id w h))) > 0)
+    }
+
+    ; Every piece of a shape, in drawing order, each with the shade it is
+    ; painted in.
+    ;
+    ; This is the whole shape; `pathFor` and `strokePathFor` are the two views
+    ; of it that a caller with one path to give gets. A caller that can draw
+    ; several — the contact sheet, a renderer, an exporter — should ask for the
+    ; parts, because the shading is where the roof, the eyes, the cube's third
+    ; face and every action button glyph live.
+    ;
+    ; Empty when the presets were never loaded or the id is not one this build
+    ; has, for the same reason `pathFor` answers empty: a substitute rectangle
+    ; standing in for a heart is worse than nothing appearing.
+    fn partsFor:[ShapePart] (id:string w:double h:double) {
+        def out:[ShapePart]
+        def e:ShapeEntry (this.find(id))
+        if ((strlen e.id) == 0) {
+            return out
+        }
+        if (e.hasPath()) {
+            def only (new ShapePart())
+            only.path = e.pathData
+            only.shade = "norm"
+            if e.noFill {
+                only.shade = "none"
+                only.stroked = true
+            }
+            push out only
+            return out
+        }
+        if (presetsLoaded == false) {
+            return out
+        }
+        if ((presets.has(id)) == false) {
+            return out
         }
         def adjNames:[string]
         def adjValues:[double]
         def paths:[GeomPath] (presets.pathsFor(id w h adjNames adjValues))
-        return (OfficeShapeCatalog.ringsToSvg(paths))
+        ; Areas first, then lines — not the order the file lists them in.
+        ;
+        ; `chartPlus` lists its cross BEFORE the square it sits in, and so do
+        ; the callouts and the action buttons: the detail comes first and the
+        ; body after it. Drawn in file order the body covers the detail, which
+        ; is a plain square where a chart marker should be. Every fill is drawn
+        ; in file order among the fills, so a cube's three faces still stack
+        ; the way they were written; the lines simply go last.
+        def fills:[ShapePart]
+        def lines:[ShapePart]
+        def i:int 0
+        while (i < (array_length paths)) {
+            def gp:GeomPath (itemAt paths i)
+            def filled:boolean (gp.fill != "none")
+            ; A shape Office draws unfilled has its body dropped, not recoloured.
+            ; Keeping it and painting it white would still cover whatever the
+            ; shape sits on, which a brace must not do.
+            if (e.noFill && filled) {
+                i = (i + 1)
+                continue
+            }
+            def fillRun:string ""
+            if filled {
+                fillRun = (OfficeShapeCatalog.oneSide(gp true))
+            }
+            def strokeRun:string ""
+            if gp.stroke {
+                strokeRun = (OfficeShapeCatalog.oneSide(gp false))
+            }
+            if ((strlen fillRun) > 0) {
+                def part (new ShapePart())
+                part.path = fillRun
+                part.shade = gp.fill
+                part.stroked = gp.stroke
+                push fills part
+            }
+            if ((strlen strokeRun) > 0) {
+                def line (new ShapePart())
+                line.path = strokeRun
+                line.shade = "none"
+                line.stroked = true
+                push lines line
+            }
+            i = (i + 1)
+        }
+        def f:int 0
+        while (f < (array_length fills)) {
+            push out (itemAt fills f)
+            f = (f + 1)
+        }
+        def g:int 0
+        while (g < (array_length lines)) {
+            push out (itemAt lines g)
+            g = (g + 1)
+        }
+        return out
     }
 
-    ; Every ring of every path as one `M … L … Z` run. The rings are already
-    ; flattened by `OfficePresetShapes`, so there are no curves to carry.
-    sfn ringsToSvg:string (paths:[GeomPath]) {
+    ; @internal One half of a preset's geometry: the rings a fill draws, or the
+    ; rings only a stroke can draw. Split rather than merged — see
+    ; `strokePathFor`.
+    fn geometry:string (id:string w:double h:double wantFill:boolean) {
+        def parts:[ShapePart] (this.partsFor(id w h))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:ShapePart (itemAt parts i)
+            if ((p.isFill()) == wantFill) {
+                out = (out + p.path)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; @internal One `GeomPath`, as either its fillable rings or the rings only
+    ; a stroke shows. See `ringsToSvg` for which is which.
+    sfn oneSide:string (gp:GeomPath wantFill:boolean) {
+        def one:[GeomPath]
+        push one gp
+        return (OfficeShapeCatalog.ringsToSvg(one wantFill))
+    }
+
+    ; Every ring on the requested side as one `M … L … Z` run. The rings are
+    ; already flattened by `OfficePresetShapes`, so there are no curves to
+    ; carry.
+    ;
+    ; A ring is on the FILL side when its path is filled and the ring has three
+    ; points or more; it is on the STROKE side when its path is stroked and the
+    ; fill would not have shown it — an unfilled path, or a run of two points
+    ; that encloses no area. A ring can be on neither side (an unfilled,
+    ; unstroked path) and never on both.
+    sfn ringsToSvg:string (paths:[GeomPath] wantFill:boolean) {
         def out:string ""
         def i:int 0
         while (i < (array_length paths)) {
             def p:GeomPath (itemAt paths i)
+            def filled:boolean (p.fill != "none")
             def r:int 0
             while (r < (array_length p.rings)) {
                 def ring:PathRing (itemAt p.rings r)
                 def n:int (array_length ring.pts)
+                ; Two coordinates per point, so 3 points is 6 doubles.
+                def hasArea:boolean (n >= 6)
+                def onFill:boolean (filled && hasArea)
+                def wanted:boolean onFill
+                if (wantFill == false) {
+                    wanted = (p.stroke && (onFill == false))
+                }
+                if (wanted == false) {
+                    r = (r + 1)
+                    continue
+                }
                 def k:int 0
                 while ((k + 1) < n) {
                     def x:double (itemAt ring.pts k)
@@ -210,7 +451,11 @@ class OfficeShapeCatalog {
                     k = (k + 2)
                 }
                 if (n > 0) {
-                    out = (out + "Z ")
+                    ; Only a filled ring closes. Closing a stroke draws a line
+                    ; back across the shape — the diagonal through a plus.
+                    if (wantFill) {
+                        out = (out + "Z ")
+                    }
                 }
                 r = (r + 1)
             }
@@ -219,27 +464,41 @@ class OfficeShapeCatalog {
         return out
     }
 
-    ; Two decimals is a tenth of a point at any size a shape is inserted at,
-    ; and it keeps a 187-shape catalogue's path strings short enough to hold in
-    ; a browser without thinking about it.
+    ; Four decimals, because these paths are in the **0..1 unit box** and not
+    ; in points.
+    ;
+    ; Two decimals looked like plenty and was not: a hundredth of the unit box
+    ; is a hundredth of the whole shape, so a pie wedge's quarter-circle — 32
+    ; points, smooth geometry — quantised onto a 1% grid and came out as a run
+    ; of visible flats. Four decimals is a ten-thousandth of the shape, which
+    ; is a twentieth of a point on a shape a foot across, and costs about two
+    ; characters a coordinate.
     sfn num:string (v:double) {
-        def scaled:double (v * 100.0)
+        def scaled:double (v * 10000.0)
         def r:int (floor (scaled + 0.5))
         if (scaled < 0.0) {
             r = (floor (scaled - 0.5))
         }
-        def whole:int (idiv r 100)
-        def frac:int (r - (whole * 100))
+        def whole:int (idiv r 10000)
+        def frac:int (r - (whole * 10000))
         if (frac < 0) {
             frac = (0 - frac)
         }
         if (frac == 0) {
             return (to_string whole)
         }
-        if (frac < 10) {
-            return ((to_string whole) + ".0" + (to_string frac))
+        def digits:string (to_string frac)
+        while ((strlen digits) < 4) {
+            digits = ("0" + digits)
         }
-        return ((to_string whole) + "." + (to_string frac))
+        ; No trailing zeros: `0.5000` is four characters of nothing.
+        while ((strlen digits) > 1) {
+            if ((substring digits ((strlen digits) - 1) (strlen digits)) != "0") {
+                break
+            }
+            digits = (substring digits 0 ((strlen digits) - 1))
+        }
+        return ((to_string whole) + "." + digits)
     }
 
     sfn hasString:boolean (list:[string] want:string) {
@@ -294,6 +553,108 @@ class OfficeShapeCatalog {
     ; The table. Generated from `presets.txt` so a preset this build has and
     ; this list does not is impossible.
     ; ----------------------------------------------------------------------
+    ; @internal The shapes Office draws with no fill by default. Applied after
+    ; the table is built, so the table stays one line per shape.
+    ;
+    ; All seven supply a closed body in their geometry that nobody wants: an
+    ; arc's is the pie sector under the curve, a brace's is the block behind
+    ; the squiggle. The eleven lines and connectors are NOT here — they have no
+    ; fillable area at all, so the geometry already says it.
+    ; @internal The shapes with a proportion they need. See `ShapeEntry.aspect`.
+    sfn markAspect:void (c:OfficeShapeCatalog) {
+        ; Built on a circle: stretching them is what makes a gear look chewed.
+        def square:[string]
+        push square "arc"
+        push square "blockArc"
+        push square "chartPlus"
+        push square "chartStar"
+        push square "chartX"
+        push square "circularArrow"
+        push square "curvedDownArrow"
+        push square "curvedLeftArrow"
+        push square "curvedRightArrow"
+        push square "curvedUpArrow"
+        push square "donut"
+        push square "gear6"
+        push square "gear9"
+        push square "leftCircularArrow"
+        push square "leftRightCircularArrow"
+        push square "moon"
+        push square "noSmoking"
+        push square "pie"
+        push square "pieWedge"
+        push square "smileyFace"
+        push square "star10"
+        push square "star12"
+        push square "star16"
+        push square "star24"
+        push square "star32"
+        push square "star4"
+        push square "star5"
+        push square "star6"
+        push square "star7"
+        push square "star8"
+        push square "sun"
+        push square "teardrop"
+        push square "flowChartConnector"
+        push square "flowChartOr"
+        push square "flowChartSummingJunction"
+        push square "actionButtonBackPrevious"
+        push square "actionButtonBeginning"
+        push square "actionButtonBlank"
+        push square "actionButtonDocument"
+        push square "actionButtonEnd"
+        push square "actionButtonForwardNext"
+        push square "actionButtonHelp"
+        push square "actionButtonHome"
+        push square "actionButtonInformation"
+        push square "actionButtonMovie"
+        push square "actionButtonReturn"
+        push square "actionButtonSound"
+        OfficeShapeCatalog.setAspect(c square 1.0)
+
+        ; Arms across the full width, so a wide one stops being a bracket.
+        def tall:[string]
+        push tall "bracePair"
+        push tall "bracketPair"
+        push tall "leftBrace"
+        push tall "rightBrace"
+        push tall "leftBracket"
+        push tall "rightBracket"
+        push tall "verticalScroll"
+        OfficeShapeCatalog.setAspect(c tall 0.4)
+    }
+
+    sfn setAspect:void (c:OfficeShapeCatalog ids:[string] a:double) {
+        def i:int 0
+        while (i < (array_length ids)) {
+            def e:ShapeEntry (c.find((itemAt ids i)))
+            if ((strlen e.id) > 0) {
+                e.aspect = a
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn markNoFill:void (c:OfficeShapeCatalog) {
+        def ids:[string]
+        push ids "arc"
+        push ids "bracePair"
+        push ids "bracketPair"
+        push ids "leftBrace"
+        push ids "rightBrace"
+        push ids "leftBracket"
+        push ids "rightBracket"
+        def i:int 0
+        while (i < (array_length ids)) {
+            def e:ShapeEntry (c.find((itemAt ids i)))
+            if ((strlen e.id) > 0) {
+                e.noFill = true
+            }
+            i = (i + 1)
+        }
+    }
+
     sfn fill:void (c:OfficeShapeCatalog) {
         ; --- Basic ---
         push c.entries (ShapeEntry.of("arc" "Arc" "Basic" "curve"))
