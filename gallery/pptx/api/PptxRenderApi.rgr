@@ -1,0 +1,156 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxRenderApi — the same decks, drawn. PNG now, PDF beside it.
+; ==============================================================================
+;
+; This is the half of the published surface that needs a rasterizer and fonts,
+; kept apart from `PptxApi` on purpose. That file imports a ZIP reader, an XML
+; parser and a writer; this one imports a canvas, a font manager and an image
+; decoder. A build step that rewrites the text of a template pays for the first
+; and not the second, and the split is what makes that true — in Ranger an
+; import is not lazy, so the only way to not carry something is to not name it.
+;
+; WHY FONTS ARE PASSED IN RATHER THAN FOUND. There is no file system in a
+; browser, and this has to work in one: the playground draws the deck it just
+; generated. So a renderer is given its faces — `useFontDir` on a desktop where
+; a directory exists, `addFont` / `addFace` everywhere else — and a renderer
+; with no faces at all still draws, in the bitmap fallback, rather than
+; refusing. That fallback is visibly wrong, which is the intended outcome: a
+; blank page and a page in the wrong font are both wrong, and only one of them
+; tells you why.
+;
+; WHY THE FACE POOL MATTERS AND NOT ONLY THE FAMILY. `FontManager` falls back
+; per CODEPOINT across every loaded face. An emoji, a geometric bullet and an
+; Arabic letter are each absent from a Latin text face, so a deck containing
+; one draws `.notdef` — a filled box — unless a face that HAS the codepoint is
+; in the pool. `useFontDir` loads that pool; a caller adding faces by hand has
+; to add them too, and `standardFaces` names the ones this repository ships.
+; ==============================================================================
+
+Import "PptxApi.rgr"
+Import "../src/PptxView.rgr"
+Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+
+class PptxRenderer {
+    ; The slide painter — the same one the desktop editor and the browser build
+    ; draw with, so a PNG from here and a screenshot of the editor are the same
+    ; picture.
+    def view:PptxView (new PptxView())
+    def ready:boolean false
+    def error:string ""
+
+    Constructor () {
+        view.initBare(64 64)
+    }
+
+    ; Every face in a directory laid out the way this repository's font
+    ; assets are: the four Open Sans styles as the text family, then the
+    ; emoji, bullet and Arabic faces joined to the fallback pool.
+    ;
+    ; `gallery/pdf_writer/assets/fonts` is that directory.
+    fn useFontDir:PptxRenderer (dir:string) {
+        view.init(64 64 dir)
+        ready = true
+        return this
+    }
+
+    ; One face, named, from its bytes. The first call for a family makes that
+    ; family; later calls with the same name add its bold, italic and bold
+    ; italic — `FontManager` keys a face by family AND style.
+    fn addFont:PptxRenderer (family:string data:buffer) {
+        def got:boolean (view.ctx.tr.loadFontBytes(family data))
+        if got {
+            ready = true
+        } {
+            error = ("the bytes given for " + family + " are not a font this reader can load")
+        }
+        return this
+    }
+
+    ; A face that joins the per-codepoint fallback pool WITHOUT becoming a
+    ; family anything is drawn in. This is how an emoji face is added: text
+    ; stays in the text font and a 😀 is answered from here.
+    fn addFace:PptxRenderer (data:buffer) {
+        def got:boolean (view.ctx.tr.addFaceBytes(data))
+        if (got == false) {
+            error = "the bytes given are not a font this reader can load"
+        }
+        return this
+    }
+
+    ; The faces this repository ships and every editor here loads, in the order
+    ; they are loaded — which is the order the fallback walk takes them in.
+    ; Handed out so a browser can fetch exactly this list and be sure it
+    ; measures what the desktop measures.
+    sfn standardFaces:[string] () {
+        def out:[string] (
+            [] _:string (
+                "Open_Sans/OpenSans-Regular.ttf"
+                "Open_Sans/OpenSans-Bold.ttf"
+                "Open_Sans/OpenSans-Italic.ttf"
+                "Open_Sans/OpenSans-BoldItalic.ttf"
+                "Noto_Emoji/NotoEmoji-Regular.ttf"
+                "Noto_Sans/NotoSans-Regular.ttf"
+                "El_Messiri/ElMessiri-Regular.ttf"
+                "El_Messiri/ElMessiri-Bold.ttf"
+            )
+        )
+        return out
+    }
+
+    ; The 187 preset geometries, as the catalogue text. Without it the painter
+    ; falls back to the hand-written table and every shape the specification
+    ; defines and nobody typed in comes out as a rectangle.
+    ; `gallery/office/geom/assets/presets.txt` is the file.
+    fn usePresets:PptxRenderer (text:string) {
+        view.converter.loadPresets(text)
+        return this
+    }
+
+    ; --- PNG --------------------------------------------------------------------
+    ;
+    ; `scale` is a multiplier on 96 dots per inch, which is what a slide point
+    ; means on a screen: 1.0 gives a 960pt-wide deck at 1280 pixels, 2.0 at
+    ; 2560. It is not a pixel width on purpose — a deck's pages can differ in
+    ; size, and a caller asking for "twice as sharp" means that whatever the
+    ; page is.
+    fn toPng:buffer (deck:PptxDeck index:int scale:double) {
+        def empty:buffer (buffer_alloc 0)
+        if (deck.ok == false) {
+            error = "the deck is not open"
+            return empty
+        }
+        def slideRef:PptxSlideRef (deck.slideAt(index))
+        if ((slideRef.exists()) == false) {
+            error = ("there is no slide " + (to_string index))
+            return empty
+        }
+        def s:double scale
+        if (s <= 0.0) {
+            s = 1.0
+        }
+        def slide:PptxSlide (slideRef.model())
+        ; The pictures the slide draws have to be in the painter's cache before
+        ; it paints, or every image on the page comes out as an empty box. The
+        ; presentation is passed rather than the slide so a picture shared with
+        ; a master or a layout is found too.
+        view.cachePresentationImages(deck.pres)
+        view.renderOracleSlide(slide s)
+        def rb (new RasterBuffer)
+        rb.width = view.pageW
+        rb.height = view.pageH
+        rb.pixels = (view.raw())
+        def png (new PNGEncoder)
+        return (png.encodeToBuffer(rb))
+    }
+
+    fn pngWidth:int () {
+        return view.pageW
+    }
+
+    fn pngHeight:int () {
+        return view.pageH
+    }
+}

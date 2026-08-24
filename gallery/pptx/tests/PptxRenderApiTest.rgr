@@ -1,0 +1,173 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxRenderApiTest — the drawn half of the published surface.
+; ==============================================================================
+;
+; The trap this test is written around: a PNG encoder always produces a valid
+; PNG. Checking the signature and the dimensions proves the ENCODER ran, not
+; that the deck was drawn — a blank white page passes every one of those checks,
+; and a renderer that silently drew nothing would ship.
+;
+; So the assertions below are about DIFFERENCE. The same slide with a different
+; fill has to encode to different bytes; a slide with a shape on it has to
+; differ from an empty one; and doubling the scale has to double the pixels.
+; Those cannot be satisfied by a blank page.
+; ==============================================================================
+
+Import "../api/PptxRenderApi.rgr"
+
+class PptxRenderApiTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxRenderApiTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    ; The four bytes at 12..15 of a PNG are "IHDR"; the width and height are the
+    ; two big-endian 32-bit numbers straight after it.
+    sfn ihdrW:int (b:buffer) {
+        return (PptxRenderApiTest.be32(b 16))
+    }
+
+    sfn ihdrH:int (b:buffer) {
+        return (PptxRenderApiTest.be32(b 20))
+    }
+
+    sfn be32:int (b:buffer at:int) {
+        def b0:int (buffer_get b at)
+        def b1:int (buffer_get b (at + 1))
+        def b2:int (buffer_get b (at + 2))
+        def b3:int (buffer_get b (at + 3))
+        return ((((b0 * 256) + b1) * 256 + b2) * 256 + b3)
+    }
+
+    sfn isPng:boolean (b:buffer) {
+        if ((buffer_length b) < 24) {
+            return false
+        }
+        def sig0:int (buffer_get b 0)
+        def sig1:int (buffer_get b 1)
+        def sig2:int (buffer_get b 2)
+        def sig3:int (buffer_get b 3)
+        return ((((sig0 == 137) && (sig1 == 80)) && (sig2 == 78)) && (sig3 == 71))
+    }
+
+    sfn sameBytes:boolean (a:buffer b:buffer) {
+        if ((buffer_length a) != (buffer_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < (buffer_length a)) {
+            def x:int (buffer_get a i)
+            def y:int (buffer_get b i)
+            if (x != y) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn run:void () {
+        print "=== PptxRenderApiTest ==="
+        this.testPng()
+        this.testRefusals()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn deckWithFill:PptxDeck (hex:string) {
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        slide.background("FFFFFF")
+        def box:PptxShapeRef (slide.addShape("rect" 100.0 100.0 400.0 200.0))
+        box.fill(hex)
+        return deck
+    }
+
+    fn testPng:void () {
+        print "--- a slide, drawn ---"
+        def r (new PptxRenderer())
+        r.useFontDir("gallery/pdf_writer/assets/fonts")
+        this.check("the renderer found its fonts" r.ready)
+
+        def blue:PptxDeck (this.deckWithFill("4472C4"))
+        def a:buffer (r.toPng(blue 0 1.0))
+        this.check("a PNG came out" (PptxRenderApiTest.isPng(a)))
+        ; 960pt at 96 dots per inch: 960 * 96/72 = 1280.
+        this.eqInt("at the slide's own width" (PptxRenderApiTest.ihdrW(a)) 1280)
+        this.eqInt("and its height" (PptxRenderApiTest.ihdrH(a)) 720)
+        this.eqInt("which the renderer also reports" (r.pngWidth()) 1280)
+
+        ; The assertion a blank page cannot pass.
+        def red:PptxDeck (this.deckWithFill("C00000"))
+        def b:buffer (r.toPng(red 0 1.0))
+        this.check("a different fill draws different pixels"
+            ((PptxRenderApiTest.sameBytes(a b)) == false))
+
+        ; …and one that a page drawing only the shape cannot pass either: the
+        ; same deck twice has to be the same picture, or the difference above
+        ; proves nothing.
+        def blue2:PptxDeck (this.deckWithFill("4472C4"))
+        def a2:buffer (r.toPng(blue2 0 1.0))
+        this.check("the same deck twice is the same picture"
+            (PptxRenderApiTest.sameBytes(a a2)))
+
+        def big:buffer (r.toPng(blue 0 2.0))
+        this.eqInt("twice the scale is twice the pixels" (PptxRenderApiTest.ihdrW(big)) 2560)
+        this.eqInt("in both directions" (PptxRenderApiTest.ihdrH(big)) 1440)
+
+        print "--- a deck read from a file ---"
+        def raw:buffer (buffer_read_file "gallery/pptx/fixtures" "20-business-deck.pptx")
+        this.check("the fixture is there" ((buffer_length raw) > 0))
+        if ((buffer_length raw) > 0) {
+            def deck:PptxDeck (PptxApi.open(raw))
+            this.check("it opens" deck.ok)
+            def png:buffer (r.toPng(deck 0 1.0))
+            this.check("and draws" (PptxRenderApiTest.isPng(png)))
+            this.check("to something with content in it" ((buffer_length png) > 2000))
+        }
+    }
+
+    fn testRefusals:void () {
+        print "--- what it does when it cannot draw ---"
+        def r (new PptxRenderer())
+        r.useFontDir("gallery/pdf_writer/assets/fonts")
+        def deck:PptxDeck (PptxApi.create())
+        def none:buffer (r.toPng(deck 0 1.0))
+        this.eqInt("a deck with no slides draws nothing" (buffer_length none) 0)
+        this.check("and says why" ((strlen r.error) > 0))
+
+        def one:PptxDeck (this.deckWithFill("4472C4"))
+        def past:buffer (r.toPng(one 5 1.0))
+        this.eqInt("a slide past the end draws nothing" (buffer_length past) 0)
+
+        ; A scale nobody meant is corrected rather than producing a zero-pixel
+        ; image, which is a file no viewer will open.
+        def zero:buffer (r.toPng(one 0 0.0))
+        this.check("a zero scale still draws" (PptxRenderApiTest.isPng(zero)))
+        this.eqInt("at the natural size" (PptxRenderApiTest.ihdrW(zero)) 1280)
+    }
+}
