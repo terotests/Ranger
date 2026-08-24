@@ -767,7 +767,14 @@ class PptxDeck {
 class PptxApi {
     ; The version of this SURFACE, not of the repository. It changes when a
     ; method changes meaning, so a caller can tell what it is talking to.
-    sdef VERSION:string "1"
+    ;
+    ; A function rather than an `sdef`: the compiler inlines a static constant
+    ; at its use sites and emits nothing for it, so a constant no Ranger code
+    ; reads does not exist in the compiled module at all — `Pptx.version` came
+    ; out `undefined` in JavaScript and nothing had failed to build.
+    sfn version:string () {
+        return "1"
+    }
 
     ; Open a .pptx from its bytes.
     ;
