@@ -110,6 +110,7 @@ text runs  30
 pictures   1
 pages      8 in 5 spread(s)
 preflight  3 error(s), 0 warning(s)
+face       Open Sans bound to the rasterizer
 ```
 
 That is the whole of the check, and it is deliberately not "it did not crash":
@@ -117,7 +118,16 @@ a host that opened nothing and drew an empty desk would also not crash.
 Commands, text runs and pictures are three numbers that cannot all be right by
 accident.
 
-## Two things this host does that the other two did not
+## Three things about type and pictures here
+
+**The first face must go in through `tr.loadFont`, not `tr.fm.loadFont`.** The
+second loads the face into the *manager* and stops — it does not bind it to the
+rasterizer, does not install the TrueType measurer, and does not set `hasFont`,
+and `applyFace` returns immediately while that is false. Every glyph then comes
+out of the built-in bitmap font while the layout is measured in Cinzel and Open
+Sans, which looks like a deliberate retro style rather than a bug. `fm.loadFont`
+returns **true** in that case, so counting successful loads does not catch it;
+the host asks `tr.hasFont` and prints which face is bound on every run.
 
 **It loads every face twice, on purpose.** `BookApp` measures with them — that
 is what decides where every line breaks — and `UITextRenderer` rasterizes with

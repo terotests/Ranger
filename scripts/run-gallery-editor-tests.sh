@@ -14,6 +14,7 @@ cd "$(cd "$(dirname "$0")/.." && pwd)"
 SUITES=(
   book:test
   book:editor:test
+  book:slides:test
   pptx:test
   pptx:editor:test
   pptx:text:test

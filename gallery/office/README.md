@@ -6,6 +6,11 @@ are three different applications. Word pagination, Excel formulas and
 PowerPoint's master/layout inheritance have nothing to say to each other, and a
 single `OfficeDocument` that tried to hold all three would be worse at all three.
 
+A fourth editor uses this machinery and is not an OOXML application at all:
+[`book`](../book/README.md) keeps its undo here. That is the test of whether
+something in this directory is infrastructure or a PowerPoint detail wearing a
+general name.
+
 What they share is the machinery underneath. It goes here.
 
 > **The line this directory draws.** Don't merge Word, Excel and PowerPoint into
@@ -249,8 +254,14 @@ are one undo, and how many fall off the bottom at the cap — **always whole
 actions**, because a surviving half is an undo that can only reach a state the
 document was never in.
 
-The **operations** stay where they are. `SheetSetCell` is not `SlideMoveShape`
-is not `DocInsertText`, and Ranger has no generics to hold them with anyway.
+The **operations** used to stay where they were, and this file used to explain
+that by saying Ranger had no generics to hold them with. It has them now, and
+`OfficeHistory` is `@params(Op)`: `SheetSetCell` is still not `SlideMoveShape`
+is still not `DocInsertText`, but `OfficeHistory@(SpreadsheetUndoOp)` and
+`OfficeHistory@(DocEditOp)` are separate concrete classes after expansion,
+neither of which can see the other's entries. Nothing is asked of `Op` — no
+bound, no interface, no shared field — so a shape, a snapshot and a record all
+fit. See `OfficeHistory.rgr`'s own header.
 
 The structural fix is that undo and redo are one function with a **direction**.
 Written as two switches over the same kind they drift, and the drift is silent

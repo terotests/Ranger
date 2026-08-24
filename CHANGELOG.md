@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The native book editor drew every glyph in a bitmap font while measuring with the real one** — reported from a screenshot of the SDL window, where the type looks like a deliberate retro style rather than a defect. The host loaded its seven faces with `tr.fm.loadFont(path)`, which loads the file into the FontManager, returns **true**, and logs `Loaded font 'Cinzel' (Regular)` — and does none of the things `UITextRenderer.loadFont(family, path)` does: bind the face to the rasterizer, install the TrueType measurer, set `hasFont`. `applyFace` returns immediately while that is false, so `RasterText` kept its built-in bitmap font. The layout was measured with the real metrics throughout, so the line breaks were right and only the letterforms were wrong, which is the hardest version of this to see. The host's own guard — "measuring with N face(s) and drawing with M" — passed cleanly, because both counters counted files that had loaded rather than asking whether anything was bound; a check that counts the wrong noun reports the failure as fine. The first face now goes through `tr.loadFont` and the rest through `tr.addFace`, which is also what joins the bold, italic and per-codepoint fallback pool, and the host asks `tr.hasFont` and prints the bound face on every run and in the headless report. `gallery/book/ISSUES.md` #16.
+
 ### Added
 
 - **Generic classes, and the first thing they were wanted for** — `class History @params(Op)` takes a type parameter and a reference names its argument, `History@(int)`. A parameter can be an array element, a parameter type and a return type; there are **no bounds, no constraints and no variance**, which was a decision rather than an omission — the case that would have forced a constraint system is `Selection<T>`'s `contains`, and passing the comparison in costs one field where designing bounds costs fourteen backends. Traits have taken `@params` for years; classes could not, and the file that most wanted them said so in its own header.
