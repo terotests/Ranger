@@ -169,3 +169,117 @@ back. Ninety-nine per cent of `webgl-sdf`'s time to first pixel is that pipeline
 - One chart type (a scatter of point marks) and one page size. Bars, which are
   rectangles in every backend, would flatter the display list; lines, which are
   a single long path, would flatter SVG.
+
+---
+
+# The other direction: Ranger against Vega and Chart.js
+
+Knowing which of EVG's own backends is quickest says nothing about whether any
+of them is quick. So the same scatter plot, the same data, the same browser,
+against the libraries people actually reach for:
+
+```
+npm run evg:bench:libs
+node gallery/evg/bench/libs.mjs --marks 100,10000 --updates 20 --shots
+```
+
+`vega` 6.4.0, `vega-lite` 6.4.3 and `chart.js` 4.5.1 are installed on demand
+into `gallery/evg/bench/.libs`, which is not checked in. Tables in
+[`results/libs.md`](results/libs.md), pictures in `results/shots-libs/`.
+
+| column | what it is |
+| --- | --- |
+| `vela-svg` | Ranger: the Vela runtime compiles the Vega-Lite spec, computes the scene, writes SVG. |
+| `vela-svg-vg` | the same Vela renderer, handed the Vega spec *vega-lite* compiled — so the gap to `vela-svg` is Vela's own Vega-Lite compiler and nothing else. |
+| `evg-webgl` | Ranger: the EVG layout, the display list, the shipped WebGL viewer. |
+| `vega-svg` / `vega-canvas` | the reference implementation, on the same Vega-Lite spec. |
+| `chartjs` | Chart.js, 2-D canvas, animation off. No grammar: it is handed the four series directly, which is the fastest it goes. |
+
+Two operations, both to the pixel: **first render** (specification + data → a
+picture) and **update** (every point moves → a new picture). Vega keeps its
+dataflow between updates and Chart.js keeps its chart; Ranger has no
+incremental path, so its columns run the whole pipeline again — which is a
+finding, not a handicap imposed by the harness.
+
+## Where Ranger stands
+
+Marginal cost of one more mark, least squares over every size measured:
+
+| µs per node | `vela-svg` | `vela-svg-vg` | `evg-webgl` | `vega-svg` | `vega-canvas` | `chartjs` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| first render | 144 | 141 | 783 | **46** | **15** | **3.7** |
+| update | 139 | 117 | 892 | **46** | **17** | **2.0** |
+
+In whole milliseconds — first render, median of three:
+
+| nodes | `vela-svg` | `vega-svg` | `vega-canvas` | `chartjs` |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | **18.5** | 28.8 | 21.6 | 7.7 |
+| 300 | 41.6 | 30.7 | 25.5 | 12.3 |
+| 1 000 | 91 | 50 | 30 | 17 |
+| 3 000 | 304 | 124 | 58 | 23 |
+| 10 000 | 1 199 | 404 | 160 | 75 |
+| 30 000 | 4 301 | 1 394 | 454 | 120 |
+
+and an update, where the gap is wider because Vela has nothing to reuse:
+
+| nodes | `vela-svg` | `vega-svg` | `vega-canvas` | `chartjs` | Vela ÷ best |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 21 | 12 | 4.0 | 4.4 | 5.2× |
+| 1 000 | 91 | 39 | 17 | 10 | 8.8× |
+| 10 000 | 1 220 | 422 | 152 | 48 | 25× |
+| 30 000 | 4 139 | 1 386 | 516 | 62 | 66× |
+
+Read plainly:
+
+1. **At a hundred marks Ranger wins.** `vela-svg` draws that chart in 18.5 ms
+   against official Vega's 28.8 ms — the same specification, the same
+   renderer's worth of work, from a runtime compiled out of Ranger. Small
+   charts are most charts, and on those this holds its own.
+2. **From a few hundred marks up it falls behind, and settles at about 3×.**
+   1.4× Vega's SVG at three hundred, 1.8× at a thousand, 2.5× at three
+   thousand, 3.1× at thirty thousand — which is exactly the ratio of the
+   marginal costs, 144 µs a mark against 46. Against a canvas renderer it is
+   10×, against Chart.js 39×.
+3. **The Vega-Lite compiler is not where it goes.** `vela-svg-vg` — the same
+   Vela runtime and renderer, handed the Vega specification vega-lite itself
+   compiled — costs 141 µs a mark against 144. The compiler is free; the
+   scene evaluation and the SVG writing are the bill.
+4. **Updates are the weak point, by an order of magnitude and then some.**
+   Everything else here keeps a scene and touches what changed. Vela
+   recompiles the specification, recomputes every scale and re-serialises
+   every path because one point moved: 4.1 s at thirty thousand marks against
+   Chart.js's 62 ms.
+5. **The GPU route is the slowest thing measured** — 783 µs a mark, five times
+   Ranger's own SVG — for the reasons the first half of this document lays
+   out: a marker arriving as a 190-point polygon, and a viewer that retains
+   nothing between frames. It also pays for an 80 MB JSON document at thirty
+   thousand marks, which is a garbage collector's worth of cost on its own.
+
+## What this says to do about it
+
+- **Keep the scene between renders.** Everything in the top half of these
+  tables does. A `VlRuntime` that can be handed new data without re-reading
+  the specification would close most of the update gap on its own.
+- **Look at the SVG renderer and the scale evaluation, not the compiler.**
+  Point 3 says where the milliseconds are.
+- **Canvas is worth having as a target.** `vega-canvas` is 1.5–3× `vega-svg` at
+  every size, with no GPU involved — the same 2-D canvas the display list
+  could be painted onto directly, without a TSX document in the middle.
+
+## Caveats
+
+- Same browser, same machine, same flags for all of them; Chromium on
+  SwiftShader, which only the `evg-webgl` column is sensitive to (the canvas
+  backends rasterise on the CPU with Skia either way).
+- Every column is warmed up at 200 marks before the sweep, the first render is
+  the median of three from a clean stage, and updates are timed to the pixel
+  with a 4 s budget per size. Without the warm-up the first column measured
+  paid for the JIT tiers the rest then enjoyed; a single first-render sample
+  moved by 2× between runs.
+- Chart.js is at a different level: no grammar, no scenegraph, no Vega-Lite
+  compile, and it was given the series pre-grouped. It should be faster; the
+  number is here to show by how much.
+- One chart type — a scatter of point marks — at one size, four series, on
+  data that is regenerated per update. A line chart or a bar chart would
+  shift the numbers; the pipeline shape they measure is the same.

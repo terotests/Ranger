@@ -20,6 +20,10 @@ data_folder/
 !gallery/pdf_writer/docs/jpeg_scaler_quality/*.png
 # The chart backend benchmark's evidence that each backend drew the same chart.
 !gallery/evg/bench/results/shots/*.png
+!gallery/evg/bench/results/shots-libs/*.png
+
+# The reference charting libraries the benchmark compares against, fetched on demand.
+gallery/evg/bench/.libs/
 
 # MacOS
 .DS_Store

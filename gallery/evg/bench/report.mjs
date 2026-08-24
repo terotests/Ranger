@@ -115,6 +115,84 @@ export function renderReport(result) {
   return md;
 }
 
+// ---------------------------------------------------------------------------
+// The other benchmark: Ranger against the libraries, from libs.json.
+// ---------------------------------------------------------------------------
+
+/** Least squares slope of ms against node count, in µs per node. */
+function slope(rows, id, key) {
+  const pts = rows
+    .map(({ n, measured }) => [n, measured[id]])
+    .filter(([, r]) => r && !r.error && r[key] !== undefined)
+    .map(([n, r]) => [n, r[key]]);
+  if (pts.length < 2) return null;
+  const mx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
+  const my = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+  let num = 0, den = 0;
+  for (const [x, y] of pts) { num += (x - mx) * (y - my); den += (x - mx) ** 2; }
+  return den ? (num / den) * 1000 : null;
+}
+
+export function renderLibsReport(result) {
+  const { rows, versions, dpr, updates, ids } = result;
+  const IDS = ids;
+  let md = `# Ranger against Vega and Chart.js\n\n`;
+  md += `vega ${versions.vega} · vega-lite ${versions.vegaLite} · chart.js ${versions.chartjs} · `;
+  md += `dpr ${dpr} · median of ${result.firsts || 1} first renders and up to ${updates} updates `;
+  md += `per size · 600×400 scatter plot, four series.\n\n`;
+  md += `Vela and Vega are given the same Vega-Lite specification and compile it themselves. `;
+  md += `\`vela-svg-vg\` is the same Vela renderer handed the Vega specification *vega-lite* `;
+  md += `compiled, so the gap between it and \`vela-svg\` is Vela's own Vega-Lite compiler. `;
+  md += `Chart.js has no grammar, so it is handed the four series directly with animation off.\n\n`;
+
+  md += `## Specification and data to a picture (ms)\n\n`;
+  md += header("nodes", IDS);
+  for (const { n, measured } of rows) md += row(n, IDS.map((id) => cell(measured[id], "firstMs", 1)));
+
+  md += `\n## New numbers to a new picture (ms, median)\n\n`;
+  md += `Every point moves. Vega keeps its dataflow and reuses what it can; Chart.js keeps its `;
+  md += `chart and swaps the datasets; Ranger has no incremental path, so both of its columns `;
+  md += `run the whole pipeline again.\n\n`;
+  md += header("nodes", [...IDS, "vela-svg ÷ best other"]);
+  for (const { n, measured } of rows) {
+    const others = IDS.filter((i) => !i.startsWith("vela") && !i.startsWith("evg"))
+      .map((i) => measured[i]).filter((r) => r && !r.error).map((r) => r.updateMs);
+    const best = others.length ? Math.min(...others) : null;
+    const vela = measured["vela-svg"] && !measured["vela-svg"].error ? measured["vela-svg"].updateMs : null;
+    md += row(n, [...IDS.map((id) => cell(measured[id], "updateMs", 1)),
+      vela && best ? `${(vela / best).toFixed(1)}×` : "—"]);
+  }
+
+  md += `\n## Marginal cost per node (µs)\n\n`;
+  md += `A least-squares slope over every size measured, rather than a difference between the `;
+  md += `last two — one noisy reading at one size should not decide the number.\n\n`;
+  md += header("", IDS);
+  for (const [label, key] of [["first render", "firstMs"], ["update", "updateMs"]]) {
+    md += row(label, IDS.map((id) => {
+      const s = slope(rows, id, key);
+      return s === null ? "—" : fmt(s, 1);
+    }));
+  }
+
+  md += `\n## What each one put on the page\n\n`;
+  md += header("nodes", IDS.map((id) => `${id} nodes`));
+  for (const { n, measured } of rows) {
+    md += row(n, IDS.map((id) => (measured[id] && !measured[id].error ? String(measured[id].nodes) : "—")));
+  }
+
+  const failed = [];
+  for (const { n, measured } of rows) {
+    for (const id of IDS) if (measured[id] && measured[id].error) failed.push(`\`${id}\` at ${n}: ${measured[id].error}`);
+  }
+  if (failed.length) { md += `\n## What would not run\n\n`; for (const f of failed) md += `- ${f}\n`; }
+  if (result.problems && result.problems.length) {
+    md += `\n## The browser complained\n\n`;
+    for (const p of [...new Set(result.problems)].slice(0, 10)) md += `- \`${p}\`\n`;
+  }
+  return md;
+}
+
 if (process.argv[1] && process.argv[1].endsWith("report.mjs") && process.argv[2]) {
-  process.stdout.write(renderReport(JSON.parse(fs.readFileSync(process.argv[2], "utf8"))));
+  const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  process.stdout.write(data.ids ? renderLibsReport(data) : renderReport(data));
 }

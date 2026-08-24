@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ranger against Vega and Chart.js</title>
+<style>
+  html, body { margin: 0; background: #fff; font: 13px/1.4 system-ui, sans-serif; }
+  #stage { position: relative; width: 780px; height: 480px; overflow: hidden; }
+  #stage svg, #stage canvas { display: block; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="host"></div>
+  <canvas id="gl" class="hide"></canvas>
+  <canvas id="cjs" class="hide"></canvas>
+</div>
+
+<script src="vela_web.js"></script>
+<script src="vela_targets.js"></script>
+<script src="lib/vega.min.js"></script>
+<script src="lib/vega-lite.min.js"></script>
+<script src="lib/chart.umd.js"></script>
+<script type="module">
+  import { renderDisplayList } from "./gl/evg-webgl.js";
+  window.__evgRender = renderDisplayList;
+</script>
+<script>
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const now = () => performance.now();
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  const median = (xs) => {
+    const s = [...xs].sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+
+  const WIDTH = 600, HEIGHT = 400;
+  const SERIES = ["s0", "s1", "s2", "s3"];
+  const COLORS = ["#4c78a8", "#f58518", "#e45756", "#72b7b2"];
+
+  // One data set, one shape, every library. `phase` moves every point, which
+  // is what an update is: the same chart, new numbers.
+  function rowsFor(n, phase) {
+    const rows = new Array(n);
+    for (let i = 0; i < n; i++) {
+      rows[i] = {
+        x: (i * 37) % 997,
+        y: Math.sin(i / 13 + phase) * 100 + 100 + (i % 17),
+        c: SERIES[i % 4],
+      };
+    }
+    return rows;
+  }
+
+  const vlSpec = (rows) => ({
+    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+    width: WIDTH, height: HEIGHT,
+    data: { values: rows },
+    mark: "point",
+    encoding: {
+      x: { field: "x", type: "quantitative" },
+      y: { field: "y", type: "quantitative" },
+      color: { field: "c", type: "nominal" },
+    },
+  });
+
+  // ------------------------------------------------------------------ state --
+  const FACES = [
+    ["Noto Sans", "gl/fonts/NotoSans-Regular.ttf"],
+    ["Noto Sans-Bold", "gl/fonts/NotoSans-Bold.ttf"],
+  ];
+  let targets = null;
+  let state = {};      // per-backend, whatever it needs to keep between calls
+
+  async function init() {
+    targets = new window.VelaTargets();
+    for (const [name, url] of FACES) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(url + " — HTTP " + res.status);
+      const bytes = await res.arrayBuffer();
+      bytes._view = new DataView(bytes);
+      if (!targets.addFont(name, bytes)) throw new Error(url + " is not a TrueType font");
+    }
+    await document.fonts.ready;
+    return {
+      vega: window.vega ? window.vega.version : null,
+      vegaLite: window.vegaLite ? window.vegaLite.version : null,
+      chartjs: window.Chart ? window.Chart.version : null,
+    };
+  }
+
+  function clearStage() {
+    if (state.view) { try { state.view.finalize(); } catch (e) { /* going away anyway */ } }
+    if (state.chart) { try { state.chart.destroy(); } catch (e) { /* same */ } }
+    state = {};
+    $("host").innerHTML = "";
+    $("gl").classList.add("hide");
+    $("cjs").classList.add("hide");
+  }
+
+  function canvasFor(id, dpr) {
+    const c = $(id);
+    c.classList.remove("hide");
+    c.style.width = WIDTH + 120 + "px";
+    c.style.height = HEIGHT + 60 + "px";
+    c.width = Math.round((WIDTH + 120) * dpr);
+    c.height = Math.round((HEIGHT + 60) * dpr);
+    return c;
+  }
+
+  // ------------------------------------------------------------- the entrants --
+  // Each one answers the same two questions: how long from a specification and
+  // a data set to a picture, and how long from new numbers to a new picture.
+
+  const BACKENDS = {
+    // Ranger, the SVG route: the runtime compiles the Vega-Lite spec, computes
+    // the scene and writes SVG. There is no incremental path, so an update is
+    // the whole thing again — which is the finding, not an unfairness.
+    "vela-svg": {
+      async first(rows) {
+        const text = JSON.stringify(vlSpec(rows));
+        const answer = JSON.parse(window.VelaWeb.render(text, "UTC"));
+        if (!answer.ok) throw new Error("Vela: " + JSON.stringify(answer.errors));
+        $("host").innerHTML = answer.svg;
+        state.bytes = answer.svg.length;
+        state.commands = answer.commands;
+        $("host").getBoundingClientRect();
+      },
+      async update(rows) { return BACKENDS["vela-svg"].first(rows); },
+      count: () => $("host").querySelectorAll("path, rect, line, text").length,
+    },
+
+    // The same Ranger renderer, but handed the Vega specification that
+    // vega-lite compiled — so the difference between this column and the one
+    // above is Vela's own Vega-Lite compiler, and nothing else.
+    "vela-svg-vg": {
+      async first(rows) {
+        const text = JSON.stringify(window.vegaLite.compile(vlSpec(rows)).spec);
+        const answer = JSON.parse(window.VelaWeb.render(text, "UTC"));
+        if (!answer.ok) throw new Error("Vela: " + JSON.stringify(answer.errors));
+        $("host").innerHTML = answer.svg;
+        state.bytes = answer.svg.length;
+        $("host").getBoundingClientRect();
+      },
+      async update(rows) { return BACKENDS["vela-svg-vg"].first(rows); },
+      count: () => $("host").querySelectorAll("path, rect, line, text").length,
+    },
+
+    // Ranger, the GPU route: the same spec becomes EVG page source, the layout
+    // runs with TrueType metrics, and the display list goes to the WebGL viewer.
+    "evg-webgl": {
+      async first(rows, dpr) {
+        const text = JSON.stringify(vlSpec(rows));
+        const tsx = targets.evgSource(text, "UTC");
+        if (!tsx) throw new Error("evgSource: " + targets.errors.join(" · "));
+        const json = targets.displayList(tsx, "", "", targets.pageWidth, targets.pageHeight);
+        if (!json) throw new Error("displayList: " + targets.errors.join(" · "));
+        const doc = JSON.parse(json);
+        state.bytes = json.length;
+        state.commands = doc.list.cmds.length;
+        if (!state.gl) {
+          const c = $("gl");
+          c.classList.remove("hide");
+          c.style.width = doc.width + "px";
+          c.style.height = doc.height + "px";
+          c.width = Math.round(doc.width * dpr);
+          c.height = Math.round(doc.height * dpr);
+          state.gl = c.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+          if (!state.gl) throw new Error("no WebGL 2");
+        }
+        state.stats = window.__evgRender(state.gl, doc, { dpr });
+        state.gl.finish();
+      },
+      async update(rows, dpr) { return BACKENDS["evg-webgl"].first(rows, dpr); },
+      count: () => state.commands,
+    },
+
+    // The reference implementation, drawing to SVG — the same renderer the
+    // parity harness compares Vela's scene against.
+    "vega-svg": { ...vegaBackend("svg") },
+    "vega-canvas": { ...vegaBackend("canvas") },
+
+    // Chart.js is not a grammar: it is handed the four series directly, with
+    // animation off, which is the fastest it goes. It draws to a 2-D canvas.
+    "chartjs": {
+      async first(rows, dpr) {
+        const canvas = canvasFor("cjs", dpr);
+        state.chart = new window.Chart(canvas.getContext("2d"), {
+          type: "scatter",
+          data: { datasets: chartData(rows) },
+          options: {
+            animation: false, responsive: false, devicePixelRatio: dpr,
+            parsing: false, normalized: true,
+            elements: { point: { radius: 3, borderWidth: 1, backgroundColor: "transparent" } },
+            plugins: { legend: { display: true, position: "right" }, tooltip: { enabled: false } },
+            scales: { x: { type: "linear" }, y: { type: "linear" } },
+          },
+        });
+        state.chart.update("none");
+      },
+      async update(rows) {
+        const next = chartData(rows);
+        for (let i = 0; i < next.length; i++) state.chart.data.datasets[i].data = next[i].data;
+        state.chart.update("none");
+      },
+      count: () => state.chart.data.datasets.reduce((a, d) => a + d.data.length, 0),
+    },
+  };
+
+  function chartData(rows) {
+    const bySeries = SERIES.map((s, i) => ({
+      label: s, data: [], borderColor: COLORS[i], backgroundColor: "transparent", showLine: false,
+    }));
+    for (const r of rows) bySeries[SERIES.indexOf(r.c)].data.push({ x: r.x, y: r.y });
+    return bySeries;
+  }
+
+  function vegaBackend(renderer) {
+    return {
+      async first(rows) {
+        const compiled = window.vegaLite.compile(vlSpec(rows)).spec;
+        // Whichever dataset carries the values is the one an update replaces.
+        state.dataName = (compiled.data || []).find((d) => d.values)?.name || "source_0";
+        const runtime = window.vega.parse(compiled);
+        state.view = new window.vega.View(runtime, {
+          renderer, container: $("host"), hover: false, background: "#fff",
+        });
+        await state.view.runAsync();
+        state.bytes = renderer === "svg" ? $("host").innerHTML.length : 0;
+      },
+      async update(rows) {
+        state.view.data(state.dataName, rows);
+        await state.view.runAsync();
+      },
+      count: () => (renderer === "svg"
+        ? $("host").querySelectorAll("path, rect, line, text").length
+        : (state.view.scenegraph().root.items[0].items || []).reduce((a, g) => a + (g.items ? g.items.length : 0), 0)),
+    };
+  }
+
+  // ------------------------------------------------------------------- runner --
+  let BUDGET_MS = 4000;
+
+  async function run(id, n, dpr, updates, firsts) {
+    const b = BACKENDS[id];
+    if (!b) throw new Error("no such backend: " + id);
+
+    // The first render, several times over from a clean stage, because one
+    // reading of it moved by 2× between runs and a single sample is not a
+    // measurement.
+    const rows = rowsFor(n, 0);
+    const firstTimes = [], firstCpus = [];
+    for (let i = 0; i < Math.max(1, firsts || 1); i++) {
+      clearStage();
+      const t0 = now();
+      await b.first(rows, dpr);
+      firstCpus.push(now() - t0);
+      await nextFrame();
+      firstTimes.push(now() - t0);
+    }
+    const firstMs = median(firstTimes), firstCpu = median(firstCpus);
+
+    // Updates: new numbers, same chart. Warmed up once, then timed to the
+    // pixel, with a budget so a slow backend does not take a minute to say
+    // what three frames already said.
+    await b.update(rowsFor(n, 0.5), dpr);
+    await nextFrame();
+
+    const times = [], cpus = [];
+    let spent = 0;
+    for (let i = 0; i < updates; i++) {
+      const next = rowsFor(n, 1 + i * 0.3);
+      const u0 = now();
+      await b.update(next, dpr);
+      const uCpu = now() - u0;
+      await nextFrame();
+      const dt = now() - u0;
+      times.push(dt);
+      cpus.push(uCpu);
+      spent += dt;
+      if (spent > BUDGET_MS && times.length >= 3) break;
+    }
+
+    return {
+      firstMs, firstCpuMs: firstCpu, firstSamples: firstTimes.length,
+      updateMs: median(times), updateCpuMs: median(cpus),
+      updates: times.length,
+      nodes: b.count ? b.count() : null,
+      bytes: state.bytes || 0,
+    };
+  }
+
+  window.__libs = {
+    init, run,
+    budget: (ms) => { BUDGET_MS = ms; },
+    ids: () => Object.keys(BACKENDS),
+    ready: () => !!(window.VelaWeb && window.VelaTargets && window.vega && window.vegaLite && window.Chart && window.__evgRender),
+    clear: clearStage,
+  };
+})();
+</script>
+</body>
+</html>
