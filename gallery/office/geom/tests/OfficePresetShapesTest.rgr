@@ -289,6 +289,54 @@ class OfficePresetShapesTest {
         c.ok("while it does know star7" (cat.has("star7")))
 
         print ""
+        print "-- a box with no thickness is a straight line --"
+        ; A horizontal rule is `cy="0"` — that is how PowerPoint writes one,
+        ; and a gridline, a connector and a dumbbell's bar are all of them.
+        ; Refused here, the caller got no path at all and fell through to a
+        ; border fallback that drew a zero-height RECTANGLE OUTLINE, which is
+        ; nothing: every gridline and every connector in a deck was missing
+        ; from the screen and from the PNG while the PDF had them.
+        def flatN:[string]
+        def flatV:[double]
+        def flat:[GeomPath] (cat.pathsFor("line" 400.0 0.0 flatN flatV))
+        c.eqInt("a line with no height still has a path" (array_length flat) 1)
+        def upright:[GeomPath] (cat.pathsFor("line" 0.0 200.0 flatN flatV))
+        c.eqInt("and one with no width" (array_length upright) 1)
+        if ((array_length flat) > 0) {
+            def one:GeomPath (itemAt flat 0)
+            c.ok("it is open, so nothing fills it" (one.closed == false))
+            c.ok("and stroked, so something draws it" one.stroke)
+            c.eqInt("two points, which is what a segment is" (idiv (array_length one.pts) 2) 2)
+            ; A path comes back in UNIT coordinates — the caller scales it to
+            ; the box — so the two ends are 0 and 1 apart along x. What matters
+            ; is that they still are: the line runs the length of the box
+            ; rather than collapsing to a point in the middle of it.
+            def x0:double (itemAt one.pts 0)
+            def x1:double (itemAt one.pts 2)
+            c.near("it runs the length of the box" ((fabs (x1 - x0))) 1.0 0.001)
+            ; y runs 0 to 1 here as well — `line` is corner to corner of its
+            ; box — and it is the CALLER scaling that to a box with no height
+            ; that makes the drawn line level. That half is checked where the
+            ; scaling happens, in PptxGeomTest.
+        }
+        def connector:[GeomPath] (cat.pathsFor("straightConnector1" 300.0 0.0 flatN flatV))
+        c.eqInt("a straight connector too" (array_length connector) 1)
+        ; A NEGATIVE box is still nonsense and still has no geometry.
+        def backwards:[GeomPath] (cat.pathsFor("line" (0.0 - 10.0) 20.0 flatN flatV))
+        c.eqInt("a negative box has none" (array_length backwards) 0)
+        ; …and every shape in the catalogue survives being asked for one.
+        def flatEmpty:int 0
+        def fi:int 0
+        while (fi < (cat.count())) {
+            def fname:string (cat.nameAt(fi))
+            def fp:[GeomPath] (cat.pathsFor(fname 400.0 0.0 flatN flatV))
+            if ((array_length fp) == 0) {
+                flatEmpty = (flatEmpty + 1)
+            }
+            fi = (fi + 1)
+        }
+        c.eqInt("no shape comes back empty from a flat box" flatEmpty 0)
+
         print ("passed = " + (to_string c.passed) + "  failed = " + (to_string c.failed))
         if (c.failed == 0) {
             print "ALL PASS"

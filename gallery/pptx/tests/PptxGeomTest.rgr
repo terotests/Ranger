@@ -70,6 +70,7 @@ class PptxGeomTest {
         this.testPresetPaintRules()
         this.testCatalogueAgreesWithTheHandTable()
         this.testAHoleIsAHole()
+        this.testAFlatBoxIsALine()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -323,6 +324,72 @@ class PptxGeomTest {
     ; The shape as a deck states a drawn line: no fill of its own, an explicit
     ; noFill, and a 2.25pt dark teal line — which is what the deck this came
     ; from actually contains.
+    ; --- a box with no thickness ---------------------------------------------
+    ;
+    ; A horizontal rule is `cy="0"`. That is how PowerPoint writes one, and it
+    ; is what a gridline, a connector and a dumbbell's bar all are. The
+    ; catalogue refused a box with a zero side, so the painter got no path and
+    ; fell through to its border fallback — a zero-height RECTANGLE OUTLINE,
+    ; which draws nothing at all. Every gridline and every connector in a deck
+    ; was missing from the screen and from the PNG, while the PDF had them,
+    ; because a border becomes an element with a CSS border and a box with no
+    ; height still draws its top edge. Two renderers disagreeing is what it
+    ; took to notice.
+    fn testAFlatBoxIsALine:void () {
+        print "--- a box with no thickness is a line, not a border ---"
+        def flat (new PptxShape())
+        flat.preset = "line"
+        flat.x = 10.0
+        flat.y = 50.0
+        flat.width = 300.0
+        flat.height = 0.0
+        flat.noFill = true
+        flat.lineWidthPt = 1.5
+        flat.line.isSet = true
+        flat.line.srgb = "133836"
+        def dl:EVGDisplayList (this.emit(flat))
+        this.check("it draws something" ((array_length dl.cmds) > 0))
+        this.check("in the line's own colour" ((PptxGeomTest.notColored(dl 19 56 54)) == 0))
+        ; The fallback, named so that a regression is recognisable rather than
+        ; merely red: a BORDER is the command that drew nothing.
+        this.check("and not as a border" ((PptxGeomTest.borders(dl)) == 0))
+
+        ; Level, which is the half the catalogue cannot check: its path runs
+        ; corner to corner of a unit box, and it is the scaling to a box with
+        ; no height that flattens it.
+        def top:double 1000000.0
+        def bottom:double (0.0 - 1000000.0)
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            def k:int 1
+            while (k < (array_length c.pts)) {
+                def yy:double (itemAt c.pts k)
+                if (yy < top) { top = yy }
+                if (yy > bottom) { bottom = yy }
+                k = (k + 2)
+            }
+            i = (i + 1)
+        }
+        ; A 1.5pt line is 2px of thickness either side of the centre; anything
+        ; thicker than that means it was drawn on the diagonal.
+        this.check("and level, not diagonal" ((bottom - top) < 6.0))
+
+        def upright (new PptxShape())
+        upright.preset = "line"
+        upright.x = 40.0
+        upright.y = 10.0
+        upright.width = 0.0
+        upright.height = 200.0
+        upright.noFill = true
+        upright.lineWidthPt = 1.5
+        upright.line.isSet = true
+        upright.line.srgb = "133836"
+        def udl:EVGDisplayList (this.emit(upright))
+        this.check("a gridline with no width draws too" ((array_length udl.cmds) > 0))
+        this.check("and is not a border either" ((PptxGeomTest.borders(udl)) == 0))
+    }
+
     fn strokeShape:PptxShape (src:PptxShape) {
         def sh (new PptxShape())
         sh.hasPath = src.hasPath
@@ -342,6 +409,22 @@ class PptxGeomTest {
         def dl (new EVGDisplayList)
         conv.emitShape(dl sh 0.0 0.0)
         return dl
+    }
+
+    ; BORDER commands — kind 1. Named rather than counted by number at the
+    ; call site because it is the exact command the fallback drew, and a
+    ; regression should read as one.
+    sfn borders:int (dl:EVGDisplayList) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 1) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     sfn colored:int (dl:EVGDisplayList r:int g:int b:int) {

@@ -185,12 +185,39 @@ class OfficePresetShapes {
         if (idx < 0) {
             return out
         }
-        if (w <= 0.0) {
+        ; A NEGATIVE box is nonsense and has no geometry. A ZERO one is a
+        ; straight line, and refusing it was the bug.
+        ;
+        ; `line`, `straightConnector1` and every other open preset are drawn
+        ; into a box with no thickness — a horizontal rule is `cy="0"`, which
+        ; is how PowerPoint itself writes one. Bailing out here left the
+        ; caller with no path, so `PptxToEvg` fell through to its border
+        ; fallback and drew a zero-height RECTANGLE OUTLINE, which is nothing
+        ; at all: every gridline and every connector in a deck was silently
+        ; missing from the screen and from the PNG. The PDF had them, because
+        ; a border becomes an element with a CSS border and a box with no
+        ; height still draws its top edge — which is why the two disagreed.
+        ;
+        ; Clamped rather than special-cased, because the guide formulas the
+        ; 187 presets are built from divide by `w` and `h` freely, and a
+        ; hundredth of a thousandth of a point is the same picture as zero
+        ; without any of them answering infinity.
+        if (w < 0.0) {
             return out
         }
-        if (h <= 0.0) {
+        if (h < 0.0) {
             return out
         }
+        def boxW:double w
+        def boxH:double h
+        if (boxW < 0.0001) {
+            boxW = 0.0001
+        }
+        if (boxH < 0.0001) {
+            boxH = 0.0001
+        }
+        w = boxW
+        h = boxH
         def g:GeomGuides (this.guidesFor(name w h adjNames adjValues))
         def i:int (itemAt starts idx)
         def stop:int (itemAt ends idx)
@@ -307,12 +334,39 @@ class OfficePresetShapes {
         if (idx < 0) {
             return out
         }
-        if (w <= 0.0) {
+        ; A NEGATIVE box is nonsense and has no geometry. A ZERO one is a
+        ; straight line, and refusing it was the bug.
+        ;
+        ; `line`, `straightConnector1` and every other open preset are drawn
+        ; into a box with no thickness — a horizontal rule is `cy="0"`, which
+        ; is how PowerPoint itself writes one. Bailing out here left the
+        ; caller with no path, so `PptxToEvg` fell through to its border
+        ; fallback and drew a zero-height RECTANGLE OUTLINE, which is nothing
+        ; at all: every gridline and every connector in a deck was silently
+        ; missing from the screen and from the PNG. The PDF had them, because
+        ; a border becomes an element with a CSS border and a box with no
+        ; height still draws its top edge — which is why the two disagreed.
+        ;
+        ; Clamped rather than special-cased, because the guide formulas the
+        ; 187 presets are built from divide by `w` and `h` freely, and a
+        ; hundredth of a thousandth of a point is the same picture as zero
+        ; without any of them answering infinity.
+        if (w < 0.0) {
             return out
         }
-        if (h <= 0.0) {
+        if (h < 0.0) {
             return out
         }
+        def boxW:double w
+        def boxH:double h
+        if (boxW < 0.0001) {
+            boxW = 0.0001
+        }
+        if (boxH < 0.0001) {
+            boxH = 0.0001
+        }
+        w = boxW
+        h = boxH
         def g:GeomGuides (this.guidesFor(name w h adjNames adjValues))
         def i:int (itemAt starts idx)
         def stop:int (itemAt ends idx)
