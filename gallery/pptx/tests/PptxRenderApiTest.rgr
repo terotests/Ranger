@@ -88,6 +88,7 @@ class PptxRenderApiTest {
     fn run:void () {
         print "=== PptxRenderApiTest ==="
         this.testPng()
+        this.testPdf()
         this.testRefusals()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
@@ -149,6 +150,102 @@ class PptxRenderApiTest {
             this.check("and draws" (PptxRenderApiTest.isPng(png)))
             this.check("to something with content in it" ((buffer_length png) > 2000))
         }
+    }
+
+    ; `%PDF-` at the front, and `%%EOF` is what a reader looks for at the back.
+    sfn isPdf:boolean (b:buffer) {
+        if ((buffer_length b) < 32) {
+            return false
+        }
+        def c0:int (buffer_get b 0)
+        def c1:int (buffer_get b 1)
+        def c2:int (buffer_get b 2)
+        def c3:int (buffer_get b 3)
+        return ((((c0 == 37) && (c1 == 80)) && (c2 == 68)) && (c3 == 70))
+    }
+
+    ; How many times a byte string occurs. Used to ask whether the page has
+    ; PATH operators in it, which is what tells a drawn page from a blank one.
+    sfn countOf:int (hay:buffer needle:string) {
+        def n:int 0
+        def nl:int (strlen needle)
+        def i:int 0
+        while (i <= ((buffer_length hay) - nl)) {
+            def k:int 0
+            def hit:boolean true
+            while (k < nl) {
+                def want:int (charAt needle k)
+                def got:int (buffer_get hay (i + k))
+                if (got != want) {
+                    hit = false
+                    k = nl
+                } {
+                    k = (k + 1)
+                }
+            }
+            if hit {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn testPdf:void () {
+        print "--- a slide, printed ---"
+        def r (new PptxRenderer())
+        r.useFontDir("gallery/pdf_writer/assets/fonts")
+
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        slide.background("FFFFFF")
+        def box:PptxShapeRef (slide.addShape("star5" 100.0 100.0 300.0 300.0))
+        box.fill("C00000")
+        def cap:PptxShapeRef (slide.addTextBox(100.0 420.0 700.0 60.0 "Painettava teksti"))
+
+        def pdf:buffer (r.toPdf(deck 0))
+        this.check("a PDF came out" (PptxRenderApiTest.isPdf(pdf)))
+        this.check("with more than a header in it" ((buffer_length pdf) > 1000))
+
+        ; The page must be the SLIDE's size in points, not the pixel size the
+        ; screen path would give. 960 x 540, and a page a third too large in
+        ; both directions still looks right on its own — which is how that
+        ; mistake survives a review that only opens the file.
+        def mb:int (PptxRenderApiTest.countOf(pdf "/MediaBox [0 0 960 540]"))
+        this.check("at the slide's own size in points" (mb > 0))
+
+        ; A blank page is a valid PDF, so the assertions that matter are about
+        ; CONTENT. `re` is the rectangle operator and `f` fills; a five-pointed
+        ; star reaches the page as a path, so there are curve or line operators
+        ; too. And the caption has to be there as TEXT — a PDF that rasterized
+        ; it would have no `Tj` at all.
+        def fills:int (PptxRenderApiTest.countOf(pdf " l\n"))
+        this.check("with line operators from the star's path" (fills > 4))
+        ; The caption has to be TEXT — a reader must be able to select and
+        ; search it. A page that rasterized the words would carry no show-text
+        ; operator and no literal string, and would look identical on screen.
+        def shows:int (PptxRenderApiTest.countOf(pdf " Tj"))
+        this.check("and a show-text operator" (shows > 0))
+        def literal:int (PptxRenderApiTest.countOf(pdf "(Painettava teksti) Tj"))
+        this.check("carrying the caption itself" (literal > 0))
+
+        ; …drawn with the face the deck was MEASURED in, embedded in the file.
+        ; A PDF that fell back to the Type1 Helvetica stub every reader has
+        ; would still open, and every width in it would belong to a different
+        ; font — the same disagreement between measurement and drawing that the
+        ; browser build had, one output format along.
+        def embedded:int (PptxRenderApiTest.countOf(pdf "/FontFile2"))
+        this.check("from a font embedded in the file" (embedded > 0))
+        def truetype:int (PptxRenderApiTest.countOf(pdf "/Subtype /TrueType"))
+        this.check("and it is the TrueType face, not a built-in stand-in" (truetype > 0))
+
+        ; The difference test, as with the PNG: another fill has to change the
+        ; bytes, or none of the above proves the deck was drawn.
+        def box2:PptxShapeRef (slide.shapeAt(0))
+        box2.fill("00B050")
+        def pdf2:buffer (r.toPdf(deck 0))
+        this.check("a different fill prints differently"
+            ((PptxRenderApiTest.sameBytes(pdf pdf2)) == false))
     }
 
     fn testRefusals:void () {

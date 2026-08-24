@@ -32,6 +32,8 @@ Import "PptxApi.rgr"
 Import "../src/PptxView.rgr"
 Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
 Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
+Import "../../office/export/EVGListToElements.rgr"
 
 class PptxRenderer {
     ; The slide painter — the same one the desktop editor and the browser build
@@ -152,5 +154,63 @@ class PptxRenderer {
 
     fn pngHeight:int () {
         return view.pageH
+    }
+
+    ; --- PDF --------------------------------------------------------------------
+    ;
+    ; One slide, as a vector page at the slide's own size — a 960x540pt deck
+    ; becomes a 960x540pt page, because a PDF unit IS a typographic point and
+    ; a deck already states its size in them. Nothing is rasterized: the text
+    ; is text a reader can select and search, and the shapes are path
+    ; operators.
+    ;
+    ; The route is DISPLAY LIST, not the element tree `slideToEvg` builds.
+    ; That distinction is the whole reason this works: the display list is what
+    ; the software canvas, the WebGL backend and the browser all paint, so it
+    ; is where every fidelity fix in this gallery has gone — the 187 preset
+    ; geometries, the bidirectional reordering, the resolved fonts, the group
+    ; rotation. The element tree is a coarse approximation that predates all of
+    ; it. Printing the approximation would give a PDF that disagreed with the
+    ; screen in exactly the places the screen was carefully made right.
+    ;
+    ; `EVGListToElements` converts one to the other so the PDF writer needs no
+    ; second input format, and it is deliberately not pptx-specific: the .docx
+    ; reader and the spreadsheet emit the same display lists.
+    fn toPdf:buffer (deck:PptxDeck index:int) {
+        def empty:buffer (buffer_alloc 0)
+        if (deck.ok == false) {
+            error = "the deck is not open"
+            return empty
+        }
+        def slideRef:PptxSlideRef (deck.slideAt(index))
+        if ((slideRef.exists()) == false) {
+            error = ("there is no slide " + (to_string index))
+            return empty
+        }
+        def slide:PptxSlide (slideRef.model())
+        view.cachePresentationImages(deck.pres)
+
+        ; 72/96. `ptToPx` multiplies by 96/72 for the screen, and a PDF unit is
+        ; a point, so this cancels it and one slide point becomes one PDF unit.
+        ; Setting it to 1.0 would give a page a third too large in both
+        ; directions — and it would still look right on its own, which is how
+        ; that kind of mistake survives review.
+        view.converter.setScale(72.0 / 96.0)
+        view.converter.slideNumber = (index + 1)
+        def dl:EVGDisplayList (view.converter.slideToDisplayList(slide))
+        def bg:EVGColor (EVGColor.parse("#FFFFFF"))
+        if slide.bg.isSet {
+            bg = (view.converter.colorFrom(slide.bg))
+        }
+        def root:EVGElement (EVGListToElements.convert(dl slide.width slide.height bg))
+
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(slide.width slide.height)
+        renderer.setFontManager(view.ctx.tr.fm)
+        def measurer (new TTFTextMeasurer(view.ctx.tr.fm))
+        renderer.setMeasurer(measurer)
+        def out:buffer (renderer.render(root))
+        return out
     }
 }
