@@ -20,6 +20,7 @@
 Import "PptxModel.rgr"
 Import "PptxTextMeasure.rgr"
 Import "../../office/text/OfficeText.rgr"
+Import "../../evg/EVGCodepoint.rgr"
 
 class PptxTextLine {
     def para:int 0
@@ -138,14 +139,10 @@ class PptxTextLayout {
 
     ; --- breaking ------------------------------------------------------------
 
+    ; One rule, in `EVGCodepoint`, so this wrapper and the one the .docx
+    ; reader goes through cannot disagree about where a line may break.
     sfn isSpace:boolean (c:int) {
-        if (c == 32) {
-            return true
-        }
-        if (c == 9) {
-            return true
-        }
-        return false
+        return (EVGCodepoint.isSpace(c))
     }
 
     ; The column after the next run of spaces, i.e. where the next line could
@@ -292,10 +289,20 @@ class PptxTextLayout {
             if (i >= n) {
                 inWord = false
             } {
-                if (PptxTextLayout.isSpace((charAt text i))) {
+                def c:int (charAt text i)
+                if (PptxTextLayout.isSpace(c)) {
                     inWord = false
                 } {
                     i = (i + 1)
+                    ; A hyphen ends the chunk AFTER itself, so it stays on the
+                    ; line above — see `EVGCodepoint.breaksAfter`. Not when it
+                    ; is the chunk's first character: "-5" is not a place to
+                    ; break, and a chunk of nothing but a hyphen would loop.
+                    if (EVGCodepoint.breaksAfter(c)) {
+                        if (i > (from + 1)) {
+                            inWord = false
+                        }
+                    }
                 }
             }
         }
@@ -327,23 +334,6 @@ class PptxTextLayout {
             }
         }
         return from
-    }
-
-    ; The largest column that still fits, at least one past `from`, for a word
-    ; that is wider than the box on its own.
-    sfn hardBreak:int (para:PptxParagraph from:int limit:int avail:double m:PptxTextMeasure scale:double) {
-        def best:int (from + 1)
-        def col:int (from + 1)
-        while (col <= limit) {
-            def w:double (PptxTextLayout.measureSlice(para from col m scale))
-            if (w <= avail) {
-                best = col
-            } {
-                return best
-            }
-            col = (col + 1)
-        }
-        return best
     }
 
     ; --- the layout ----------------------------------------------------------
@@ -483,7 +473,20 @@ class PptxTextLayout {
                                 if (end > start) {
                                     stop = true
                                 } {
-                                    end = (PptxTextLayout.hardBreak(para start nextAt avail m scale))
+                                    ; Nothing fits, and the chunk is a single
+                                    ; word wider than the box. It goes on the
+                                    ; line ANYWAY and overflows.
+                                    ;
+                                    ; This used to break between letters, which
+                                    ; is a thing no office program does: neither
+                                    ; PowerPoint nor Word nor Google Slides
+                                    ; hyphenates on its own, and a label chopped
+                                    ; mid-word reads as a bug in the document
+                                    ; rather than as a box that is too small.
+                                    ; The author can see a word sticking out;
+                                    ; they cannot see why "Käyttöliittymät"
+                                    ; became "Käyttöliittymä" and "t".
+                                    end = nextAt
                                     stop = true
                                 }
                             }
