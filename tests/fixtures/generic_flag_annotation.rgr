@@ -1,0 +1,50 @@
+; `Type@(...)` after a colon is spelled the same for two different things: a
+; TYPE ARGUMENT list (`Node@(int)`) and a FLAG list (`Node@(optional)`). The
+; generic-class check has to tell them apart — it once rejected the second,
+; which is how every `@process` class in the runtime stopped compiling.
+
+class Plain {
+    def value:int 0
+}
+
+class Bag @params(T) {
+    def items:[T]
+
+    fn add:void (v:T) {
+        push items v
+    }
+    fn size:int () {
+        return (array_length items)
+    }
+}
+
+class FlagHolder {
+    ; a flag on a plain class — must not be read as a type argument
+    def maybe@(optional):Plain
+    def weakOne@(weak optional):Plain
+    ; a flag on a GENERIC instantiation — both readings at once
+    def maybeBag@(optional):Bag@(int)
+
+    fn run:void () {
+        def p:Plain (new Plain ())
+        p.value = 7
+        maybe = p
+        def got:Plain (unwrap maybe)
+
+        def b:Bag@(int) (new Bag@(int) ())
+        b.add(1)
+        b.add(2)
+        maybeBag = b
+        def gotBag:Bag@(int) (unwrap maybeBag)
+        def n (gotBag.size())
+        print ((("flags " + got.value) + " ") + n)
+    }
+}
+
+class GenericFlagTest {
+    sfn m@(main):void () {
+        def t (new FlagHolder())
+        t.run()
+        print "Done"
+    }
+}

@@ -13138,6 +13138,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }));
       }
     };
+    annotationIsTypeArgs (tAnn, ctx) {
+      if ( (tAnn.children.length) == 0 ) {
+        return false;
+      }
+      for ( let i = 0; i < tAnn.children.length; i++) {
+        var ch = tAnn.children[i];
+        const nm = ch.vref;
+        if ( (nm.length) == 0 ) {
+          return false;
+        }
+        if ( ctx.hasTemplateNode(nm) ) {
+          continue;
+        }
+        if ( ctx.isDefinedType(nm) == false ) {
+          return false;
+        }
+      };
+      return true;
+    };
     normalizeTypeArg (ch) {
       const v = ch.vref;
       const vlen = v.length;
@@ -13216,8 +13235,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         } else {
           const testC = ctx.findClass(node.vref);
           if ( (testC.is_trait == false) && (testC.node.hasExpressionProperty("params") == false) ) {
-            ctx.addError(node, node.vref + " takes no type arguments: it is not declared with @params(...)");
-            node.has_vref_annotation = false;
+            if ( this.annotationIsTypeArgs((tAnn), ctx) ) {
+              ctx.addError(node, node.vref + " takes no type arguments: it is not declared with @params(...)");
+              node.has_vref_annotation = false;
+            }
             return false;
           }
           if ( testC.is_trait ) {
@@ -13272,8 +13293,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         } else {
           const testC = ctx.findClass(targetName);
           if ( (testC.is_trait == false) && (testC.node.hasExpressionProperty("params") == false) ) {
-            ctx.addError(node, targetName + " takes no type arguments: it is not declared with @params(...)");
-            node.has_type_annotation = false;
+            if ( this.annotationIsTypeArgs((tAnn), ctx) ) {
+              ctx.addError(node, targetName + " takes no type arguments: it is not declared with @params(...)");
+              node.has_type_annotation = false;
+            }
             return false;
           }
           if ( testC.is_trait ) {

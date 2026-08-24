@@ -4042,6 +4042,32 @@ class RangerFlowParser {
   }
 
   ; myClass@(xxx)
+  ; Is this annotation a list of TYPE ARGUMENTS, or a list of FLAGS? Both are
+  ; spelled `@( … )` after a type: `def p:Node@(int)` names a type argument and
+  ; `def p:RangerProcessBase@(optional)` names a flag, and the parser hands
+  ; both over the same field. Every argument of a type argument list names a
+  ; type; no flag does. Getting this wrong in the permissive direction loses an
+  ; error message, and in the strict direction rejects `@(optional)` on every
+  ; process class in the runtime -- which is what it did.
+  fn annotationIsTypeArgs:boolean (tAnn:CodeNode ctx:RangerAppWriterContext) {
+    if ((size tAnn.children) == 0) {
+      return false
+    }
+    for tAnn.children ch:CodeNode i {
+      def nm:string ch.vref
+      if ((strlen nm) == 0) {
+        return false
+      }
+      if (ctx.hasTemplateNode(nm)) {
+        continue
+      }
+      if ((ctx.isDefinedType(nm)) == false) {
+        return false
+      }
+    }
+    return true
+  }
+
   ; A MAP type argument arrives in two pieces. `Store@([string:int])` is one
   ; token to a reader and three to the tokeniser, because a colon inside a
   ; word is a type separator everywhere else in the language: the argument
@@ -4144,8 +4170,10 @@ class RangerFlowParser {
         ; silence, so `new Plain@(int)` compiled as `new Plain` and the author
         ; was left believing Plain was generic.
         if ((testC.is_trait == false) && ((testC.node.hasExpressionProperty("params")) == false)) {
-          ctx.addError(node ((node.vref + ' takes no type arguments: it is not declared with @params(...)')))
-          node.has_vref_annotation = false
+          if (this.annotationIsTypeArgs((unwrap tAnn) ctx)) {
+            ctx.addError(node ((node.vref + ' takes no type arguments: it is not declared with @params(...)')))
+            node.has_vref_annotation = false
+          }
           return false
         }
         if(testC.is_trait) {
@@ -4211,8 +4239,10 @@ class RangerFlowParser {
       } {
         def testC (ctx.findClass(targetName))
         if ((testC.is_trait == false) && ((testC.node.hasExpressionProperty("params")) == false)) {
-          ctx.addError(node ((targetName + ' takes no type arguments: it is not declared with @params(...)')))
-          node.has_type_annotation = false
+          if (this.annotationIsTypeArgs((unwrap tAnn) ctx)) {
+            ctx.addError(node ((targetName + ' takes no type arguments: it is not declared with @params(...)')))
+            node.has_type_annotation = false
+          }
           return false
         }
         if(testC.is_trait) {

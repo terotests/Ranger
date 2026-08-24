@@ -129,6 +129,37 @@ beforeAll(() => {
   fs.mkdirSync(OUT, { recursive: true });
 });
 
+// `Type@(…)` after a colon is spelled the same for a TYPE ARGUMENT list and a
+// FLAG list. The check that reports "takes no type arguments" once fired on
+// `def p:RangerProcessBase@(optional)`, which is every `@process` class in the
+// runtime — a whole target's worth of programs stopped compiling, and the
+// generics suite was green throughout, because nothing here used a flag.
+describe("a flag annotation is not a type argument list", () => {
+  it("compiles a flag on a plain class and on an instantiation", () => {
+    const outFile = "generic_flag_annotation.js";
+    const cmd = [
+      `node "${path.join(ROOT, "bin", "output.js")}"`,
+      "-es6",
+      `"./tests/fixtures/generic_flag_annotation.rgr"`,
+      "-nodecli",
+      `-d="tests/.output-generics"`,
+      `-o="${outFile}"`,
+    ].join(" ");
+    const output = execSync(cmd, {
+      cwd: ROOT,
+      env: { ...process.env, RANGER_LIB: `./compiler/Lang.rgr;./lib/stdops.rgr` },
+      encoding: "utf-8",
+      timeout: 120000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    expect(output.includes("[FAIL]"), output).toBe(false);
+    const out = execSync(`node "${path.join(OUT, outFile)}"`, {
+      encoding: "utf-8",
+    });
+    expect(normalize(out)).toBe("flags 7 2\nDone");
+  });
+});
+
 describe("Generic classes (monomorphised)", () => {
   for (const c of CASES) {
     describe(c.name, () => {
