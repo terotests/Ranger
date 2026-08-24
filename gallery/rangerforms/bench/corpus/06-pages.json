@@ -1,0 +1,15 @@
+{
+  "name": "pages",
+  "note": "a page whose visibility hides everything on it",
+  "survey": {
+    "pages": [
+      { "name": "p1", "elements": [ { "type": "boolean", "name": "has_children" } ] },
+      { "name": "p2", "visibleIf": "{has_children} = true",
+        "elements": [
+          { "type": "text", "name": "count", "inputType": "number" },
+          { "type": "text", "name": "eldest", "visibleIf": "{count} > 0" }
+        ] }
+    ]
+  },
+  "script": [ { "has_children": true }, { "count": 2 }, { "has_children": false } ]
+}

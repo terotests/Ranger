@@ -1,0 +1,770 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PhotoIndex.rgr - a folder of photographs, made searchable
+; ==============================================================================
+;
+; A modern Photos library is not an album file; it is tens of thousands of
+; pictures with a date and a position buried in each one. Choosing the twenty
+; that belong in a book means asking questions of the whole pile - "that week
+; in June", "within twenty kilometres of the cottage" - and a question you
+; cannot ask until you have opened forty thousand files is not a question
+; anybody asks twice.
+;
+; So the pile is INDEXED once, into this: one small record per photograph, in
+; one file, that a search runs over in memory. That is the whole reason this
+; module exists, and it is why the index is a separate artefact rather than
+; something recomputed on each run.
+;
+;     scan  ─►  photo-index.json  ─►  query  ─►  AppleAlbum  ─►  a book
+;                (once, slow)         (fast)
+;
+; The index is DATA, not a database: no ordering guarantees beyond the one the
+; collector wrote, no updates in place, no schema migrations. Re-indexing a
+; folder is cheap enough - a JPEG's header is a few kilobytes, and the macOS
+; collector asks Spotlight, which has already read every file - that a stale
+; index is better thrown away than repaired.
+;
+; WHAT IS NOT HERE, ON PURPOSE
+;
+; Place NAMES. "Helsinki" is a question for a gazetteer, and shipping one to
+; answer it would be a bigger dependency than the whole book engine. What is
+; here is a coordinate and a radius, plus `PhotoPlace` so a caller can give a
+; coordinate a name once and then use the name - which is what somebody making
+; a book about the same cottage every summer actually wants.
+; ==============================================================================
+
+Import "BookApi.rgr"
+Import "BookAppleAlbum.rgr"
+Import "../../game_engine/model3d/GltfJson.rgr"
+
+; ------------------------------------------------------------------------------
+; Time, as the index needs it: a number that can be compared.
+; ------------------------------------------------------------------------------
+class PhotoTime {
+    ; EXIF writes "2008:10:22 16:38:20" - colons in the date, which is not a
+    ; typo and not ISO 8601. Answers 0 for anything it cannot read, and 0 is
+    ; also "no date", because a photograph taken one second after the Apple
+    ; epoch is not a case worth separating.
+    sfn fromExif:double (text:string) {
+        if ((strlen text) < 19) {
+            return 0.0
+        }
+        def y:int (PhotoTime.digits(text 0 4))
+        def m:int (PhotoTime.digits(text 5 7))
+        def d:int (PhotoTime.digits(text 8 10))
+        def hh:int (PhotoTime.digits(text 11 13))
+        def mm:int (PhotoTime.digits(text 14 16))
+        def ss:int (PhotoTime.digits(text 17 19))
+        if (y < 1000) {
+            return 0.0
+        }
+        return (AppleTime.fromCivil(y m d hh mm ss))
+    }
+
+    ; "2019-06-01", or "2019-06-01T10:12:33Z". A bare day is the START of that
+    ; day; `endOfDay` makes it the last second instead, which is what the upper
+    ; bound of a range means when somebody writes "to 2019-08-31" and expects
+    ; the 31st to be in it.
+    sfn fromIso:double (text:string endOfDay:boolean) {
+        if ((strlen text) < 10) {
+            return 0.0
+        }
+        def y:int (PhotoTime.digits(text 0 4))
+        def m:int (PhotoTime.digits(text 5 7))
+        def d:int (PhotoTime.digits(text 8 10))
+        if (y < 1000) {
+            return 0.0
+        }
+        def hh:int 0
+        def mm:int 0
+        def ss:int 0
+        if ((strlen text) >= 19) {
+            hh = (PhotoTime.digits(text 11 13))
+            mm = (PhotoTime.digits(text 14 16))
+            ss = (PhotoTime.digits(text 17 19))
+        } {
+            if endOfDay {
+                hh = 23
+                mm = 59
+                ss = 59
+            }
+        }
+        return (AppleTime.fromCivil(y m d hh mm ss))
+    }
+
+    ; The digits between two offsets, or 0 if anything there is not one. Not
+    ; `str2int` on a slice: that accepts " 12" and "+3" and a lone "-", and a
+    ; date field that silently accepts those is a date field that silently
+    ; produces the wrong year.
+    sfn digits:int (text:string from:int to:int) {
+        def n:int (strlen text)
+        if (to > n) {
+            return 0
+        }
+        def out:int 0
+        def i:int from
+        while (i < to) {
+            def c:int (charAt text i)
+            if (c < 48) {
+                return 0
+            }
+            if (c > 57) {
+                return 0
+            }
+            out = ((out * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isoDay:string (appleSeconds:double) {
+        return (AppleTime.dateText(appleSeconds))
+    }
+
+    ; The whole instant, not just the day. An index written back out with only
+    ; the day in it moves every photograph to midnight, and a book made from
+    ; "that afternoon" would then be a book made from that whole day.
+    sfn isoStamp:string (appleSeconds:double) {
+        if (appleSeconds <= 0.0) {
+            return ""
+        }
+        def day:string (AppleTime.dateText(appleSeconds))
+        def unix:double (AppleTime.unixSeconds(appleSeconds))
+        def dayF:double (unix / 86400.0)
+        def days:int (floor dayF)
+        def rest:double (unix - ((to_double days) * 86400.0))
+        def secs:int (floor rest)
+        def hh:int (idiv secs 3600)
+        def mm:int (idiv (secs - (hh * 3600)) 60)
+        def ss:int (secs - ((hh * 3600) + (mm * 60)))
+        ; Each bound before it is concatenated: a static call written directly
+        ; as the left operand of `+` swallows the whole expression.
+        def h2:string (AppleTime.pad2(hh))
+        def m2:string (AppleTime.pad2(mm))
+        def s2:string (AppleTime.pad2(ss))
+        return (day + "T" + h2 + ":" + m2 + ":" + s2 + "Z")
+    }
+}
+
+; ------------------------------------------------------------------------------
+; A place, so a coordinate can be given a name once.
+; ------------------------------------------------------------------------------
+class PhotoPlace {
+    def name:string ""
+    def lat:double 0.0
+    def lon:double 0.0
+    def radiusKm:double 5.0
+
+    Constructor () {
+        radiusKm = 5.0
+    }
+
+    sfn create:PhotoPlace (name:string lat:double lon:double radiusKm:double) {
+        def p (new PhotoPlace())
+        p.name = name
+        p.lat = lat
+        p.lon = lon
+        p.radiusKm = radiusKm
+        return p
+    }
+}
+
+; ------------------------------------------------------------------------------
+; One photograph, as much of it as a search needs.
+; ------------------------------------------------------------------------------
+class PhotoRecord {
+    ; The original, wherever it lives - a HEIC inside a library package, say.
+    def path:string ""
+    def fileName:string ""
+    ; The JPEG a collector made of it, if it had to make one. A HEIC cannot go
+    ; into a PDF and a browser will not draw it, so this is what a book places;
+    ; empty means `path` is already placeable.
+    def exportPath:string ""
+    def appleSeconds:double 0.0
+    def lat:double 0.0
+    def lon:double 0.0
+    ; 0,0 is a real coordinate in the Gulf of Guinea, so "has a position" is a
+    ; flag rather than a comparison against zero.
+    def located:boolean false
+    def width:double 0.0
+    def height:double 0.0
+    def camera:string ""
+    def album:string ""
+    def caption:string ""
+    def favorite:boolean false
+    def rating:int 0
+
+    Constructor () {
+    }
+
+    ; What a book should place: the export if there is one, the original if not.
+    fn placeable:string () {
+        if ((strlen exportPath) > 0) {
+            return exportPath
+        }
+        return path
+    }
+
+    fn dateText:string () {
+        return (AppleTime.dateText(appleSeconds))
+    }
+
+    fn copyOf:PhotoRecord () {
+        def r (new PhotoRecord())
+        r.path = path
+        r.fileName = fileName
+        r.exportPath = exportPath
+        r.appleSeconds = appleSeconds
+        r.lat = lat
+        r.lon = lon
+        r.located = located
+        r.width = width
+        r.height = height
+        r.camera = camera
+        r.album = album
+        r.caption = caption
+        r.favorite = favorite
+        r.rating = rating
+        return r
+    }
+}
+
+; ------------------------------------------------------------------------------
+; What to look for.
+; ------------------------------------------------------------------------------
+class PhotoQuery {
+    ; 0 means "no bound", at either end.
+    def fromSeconds:double 0.0
+    def toSeconds:double 0.0
+    def lat:double 0.0
+    def lon:double 0.0
+    def radiusKm:double 0.0
+    def hasPlace:boolean false
+    ; Substring, matched against the file name, the camera and the album.
+    def text:string ""
+    def minRating:int 0
+    def favoritesOnly:boolean false
+    ; Keep only photographs that HAVE a position - useful on its own, because
+    ; an untagged picture cannot be in a book about a place.
+    def locatedOnly:boolean false
+    def limit:int 0
+
+    Constructor () {
+    }
+
+    fn between:PhotoQuery (fromDay:string toDay:string) {
+        fromSeconds = (PhotoTime.fromIso(fromDay false))
+        toSeconds = (PhotoTime.fromIso(toDay true))
+        return this
+    }
+
+    fn near:PhotoQuery (atLat:double atLon:double km:double) {
+        lat = atLat
+        lon = atLon
+        radiusKm = km
+        hasPlace = true
+        return this
+    }
+
+    fn atPlace:PhotoQuery (place:PhotoPlace) {
+        return (this.near(place.lat place.lon place.radiusKm))
+    }
+
+    ; What this query is asking, in words, for a status line or a log. A search
+    ; that returns four pictures out of nine thousand should be able to say why.
+    fn describe:string () {
+        def bits:string ""
+        if (fromSeconds > 0.0) {
+            bits = (bits + "from " + (AppleTime.dateText(fromSeconds)) + " ")
+        }
+        if (toSeconds > 0.0) {
+            bits = (bits + "to " + (AppleTime.dateText(toSeconds)) + " ")
+        }
+        if hasPlace {
+            def r:string (BookRenderer.num(radiusKm))
+            def where:string ((PhotoIndex.coord(lat)) + "," + (PhotoIndex.coord(lon)))
+            bits = (bits + "within " + r + " km of " + where + " ")
+        }
+        if ((strlen text) > 0) {
+            bits = (bits + "matching \"" + text + "\" ")
+        }
+        if (minRating > 0) {
+            bits = (bits + (to_string minRating) + " stars or better ")
+        }
+        if favoritesOnly {
+            bits = (bits + "favourites only ")
+        }
+        if locatedOnly {
+            bits = (bits + "with a position ")
+        }
+        if ((strlen bits) == 0) {
+            return "everything"
+        }
+        return bits
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The index.
+; ------------------------------------------------------------------------------
+class PhotoIndex {
+    def root:string ""
+    def photos:[PhotoRecord]
+    def places:[PhotoPlace]
+    ; What went wrong reading it, if anything did.
+    def error:string ""
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length photos)
+    }
+
+    fn at:PhotoRecord (i:int) {
+        if (i < 0) {
+            return (new PhotoRecord())
+        }
+        if (i >= (array_length photos)) {
+            return (new PhotoRecord())
+        }
+        return (itemAt photos i)
+    }
+
+    fn add:void (r:PhotoRecord) {
+        push photos r
+    }
+
+    fn addPlace:void (p:PhotoPlace) {
+        push places p
+    }
+
+    fn placeNamed:PhotoPlace (name:string) {
+        def i:int 0
+        while (i < (array_length places)) {
+            def p:PhotoPlace (itemAt places i)
+            if (p.name == name) {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new PhotoPlace())
+    }
+
+    ; --------------------------------------------------------------------
+    ; Searching
+    ; --------------------------------------------------------------------
+
+    fn search:[PhotoRecord] (q:PhotoQuery) {
+        def out:[PhotoRecord]
+        def i:int 0
+        while (i < (array_length photos)) {
+            def r:PhotoRecord (itemAt photos i)
+            if (PhotoIndex.matches(r q)) {
+                if (q.limit > 0) {
+                    if ((array_length out) >= q.limit) {
+                        return out
+                    }
+                }
+                push out r
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn matches:boolean (r:PhotoRecord q:PhotoQuery) {
+        if (q.fromSeconds > 0.0) {
+            if (r.appleSeconds < q.fromSeconds) {
+                return false
+            }
+        }
+        if (q.toSeconds > 0.0) {
+            if (r.appleSeconds > q.toSeconds) {
+                return false
+            }
+        }
+        ; A dated search excludes an undated photograph rather than keeping it
+        ; on a technicality: "that week in June" cannot be answered yes by a
+        ; picture with no date on it.
+        if (q.fromSeconds > 0.0) {
+            if (r.appleSeconds <= 0.0) {
+                return false
+            }
+        }
+        if (q.toSeconds > 0.0) {
+            if (r.appleSeconds <= 0.0) {
+                return false
+            }
+        }
+        if (q.locatedOnly) {
+            if (r.located == false) {
+                return false
+            }
+        }
+        if q.hasPlace {
+            if (r.located == false) {
+                return false
+            }
+            def km:double (PhotoIndex.distanceKm(r.lat r.lon q.lat q.lon))
+            if (km > q.radiusKm) {
+                return false
+            }
+        }
+        if (q.minRating > 0) {
+            if (r.rating < q.minRating) {
+                return false
+            }
+        }
+        if q.favoritesOnly {
+            if (r.favorite == false) {
+                return false
+            }
+        }
+        if ((strlen q.text) > 0) {
+            def hay:string (r.fileName + " " + r.camera + " " + r.album + " " + r.caption)
+            if ((PhotoIndex.containsFold(hay q.text)) == false) {
+                return false
+            }
+        }
+        return true
+    }
+
+    ; Great-circle distance on a sphere. The haversine, in the `asin` form:
+    ; over the distances a photo book asks about - a village, a valley, a
+    ; coastline - the difference between a sphere and the real ellipsoid is
+    ; metres, and the difference between this and the naive flat formula is
+    ; kilometres as soon as you are away from the equator.
+    sfn distanceKm:double (lat1:double lon1:double lat2:double lon2:double) {
+        def r:double 6371.0088
+        def p1:double (PhotoIndex.radians(lat1))
+        def p2:double (PhotoIndex.radians(lat2))
+        def dp:double (PhotoIndex.radians(lat2 - lat1))
+        def dl:double (PhotoIndex.radians(lon2 - lon1))
+        def sp:double (sin (dp * 0.5))
+        def sl:double (sin (dl * 0.5))
+        def c1:double (cos p1)
+        def c2:double (cos p2)
+        def a:double ((sp * sp) + (((c1 * c2) * sl) * sl))
+        if (a < 0.0) {
+            a = 0.0
+        }
+        if (a > 1.0) {
+            a = 1.0
+        }
+        def root:double (sqrt a)
+        def ang:double (asin root)
+        return ((2.0 * r) * ang)
+    }
+
+    sfn radians:double (deg:double) {
+        return (deg * 0.017453292519943295)
+    }
+
+    ; A coordinate, written with six decimal places.
+    ;
+    ; NOT `BookRenderer.num`, which rounds to two - that is the right precision
+    ; for a typographic point and a hundred metres of error for a latitude, so
+    ; an index written and read back would move every photograph up to a
+    ; kilometre and quietly change what a radius search answers. Six decimals
+    ; is about a tenth of a metre, which is more than any phone knows.
+    sfn coord:string (v:double) {
+        def neg:boolean (v < 0.0)
+        def a:double v
+        if neg {
+            a = (0.0 - v)
+        }
+        def scaled:double ((a * 1000000.0) + 0.5)
+        def r:int (floor scaled)
+        def whole:int (idiv r 1000000)
+        def frac:int (r - (whole * 1000000))
+        def fs:string (to_string frac)
+        while ((strlen fs) < 6) {
+            fs = ("0" + fs)
+        }
+        ; Trailing zeros carry no information and make a diff of two indexes
+        ; harder to read.
+        def n:int (strlen fs)
+        def trimming:boolean true
+        while trimming {
+            trimming = false
+            if (n > 1) {
+                if ((substring fs (n - 1) n) == "0") {
+                    n = (n - 1)
+                    trimming = true
+                }
+            }
+        }
+        def out:string ((to_string whole) + "." + (substring fs 0 n))
+        if neg {
+            return ("-" + out)
+        }
+        return out
+    }
+
+    ; Case-insensitive for ASCII, which is what a file name and a camera model
+    ; are. A search for "iphone" should find "iPhone 12"; a search for "Kesä"
+    ; is matched as written, because folding beyond ASCII is a language
+    ; question, not a character one.
+    sfn containsFold:boolean (haystack:string needle:string) {
+        def h:string (PhotoIndex.lowerAscii(haystack))
+        def n:string (PhotoIndex.lowerAscii(needle))
+        return (BookAlbumSearch.hasSub(h n))
+    }
+
+    sfn lowerAscii:string (s:string) {
+        def n:int (strlen s)
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c >= 65) {
+                if (c <= 90) {
+                    c = (c + 32)
+                }
+            }
+            def piece:string (strfromcode c)
+            out = (out + piece)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------------
+    ; Handing the result on
+    ; --------------------------------------------------------------------
+
+    ; The found photographs as an album, so everything downstream - the import,
+    ; the layout, the editor - is the same code that reads an iPhoto library.
+    ; That is the whole reason `AppleAlbum` is the shape it is.
+    sfn asAlbum:AppleAlbum (name:string found:[PhotoRecord]) {
+        def album (new AppleAlbum())
+        album.name = name
+        def i:int 0
+        while (i < (array_length found)) {
+            def r:PhotoRecord (itemAt found i)
+            def p (new AlbumPhoto())
+            p.id = ("p" + (to_string i))
+            p.path = (r.placeable())
+            p.originalPath = r.path
+            p.caption = r.caption
+            p.rating = r.rating
+            p.appleSeconds = r.appleSeconds
+            p.width = r.width
+            p.height = r.height
+            push album.photos p
+            i = (i + 1)
+        }
+        return album
+    }
+
+    ; --------------------------------------------------------------------
+    ; Reading and writing the index file
+    ; --------------------------------------------------------------------
+
+    ; The format a collector writes. Version 1:
+    ;
+    ;   { "version": 1, "root": "...", "places": [...], "photos": [
+    ;       { "path": "...", "name": "...", "export": "...",
+    ;         "date": "2019-06-23T10:12:33Z", "lat": 60.17, "lon": 24.94,
+    ;         "w": 4032, "h": 3024, "camera": "...", "album": "...",
+    ;         "caption": "...", "favorite": true, "rating": 5 } ] }
+    ;
+    ; Every field but `path` is optional, because a collector that can only see
+    ; some of them should still be able to write an index.
+    sfn fromJson:PhotoIndex (text:string) {
+        def index (new PhotoIndex())
+        def parser (new JsonParser())
+        def root:JsonValue (parser.parse(text))
+        if ((root.isObject()) == false) {
+            index.error = "the photo index did not begin with an object"
+            return index
+        }
+        index.root = (root.stringOr("root" ""))
+
+        def places:JsonValue (root.get("places"))
+        def pi:int 0
+        while (pi < (places.count())) {
+            def pv:JsonValue (places.at(pi))
+            def place (new PhotoPlace())
+            place.name = (pv.stringOr("name" ""))
+            place.lat = (pv.doubleOr("lat" 0.0))
+            place.lon = (pv.doubleOr("lon" 0.0))
+            place.radiusKm = (pv.doubleOr("radiusKm" 5.0))
+            push index.places place
+            pi = (pi + 1)
+        }
+
+        def photos:JsonValue (root.get("photos"))
+        if ((photos.isArray()) == false) {
+            index.error = "the photo index has no \"photos\" array"
+            return index
+        }
+        def i:int 0
+        while (i < (photos.count())) {
+            def v:JsonValue (photos.at(i))
+            def r (new PhotoRecord())
+            r.path = (v.stringOr("path" ""))
+            r.fileName = (v.stringOr("name" ""))
+            if ((strlen r.fileName) == 0) {
+                r.fileName = (AppleAlbum.baseName(r.path))
+            }
+            r.exportPath = (v.stringOr("export" ""))
+            r.appleSeconds = (PhotoTime.fromIso((v.stringOr("date" "")) false))
+            r.width = (v.doubleOr("w" 0.0))
+            r.height = (v.doubleOr("h" 0.0))
+            r.camera = (v.stringOr("camera" ""))
+            r.album = (v.stringOr("album" ""))
+            r.caption = (v.stringOr("caption" ""))
+            r.favorite = (v.boolOr("favorite" false))
+            r.rating = (v.intOr("rating" 0))
+            ; A position is present only if BOTH halves are, because a record
+            ; carrying a latitude and no longitude is not half-located.
+            if (v.has("lat")) {
+                if (v.has("lon")) {
+                    r.lat = (v.doubleOr("lat" 0.0))
+                    r.lon = (v.doubleOr("lon" 0.0))
+                    r.located = true
+                }
+            }
+            if ((strlen r.path) > 0) {
+                push index.photos r
+            }
+            i = (i + 1)
+        }
+        return index
+    }
+
+    sfn fromFile:PhotoIndex (dir:string name:string) {
+        ; `?? … ""` rather than testing the optional. An optional string is a
+        ; POINTER on es6 and a plain std::string on C++, so `if body` compiles
+        ; to `body != NULL` there and does not compile at all - which only the
+        ; C++ target ever says. An empty file and a missing one become the same
+        ; answer, which for this is correct: neither is parseable.
+        def body:string (?? (read_file dir name) "")
+        if ((strlen body) > 0) {
+            return (PhotoIndex.fromJson(body))
+        }
+        def bad (new PhotoIndex())
+        bad.error = ("could not read " + dir + "/" + name)
+        return bad
+    }
+
+    ; The index, written back out in the same format it is read in - so a scan
+    ; done here and a scan done by the macOS collector produce the same file,
+    ; and either can be handed to the other.
+    fn toJson:string () {
+        def out:string "{\n"
+        out = (out + "  \"version\": 1,\n")
+        out = (out + "  \"root\": \"" + (BookApi.jsonString(root)) + "\",\n")
+        out = (out + "  \"count\": " + (to_string (array_length photos)) + ",\n")
+        if ((array_length places) > 0) {
+            out = (out + "  \"places\": [\n")
+            def pi:int 0
+            while (pi < (array_length places)) {
+                def p:PhotoPlace (itemAt places pi)
+                out = (out + "    {\"name\": \"" + (BookApi.jsonString(p.name)) + "\"")
+                out = (out + ", \"lat\": " + (PhotoIndex.coord(p.lat)))
+                out = (out + ", \"lon\": " + (PhotoIndex.coord(p.lon)))
+                out = (out + ", \"radiusKm\": " + (BookRenderer.num(p.radiusKm)) + "}")
+                if (pi < ((array_length places) - 1)) {
+                    out = (out + ",")
+                }
+                out = (out + "\n")
+                pi = (pi + 1)
+            }
+            out = (out + "  ],\n")
+        }
+        out = (out + "  \"photos\": [\n")
+        def i:int 0
+        while (i < (array_length photos)) {
+            def r:PhotoRecord (itemAt photos i)
+            out = (out + "    " + (PhotoIndex.recordJson(r)))
+            if (i < ((array_length photos) - 1)) {
+                out = (out + ",")
+            }
+            out = (out + "\n")
+            i = (i + 1)
+        }
+        out = (out + "  ]\n}\n")
+        return out
+    }
+
+    sfn recordJson:string (r:PhotoRecord) {
+        def out:string "{\"path\": \""
+        out = (out + (BookApi.jsonString(r.path)) + "\"")
+        out = (out + ", \"name\": \"" + (BookApi.jsonString(r.fileName)) + "\"")
+        if ((strlen r.exportPath) > 0) {
+            out = (out + ", \"export\": \"" + (BookApi.jsonString(r.exportPath)) + "\"")
+        }
+        if (r.appleSeconds > 0.0) {
+            out = (out + ", \"date\": \"" + (PhotoTime.isoStamp(r.appleSeconds)) + "\"")
+        }
+        if r.located {
+            out = (out + ", \"lat\": " + (PhotoIndex.coord(r.lat)))
+            out = (out + ", \"lon\": " + (PhotoIndex.coord(r.lon)))
+        }
+        if (r.width > 0.0) {
+            out = (out + ", \"w\": " + (BookRenderer.num(r.width)))
+            out = (out + ", \"h\": " + (BookRenderer.num(r.height)))
+        }
+        if ((strlen r.camera) > 0) {
+            out = (out + ", \"camera\": \"" + (BookApi.jsonString(r.camera)) + "\"")
+        }
+        if ((strlen r.album) > 0) {
+            out = (out + ", \"album\": \"" + (BookApi.jsonString(r.album)) + "\"")
+        }
+        if ((strlen r.caption) > 0) {
+            out = (out + ", \"caption\": \"" + (BookApi.jsonString(r.caption)) + "\"")
+        }
+        if r.favorite {
+            out = (out + ", \"favorite\": true")
+        }
+        if (r.rating > 0) {
+            out = (out + ", \"rating\": " + (to_string r.rating))
+        }
+        return (out + "}")
+    }
+
+    ; What the index holds, in one line - printed after a scan, because the
+    ; number that matters is how many pictures have a DATE and a POSITION, not
+    ; how many files were seen.
+    fn describe:string () {
+        def dated:int 0
+        def located:int 0
+        def i:int 0
+        while (i < (array_length photos)) {
+            def r:PhotoRecord (itemAt photos i)
+            if (r.appleSeconds > 0.0) {
+                dated = (dated + 1)
+            }
+            if r.located {
+                located = (located + 1)
+            }
+            i = (i + 1)
+        }
+        def n:string (to_string (array_length photos))
+        return (n + " photograph(s), " + (to_string dated) + " dated, " + (to_string located) + " with a position")
+    }
+}
+
+; A substring test that is not called `contains`, which Ranger reserves.
+class BookAlbumSearch {
+    sfn hasSub:boolean (haystack:string needle:string) {
+        def hl:int (strlen haystack)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            if ((substring haystack i (i + nl)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

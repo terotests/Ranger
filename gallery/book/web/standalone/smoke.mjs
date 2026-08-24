@@ -37,7 +37,13 @@ const MIME = {
   ".jpeg": "image/jpeg",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".xml": "text/xml; charset=utf-8",
 };
+
+function results(line) {
+  const m = line.match(/selftest \d+\/(\d+)/);
+  return m ? m[1] : "?";
+}
 
 function findChrome() {
   const candidates = [
@@ -134,7 +140,10 @@ async function main() {
   try {
     const run = await runChrome(chrome, [
       ...GL_ARGS,
-      "--virtual-time-budget=30000",
+      // The page fetches fonts and photographs, reads their EXIF and lays a
+      // book out twice; the budget has to cover the slowest of those runs, not
+      // the median, or the run ends mid-test and reports "(running)".
+      "--virtual-time-budget=300000",
       "--dump-dom",
       `http://127.0.0.1:${PORT}/index.html?selftest=1`,
     ]);
@@ -152,6 +161,10 @@ async function main() {
     if (backend !== "webgl2") problems.push("not drawing with WebGL 2 (got " + backend + ")");
     if (!(cmds > 50)) problems.push("the spread has almost nothing in it (" + cmds + " commands)");
     if (!line) problems.push("the page ran no self test");
+    // The page writes its results as it goes and drops "(running)" when it
+    // finishes, so a run that timed out half way through is a failure rather
+    // than a short list of passes.
+    else if (line.includes("(running)")) problems.push("the self test did not finish - it stopped after " + results(line) + " checks");
     else {
       const m = line.match(/selftest (\d+)\/(\d+)/);
       if (!m || m[1] !== m[2]) problems.push("self test failed");
@@ -163,16 +176,26 @@ async function main() {
     }
 
     if (SHOT) {
-      const shot = path.resolve(HERE, "../../artifacts/01_editor.png");
-      fs.mkdirSync(path.dirname(shot), { recursive: true });
-      await runChrome(chrome, [
-        ...GL_ARGS,
-        "--virtual-time-budget=20000",
-        "--window-size=1220,940",
-        "--screenshot=" + shot,
-        `http://127.0.0.1:${PORT}/index.html?spread=2&edit=1`,
-      ]);
-      console.log("  wrote " + path.relative(process.cwd(), shot));
+      const shots = [
+        ["01_editor.png", "?spread=2&edit=1"],
+        // The same editor with an Apple photo album open in it, read from the
+        // library index that ships in the build.
+        ["02_album.png", "?album=1&spread=1"],
+        // The finder, with a search by date and place standing in it.
+        ["03_photos.png", "?photos=1&from=2008-01-01&to=2008-12-31&near=43.47,11.88&radius=30&find=1&title=Toscana&spread=1"],
+      ];
+      for (const [name, query] of shots) {
+        const shot = path.resolve(HERE, "../../artifacts/" + name);
+        fs.mkdirSync(path.dirname(shot), { recursive: true });
+        await runChrome(chrome, [
+          ...GL_ARGS,
+          "--virtual-time-budget=20000",
+          "--window-size=1220,940",
+          "--screenshot=" + shot,
+          `http://127.0.0.1:${PORT}/index.html${query}`,
+        ]);
+        console.log("  wrote " + path.relative(process.cwd(), shot));
+      }
     }
     console.log("\nthe book editor ran in a browser with no host behind it");
   } finally {

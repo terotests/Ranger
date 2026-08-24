@@ -50,6 +50,12 @@ class DataGrid {
     def sheetTabH:int 26
     def scrollX:int 0
     def scrollY:int 0
+    ; Draw a quiet arrow on EVERY list-validated cell, not only the active
+    ; one. Off by default, because a workbook has a handful of validated cells
+    ; among thousands; on for a panel whose whole columns are lists, where an
+    ; arrow only on the active cell means a reader cannot tell there is a
+    ; choice until they click.
+    def listArrowsEverywhere:boolean false
     def firstVisibleRow:int 0
     def lastVisibleRow:int 0
     def firstVisibleCol:int 0

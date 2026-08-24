@@ -110,6 +110,26 @@ class GridDbTest {
         return -1
     }
 
+    ; Which page of the strip owns an item. A tab owns a RANGE of the item
+    ; list rather than a list of its own, so this is a range test rather than
+    ; a lookup.
+    sfn tabOwning:int (app:GridApp index:int) {
+        def bar:EVGToolbar app.view.toolbar
+        def n:int (bar.tabCount())
+        def i:int 0
+        while (i < n) {
+            def t:ToolTab (bar.tabAt(i))
+            if (index >= t.first) {
+                def end:int (t.first + t.count)
+                if (index < end) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     sfn clickAt:void (app:GridApp input:UIInput px:int py:int) {
         input.newFrame()
         input.setPointerPos(px py)
@@ -237,29 +257,24 @@ class GridDbTest {
         ; A shortcut is not a discoverable feature, and in a browser Ctrl+D is
         ; the bookmark. Both windows have a button, and the button is clicked
         ; here the way a pointer clicks it.
-        ; The database buttons live on the DATA tab, and a button on an
-        ; inactive tab is not laid out at all — `w` stays 0, the pointer hits
-        ; nothing, and the window never opens. The test used to look for the
-        ; button and click it without choosing the tab, which worked when the
-        ; strip had no tabs. Choosing it is what a person does first.
-        def dataTab:int -1
-        def dti:int 0
-        while (dti < (app.view.toolbar.tabCount())) {
-            def tab:ToolTab (app.view.toolbar.tabAt(dti))
-            if (tab.name == "Data") {
-                dataTab = dti
-            }
-            dti = (dti + 1)
-        }
-        check.ok("there is a Data tab" (dataTab >= 0))
-        app.view.toolbar.selectTab(dataTab)
-        app.render()
-
+        ; Choosing the page the button is on happens below, next to the click
+        ; it enables — `tabOwning` finds it rather than this naming the page,
+        ; which is the same fix arrived at from two directions and is better
+        ; done once.
         def dbButton:int (GridDbTest.toolIndexFor(app "db.connection"))
         check.ok("there is a database button on the toolbar" (dbButton >= 0))
         def sqlButton:int (GridDbTest.toolIndexFor(app "db.sql.dialog"))
         check.ok("and one for the SQL box" (sqlButton >= 0))
         if (dbButton >= 0) {
+            ; The database button lives on the strip's Data page, and a page
+            ; that is not showing is deliberately not laid out — that is what
+            ; keeps a click from landing on a button nobody can see. So the
+            ; page is selected first, the way a reader selects it, and the
+            ; strip lays itself out again on the next frame.
+            def owning:int (GridDbTest.tabOwning(app dbButton))
+            check.ok("the database button is on a page of the strip" (owning >= 0))
+            check.ok("its page can be selected" (app.view.toolbar.selectTab(owning)))
+            app.render()
             def item:ToolItem (app.view.toolbar.at(dbButton))
             check.ok("the button was laid out" (item.w > 0))
             def hit:int (app.toolbarHit((item.x + (idiv item.w 2)) (item.y + (idiv item.h 2))))

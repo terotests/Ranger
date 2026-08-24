@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "root": "gallery/pdf_writer/assets/images",
+  "count": 5,
+  "places": [
+    {"name": "cottage", "lat": 61.5, "lon": 25.0, "radiusKm": 20},
+    {"name": "tuscany", "lat": 43.47, "lon": 11.88, "radiusKm": 30}
+  ],
+  "photos": [
+    {"path": "originals/2019/06/IMG_4021.HEIC", "name": "IMG_4021.HEIC",
+     "export": "../../../pdf_writer/assets/images/GPS_test.jpg",
+     "date": "2019-06-23T10:12:33Z", "lat": 61.508400, "lon": 25.021700,
+     "w": 640, "h": 480, "camera": "Apple iPhone 12", "album": "Kesa",
+     "caption": "Metsa, vanhan kolikon varinen", "favorite": true, "rating": 5},
+    {"path": "originals/2019/06/IMG_4022.HEIC", "name": "IMG_4022.HEIC",
+     "export": "../../../pdf_writer/assets/images/Example_scaled.jpg",
+     "date": "2019-06-24T07:41:02Z", "lat": 61.499100, "lon": 25.008800,
+     "w": 600, "h": 600, "camera": "Apple iPhone 12", "album": "Kesa",
+     "caption": "Alin oksa, ensimmaisena aamuna", "rating": 4},
+    {"path": "originals/2019/08/IMG_4310.HEIC", "name": "IMG_4310.HEIC",
+     "export": "../../../pdf_writer/assets/images/Canon_40D_scaled.jpg",
+     "date": "2019-08-02T16:05:44Z", "lat": 61.512900, "lon": 25.043100,
+     "w": 500, "h": 340, "camera": "Apple iPhone 12", "album": "Kesa",
+     "caption": "Missa vesi kulkee hitaasti ja kirkkaana", "rating": 3},
+    {"path": "originals/2008/10/DSCN0021.JPG", "name": "DSCN0021.JPG",
+     "date": "2008-10-22T16:38:20Z", "lat": 43.467082, "lon": 11.884538,
+     "w": 640, "h": 480, "camera": "NIKON COOLPIX P6000", "album": "Italia"},
+    {"path": "originals/scans/postcard.tif", "name": "postcard.tif",
+     "w": 2400, "h": 1600, "album": "Scans"}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "choices",
+  "note": "single and multiple choice, and the operators that read them",
+  "survey": {
+    "elements": [
+      { "type": "radiogroup", "name": "country", "choices": ["FI", "SE", "NO", "PT"] },
+      { "type": "text", "name": "nordic_note", "visibleIf": "{country} anyof ['FI','SE','NO']" },
+      { "type": "checkbox", "name": "symptoms", "choices": ["cough", "fever", "ache"] },
+      { "type": "text", "name": "urgent", "visibleIf": "{symptoms} contains 'fever'" },
+      { "type": "text", "name": "both", "visibleIf": "{symptoms} allof ['cough','fever']" }
+    ]
+  },
+  "script": [
+    { "country": "SE" },
+    { "country": "PT" },
+    { "symptoms": ["cough"] },
+    { "symptoms": ["cough", "fever"] },
+    { "symptoms": [] }
+  ]
+}

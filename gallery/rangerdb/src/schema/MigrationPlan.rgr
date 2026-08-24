@@ -1,0 +1,333 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MigrationPlan.rgr — changes in, a migration out.
+; ============================================================================
+;
+;   ChangeSet ─▶ ordered ─▶ up DDL
+;                        └▶ down DDL
+;
+; The up statements are the changes in dependency order. The down statements
+; are their inverses in the REVERSE of that order, which is what makes a down
+; migration runnable: undoing a plan is not undoing each step, it is undoing
+; the steps backwards.
+;
+; ---------------------------------------------------------------------------
+; What it refuses to write
+; ---------------------------------------------------------------------------
+;
+; A down migration cannot bring back a dropped table's ROWS, and pretending
+; otherwise is the single most expensive thing a migration tool can do. So a
+; plan reports what it cannot reverse rather than emitting DDL that looks like
+; it can:
+;
+;   irreversible:  drop table orders   (the rows are not recoverable)
+;
+; The up side is complete or the plan says which statement it could not write.
+; A half-written migration presented as a whole one is worse than none.
+; ============================================================================
+
+Import "SchemaChange.rgr"
+Import "SchemaToDdl.rgr"
+
+class MigrationPlan {
+    def writer:SchemaToDdl (SchemaToDdl.forDialect(""))
+    def up:[string]
+    def down:[string]
+    ; Changes whose DOWN cannot be written truthfully. The up side is fine;
+    ; running the down will not put the data back.
+    def irreversible:[string]
+    ; Changes this plan could not express at all in this dialect.
+    def unsupported:[string]
+    ; Suggestions left out because nobody confirmed them. The plan is still
+    ; correct without them — a drop and an add do what a rename does, minus
+    ; the data — but a reader is told what it declined to guess.
+    def skipped:[string]
+
+    Constructor () {
+    }
+
+    sfn forDialect:MigrationPlan (name:string) {
+        def p:MigrationPlan (new MigrationPlan)
+        p.writer = (SchemaToDdl.forDialect(name))
+        return p
+    }
+
+    fn reversible:boolean () {
+        return ((array_length irreversible) == 0)
+    }
+
+    fn complete:boolean () {
+        return ((array_length unsupported) == 0)
+    }
+
+    fn destructive:boolean () {
+        return ((array_length irreversible) > 0)
+    }
+
+    fn upScript:string () {
+        return (MigrationPlan.joinStatements(up))
+    }
+
+    fn downScript:string () {
+        return (MigrationPlan.joinStatements(down))
+    }
+
+    sfn joinStatements:string (stmts:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length stmts)
+        while (i < n) {
+            out = (out + (itemAt stmts i) + ";\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn report:string () {
+        def out:string ((to_string (array_length up)) + " up, " + (to_string (array_length down)) + " down")
+        def bad:int (array_length irreversible)
+        if (bad > 0) {
+            out = (out + ", " + (to_string bad) + " IRREVERSIBLE")
+        }
+        def un:int (array_length unsupported)
+        if (un > 0) {
+            out = (out + ", " + (to_string un) + " NOT EXPRESSIBLE")
+        }
+        def sk:int (array_length skipped)
+        if (sk > 0) {
+            out = (out + ", " + (to_string sk) + " unconfirmed guesses left out")
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Building
+    ; ------------------------------------------------------------------------
+    ;
+    ; `before` is needed as well as the change set: reversing a drop means
+    ; writing the thing that was there, and only the old schema still knows
+    ; what that was.
+    fn build:boolean (set:ChangeSet before:DatabaseSchema after:DatabaseSchema) {
+        clear up
+        clear down
+        clear irreversible
+        clear unsupported
+        clear skipped
+        ; A SUGGESTED rename never reaches the DDL. The differ emits the drop,
+        ; the add, AND the rename it suspects joins them; writing all three
+        ; would drop a column and then rename the column it just dropped.
+        ; `SchemaDiff.collapseRenames` is what turns an accepted suggestion
+        ; into a real change and removes the pair it replaces — so a plan
+        ; built from a set nobody confirmed is the safe one, with the data
+        ; copied by hand, and a plan built from a confirmed set is the short
+        ; one. Neither is ever both.
+        def ordered:[SchemaChange] (set.ordered())
+        def runnable:[SchemaChange]
+        def s:int 0
+        def sn:int (array_length ordered)
+        while (s < sn) {
+            def cand:SchemaChange (itemAt ordered s)
+            if (cand.suggested) {
+                push skipped (cand.describe())
+            } {
+                push runnable cand
+            }
+            s = (s + 1)
+        }
+        def i:int 0
+        def n:int (array_length runnable)
+        while (i < n) {
+            this.emitUp((itemAt runnable i) before after)
+            i = (i + 1)
+        }
+        ; The down side is the inverses, backwards.
+        def k:int (n - 1)
+        while (k >= 0) {
+            this.emitDown((itemAt runnable k) before after)
+            k = (k - 1)
+        }
+        return (this.complete())
+    }
+
+    fn emitUp:void (c:SchemaChange before:DatabaseSchema after:DatabaseSchema) {
+        def q:string (writer.quote(c.table))
+        if (c.kind == "table.add") {
+            push up (writer.createTable(after c.tableDef))
+            return
+        }
+        if (c.kind == "table.drop") {
+            push up ("DROP TABLE " + q)
+            return
+        }
+        if (c.kind == "table.rename") {
+            push up ("ALTER TABLE " + q + " RENAME TO " + (writer.quote(c.toName)))
+            return
+        }
+        if (c.kind == "column.add") {
+            push up ("ALTER TABLE " + q + " ADD COLUMN " + (writer.columnDef(c.columnDef)))
+            return
+        }
+        if (c.kind == "column.drop") {
+            push up ("ALTER TABLE " + q + " DROP COLUMN " + (writer.quote(c.column)))
+            return
+        }
+        if (c.kind == "column.rename") {
+            push up ("ALTER TABLE " + q + " RENAME COLUMN " + (writer.quote(c.column)) + " TO " + (writer.quote(c.toName)))
+            return
+        }
+        if (c.kind == "column.type") {
+            push up ("ALTER TABLE " + q + " ALTER COLUMN " + (writer.quote(c.column)) + " SET DATA TYPE " + c.after)
+            return
+        }
+        if (c.kind == "column.null") {
+            push up (this.nullStatement(q c.column ((c.columnDef.nullable) == false)))
+            return
+        }
+        if (c.kind == "column.default") {
+            push up (this.defaultStatement(q c.column c.after))
+            return
+        }
+        if (c.kind == "index.add") {
+            def t:DBTable (after.tableByName(c.table))
+            push up (writer.createIndex(t c.index))
+            return
+        }
+        if (c.kind == "index.drop") {
+            push up ("DROP INDEX " + (writer.quote(c.index.name)))
+            return
+        }
+        if (c.kind == "fk.add") {
+            push up (writer.addForeignKey(c.foreignKey))
+            return
+        }
+        if (c.kind == "fk.drop") {
+            push up (this.dropForeignKey(c.foreignKey))
+            return
+        }
+        ; A primary key cannot be altered in place on most engines — it is a
+        ; table rebuild, and a plan that pretends otherwise emits a statement
+        ; that fails at 3am.
+        if (c.kind == "pk.change") {
+            push unsupported ("primary key of " + c.table + " changes from " + c.before + " to " + c.after + " — that is a table rebuild, not an ALTER")
+            return
+        }
+        push unsupported ("no DDL for " + (c.describe()))
+    }
+
+    fn emitDown:void (c:SchemaChange before:DatabaseSchema after:DatabaseSchema) {
+        def q:string (writer.quote(c.table))
+        if (c.kind == "table.add") {
+            push down ("DROP TABLE " + q)
+            return
+        }
+        if (c.kind == "table.drop") {
+            ; The DDL comes back; the rows do not.
+            push down (writer.createTable(before c.tableDef))
+            push irreversible ("drop table " + c.table + " — the rows are not recoverable")
+            return
+        }
+        if (c.kind == "table.rename") {
+            push down ("ALTER TABLE " + (writer.quote(c.toName)) + " RENAME TO " + q)
+            return
+        }
+        if (c.kind == "column.add") {
+            push down ("ALTER TABLE " + q + " DROP COLUMN " + (writer.quote(c.column)))
+            return
+        }
+        if (c.kind == "column.drop") {
+            push down ("ALTER TABLE " + q + " ADD COLUMN " + (writer.columnDef(c.priorColumn)))
+            push irreversible ("drop column " + c.table + "." + c.column + " — the values are not recoverable")
+            return
+        }
+        if (c.kind == "column.rename") {
+            push down ("ALTER TABLE " + q + " RENAME COLUMN " + (writer.quote(c.toName)) + " TO " + (writer.quote(c.column)))
+            return
+        }
+        if (c.kind == "column.type") {
+            push down ("ALTER TABLE " + q + " ALTER COLUMN " + (writer.quote(c.column)) + " SET DATA TYPE " + c.before)
+            push irreversible ("retype " + c.table + "." + c.column + " " + c.before + " -> " + c.after + " — a narrowing conversion does not come back")
+            return
+        }
+        if (c.kind == "column.null") {
+            def wasNotNull:boolean ((c.priorColumn.nullable) == false)
+            push down (this.nullStatement(q c.column wasNotNull))
+            if ((c.columnDef.nullable) == false) {
+                push irreversible ("NOT NULL on " + c.table + "." + c.column + " — rows it refused are not recoverable")
+            }
+            return
+        }
+        if (c.kind == "column.default") {
+            push down (this.defaultStatement(q c.column c.before))
+            return
+        }
+        if (c.kind == "index.add") {
+            push down ("DROP INDEX " + (writer.quote(c.index.name)))
+            return
+        }
+        if (c.kind == "index.drop") {
+            def t:DBTable (before.tableByName(c.table))
+            push down (writer.createIndex(t c.index))
+            return
+        }
+        if (c.kind == "fk.add") {
+            push down (this.dropForeignKey(c.foreignKey))
+            return
+        }
+        if (c.kind == "fk.drop") {
+            push down (writer.addForeignKey(c.foreignKey))
+            return
+        }
+    }
+
+    fn nullStatement:string (quotedTable:string column:string notNull:boolean) {
+        if notNull {
+            return ("ALTER TABLE " + quotedTable + " ALTER COLUMN " + (writer.quote(column)) + " SET NOT NULL")
+        }
+        return ("ALTER TABLE " + quotedTable + " ALTER COLUMN " + (writer.quote(column)) + " DROP NOT NULL")
+    }
+
+    fn defaultStatement:string (quotedTable:string column:string value:string) {
+        if ((strlen value) == 0) {
+            return ("ALTER TABLE " + quotedTable + " ALTER COLUMN " + (writer.quote(column)) + " DROP DEFAULT")
+        }
+        return ("ALTER TABLE " + quotedTable + " ALTER COLUMN " + (writer.quote(column)) + " SET DEFAULT " + value)
+    }
+
+    ; A key with no name cannot be dropped by name, and inventing one would
+    ; produce a statement that fails on the database it was written for.
+    fn dropForeignKey:string (fk:DBForeignKey) {
+        if ((strlen fk.name) == 0) {
+            push unsupported ("a foreign key on " + fk.fromTable + " -> " + fk.toTable + " has no name, so there is nothing to DROP CONSTRAINT by")
+            return ("-- unnamed foreign key on " + fk.fromTable + " -> " + fk.toTable + ": name it first")
+        }
+        return ("ALTER TABLE " + (writer.quote(fk.fromTable)) + " DROP CONSTRAINT " + (writer.quote(fk.name)))
+    }
+
+    ; A human-readable preview, which is what a viewer shows before anything
+    ; is written to a file.
+    sfn preview:string (set:ChangeSet) {
+        def out:string ""
+        def ordered:[SchemaChange] (set.ordered())
+        def i:int 0
+        def n:int (array_length ordered)
+        while (i < n) {
+            def c:SchemaChange (itemAt ordered i)
+            def mark:string "   "
+            if (c.destructive) {
+                mark = " ! "
+            }
+            if (c.suggested) {
+                mark = " ? "
+            }
+            out = (out + mark + (c.describe()))
+            if (c.suggested) {
+                def pct:int (to_int (c.confidence * 100.0))
+                out = (out + "   (a guess, " + (to_string pct) + "% — confirm it)")
+            }
+            out = (out + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+}

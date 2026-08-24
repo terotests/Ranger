@@ -1,0 +1,244 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SurveyExpr.rgr — SurveyJS's expression syntax, on the native evaluator.
+; ============================================================================
+;
+;     {age} < 18                       →   age < 18
+;     {country} = 'FI' && {age} >= 18  →   country == 'FI' and age >= 18
+;     notempty({email})                →   notempty(email)
+;     {a} <> {b}                       →   a != b
+;
+; SurveyJS expressions are not JavaScript, whatever they look like: they are a
+; small language of their own with braces around question names. So this is
+; not `ComponentEngine` — it is `NativeExpr` with the surface differences
+; rewritten, which is both far cheaper and far more likely to agree with
+; SurveyJS about what an expression MEANS.
+;
+; ---------------------------------------------------------------------------
+; What the rewrite is allowed to touch
+; ---------------------------------------------------------------------------
+;
+; Only things outside string literals. `'{a}'` is the four characters, not a
+; reference, and `{a} = 'x && y'` has one `&&` in it that must survive. The
+; rewriter therefore walks the source rather than replacing text, which is the
+; entire reason it is forty lines instead of two.
+;
+; A construct this cannot express is NOT silently rewritten into something
+; else. `SurveyReader` reports it as a gap, and the comparison harness counts
+; the form as unsupported rather than as agreeing by accident.
+; ============================================================================
+
+Import "NativeExpr.rgr"
+
+class SurveyExpr extends NativeExpr {
+    ; What was rewritten away, so a caller can say which forms used what.
+    def sawBraces:boolean false
+
+    Constructor () {
+    }
+
+    fn hostName:string () {
+        return "surveyjs"
+    }
+
+    ; The one hook. `NativeExpr.parse` keeps the text a person WROTE on the
+    ; program, so an error message about `{age} < 18` does not talk about
+    ; `age < 18` and send somebody looking in the wrong place.
+    fn preprocess:string (source:string) {
+        return (SurveyExpr.translate(source))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The rewrite
+    ; ------------------------------------------------------------------------
+    sfn translate:string (src:string) {
+        def out:string ""
+        def n:int (strlen src)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt src i)
+            ; A string literal is copied through untouched, quotes and all.
+            if (ch == 39) {
+                def end:int (SurveyExpr.endOfString(src i n 39))
+                out = (out + (substring src i end))
+                i = end
+            } {
+                if (ch == 34) {
+                    def end2:int (SurveyExpr.endOfString(src i n 34))
+                    out = (out + (substring src i end2))
+                    i = end2
+                } {
+                    if (ch == 123) {
+                        ; `{name}` → `name`. A brace with no closing brace is
+                        ; left as it was, so the parser reports it rather than
+                        ; this quietly eating the rest of the expression.
+                        def close:int (SurveyExpr.indexFrom(src (i + 1) n 125))
+                        if (close < 0) {
+                            out = (out + (substring src i (i + 1)))
+                            i = (i + 1)
+                        } {
+                            out = (out + (SurveyExpr.cleanName((substring src (i + 1) close))))
+                            i = (close + 1)
+                        }
+                    } {
+                        def taken:int (SurveyExpr.operatorAt(src i n))
+                        if (taken > 0) {
+                            out = (out + (SurveyExpr.operatorFor(src i taken)))
+                            i = (i + taken)
+                        } {
+                            out = (out + (substring src i (i + 1)))
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; A reference may name a property of an answer — `{q.length}`, `{row.x}`.
+    ; The name is kept whole, dots and all, because a dependency on
+    ; `q.length` is a dependency on `q` and the graph is built from the text.
+    sfn cleanName:string (inner:string) {
+        return (FormValue.trimText(inner))
+    }
+
+    sfn endOfString:int (src:string at:int n:int quote:int) {
+        def i:int (at + 1)
+        while (i < n) {
+            def ch:int (charAt src i)
+            if (ch == 92) {
+                i = (i + 2)
+            } {
+                if (ch == quote) {
+                    return (i + 1)
+                }
+                i = (i + 1)
+            }
+        }
+        return n
+    }
+
+    sfn indexFrom:int (src:string at:int n:int ch:int) {
+        def i:int at
+        while (i < n) {
+            if ((charAt src i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; How many characters an operator we rewrite takes here, or 0.
+    sfn operatorAt:int (src:string at:int n:int) {
+        if ((at + 1) < n) {
+            def pair:string (substring src at (at + 2))
+            if (pair == "&&") {
+                return 2
+            }
+            if (pair == "||") {
+                return 2
+            }
+            if (pair == "<>") {
+                return 2
+            }
+        }
+        if ((charAt src at) == 33) {
+            ; `!` is `not`, but `!=` is already what the parser wants.
+            if ((at + 1) < n) {
+                if ((charAt src (at + 1)) == 61) {
+                    return 0
+                }
+            }
+            return 1
+        }
+        return 0
+    }
+
+    sfn operatorFor:string (src:string at:int taken:int) {
+        def text:string (substring src at (at + taken))
+        if (text == "&&") {
+            return " and "
+        }
+        if (text == "||") {
+            return " or "
+        }
+        if (text == "<>") {
+            return "!="
+        }
+        return " not "
+    }
+
+    ; ------------------------------------------------------------------------
+    ; What we know we do not do
+    ; ------------------------------------------------------------------------
+    ;
+    ; Named so a reader is not left to discover it from a wrong answer. The
+    ; harness counts a form using any of these as unsupported rather than as
+    ; agreeing, and the reader puts the name in the questionnaire's gaps.
+    sfn unsupportedFunctions:[string] () {
+        def out:[string]
+        ; Calendar arithmetic. SurveyJS's `age()` counts real years across
+        ; real months; a days-and-divide approximation would agree with it
+        ; most of the time, which is worse than not having it.
+        push out "age"
+        push out "currentDate"
+        push out "currentDateTime"
+        push out "getDate"
+        push out "dateDiff"
+        push out "dateAdd"
+        ; Row and panel scoped references inside a repeat.
+        push out "displayValue"
+        push out "propertyValue"
+        return out
+    }
+
+    sfn usesUnsupported:string (source:string) {
+        def bad:[string] (SurveyExpr.unsupportedFunctions())
+        def i:int 0
+        def n:int (array_length bad)
+        while (i < n) {
+            def name:string (itemAt bad i)
+            if (SurveyExpr.callsFunction(source name)) {
+                return name
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; A name followed by `(` — so `age(` counts and `{age}` does not.
+    sfn callsFunction:boolean (source:string name:string) {
+        def n:int (strlen name)
+        def last:int ((strlen source) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring source i (i + n)) == name) {
+                def before:boolean true
+                if (i > 0) {
+                    if (NativeExpr.isNameChar((charAt source (i - 1)))) {
+                        before = false
+                    }
+                }
+                if before {
+                    def k:int (i + n)
+                    while (k < (strlen source)) {
+                        if ((charAt source k) != 32) {
+                            break
+                        }
+                        k = (k + 1)
+                    }
+                    if (k < (strlen source)) {
+                        if ((charAt source k) == 40) {
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

@@ -28,19 +28,27 @@ while [ $# -gt 0 ]; do
 done
 
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
-mkdir -p "$OUT"
+
+# The compiler resolves -d= against the repository root even when it is given
+# an absolute path, so it always writes into the tree and the copy below is
+# what honours --out. Without this, `--out /somewhere/else` produced a
+# directory with everything in it except the one file that matters, and said
+# nothing — which is how the Pages build would have shipped a page with no
+# engine behind it.
+STAGE=$WEB/dist
+mkdir -p "$STAGE" "$OUT"
 
 # A previous build's bundle must not survive this one: the checks below ask
 # whether a bundle is present and loadable, and a stale file answers yes.
-rm -f "$OUT/pptx_web.js"
-log=$(node bin/output.js -es6 gallery/pptx/web/pptx_web.rgr -d="$OUT" -o=pptx_web.js 2>&1)
+rm -f "$STAGE/pptx_web.js"
+log=$(node bin/output.js -es6 gallery/pptx/web/pptx_web.rgr -d="$STAGE" -o=pptx_web.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/pptx/web/pptx_web.rgr" >&2
   exit 1
 fi
-if [ ! -f "$OUT/pptx_web.js" ]; then
-  echo "the compiler reported no failure but wrote no $OUT/pptx_web.js" >&2
+if [ ! -f "$STAGE/pptx_web.js" ]; then
+  echo "the compiler reported no failure but wrote no $STAGE/pptx_web.js" >&2
   exit 1
 fi
 
@@ -50,7 +58,7 @@ fi
 node --input-type=module -e "
   import fs from 'fs';
   globalThis.require = undefined;
-  const src = fs.readFileSync('$OUT/pptx_web.js', 'utf8');
+  const src = fs.readFileSync('$STAGE/pptx_web.js', 'utf8');
   const found = (0, eval)(src + '; typeof PptxWeb');
   if (found !== 'function') {
     console.error('pptx_web.js does not define PptxWeb when loaded without require()');
@@ -63,7 +71,7 @@ node --input-type=module -e "
 # second bundle is ever added beside it.
 node --input-type=module -e "
   import fs from 'fs';
-  const p = '$OUT/pptx_web.js';
+  const p = '$STAGE/pptx_web.js';
   const src = fs.readFileSync(p, 'utf8');
   if (!src.startsWith('// scoped')) {
     fs.writeFileSync(p,
@@ -71,6 +79,10 @@ node --input-type=module -e "
       + '(function () {\n' + src + '\n;globalThis.PptxWeb = PptxWeb;\n})();\n');
   }
 " || exit 1
+
+if [ "$(cd "$OUT" && pwd)" != "$(cd "$STAGE" && pwd)" ]; then
+  cp "$STAGE/pptx_web.js" "$OUT/pptx_web.js"
+fi
 
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"

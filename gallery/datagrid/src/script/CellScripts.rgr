@@ -1,0 +1,243 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CellScripts.rgr — cell rules written in JavaScript.
+; ============================================================================
+;
+;   one script, several functions          a column names one of them
+;   ────────────────────────────           ─────────────────────────────
+;   function sku(cell) {                   pane.scriptColumn(1, 1, 40, "sku")
+;     if (cell.value.length === 0)
+;       return "an SKU is required"
+;     return cell.value.substring(0,4) === "SKU-"
+;   }
+;
+;   function discount(cell) {
+;     if (Number(cell.value) > 30)
+;       return "over 30% needs approval"
+;     return true
+;   }
+;
+; The engine is `ComponentEngine` — the same TSX evaluator the report scripts
+; and the game runner use, over the same `ts_parser`. Nothing new was written
+; to run these: a validator is a function call with one object argument, and
+; `callFunction` has always been able to do that.
+;
+; ---------------------------------------------------------------------------
+; The contract, and why the return type is loose
+; ---------------------------------------------------------------------------
+;
+;   return true            accepted
+;   return false           refused, with no reason
+;   return "why not"       refused, and that string is what the user reads
+;
+; A rule that can hand back its own message is a rule whose author can explain
+; themselves without also editing the application. That matters more here than
+; type purity: the person writing `sku` is usually not the person who built
+; the grid.
+;
+; ---------------------------------------------------------------------------
+; A broken script does not refuse anything
+; ---------------------------------------------------------------------------
+;
+; If the script fails to parse, names no such function, or throws, `accepts`
+; returns TRUE and `errorText` says what went wrong. The alternative is a
+; typo in a validator quietly making a column unfillable, which is a much
+; worse failure than a validator that is not running — and one nobody would
+; think to look for.
+; ============================================================================
+
+Import "../CellRuleHost.rgr"
+Import "../../../pdf_writer/src/jsx/ComponentEngine.rgr"
+
+class CellScripts extends CellRuleHost {
+    def engine:ComponentEngine (new ComponentEngine())
+    def source:string ""
+    def loaded:boolean false
+    ; The names the script defines, gathered when it loads so `hasRule` does
+    ; not have to ask the evaluator.
+    def names:[string]
+    ; What the last refusal was about. Kept apart from `errorText`, which is
+    ; about the SCRIPT going wrong rather than about the value being wrong.
+    def refusal:string ""
+
+    Constructor () {
+    }
+
+    sfn of:CellScripts (src:string) {
+        def s:CellScripts (new CellScripts)
+        s.load(src)
+        return s
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Loading
+    ; ------------------------------------------------------------------------
+    fn load:boolean (src:string) {
+        source = src
+        loaded = false
+        errorText = ""
+        clear names
+        if ((strlen src) == 0) {
+            errorText = "no script"
+            return false
+        }
+        engine.quiet = true
+        engine.loadScript(src)
+        CellScripts.collectNames(src names)
+        if ((array_length names) == 0) {
+            errorText = "the script defines no functions"
+            return false
+        }
+        loaded = true
+        return true
+    }
+
+    ; The `function NAME(` declarations, read off the source. Deliberately not
+    ; from the evaluator's scope: a name that is in scope but was never
+    ; written here (a helper the engine provides) is not something a column
+    ; should be able to name as its rule.
+    sfn collectNames:void (src:string out:[string]) {
+        def n:int (strlen src)
+        def i:int 0
+        while (i < n) {
+            if (CellScripts.matchesAt(src i "function ")) {
+                def start:int (i + 9)
+                def j:int start
+                while (j < n) {
+                    if ((CellScripts.isIdentChar((charAt src j))) == false) {
+                        break
+                    }
+                    j = (j + 1)
+                }
+                if (j > start) {
+                    ; The name has to be immediately followed by its argument
+                    ; list, or it is not a declaration.
+                    def k:int j
+                    while (k < n) {
+                        if ((charAt src k) != 32) {
+                            break
+                        }
+                        k = (k + 1)
+                    }
+                    if (k < n) {
+                        if ((charAt src k) == 40) {
+                            push out (substring src start j)
+                        }
+                    }
+                }
+                i = j
+            } {
+                i = (i + 1)
+            }
+        }
+    }
+
+    sfn matchesAt:boolean (src:string at:int part:string) {
+        def n:int (strlen part)
+        if ((at + n) > (strlen src)) {
+            return false
+        }
+        return ((substring src at (at + n)) == part)
+    }
+
+    sfn isIdentChar:boolean (ch:int) {
+        if (ch == 95) {
+            return true
+        }
+        if (ch >= 48) {
+            if (ch <= 57) {
+                return true
+            }
+        }
+        if (ch >= 65) {
+            if (ch <= 90) {
+                return true
+            }
+        }
+        if (ch >= 97) {
+            if (ch <= 122) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Asking
+    ; ------------------------------------------------------------------------
+    fn hasRule:boolean (name:string) {
+        if (loaded == false) {
+            return false
+        }
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if ((itemAt names i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The one object a rule is given. Everything a validator can reasonably
+    ; want about the cell it is judging, and nothing about the application —
+    ; a rule that could reach the workbook would be a rule that could change
+    ; it, and this is a question, not a command.
+    fn cellArg:EvalValue (text:string row:int col:int) {
+        def keys:[string]
+        def vals:[EvalValue]
+        push keys "value"
+        push vals (EvalValue.string(text))
+        push keys "row"
+        push vals (EvalValue.fromInt(row))
+        push keys "col"
+        push vals (EvalValue.fromInt(col))
+        push keys "blank"
+        push vals (EvalValue.boolean(((strlen text) == 0)))
+        return (EvalValue.object(keys vals))
+    }
+
+    fn accepts:boolean (name:string text:string row:int col:int) {
+        refusal = ""
+        if (loaded == false) {
+            errorText = "the script did not load"
+            return true
+        }
+        if ((this.hasRule(name)) == false) {
+            errorText = ("no rule named " + name)
+            return true
+        }
+        errorText = ""
+        def out:EvalValue (engine.callFunction(name (this.cellArg(text row col))))
+        ; A string is a refusal that explains itself.
+        if (out.isString()) {
+            def why:string (out.toString())
+            if ((strlen why) == 0) {
+                return true
+            }
+            refusal = why
+            return false
+        }
+        if (out.isBoolean()) {
+            def ok:boolean (out.toBool())
+            if (ok == false) {
+                refusal = ("refused by " + name)
+            }
+            return ok
+        }
+        ; Anything else — undefined, null, a number, a function that fell off
+        ; the end — is a rule that did not answer. See the header: that is a
+        ; broken script, not a refused value.
+        errorText = (name + " returned nothing a verdict can be read from")
+        return true
+    }
+
+    fn reason:string () {
+        if ((strlen refusal) > 0) {
+            return refusal
+        }
+        return errorText
+    }
+}

@@ -1,0 +1,77 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; Introspect.rgr — pick the introspector an open session deserves.
+; ============================================================================
+;
+; The application should never name an engine. It opens a database, gets a
+; session back, and asks this for something that can describe it.
+;
+; An engine with no adapter still gets `GenericIntrospector`, which works off
+; the backend contract alone. So a new engine is never unusable in the viewer —
+; it is only less well described, and it says so through `gaps`.
+; ============================================================================
+
+Import "SqliteIntrospector.rgr"
+Import "DuckdbIntrospector.rgr"
+Import "GenericIntrospector.rgr"
+
+class Introspect {
+    sfn forSession:DBIntrospector (s:DBSession) {
+        def name:string (s.engineName())
+        if (name == "sqlite") {
+            def lite:SqliteIntrospector (SqliteIntrospector.over(s))
+            return lite
+        }
+        if (name == "duckdb") {
+            def duck:DuckdbIntrospector (DuckdbIntrospector.over(s))
+            return duck
+        }
+        def generic:GenericIntrospector (GenericIntrospector.over(s))
+        return generic
+    }
+
+    ; The whole database, every namespace the engine will admit to, flattened
+    ; into one schema. Tables keep their `schema` field, so a caller that cares
+    ; about the namespace can still tell them apart.
+    ; Convenience only. It builds its own introspector, so the GAPS it recorded
+    ; are dropped with it — a caller that needs to know what could not be
+    ; described must hold the introspector itself and use `everythingWith`.
+    sfn everything:DatabaseSchema (s:DBSession) {
+        def ins:DBIntrospector (Introspect.forSession(s))
+        return (Introspect.everythingWith(ins s))
+    }
+
+    sfn everythingWith:DatabaseSchema (ins:DBIntrospector s:DBSession) {
+        def names:[string] (ins.schemaNames())
+        def n:int (array_length names)
+        if (n <= 1) {
+            def only:string ""
+            if (n == 1) {
+                only = (itemAt names 0)
+            }
+            return (ins.introspect(only))
+        }
+        def merged:DatabaseSchema (new DatabaseSchema)
+        merged.engine = (s.engineName())
+        def i:int 0
+        while (i < n) {
+            def part:DatabaseSchema (ins.introspect((itemAt names i)))
+            def t:int 0
+            def nt:int (array_length part.tables)
+            while (t < nt) {
+                merged.addTable((itemAt part.tables t))
+                t = (t + 1)
+            }
+            def k:int 0
+            def nk:int (array_length part.foreignKeys)
+            while (k < nk) {
+                merged.addForeignKey((itemAt part.foreignKeys k))
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        merged.resolve()
+        return merged
+    }
+}

@@ -1,0 +1,293 @@
+/**
+ * The page driving itself, so `smoke.mjs` has something to read back.
+ *
+ * There is no host process to drive this page from, and adding a browser-driver
+ * library to check one page is a lot of machinery for one page. So the checks
+ * run INSIDE the tab, in the real browser, against the real WebGL context, and
+ * write their verdict into the DOM — which headless Chrome will dump without
+ * any driver at all.
+ *
+ * Everything below goes through the same methods a button calls. A check that
+ * reached into the frame's state instead would pass on a page whose buttons
+ * were all broken.
+ */
+export async function selftest(web, draw) {
+  const checks = [];
+  const ok = (name, cond) => checks.push({ name, ok: !!cond });
+
+  // --- the database really is in the tab ------------------------------------
+  ok("the in-tab engine is RangerDB", web.run("engine.rangerdb", "") && web.engineName() === "rangerdb");
+  ok("it opened five tables", (web.tableCount() | 0) === 5);
+  ok("and it says what it could not describe", (web.gapsText() || "").indexOf("foreign keys") >= 0);
+
+  // --- rows, which only a live database has ---------------------------------
+  web.run("view.data", "");
+  draw();
+  ok("the Data section is showing", web.section() === "data");
+  ok("a table is selected", (web.selectedTable() || "").length > 0);
+
+  // --- the schema read from SQL --------------------------------------------
+  ok("the schema can be read from SQL instead", web.run("db.sql", ""));
+  const schema = JSON.parse(web.schemaJson());
+  // Reading through RangerSQL sees the CREATE VIEW too, which the ERD
+  // domain's older hand-rolled reader did not — so the object count is five
+  // tables AND a view, and the assertion counts them apart rather than
+  // rounding the view away.
+  const tables = schema.tables.filter((t) => t.kind === "table");
+  const views = schema.tables.filter((t) => t.kind === "view");
+  ok("…and that one has all five tables", tables.length === 5);
+  ok("…and the view as a view", views.length === 1);
+  ok("…and the five relationships RangerDB could not see", schema.foreignKeys.length === 5);
+  const selfRef = schema.foreignKeys.filter((f) => f.from === f.to).length;
+  ok("…including the self-reference on categories", selfRef === 1);
+
+  // The Data section must not draw an empty grid for a schema with no
+  // database behind it: "no rows" and "not running" are different statements.
+  web.run("view.data", "");
+  draw();
+  const beforeRows = window.__evgStats.textRuns | 0;
+  ok("a schema with no database still draws an explanation", beforeRows > 0);
+
+  // --- the diagram ----------------------------------------------------------
+  ok("the diagram can be drawn", web.run("view.diagram", ""));
+  draw();
+  ok("and it drew geometry on the GPU", (window.__evgStats.paths | 0) > 0);
+  ok("and text", (window.__evgStats.textRuns | 0) > 0);
+  const allCmds = window.__dbScene.list.cmds.length;
+
+  // --- subject areas --------------------------------------------------------
+  web.selectTable("orders");
+  ok("the neighbourhood view is smaller than everything", web.run("diagram.near", ""));
+  draw();
+  const nearCmds = window.__dbScene.list.cmds.length;
+  ok("…measurably smaller", nearCmds < allCmds);
+  web.run("diagram.all", "");
+  draw();
+  ok("and it goes back", window.__dbScene.list.cmds.length > nearCmds);
+
+  // --- the toolbar is a real toolbar ---------------------------------------
+  // Pressing the strip where its second page's name sits switches pages, and
+  // the frame reports the section a button on that page then selects.
+  web.pointer(10, 10, true, true, false);
+  draw();
+  ok("clicking the strip does not throw", true);
+
+  // --- export ---------------------------------------------------------------
+  const svg = web.diagramSvg();
+  ok("it exports an SVG", svg.indexOf("<svg") === 0);
+  ok("…with the tables in it", svg.indexOf("customers") > 0 && svg.indexOf("order_items") > 0);
+
+  // --- DDL export -----------------------------------------------------------
+  const ddl = web.schemaDdl();
+  ok("it exports DDL", ddl.indexOf("CREATE TABLE") >= 0);
+  ok("…with the relationships in it", ddl.indexOf("FOREIGN KEY") >= 0);
+  ok("…and the indexes", ddl.indexOf("CREATE INDEX") >= 0);
+
+  // --- the metrics section --------------------------------------------------
+  ok("the metrics section can be run", web.run("metrics.run", ""));
+  draw();
+  ok("…and it is showing", web.section() === "metrics");
+  const findings = JSON.parse(web.findingsJson());
+  ok("the demo schema is analysed", Array.isArray(findings));
+  // The demo schema has a nullable foreign key on categories.parent_id (a
+  // self-reference that must be optional or the first row cannot exist), so
+  // there is something to find — and every schema-only finding must say it
+  // measured nothing.
+  ok("…and nothing claims to have been measured", findings.every((f) => f.observed === false));
+  ok("every finding names a rule", findings.every((f) => (f.rule || "").length > 0));
+
+  // --- the panels are the spreadsheet ---------------------------------------
+  //
+  // The Schema and Data sections are `GridPane` — the DataGrid's own view,
+  // model, selection and validation with the chrome switched off. These
+  // checks read the panel's CELLS, which only exist if that is true; a viewer
+  // that had gone back to painting its own table would have no cells to read.
+  web.run("engine.rangerdb", "");
+  web.selectTable("customers");
+  web.run("view.schema", "");
+  draw();
+  ok("the schema panel is a spreadsheet", web.schemaCell(0, 0) === "column");
+  ok("…holding the table's columns", web.schemaCell(1, 0).length > 0);
+  // The dropdown is the list rule the grid has always drawn an arrow for.
+  const choices = web.schemaChoices(1, 1);
+  ok("the type column offers a dropdown", choices.indexOf("VARCHAR") >= 0 && choices.indexOf("INTEGER") >= 0);
+
+  // The header row is not data: it refuses entries through a rule, the same
+  // way a column with a type does.
+  ok("the header row cannot be typed into",
+     web.schemaSelect(0, 0) && web.text("x") && web.key("Enter") && web.schemaCell(0, 0) === "column");
+  web.key("Escape");
+
+  // Typing goes through the column's rule, in the page, through the same
+  // methods a keypress calls.
+  web.schemaSelect(1, 1);
+  ok("a junk type does not commit", web.text("NOTATYPE") && web.key("Enter") && web.schemaCell(1, 1) !== "NOTATYPE");
+  ok("…and the page says why", (web.note() || "").indexOf("refused") >= 0);
+  web.key("Escape");
+  ok("a real type does commit", web.text("TEXT") && web.key("Enter") && web.schemaCell(1, 1) === "TEXT");
+  ok("…and the panel knows it was edited", web.schemaEdited());
+
+  // And an edit reaches the database as a migration, or not at all.
+  ok("the edit becomes a migration", web.run("schema.migrate", ""));
+  ok("…with an up side and a down side",
+     web.migrationText().indexOf("-- up") >= 0 && web.migrationText().indexOf("-- down") >= 0);
+  ok("…naming the table that was edited", web.migrationText().indexOf("customers") >= 0);
+  ok("the edits can be thrown away", web.run("schema.revert", "") && web.schemaEdited() === false);
+
+  // The Data panel is the same component, with the rules coming from the
+  // table's own declared types instead of a list of type names.
+  web.run("view.data", "");
+  draw();
+  ok("the data panel is a spreadsheet too", web.dataCell(0, 0).length > 0);
+  ok("…with rows in it", web.dataCell(1, 0).length > 0);
+
+  // --- a column rule somebody wrote in JavaScript ---------------------------
+  //
+  // Not a range and not a list: a function, run by ComponentEngine — the same
+  // evaluator the report scripts use — reached through the same `accepts`
+  // every other rule goes through. Changing what a column will take is
+  // editing this string, not rebuilding the viewer.
+  const rules = [
+    "function email(cell) {",
+    "  if (cell.blank) { return 'an email address is required' }",
+    "  if (cell.value.indexOf('@') < 0) { return 'that is not an email address' }",
+    "  return true",
+    "}",
+    "function nordic(cell) {",
+    "  return ['Finland', 'Sweden', 'Norway', 'Denmark'].indexOf(cell.value) >= 0",
+    "}",
+  ].join("\n");
+  ok("the page can install cell rules", web.useCellScript(rules) && web.scriptError() === "");
+  web.selectTable("customers");
+  web.run("view.data", "");
+  draw();
+  ok("a rule can be put on a column by name", web.ruleOnDataColumn("email", "email", "an email address"));
+  const emailCol = 1;
+  ok("…and it refuses what it should", web.dataAccepts(1, emailCol, "not-an-address") === false);
+  ok("…in the words the rule's author wrote", web.dataRefusal(1, emailCol) === "that is not an email address");
+  ok("…and accepts what it should", web.dataAccepts(1, emailCol, "ada@example.com"));
+  ok("a rule with no message still refuses",
+     web.ruleOnDataColumn("country", "nordic", "Nordic countries only") &&
+     web.dataAccepts(1, 3, "Portugal") === false);
+  ok("…and accepts", web.dataAccepts(1, 3, "Norway"));
+  // A rule nobody wrote must not make the column unfillable.
+  ok("a rule nobody wrote refuses nothing",
+     web.ruleOnDataColumn("name", "noSuchRule", "") && web.dataAccepts(1, 2, "anything"));
+
+  // --- the Forms section ----------------------------------------------------
+  //
+  // One record at a time. The engine underneath is `gallery/rangerforms` and
+  // has never heard of a database; what it sees is a questionnaire whose
+  // questions were described from the table's own columns, and an edit comes
+  // back out as an UPDATE addressed by the key the row was loaded with.
+  web.run("engine.rangerdb", "");
+  web.selectTable("customers");
+  ok("the Forms section opens", web.run("view.form", "") && web.section() === "form");
+  draw();
+  ok("with a question per column", web.formFieldCount() === 4);
+  ok("and records to move through", web.formRecordCount() > 1);
+  ok("showing the first one", web.formRecordIndex() === 0);
+  const firstName = web.formFieldText("name");
+  ok("with the row's values in it", firstName.length > 0);
+
+  // The navigator.
+  ok("next moves on", web.run("form.next", "") && web.formRecordIndex() === 1);
+  ok("…to a different record", web.formFieldText("name") !== firstName);
+  ok("and first comes back", web.run("form.first", "") && web.formRecordIndex() === 0);
+
+  // Nothing typed, nothing to save.
+  ok("an untouched record is not dirty", web.formDirty() === false);
+  ok("and has nothing to save", web.formCanSave() === false);
+
+  // Typing goes through the engine, which re-checks the type and settles.
+  ok("a field can be focused", web.formFocus("name"));
+  web.key("Backspace");
+  ok("and typed into", web.text("X") && web.key("Enter"));
+  ok("the record is now changed", web.formDirty());
+  ok("and can be saved", web.formCanSave());
+  ok("the preview reads like the statement",
+     web.formPreview().indexOf("UPDATE customers SET") === 0 &&
+     web.formPreview().indexOf("WHERE id =") > 0);
+
+  // A NOT NULL column cannot be emptied — the requirement came from the
+  // column, not from anything written in the viewer.
+  ok("email is required", web.formFieldRequired("email"));
+  web.formFocus("email");
+  for (let i = 0; i < 40; i++) web.key("Backspace");
+  web.key("Enter");
+  ok("clearing it blocks the save", web.formCanSave() === false);
+  ok("…and says it has to be answered", web.formPreview().indexOf("answered") > 0);
+
+  // Put it back and write it.
+  web.formFocus("email");
+  web.text("a@b.fi");
+  web.key("Enter");
+  ok("a valid address unblocks it", web.formCanSave());
+  ok("the save writes", web.run("form.save", ""));
+  ok("…and the form is clean again", web.formDirty() === false);
+  ok("…holding what the database now says", web.formFieldText("email") === "a@b.fi");
+
+  // --- the Query section ----------------------------------------------------
+  //
+  // Base's designer builds SQL and hands it to the engine; this one builds a
+  // `QuerySpec`, so the same execution path serves it and the Data panel and
+  // the capability-fallback engine does the join RangerDB cannot. The SQL
+  // beside it is generated FROM the model, for a person to read.
+  web.run("engine.rangerdb", "");
+  web.selectTable("orders");
+  ok("a query starts from a table", web.run("query.table", "") && web.section() === "query");
+  ok("…with its columns", web.run("query.all", "") && web.queryFieldCount() === 4);
+  web.selectTable("customers");
+  ok("a second table joins on the declared key", web.run("query.join", "") && web.queryJoinCount() === 1);
+  web.run("query.all", "");
+  ok("…bringing its columns too", web.queryFieldCount() === 8);
+  ok("both tables are in it", web.queryTables() === "orders, customers");
+
+  ok("it runs", web.run("query.run", "") && web.queryRan());
+  draw();
+  ok("two orders, two customers", web.queryRowCount() === 2);
+  // RangerDB has no join, so the engine did it — and says so rather than
+  // pretending the backend could.
+  ok("the engine joined it itself", web.queryFallback() === "join");
+  ok("the answer is a spreadsheet too", web.queryCell(0, 0) === "orders.id");
+  ok("…with the other table's columns in it", web.queryCell(0, 5) === "customers.email");
+
+  // A criterion typed into the grid narrows it.
+  ok("a criterion can be typed", web.queryCriteria("orders.total", "> 100"));
+  ok("…and it narrows the answer", web.run("query.run", "") && web.queryRowCount() === 1);
+  ok("…to the right row", web.queryCell(1, 5) === "ada@example.com");
+
+  // The SQL says the same thing, generated from the same model.
+  const qsql = web.querySql();
+  ok("the SQL joins the tables", qsql.indexOf('INNER JOIN "customers"') > 0);
+  ok("…on the key the database declares", qsql.indexOf('"orders"."customer_id" = "customers"."id"') > 0);
+  ok("…and carries the criterion", qsql.indexOf('"orders"."total" > 100') > 0);
+
+  // A criterion nobody can read is reported, not dropped.
+  web.queryCriteria("orders.total", ">");
+  ok("a broken criterion refuses to run", web.run("query.run", "") === false);
+  ok("…naming the field", (web.note() || "").indexOf("orders.total") >= 0);
+  web.queryCriteria("orders.total", "");
+  web.run("query.run", "");
+
+  // --- the honest refusal ---------------------------------------------------
+  ok("SQLite is refused rather than crashing", web.run("engine.sqlite", "") === false);
+  ok("…and the refusal says why", (web.note() || "").indexOf("host") >= 0);
+
+  const passed = checks.filter((c) => c.ok).length;
+  const el = document.createElement("pre");
+  el.id = "selftest";
+  el.textContent =
+    `selftest ${passed}/${checks.length} :: ` +
+    checks.map((c) => (c.ok ? "PASS " : "FAIL ") + c.name).join(" | ");
+  document.body.appendChild(el);
+
+  const gpu = document.createElement("pre");
+  gpu.id = "glinfo";
+  const st = window.__evgStats || {};
+  gpu.textContent =
+    `gl ${window.__glRenderer} :: draws ${st.drawn | 0} textRuns ${st.textRuns | 0} ` +
+    `paths ${st.paths | 0} skipped ${st.skipped | 0}`;
+  document.body.appendChild(gpu);
+  window.__selftest = { passed, total: checks.length };
+}

@@ -1,0 +1,17 @@
+{
+  "name": "logic",
+  "note": "the operators SurveyJS spells differently from us",
+  "survey": {
+    "elements": [
+      { "type": "text", "name": "a", "inputType": "number" },
+      { "type": "text", "name": "b", "inputType": "number" },
+      { "type": "text", "name": "andBoth", "visibleIf": "{a} > 1 && {b} > 1" },
+      { "type": "text", "name": "orEither", "visibleIf": "{a} > 5 || {b} > 5" },
+      { "type": "text", "name": "notEqual", "visibleIf": "{a} <> {b}" },
+      { "type": "text", "name": "filled", "visibleIf": "{a} notempty" },
+      { "type": "text", "name": "blank", "visibleIf": "{b} empty" },
+      { "type": "expression", "name": "picked", "expression": "iif({a} > {b}, {a}, {b})" }
+    ]
+  },
+  "script": [ { "a": 2 }, { "b": 3 }, { "a": 9 }, { "b": 9 } ]
+}

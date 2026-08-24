@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml" xmlns:jr="http://openrosa.org/javarosa">
+  <h:head>
+    <h:title>Constraint</h:title>
+    <model>
+      <instance>
+        <data id="constraint">
+          <age/>
+          <email/>
+        </data>
+      </instance>
+      <bind nodeset="/data/age" type="int" required="true()"
+            constraint=". &gt;= 0 and . &lt;= 120"
+            jr:constraintMsg="an age is between 0 and 120"/>
+      <bind nodeset="/data/email" type="string" constraint="string-length(.) &gt; 3"
+            jr:constraintMsg="that is too short for an address"/>
+    </model>
+  </h:head>
+  <h:body>
+    <input ref="/data/age"><label>How old are you?</label></input>
+    <input ref="/data/email"><label>Email</label></input>
+  </h:body>
+</h:html>

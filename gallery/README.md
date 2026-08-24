@@ -27,12 +27,13 @@ compiler — the long-form writeups live here.
 | [`ranger_engine`](ranger_engine/README.md) | An engine that runs **Ranger** source directly: bytecode VM plus a JIT tier that compiles hot functions to host code |
 | [`vela`](vela/README.md) | Vega-compatible visualization runtime: a Vega spec in, a scene out, checked against official Vega |
 | [`text_editor`](text_editor/README.md) | EVG/SoftCanvas multiline text-editor prototype (canvas-editor benchmark target), JS validation + bench |
-| [`book`](book/README.md) | Visual book composition engine **and editor**: stories, linked text frames, master pages, auto layout, preflight, PDF through the EVG tooling — and a spread editor that runs in the browser on WebGL with no server |
+| [`book`](book/README.md) | Visual book composition engine **and editor**: stories, linked text frames, master pages, auto layout, preflight, PDF through the EVG tooling — a spread editor that runs in the browser on WebGL with no server, and photographs brought in from an Apple album or searched out of a photo library by date and place. Runs in a browser, in Node, or as a native SDL2 window |
 | [`pptx`](pptx/README.md) | PPTX Lite reader/viewer: OPC ZIP → PptxModel → theme resolve → EVG display list |
 | [`pptx/android`](pptx/android/README.md) | The same PPTX viewer as an **Android app**: Ranger → Kotlin → `android.graphics`, plus a Java2D twin of the painter so the port can be checked without a device |
 | [`docx_viewer`](docx_viewer/README.md) | DOCX viewer + editing MVP: WordprocessingML → RichDocument → paginated layout → EVG; Word-style keyboard, multi-paragraph selection, and pastes a spreadsheet selection as a table |
 | [`rangerflow`](rangerflow/README.md) | React Flow-shaped interactive graph editor on EVG + WebGL, with a database ERD / UML class editor on top and PDF export |
 | [`datagrid`](datagrid/README.md) | EVG DataGrid / Excel-style spreadsheet viewer **and editor** (virtualized layout engine → display list → WebGL) |
+| [`rangerdbviewer`](rangerdbviewer/README.md) | A database workbench: open SQLite / DuckDB / RangerDB, introspect the real schema, browse it, draw it in RangerFlow and export it |
 | [`rangerdb`](rangerdb/README.md) | A database API with three engines behind it — a columnar engine written in Ranger, plus SQLite and DuckDB adapters — feeding the DataGrid |
 | [`rangersql`](rangersql/README.md) | SQL parser, generator and dialect transpiler, checked against SQLGlot's own identity corpus — and RangerDB's SQL front end |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |

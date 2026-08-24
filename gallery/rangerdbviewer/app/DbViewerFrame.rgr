@@ -1,0 +1,1760 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DbViewerFrame.rgr — the workbench as a display list.
+; ============================================================================
+;
+;   ┌──────────────────────────────────────────────────────────┐
+;   │ Schema │ Data │ Diagram        ← the shared EVG toolbar   │
+;   ├──────────────┬───────────────────────────────────────────┤
+;   │ ▾ main       │                                           │
+;   │   ▾ tables   │   the section: columns, rows, or the ERD   │
+;   │     orders   │                                           │
+;   ├──────────────┴───────────────────────────────────────────┤
+;   │ sqlite · 5 tables, 1 views, 5 foreign keys                │
+;   └──────────────────────────────────────────────────────────┘
+;
+; It draws nothing itself in the sense that matters. The strip is
+; `gallery/evg/EVGToolbar`, the same one the document, deck and spreadsheet
+; editors grew. The diagram is RangerFlow's. And the two table panels — the
+; columns of a table, and a page of its rows — are `gallery/datagrid`'s
+; `GridPane`: the spreadsheet with its own chrome switched off, drawn into
+; this display list at this frame's coordinates.
+;
+; That last one is the important one. This file used to paint two tables of
+; its own, in two loops, with their own idea of a column width and no idea of
+; an edit at all. What the panels do now — select, scroll, type, offer a
+; dropdown, refuse a value the column would not take, keep an undo stack —
+; arrives because it was built once, in the spreadsheet. What is left here is
+; the arrangement, the hit testing, and an object list.
+;
+; There is still no I/O. Fonts arrive as bytes, the database is whatever the
+; host opened, and the output is a display list. That is what lets the same
+; frame run in a browser through WebGL and in an SDL window through OpenGL
+; without a second code path.
+; ============================================================================
+
+Import "DbViewerApp.rgr"
+Import "DemoData.rgr"
+Import "SchemaSheet.rgr"
+Import "DataSheet.rgr"
+Import "../forms/RecordForm.rgr"
+Import "../query/QuerySheet.rgr"
+Import "../../rangerforms/render/FormView.rgr"
+Import "../../rangerdb/src/schema/SchemaDiff.rgr"
+Import "../../rangerdb/src/schema/MigrationPlan.rgr"
+Import "../../evg/EVGToolbarView.rgr"
+Import "../../rangerflow/core/FlowEditor.rgr"
+Import "../../rangerdb/src/schema/DdlToSchema.rgr"
+Import "../../rangerdb/src/schema/SchemaToDdl.rgr"
+Import "../metrics/SchemaAudit.rgr"
+
+; ----------------------------------------------------------------------------
+; The strip. Three pages, because a database viewer has three jobs and a
+; single row of everything is the wall the tabbed notebookbar exists to avoid.
+; ----------------------------------------------------------------------------
+class DbViewerToolbar extends EVGToolbar {
+    Constructor () {
+    }
+
+    fn build:void () {
+        clear items
+        clear tabs
+
+        this.addTab("Schema")
+        this.addLabeled("db.open" "" "Open" (ToolIcon.openFile()))
+        this.addLabeled("db.refresh" "" "Refresh" (ToolIcon.redo()))
+        this.addSeparator()
+        this.add("engine.rangerdb" "" "RangerDB, in this tab" (ToolIcon.database()))
+        this.add("engine.sqlite" "" "SQLite (needs a host)" (ToolIcon.database()))
+        this.add("db.sql" "" "Read the schema from SQL instead" (ToolIcon.sqlBox()))
+        this.add("export.ddl" "" "Write the schema back out as SQL" (ToolIcon.save()))
+        this.addSeparator()
+        this.add("view.schema" "" "Columns of the selected table" (ToolIcon.report()))
+        this.add("tree.expandAll" "" "Expand everything" (ToolIcon.indentMore()))
+        this.add("tree.collapseAll" "" "Collapse everything" (ToolIcon.indentLess()))
+        this.addSeparator()
+        ; The only way an edited cell reaches a database: as a migration
+        ; somebody has read.
+        this.addLabeled("schema.migrate" "" "Migration" (ToolIcon.sqlBox()))
+        this.add("schema.revert" "" "Throw away the edits to this table" (ToolIcon.undo()))
+
+        this.addTab("Data")
+        this.addLabeled("view.data" "" "Rows" (ToolIcon.sqlBox()))
+        this.addSeparator()
+        this.add("data.first" "" "First page" (ToolIcon.navFirst()))
+        this.add("data.prev" "" "Previous page" (ToolIcon.navPrev()))
+        this.add("data.next" "" "Next page" (ToolIcon.navNext()))
+        this.addSeparator()
+        this.add("data.pending" "" "What has been typed and not written" (ToolIcon.report()))
+        this.add("data.revert" "" "Throw away the edits to this page" (ToolIcon.undo()))
+
+        this.addTab("Query")
+        this.addLarge("query.run" "" "Run it" (ToolIcon.play()))
+        this.addSeparator()
+        this.add("query.table" "" "Start from the selected table" (ToolIcon.database()))
+        this.add("query.join" "" "Join the selected table on, the way the database says" (ToolIcon.chart()))
+        this.add("query.all" "" "Add every column of the selected table" (ToolIcon.borderAll()))
+        this.addSeparator()
+        this.addLabeled("query.sql" "" "SQL" (ToolIcon.sqlBox()))
+        this.add("query.clear" "" "Start again" (ToolIcon.undo()))
+
+        this.addTab("Forms")
+        this.addLarge("view.form" "" "One record at a time" (ToolIcon.report()))
+        this.addSeparator()
+        this.add("form.first" "" "First record" (ToolIcon.navFirst()))
+        this.add("form.prev" "" "Previous record" (ToolIcon.navPrev()))
+        this.add("form.next" "" "Next record" (ToolIcon.navNext()))
+        this.add("form.last" "" "Last record" (ToolIcon.navLast()))
+        this.addSeparator()
+        this.addLabeled("form.save" "" "Save" (ToolIcon.save()))
+        this.add("form.revert" "" "Throw away the changes to this record" (ToolIcon.undo()))
+
+        this.addTab("Metrics")
+        this.addLarge("metrics.run" "" "Analyse" (ToolIcon.report()))
+        this.addSeparator()
+        this.add("metrics.indexes" "" "Index findings only" (ToolIcon.borderMore()))
+        this.add("metrics.all" "" "Everything the schema can tell" (ToolIcon.search()))
+
+        this.addTab("Diagram")
+        this.addLarge("view.diagram" "" "Draw" (ToolIcon.chart()))
+        this.addSeparator()
+        this.add("diagram.all" "" "Every table" (ToolIcon.borderAll()))
+        this.add("diagram.tables" "" "Tables, no views" (ToolIcon.borderOut()))
+        this.add("diagram.near" "" "The selected table and its neighbours" (ToolIcon.funnel()))
+        this.addSeparator()
+        this.add("diagram.fit" "" "Fit to the window" (ToolIcon.search()))
+        this.add("diagram.export" "" "Copy the diagram as SVG" (ToolIcon.save()))
+    }
+}
+
+class DbViewerFrame {
+    def app:DbViewerApp (new DbViewerApp)
+    def toolbar:DbViewerToolbar (new DbViewerToolbar)
+    def toolbarView:EVGToolbarView (new EVGToolbarView)
+    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    def ctx:UIContext (new UIContext)
+
+    def W:int 1200
+    def H:int 800
+    def toolbarH:int 34
+    def statusH:int 24
+    def treeW:int 260
+    def rowH:int 22
+
+    ; The diagram is a live editor, not a picture: it is what the Diagram
+    ; section shows and what the pointer talks to while that section is up.
+    def editor:FlowEditor (new FlowEditor)
+    def diagramReady:boolean false
+    ; "all" | "tables" | "near"
+    def diagramScope:string "all"
+
+    ; The findings, and which rule family is being shown.
+    def findings:FindingList (new FindingList)
+    def findingsReady:boolean false
+    def findingFilter:string "all"
+    def dataOffset:int 0
+    def dataPageSize:int 40
+
+    ; The two spreadsheets. Not a grid this file wrote — `GridPane` is the
+    ; DataGrid's own view, model and selection with the toolbar, formula bar
+    ; and sheet tabs set to zero height.
+    def schemaSheet:SchemaSheet (new SchemaSheet)
+    def dataSheet:DataSheet (new DataSheet)
+    def sheetsStarted:boolean false
+    ; Which table each pane currently holds, so a pane is rebuilt when the
+    ; selection moves and NOT on every frame — rebuilding per frame would
+    ; throw away what somebody had half typed.
+    def schemaSheetFor:string ""
+    def dataSheetFor:string ""
+    def dataSheetAt:int -1
+    ; The migration an edited schema sheet produces. Text, not statements run:
+    ; the sheet reaches the database through something a person has read.
+    def migrationText:string ""
+    def sheetHeaderH:int 44
+    ; Kept so a pane rebuilt for another table is given the same rules.
+    def cellRules:CellRuleHost (new CellRuleHost)
+
+    ; The Forms section: one record at a time, which is the half of a database
+    ; front end a grid is bad at. The form itself is `gallery/rangerforms` —
+    ; an engine that has never heard of a database — and `RecordForm` is the
+    ; twenty lines that turn a table into a questionnaire and an edited
+    ; questionnaire back into an addressed UPDATE.
+    def record:RecordForm (new RecordForm)
+    def formView:FormView (new FormView)
+    def formReady:boolean false
+    def formFor:string ""
+    def formRow:int 0
+    def formRows:int 0
+    def formPage:DataChunk (new DataChunk)
+
+    ; The Query section: the tables at the top, the criteria grid under them,
+    ; and the answer under that. What it produces is a `QuerySpec` — never SQL
+    ; text — so the same execution path serves it and the Data panel, and the
+    ; capability-fallback engine covers the join RangerDB cannot do.
+    def query:QueryModel (QueryModel.on(""))
+    def querySheet:QuerySheet (new QuerySheet)
+    def queryResult:DataSheet (new DataSheet)
+    def queryStarted:boolean false
+    def queryRan:boolean false
+    def queryRows:int 0
+    def querySql:string ""
+    ; The relationships the query designer joins by. RangerDB cannot report a
+    ; foreign key, so the designer reads them from the schema the SQL gives —
+    ; see `DemoData.schemaFromSql`.
+    def queryDiagram:FlowEditor (new FlowEditor)
+    def queryDiagramReady:boolean false
+    def note:string ""
+    def hoverRow:int -1
+    ; Which visible tree row is selected, so the list can show it.
+    def treeSel:int -1
+    def scrollY:int 0
+
+    Constructor () {
+    }
+
+    fn init:void (w:int h:int) {
+        toolbar.build()
+        this.resize(w h)
+    }
+
+    fn resize:void (w:int h:int) {
+        W = w
+        H = h
+        this.sizeEditor()
+    }
+
+    fn sizeEditor:void () {
+        def cw:double (to_double (this.contentW()))
+        def ch:double (to_double (this.contentH()))
+        editor.setSize(cw ch)
+    }
+
+    fn contentX:int () {
+        return treeW
+    }
+
+    fn contentY:int () {
+        return toolbarH
+    }
+
+    fn contentW:int () {
+        def w:int (W - treeW)
+        if (w < 80) {
+            return 80
+        }
+        return w
+    }
+
+    fn contentH:int () {
+        def h:int ((H - toolbarH) - statusH)
+        if (h < 80) {
+            return 80
+        }
+        return h
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Opening
+    ; ------------------------------------------------------------------------
+
+    ; The only engine that can run inside a browser tab is the one written in
+    ; Ranger: `node:sqlite` and DuckDB are host binaries, and a serverless page
+    ; has no host. That is not a limitation of the viewer — it is the reason
+    ; RangerDB exists — but it has to be SAID, so a reader does not conclude
+    ; the page is broken when SQLite is refused.
+    fn openDemo:boolean (engine:string) {
+        def probe:DbSource (DbSource.inMemory(engine))
+        if ((probe.isAvailable()) == false) {
+            note = (engine + " needs a host process; this page runs RangerDB in the tab")
+            return false
+        }
+        def src:DbSource (DemoData.openSeeded(engine))
+        def ok:boolean (app.openSource(src))
+        if (ok == false) {
+            note = src.errorText
+            return false
+        }
+        note = ""
+        dataOffset = 0
+        diagramReady = false
+        treeSel = -1
+        scrollY = 0
+        return true
+    }
+
+    ; A schema straight out of DDL text. No engine is involved, so this works
+    ; in a browser tab where the only available engine cannot yet describe a
+    ; foreign key — and it is the same path a `.sql` a reader drops on the page
+    ; would take.
+    fn openSqlText:boolean (sql:string label:string) {
+        ; Through RangerSQL rather than through the ERD domain's hand-rolled
+        ; reader: the same statements a migration file is made of, applied in
+        ; order, with anything it could not read named rather than skipped.
+        def reader:DdlToSchema (DdlToSchema.of(""))
+        reader.applyScript(sql)
+        def parsed:DatabaseSchema reader.schema
+        if ((parsed.tableCount()) == 0) {
+            note = "no CREATE TABLE statements in that SQL"
+            return false
+        }
+        app.adoptSchema(parsed label)
+        note = ("read from SQL: " + (reader.report()) + " — relationships and indexes, but no rows")
+        dataOffset = 0
+        diagramReady = false
+        treeSel = -1
+        scrollY = 0
+        if (app.section == "diagram") {
+            this.rebuildDiagram()
+        }
+        return true
+    }
+
+    fn rebuildDiagram:void () {
+        def sub:DatabaseSchema (this.scopedSchema())
+        def d:SchemaDiagram (new SchemaDiagram)
+        def g:FlowGraph (d.buildGraph(sub))
+        editor = (FlowEditor.of(g))
+        this.sizeEditor()
+        editor.view.notation = "crowfoot"
+        editor.fitView()
+        diagramReady = true
+    }
+
+    ; The schema as DDL. The frame produces text and never a file — writing
+    ; one is the host's job, in a browser as much as anywhere else.
+    ; Only the rules that read the schema. The ones that read ROWS cost a scan
+    ; and are never run because a panel came into view — a host asks for those
+    ; deliberately, after `LiveMetrics.estimateCost` has said what they cost.
+    fn runAudit:void () {
+        findings = (SchemaAudit.run(app.schema))
+        findingsReady = true
+        note = (findings.summary())
+    }
+
+    fn schemaDdl:string () {
+        def w:SchemaToDdl (SchemaToDdl.forDialect(""))
+        w.ifNotExists = true
+        return (w.script(app.schema))
+    }
+
+    fn scopedSchema:DatabaseSchema () {
+        if (diagramScope == "tables") {
+            return (SchemaDiagram.tablesOnly(app.schema))
+        }
+        if (diagramScope == "near") {
+            if ((strlen app.selectedTable) > 0) {
+                return (SchemaDiagram.neighbourhood(app.schema app.selectedTable 1))
+            }
+        }
+        return app.schema
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Commands — every button, and nothing a button cannot reach
+    ; ------------------------------------------------------------------------
+    fn runCommand:boolean (id:string arg:string) {
+        ; A command that changes which section is showing also brings its own
+        ; page of the strip to the front. Without this, opening the Forms
+        ; section from a link leaves the strip on Schema, describing buttons
+        ; that have nothing to do with what is now on screen.
+        if (DbViewerFrame.beginsWith(id "view.")) {
+            toolbar.showTabFor(id)
+        }
+        if (DbViewerFrame.beginsWith(id "metrics.")) {
+            toolbar.showTabFor(id)
+        }
+        if (DbViewerFrame.beginsWith(id "diagram.")) {
+            toolbar.showTabFor(id)
+        }
+        if (DbViewerFrame.beginsWith(id "form.")) {
+            toolbar.showTabFor(id)
+        }
+        if (DbViewerFrame.beginsWith(id "query.")) {
+            toolbar.showTabFor(id)
+        }
+        if (id == "db.refresh") {
+            app.refresh()
+            diagramReady = false
+            findingsReady = false
+            return true
+        }
+        if (id == "db.open") {
+            note = "a serverless page has no disk; this one opens the demo database"
+            return (this.openDemo("rangerdb"))
+        }
+        if (id == "engine.rangerdb") {
+            return (this.openDemo("rangerdb"))
+        }
+        if (id == "engine.sqlite") {
+            return (this.openDemo("sqlite"))
+        }
+        if (id == "metrics.run") {
+            app.showSection("metrics")
+            this.runAudit()
+            return true
+        }
+        if (id == "metrics.indexes") {
+            findingFilter = "index"
+            app.showSection("metrics")
+            this.runAudit()
+            return true
+        }
+        if (id == "metrics.all") {
+            findingFilter = "all"
+            app.showSection("metrics")
+            this.runAudit()
+            return true
+        }
+        if (id == "export.ddl") {
+            note = "the page writes the file; the frame only produces the text"
+            return true
+        }
+        if (id == "db.sql") {
+            return (this.openSqlText((DemoData.ddlText()) "the demo schema, read from SQL"))
+        }
+        if (id == "view.schema") {
+            app.showSection("schema")
+            return true
+        }
+        if (id == "schema.migrate") {
+            return (this.buildMigration())
+        }
+        if (id == "schema.revert") {
+            schemaSheetFor = ""
+            migrationText = ""
+            this.syncSchemaSheet()
+            note = "the schema panel is back to what the database says"
+            return true
+        }
+        if (id == "query.table") {
+            return (this.queryStartOn(app.selectedTable))
+        }
+        if (id == "query.join") {
+            return (this.queryJoinOn(app.selectedTable))
+        }
+        if (id == "query.all") {
+            return (this.queryAddColumns(app.selectedTable))
+        }
+        if (id == "query.run") {
+            return (this.runQuery())
+        }
+        if (id == "query.sql") {
+            this.startQuery()
+            querySheet.readBack(query)
+            querySql = (query.toSql())
+            note = "the SQL is generated from the query, and is not what runs"
+            app.showSection("query")
+            return true
+        }
+        if (id == "query.clear") {
+            queryStarted = false
+            queryRan = false
+            querySql = ""
+            query = (QueryModel.on(""))
+            this.startQuery()
+            note = "the query is empty"
+            return true
+        }
+        if (id == "view.form") {
+            app.showSection("form")
+            return (this.syncForm())
+        }
+        if (id == "form.first") {
+            return (this.gotoRecord(0))
+        }
+        if (id == "form.prev") {
+            return (this.gotoRecord((formRow - 1)))
+        }
+        if (id == "form.next") {
+            return (this.gotoRecord((formRow + 1)))
+        }
+        if (id == "form.last") {
+            return (this.gotoRecord((formRows - 1)))
+        }
+        if (id == "form.save") {
+            return (this.saveRecord())
+        }
+        if (id == "form.revert") {
+            def at:int formRow
+            formFor = ""
+            this.syncForm()
+            this.gotoRecord(at)
+            note = "the record is back to what the database says"
+            return true
+        }
+        if (id == "data.pending") {
+            def pending:string (dataSheet.summary())
+            if ((strlen pending) == 0) {
+                note = "nothing typed that has not been written"
+            } {
+                note = pending
+            }
+            return true
+        }
+        if (id == "data.revert") {
+            dataSheetFor = ""
+            dataSheetAt = -1
+            note = "the rows are back to what the database says"
+            return true
+        }
+        if (id == "view.data") {
+            app.showSection("data")
+            dataOffset = 0
+            return true
+        }
+        if (id == "view.diagram") {
+            app.showSection("diagram")
+            if (diagramReady == false) {
+                this.rebuildDiagram()
+            }
+            return true
+        }
+        if (id == "tree.expandAll") {
+            return (this.setAllExpanded(true))
+        }
+        if (id == "tree.collapseAll") {
+            return (this.setAllExpanded(false))
+        }
+        if (id == "data.first") {
+            dataOffset = 0
+            return true
+        }
+        if (id == "data.prev") {
+            dataOffset = (dataOffset - dataPageSize)
+            if (dataOffset < 0) {
+                dataOffset = 0
+            }
+            return true
+        }
+        if (id == "data.next") {
+            dataOffset = (dataOffset + dataPageSize)
+            return true
+        }
+        if (id == "diagram.all") {
+            diagramScope = "all"
+            app.showSection("diagram")
+            this.rebuildDiagram()
+            return true
+        }
+        if (id == "diagram.tables") {
+            diagramScope = "tables"
+            app.showSection("diagram")
+            this.rebuildDiagram()
+            return true
+        }
+        if (id == "diagram.near") {
+            diagramScope = "near"
+            app.showSection("diagram")
+            this.rebuildDiagram()
+            return true
+        }
+        if (id == "diagram.fit") {
+            if diagramReady {
+                editor.fitView()
+                return true
+            }
+            return false
+        }
+        if (id == "diagram.export") {
+            note = "the page writes the SVG; the frame only draws"
+            return true
+        }
+        return false
+    }
+
+    fn setAllExpanded:boolean (on:boolean) {
+        def i:int 0
+        def n:int (array_length app.tree.rows)
+        while (i < n) {
+            def r:TreeRow (itemAt app.tree.rows i)
+            if (r.expandable) {
+                r.expanded = on
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Pointer — the strip first, then the list, then the section
+    ; ------------------------------------------------------------------------
+    fn pointer:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        if (y < toolbarH) {
+            if down {
+                return (this.pressToolbar(x y))
+            }
+            return false
+        }
+        ; A dropdown hangs below the strip and swallows the click under it.
+        def box:[int] (toolbar.menuBox())
+        if ((array_length box) == 4) {
+            def bx:int (itemAt box 0)
+            def by:int (itemAt box 1)
+            def bw:int (itemAt box 2)
+            def bh:int (itemAt box 3)
+            def insideX:boolean false
+            if (x >= bx) {
+                if (x < (bx + bw)) {
+                    insideX = true
+                }
+            }
+            if insideX {
+                if (y >= by) {
+                    if (y < (by + bh)) {
+                        if down {
+                            return (this.pressToolbar(x y))
+                        }
+                        return false
+                    }
+                }
+            }
+        }
+        if (app.section == "form") {
+            if (formView.pointerPicker(x y pressed down released)) {
+                return true
+            }
+        }
+        if (app.section == "query") {
+            this.startQuery()
+            if (querySheet.pane.pointerPicker(x y pressed down released)) {
+                return true
+            }
+        }
+        ; An open value picker is a window over everything, including the
+        ; object list, so it is asked before anything under it.
+        if (this.sectionHasSheet()) {
+            this.startSheets()
+            def pane:GridPane (this.activePane())
+            if (pane.pointerPicker(x y pressed down released)) {
+                return true
+            }
+        }
+        if (x < treeW) {
+            if down {
+                return (this.pressTree(x y))
+            }
+            return false
+        }
+        if (app.section == "diagram") {
+            return (this.pointerDiagram(x y pressed down released))
+        }
+        if (this.sectionHasSheet()) {
+            if down {
+                ; `press` is the spreadsheet's own click: select the cell, or
+                ; open the dropdown if the click landed on the arrow of a cell
+                ; that has one.
+                def hit:GridPane (this.activePane())
+                return (hit.press(x y))
+            }
+            return false
+        }
+        if (app.section == "form") {
+            if down {
+                return (formView.press(x y))
+            }
+            return false
+        }
+        if (app.section == "query") {
+            if down {
+                if (querySheet.pane.containsPoint(x y)) {
+                    return (querySheet.pane.press(x y))
+                }
+                if (queryResult.pane.containsPoint(x y)) {
+                    return (queryResult.pane.selectAt(x y))
+                }
+            }
+            return false
+        }
+        return false
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Keyboard — the pane's, when a pane is showing
+    ; ------------------------------------------------------------------------
+    ;
+    ; Typing into a database viewer's table is typing into a spreadsheet, so
+    ; these forward and decide nothing. What a cell will ACCEPT is the
+    ; column's own declared type, asked by the pane on commit — see
+    ; `SqlColumnRules`.
+    fn text:boolean (s:string) {
+        if (app.section == "form") {
+            return (formView.typeText(s))
+        }
+        if (app.section == "query") {
+            this.startQuery()
+            return (querySheet.pane.typeText(s))
+        }
+        if ((this.sectionHasSheet()) == false) {
+            return false
+        }
+        this.startSheets()
+        def pane:GridPane (this.activePane())
+        return (pane.typeText(s))
+    }
+
+    ; The keys a spreadsheet pane takes, in one place, because three sections
+    ; now embed one.
+    fn paneKey:boolean (pane:GridPane name:string) {
+        if (name == "Enter") {
+            if pane.editing {
+                if ((pane.commitEdit()) == false) {
+                    def rule:DataValidation (pane.model.validationAt(pane.sel.active.row pane.sel.active.col))
+                    note = ("refused: " + (rule.message()))
+                    return true
+                }
+                note = ""
+                return true
+            }
+            return (pane.moveSelection(1 0))
+        }
+        if (name == "Escape") {
+            if pane.editing {
+                pane.cancelEdit()
+                return true
+            }
+            return false
+        }
+        if (name == "Backspace") {
+            return (pane.backspace())
+        }
+        if (name == "ArrowUp") {
+            return (pane.moveSelection(-1 0))
+        }
+        if (name == "ArrowDown") {
+            return (pane.moveSelection(1 0))
+        }
+        if (name == "ArrowLeft") {
+            return (pane.moveSelection(0 -1))
+        }
+        if (name == "ArrowRight") {
+            return (pane.moveSelection(0 1))
+        }
+        if (name == "Tab") {
+            return (pane.moveSelection(0 1))
+        }
+        if (name == "F4") {
+            return (pane.openListPicker(pane.sel.active.row pane.sel.active.col))
+        }
+        return false
+    }
+
+    ; Named keys, by the codes the host already sends the other editors.
+    fn key:boolean (name:string) {
+        if (app.section == "form") {
+            def handled:boolean (formView.key(name))
+            if handled {
+                note = formView.note
+            }
+            return handled
+        }
+        if (app.section == "query") {
+            this.startQuery()
+            return (this.paneKey(querySheet.pane name))
+        }
+        if ((this.sectionHasSheet()) == false) {
+            return false
+        }
+        this.startSheets()
+        def pane:GridPane (this.activePane())
+        if (name == "Enter") {
+            if pane.editing {
+                if ((pane.commitEdit()) == false) {
+                    ; The column refused it. Say which column and why, and
+                    ; leave what was typed in the cell to be corrected.
+                    def rule:DataValidation (pane.model.validationAt(pane.sel.active.row pane.sel.active.col))
+                    note = ("refused: " + (rule.message()))
+                    return true
+                }
+                note = ""
+                return true
+            }
+            return (pane.moveSelection(1 0))
+        }
+        if (name == "Escape") {
+            if pane.editing {
+                pane.cancelEdit()
+                return true
+            }
+            return false
+        }
+        if (name == "Backspace") {
+            return (pane.backspace())
+        }
+        if (name == "ArrowUp") {
+            return (pane.moveSelection(-1 0))
+        }
+        if (name == "ArrowDown") {
+            return (pane.moveSelection(1 0))
+        }
+        if (name == "ArrowLeft") {
+            return (pane.moveSelection(0 -1))
+        }
+        if (name == "ArrowRight") {
+            return (pane.moveSelection(0 1))
+        }
+        if (name == "Tab") {
+            return (pane.moveSelection(0 1))
+        }
+        ; F4, where a spreadsheet opens the list of a validated cell — the
+        ; keyboard way to the same dropdown the arrow opens.
+        if (name == "F4") {
+            return (pane.openListPicker(pane.sel.active.row pane.sel.active.col))
+        }
+        return false
+    }
+
+    fn pressToolbar:boolean (x:int y:int) {
+        def tab:int (toolbar.hitTab(x y))
+        if (tab >= 0) {
+            toolbar.selectTab(tab)
+            return true
+        }
+        def i:int (toolbar.hit(x y))
+        if (i < 0) {
+            toolbar.closeMenu()
+            return false
+        }
+        def opened:boolean (toolbar.pressItem(i))
+        if opened {
+            return true
+        }
+        def item:ToolItem (toolbar.at(i))
+        return (this.runCommand(item.command item.arg))
+    }
+
+    fn pressTree:boolean (x:int y:int) {
+        def rows:[TreeRow] (app.tree.visibleRows())
+        def idx:int (this.treeRowAt(y))
+        if (idx < 0) {
+            return false
+        }
+        if (idx >= (array_length rows)) {
+            return false
+        }
+        treeSel = idx
+        def r:TreeRow (itemAt rows idx)
+        if (r.expandable) {
+            def real:int (this.realIndexOf(r))
+            if (real >= 0) {
+                app.tree.toggleAt(real)
+                return true
+            }
+        }
+        if ((strlen r.tableName) > 0) {
+            app.selectTable(r.tableName)
+            dataOffset = 0
+            ; A table picked while the neighbourhood is showing means a
+            ; different neighbourhood, so the diagram is stale.
+            if (diagramScope == "near") {
+                diagramReady = false
+                if (app.section == "diagram") {
+                    this.rebuildDiagram()
+                }
+            }
+            return true
+        }
+        return true
+    }
+
+    fn treeRowAt:int (y:int) {
+        def top:int (toolbarH + 4)
+        if (y < top) {
+            return -1
+        }
+        def rel:int ((y - top) + scrollY)
+        return (idiv rel rowH)
+    }
+
+    fn realIndexOf:int (r:TreeRow) {
+        def i:int 0
+        def n:int (array_length app.tree.rows)
+        while (i < n) {
+            def cand:TreeRow (itemAt app.tree.rows i)
+            if (cand.label == r.label) {
+                if (cand.depth == r.depth) {
+                    if (cand.kind == r.kind) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn pointerDiagram:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        if (diagramReady == false) {
+            return false
+        }
+        def lx:double (to_double (x - (this.contentX())))
+        def ly:double (to_double (y - (this.contentY())))
+        def input:FlowInput (new FlowInput)
+        input.x = lx
+        input.y = ly
+        if down {
+            editor.pointerDown(input)
+            return true
+        }
+        if released {
+            editor.pointerUp(input)
+            return true
+        }
+        editor.pointerMove(input)
+        return pressed
+    }
+
+    fn wheel:boolean (dy:int) {
+        if (app.section == "diagram") {
+            if diagramReady {
+                def inp:FlowInput (new FlowInput)
+                inp.x = (to_double (idiv (this.contentW()) 2))
+                inp.y = (to_double (idiv (this.contentH()) 2))
+                editor.wheel(inp (to_double dy))
+                return true
+            }
+            return false
+        }
+        if (app.section == "form") {
+            return (formView.scrollBy(dy))
+        }
+        if (app.section == "query") {
+            this.startQuery()
+            if (queryRan) {
+                if (queryResult.pane.containsPoint((idiv W 2) (H - 80))) {
+                    return (queryResult.pane.scrollBy(dy))
+                }
+            }
+            return (querySheet.pane.scrollBy(dy))
+        }
+        if (this.sectionHasSheet()) {
+            this.startSheets()
+            def pane:GridPane (this.activePane())
+            return (pane.scrollBy(dy))
+        }
+        scrollY = (scrollY + dy)
+        if (scrollY < 0) {
+            scrollY = 0
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Drawing
+    ; ------------------------------------------------------------------------
+    fn buildDisplayList:EVGDisplayList () {
+        def dl:EVGDisplayList (new EVGDisplayList)
+        toolbarView.attach(ctx "Open Sans")
+        toolbarView.theme = theme
+
+        dl.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(246 247 250)))
+
+        toolbarH = (toolbar.heightFor(W))
+        toolbarView.paint(dl toolbar 0 0 W toolbarH)
+
+        this.paintTree(dl)
+        this.paintSection(dl)
+        this.paintStatus(dl)
+        ; An open dropdown belongs above everything the strip sits on.
+        toolbarView.paintOverlay(dl toolbar)
+        ; And so does a cell's value picker, which is a window rather than a
+        ; menu — the same `EVGWindow` the spreadsheet opens for the same rule.
+        if (this.sectionHasSheet()) {
+            def pane:GridPane (this.activePane())
+            pane.buildPickerInto(dl)
+        }
+        if (app.section == "form") {
+            formView.buildPickerInto(dl)
+        }
+        if (app.section == "query") {
+            querySheet.pane.buildPickerInto(dl)
+        }
+        return dl
+    }
+
+    fn sceneJson:string () {
+        def dl:EVGDisplayList (this.buildDisplayList())
+        def body:string (dl.toJson())
+        def wtxt:string (EVGDisplayList.num((to_double W)))
+        def htxt:string (EVGDisplayList.num((to_double H)))
+        return ("{\"width\":" + wtxt + ",\"height\":" + htxt + ",\"list\":" + body + "}")
+    }
+
+    fn paintTree:void (dl:EVGDisplayList) {
+        def top:int (toolbarH)
+        def h:int (this.contentH())
+        dl.addRect(0.0 (to_double top) (to_double treeW) (to_double h) (EVGColor.rgb(238 241 246)))
+        dl.addRect((to_double (treeW - 1)) (to_double top) 1.0 (to_double h) theme.line)
+        dl.addClip(0.0 (to_double top) (to_double treeW) (to_double h))
+        def rows:[TreeRow] (app.tree.visibleRows())
+        def i:int 0
+        def n:int (array_length rows)
+        def y:int ((top + 4) - scrollY)
+        while (i < n) {
+            def r:TreeRow (itemAt rows i)
+            def bottom:int (top + h)
+            def visible:boolean false
+            if (y > (top - rowH)) {
+                if (y < bottom) {
+                    visible = true
+                }
+            }
+            if visible {
+                if (i == treeSel) {
+                    dl.addRect(0.0 (to_double y) (to_double (treeW - 1)) (to_double rowH) (EVGColor.rgba(50 120 220 0.16)))
+                }
+                def indent:int (8 + (r.depth * 14))
+                def col:EVGColor theme.ink
+                if (r.kind == "group") {
+                    col = theme.dim
+                }
+                if (r.kind == "index") {
+                    col = theme.dim
+                }
+                if (r.expandable) {
+                    def marker:string "▾"
+                    if ((r.expanded) == false) {
+                        marker = "▸"
+                    }
+                    toolbarView.pushText(dl marker (to_double (indent - 10)) (to_double (y + 4)) 11.0 theme.glyph)
+                }
+                def isSelected:boolean false
+                if ((strlen r.tableName) > 0) {
+                    if (r.tableName == app.selectedTable) {
+                        if (r.kind != "index") {
+                            isSelected = true
+                        }
+                    }
+                }
+                if isSelected {
+                    col = theme.accent
+                }
+                ; The detail is right-aligned against the pane edge and the
+                ; label gets whatever room is left, so a long index name is
+                ; shortened rather than drawn through its own description.
+                def labelRight:double (to_double (treeW - 8))
+                if ((strlen r.detail) > 0) {
+                    def dw:double (ctx.tr.measureWidth(r.detail 10.0))
+                    def dx:double ((to_double (treeW - 8)) - dw)
+                    toolbarView.pushText(dl r.detail dx (to_double (y + 5)) 10.0 theme.glyph)
+                    labelRight = (dx - 6.0)
+                }
+                def room:double (labelRight - (to_double indent))
+                def shown:string (this.fitText(r.label room 12.0))
+                toolbarView.pushText(dl shown (to_double indent) (to_double (y + 4)) 12.0 col)
+            }
+            y = (y + rowH)
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    fn paintSection:void (dl:EVGDisplayList) {
+        def x:int (this.contentX())
+        def y:int (this.contentY())
+        def w:int (this.contentW())
+        def h:int (this.contentH())
+        dl.addRect((to_double x) (to_double y) (to_double w) (to_double h) (EVGColor.rgb(252 253 255)))
+        if (app.section == "diagram") {
+            this.paintDiagram(dl x y w h)
+            return
+        }
+        if (app.section == "data") {
+            this.paintData(dl x y w h)
+            return
+        }
+        if (app.section == "metrics") {
+            this.paintMetrics(dl x y w h)
+            return
+        }
+        if (app.section == "migration") {
+            this.paintMigration(dl x y w h)
+            return
+        }
+        if (app.section == "form") {
+            this.paintForm(dl x y w h)
+            return
+        }
+        if (app.section == "query") {
+            this.paintQuery(dl x y w h)
+            return
+        }
+        this.paintColumns(dl x y w h)
+    }
+
+    fn paintDiagram:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        if (diagramReady == false) {
+            this.rebuildDiagram()
+        }
+        def sc:FlowScene (editor.build())
+        def sub:EVGDisplayList (sc.toDisplayList())
+        dl.addClip((to_double x) (to_double y) (to_double w) (to_double h))
+        DbViewerFrame.offsetList(sub x y)
+        DbViewerFrame.appendList(dl sub)
+        dl.addClipEnd()
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The two spreadsheets
+    ; ------------------------------------------------------------------------
+    ;
+    ; Started once, and then kept: a pane holds a selection, a scroll position
+    ; and possibly a half-typed cell, and a frame that rebuilt one every time
+    ; it painted would lose all three sixty times a second.
+    fn startSheets:void () {
+        if sheetsStarted {
+            return
+        }
+        schemaSheet.pane.start((this.contentW()) (this.contentH()))
+        dataSheet.pane.start((this.contentW()) (this.contentH()))
+        ; The faces this frame already parsed, rather than a second copy. A
+        ; browser hands fonts in as bytes once, and a pane that loaded its own
+        ; would need them handed in twice.
+        schemaSheet.pane.shareFontsWith(ctx)
+        dataSheet.pane.shareFontsWith(ctx)
+        sheetsStarted = true
+    }
+
+    ; Rules a person wrote, for columns whose constraint is not a range and
+    ; not a list. The frame takes the HOST rather than the engine that runs
+    ; it: a `CellScripts` pulls in ComponentEngine and the TypeScript parser,
+    ; and a build that does not want them should not carry them.
+    fn useCellRules:void (host:CellRuleHost) {
+        this.startSheets()
+        schemaSheet.pane.useRules(host)
+        dataSheet.pane.useRules(host)
+        cellRules = host
+    }
+
+    ; The pane the pointer and the keyboard are talking to, or none.
+    fn activePane:GridPane () {
+        if (app.section == "data") {
+            return dataSheet.pane
+        }
+        return schemaSheet.pane
+    }
+
+    fn sectionHasSheet:boolean () {
+        if (app.section == "schema") {
+            return true
+        }
+        return (app.section == "data")
+    }
+
+    ; Rebuild only when the pane is holding the wrong thing.
+    fn syncSchemaSheet:void () {
+        this.startSheets()
+        def t:DBTable (app.currentTable())
+        if (schemaSheetFor == t.name) {
+            if ((strlen t.name) > 0) {
+                return
+            }
+        }
+        schemaSheet.build(t)
+        schemaSheet.pane.useRules(cellRules)
+        schemaSheetFor = t.name
+    }
+
+    fn syncDataSheet:void () {
+        this.startSheets()
+        def name:string app.selectedTable
+        def sameTable:boolean (dataSheetFor == name)
+        def samePage:boolean (dataSheetAt == dataOffset)
+        if sameTable {
+            if samePage {
+                if ((strlen name) > 0) {
+                    return
+                }
+            }
+        }
+        def t:DBTable (app.currentTable())
+        def chunk:DataChunk (app.pageOfRows(dataOffset dataPageSize))
+        dataSheet.build(t chunk dataOffset)
+        dataSheet.pane.useRules(cellRules)
+        dataSheetFor = name
+        dataSheetAt = dataOffset
+    }
+
+    ; A title over the pane, and the pane under it. The title is the only
+    ; thing this file draws in either section.
+    fn paintSheetTitle:void (dl:EVGDisplayList x:int y:int w:int title:string detail:string) {
+        toolbarView.pushText(dl title (to_double (x + 16)) (to_double (y + 10)) 15.0 theme.ink)
+        if ((strlen detail) > 0) {
+            def room:double (to_double (w - 32))
+            toolbarView.pushText(dl (this.fitText(detail room 11.0)) (to_double (x + 16)) (to_double (y + 28)) 11.0 theme.glyph)
+        }
+    }
+
+    fn paintColumns:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        this.syncSchemaSheet()
+        def t:DBTable (app.currentTable())
+        def title:string t.name
+        if ((strlen title) == 0) {
+            title = "no table selected"
+        }
+        def detail:string (this.schemaHint(t))
+        this.paintSheetTitle(dl x y w title detail)
+        schemaSheet.pane.setHostSize(W H)
+        schemaSheet.pane.setBounds((x + 8) (y + sheetHeaderH) (w - 16) ((h - sheetHeaderH) - 8))
+        schemaSheet.pane.buildInto(dl)
+    }
+
+    ; What the panel cannot show as a cell, said in one line rather than in a
+    ; second table: the indexes, which are a property of the table and not of
+    ; any one column, and whether anything has been typed.
+    fn schemaHint:string (t:DBTable) {
+        def s:string t.kind
+        def ni:int (array_length t.indexes)
+        if (ni > 0) {
+            def k:int 0
+            def names:string ""
+            while (k < ni) {
+                def ix:DBIndex (itemAt t.indexes k)
+                if (k > 0) {
+                    names = (names + ", ")
+                }
+                names = (names + ix.name + " (" + (ObjectTree.joinNames(ix.columns)) + ")")
+                if (ix.origin != "index") {
+                    names = (names + " — " + ix.origin)
+                }
+                k = (k + 1)
+            }
+            s = (s + "  ·  indexes: " + names)
+        }
+        if sheetsStarted {
+            if (schemaSheetFor == t.name) {
+                if (schemaSheet.isDirty()) {
+                    s = (s + "  ·  edited — press Migration to see what it would take")
+                }
+            }
+        }
+        return s
+    }
+
+    fn paintData:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        def name:string app.selectedTable
+        if ((strlen name) == 0) {
+            toolbarView.pushText(dl "no table selected" (to_double (x + 16)) (to_double (y + 12)) 13.0 theme.dim)
+            return
+        }
+        ; A schema read from text describes a database that is not running.
+        ; An empty grid would read as "this table is empty", which is a
+        ; different and wrong statement.
+        if ((app.hasRows) == false) {
+            toolbarView.pushText(dl name (to_double (x + 16)) (to_double (y + 12)) 14.0 theme.ink)
+            toolbarView.pushText(dl "This schema was read from SQL, so there is no database to page." (to_double (x + 16)) (to_double (y + 40)) 12.0 theme.dim)
+            toolbarView.pushText(dl "Open the in-tab RangerDB database to browse rows." (to_double (x + 16)) (to_double (y + 60)) 12.0 theme.glyph)
+            return
+        }
+        this.syncDataSheet()
+        def shown:int dataSheet.rows
+        def detail:string ("rows " + (to_string dataOffset) + "–" + (to_string (dataOffset + shown)))
+        def pending:string (dataSheet.summary())
+        if ((strlen pending) > 0) {
+            detail = (detail + "  ·  " + pending)
+        }
+        this.paintSheetTitle(dl x y w name detail)
+        dataSheet.pane.setHostSize(W H)
+        dataSheet.pane.setBounds((x + 8) (y + sheetHeaderH) (w - 16) ((h - sheetHeaderH) - 8))
+        dataSheet.pane.buildInto(dl)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The Query section
+    ; ------------------------------------------------------------------------
+    ;
+    ; Base's designer builds SQL and hands it to the engine, and the moment a
+    ; query outgrows what it can draw it switches to "native SQL mode" and the
+    ; graphical half stops meaning anything. This one builds a `QuerySpec`, so
+    ; there is no cliff: the SQL beside it is generated for a person to read.
+    fn startQuery:void () {
+        if queryStarted {
+            return
+        }
+        this.startSheets()
+        queryResult.pane.start((this.contentW()) (this.contentH()))
+        queryResult.pane.shareFontsWith(ctx)
+        queryResult.pane.readOnly = true
+        querySheet.pane.start((this.contentW()) (this.contentH()))
+        querySheet.pane.shareFontsWith(ctx)
+        querySheet.build(query (this.relationSchema()))
+        queryStarted = true
+    }
+
+    ; The schema WITH its relationships. RangerDB cannot report a foreign key,
+    ; so a designer that read only the introspected schema could never offer to
+    ; join anything on the one engine this page can run.
+    fn relationSchema:DatabaseSchema () {
+        if ((array_length app.schema.foreignKeys) > 0) {
+            return app.schema
+        }
+        return (DemoData.schemaFromSql())
+    }
+
+    fn queryStartOn:boolean (table:string) {
+        if ((strlen table) == 0) {
+            note = "select a table first"
+            return false
+        }
+        query = (QueryModel.on(table))
+        queryStarted = false
+        queryRan = false
+        querySql = ""
+        this.startQuery()
+        queryDiagramReady = false
+        app.showSection("query")
+        note = ("the query starts from " + table)
+        return true
+    }
+
+    fn queryJoinOn:boolean (table:string) {
+        this.startQuery()
+        if ((strlen query.base) == 0) {
+            return (this.queryStartOn(table))
+        }
+        if ((strlen table) == 0) {
+            note = "select the table to join on"
+            return false
+        }
+        querySheet.readBack(query)
+        ; From whichever table is already in the query and has a declared
+        ; relationship with this one. A designer that made somebody retype a
+        ; relationship the database has declared is asking them to get it wrong.
+        def schema:DatabaseSchema (this.relationSchema())
+        def have:[string] (query.tables())
+        def i:int 0
+        def n:int (array_length have)
+        while (i < n) {
+            def from:string (itemAt have i)
+            if (query.joinByKey(schema from table "inner")) {
+                querySheet.build(query schema)
+                queryDiagramReady = false
+                queryRan = false
+                app.showSection("query")
+                note = (from + " and " + table + " joined on the key the database declares")
+                return true
+            }
+            i = (i + 1)
+        }
+        note = ("no declared relationship between " + table + " and anything in the query")
+        return false
+    }
+
+    fn queryAddColumns:boolean (table:string) {
+        this.startQuery()
+        if ((strlen query.base) == 0) {
+            this.queryStartOn(table)
+        }
+        querySheet.readBack(query)
+        def schema:DatabaseSchema (this.relationSchema())
+        query.allOf(schema table)
+        querySheet.build(query schema)
+        app.showSection("query")
+        note = ("every column of " + table + " added")
+        return true
+    }
+
+    fn runQuery:boolean () {
+        this.startQuery()
+        app.showSection("query")
+        if ((strlen query.base) == 0) {
+            note = "the query has no table yet"
+            return false
+        }
+        querySheet.readBack(query)
+        if ((app.hasRows) == false) {
+            note = "this schema was read from SQL, so there is nothing to run it against"
+            return false
+        }
+        def spec:QuerySpec (query.toSpec())
+        if ((strlen query.errorText) > 0) {
+            note = query.errorText
+            return false
+        }
+        spec.limit = dataPageSize
+        def chunk:DataChunk (app.source.session.query(spec))
+        def err:string (app.source.session.lastError())
+        if ((strlen err) > 0) {
+            note = err
+            return false
+        }
+        ; The result is shown by the same component the Data panel uses, which
+        ; is why it can be scrolled and read without a second table painter.
+        def shape:DBTable (new DBTable)
+        queryResult.build(shape chunk 0)
+        queryResult.pane.readOnly = true
+        queryRows = chunk.rowCount
+        queryRan = true
+        querySql = (query.toSql())
+        def where:string ""
+        def fell:string app.source.session.lastFallback
+        if ((strlen fell) > 0) {
+            where = ("  ·  the engine did the " + fell + " itself")
+        }
+        note = ((to_string queryRows) + " rows" + where)
+        return true
+    }
+
+    fn paintQuery:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        this.startQuery()
+        def title:string "query"
+        if ((strlen query.base) > 0) {
+            title = (ObjectTree.joinNames((query.tables())))
+        } {
+            title = "no table yet — press the table button with one selected"
+        }
+        def detail:string (querySheet.summary())
+        if queryRan {
+            detail = (detail + "  ·  " + (to_string queryRows) + " rows")
+        }
+        this.paintSheetTitle(dl x y w title detail)
+
+        ; The grid takes the top half and the answer the bottom, which is the
+        ; arrangement every query tool has settled on for the same reason: you
+        ; are reading one while changing the other.
+        def top:int (y + sheetHeaderH)
+        def gridH:int (idiv (h - sheetHeaderH) 2)
+        if (gridH < 120) {
+            gridH = (h - sheetHeaderH)
+        }
+        querySheet.pane.setHostSize(W H)
+        querySheet.pane.setBounds((x + 8) top (w - 16) (gridH - 8))
+        querySheet.pane.buildInto(dl)
+
+        def below:int (top + gridH)
+        if (below < ((y + h) - 40)) {
+            dl.addRect((to_double (x + 8)) (to_double below) (to_double (w - 16)) 1.0 theme.line)
+            if queryRan {
+                queryResult.pane.setHostSize(W H)
+                queryResult.pane.setBounds((x + 8) (below + 8) (w - 16) (((y + h) - below) - 16))
+                queryResult.pane.buildInto(dl)
+            } {
+                if ((strlen querySql) > 0) {
+                    def lines:[string] (strsplit querySql "\n")
+                    def ry:int (below + 12)
+                    def li:int 0
+                    while (li < (array_length lines)) {
+                        toolbarView.pushText(dl (this.fitText((itemAt lines li) (to_double (w - 40)) 12.0)) (to_double (x + 16)) (to_double ry) 12.0 theme.ink)
+                        ry = (ry + 18)
+                        li = (li + 1)
+                    }
+                } {
+                    toolbarView.pushText(dl "press Run to see the answer, or SQL to read the statement" (to_double (x + 16)) (to_double (below + 12)) 12.0 theme.dim)
+                }
+            }
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The Forms section
+    ; ------------------------------------------------------------------------
+    ;
+    ; Base has one because a grid is the wrong shape for a record with twenty
+    ; columns, half of which only matter when another one says so. That last
+    ; part is the reason the form is an engine rather than a layout: which
+    ; fields are showing is a property of the answers.
+    fn syncForm:boolean () {
+        def name:string app.selectedTable
+        if ((strlen name) == 0) {
+            note = "select a table to open a record"
+            formReady = false
+            return false
+        }
+        if (formFor == name) {
+            if formReady {
+                return true
+            }
+        }
+        def t:DBTable (app.currentTable())
+        if ((record.open(t 20000)) == false) {
+            note = record.errorText
+            formReady = false
+            return false
+        }
+        formView.attach(record.engine record.state ctx "Open Sans")
+        formFor = name
+        formRow = 0
+        formReady = true
+        if ((app.hasRows) == false) {
+            formRows = 0
+            note = "this schema was read from SQL, so there are no records to show"
+            return true
+        }
+        ; One page of records, which is what the navigator moves through. A
+        ; form that re-queried per record would make Next a round trip.
+        formPage = (app.pageOfRows(0 dataPageSize))
+        formRows = formPage.rowCount
+        if (formRows > 0) {
+            record.loadRow(formPage 0 20000)
+            formView.state = record.state
+        }
+        note = ""
+        return true
+    }
+
+    fn gotoRecord:boolean (at:int) {
+        if ((this.syncForm()) == false) {
+            return false
+        }
+        if (formRows == 0) {
+            return false
+        }
+        def want:int at
+        if (want < 0) {
+            want = 0
+        }
+        if (want >= formRows) {
+            want = (formRows - 1)
+        }
+        ; Moving off a record with unsaved changes must not silently throw
+        ; them away — a form that did that would lose work every time
+        ; somebody pressed Next to check something.
+        if (record.isDirty()) {
+            if ((want == formRow) == false) {
+                note = "this record has unsaved changes — save them, or press the undo button"
+                return false
+            }
+        }
+        formRow = want
+        record.loadRow(formPage formRow 20000)
+        formView.state = record.state
+        formView.cancel()
+        note = ""
+        return true
+    }
+
+    fn saveRecord:boolean () {
+        if ((this.syncForm()) == false) {
+            return false
+        }
+        formView.commit()
+        if ((record.canSave()) == false) {
+            note = record.errorText
+            return false
+        }
+        def m:DBMutation (record.mutation())
+        def rows:int (app.source.session.mutate(m))
+        if (rows < 1) {
+            def why:string (app.source.session.lastError())
+            note = ("nothing was written: " + why)
+            return false
+        }
+        ; Re-read the page, so the form shows what the database now holds
+        ; rather than what was typed at it.
+        formPage = (app.pageOfRows(0 dataPageSize))
+        formRows = formPage.rowCount
+        record.loadRow(formPage formRow 20000)
+        formView.state = record.state
+        note = ((to_string rows) + " row written")
+        return true
+    }
+
+    fn paintForm:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        this.syncForm()
+        if (formReady == false) {
+            toolbarView.pushText(dl "no table selected" (to_double (x + 16)) (to_double (y + 12)) 13.0 theme.dim)
+            return
+        }
+        def title:string formFor
+        def detail:string ""
+        if (formRows == 0) {
+            detail = "no records — open the in-tab database to fill a form in"
+        } {
+            detail = ("record " + (to_string (formRow + 1)) + " of " + (to_string formRows) + "  ·  " + (formView.summary()))
+            if (record.isDirty()) {
+                detail = (detail + "  ·  changed")
+            }
+        }
+        this.paintSheetTitle(dl x y w title detail)
+        formView.setHostSize(W H)
+        formView.setBounds((x + 8) (y + sheetHeaderH) (w - 16) ((h - sheetHeaderH) - 8))
+        formView.buildInto(dl)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; From an edited cell to a migration
+    ; ------------------------------------------------------------------------
+    ;
+    ; The whole point of letting somebody type in the schema panel. Nothing
+    ; here runs a statement: the sheet is read back into a table, the table
+    ; into a schema, the two schemas into a change set, and the change set
+    ; into a plan with an up side and a down side. What the panel shows is
+    ; that plan, and a person decides.
+    fn buildMigration:boolean () {
+        this.syncSchemaSheet()
+        if ((schemaSheet.isDirty()) == false) {
+            migrationText = ""
+            note = "nothing has been changed in the schema panel"
+            app.showSection("migration")
+            return true
+        }
+        def before:DatabaseSchema app.schema
+        def after:DatabaseSchema (schemaSheet.editedSchema(before))
+        def changes:ChangeSet (SchemaDiff.between(before after))
+        def plan:MigrationPlan (new MigrationPlan)
+        def whole:boolean (plan.build(changes before after))
+        def text:string ("-- up\n" + (plan.upScript()))
+        text = (text + "\n-- down\n" + (plan.downScript()))
+        migrationText = text
+        note = (plan.report())
+        if (whole == false) {
+            note = (note + " — not everything this edit asks for can be written as DDL here")
+        }
+        app.showSection("migration")
+        return true
+    }
+
+    fn paintMigration:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        toolbarView.pushText(dl "what this edit would take" (to_double (x + 16)) (to_double (y + 12)) 15.0 theme.ink)
+        toolbarView.pushText(dl note (to_double (x + 16)) (to_double (y + 34)) 11.0 theme.glyph)
+        dl.addClip((to_double x) (to_double (y + 50)) (to_double w) (to_double (h - 50)))
+        def ry:int (y + 58)
+        if ((strlen migrationText) == 0) {
+            toolbarView.pushText(dl "Edit a cell in the Schema panel and press Migration." (to_double (x + 16)) (to_double ry) 12.0 theme.dim)
+        }
+        def lines:[string] (strsplit migrationText "\n")
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            def line:string (itemAt lines i)
+            def tint:EVGColor theme.ink
+            if (DbViewerFrame.beginsWith(line "--")) {
+                tint = theme.glyph
+            }
+            toolbarView.pushText(dl (this.fitText(line (to_double (w - 40)) 12.0)) (to_double (x + 16)) (to_double ry) 12.0 tint)
+            ry = (ry + 18)
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    fn paintMetrics:void (dl:EVGDisplayList x:int y:int w:int h:int) {
+        if (findingsReady == false) {
+            this.runAudit()
+        }
+        toolbarView.pushText(dl "what the schema says about itself" (to_double (x + 16)) (to_double (y + 12)) 15.0 theme.ink)
+        toolbarView.pushText(dl (findings.summary()) (to_double (x + 16)) (to_double (y + 34)) 11.0 theme.glyph)
+        dl.addClip((to_double x) (to_double (y + 50)) (to_double w) (to_double (h - 50)))
+        def list:[Finding] (findings.ordered())
+        def ry:int (y + 58)
+        def i:int 0
+        def n:int (array_length list)
+        if (n == 0) {
+            toolbarView.pushText(dl "Nothing to report — every table has a key, every relationship is indexed, and no index repeats another." (to_double (x + 16)) (to_double ry) 12.0 theme.dim)
+        }
+        while (i < n) {
+            def f:Finding (itemAt list i)
+            def show:boolean true
+            if (findingFilter == "index") {
+                show = (DbViewerFrame.beginsWith(f.rule "index"))
+            }
+            if show {
+                def tint:EVGColor theme.dim
+                if (f.severity == "high") {
+                    tint = theme.warn
+                }
+                if (f.severity == "warn") {
+                    tint = theme.accent
+                }
+                toolbarView.pushText(dl f.severity (to_double (x + 16)) (to_double ry) 10.0 tint)
+                def where:string f.table
+                if ((strlen f.object) > 0) {
+                    where = (where + "." + f.object)
+                }
+                toolbarView.pushText(dl where (to_double (x + 60)) (to_double ry) 12.0 theme.ink)
+                toolbarView.pushText(dl f.rule (to_double (x + 240)) (to_double ry) 10.0 theme.glyph)
+                ry = (ry + 16)
+                def room:double (to_double (w - 90))
+                def line:string (this.fitText(f.message room 11.0))
+                toolbarView.pushText(dl line (to_double (x + 60)) (to_double ry) 11.0 theme.dim)
+                ry = (ry + 16)
+                if ((strlen f.fix) > 0) {
+                    def fixLine:string (this.fitText(("fix: " + f.fix) room 10.5))
+                    toolbarView.pushText(dl fixLine (to_double (x + 60)) (to_double ry) 10.5 theme.link)
+                    ry = (ry + 16)
+                }
+                ry = (ry + 8)
+            }
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+    }
+
+    sfn beginsWith:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == prefix)
+    }
+
+    fn paintStatus:void (dl:EVGDisplayList) {
+        def sy:int (H - statusH)
+        dl.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)
+        dl.addRect(0.0 (to_double sy) (to_double W) 1.0 theme.line)
+        def label:string app.status
+        if ((strlen note) > 0) {
+            label = (label + "   ·   " + note)
+        }
+        toolbarView.pushText(dl label 10.0 (to_double (sy + 5)) 11.0 theme.dim)
+    }
+
+    ; Text cut to fit a column, with an ellipsis where it was cut. The tree
+    ; puts a label and a detail on one row, and an index name plus the table
+    ; and columns it covers is easily wider than the pane — drawn unclamped
+    ; the two run through each other and neither is readable.
+    fn fitText:string (text:string maxW:double size:double) {
+        if (maxW <= 0.0) {
+            return ""
+        }
+        def w:double (ctx.tr.measureWidth(text size))
+        if (w <= maxW) {
+            return text
+        }
+        def cut:int (strlen text)
+        while (cut > 1) {
+            cut = (cut - 1)
+            def part:string ((substring text 0 cut) + "…")
+            def pw:double (ctx.tr.measureWidth(part size))
+            if (pw <= maxW) {
+                return part
+            }
+        }
+        return "…"
+    }
+
+    ; The two list utilities every EVG app that composes sub-lists needs.
+    sfn offsetList:void (src:EVGDisplayList dx:int dy:int) {
+        def i:int 0
+        def n:int (array_length src.cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt src.cmds i)
+            ; kind 5 ends a clip and carries no geometry to move.
+            if (c.kind != 5) {
+                c.x = (c.x + (to_double dx))
+                c.y = (c.y + (to_double dy))
+                def pi:int 0
+                def np:int (array_length c.pts)
+                while (pi < np) {
+                    def even:boolean ((pi % 2) == 0)
+                    if even {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dx))
+                    } {
+                        set_at c.pts pi ((itemAt c.pts pi) + (to_double dy))
+                    }
+                    pi = (pi + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn appendList:void (into:EVGDisplayList src:EVGDisplayList) {
+        def i:int 0
+        def n:int (array_length src.cmds)
+        while (i < n) {
+            push into.cmds (itemAt src.cmds i)
+            i = (i + 1)
+        }
+    }
+}

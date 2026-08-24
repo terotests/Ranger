@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">
+  <h:head>
+    <h:title>Unsupported</h:title>
+    <model>
+      <instance>
+        <data id="unsupported">
+          <total/>
+          <child jr:template="">
+            <cname/>
+            <cage/>
+          </child>
+          <eldest/>
+          <today_note/>
+        </data>
+      </instance>
+      <bind nodeset="/data/total" type="int" calculate="count(/data/child)"/>
+      <bind nodeset="/data/eldest" type="int" calculate="indexed-repeat(/data/child/cage, /data/child, 1)"/>
+      <bind nodeset="/data/today_note" type="string" relevant="today() &gt; 0"/>
+    </model>
+  </h:head>
+  <h:body>
+    <repeat nodeset="/data/child">
+      <input ref="/data/child/cname"><label>Name</label></input>
+      <input ref="/data/child/cage"><label>Age</label></input>
+    </repeat>
+  </h:body>
+</h:html>

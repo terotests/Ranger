@@ -63,6 +63,12 @@ class JPEGMetadataInfo {
     def gpsAltitude:string ""
     def gpsLatitudeRef:string ""    ; N or S
     def gpsLongitudeRef:string ""   ; E or W
+    ; The same position as a number, signed by the ref: south and west are
+    ; negative. `gpsLatitude` is a string for a person to read - degrees,
+    ; minutes and seconds with the direction kept separately - and nothing can
+    ; compute a distance from it. Anything that searches by place needs these.
+    def gpsLatitudeDeg:double 0.0
+    def gpsLongitudeDeg:double 0.0
     
     ; Comment
     def hasComment:boolean false
@@ -282,6 +288,45 @@ class JPEGMetadataParser {
         return (to_string degrees) + "° " + (to_string minutes) + "' " + seconds + "\""
     }
     
+    ; Degrees, minutes and seconds as one signed number.
+    ;
+    ; Computed in doubles from the rationals rather than from the string above,
+    ; for two reasons. Phones do not agree on how they split a position: some
+    ; write 60 degrees 10 minutes 11.6 seconds, others write 60.169900 degrees
+    ; with minutes and seconds at zero, and the integer path drops the fraction
+    ; of the first field. And a coordinate rounded to two decimal places of a
+    ; second is fine to look at and not fine to search a radius with.
+    fn decimalGPS:double (offset:int ref:string) {
+        def degNum:int (this.readUint32(offset))
+        def degDen:int (this.readUint32(offset + 4))
+        def minNum:int (this.readUint32(offset + 8))
+        def minDen:int (this.readUint32(offset + 12))
+        def secNum:int (this.readUint32(offset + 16))
+        def secDen:int (this.readUint32(offset + 20))
+
+        def total:double 0.0
+        if (degDen > 0) {
+            def d:double ((to_double degNum) / (to_double degDen))
+            total = (total + d)
+        }
+        if (minDen > 0) {
+            def m:double ((to_double minNum) / (to_double minDen))
+            total = (total + (m / 60.0))
+        }
+        if (secDen > 0) {
+            def sec:double ((to_double secNum) / (to_double secDen))
+            total = (total + (sec / 3600.0))
+        }
+        ; South and west are the same angle in the other direction.
+        if (ref == "S") {
+            return (0.0 - total)
+        }
+        if (ref == "W") {
+            return (0.0 - total)
+        }
+        return total
+    }
+
     fn parseIFD:void (info:JPEGMetadataInfo tiffStart:int ifdOffset:int ifdType:int) {
         def pos:int (tiffStart + ifdOffset)
         if ((pos + 2) > dataLen) {
@@ -400,6 +445,7 @@ class JPEGMetadataParser {
                 ; GPS Latitude (3 RATIONALs)
                 if (tagId == 2) { 
                     info.gpsLatitude = (this.formatGPSCoordinate(valueOffset info.gpsLatitudeRef))
+                    info.gpsLatitudeDeg = (this.decimalGPS(valueOffset info.gpsLatitudeRef))
                 }
                 ; GPS LongitudeRef (E or W)
                 if (tagId == 3) { 
@@ -408,6 +454,7 @@ class JPEGMetadataParser {
                 ; GPS Longitude (3 RATIONALs)
                 if (tagId == 4) { 
                     info.gpsLongitude = (this.formatGPSCoordinate(valueOffset info.gpsLongitudeRef))
+                    info.gpsLongitudeDeg = (this.decimalGPS(valueOffset info.gpsLongitudeRef))
                 }
                 ; GPS Altitude
                 if (tagId == 6) { 
@@ -511,10 +558,21 @@ class JPEGMetadataParser {
     }
     
     fn parseMetadata:JPEGMetadataInfo (dirPath:string fileName:string) {
-        def info (new JPEGMetadataInfo())
-        
-        ; Read file
         data = (buffer_read_file dirPath fileName)
+        return (this.parseLoaded())
+    }
+
+    ; The same, for bytes somebody already has. A browser cannot open a file by
+    ; name - it is handed one - and reading a photograph's EXIF in the page is
+    ; the only way an in-page search by date or place can work at all. Keeping
+    ; the marker walk in one place means the two paths cannot drift.
+    fn parseBuffer:JPEGMetadataInfo (bytes:buffer) {
+        data = bytes
+        return (this.parseLoaded())
+    }
+
+    fn parseLoaded:JPEGMetadataInfo () {
+        def info (new JPEGMetadataInfo())
         dataLen = (buffer_length data)
         
         if (dataLen < 4) {

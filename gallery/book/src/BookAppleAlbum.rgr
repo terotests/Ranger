@@ -1,0 +1,596 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; BookAppleAlbum.rgr - an Apple photo album, read as a list of pictures
+; ==============================================================================
+;
+; iPhoto and Aperture write their whole library index into one property list -
+; `AlbumData.xml` beside the library, `ApertureData.xml` for Aperture - and
+; that file is the only machine-readable description of "the album called
+; Kesa 2019" that Apple has ever shipped. Photos.app dropped it, so a modern
+; library reaches this module the other way, through `fromPaths`: the host
+; enumerates an exported folder, since Ranger has no directory listing.
+;
+; The shape being read:
+;
+;     List of Albums    -> [ { AlbumName, Album Type, AlbumId, KeyList: [id] } ]
+;     Master Image List -> { id: { ImagePath, Caption, Rating, MediaType,
+;                                  DateAsTimerInterval, OriginalPath } }
+;
+; The album holds ids; the master list holds pictures. Joining the two is the
+; whole job, and it is done once, at parse, rather than on every lookup.
+;
+; TWO THINGS THIS DELIBERATELY DOES NOT DO
+;
+;   It does not open the pictures. Sizes arrive later, from whoever can read a
+;   JPEG header, because a 4000-photo library must be listable without touching
+;   four thousand files.
+;
+;   It does not trust `ImagePath`. A library copied off the Mac that wrote it
+;   has every path wrong, which is the normal case rather than the exception,
+;   so `relocate` re-roots the whole album onto a folder that exists here.
+; ==============================================================================
+
+Import "ApplePlist.rgr"
+
+; The Apple epoch: `DateAsTimerInterval` counts seconds from 2001-01-01 UTC,
+; not from 1970. Photos sort wrongly, by 31 years, if this is forgotten.
+class AppleTime {
+    sfn unixSeconds:double (appleSeconds:double) {
+        return (appleSeconds + 978307200.0)
+    }
+
+    ; yyyy-mm-dd from an Apple timer interval. Civil-from-days, exact for every
+    ; date a camera can carry, and no library needed.
+    sfn dateText:string (appleSeconds:double) {
+        if (appleSeconds <= 0.0) {
+            return ""
+        }
+        def unix:double (AppleTime.unixSeconds(appleSeconds))
+        def dayF:double (unix / 86400.0)
+        def floored:int (floor dayF)
+        def z:int (floored + 719468)
+        def eraF:double ((to_double z) / 146097.0)
+        def eraFloor:int (floor eraF)
+        def era:int eraFloor
+        if (z < 0) {
+            def adj:double ((to_double (z - 146096)) / 146097.0)
+            def adjFloor:int (floor adj)
+            era = adjFloor
+        }
+        def doe:int (z - (era * 146097))
+        ; Every division here is `idiv`: Ranger's `/` answers a double, and a
+        ; civil-date algorithm that rounds instead of truncating is off by a
+        ; day at every leap boundary.
+        def yoeA:int (doe - (idiv doe 1460))
+        def yoeB:int (yoeA + (idiv doe 36524))
+        def yoeC:int (yoeB - (idiv doe 146096))
+        def yoe:int (idiv yoeC 365)
+        def y:int (yoe + (era * 400))
+        def leapDays:int ((idiv yoe 4) - (idiv yoe 100))
+        def doy:int (doe - ((365 * yoe) + leapDays))
+        def mp:int (idiv ((5 * doy) + 2) 153)
+        def dayBase:int (idiv ((153 * mp) + 2) 5)
+        def d:int ((doy - dayBase) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        return ((to_string y) + "-" + (AppleTime.pad2(m)) + "-" + (AppleTime.pad2(d)))
+    }
+
+    ; The inverse: a civil date back to an Apple timer interval. Days-from-civil
+    ; is the mirror of the algorithm above, and having both means a date can be
+    ; compared as a number - which is what a search over a date RANGE needs, and
+    ; what string comparison of "2019-6-3" against "2019-06-23" would get wrong.
+    sfn fromCivil:double (y:int m:int d:int hh:int mm:int ss:int) {
+        def yy:int y
+        if (m <= 2) {
+            yy = (y - 1)
+        }
+        def era:int (idiv yy 400)
+        if (yy < 0) {
+            era = (idiv (yy - 399) 400)
+        }
+        def yoe:int (yy - (era * 400))
+        def mp:int (m + 9)
+        if (m > 2) {
+            mp = (m - 3)
+        }
+        def doy:int ((idiv ((153 * mp) + 2) 5) + (d - 1))
+        def leapDays:int ((idiv yoe 4) - (idiv yoe 100))
+        def doe:int (((yoe * 365) + leapDays) + doy)
+        def days:int (((era * 146097) + doe) - 719468)
+        def unix:double (((to_double days) * 86400.0) + (to_double (((hh * 3600) + (mm * 60)) + ss)))
+        return (unix - 978307200.0)
+    }
+
+    sfn monthText:string (appleSeconds:double) {
+        def full:string (AppleTime.dateText(appleSeconds))
+        if ((strlen full) < 7) {
+            return ""
+        }
+        def year:string (substring full 0 4)
+        def mm:string (substring full 5 7)
+        def idx@(optional):int (str2int mm)
+        def m:int 0
+        if idx {
+            m = (unwrap idx)
+        }
+        def names:[string]
+        push names "January"
+        push names "February"
+        push names "March"
+        push names "April"
+        push names "May"
+        push names "June"
+        push names "July"
+        push names "August"
+        push names "September"
+        push names "October"
+        push names "November"
+        push names "December"
+        if (m < 1) {
+            return year
+        }
+        if (m > 12) {
+            return year
+        }
+        return ((itemAt names (m - 1)) + " " + year)
+    }
+
+    sfn pad2:string (n:int) {
+        if (n < 10) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+}
+
+; ------------------------------------------------------------------------------
+; One picture out of the master image list.
+; ------------------------------------------------------------------------------
+class AlbumPhoto {
+    def id:string ""
+    def path:string ""
+    def originalPath:string ""
+    def caption:string ""
+    def comment:string ""
+    def rating:int 0
+    def mediaType:string "Image"
+    def appleSeconds:double 0.0
+    ; Filled in later by whoever can read the file's header; 0 means unknown,
+    ; and preflight says so rather than guessing at 300 ppi.
+    def width:double 0.0
+    def height:double 0.0
+
+    Constructor () {
+        id = ""
+        path = ""
+        rating = 0
+        mediaType = "Image"
+    }
+
+    fn isImage:boolean () {
+        if (mediaType == "") {
+            return true
+        }
+        return (mediaType == "Image")
+    }
+
+    fn fileName:string () {
+        return (AppleAlbum.baseName(path))
+    }
+
+    fn dateText:string () {
+        return (AppleTime.dateText(appleSeconds))
+    }
+
+    ; What a caption should say when the album has nothing to say. Not the file
+    ; name: "IMG_4021.JPG" under a picture is worse than nothing, so an
+    ; untitled photo captions with its date or with silence.
+    fn captionText:string () {
+        if ((strlen caption) > 0) {
+            if ((AlbumPhoto.looksLikeAFileName(caption)) == false) {
+                return caption
+            }
+        }
+        if ((strlen comment) > 0) {
+            return comment
+        }
+        return (this.dateText())
+    }
+
+    sfn looksLikeAFileName:boolean (s:string) {
+        def n:int (strlen s)
+        if (n < 5) {
+            return false
+        }
+        if ((strlen s) > 0) {
+            def head:string (substring s 0 4)
+            if (head == "IMG_") {
+                return true
+            }
+            if (head == "DSC_") {
+                return true
+            }
+            if (head == "DSCF") {
+                return true
+            }
+        }
+        ; A caption that is exactly a file name - iPhoto's default - ends in an
+        ; extension it did not choose.
+        def dot:int (n - 4)
+        if (dot > 0) {
+            def tail:string (substring s dot n)
+            if (tail == ".JPG") {
+                return true
+            }
+            if (tail == ".jpg") {
+                return true
+            }
+            if (tail == ".PNG") {
+                return true
+            }
+            if (tail == ".png") {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn copyOf:AlbumPhoto () {
+        def p (new AlbumPhoto())
+        p.id = id
+        p.path = path
+        p.originalPath = originalPath
+        p.caption = caption
+        p.comment = comment
+        p.rating = rating
+        p.mediaType = mediaType
+        p.appleSeconds = appleSeconds
+        p.width = width
+        p.height = height
+        return p
+    }
+}
+
+; ------------------------------------------------------------------------------
+; One album: a name and the pictures in it, in the order the album keeps them.
+; ------------------------------------------------------------------------------
+class AppleAlbum {
+    def name:string ""
+    def albumId:string ""
+    def kind:string "Regular"
+    def photos:[AlbumPhoto]
+    def error:string ""
+
+    Constructor () {
+        name = ""
+        kind = "Regular"
+    }
+
+    fn count:int () {
+        return (array_length photos)
+    }
+
+    fn at:AlbumPhoto (i:int) {
+        if (i < 0) {
+            return (new AlbumPhoto())
+        }
+        if (i >= (array_length photos)) {
+            return (new AlbumPhoto())
+        }
+        return (itemAt photos i)
+    }
+
+    ; An album Apple made for itself rather than one somebody named: the whole
+    ; library, the flagged pictures, a month. A book wants the named ones.
+    fn isSpecial:boolean () {
+        if (kind == "Regular") {
+            return false
+        }
+        if (kind == "") {
+            return false
+        }
+        return true
+    }
+
+    ; Only the pictures - a library album carries movies too, and a movie in a
+    ; picture frame is a broken image on the printed page.
+    fn images:[AlbumPhoto] () {
+        def out:[AlbumPhoto]
+        def i:int 0
+        while (i < (array_length photos)) {
+            def p:AlbumPhoto (itemAt photos i)
+            if (p.isImage()) {
+                push out p
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Only the pictures the owner thought were worth keeping. `minStars` of 0
+    ; keeps everything, which is why it is a parameter rather than a policy.
+    fn rated:[AlbumPhoto] (minStars:int) {
+        def out:[AlbumPhoto]
+        def i:int 0
+        while (i < (array_length photos)) {
+            def p:AlbumPhoto (itemAt photos i)
+            if (p.isImage()) {
+                if (p.rating >= minStars) {
+                    push out p
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The album, pointed at where the pictures actually are on THIS machine.
+    ; Every path becomes `root` + the file's own name, because a library moved
+    ; off its Mac keeps its old absolute paths and none of them resolve.
+    fn relocate:void (root:string) {
+        def prefix:string (AppleAlbum.withSlash(root))
+        def i:int 0
+        while (i < (array_length photos)) {
+            def p:AlbumPhoto (itemAt photos i)
+            p.path = (prefix + (AppleAlbum.baseName(p.path)))
+            i = (i + 1)
+        }
+    }
+
+    ; Tell the album how big one of its pictures is. A host that cannot run
+    ; `BookAlbumMeasure` - a browser - can still read a picture's own width and
+    ; height and say so, and that has to happen BEFORE the layout, because the
+    ; layout asks each picture which way up it is.
+    ;
+    ; Matched on the file's name rather than its path: the path in the index
+    ; belongs to the Mac that wrote it, and the file the host is holding is the
+    ; same picture under a different route.
+    fn applySize:boolean (fileName:string w:double h:double) {
+        def hit:boolean false
+        def i:int 0
+        while (i < (array_length photos)) {
+            def p:AlbumPhoto (itemAt photos i)
+            if ((AppleAlbum.baseName(p.path)) == fileName) {
+                p.width = w
+                p.height = h
+                hit = true
+            }
+            i = (i + 1)
+        }
+        return hit
+    }
+
+    ; The date range the album covers, as text - what a title page wants.
+    fn periodText:string () {
+        def first:double 0.0
+        def last:double 0.0
+        def i:int 0
+        while (i < (array_length photos)) {
+            def p:AlbumPhoto (itemAt photos i)
+            if (p.appleSeconds > 0.0) {
+                if (first <= 0.0) {
+                    first = p.appleSeconds
+                }
+                if (p.appleSeconds < first) {
+                    first = p.appleSeconds
+                }
+                if (p.appleSeconds > last) {
+                    last = p.appleSeconds
+                }
+            }
+            i = (i + 1)
+        }
+        if (first <= 0.0) {
+            return ""
+        }
+        def a:string (AppleTime.monthText(first))
+        def b:string (AppleTime.monthText(last))
+        if (a == b) {
+            return a
+        }
+        return (a + " - " + b)
+    }
+
+    ; --------------------------------------------------------------------
+    ; Reading
+    ; --------------------------------------------------------------------
+
+    ; One named album out of an already-parsed AlbumData.xml. An empty name
+    ; takes the first album that somebody actually named.
+    sfn fromLibrary:AppleAlbum (root:PlistValue albumName:string) {
+        def album (new AppleAlbum())
+        if ((root.isDict()) == false) {
+            album.error = "AlbumData.xml did not begin with a dictionary"
+            return album
+        }
+        def list:PlistValue (root.get("List of Albums"))
+        if ((list.isArray()) == false) {
+            album.error = "no 'List of Albums' in this property list"
+            return album
+        }
+        def masters:PlistValue (root.get("Master Image List"))
+        if ((masters.isDict()) == false) {
+            album.error = "no 'Master Image List' in this property list"
+            return album
+        }
+
+        def chosen:PlistValue (new PlistValue())
+        def i:int 0
+        while (i < (list.count())) {
+            def entry:PlistValue (list.at(i))
+            def entryName:string (entry.stringFor("AlbumName"))
+            def entryKind:string (entry.stringFor("Album Type"))
+            def wanted:boolean (entryName == albumName)
+            if ((strlen albumName) == 0) {
+                wanted = false
+                if ((strlen entryName) > 0) {
+                    if ((entryKind == "Regular") || (entryKind == "")) {
+                        wanted = true
+                    }
+                }
+            }
+            if wanted {
+                if ((chosen.exists()) == false) {
+                    chosen = entry
+                }
+            }
+            i = (i + 1)
+        }
+        if ((chosen.exists()) == false) {
+            album.error = ("no album named '" + albumName + "' in this library")
+            return album
+        }
+
+        album.name = (chosen.stringFor("AlbumName"))
+        album.albumId = (chosen.stringFor("AlbumId"))
+        def kind:string (chosen.stringFor("Album Type"))
+        if ((strlen kind) > 0) {
+            album.kind = kind
+        }
+
+        def keyList:PlistValue (chosen.get("KeyList"))
+        def k:int 0
+        while (k < (keyList.count())) {
+            def keyValue:PlistValue (keyList.at(k))
+            def key:string (keyValue.asString())
+            def record:PlistValue (masters.get(key))
+            if (record.exists()) {
+                push album.photos (AppleAlbum.photoFrom(key record))
+            }
+            k = (k + 1)
+        }
+        return album
+    }
+
+    ; The albums somebody named, so a host can offer a list. Apple's own -
+    ; "Photos", "Flagged", a month - are left out: they are the library seen
+    ; from different angles, not books anybody meant to make, and offering
+    ; "Photos" first means the reader opens their entire library by accident.
+    ; `allAlbumNames` still answers with every one.
+    sfn albumNames:[string] (root:PlistValue) {
+        return (AppleAlbum.namesIn(root false))
+    }
+
+    sfn allAlbumNames:[string] (root:PlistValue) {
+        return (AppleAlbum.namesIn(root true))
+    }
+
+    sfn namesIn:[string] (root:PlistValue withSpecial:boolean) {
+        def out:[string]
+        def list:PlistValue (root.get("List of Albums"))
+        def i:int 0
+        while (i < (list.count())) {
+            def entry:PlistValue (list.at(i))
+            def entryName:string (entry.stringFor("AlbumName"))
+            def kind:string (entry.stringFor("Album Type"))
+            def wanted:boolean withSpecial
+            if ((kind == "Regular") || (kind == "")) {
+                wanted = true
+            }
+            if wanted {
+                if ((strlen entryName) > 0) {
+                    push out entryName
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn photoFrom:AlbumPhoto (key:string record:PlistValue) {
+        def p (new AlbumPhoto())
+        p.id = key
+        p.path = (record.stringFor("ImagePath"))
+        p.originalPath = (record.stringFor("OriginalPath"))
+        p.caption = (record.stringFor("Caption"))
+        p.comment = (record.stringFor("Comment"))
+        p.rating = (record.intFor("Rating"))
+        def media:string (record.stringFor("MediaType"))
+        if ((strlen media) > 0) {
+            p.mediaType = media
+        }
+        p.appleSeconds = (record.doubleFor("DateAsTimerInterval"))
+        return p
+    }
+
+    ; The whole trip, for a caller that just has a file: read AlbumData.xml
+    ; from `dir` and answer the named album. The plist's own complaint - a
+    ; binary property list, an unreadable file - arrives in `error`.
+    sfn fromFile:AppleAlbum (dir:string fileName:string albumName:string) {
+        def reader (new ApplePlist())
+        def root:PlistValue (reader.parseFile(dir fileName))
+        if ((reader.ok) == false) {
+            def bad (new AppleAlbum())
+            bad.error = reader.error
+            return bad
+        }
+        return (AppleAlbum.fromLibrary(root albumName))
+    }
+
+    sfn fromXml:AppleAlbum (xml:string albumName:string) {
+        def reader (new ApplePlist())
+        def root:PlistValue (reader.parse(xml))
+        if ((reader.ok) == false) {
+            def bad (new AppleAlbum())
+            bad.error = reader.error
+            return bad
+        }
+        return (AppleAlbum.fromLibrary(root albumName))
+    }
+
+    ; A modern Photos.app library has no index, so an album exported to a
+    ; folder arrives as the list of files the host enumerated. Same album, same
+    ; downstream code - only the source of the names differs.
+    sfn fromPaths:AppleAlbum (name:string paths:[string]) {
+        def album (new AppleAlbum())
+        album.name = name
+        def i:int 0
+        while (i < (array_length paths)) {
+            def path:string (itemAt paths i)
+            def p (new AlbumPhoto())
+            p.id = ("f" + (to_string i))
+            p.path = path
+            push album.photos p
+            i = (i + 1)
+        }
+        return album
+    }
+
+    ; --------------------------------------------------------------------
+
+    sfn baseName:string (path:string) {
+        def n:int (strlen path)
+        def cut:int 0
+        def i:int 0
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if ((c == "/") || (c == "\\")) {
+                cut = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return (substring path cut n)
+    }
+
+    sfn withSlash:string (dir:string) {
+        def n:int (strlen dir)
+        if (n == 0) {
+            return ""
+        }
+        def tail:string (substring dir (n - 1) n)
+        if (tail == "/") {
+            return dir
+        }
+        if (tail == "\\") {
+            return dir
+        }
+        return (dir + "/")
+    }
+}

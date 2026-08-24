@@ -108,6 +108,13 @@ class VlRuntime {
     def lastBoxes:[VlGroupBox]
     def cleanMarks:[string:int]
     def reusing:boolean false
+    ; One syntax tree per expression SOURCE, for as long as this run lasts. An
+    ; encode rule is a string on the specification and a tree in the evaluator,
+    ; and the tree was being built again for every datum it was applied to: on
+    ; a scatter of ten thousand points the expression parser was a sixth of the
+    ; whole render. The trees are read and never written by the evaluator, so
+    ; one tree can serve every datum.
+    def exprCache:[string:VlExprNode]
     def dataSets:[string:VlDataSet]
     def dataOrder:[string]
     def scaleOrder:[string]
@@ -2068,11 +2075,18 @@ class VlRuntime {
 
     ; ------------------------------------------------------------ expressions ---
     fn parseExpr:VlExprNode (src:string) {
+        if (has exprCache src) {
+            return (unwrap (get exprCache src))
+        }
         def p (new VlExprParser())
         def node:VlExprNode (p.parse(src))
         if (! p.ok) {
+            ; A failure is not remembered: it is reported once per attempt, and
+            ; the caller decides what that means.
             this.fail((("expression: " + p.err) + " in: ") + src)
+            return node
         }
+        set exprCache src node
         return node
     }
 
@@ -4409,7 +4423,21 @@ class VlRuntime {
 
     ; `"sort": {"field": "x"}` on a mark orders its ITEMS by an encoded channel
     ; — which is what makes a line join its points left to right rather than in
-    ; data order. Insertion sort: stable, and a mark's item count is small.
+    ; data order.
+    ;
+    ; This was an insertion sort, on the reasoning that "a mark's item count is
+    ; small". For a bar chart it is. For a LINE it is the number of data points,
+    ; and Vega-Lite puts a sort on every line it compiles — so a line through
+    ; ten thousand points ran fifty million comparisons, each of them a hash
+    ; lookup of the sort field, and took four seconds where the whole rest of
+    ; the chart took three hundred milliseconds. Two thousand points cost 226 ms
+    ; and eight thousand cost 2369: quadratic, in the one chart type whose
+    ; entire purpose is carrying a lot of points.
+    ;
+    ; Bottom-up merge sort instead, and the key of each item read ONCE rather
+    ; than once per comparison. Stable, because a tie in the sort field must
+    ; keep data order: two points at the same x are joined in the order the
+    ; data gave them.
     fn sortMarkItems:void (mark:VlSceneMark sortDef:VlJson) {
         if (! (sortDef.isObject())) {
             return
@@ -4419,33 +4447,85 @@ class VlRuntime {
             return
         }
         def descending:boolean ((sortDef.stringOr("order" "ascending")) == "descending")
-        def sorted:[VlSceneItem]
-        for mark.items item:VlSceneItem idx {
-            def value:double (item.number(field))
-            def pos:int (array_length sorted)
-            def scan:int 0
-            def placed:boolean false
-            while ((scan < (array_length sorted)) && (! placed)) {
-                def other:double ((itemAt sorted scan).number(field))
-                def before:boolean (value < other)
-                if descending {
-                    before = (value > other)
-                }
-                if before {
-                    pos = scan
-                    placed = true
-                }
-                scan = (scan + 1)
-            }
-            push sorted item
-            def move:int ((array_length sorted) - 1)
-            while (move > pos) {
-                set_at sorted move (itemAt sorted (move - 1))
-                move = (move - 1)
-            }
-            set_at sorted pos item
+        def n:int (array_length mark.items)
+        if (n < 2) {
+            return
         }
-        mark.items = sorted
+
+        def items:[VlSceneItem]
+        def keys:[double]
+        for mark.items item:VlSceneItem idx {
+            push items item
+            push keys (item.number(field))
+        }
+        ; The scratch half of the merge. Filled once so it has the right length;
+        ; every pass overwrites it before reading it.
+        def spare:[VlSceneItem]
+        def spareKeys:[double]
+        def fill:int 0
+        while (fill < n) {
+            push spare (itemAt items fill)
+            push spareKeys (itemAt keys fill)
+            fill = (fill + 1)
+        }
+
+        def width:int 1
+        while (width < n) {
+            def lo:int 0
+            while (lo < n) {
+                def mid:int (lo + width)
+                def hi:int (lo + (width * 2))
+                if (mid > n) {
+                    mid = n
+                }
+                if (hi > n) {
+                    hi = n
+                }
+                def p:int lo
+                def q:int mid
+                def k:int lo
+                while (k < hi) {
+                    def takeLeft:boolean true
+                    if (p >= mid) {
+                        takeLeft = false
+                    } {
+                        if (q < hi) {
+                            def lk:double (itemAt keys p)
+                            def rk:double (itemAt keys q)
+                            ; The right side wins only when it is STRICTLY
+                            ; ahead, which is what keeps equal keys in order.
+                            if descending {
+                                takeLeft = (! (rk > lk))
+                            } {
+                                takeLeft = (! (rk < lk))
+                            }
+                        }
+                    }
+                    if takeLeft {
+                        set_at spare k (itemAt items p)
+                        set_at spareKeys k (itemAt keys p)
+                        p = (p + 1)
+                    } {
+                        set_at spare k (itemAt items q)
+                        set_at spareKeys k (itemAt keys q)
+                        q = (q + 1)
+                    }
+                    k = (k + 1)
+                }
+                lo = (lo + (width * 2))
+            }
+            ; Copied back rather than swapped: a target where an array
+            ; assignment copies and one where it aliases would otherwise
+            ; disagree about what the next pass reads.
+            def back:int 0
+            while (back < n) {
+                set_at items back (itemAt spare back)
+                set_at keys back (itemAt spareKeys back)
+                back = (back + 1)
+            }
+            width = (width * 2)
+        }
+        mark.items = items
     }
 
     fn encodeItem:void (item:VlSceneItem markType:string row:VlJson enter:VlJson update:VlJson) {

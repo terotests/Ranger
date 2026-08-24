@@ -57,6 +57,20 @@ class DataValidation {
         return (kind == "list")
     }
 
+    ; A rule whose verdict is a function somebody wrote, named by `f1`. It is
+    ; answered by a `CellRuleHost`, not here: this object is read out of an
+    ; .xlsx and written back into one, and `accepts` below has to be
+    ; answerable from the file alone. So a script rule falls through to the
+    ; "anything else accepts everything" case — which is also exactly right
+    ; for a sheet opened somewhere the script is not.
+    fn isScript:boolean () {
+        return (kind == "script")
+    }
+
+    fn scriptName:string () {
+        return f1
+    }
+
     ; The choices of a list rule. OOXML writes them as one quoted, comma
     ; separated string — `"north,south,east,west"` — and the quotes are part of
     ; the encoding rather than part of the first and last value.

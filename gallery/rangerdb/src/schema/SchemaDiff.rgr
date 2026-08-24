@@ -1,0 +1,627 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SchemaDiff.rgr — two schemas in, an ordered list of changes out.
+; ============================================================================
+;
+;   the schema a history replays to  ─┐
+;                                     ├─▶ ChangeSet ─▶ MigrationPlan ─▶ DDL
+;   the schema a database reports    ─┘
+;
+; The same call answers three questions the viewer asks, because all three are
+; the same question with different arguments:
+;
+;   "what does my next migration have to do"   edited schema vs live
+;   "what changed between V31 and V32"          replay(31) vs replay(32)
+;   "has the database drifted"                  replay(head) vs live
+;
+; ---------------------------------------------------------------------------
+; A rename is a SUGGESTION and never anything more
+; ---------------------------------------------------------------------------
+;
+; A dropped `user_name` and an added `username` of the same type in the same
+; position is probably a rename. Probably. Emitting `ALTER TABLE … RENAME
+; COLUMN` on that guess silently destroys a column's data when it is wrong,
+; and being right nine times out of ten is not a defence for the tenth.
+;
+; So the differ produces the drop and the add, and ALSO produces a scored
+; rename marked `suggested`. A caller that has asked somebody may collapse the
+; pair; a caller that has not must not. `collapseRenames` is that collapse,
+; and it is a separate call precisely so that it cannot happen by accident.
+; ============================================================================
+
+Import "SchemaChange.rgr"
+
+class SchemaDiff {
+    ; How alike two columns must be before a drop and an add are worth
+    ; offering as a rename at all. 0.5 keeps same-type, same-position pairs
+    ; and refuses a coincidence of two unrelated columns.
+    def renameThreshold:double 0.5
+
+    Constructor () {
+    }
+
+    sfn between:ChangeSet (before:DatabaseSchema after:DatabaseSchema) {
+        def d:SchemaDiff (new SchemaDiff)
+        return (d.compare(before after))
+    }
+
+    fn compare:ChangeSet (before:DatabaseSchema after:DatabaseSchema) {
+        def out:ChangeSet (new ChangeSet)
+        this.diffTables(before after out)
+        this.diffForeignKeys(before after out)
+        this.suggestTableRenames(before after out)
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Tables
+    ; ------------------------------------------------------------------------
+    fn diffTables:void (before:DatabaseSchema after:DatabaseSchema out:ChangeSet) {
+        def i:int 0
+        def nb:int (array_length before.tables)
+        while (i < nb) {
+            def old:DBTable (itemAt before.tables i)
+            def at:int (after.indexOfTable(old.name))
+            if (at < 0) {
+                def gone:SchemaChange (SchemaChange.of((ChangeKind.tableDrop()) old.name))
+                gone.tableDef = old
+                gone.before = (old.kind)
+                out.add(gone)
+            } {
+                this.diffColumns(old (itemAt after.tables at) out)
+                this.diffIndexes(old (itemAt after.tables at) out)
+                this.diffPrimaryKey(old (itemAt after.tables at) out)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        def na:int (array_length after.tables)
+        while (k < na) {
+            def fresh:DBTable (itemAt after.tables k)
+            if ((before.indexOfTable(fresh.name)) < 0) {
+                def added:SchemaChange (SchemaChange.of((ChangeKind.tableAdd()) fresh.name))
+                added.tableDef = fresh
+                added.after = (fresh.kind)
+                out.add(added)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Columns
+    ; ------------------------------------------------------------------------
+    fn diffColumns:void (old:DBTable fresh:DBTable out:ChangeSet) {
+        def i:int 0
+        def n:int (array_length old.columns)
+        while (i < n) {
+            def oc:SchemaColumn (itemAt old.columns i)
+            def at:int (fresh.columnIndex(oc.name))
+            if (at < 0) {
+                def gone:SchemaChange (SchemaChange.of((ChangeKind.columnDrop()) old.name))
+                gone.column = oc.name
+                gone.priorColumn = oc
+                gone.before = oc.dataType
+                out.add(gone)
+            } {
+                this.diffOneColumn(old.name oc (itemAt fresh.columns at) out)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        def m:int (array_length fresh.columns)
+        while (k < m) {
+            def nc:SchemaColumn (itemAt fresh.columns k)
+            if ((old.columnIndex(nc.name)) < 0) {
+                def added:SchemaChange (SchemaChange.of((ChangeKind.columnAdd()) old.name))
+                added.column = nc.name
+                added.columnDef = nc
+                added.after = nc.dataType
+                out.add(added)
+            }
+            k = (k + 1)
+        }
+        this.suggestColumnRenames(old fresh out)
+    }
+
+    fn diffOneColumn:void (table:string oc:SchemaColumn nc:SchemaColumn out:ChangeSet) {
+        if ((oc.dataType == nc.dataType) == false) {
+            def ty:SchemaChange (SchemaChange.of((ChangeKind.columnType()) table))
+            ty.column = nc.name
+            ty.before = oc.dataType
+            ty.after = nc.dataType
+            ty.columnDef = nc
+            ty.priorColumn = oc
+            out.add(ty)
+        }
+        if ((oc.nullable == nc.nullable) == false) {
+            def nl:SchemaChange (SchemaChange.of((ChangeKind.columnNull()) table))
+            nl.column = nc.name
+            nl.before = (SchemaDiff.nullText(oc.nullable))
+            nl.after = (SchemaDiff.nullText(nc.nullable))
+            nl.columnDef = nc
+            nl.priorColumn = oc
+            ; Widening to nullable loses nothing; narrowing can refuse rows
+            ; that are already there.
+            nl.destructive = ((nc.nullable) == false)
+            out.add(nl)
+        }
+        if ((oc.defaultValue == nc.defaultValue) == false) {
+            def df:SchemaChange (SchemaChange.of((ChangeKind.columnDefault()) table))
+            df.column = nc.name
+            df.before = oc.defaultValue
+            df.after = nc.defaultValue
+            df.columnDef = nc
+            df.priorColumn = oc
+            out.add(df)
+        }
+    }
+
+    sfn nullText:string (nullable:boolean) {
+        if nullable {
+            return "NULL"
+        }
+        return "NOT NULL"
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Renames — offered, never applied
+    ; ------------------------------------------------------------------------
+    fn suggestColumnRenames:void (old:DBTable fresh:DBTable out:ChangeSet) {
+        def dropped:[SchemaColumn]
+        def i:int 0
+        def n:int (array_length old.columns)
+        while (i < n) {
+            def oc:SchemaColumn (itemAt old.columns i)
+            if ((fresh.columnIndex(oc.name)) < 0) {
+                push dropped oc
+            }
+            i = (i + 1)
+        }
+        def addedCols:[SchemaColumn]
+        def k:int 0
+        def m:int (array_length fresh.columns)
+        while (k < m) {
+            def nc:SchemaColumn (itemAt fresh.columns k)
+            if ((old.columnIndex(nc.name)) < 0) {
+                push addedCols nc
+            }
+            k = (k + 1)
+        }
+        def d:int 0
+        def nd:int (array_length dropped)
+        while (d < nd) {
+            def gone:SchemaColumn (itemAt dropped d)
+            def bestAt:int -1
+            def bestScore:double 0.0
+            def a:int 0
+            def na:int (array_length addedCols)
+            while (a < na) {
+                def cand:SchemaColumn (itemAt addedCols a)
+                def score:double (SchemaDiff.similarity(gone cand))
+                if (score > bestScore) {
+                    bestScore = score
+                    bestAt = a
+                }
+                a = (a + 1)
+            }
+            if (bestAt >= 0) {
+                if (bestScore >= renameThreshold) {
+                    def cand2:SchemaColumn (itemAt addedCols bestAt)
+                    def ren:SchemaChange (SchemaChange.of((ChangeKind.columnRename()) old.name))
+                    ren.column = gone.name
+                    ren.toName = cand2.name
+                    ren.priorColumn = gone
+                    ren.columnDef = cand2
+                    ren.confidence = bestScore
+                    ren.suggested = true
+                    ; A rename applied is not destructive; a rename GUESSED
+                    ; wrong is. It is marked so a reader is told twice.
+                    ren.destructive = false
+                    out.add(ren)
+                }
+            }
+            d = (d + 1)
+        }
+    }
+
+    ; How alike are a dropped column and an added one? Type and position are
+    ; the honest signals; name similarity is deliberately worth less than
+    ; either, because `created_at` and `updated_at` are one letter apart in
+    ; the middle and are never the same column.
+    sfn similarity:double (a:SchemaColumn b:SchemaColumn) {
+        def score:double 0.0
+        if (a.dataType == b.dataType) {
+            score = (score + 0.45)
+        }
+        if (a.position == b.position) {
+            score = (score + 0.25)
+        }
+        if (a.nullable == b.nullable) {
+            score = (score + 0.1)
+        }
+        if (a.isPrimaryKey == b.isPrimaryKey) {
+            score = (score + 0.05)
+        }
+        def shared:double (SchemaDiff.nameAffinity(a.name b.name))
+        score = (score + (shared * 0.15))
+        return score
+    }
+
+    ; A cheap prefix/suffix overlap, in [0, 1].
+    sfn nameAffinity:double (a:string b:string) {
+        def la:int (strlen a)
+        def lb:int (strlen b)
+        if (la == 0) {
+            return 0.0
+        }
+        if (lb == 0) {
+            return 0.0
+        }
+        def shorter:int la
+        if (lb < shorter) {
+            shorter = lb
+        }
+        def pre:int 0
+        while (pre < shorter) {
+            if ((charAt a pre) != (charAt b pre)) {
+                break
+            }
+            pre = (pre + 1)
+        }
+        def suf:int 0
+        while (suf < (shorter - pre)) {
+            def ca:int (charAt a ((la - 1) - suf))
+            def cb:int (charAt b ((lb - 1) - suf))
+            if (ca != cb) {
+                break
+            }
+            suf = (suf + 1)
+        }
+        def longest:int la
+        if (lb > longest) {
+            longest = lb
+        }
+        def shareCount:double (to_double (pre + suf))
+        return (shareCount / (to_double longest))
+    }
+
+    fn suggestTableRenames:void (before:DatabaseSchema after:DatabaseSchema out:ChangeSet) {
+        def i:int 0
+        def n:int (array_length before.tables)
+        while (i < n) {
+            def old:DBTable (itemAt before.tables i)
+            if ((after.indexOfTable(old.name)) < 0) {
+                def bestName:string ""
+                def bestScore:double 0.0
+                def k:int 0
+                def m:int (array_length after.tables)
+                while (k < m) {
+                    def fresh:DBTable (itemAt after.tables k)
+                    if ((before.indexOfTable(fresh.name)) < 0) {
+                        def score:double (SchemaDiff.tableAffinity(old fresh))
+                        if (score > bestScore) {
+                            bestScore = score
+                            bestName = fresh.name
+                        }
+                    }
+                    k = (k + 1)
+                }
+                if ((strlen bestName) > 0) {
+                    if (bestScore >= renameThreshold) {
+                        def ren:SchemaChange (SchemaChange.of((ChangeKind.tableRename()) old.name))
+                        ren.toName = bestName
+                        ren.confidence = bestScore
+                        ren.suggested = true
+                        ren.tableDef = old
+                        out.add(ren)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Two tables are alike when their COLUMNS are. A table that kept its shape
+    ; and changed its name is the case worth catching; two unrelated tables
+    ; that happen to be named similarly are not.
+    sfn tableAffinity:double (a:DBTable b:DBTable) {
+        def na:int (array_length a.columns)
+        def nb:int (array_length b.columns)
+        if (na == 0) {
+            return 0.0
+        }
+        if (nb == 0) {
+            return 0.0
+        }
+        def shared:int 0
+        def i:int 0
+        while (i < na) {
+            def c:SchemaColumn (itemAt a.columns i)
+            if ((b.columnIndex(c.name)) >= 0) {
+                shared = (shared + 1)
+            }
+            i = (i + 1)
+        }
+        def biggest:int na
+        if (nb > biggest) {
+            biggest = nb
+        }
+        def overlap:double ((to_double shared) / (to_double biggest))
+        def nameScore:double (SchemaDiff.nameAffinity(a.name b.name))
+        return ((overlap * 0.8) + (nameScore * 0.2))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Indexes, keys, primary keys
+    ; ------------------------------------------------------------------------
+    fn diffIndexes:void (old:DBTable fresh:DBTable out:ChangeSet) {
+        def i:int 0
+        def n:int (array_length old.indexes)
+        while (i < n) {
+            def oi:DBIndex (itemAt old.indexes i)
+            if (oi.origin == "index") {
+                if ((SchemaDiff.hasIndex(fresh oi)) == false) {
+                    def gone:SchemaChange (SchemaChange.of((ChangeKind.indexDrop()) old.name))
+                    gone.index = oi
+                    out.add(gone)
+                }
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        def m:int (array_length fresh.indexes)
+        while (k < m) {
+            def ni:DBIndex (itemAt fresh.indexes k)
+            if (ni.origin == "index") {
+                if ((SchemaDiff.hasIndex(old ni)) == false) {
+                    def added:SchemaChange (SchemaChange.of((ChangeKind.indexAdd()) fresh.name))
+                    added.index = ni
+                    out.add(added)
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; Matched by NAME and by shape: an index renamed is a different index to a
+    ; database, and an index whose columns changed is a different index to a
+    ; reader.
+    sfn hasIndex:boolean (t:DBTable want:DBIndex) {
+        def i:int 0
+        def n:int (array_length t.indexes)
+        while (i < n) {
+            def idx:DBIndex (itemAt t.indexes i)
+            if (idx.name == want.name) {
+                if (idx.unique == want.unique) {
+                    if ((SchemaDiff.sameNames(idx.columns want.columns))) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn sameNames:boolean (a:[string] b:[string]) {
+        def n:int (array_length a)
+        if (n != (array_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if (((itemAt a i) == (itemAt b i)) == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn diffPrimaryKey:void (old:DBTable fresh:DBTable out:ChangeSet) {
+        def a:[string] (old.primaryKeyColumns())
+        def b:[string] (fresh.primaryKeyColumns())
+        if (SchemaDiff.sameNames(a b)) {
+            return
+        }
+        def c:SchemaChange (SchemaChange.of((ChangeKind.primaryKey()) old.name))
+        c.before = (SchemaDiff.joinNames(a))
+        c.after = (SchemaDiff.joinNames(b))
+        c.tableDef = fresh
+        out.add(c)
+    }
+
+    sfn joinNames:string (names:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (itemAt names i))
+            i = (i + 1)
+        }
+        if ((strlen out) == 0) {
+            return "(none)"
+        }
+        return out
+    }
+
+    fn diffForeignKeys:void (before:DatabaseSchema after:DatabaseSchema out:ChangeSet) {
+        def i:int 0
+        def n:int (array_length before.foreignKeys)
+        while (i < n) {
+            def fk:DBForeignKey (itemAt before.foreignKeys i)
+            if ((SchemaDiff.hasKey(after fk)) == false) {
+                ; A key that vanished because its whole table did is not a
+                ; separate change; the table drop already says it.
+                if ((after.indexOfTable(fk.fromTable)) >= 0) {
+                    def gone:SchemaChange (SchemaChange.of((ChangeKind.keyDrop()) fk.fromTable))
+                    gone.foreignKey = fk
+                    out.add(gone)
+                }
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        def m:int (array_length after.foreignKeys)
+        while (k < m) {
+            def nk:DBForeignKey (itemAt after.foreignKeys k)
+            if ((SchemaDiff.hasKey(before nk)) == false) {
+                ; Likewise a key that arrived with a brand new table is part of
+                ; creating it.
+                if ((before.indexOfTable(nk.fromTable)) >= 0) {
+                    def added:SchemaChange (SchemaChange.of((ChangeKind.keyAdd()) nk.fromTable))
+                    added.foreignKey = nk
+                    out.add(added)
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn hasKey:boolean (schema:DatabaseSchema want:DBForeignKey) {
+        def i:int 0
+        def n:int (array_length schema.foreignKeys)
+        while (i < n) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys i)
+            if (fk.fromTable == want.fromTable) {
+                if (fk.toTable == want.toTable) {
+                    if (SchemaDiff.sameNames(fk.fromColumns want.fromColumns)) {
+                        if (SchemaDiff.sameNames(fk.toColumns want.toColumns)) {
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Collapsing a suggestion into a decision
+    ; ------------------------------------------------------------------------
+    ;
+    ; Take the suggested renames the caller has ACCEPTED — by name — and drop
+    ; the add/drop pair each one replaces. Everything not named stays as it
+    ; was: a rename nobody confirmed is still a drop and an add.
+    ; The parameter is not called `set`: that name shadows the `set` map
+    ; operator used below, and the map writes silently miscompile.
+    sfn collapseRenames:ChangeSet (input:ChangeSet acceptedTables:[string] acceptedColumns:[string]) {
+        def out:ChangeSet (new ChangeSet)
+        def killDrop:[string:int]
+        def killAdd:[string:int]
+        ; A bare literal is not accepted as a map value here; the marker is
+        ; bound once and reused.
+        def yes:int 1
+        def i:int 0
+        def n:int (array_length input.changes)
+        while (i < n) {
+            def c:SchemaChange (itemAt input.changes i)
+            if (c.suggested) {
+                def key:string (c.table + "." + c.column + "->" + c.toName)
+                def wanted:boolean false
+                if (c.kind == "column.rename") {
+                    wanted = (SchemaDiff.listHas(acceptedColumns key))
+                    if (wanted) {
+                        def dropKey:string (c.table + "." + c.column)
+                        def addKey:string (c.table + "." + c.toName)
+                        set killDrop dropKey yes
+                        set killAdd addKey yes
+                    }
+                }
+                if (c.kind == "table.rename") {
+                    def tkey:string (c.table + "->" + c.toName)
+                    wanted = (SchemaDiff.listHas(acceptedTables tkey))
+                    if (wanted) {
+                        set killDrop c.table yes
+                        set killAdd c.toName yes
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < n) {
+            def c2:SchemaChange (itemAt input.changes k)
+            def keep:boolean true
+            if (c2.suggested) {
+                ; A suggestion survives only if it was accepted, which is the
+                ; same as saying it caused a kill entry.
+                def okey:string (c2.table + "." + c2.column)
+                def tkey2:string c2.table
+                if (c2.kind == "column.rename") {
+                    keep = (has killDrop okey)
+                }
+                if (c2.kind == "table.rename") {
+                    keep = (has killDrop tkey2)
+                }
+            } {
+                def colKey:string (c2.table + "." + c2.column)
+                if (c2.kind == "column.drop") {
+                    if (has killDrop colKey) {
+                        keep = false
+                    }
+                }
+                if (c2.kind == "column.add") {
+                    if (has killAdd colKey) {
+                        keep = false
+                    }
+                }
+                if (c2.kind == "table.drop") {
+                    if (has killDrop c2.table) {
+                        keep = false
+                    }
+                }
+                if (c2.kind == "table.add") {
+                    if (has killAdd c2.table) {
+                        keep = false
+                    }
+                }
+            }
+            if keep {
+                ; An accepted rename stops being a guess. That matters: a plan
+                ; refuses to write DDL for anything still marked `suggested`,
+                ; so leaving the flag on would silently drop the change the
+                ; caller just confirmed.
+                if (c2.suggested) {
+                    c2.suggested = false
+                }
+                out.add(c2)
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn listHas:boolean (list:[string] want:string) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The suggestions on their own, for a UI that has to ask.
+    sfn suggestionsOf:[SchemaChange] (input:ChangeSet) {
+        def out:[SchemaChange]
+        def i:int 0
+        def n:int (array_length input.changes)
+        while (i < n) {
+            def c:SchemaChange (itemAt input.changes i)
+            if (c.suggested) {
+                push out c
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

@@ -1,0 +1,205 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; IntrospectContract - one introspection suite, every engine.
+; ==============================================================================
+;
+; The same fixture is built on each engine and described by each engine's
+; introspector, and the assertions are about the DESCRIPTION, never about the
+; catalog it came from. SQLite answers through PRAGMA, DuckDB through its own
+; catalog functions, RangerDB through the backend contract; if the resulting
+; `DatabaseSchema` does not agree, one of them is wrong.
+;
+; Engines differ in what they can describe, and the suite respects that rather
+; than lowering itself to the weakest one: an engine is asked for foreign keys
+; only if it did not declare that gap. What is NOT allowed is silence — an
+; engine that cannot see indexes must say so, and that is asserted too.
+; ==============================================================================
+
+Import "DbContract.rgr"
+Import "../src/schema/Introspect.rgr"
+
+class IntrospectFixture {
+    ; The same shape on every engine: two tables, a foreign key between them,
+    ; a hand-written index, a unique column, and a view.
+    sfn buildSql:boolean (session:DBSession) {
+        session.execSql("CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL UNIQUE, note VARCHAR)")
+        session.execSql("CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id), total DOUBLE)")
+        session.execSql("CREATE INDEX idx_orders_cust ON orders (customer_id)")
+        session.execSql("CREATE VIEW v_orders AS SELECT id, total FROM orders")
+        return true
+    }
+
+    ; RangerDB has no DDL, so the same shape is declared through the contract.
+    ; It cannot carry the foreign key, the index or the view - which is the
+    ; point: its gaps then have to say so.
+    ; Kinds are the integer literals DbContract already uses: 2 int, 3 double,
+    ; 4 string.
+    sfn buildContract:boolean (session:DBSession) {
+        def custCols:[DBColumn]
+        push custCols (DBColumn.createKey("id" 2))
+        def emailCol:DBColumn (DBColumn.create("email" 4))
+        emailCol.nullable = false
+        push custCols emailCol
+        push custCols (DBColumn.create("note" 4))
+        session.createTable("customers" custCols)
+        def ordCols:[DBColumn]
+        push ordCols (DBColumn.createKey("id" 2))
+        push ordCols (DBColumn.create("customer_id" 2))
+        push ordCols (DBColumn.create("total" 3))
+        session.createTable("orders" ordCols)
+        return true
+    }
+}
+
+class IntrospectContract {
+
+    sfn findIndexNamed:DBIndex (t:DBTable name:string) {
+        def i:int 0
+        def n:int (array_length t.indexes)
+        while (i < n) {
+            def idx:DBIndex (itemAt t.indexes i)
+            if (idx.name == name) {
+                return idx
+            }
+            i = (i + 1)
+        }
+        return (new DBIndex)
+    }
+
+    sfn runAll:void (session:DBSession check:DbCheck sqlDdl:boolean) {
+        def engine:string (session.engineName())
+        check.label = engine
+        print ("== introspect: " + engine + " ==")
+
+        if sqlDdl {
+            IntrospectFixture.buildSql(session)
+        } {
+            IntrospectFixture.buildContract(session)
+        }
+
+        def ins:DBIntrospector (Introspect.forSession(session))
+        def schema:DatabaseSchema (Introspect.everythingWith(ins session))
+
+        check.eqStr((engine + ": schema records its engine") schema.engine engine)
+
+        ; --- tables ---------------------------------------------------------
+        def ci:int (schema.indexOfTable("customers"))
+        def oi:int (schema.indexOfTable("orders"))
+        check.ok((engine + ": customers found") (ci >= 0))
+        check.ok((engine + ": orders found") (oi >= 0))
+        if (ci < 0) {
+            return
+        }
+        if (oi < 0) {
+            return
+        }
+        def customers:DBTable (itemAt schema.tables ci)
+        def orders:DBTable (itemAt schema.tables oi)
+
+        ; --- columns --------------------------------------------------------
+        check.eqInt((engine + ": customers has 3 columns") (array_length customers.columns) 3)
+        def emailIdx:int (customers.columnIndex("email"))
+        check.ok((engine + ": customers.email found") (emailIdx >= 0))
+        if (emailIdx >= 0) {
+            def email:SchemaColumn (itemAt customers.columns emailIdx)
+            check.ok((engine + ": email is NOT NULL") (email.nullable == false))
+            check.eqInt((engine + ": email keeps its ordinal") email.position 1)
+        }
+        def noteIdx:int (customers.columnIndex("note"))
+        if (noteIdx >= 0) {
+            def note:SchemaColumn (itemAt customers.columns noteIdx)
+            check.ok((engine + ": note is nullable") note.nullable)
+        }
+
+        ; --- primary key ----------------------------------------------------
+        def idIdx:int (customers.columnIndex("id"))
+        if (idIdx >= 0) {
+            def idCol:SchemaColumn (itemAt customers.columns idIdx)
+            check.ok((engine + ": customers.id is the primary key") idCol.isPrimaryKey)
+            check.eqInt((engine + ": customers.id is PK position 1") idCol.pkPosition 1)
+            ; Every engine must agree here. SQLite's PRAGMA reports notnull = 0
+            ; for an INTEGER PRIMARY KEY (the rowid-alias quirk); reported
+            ; verbatim, the same DDL would describe itself differently per
+            ; engine and the schema differ would propose an ALTER on every key.
+            check.ok((engine + ": a primary key is never nullable") ((idCol.nullable) == false))
+        }
+        def pks:[string] (customers.primaryKeyColumns())
+        check.eqInt((engine + ": customers has a single-column PK") (array_length pks) 1)
+
+        ; --- foreign keys ---------------------------------------------------
+        def fkGap:boolean (ins.hasGap("foreign_keys"))
+        if fkGap {
+            check.ok((engine + ": declares it cannot see foreign keys") true)
+        } {
+            check.eqInt((engine + ": one foreign key") (array_length schema.foreignKeys) 1)
+            if ((array_length schema.foreignKeys) > 0) {
+                def fk:DBForeignKey (itemAt schema.foreignKeys 0)
+                check.eqStr((engine + ": FK is from orders") fk.fromTable "orders")
+                check.eqStr((engine + ": FK is to customers") fk.toTable "customers")
+                check.eqStr((engine + ": FK leaves orders.customer_id") (fk.firstFromColumn()) "customer_id")
+                check.eqStr((engine + ": FK arrives at customers.id") (fk.firstToColumn()) "id")
+            }
+            ; resolve() badges the referencing column, which is what the
+            ; diagram draws rather than walking the key list again.
+            def custColIdx:int (orders.columnIndex("customer_id"))
+            if (custColIdx >= 0) {
+                def fkCol:SchemaColumn (itemAt orders.columns custColIdx)
+                check.ok((engine + ": orders.customer_id badged as a foreign key") fkCol.isForeignKey)
+            }
+        }
+
+        ; --- uniqueness -----------------------------------------------------
+        def indexGap:boolean (ins.hasGap("indexes"))
+        if (indexGap == false) {
+            if (emailIdx >= 0) {
+                def email2:SchemaColumn (itemAt customers.columns emailIdx)
+                check.ok((engine + ": email is unique") email2.isUnique)
+            }
+        }
+
+        ; --- indexes --------------------------------------------------------
+        if (indexGap == false) {
+            def idx:DBIndex (IntrospectContract.findIndexNamed(orders "idx_orders_cust"))
+            check.eqStr((engine + ": the hand-written index is found") idx.name "idx_orders_cust")
+            check.eqStr((engine + ": it is an index, not a constraint's") idx.origin "index")
+            check.eqInt((engine + ": it covers one column") (array_length idx.columns) 1)
+            if ((array_length idx.columns) > 0) {
+                check.eqStr((engine + ": it covers customer_id") (itemAt idx.columns 0) "customer_id")
+            }
+            ; The index behind a PRIMARY KEY must never be reported as an
+            ; ordinary one - Phase 6 would call every primary key redundant.
+            def pkIdx:int 0
+            def npi:int (array_length customers.indexes)
+            def sawPlainPk:boolean false
+            while (pkIdx < npi) {
+                def anIdx:DBIndex (itemAt customers.indexes pkIdx)
+                if (anIdx.origin == "index") {
+                    sawPlainPk = true
+                }
+                pkIdx = (pkIdx + 1)
+            }
+            check.ok((engine + ": no constraint index masquerades as hand-written") (sawPlainPk == false))
+        }
+
+        ; --- views ----------------------------------------------------------
+        def viewGap:boolean (ins.hasGap("views"))
+        if viewGap {
+            check.ok((engine + ": declares it cannot see views") true)
+        } {
+            def vi:int (schema.indexOfTable("v_orders"))
+            check.ok((engine + ": the view is found") (vi >= 0))
+            if (vi >= 0) {
+                def view:DBTable (itemAt schema.tables vi)
+                check.eqStr((engine + ": the view knows it is a view") view.kind "view")
+                check.ok((engine + ": the view kept its SQL") ((strlen view.sourceSql) > 0))
+                check.eqInt((engine + ": the view has its 2 columns") (array_length view.columns) 2)
+            }
+        }
+
+        ; --- honesty --------------------------------------------------------
+        ; Every engine here is missing something. An introspector reporting no
+        ; gaps at all would mean it had stopped checking.
+        check.ok((engine + ": reports what it could not answer") (ins.hasGaps()))
+    }
+}

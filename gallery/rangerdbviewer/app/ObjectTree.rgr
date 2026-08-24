@@ -1,0 +1,244 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; ObjectTree.rgr — the left-hand list, as data.
+; ============================================================================
+;
+;   ▾ main
+;     ▾ tables
+;         customers          3 columns
+;         orders             3 columns
+;     ▾ views
+;         v_orders           2 columns
+;     ▾ indexes
+;         idx_orders_cust    orders (customer_id)
+;
+; A flat list of rows with a depth on each, rather than a tree of nodes: every
+; host that draws this — a browser list, an SDL window, a terminal — wants to
+; iterate visible rows in order, and a nested structure would make each of them
+; write the same flattening walk.
+;
+; Collapsing is therefore a property of the row, and `visibleRows` is the whole
+; of the drawing contract.
+; ============================================================================
+
+Import "../../rangerdb/src/schema/DatabaseSchema.rgr"
+
+class TreeRow {
+    ; "schema" | "group" | "table" | "view" | "index"
+    def kind:string "table"
+    def label:string ""
+    def detail:string ""
+    ; The table this row is about, so a click can select without re-parsing
+    ; the label.
+    def tableName:string ""
+    def depth:int 0
+    def expandable:boolean false
+    def expanded:boolean true
+
+    Constructor () {
+    }
+
+    sfn of:TreeRow (kind:string label:string depth:int) {
+        def r:TreeRow (new TreeRow)
+        r.kind = kind
+        r.label = label
+        r.depth = depth
+        return r
+    }
+}
+
+class ObjectTree {
+    def rows:[TreeRow]
+    def tableCount:int 0
+    def viewCount:int 0
+    def indexCount:int 0
+
+    Constructor () {
+    }
+
+    fn rebuild:void (schema:DatabaseSchema) {
+        clear rows
+        tableCount = 0
+        viewCount = 0
+        indexCount = 0
+
+        def schemaName:string schema.name
+        if ((strlen schemaName) == 0) {
+            schemaName = "main"
+        }
+        def root:TreeRow (TreeRow.of("schema" schemaName 0))
+        root.expandable = true
+        root.detail = schema.engine
+        push rows root
+
+        this.addGroup(schema "tables" "table")
+        this.addGroup(schema "views" "view")
+        this.addIndexGroup(schema)
+    }
+
+    fn addGroup:void (schema:DatabaseSchema title:string wantKind:string) {
+        def members:[int]
+        def i:int 0
+        def n:int (array_length schema.tables)
+        while (i < n) {
+            def t:DBTable (itemAt schema.tables i)
+            if (t.kind == wantKind) {
+                push members i
+            }
+            i = (i + 1)
+        }
+        def count:int (array_length members)
+        if (count == 0) {
+            return
+        }
+        if (wantKind == "table") {
+            tableCount = count
+        }
+        if (wantKind == "view") {
+            viewCount = count
+        }
+        def group:TreeRow (TreeRow.of("group" title 1))
+        group.expandable = true
+        group.detail = (to_string count)
+        push rows group
+        def m:int 0
+        while (m < count) {
+            def idx:int (itemAt members m)
+            def t2:DBTable (itemAt schema.tables idx)
+            def row:TreeRow (TreeRow.of(wantKind t2.name 2))
+            row.tableName = t2.name
+            row.detail = (ObjectTree.columnSummary(t2))
+            push rows row
+            m = (m + 1)
+        }
+    }
+
+    fn addIndexGroup:void (schema:DatabaseSchema) {
+        def total:int 0
+        def i:int 0
+        def n:int (array_length schema.tables)
+        while (i < n) {
+            def t:DBTable (itemAt schema.tables i)
+            def k:int 0
+            def nk:int (array_length t.indexes)
+            while (k < nk) {
+                def ix:DBIndex (itemAt t.indexes k)
+                ; The index behind a primary key is not an object a reader
+                ; put there, and listing it makes every table look indexed
+                ; twice. It is still in the model for the analyzer.
+                if (ix.origin == "index") {
+                    total = (total + 1)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        indexCount = total
+        if (total == 0) {
+            return
+        }
+        def group:TreeRow (TreeRow.of("group" "indexes" 1))
+        group.expandable = true
+        group.detail = (to_string total)
+        push rows group
+        def t2i:int 0
+        while (t2i < n) {
+            def t3:DBTable (itemAt schema.tables t2i)
+            def k2:int 0
+            def nk2:int (array_length t3.indexes)
+            while (k2 < nk2) {
+                def ix2:DBIndex (itemAt t3.indexes k2)
+                if (ix2.origin == "index") {
+                    def row:TreeRow (TreeRow.of("index" ix2.name 2))
+                    row.tableName = t3.name
+                    row.detail = (t3.name + " (" + (ObjectTree.joinNames(ix2.columns)) + ")")
+                    push rows row
+                }
+                k2 = (k2 + 1)
+            }
+            t2i = (t2i + 1)
+        }
+    }
+
+    sfn columnSummary:string (t:DBTable) {
+        def n:int (array_length t.columns)
+        def out:string ((to_string n) + " columns")
+        if (t.rowEstimate >= 0) {
+            out = (out + ", ~" + (to_string t.rowEstimate) + " rows")
+        }
+        return out
+    }
+
+    sfn joinNames:string (names:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (itemAt names i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Rows a host should draw: everything whose ancestors are all expanded.
+    fn visibleRows:[TreeRow] () {
+        def out:[TreeRow]
+        def hideBelow:int -1
+        def i:int 0
+        def n:int (array_length rows)
+        while (i < n) {
+            def r:TreeRow (itemAt rows i)
+            if (hideBelow >= 0) {
+                if (r.depth > hideBelow) {
+                    i = (i + 1)
+                    continue
+                }
+                hideBelow = -1
+            }
+            push out r
+            if (r.expandable) {
+                if ((r.expanded) == false) {
+                    hideBelow = r.depth
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn toggleAt:boolean (index:int) {
+        if (index < 0) {
+            return false
+        }
+        if (index >= (array_length rows)) {
+            return false
+        }
+        def r:TreeRow (itemAt rows index)
+        if ((r.expandable) == false) {
+            return false
+        }
+        r.expanded = ((r.expanded) == false)
+        return true
+    }
+
+    fn firstTableName:string () {
+        def i:int 0
+        def n:int (array_length rows)
+        while (i < n) {
+            def r:TreeRow (itemAt rows i)
+            if (r.kind == "table") {
+                return r.tableName
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn rowCount:int () {
+        return (array_length rows)
+    }
+}

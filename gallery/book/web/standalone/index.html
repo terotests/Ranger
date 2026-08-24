@@ -32,7 +32,11 @@
         color: var(--text);
         font: 14px/1.4 "IBM Plex Sans", "Segoe UI", sans-serif;
       }
-      body { display: grid; grid-template-rows: auto 1fr; min-height: 100%; }
+      /* A column rather than two named grid rows: the photo finder appears
+         and disappears between the header and the canvas, and a grid whose
+         row count depends on that is a grid that collapses when it is
+         hidden. */
+      body { display: flex; flex-direction: column; min-height: 100%; }
       header {
         display: flex;
         flex-wrap: wrap;
@@ -57,7 +61,7 @@
         cursor: pointer;
       }
       button:hover { border-color: #b08d57; }
-      main { display: grid; place-items: center; padding: 1rem; }
+      main { flex: 1; display: grid; place-items: center; padding: 1rem; }
       canvas {
         width: min(97vw, 1180px);
         height: auto;
@@ -69,6 +73,29 @@
         touch-action: none;
         outline: none;
       }
+      body.dropping canvas { border-color: #b08d57; box-shadow: 0 0 0 3px rgba(176, 141, 87, 0.35); }
+      #finder {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 0.9rem;
+        align-items: center;
+        padding: 0.5rem 1.2rem;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+      }
+      #finder label { color: var(--muted); display: flex; align-items: center; gap: 0.3rem; }
+      #finder input {
+        font: inherit;
+        padding: 0.25rem 0.35rem;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: #fff;
+        color: var(--text);
+      }
+      #q-result { color: var(--muted); }
+      #q-result.hit { color: var(--text); }
+      #album-pick { font: inherit; font-size: 12px; padding: 0.25rem; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
       kbd {
         background: #ffffff;
         border: 1px solid var(--line);
@@ -91,14 +118,36 @@
       <button data-cmd="view.frames">Frames</button>
       <button data-cmd="view.margins">Margins</button>
       <button data-cmd="book.preflight">Preflight</button>
+      <button id="open-album">Open Apple album…</button>
+      <button id="open-photos">Open photos…</button>
+      <select id="album-pick" hidden></select>
       <button id="save">Save spread (SVG)</button>
       <span id="hint" style="color: var(--muted); font-size: 12px">
-        <kbd>Ctrl</kbd>+<kbd>E</kbd> edit · <kbd>Ctrl</kbd>+<kbd>L</kbd> link · <kbd>←</kbd><kbd>→</kbd> spread
+        <kbd>Ctrl</kbd>+<kbd>E</kbd> edit · <kbd>Ctrl</kbd>+<kbd>L</kbd> link · <kbd>←</kbd><kbd>→</kbd> spread · drop an <em>AlbumData.xml</em> and its photos here
       </span>
       <span id="build">build __BUILD__</span>
     </header>
+    <!-- Shown once there are photographs to search. -->
+    <section id="finder" hidden>
+      <label>from <input id="q-from" type="date" /></label>
+      <label>to <input id="q-to" type="date" /></label>
+      <label>near <input id="q-near" type="text" placeholder="60.1699,24.9384" size="17" /></label>
+      <label>within <input id="q-radius" type="number" min="0" step="1" value="20" size="4" /> km</label>
+      <label>text <input id="q-text" type="text" placeholder="iPhone" size="10" /></label>
+      <button id="q-run">Search</button>
+      <span id="q-result"></span>
+      <button id="q-book">Make a book of them</button>
+    </section>
     <main>
       <canvas id="view" width="1180" height="800" tabindex="0"></canvas>
+      <!-- An iPhoto/Aperture library index plus the photographs it names. The
+           page never uploads them: the parser and the layout are compiled into
+           this file, so the album is read where it is opened. -->
+      <input id="album-files" type="file" multiple accept=".xml,.plist,image/jpeg,image/png" hidden />
+      <!-- A folder of photographs, or an index made by tools/mac_photos.mjs.
+           Nothing is uploaded: the EXIF reading and the search are compiled
+           into book_web.js and run in this page. -->
+      <input id="photo-files" type="file" multiple accept=".json,image/jpeg" hidden />
       <!-- Read back by smoke.mjs through --dump-dom; invisible otherwise. -->
       <div id="probe" hidden>
         backend <strong id="backend">?</strong>

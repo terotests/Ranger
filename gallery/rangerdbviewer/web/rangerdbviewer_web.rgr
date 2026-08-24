@@ -1,0 +1,449 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; rangerdbviewer_web.rgr — the workbench, in a browser tab, with no host.
+; ==============================================================================
+;
+;   browser event → RangerDbViewerWeb → DbViewerFrame → DbViewerApp   (this tab)
+;   DbViewerFrame.sceneJson() → EVGDisplayList → evg-webgl.js         (this tab)
+;
+; The database runs in the tab too, which is the part worth pausing on. SQLite
+; is `node:sqlite` and DuckDB is a native addon: both are host binaries, and a
+; page served from a static directory has no host to ask. RangerDB is written
+; in Ranger, so it compiles to JavaScript along with everything above it and
+; the page really does hold a database rather than a picture of one.
+;
+; That is also the honest limit of this build, and the strip says so rather
+; than hiding it: pressing SQLite reports that it needs a host process instead
+; of failing silently.
+;
+; This class is a facade and nothing else. Every decision it might be tempted
+; to make lives one layer down, in `DbViewerFrame`, where the tests reach it.
+; ==============================================================================
+
+Import "../app/DbViewerFrame.rgr"
+Import "../../datagrid/src/script/CellScripts.rgr"
+
+class RangerDbViewerWeb {
+    def frame:DbViewerFrame (new DbViewerFrame)
+
+    Constructor () {
+    }
+
+    fn start:void (w:int h:int) {
+        frame.init(w h)
+        frame.openDemo("rangerdb")
+        frame.runCommand("view.diagram" "")
+    }
+
+    ; Fonts arrive as bytes; there is no font directory to read.
+    fn addFont:boolean (family:string data:buffer) {
+        return (frame.ctx.tr.loadFontBytes(family data))
+    }
+
+    fn addFace:boolean (data:buffer) {
+        return (frame.ctx.tr.addFaceBytes(data))
+    }
+
+    fn resize:void (w:int h:int) {
+        frame.resize(w h)
+    }
+
+    fn scene:string () {
+        return (frame.sceneJson())
+    }
+
+    fn pointer:boolean (x:int y:int pressed:boolean down:boolean released:boolean) {
+        return (frame.pointer(x y pressed down released))
+    }
+
+    fn wheel:boolean (dy:int) {
+        return (frame.wheel(dy))
+    }
+
+    ; The keyboard, for the panels that are spreadsheets. A page forwards what
+    ; the browser gives it and decides nothing: whether a cell may take what
+    ; was typed is the COLUMN's business, asked by the pane on commit.
+    fn text:boolean (s:string) {
+        return (frame.text(s))
+    }
+
+    fn key:boolean (name:string) {
+        return (frame.key(name))
+    }
+
+    ; What the Schema panel's spreadsheet currently says, so the page's own
+    ; checks can read a cell rather than the canvas.
+    fn schemaCell:string (row:int col:int) {
+        return (frame.schemaSheet.pane.model.getCell(row col))
+    }
+
+    fn dataCell:string (row:int col:int) {
+        return (frame.dataSheet.pane.model.getCell(row col))
+    }
+
+    ; The choices a column offers, comma separated — the dropdown, as text.
+    fn schemaChoices:string (row:int col:int) {
+        def rule:DataValidation (frame.schemaSheet.pane.model.validationAt(row col))
+        if ((rule.isList()) == false) {
+            return ""
+        }
+        return (GridPane.plainList((rule.listValues())))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Rules a person wrote, in the page
+    ; ------------------------------------------------------------------------
+    ;
+    ; A column whose constraint is neither a range nor a list — an SKU shape,
+    ; a date that must not precede another one, a discount that needs
+    ; approval — is a function, and the function is JavaScript run by
+    ; ComponentEngine. The page can hand one in at any time, which is the
+    ; whole point: changing what a column will accept is editing a script,
+    ; not rebuilding the viewer.
+    def scripts:CellScripts (new CellScripts)
+    def scriptsOn:boolean false
+
+    fn useCellScript:boolean (src:string) {
+        def ok:boolean (scripts.load(src))
+        frame.useCellRules(scripts)
+        scriptsOn = true
+        return ok
+    }
+
+    fn scriptError:string () {
+        return scripts.errorText
+    }
+
+    ; Attach a rule to a column of the Data panel, by the column's name.
+    fn ruleOnDataColumn:boolean (column:string ruleName:string why:string) {
+        def at:int (frame.dataSheet.columnIndex(column))
+        if (at < 0) {
+            return false
+        }
+        frame.dataSheet.pane.scriptColumn(at 1 frame.dataSheet.rows ruleName why)
+        return true
+    }
+
+    ; Would the Data panel take that, in that cell? What the page's own checks
+    ; ask, and what a host writing its own editor would ask.
+    fn dataAccepts:boolean (row:int col:int text:string) {
+        return (frame.dataSheet.pane.accepts(row col text))
+    }
+
+    fn dataRefusal:string (row:int col:int) {
+        return (frame.dataSheet.pane.refusalMessage(row col))
+    }
+
+    ; Put the cursor on a cell without a pointer — what a keyboard-only
+    ; reader does, and what the page's own checks need.
+    fn schemaSelect:boolean (row:int col:int) {
+        return (frame.schemaSheet.pane.selectCell(row col))
+    }
+
+    fn dataSelect:boolean (row:int col:int) {
+        return (frame.dataSheet.pane.selectCell(row col))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The Forms section
+    ; ------------------------------------------------------------------------
+    ;
+    ; One record at a time, which is the half of a database front end a grid is
+    ; bad at. The engine underneath has never heard of a database: what it sees
+    ; is a questionnaire whose questions were described from the table's own
+    ; columns.
+    fn formFieldText:string (name:string) {
+        return (frame.record.currentText(name))
+    }
+
+    fn formFieldValid:boolean (name:string) {
+        return (frame.record.state.isValid(name))
+    }
+
+    fn formFieldRequired:boolean (name:string) {
+        return (frame.record.state.isRequired(name))
+    }
+
+    fn formFieldVisible:boolean (name:string) {
+        return (frame.record.state.isVisible(name))
+    }
+
+    fn formFieldCount:int () {
+        return (frame.record.form.questionCount())
+    }
+
+    fn formRecordCount:int () {
+        return frame.formRows
+    }
+
+    fn formRecordIndex:int () {
+        return frame.formRow
+    }
+
+    fn formFocus:boolean (name:string) {
+        return (frame.formView.focus(name))
+    }
+
+    fn formDirty:boolean () {
+        return (frame.record.isDirty())
+    }
+
+    fn formCanSave:boolean () {
+        return (frame.record.canSave())
+    }
+
+    ; What the save WOULD do, in the words of the statement, without running
+    ; it. The same discipline as the schema panel's migration preview.
+    fn formPreview:string () {
+        return (frame.record.preview())
+    }
+
+    fn formSummary:string () {
+        return (frame.formView.summary())
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The Query section
+    ; ------------------------------------------------------------------------
+    ;
+    ; What the designer produces is a `QuerySpec`, never SQL text, so the same
+    ; execution path serves it and the Data panel — and the capability-fallback
+    ; engine does the join RangerDB cannot.
+    fn queryTables:string () {
+        return (ObjectTree.joinNames((frame.query.tables())))
+    }
+
+    fn queryFieldCount:int () {
+        return (array_length frame.query.fields)
+    }
+
+    fn queryJoinCount:int () {
+        return (array_length frame.query.joins)
+    }
+
+    fn queryRowCount:int () {
+        return frame.queryRows
+    }
+
+    fn queryRan:boolean () {
+        return frame.queryRan
+    }
+
+    fn querySql:string () {
+        return (frame.query.toSql())
+    }
+
+    fn queryError:string () {
+        return frame.query.errorText
+    }
+
+    ; What the engine had to do itself because the backend could not.
+    fn queryFallback:string () {
+        return frame.app.source.session.lastFallback
+    }
+
+    fn queryCell:string (row:int col:int) {
+        return (frame.queryResult.pane.model.getCell(row col))
+    }
+
+    ; Type a criterion into the grid, by the field's name.
+    fn queryCriteria:boolean (field:string text:string) {
+        def total:int (frame.querySheet.rows + (QuerySheet.spareRows()))
+        def i:int 0
+        while (i < total) {
+            def r:int (i + 1)
+            if ((frame.querySheet.pane.model.getCell(r (QuerySheet.colField()))) == field) {
+                return (frame.querySheet.pane.setCell(r (QuerySheet.colCriteria()) text))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn schemaEdited:boolean () {
+        return (frame.schemaSheet.isDirty())
+    }
+
+    ; The migration an edited schema panel would need. Text, never statements
+    ; run: there is no path from a typed cell to this database that does not
+    ; go through something a person has read.
+    fn migrationText:string () {
+        return frame.migrationText
+    }
+
+    fn run:boolean (id:string arg:string) {
+        return (frame.runCommand(id arg))
+    }
+
+    fn status:string () {
+        return (frame.app.status)
+    }
+
+    fn note:string () {
+        return frame.note
+    }
+
+    fn section:string () {
+        return (frame.app.section)
+    }
+
+    fn engineName:string () {
+        return (frame.app.source.engine)
+    }
+
+    fn tableCount:int () {
+        return (frame.app.tree.tableCount)
+    }
+
+    fn selectedTable:string () {
+        return (frame.app.selectedTable)
+    }
+
+    fn selectTable:boolean (name:string) {
+        def ok:boolean (frame.app.selectTable(name))
+        if ok {
+            frame.dataOffset = 0
+            if (frame.diagramScope == "near") {
+                frame.diagramReady = false
+            }
+        }
+        return ok
+    }
+
+    ; The object list as JSON, for a host that would rather draw the tree with
+    ; DOM elements than read it off the canvas — and for the smoke test, which
+    ; needs to know what the page believes it is showing.
+    fn treeJson:string () {
+        def rows:[TreeRow] (frame.app.tree.visibleRows())
+        def out:string "["
+        def i:int 0
+        def n:int (array_length rows)
+        while (i < n) {
+            def r:TreeRow (itemAt rows i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"kind\":" + (EVGDisplayList.jsonString(r.kind)))
+            out = (out + ",\"label\":" + (EVGDisplayList.jsonString(r.label)))
+            out = (out + ",\"detail\":" + (EVGDisplayList.jsonString(r.detail)))
+            out = (out + ",\"table\":" + (EVGDisplayList.jsonString(r.tableName)))
+            out = (out + ",\"depth\":" + (to_string r.depth) + "}")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    ; What the introspector could not describe, so the page can show it beside
+    ; the schema instead of letting a reader conclude the database has none.
+    fn gapsText:string () {
+        return (frame.app.introspector.gapText())
+    }
+
+    ; The diagram on its own, as SVG. The page hands this to the viewer as a
+    ; download; the frame itself still writes no files.
+    fn diagramSvg:string () {
+        def sub:DatabaseSchema (frame.scopedSchema())
+        def d:SchemaDiagram (new SchemaDiagram)
+        def v:FlowView (d.buildView(sub))
+        def sc:FlowScene (v.build())
+        return (sc.toSvg())
+    }
+
+    ; The findings the schema alone supports, as JSON — for a page that would
+    ; rather list them in the DOM than read them off the canvas.
+    fn findingsJson:string () {
+        frame.runAudit()
+        def list:[Finding] (frame.findings.ordered())
+        def out:string "["
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            def f:Finding (itemAt list i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"rule\":" + (EVGDisplayString.of(f.rule)))
+            out = (out + ",\"severity\":" + (EVGDisplayString.of(f.severity)))
+            out = (out + ",\"table\":" + (EVGDisplayString.of(f.table)))
+            out = (out + ",\"object\":" + (EVGDisplayString.of(f.object)))
+            out = (out + ",\"message\":" + (EVGDisplayString.of(f.message)))
+            out = (out + ",\"fix\":" + (EVGDisplayString.of(f.fix)))
+            out = (out + ",\"observed\":" + (EVGDisplayString.boolText(f.observed)) + "}")
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    ; The schema as DDL, in this build's dialect. Written by SchemaToDdl,
+    ; which is checked against DdlToSchema by a round-trip test rather than by
+    ; anyone reading its output.
+    fn schemaDdl:string () {
+        return (frame.schemaDdl())
+    }
+
+    ; The schema as JSON — the export every other format is derived from, and
+    ; the one a page can produce without a font in sight.
+    fn schemaJson:string () {
+        def s:DatabaseSchema frame.app.schema
+        def out:string ("{\"engine\":" + (EVGDisplayList.jsonString(s.engine)) + ",\"tables\":[")
+        def i:int 0
+        def n:int (array_length s.tables)
+        while (i < n) {
+            def t:DBTable (itemAt s.tables i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"name\":" + (EVGDisplayString.of(t.name)))
+            out = (out + ",\"kind\":" + (EVGDisplayString.of(t.kind)))
+            out = (out + ",\"columns\":[")
+            def c:int 0
+            def nc:int (array_length t.columns)
+            while (c < nc) {
+                def col:SchemaColumn (itemAt t.columns c)
+                if (c > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"name\":" + (EVGDisplayString.of(col.name)))
+                out = (out + ",\"type\":" + (EVGDisplayString.of(col.dataType)))
+                out = (out + ",\"nullable\":" + (EVGDisplayString.boolText(col.nullable)))
+                out = (out + ",\"pk\":" + (EVGDisplayString.boolText(col.isPrimaryKey)))
+                out = (out + ",\"fk\":" + (EVGDisplayString.boolText(col.isForeignKey)) + "}")
+                c = (c + 1)
+            }
+            out = (out + "]}")
+            i = (i + 1)
+        }
+        out = (out + "],\"foreignKeys\":[")
+        def k:int 0
+        def nk:int (array_length s.foreignKeys)
+        while (k < nk) {
+            def fk:DBForeignKey (itemAt s.foreignKeys k)
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + "{\"from\":" + (EVGDisplayString.of(fk.fromTable)))
+            out = (out + ",\"fromColumn\":" + (EVGDisplayString.of((fk.firstFromColumn()))))
+            out = (out + ",\"to\":" + (EVGDisplayString.of(fk.toTable)))
+            out = (out + ",\"toColumn\":" + (EVGDisplayString.of((fk.firstToColumn()))) + "}")
+            k = (k + 1)
+        }
+        return (out + "]}")
+    }
+}
+
+; A tiny shim so the JSON above reads as one call per value rather than as
+; nested parentheses. `EVGDisplayList.jsonString` is the escaper; this only
+; gives it a shorter name and adds the boolean spelling JSON wants.
+class EVGDisplayString {
+    sfn of:string (s:string) {
+        return (EVGDisplayList.jsonString(s))
+    }
+
+    sfn boolText:string (b:boolean) {
+        if b {
+            return "true"
+        }
+        return "false"
+    }
+}

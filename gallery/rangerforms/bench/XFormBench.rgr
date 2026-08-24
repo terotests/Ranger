@@ -1,0 +1,58 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; XFormBench.rgr — the module the XForms comparison drives.
+; ============================================================================
+;
+; Nothing but the imports, so `xforms.mjs` gets `XFormReader`, `XPathExpr` and
+; the engine out of one built module. Kept beside `BenchRunner` rather than
+; inside it: the SurveyJS comparison should not carry an XML scanner it never
+; uses, and the conformance run — which compiles into five languages — should
+; not carry either of them.
+; ============================================================================
+
+Import "../io/XFormReader.rgr"
+Import "../engine/FormEngine.rgr"
+
+class XFormBench {
+    Constructor () {
+    }
+
+    ; The rules of one question, as `role=source` lines, so the harness can
+    ; ask the oracle about exactly the expressions the engine compiled.
+    sfn rulesOf:string (form:Questionnaire name:string) {
+        def q:Question (form.find(name))
+        def out:string ""
+        def i:int 0
+        def n:int (array_length q.rules)
+        while (i < n) {
+            def r:Rule (itemAt q.rules i)
+            out = (out + r.role + "=" + r.source + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn questionNames:string (form:Questionnaire) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            out = (out + q.name + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn gapsOf:string (r:XFormReader) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length r.unsupported)
+        while (i < n) {
+            out = (out + (itemAt r.unsupported i) + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+}

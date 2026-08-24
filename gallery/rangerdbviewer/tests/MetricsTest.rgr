@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MetricsTest — every rule fires once, and none of them fires on the control.
+; ==============================================================================
+;
+; False positives are the failure mode of an analyzer. A tool that reports
+; thirty things, six of which are wrong, is worse than one that reports four,
+; because the six teach people to ignore the thirty.
+;
+; So this file has two halves and the SECOND one is the important half:
+;
+;   the defect schema   each rule fires, exactly once, on the thing it is for
+;   the control schema  a correctly built database, on which NOTHING fires
+;
+; A rule that cannot pass the control is a rule that should not ship.
+; ==============================================================================
+
+Import "../metrics/SchemaAudit.rgr"
+Import "../metrics/LiveMetrics.rgr"
+Import "../../rangerdb/src/schema/DdlToSchema.rgr"
+Import "../../rangerdb/src/HostSql.rgr"
+
+class MetCheck {
+    def passed:int 0
+    def failed:int 0
+    def label:string ""
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label + ": " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+}
+
+class MetricsTest {
+
+    ; --------------------------------------------------------------------------
+    ; A database built wrong on purpose. One defect each, and nothing else.
+    ; --------------------------------------------------------------------------
+    sfn defectDdl:string () {
+        def s:string ""
+        ; table.nopk — no primary key anywhere
+        s = (s + "CREATE TABLE events (payload VARCHAR, at_time VARCHAR);\n")
+        ; a well-formed parent, so the keys below have something to point at
+        s = (s + "CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL UNIQUE);\n")
+        ; fk.unindexed + fk.nullable — a nullable key with no index behind it
+        s = (s + "CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id));\n")
+        ; index.duplicate — two indexes, same column, same order
+        s = (s + "CREATE TABLE tickets (id INTEGER PRIMARY KEY, owner VARCHAR, stage VARCHAR);\n")
+        s = (s + "CREATE INDEX idx_tickets_owner ON tickets (owner);\n")
+        s = (s + "CREATE INDEX idx_tickets_owner2 ON tickets (owner);\n")
+        ; index.redundant — (a) is a prefix of (a, b)
+        s = (s + "CREATE TABLE notes (id INTEGER PRIMARY KEY, a VARCHAR, b VARCHAR);\n")
+        s = (s + "CREATE INDEX idx_notes_a ON notes (a);\n")
+        s = (s + "CREATE INDEX idx_notes_ab ON notes (a, b);\n")
+        ; index.onkey — a hand-written index over exactly the primary key
+        s = (s + "CREATE TABLE badges (id INTEGER PRIMARY KEY, label VARCHAR);\n")
+        s = (s + "CREATE INDEX idx_badges_id ON badges (id);\n")
+        return s
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The same database, built correctly. Every table has a key, every
+    ; relationship is indexed and required, no index repeats another, and
+    ; there is a view — because a view has no key and no indexes, and a rule
+    ; that forgets that fires on every view in the database.
+    ; --------------------------------------------------------------------------
+    sfn controlDdl:string () {
+        def s:string ""
+        s = (s + "CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL UNIQUE);\n")
+        s = (s + "CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id), total DOUBLE);\n")
+        s = (s + "CREATE INDEX idx_orders_customer ON orders (customer_id);\n")
+        ; A composite key whose leading column is the foreign key: covered by
+        ; the primary key's own index, so `fk.unindexed` must NOT fire.
+        s = (s + "CREATE TABLE order_lines (order_id INTEGER NOT NULL REFERENCES orders(id), line_no INTEGER NOT NULL, sku VARCHAR, PRIMARY KEY (order_id, line_no));\n")
+        ; Two indexes that overlap but neither is a prefix of the other.
+        s = (s + "CREATE TABLE audit (id INTEGER PRIMARY KEY, who VARCHAR, what VARCHAR);\n")
+        s = (s + "CREATE INDEX idx_audit_who_what ON audit (who, what);\n")
+        s = (s + "CREATE INDEX idx_audit_what ON audit (what);\n")
+        s = (s + "CREATE VIEW v_orders AS SELECT id, total FROM orders;\n")
+        return s
+    }
+
+    sfn schemaOf:DatabaseSchema (ddl:string) {
+        def d:DdlToSchema (DdlToSchema.of(""))
+        d.applyScript(ddl)
+        return d.schema
+    }
+
+    ; --------------------------------------------------------------------------
+    sfn runDefects:void (check:MetCheck) {
+        check.label = "defects"
+        print "== a database built wrong on purpose =="
+        def schema:DatabaseSchema (MetricsTest.schemaOf((MetricsTest.defectDdl())))
+        def found:FindingList (SchemaAudit.run(schema))
+
+        check.eqInt("the table with no key is found, once" (found.countOfRule("table.nopk")) 1)
+        check.eqInt("the unindexed foreign key, once" (found.countOfRule("fk.unindexed")) 1)
+        check.eqInt("the nullable foreign key, once" (found.countOfRule("fk.nullable")) 1)
+        check.eqInt("the duplicate index pair, once" (found.countOfRule("index.duplicate")) 1)
+        check.eqInt("the redundant prefix index, once" (found.countOfRule("index.redundant")) 1)
+        check.eqInt("the index over the primary key, once" (found.countOfRule("index.onkey")) 1)
+
+        ; …and each one points at the right object, not merely at something.
+        def nopk:Finding (found.firstOfRule("table.nopk"))
+        check.eqStr("the keyless table is events" nopk.table "events")
+        check.eqStr("and it is serious" nopk.severity "high")
+
+        def unindexed:Finding (found.firstOfRule("fk.unindexed"))
+        check.eqStr("the unindexed key is on orders" unindexed.table "orders")
+        check.ok("and it comes with the CREATE INDEX that fixes it" ((MetricsTest.hasSub(unindexed.fix "CREATE INDEX")) ))
+        check.ok("…naming the right column" (MetricsTest.hasSub(unindexed.fix "customer_id")))
+
+        def red:Finding (found.firstOfRule("index.redundant"))
+        check.eqStr("the redundant one is the SHORTER index" red.object "idx_notes_a")
+
+        def onkey:Finding (found.firstOfRule("index.onkey"))
+        check.eqStr("the key-duplicating index is named" onkey.object "idx_badges_id")
+
+        ; Nothing was measured, so nothing may claim to have been.
+        def anyObserved:int 0
+        def i:int 0
+        def n:int (array_length found.findings)
+        while (i < n) {
+            def f:Finding (itemAt found.findings i)
+            if (f.observed) {
+                anyObserved = (anyObserved + 1)
+            }
+            i = (i + 1)
+        }
+        check.eqInt("no schema-only finding claims to have been observed" anyObserved 0)
+
+        ; And the total: exactly the defects planted, and nothing besides.
+        check.eqInt("exactly the six defects planted" (found.count()) 6)
+    }
+
+    ; The half that matters more.
+    sfn runControl:void (check:MetCheck) {
+        check.label = "control"
+        print "== the same database, built correctly =="
+        def schema:DatabaseSchema (MetricsTest.schemaOf((MetricsTest.controlDdl())))
+        def found:FindingList (SchemaAudit.run(schema))
+        if ((found.isEmpty()) == false) {
+            print "       the control schema produced findings, which means a rule is wrong:"
+            print (found.dump())
+        }
+        check.ok("a correctly built schema produces NO findings" (found.isEmpty()))
+
+        ; Each of these is a specific false positive the rules must not make.
+        check.eqInt("a view is not reported as having no primary key" (found.countOfRule("table.nopk")) 0)
+        check.eqInt("a key led by the primary key is not reported unindexed" (found.countOfRule("fk.unindexed")) 0)
+        check.eqInt("overlapping-but-not-prefix indexes are not redundant" (found.countOfRule("index.redundant")) 0)
+        check.eqInt("the index behind a UNIQUE constraint is not a duplicate" (found.countOfRule("index.duplicate")) 0)
+        check.eqInt("…nor a copy of the primary key" (found.countOfRule("index.onkey")) 0)
+    }
+
+    ; --------------------------------------------------------------------------
+    ; The rules that read rows
+    ; --------------------------------------------------------------------------
+    sfn runLive:int (check:MetCheck) {
+        def here:boolean (HostSqlBackend.isAvailable("sqlite"))
+        if (here == false) {
+            print "== sqlite not installed, the live rules are skipped =="
+            return 0
+        }
+        check.label = "live"
+        print "== the rules that read rows =="
+        def backend:HostSqlBackend (HostSqlBackend.forDriver("sqlite"))
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        ; Enforcement is turned OFF deliberately. The SQLite C library
+        ; defaults to off; `node:sqlite` turns it ON, so without this the
+        ; orphan rows below are simply refused and the rule has nothing to
+        ; find. A database running with keys unenforced is the situation the
+        ; orphan check exists for, and it is common.
+        session.execSql("PRAGMA foreign_keys = OFF")
+        session.execSql("CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR)")
+        session.execSql("CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id), state VARCHAR)")
+        session.execSql("CREATE INDEX idx_orders_state ON orders (state)")
+        session.execSql("INSERT INTO customers VALUES (1, 'a@example.com')")
+        def i:int 0
+        while (i < 60) {
+            def id:string (to_string i)
+            ; Every order is 'open', so the index on `state` selects almost
+            ; the whole table.
+            session.execSql(("INSERT INTO orders VALUES (" + id + ", 1, 'open')"))
+            i = (i + 1)
+        }
+        ; …and four rows whose customer does not exist.
+        def k:int 100
+        while (k < 104) {
+            def id2:string (to_string k)
+            session.execSql(("INSERT INTO orders VALUES (" + id2 + ", 999, 'open')"))
+            k = (k + 1)
+        }
+
+        def ins:DBIntrospector (Introspect.forSession(session))
+        def schema:DatabaseSchema (Introspect.everythingWith(ins session))
+        def m:LiveMetrics (LiveMetrics.over(session))
+
+        ; What it will cost, before spending it.
+        def tables:[string]
+        push tables "orders"
+        def cost:int (m.estimateCost(schema tables))
+        check.ok("the cost of a profile can be asked for first" (cost > 0))
+
+        def counted:int (m.rowCount("orders"))
+        check.eqInt("the row count is right" counted 64)
+
+        ; A profile of a real column.
+        def at:int (schema.indexOfTable("orders"))
+        def orders:DBTable (itemAt schema.tables at)
+        def ci:int (orders.columnIndex("state"))
+        def stat:ColumnStat (m.profileColumn(orders (itemAt orders.columns ci)))
+        check.eqInt("64 rows profiled" stat.rows 64)
+        check.eqInt("one distinct value" stat.distinct 1)
+        check.eqInt("no nulls" stat.nulls 0)
+
+        ; The low-selectivity rule, which only a profile can support.
+        m.runOn(schema tables)
+        check.eqInt("the index over a one-value column is reported" (m.out.countOfRule("index.lowselectivity")) 1)
+        def low:Finding (m.out.firstOfRule("index.lowselectivity"))
+        check.ok("and it says it was measured" low.observed)
+
+        ; Orphans.
+        m.orphanCheckAll(schema)
+        check.eqInt("the orphaned rows are found" (m.out.countOfRule("fk.orphans")) 1)
+        def orph:Finding (m.out.firstOfRule("fk.orphans"))
+        check.ok("…counted, not guessed at" (MetricsTest.hasSub(orph.message "4 rows")))
+        check.ok("…and marked as measured" orph.observed)
+
+        ; The claim that needs a witness. With no workload, silence.
+        def m2:LiveMetrics (LiveMetrics.over(session))
+        def noWorkload:[string]
+        m2.unusedIndexes(schema noWorkload)
+        check.eqInt("with nothing observed, no index is called unused" (m2.out.countOfRule("index.unused")) 0)
+        ; With one, the index nobody used is named.
+        def m3:LiveMetrics (LiveMetrics.over(session))
+        def workload:[string]
+        push workload "some_other_index"
+        m3.unusedIndexes(schema workload)
+        check.eqInt("with a workload, the unused index is named" (m3.out.countOfRule("index.unused")) 1)
+        def un:Finding (m3.out.firstOfRule("index.unused"))
+        check.eqStr("…and it is the right one" un.object "idx_orders_state")
+
+        session.closeDb()
+        return 1
+    }
+
+    ; Not `contains`: AGENTS.md lists it among the names that compile as a
+    ; definition and then fail at every call site.
+    sfn hasSub:boolean (text:string want:string) {
+        def wn:int (strlen want)
+        def n:int (strlen text)
+        if (wn == 0) {
+            return true
+        }
+        if (wn > n) {
+            return false
+        }
+        def i:int 0
+        def last:int (n - wn)
+        while (i <= last) {
+            if ((substring text i (i + wn)) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn main:void () {
+        def check:MetCheck (new MetCheck)
+        MetricsTest.runDefects(check)
+        MetricsTest.runControl(check)
+        def live:int (MetricsTest.runLive(check))
+        print ("live=" + (to_string live) + " passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

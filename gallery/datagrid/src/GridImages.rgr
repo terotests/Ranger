@@ -140,6 +140,10 @@ class GridImages {
         } {
             if (kind == "jpeg") {
                 def jdec:JPEGDecoder (new JPEGDecoder)
+                ; This cache decodes pictures as a side effect of drawing a
+                ; document, so the decoder's own narration is noise here - and
+                ; in a native window it is noise on somebody's terminal.
+                jdec.quiet = true
                 def jimg:ImageBuffer (jdec.decodeBytes(bytes))
                 if (jimg.width > 0) {
                     out.img = jimg

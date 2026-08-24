@@ -1,0 +1,5 @@
+{
+  "name": "constraint",
+  "note": "a constraint written against the node itself, with a message",
+  "script": [ { "age": 40 }, { "age": 200 }, { "age": 12 }, { "email": "a@b" }, { "email": "ada@example.com" } ]
+}

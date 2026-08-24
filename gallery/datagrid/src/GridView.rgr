@@ -1216,6 +1216,65 @@ class GridView {
         }
     }
 
+    ; The arrow itself. `quiet` draws it without the raised button behind it,
+    ; for a cell that is merely showing what it accepts rather than being the
+    ; one about to be typed into.
+    fn paintListArrow:void (dl:EVGDisplayList arr:GridRect quiet:boolean) {
+        if (arr.w <= 4) {
+            return
+        }
+        def tint:EVGColor theme.cellText
+        if quiet {
+            tint = theme.gridLine
+        } {
+            this.pushRect(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) theme.headerBg)
+            this.pushBorder(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) 1.0 theme.gridLine)
+        }
+        ; A downward triangle, drawn as narrowing rows.
+        def tw:int (arr.w - 6)
+        def tx:int (arr.x + 3)
+        def ty:int (arr.y + (idiv arr.h 2) - 2)
+        def k:int 0
+        while (k < 4) {
+            if (tw > 0) {
+                this.pushRect(dl (to_double (tx + k)) (to_double (ty + k)) (to_double tw) 1.0 tint)
+            }
+            tw = (tw - 2)
+            k = (k + 1)
+        }
+    }
+
+    fn paintAllListArrows:void (dl:EVGDisplayList model:SpreadsheetModel sel:GridSelection grid:DataGrid) {
+        def r:int grid.firstVisibleRow
+        while (r <= grid.lastVisibleRow) {
+            def c:int grid.firstVisibleCol
+            while (c <= grid.lastVisibleCol) {
+                def isActive:boolean false
+                if (r == sel.active.row) {
+                    if (c == sel.active.col) {
+                        isActive = true
+                    }
+                }
+                if (isActive == false) {
+                    if (model.hasValidation(r c)) {
+                        def rule:DataValidation (model.validationAt(r c))
+                        if (rule.isList()) {
+                            def cell:GridRect (grid.cellRect(model r c))
+                            def side:int 14
+                            if (cell.h < side) {
+                                side = cell.h
+                            }
+                            def box:GridRect (GridRect.create(((cell.x + cell.w) - (side + 1)) (cell.y + (idiv (cell.h - side) 2)) side side))
+                            this.paintListArrow(dl box true)
+                        }
+                    }
+                }
+                c = (c + 1)
+            }
+            r = (r + 1)
+        }
+    }
+
     fn buildDisplayList:EVGDisplayList (model:SpreadsheetModel sel:GridSelection grid:DataGrid editing:boolean editBuf:string book:WorkbookModel) {
         grid.updateVisible(model)
         this.syncWindowTheme()
@@ -1511,24 +1570,23 @@ class GridView {
         if (model.hasValidation(sel.active.row sel.active.col)) {
             def dv:DataValidation (model.validationAt(sel.active.row sel.active.col))
             if (dv.isList()) {
-                def arr:GridRect (grid.listArrowRect(model sel))
-                if (arr.w > 4) {
-                    this.pushRect(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) theme.headerBg)
-                    this.pushBorder(dl (to_double arr.x) (to_double arr.y) (to_double arr.w) (to_double arr.h) 1.0 theme.gridLine)
-                    ; A downward triangle, drawn as narrowing rows.
-                    def tw:int (arr.w - 6)
-                    def tx:int (arr.x + 3)
-                    def ty:int (arr.y + (idiv arr.h 2) - 2)
-                    def k:int 0
-                    while (k < 4) {
-                        if (tw > 0) {
-                            this.pushRect(dl (to_double (tx + k)) (to_double (ty + k)) (to_double tw) 1.0 theme.cellText)
-                        }
-                        tw = (tw - 2)
-                        k = (k + 1)
-                    }
-                }
+                this.paintListArrow(dl (grid.listArrowRect(model sel)) false)
             }
+        }
+        ; …and, where the host asked for it, every OTHER list cell shows a
+        ; quieter one.
+        ;
+        ; A spreadsheet is right to draw the arrow only on the active cell: a
+        ; workbook has a handful of validated cells among thousands, and an
+        ; arrow in each would be a wall of arrows against nothing.
+        ;
+        ; A schema editor is the opposite case. Every cell of its `type`,
+        ; `null` and `key` columns is a list, and with no arrow anywhere a
+        ; reader has no way to know that until they happen to click one — which
+        ; is exactly what somebody looking at the panel asked. So the host says
+        ; which case it is, and the default stays Excel's.
+        if grid.listArrowsEverywhere {
+            this.paintAllListArrows(dl model sel grid)
         }
 
         ; Formula range highlights: all four edges/corners resize; dragging the

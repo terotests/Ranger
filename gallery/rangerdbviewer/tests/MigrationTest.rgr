@@ -1,0 +1,390 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; MigrationTest — the only test of a migration reader that means anything.
+; ==============================================================================
+;
+;   a Flyway tree ──▶ MigrationSource ──▶ Timeline ──▶ schema at HEAD
+;         │                                                  ≟
+;         └────────▶ SQLite runs it ──▶ introspect ──▶ schema
+;
+; A reader that produces *a* schema proves nothing. This one replays somebody
+; else's history and compares the result against a database those same files
+; actually built — which is the exit criterion Phase 5 of the plan states.
+;
+; The rest of the file is the three things a person does with the result: see
+; what changed at a version, diff any two versions, and ask whether the live
+; database has drifted from what its migrations say it should be.
+; ==============================================================================
+
+Import "../migrations/Timeline.rgr"
+Import "../migrations/MigrationSource.rgr"
+Import "../../rangerdb/src/schema/MigrationPlan.rgr"
+Import "../../rangerdb/src/schema/Introspect.rgr"
+Import "../../rangerdb/src/HostSql.rgr"
+
+class MigCheck {
+    def passed:int 0
+    def failed:int 0
+    def label:string ""
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + label + ": " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got [" + got + "] want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+}
+
+class MigrationTest {
+
+    ; ------------------------------------------------------------------------
+    ; A Flyway tree, as a host would hand it over: paths and contents.
+    ; ------------------------------------------------------------------------
+    sfn flywaySource:MigrationSource () {
+        def src:MigrationSource (new MigrationSource)
+        src.addFile("db/migration/V1__create_customers.sql"
+            "CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL UNIQUE);")
+        src.addFile("db/migration/U1__create_customers.sql"
+            "DROP TABLE customers;")
+        src.addFile("db/migration/V2__create_orders.sql"
+            "CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id), total DOUBLE);")
+        ; Out of order on purpose, and numbered so a text sort would put V10
+        ; before V2. Replaying that order would build a different database.
+        src.addFile("db/migration/V10__add_country.sql"
+            "ALTER TABLE customers ADD COLUMN country VARCHAR;")
+        src.addFile("db/migration/V3__index_orders.sql"
+            "CREATE INDEX idx_orders_customer ON orders (customer_id);")
+        ; A repeatable migration has no place in a version order.
+        src.addFile("db/migration/R__report_view.sql"
+            "CREATE VIEW v_x AS SELECT 1;")
+        return src
+    }
+
+    sfn runFlyway:MigrationSet (check:MigCheck) {
+        check.label = "flyway"
+        print "== a Flyway tree =="
+        def src:MigrationSource (MigrationTest.flywaySource())
+        def set:MigrationSet (src.finish())
+        check.eqStr("the convention was recognised" set.convention "flyway")
+        check.eqInt("four versioned steps, the repeatable one left out" (set.count()) 4)
+        check.ok("nothing was left unread" (set.trustworthy()))
+
+        ; The order is the whole point: 1, 2, 3, 10 — not 1, 10, 2, 3.
+        def v0:MigrationStep (set.stepAt(0))
+        def v1:MigrationStep (set.stepAt(1))
+        def v2:MigrationStep (set.stepAt(2))
+        def v3:MigrationStep (set.stepAt(3))
+        check.eqStr("first is V1" v0.version "1")
+        check.eqStr("then V2" v1.version "2")
+        check.eqStr("then V3" v2.version "3")
+        check.eqStr("and V10 last, not second" v3.version "10")
+        check.eqStr("the name came out of the filename" v1.name "create orders")
+        check.ok("the undo file landed on its step" ((strlen v0.downSql) > 0))
+        return set
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Replay, and then the comparison that matters
+    ; ------------------------------------------------------------------------
+    sfn runTimeline:Timeline (check:MigCheck set:MigrationSet) {
+        check.label = "timeline"
+        print "== replayed forward =="
+        def t:Timeline (Timeline.of(""))
+        t.replay(set)
+        check.eqInt("a frame per version" (t.count()) 4)
+        check.ok("the replay was complete" (t.trustworthy()))
+
+        ; Each frame is the schema AS OF that version, not the final one.
+        def f0:TimelineFrame (t.frameAt(0))
+        def f1:TimelineFrame (t.frameAt(1))
+        def f3:TimelineFrame (t.frameAt(3))
+        check.eqInt("V1 has one table" (f0.schema.tableCount()) 1)
+        check.eqInt("V2 has two" (f1.schema.tableCount()) 2)
+        check.eqInt("and V10 still two" (f3.schema.tableCount()) 2)
+
+        ; What each step DID, which is the timeline's other column.
+        check.eqInt("V1 created one table" (f0.changes.count()) 1)
+        def v10:ChangeSet (t.changesAt("10"))
+        check.eqInt("V10 was one change" (v10.count()) 1)
+        if ((v10.count()) > 0) {
+            def c:SchemaChange (itemAt v10.changes 0)
+            check.eqStr("…adding a column" c.kind "column.add")
+            check.eqStr("…named country" c.column "country")
+        }
+
+        ; Any two versions, in one call.
+        def span:ChangeSet (t.between("1" "10"))
+        check.ok("V1 to V10 is more than one change" ((span.count()) > 1))
+        return t
+    }
+
+    ; The exit criterion: the replayed schema against a database the same
+    ; files actually built.
+    sfn runAgainstEngine:int (check:MigCheck set:MigrationSet t:Timeline) {
+        def here:boolean (HostSqlBackend.isAvailable("sqlite"))
+        if (here == false) {
+            print "== sqlite not installed, the comparison is skipped =="
+            return 0
+        }
+        check.label = "replay vs engine"
+        print "== the same history, RUN by SQLite =="
+        def backend:HostSqlBackend (HostSqlBackend.forDriver("sqlite"))
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        def i:int 0
+        def n:int (set.count())
+        while (i < n) {
+            def step:MigrationStep (set.stepAt(i))
+            def stmts:[string] (DdlToSchema.splitStatements(step.upSql))
+            def k:int 0
+            def nk:int (array_length stmts)
+            while (k < nk) {
+                def one:string (trim (itemAt stmts k))
+                if ((strlen one) > 0) {
+                    session.execSql(one)
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        def ins:DBIntrospector (Introspect.forSession(session))
+        def live:DatabaseSchema (Introspect.everythingWith(ins session))
+        def expected:DatabaseSchema (t.head())
+
+        check.eqInt("the same number of objects" (live.tableCount()) (expected.tableCount()))
+        check.eqInt("the same number of keys" (array_length live.foreignKeys) (array_length expected.foreignKeys))
+
+        ; The real assertion: no drift between what the files say and what
+        ; running them produced.
+        def drift:Drift (Drift.compare(t live))
+        check.ok("the drift report is reliable" drift.reliable)
+        if (drift.hasDrifted()) {
+            print ("       " + (drift.report()))
+            print (MigrationPlan.preview(drift.changes))
+        }
+        check.ok("replaying the history matches running it" ((drift.hasDrifted()) == false))
+        session.closeDb()
+        return 1
+    }
+
+    ; And the same machinery finding a database that HAS drifted.
+    sfn runDrift:void (check:MigCheck t:Timeline) {
+        def here:boolean (HostSqlBackend.isAvailable("sqlite"))
+        if (here == false) {
+            return
+        }
+        check.label = "drift"
+        print "== a database somebody changed by hand =="
+        def backend:HostSqlBackend (HostSqlBackend.forDriver("sqlite"))
+        def session:DBSession (DBSession.over(backend))
+        session.openDb(":memory:")
+        session.execSql("CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL UNIQUE, country VARCHAR)")
+        session.execSql("CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id), total DOUBLE)")
+        session.execSql("CREATE INDEX idx_orders_customer ON orders (customer_id)")
+        ; …and the column nobody wrote a migration for.
+        session.execSql("ALTER TABLE orders ADD COLUMN hotfix_note VARCHAR")
+        def ins:DBIntrospector (Introspect.forSession(session))
+        def live:DatabaseSchema (Introspect.everythingWith(ins session))
+        def drift:Drift (Drift.compare(t live))
+        check.ok("the drift is found" (drift.hasDrifted()))
+        check.eqInt("exactly one difference" (drift.changes.count()) 1)
+        if ((drift.changes.count()) == 1) {
+            def c:SchemaChange (itemAt drift.changes.changes 0)
+            check.eqStr("…a column the migrations do not know about" c.kind "column.add")
+            check.eqStr("…named hotfix_note" c.column "hotfix_note")
+        }
+        session.closeDb()
+    }
+
+    ; ------------------------------------------------------------------------
+    ; golang-migrate — the same reader, a different filename grammar
+    ; ------------------------------------------------------------------------
+    sfn runGolangMigrate:void (check:MigCheck) {
+        check.label = "golang-migrate"
+        print "== a golang-migrate tree =="
+        def src:MigrationSource (new MigrationSource)
+        src.addFile("migrations/000001_init.up.sql" "CREATE TABLE a (id INTEGER PRIMARY KEY);")
+        src.addFile("migrations/000001_init.down.sql" "DROP TABLE a;")
+        src.addFile("migrations/000002_add_b.up.sql" "ALTER TABLE a ADD COLUMN b VARCHAR;")
+        src.addFile("migrations/000002_add_b.down.sql" "ALTER TABLE a DROP COLUMN b;")
+        def set:MigrationSet (src.finish())
+        check.eqStr("the convention was recognised" set.convention "golang-migrate")
+        check.eqInt("two steps, not four files" (set.count()) 2)
+        def s0:MigrationStep (set.stepAt(0))
+        check.ok("the up side is there" ((strlen s0.upSql) > 0))
+        check.ok("and the down side landed on the same step" ((strlen s0.downSql) > 0))
+        def t:Timeline (Timeline.of(""))
+        t.replay(set)
+        def head:DatabaseSchema (t.head())
+        def at:int (head.indexOfTable("a"))
+        check.ok("the table is there" (at >= 0))
+        if (at >= 0) {
+            def tab:DBTable (itemAt head.tables at)
+            check.eqInt("with the column the second step added" (array_length tab.columns) 2)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Django — operations read as data, never executed
+    ; ------------------------------------------------------------------------
+    sfn runDjango:void (check:MigCheck) {
+        check.label = "django"
+        print "== a Django tree =="
+        def src:MigrationSource (new MigrationSource)
+        src.addFile("shop/migrations/__init__.py" "")
+        src.addFile("shop/migrations/0001_initial.py"
+            "from django.db import migrations, models\n\nclass Migration(migrations.Migration):\n    initial = True\n    operations = [\n        migrations.CreateModel(\n            name='Category',\n            fields=[\n                ('id', models.AutoField(primary_key=True)),\n                ('name', models.CharField(max_length=100)),\n                ('note', models.TextField(null=True)),\n            ],\n        ),\n    ]\n")
+        src.addFile("shop/migrations/0002_product.py"
+            "from django.db import migrations, models\n\nclass Migration(migrations.Migration):\n    operations = [\n        migrations.CreateModel(\n            name='Product',\n            fields=[\n                ('id', models.AutoField(primary_key=True)),\n                ('sku', models.CharField(max_length=32, unique=True)),\n                ('category', models.ForeignKey(to='shop.Category')),\n            ],\n        ),\n    ]\n")
+        src.addFile("shop/migrations/0003_price.py"
+            "from django.db import migrations, models\n\nclass Migration(migrations.Migration):\n    operations = [\n        migrations.AddField(model_name='product', name='price', field=models.DecimalField(max_digits=8, null=True)),\n        migrations.RemoveField(model_name='category', name='note'),\n    ]\n")
+        def set:MigrationSet (src.finish())
+        check.eqStr("the convention was recognised" set.convention "django")
+        check.eqInt("three steps, __init__ ignored" (set.count()) 3)
+        check.ok("every operation was understood" (set.trustworthy()))
+
+        def t:Timeline (Timeline.of(""))
+        t.replay(set)
+        check.ok("the replay was complete" (t.trustworthy()))
+        def head:DatabaseSchema (t.head())
+        check.eqInt("two tables" (head.tableCount()) 2)
+
+        def ci:int (head.indexOfTable("category"))
+        check.ok("Category became a table" (ci >= 0))
+        if (ci >= 0) {
+            def cat:DBTable (itemAt head.tables ci)
+            check.eqInt("with the removed field gone" (array_length cat.columns) 2)
+            check.ok("…and note really is gone" ((cat.columnIndex("note")) < 0))
+            def idAt:int (cat.columnIndex("id"))
+            if (idAt >= 0) {
+                def idc:SchemaColumn (itemAt cat.columns idAt)
+                check.ok("AutoField became the primary key" idc.isPrimaryKey)
+            }
+            def nameAt:int (cat.columnIndex("name"))
+            if (nameAt >= 0) {
+                def nc:SchemaColumn (itemAt cat.columns nameAt)
+                check.eqStr("CharField became VARCHAR" nc.dataType "VARCHAR")
+                ; Django's default is NOT NULL unless a field says otherwise.
+                check.ok("a field that did not say null=True is NOT NULL" ((nc.nullable) == false))
+            }
+        }
+        def pi:int (head.indexOfTable("product"))
+        check.ok("Product became a table" (pi >= 0))
+        if (pi >= 0) {
+            def prod:DBTable (itemAt head.tables pi)
+            check.ok("the ForeignKey became category_id" ((prod.columnIndex("category_id")) >= 0))
+            check.ok("AddField added price" ((prod.columnIndex("price")) >= 0))
+            def skuAt:int (prod.columnIndex("sku"))
+            if (skuAt >= 0) {
+                def sku:SchemaColumn (itemAt prod.columns skuAt)
+                check.ok("unique=True became a unique column" sku.isUnique)
+            }
+        }
+        check.eqInt("the foreign key is in the schema" (array_length head.foreignKeys) 1)
+
+        ; And the edge: an operation it does not know is SAID, not swallowed.
+        def src2:MigrationSource (new MigrationSource)
+        src2.addFile("shop/migrations/0001_initial.py"
+            "from django.db import migrations\n\nclass Migration(migrations.Migration):\n    operations = [\n        migrations.CreateModel(name='X', fields=[('id', models.AutoField(primary_key=True))]),\n        migrations.SomethingNobodyHasHeardOf(a=1),\n    ]\n")
+        def set2:MigrationSet (src2.finish())
+        check.ok("an unknown operation is reported" ((set2.trustworthy()) == false))
+        def t2:Timeline (Timeline.of(""))
+        t2.replay(set2)
+        check.ok("…and the timeline is marked unreliable" ((t2.trustworthy()) == false))
+        def d2:Drift (Drift.compare(t2 (new DatabaseSchema)))
+        check.ok("…and so is a drift report built on it" ((d2.reliable) == false))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The differ, the plan, and the rule about guesses
+    ; ------------------------------------------------------------------------
+    sfn runPlan:void (check:MigCheck) {
+        check.label = "plan"
+        print "== a plan, and a rename nobody confirmed =="
+        def a:DdlToSchema (DdlToSchema.of(""))
+        a.applyScript("CREATE TABLE t (id INTEGER PRIMARY KEY, user_name VARCHAR);")
+        def b:DdlToSchema (DdlToSchema.of(""))
+        b.applyScript("CREATE TABLE t (id INTEGER PRIMARY KEY, username VARCHAR);")
+        def set:ChangeSet (SchemaDiff.between(a.schema b.schema))
+        check.eqInt("a drop, an add and a suggestion" (set.count()) 3)
+        check.eqInt("one of them is a guess" (set.suggestedCount()) 1)
+
+        def plan:MigrationPlan (MigrationPlan.forDialect(""))
+        plan.build(set a.schema b.schema)
+        ; The plan MUST NOT contain the rename: writing the drop and the
+        ; rename would drop a column and then rename the column it dropped.
+        def up:string (plan.upScript())
+        check.ok("the unconfirmed rename is not in the DDL" ((MigrationSource.indexOfSub(up "RENAME")) < 0))
+        check.ok("the safe drop is" ((MigrationSource.indexOfSub(up "DROP COLUMN")) >= 0))
+        check.ok("and the add" ((MigrationSource.indexOfSub(up "ADD COLUMN")) >= 0))
+        check.ok("dropping a column is reported as irreversible" ((plan.reversible()) == false))
+        check.eqInt("and the guess is reported as left out" (array_length plan.skipped) 1)
+
+        ; Confirmed, the same diff becomes one statement instead of two.
+        def accepted:[string]
+        push accepted "t.user_name->username"
+        def noTables:[string]
+        def collapsed:ChangeSet (SchemaDiff.collapseRenames(set noTables accepted))
+        check.eqInt("accepting it leaves one change" (collapsed.count()) 1)
+        def plan2:MigrationPlan (MigrationPlan.forDialect(""))
+        plan2.build(collapsed a.schema b.schema)
+        def up2:string (plan2.upScript())
+        check.ok("now the rename IS the migration" ((MigrationSource.indexOfSub(up2 "RENAME COLUMN")) >= 0))
+        check.ok("and nothing is dropped" ((MigrationSource.indexOfSub(up2 "DROP COLUMN")) < 0))
+        check.ok("a rename loses nothing, so it is reversible" (plan2.reversible()))
+
+        ; Order is a correctness property: a key is dropped before the column
+        ; it covers, and a table exists before a key points at it.
+        def c:DdlToSchema (DdlToSchema.of(""))
+        c.applyScript("CREATE TABLE p (id INTEGER PRIMARY KEY);")
+        c.applyScript("CREATE TABLE c (pid INTEGER, CONSTRAINT fk_c_p FOREIGN KEY (pid) REFERENCES p(id));")
+        def d:DdlToSchema (DdlToSchema.of(""))
+        d.applyScript("CREATE TABLE p (id INTEGER PRIMARY KEY);")
+        d.applyScript("CREATE TABLE c (pid INTEGER);")
+        def set2:ChangeSet (SchemaDiff.between(c.schema d.schema))
+        def plan3:MigrationPlan (MigrationPlan.forDialect(""))
+        plan3.build(set2 c.schema d.schema)
+        def up3:string (plan3.upScript())
+        check.ok("a named key can be dropped by name" ((MigrationSource.indexOfSub(up3 "DROP CONSTRAINT")) >= 0))
+        check.ok("the plan is complete" (plan3.complete()))
+    }
+
+    sfn main:void () {
+        def check:MigCheck (new MigCheck)
+        def set:MigrationSet (MigrationTest.runFlyway(check))
+        def t:Timeline (MigrationTest.runTimeline(check set))
+        def compared:int (MigrationTest.runAgainstEngine(check set t))
+        MigrationTest.runDrift(check t)
+        MigrationTest.runGolangMigrate(check)
+        MigrationTest.runDjango(check)
+        MigrationTest.runPlan(check)
+        print ("compared=" + (to_string compared) + " passed=" + (to_string check.passed) + " failed=" + (to_string check.failed))
+        if (check.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

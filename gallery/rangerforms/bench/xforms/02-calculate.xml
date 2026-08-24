@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml">
+  <h:head>
+    <h:title>Calculate</h:title>
+    <model>
+      <instance>
+        <data id="calculate">
+          <height/>
+          <weight/>
+          <bmi/>
+          <advice/>
+        </data>
+      </instance>
+      <bind nodeset="/data/height" type="decimal"/>
+      <bind nodeset="/data/weight" type="decimal"/>
+      <bind nodeset="/data/bmi" type="decimal" calculate="/data/weight div (/data/height * /data/height)"/>
+      <bind nodeset="/data/advice" type="string" relevant="/data/bmi &gt; 25"/>
+    </model>
+  </h:head>
+  <h:body>
+    <input ref="/data/height"><label>Height in metres</label></input>
+    <input ref="/data/weight"><label>Weight in kilograms</label></input>
+    <input ref="/data/advice"><label>What we suggest</label></input>
+  </h:body>
+</h:html>

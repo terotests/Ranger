@@ -1,0 +1,764 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; ApplePlist.rgr - the property list, as far as an album index needs it
+; ==============================================================================
+;
+; Apple describes an iPhoto or Photos album in an XML property list, and a
+; property list is a very small language: nested dictionaries and arrays over
+; six scalar types. This reads that directly into typed values rather than into
+; a DOM, because a DOM would only be walked once and thrown away - the caller
+; wants `album.get("KeyList").at(3).asString()`, not an element tree to
+; re-interpret.
+;
+;     <dict>
+;       <key>AlbumName</key><string>Summer</string>
+;       <key>KeyList</key><array><string>17</string></array>
+;     </dict>
+;
+; A missing key answers with an empty value rather than an optional. That is a
+; deliberate trade: an album index is data from somewhere else, every lookup in
+; it can fail, and threading optionals through fifty of them buys nothing that
+; `has()` does not.
+;
+; XXE-safe by construction: the DOCTYPE is skipped whole and only the five
+; predefined entities plus numeric references are expanded, so a plist cannot
+; name a file on the machine reading it. Binary plists (`bplist00`) are
+; detected and refused with the command that converts one, rather than being
+; half-parsed into nonsense.
+; ==============================================================================
+
+class PlistValue {
+    ; none | dict | array | string | integer | real | bool | date | data
+    def kind:string "none"
+    def text:string ""
+    def num:double 0.0
+    def flag:boolean false
+    ; array items, or a dict's values in key order
+    def items:[PlistValue]
+    def keys:[string]
+
+    Constructor () {
+        kind = "none"
+    }
+
+    sfn of:PlistValue (kind:string text:string) {
+        def v (new PlistValue())
+        v.kind = kind
+        v.text = text
+        return v
+    }
+
+    fn exists:boolean () {
+        return (kind != "none")
+    }
+
+    fn isDict:boolean () {
+        return (kind == "dict")
+    }
+
+    fn isArray:boolean () {
+        return (kind == "array")
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn at:PlistValue (i:int) {
+        if (i < 0) {
+            return (new PlistValue())
+        }
+        if (i >= (array_length items)) {
+            return (new PlistValue())
+        }
+        return (itemAt items i)
+    }
+
+    fn keyAt:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length keys)) {
+            return ""
+        }
+        return (itemAt keys i)
+    }
+
+    fn has:boolean (key:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The value for a key, or a value that does not exist. Chainable: asking a
+    ; missing key for its own missing key is not an error, it is empty.
+    fn get:PlistValue (key:string) {
+        def i:int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                return (itemAt items i)
+            }
+            i = (i + 1)
+        }
+        return (new PlistValue())
+    }
+
+    fn asString:string () {
+        if (kind == "string") {
+            return text
+        }
+        if (kind == "date") {
+            return text
+        }
+        if (kind == "data") {
+            return text
+        }
+        if (kind == "integer") {
+            def n:int (to_int num)
+            return (to_string n)
+        }
+        if (kind == "real") {
+            return (to_string num)
+        }
+        if (kind == "bool") {
+            if flag {
+                return "true"
+            }
+            return "false"
+        }
+        return ""
+    }
+
+    fn asInt:int () {
+        if (kind == "string") {
+            def parsed@(optional):int (str2int text)
+            if parsed {
+                return (unwrap parsed)
+            }
+            return 0
+        }
+        return (to_int num)
+    }
+
+    fn asDouble:double () {
+        if (kind == "string") {
+            def parsed@(optional):double (to_double text)
+            if parsed {
+                return (unwrap parsed)
+            }
+            return 0.0
+        }
+        return num
+    }
+
+    fn asBool:boolean () {
+        if (kind == "bool") {
+            return flag
+        }
+        return false
+    }
+
+    fn stringFor:string (key:string) {
+        def v:PlistValue (this.get(key))
+        return (v.asString())
+    }
+
+    fn intFor:int (key:string) {
+        def v:PlistValue (this.get(key))
+        return (v.asInt())
+    }
+
+    fn doubleFor:double (key:string) {
+        def v:PlistValue (this.get(key))
+        return (v.asDouble())
+    }
+
+    fn put:void (key:string v:PlistValue) {
+        push keys key
+        push items v
+    }
+}
+
+class ApplePlist {
+    def source:string ""
+    def pos:int 0
+    def len:int 0
+    def ok:boolean false
+    def error:string ""
+
+    Constructor () {
+    }
+
+    ; The whole file, or an empty value and a reason in `error`.
+    fn parse:PlistValue (src:string) {
+        source = src
+        pos = 0
+        len = (strlen src)
+        ok = false
+        error = ""
+
+        ; A binary plist half-parsed as XML produces plausible nonsense, so it
+        ; is refused with the one command that fixes it.
+        if (len >= 8) {
+            def head:string (substring src 0 8)
+            if (head == "bplist00") {
+                error = "this is a binary property list; convert it first: plutil -convert xml1 AlbumData.xml"
+                return (new PlistValue())
+            }
+        }
+
+        this.skipProlog()
+        if ((this.expectOpen("plist")) == false) {
+            ; A fragment without the <plist> wrapper is still readable.
+            pos = 0
+            this.skipProlog()
+        }
+        def v:PlistValue (this.readValue())
+        if (v.exists()) {
+            ok = true
+        } {
+            if ((strlen error) == 0) {
+                error = "no value found in the property list"
+            }
+        }
+        return v
+    }
+
+    fn parseFile:PlistValue (dir:string name:string) {
+        ; `?? … ""` rather than testing the optional. An optional string is a
+        ; POINTER on es6 and a plain std::string on C++, so `if body` compiles
+        ; to `body != NULL` there and does not compile at all - which only the
+        ; C++ target ever says. An empty file and a missing one become the same
+        ; answer, which for this is correct: neither is parseable.
+        def body:string (?? (read_file dir name) "")
+        if ((strlen body) > 0) {
+            return (this.parse(body))
+        }
+        error = ("could not read " + dir + "/" + name)
+        return (new PlistValue())
+    }
+
+    ; ---------------------------------------------------------------------
+
+    fn atEnd:boolean () {
+        return (pos >= len)
+    }
+
+    fn peek:string () {
+        if (pos >= len) {
+            return ""
+        }
+        return (substring source pos (pos + 1))
+    }
+
+    fn skipSpace:void () {
+        while (pos < len) {
+            def c:string (substring source pos (pos + 1))
+            def isWs:boolean ((c == " ") || (c == "\n"))
+            if ((c == "\t") || (c == "\r")) {
+                isWs = true
+            }
+            if (isWs == false) {
+                return
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    ; The XML declaration, the doctype and any comments. The doctype is skipped
+    ; WHOLE and never read for entity declarations - that is the whole of this
+    ; parser's XXE policy, and it is a policy rather than an oversight.
+    fn skipProlog:void () {
+        def going:boolean true
+        while going {
+            this.skipSpace()
+            going = false
+            if ((pos + 1) < len) {
+                def two:string (substring source pos (pos + 2))
+                if (two == "<?") {
+                    this.skipUntil("?>")
+                    going = true
+                }
+                if (two == "<!") {
+                    this.skipUntil(">")
+                    going = true
+                }
+            }
+        }
+    }
+
+    fn skipUntil:void (marker:string) {
+        def n:int (strlen marker)
+        while (pos < len) {
+            def stop:int (pos + n)
+            if (stop > len) {
+                pos = len
+                return
+            }
+            def probe:string (substring source pos stop)
+            if (probe == marker) {
+                pos = stop
+                return
+            }
+            pos = (pos + 1)
+        }
+    }
+
+    ; `<name ...>` - consumes it and answers true. Leaves `pos` alone if the
+    ; next tag is something else.
+    fn expectOpen:boolean (name:string) {
+        def save:int pos
+        this.skipSpace()
+        if ((this.peek()) != "<") {
+            pos = save
+            return false
+        }
+        def start:int pos
+        def tagEnd:int (this.findTagEnd())
+        if (tagEnd < 0) {
+            pos = save
+            return false
+        }
+        def inner:string (substring source (start + 1) tagEnd)
+        def local:string (ApplePlist.tagName(inner))
+        if (local != name) {
+            pos = save
+            return false
+        }
+        pos = (tagEnd + 1)
+        return true
+    }
+
+    fn findTagEnd:int () {
+        def i:int pos
+        while (i < len) {
+            def c:string (substring source i (i + 1))
+            if (c == ">") {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The element name out of a tag's innards: "string", "/string", "true/".
+    sfn tagName:string (inner:string) {
+        def n:int (strlen inner)
+        def start:int 0
+        if (n > 0) {
+            def first:string (substring inner 0 1)
+            if (first == "/") {
+                start = 1
+            }
+        }
+        def i:int start
+        def out:string ""
+        while (i < n) {
+            def c:string (substring inner i (i + 1))
+            def stop:boolean ((c == " ") || (c == "/"))
+            if ((c == "\n") || (c == "\t")) {
+                stop = true
+            }
+            if stop {
+                return out
+            }
+            out = (out + c)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn isClosing:boolean (inner:string) {
+        if ((strlen inner) == 0) {
+            return false
+        }
+        return ((substring inner 0 1) == "/")
+    }
+
+    sfn isSelfClosing:boolean (inner:string) {
+        def n:int (strlen inner)
+        if (n == 0) {
+            return false
+        }
+        return ((substring inner (n - 1) n) == "/")
+    }
+
+    ; The next value in the source, whatever it is.
+    fn readValue:PlistValue () {
+        this.skipSpace()
+        if (pos >= len) {
+            return (new PlistValue())
+        }
+        if ((this.peek()) != "<") {
+            return (new PlistValue())
+        }
+        def start:int pos
+        def tagEnd:int (this.findTagEnd())
+        if (tagEnd < 0) {
+            error = "unterminated tag"
+            return (new PlistValue())
+        }
+        def inner:string (substring source (start + 1) tagEnd)
+        if (ApplePlist.isClosing(inner)) {
+            ; The caller's container has ended; leave the tag for it to eat.
+            return (new PlistValue())
+        }
+        def name:string (ApplePlist.tagName(inner))
+        def selfClosing:boolean (ApplePlist.isSelfClosing(inner))
+        pos = (tagEnd + 1)
+
+        if (name == "true") {
+            def v (new PlistValue())
+            v.kind = "bool"
+            v.flag = true
+            if (selfClosing == false) {
+                this.skipClose("true")
+            }
+            return v
+        }
+        if (name == "false") {
+            def v2 (new PlistValue())
+            v2.kind = "bool"
+            v2.flag = false
+            if (selfClosing == false) {
+                this.skipClose("false")
+            }
+            return v2
+        }
+        if (name == "dict") {
+            return (this.readDict(selfClosing))
+        }
+        if (name == "array") {
+            return (this.readArray(selfClosing))
+        }
+        if (name == "plist") {
+            def inside:PlistValue (this.readValue())
+            this.skipClose("plist")
+            return inside
+        }
+
+        ; The scalars: everything up to the closing tag is the text.
+        def body:string ""
+        if (selfClosing == false) {
+            body = (this.readTextUntilClose(name))
+        }
+        def value (new PlistValue())
+        value.text = body
+        if (name == "string") {
+            value.kind = "string"
+            return value
+        }
+        if (name == "integer") {
+            value.kind = "integer"
+            def n@(optional):int (str2int body)
+            if n {
+                value.num = (to_double (unwrap n))
+            }
+            return value
+        }
+        if (name == "real") {
+            value.kind = "real"
+            def r@(optional):double (to_double body)
+            if r {
+                value.num = (unwrap r)
+            }
+            return value
+        }
+        if (name == "date") {
+            value.kind = "date"
+            return value
+        }
+        if (name == "data") {
+            value.kind = "data"
+            return value
+        }
+        ; Something a property list does not have. Recorded, and skipped, so a
+        ; newer key does not stop the file being read.
+        value.kind = "string"
+        return value
+    }
+
+    fn readDict:PlistValue (selfClosing:boolean) {
+        def d (new PlistValue())
+        d.kind = "dict"
+        if selfClosing {
+            return d
+        }
+        def guard:int 0
+        while (pos < len) {
+            guard = (guard + 1)
+            if (guard > 2000000) {
+                error = "dictionary did not end"
+                return d
+            }
+            this.skipSpace()
+            if (this.atClose("dict")) {
+                return d
+            }
+            if ((this.expectOpen("key")) == false) {
+                ; Not a key and not the end: give up on this dictionary rather
+                ; than spin.
+                error = "expected <key> in a dictionary"
+                return d
+            }
+            def key:string (this.readTextUntilClose("key"))
+            def v:PlistValue (this.readValue())
+            d.put(key v)
+        }
+        return d
+    }
+
+    fn readArray:PlistValue (selfClosing:boolean) {
+        def a (new PlistValue())
+        a.kind = "array"
+        if selfClosing {
+            return a
+        }
+        def guard:int 0
+        while (pos < len) {
+            guard = (guard + 1)
+            if (guard > 2000000) {
+                error = "array did not end"
+                return a
+            }
+            this.skipSpace()
+            if (this.atClose("array")) {
+                return a
+            }
+            def v:PlistValue (this.readValue())
+            if ((v.exists()) == false) {
+                return a
+            }
+            push a.items v
+        }
+        return a
+    }
+
+    ; True when the next tag closes `name`, consuming it.
+    fn atClose:boolean (name:string) {
+        def save:int pos
+        this.skipSpace()
+        if ((this.peek()) != "<") {
+            pos = save
+            return false
+        }
+        def start:int pos
+        def tagEnd:int (this.findTagEnd())
+        if (tagEnd < 0) {
+            pos = save
+            return false
+        }
+        def inner:string (substring source (start + 1) tagEnd)
+        if ((ApplePlist.isClosing(inner)) == false) {
+            pos = save
+            return false
+        }
+        if ((ApplePlist.tagName(inner)) != name) {
+            pos = save
+            return false
+        }
+        pos = (tagEnd + 1)
+        return true
+    }
+
+    fn skipClose:void (name:string) {
+        this.atClose(name)
+    }
+
+    fn readTextUntilClose:string (name:string) {
+        def raw:string ""
+        while (pos < len) {
+            def c:string (substring source pos (pos + 1))
+            if (c == "<") {
+                def start:int pos
+                def tagEnd:int (this.findTagEnd())
+                if (tagEnd < 0) {
+                    pos = len
+                    return (ApplePlist.decode(raw))
+                }
+                def inner:string (substring source (start + 1) tagEnd)
+                if (ApplePlist.isClosing(inner)) {
+                    pos = (tagEnd + 1)
+                    return (ApplePlist.decode(raw))
+                }
+                ; A tag inside a scalar is not a property list; treat it as text.
+                raw = (raw + (substring source start (tagEnd + 1)))
+                pos = (tagEnd + 1)
+            } {
+                raw = (raw + c)
+                pos = (pos + 1)
+            }
+        }
+        return (ApplePlist.decode(raw))
+    }
+
+    ; The five predefined entities and numeric references. Nothing else - an
+    ; entity a document declares for itself is exactly the thing this parser
+    ; must not expand.
+    sfn decode:string (raw:string) {
+        def n:int (strlen raw)
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def c:string (substring raw i (i + 1))
+            if (c != "&") {
+                out = (out + c)
+                i = (i + 1)
+            } {
+                def semi:int (ApplePlist.findFrom(raw ";" i))
+                if (semi < 0) {
+                    out = (out + c)
+                    i = (i + 1)
+                } {
+                    def name:string (substring raw (i + 1) semi)
+                    def repl:string (ApplePlist.entity(name))
+                    if ((strlen repl) > 0) {
+                        out = (out + repl)
+                        i = (semi + 1)
+                    } {
+                        out = (out + c)
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn entity:string (name:string) {
+        if (name == "amp") {
+            return "&"
+        }
+        if (name == "lt") {
+            return "<"
+        }
+        if (name == "gt") {
+            return ">"
+        }
+        if (name == "quot") {
+            return "\""
+        }
+        if (name == "apos") {
+            return "'"
+        }
+        def n:int (strlen name)
+        if (n < 2) {
+            return ""
+        }
+        if ((substring name 0 1) != "#") {
+            return ""
+        }
+        def digits:string (substring name 1 n)
+        def hex:boolean false
+        if ((substring digits 0 1) == "x") {
+            hex = true
+            digits = (substring digits 1 (strlen digits))
+        }
+        def code:int 0
+        if hex {
+            code = (ApplePlist.parseHex(digits))
+        } {
+            def v@(optional):int (str2int digits)
+            if v {
+                code = (unwrap v)
+            }
+        }
+        if (code <= 0) {
+            return ""
+        }
+        return (ApplePlist.fromCode(code))
+    }
+
+    sfn parseHex:int (s:string) {
+        def n:int (strlen s)
+        def out:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def d:int -1
+            if ((c >= 48) && (c <= 57)) {
+                d = (c - 48)
+            }
+            if ((c >= 97) && (c <= 102)) {
+                d = ((c - 97) + 10)
+            }
+            if ((c >= 65) && (c <= 70)) {
+                d = ((c - 65) + 10)
+            }
+            if (d < 0) {
+                return out
+            }
+            out = ((out * 16) + d)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; One code point as a string, on all three of Ranger's string models.
+    ; `strfromcode` is String.fromCharCode on es6 and truncates to 16 bits, so
+    ; an astral point is assembled there as a surrogate pair; on a byte-model
+    ; target it already answers the whole UTF-8 encoding and must not be
+    ; assembled byte by byte. Same reasoning as lib/core RgText.fromCodePoint,
+    ; restated here because the book compiles with only compiler/Lang.rgr and
+    ; lib/stdops.rgr on the library path. Every `strfromcode` is BOUND to a
+    ; string before it is used: used directly as an argument it does not
+    ; compile on Rust.
+    sfn fromCode:string (code:int) {
+        if (code < 128) {
+            def ascii:string (strfromcode code)
+            return ascii
+        }
+        ; Are the units bytes? One non-ASCII character is longer than one unit
+        ; only on a byte-model target, and there `strfromcode` already answers
+        ; the whole UTF-8 encoding - it must not be assembled byte by byte.
+        def acute:string (strfromcode 233)
+        if ((strlen acute) > 1) {
+            def bytes:string (strfromcode code)
+            return bytes
+        }
+        if (code < 65536) {
+            def bmp:string (strfromcode code)
+            return bmp
+        }
+        ; Point model or code-unit model? Asked without a non-ASCII literal in
+        ; this file: `strfromcode 65536` is String.fromCharCode there, which
+        ; masks to 16 bits and answers U+0000, while a point-model target
+        ; answers the character itself.
+        def probe:string (strfromcode 65536)
+        if ((charAt probe 0) == 65536) {
+            def point:string (strfromcode code)
+            return point
+        }
+        def adj:int (code - 65536)
+        def hi:string (strfromcode (55296 + (bit_shr adj 10)))
+        def lo:string (strfromcode (56320 + (bit_and adj 1023)))
+        return (hi + lo)
+    }
+
+    ; Not `indexOfFrom`: a static method whose name begins with an existing
+    ; global operator is swallowed by it, and the class then does not have the
+    ; method at all. Same reason the core library calls its own `len` and
+    ; `substr` rather than the obvious names.
+    sfn findFrom:int (haystack:string needle:string begin:int) {
+        def hl:int (strlen haystack)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return begin
+        }
+        def limit:int (hl - nl)
+        def i:int begin
+        while (i <= limit) {
+            if ((substring haystack i (i + nl)) == needle) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}

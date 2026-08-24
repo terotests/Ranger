@@ -11,9 +11,13 @@ npm run book:web:serve      # …and serve it at http://localhost:8003
 npm run book:demo           # lay the book out, check it, write SVG + TSX
 npm run book:pdf            # …and turn it into a PDF with the existing EVG tooling
 npm run book:print          # the files a printer wants: interior + cover + manifest
-npm run book:test           # 76 assertions on the engine, JavaScript
-npm run book:test:go        # the same 76 on Go (and book:test:python on Python)
-npm run book:editor:test    # 64 more on the editor and the host seam
+npm run book:album          # make a book out of an Apple photo album
+npm run book:photos         # search a photo index by date and place, and lay it out
+npm run book:sdl            # the same editor as a native SDL2 + OpenGL window
+npm run book:sdl:smoke      # …30 frames headless, which is how CI can check it
+npm run book:test           # 220 assertions on the engine, JavaScript
+npm run book:test:go        # the same 220 on Go (and book:test:python on Python)
+npm run book:editor:test    # 79 more on the editor and the host seam
 npm run book:web:test       # drive the page in a real browser, on WebGL
 ```
 
@@ -86,6 +90,22 @@ BookApp.rgr          the host seam: the only place a window pixel becomes a
 BookSample.rgr       one book, in code, that the demo prints and the editor
                      opens — so the thing being demonstrated is a thing that
                      has actually been through a press.
+
+ApplePlist.rgr       the XML property list, as far as an album index needs it.
+BookAppleAlbum.rgr   an iPhoto/Aperture library index → an album: the
+                     photographs, in the album's order, with their captions.
+BookAlbumImport.rgr  an album → a laid-out book. No file access, so it runs in
+                     the browser too.
+BookAlbumMeasure.rgr the pictures' pixel sizes, off their JPEG headers. The
+                     only part of the album path that touches a disk.
+
+PhotoIndex.rgr       a folder of photographs, made searchable: one small record
+                     each, searched by date range, by radius, by text.
+PhotoScan.rgr        building that index by reading the JPEGs themselves.
+
+platform/sdl/        the same editor as a native window: `book_sdl.rgr` over
+                     the DataGrid's SDL2 layer, configured by a JSON file
+                     because a window has no URL to carry the answer.
 ```
 
 Output goes out through machinery that already existed:
@@ -351,6 +371,181 @@ api.writeTsx("./out" "book.tsx")
 book as data: pages, frames, positions, which frame continues into which, and
 whether anything is overset.
 
+## Opening an Apple photo album
+
+![An album open in the editor](artifacts/02_album.png)
+
+iPhoto and Aperture describe a whole library in one XML property list —
+`AlbumData.xml` beside the library, `ApertureData.xml` for Aperture — and that
+file plus the photographs it names is all an album is. `ApplePlist.rgr` reads
+the property list, `BookAppleAlbum.rgr` joins `List of Albums` to
+`Master Image List`, and `BookAlbumImport.rgr` turns the result into the same
+`BookApi` everything else here takes.
+
+```bash
+npm run book:album                                     # the bundled fixture
+npm run book:album -- -list -library ~/Pictures/iPhoto\ Library
+npm run book:album -- -library ~/Pictures/iPhoto\ Library -album "Kesä 2019" \
+                      -images ~/photos -min-rating 3 -format square-250
+```
+
+The editor opens one too, with no server and nothing uploaded: **drop an
+`AlbumData.xml` and its photographs onto the page**, or use *Open Apple
+album…*. The parser and the layout are compiled into `book_web.js`, so the
+library is read where it is opened.
+
+Three decisions are worth knowing about, because they are what separates this
+from "one photograph per page":
+
+**Orientation chooses the page.** A landscape photograph bleeds off all four
+edges; a portrait one sits inside the margin with its caption beneath it, in a
+frame that has taken the picture's own proportions — so the caption is under
+the picture rather than under empty paper. That needs the pixel sizes *before*
+the layout, which is why `BookAlbumMeasure` runs first on the command line and
+why the browser measures each dropped file before opening the album.
+
+**A caption is the album's, not the file's.** iPhoto captions an untouched
+photograph with its file name, so `IMG_4021.JPG` would otherwise be printed
+under it. A caption that looks like a file name falls through to the comment,
+then to the date, then to silence. And a full-bleed page gets its caption on a
+small slab of paper at the foot rather than losing it: the auto layout calls a
+caption over a bleeding picture a manual edit, which is right for a story book
+and wrong for an album.
+
+**A modern Photos library has no index.** Apple stopped writing `AlbumData.xml`,
+so an album exported to a folder arrives through `AppleAlbum.fromPaths` — the
+host enumerates the files, since Ranger has no directory listing, and
+everything downstream is the same code.
+
+`gallery/book/fixtures/AlbumData.xml` is a real iPhoto index in miniature:
+three photographs, two albums plus one of Apple's own, a movie, and Finnish
+captions written as numeric character references exactly as iPhoto writes them.
+The browser build ships it, so `?album=1` opens it without a Mac.
+
+## Choosing photographs by when and where
+
+![Searching by date and place](artifacts/03_photos.png)
+
+A modern Photos library is not an album file. It is tens of thousands of
+pictures with a date and a position buried in each one, and choosing the twenty
+that belong in a book means asking questions of the whole pile — *that week in
+June*, *within twenty kilometres of the cottage*. A question you cannot ask
+until you have opened forty thousand files is not a question anybody asks
+twice, so the pile is **indexed once** and the searches run over the index.
+
+```
+scan  ─►  photo-index.json  ─►  query  ─►  album  ─►  a book
+           (once, slow)          (fast)
+```
+
+**In the editor.** Press *Open photos…* or drop a folder of JPEGs on the page.
+Each one's EXIF is read **in the page** — the same Ranger parser the command
+line uses, compiled into `book_web.js` — and the search bar then answers from
+dates, coordinates and camera. Nothing is uploaded, which for somebody's
+photographs is not a performance detail.
+
+**On the command line**, for a folder of JPEGs anywhere:
+
+```bash
+node gallery/book/tools/photo_files.mjs ~/Pictures/Export --out names.txt
+npm run book:photos -- -scan ~/Pictures/Export -names names.txt \
+                       -index photo-index.json -summary
+npm run book:photos -- -index photo-index.json \
+                       -from 2019-06-01 -to 2019-08-31 -near 61.5,25.0 -radius 20
+```
+
+`photo_files.mjs` exists because Ranger has `file_exists` and `read_file` and
+no operator that lists a directory — a reasonable place to draw the line for a
+language that compiles to six targets, and one line of host code to cross.
+Everything else, including the EXIF reading, is Ranger and is tested on all
+three targets.
+
+### On a Mac, against the real Photos library
+
+```bash
+node gallery/book/tools/mac_photos.mjs --index --out ~/book
+node gallery/book/tools/mac_photos.mjs --book  --out ~/book \
+     --from 2019-06-01 --to 2019-08-31 --near 61.5,25.0 --radius 20
+```
+
+Three things need a Mac, and they are all in that one file:
+
+**Reaching the library.** Photos.app stopped writing `AlbumData.xml` and its
+database is inside a package the system guards, so the supported way in is to
+*ask* Photos.app over AppleScript. macOS puts up a permission dialog the first
+time; that is the system asking on the user's behalf, and it is the right thing
+to happen.
+
+**HEIC.** An iPhone writes HEIC. It cannot go into a PDF and no browser but
+Safari will draw one, so a chosen photograph is converted with `sips`. Only the
+**chosen** ones — converting twenty pictures is a second and converting nine
+thousand is an afternoon, and that asymmetry is the whole reason the index
+exists. `--book` runs the search first, converts what matched, and lays that
+out.
+
+**Spotlight.** For a plain folder — an export, a NAS, a camera card —
+`mdls` answers faster than opening the files would, because it has already read
+them, and it reaches HEIC too. That is `--folder DIR`.
+
+Spawning `osascript` and `sips` cannot be tested off a Mac, so the file is
+written the other way round: the part that can be wrong on any machine —
+parsing what those tools print — is pure, and `npm run book:photos:test` feeds
+recorded output through it (17 checks, no Mac needed). The process calls around
+them are deliberately thin. **They have not been run on a Mac from here**; the
+parsers have.
+
+### What the index does not know
+
+Place *names*. "Helsinki" is a question for a gazetteer, and shipping one would
+be a bigger dependency than the whole book engine. What is here is a coordinate
+and a radius — plus `PhotoPlace`, so a coordinate can be given a name once and
+used by name afterwards, which is what somebody making a book about the same
+cottage every summer actually wants.
+
+Two details that decide whether a search is right rather than merely plausible.
+Distances are **great-circle**: a degree of longitude is 111 km at the equator
+and 55 km at sixty north, and the flat formula is wrong by half a Finland.
+Coordinates are written with **six decimal places**, not the two a typographic
+point needs — rounding a latitude to two decimals moves a photograph up to a
+kilometre, which silently changes what a radius search answers.
+
+## Three hosts, one editor
+
+```text
+                         BookApp  ─►  EVGDisplayList
+                            ▲               │
+   pointer / keys ──────────┘               ├─► evg-webgl.js   → a browser tab
+                                            ├─► EvgGlPainter   → an SDL2 window
+                                            └─► SoftCanvas     → a bitmap, tests
+```
+
+The editor has never heard of a window. That is what lets the same `BookApp`
+run in a page with no server behind it, in a Node process posting events over
+HTTP, and — since `platform/sdl` — as a native binary, without a second copy of
+anything.
+
+```bash
+npm run book:sdl            # Ranger → C++ → native binary (SDL2, OpenGL)
+npm run book:sdl:run        # …and open the window
+npm run book:sdl:smoke      # …or 30 frames headless
+```
+
+A window is opened by double-clicking it, so it has no URL and no argument list
+to say what to show: `platform/sdl/book.config.json` does that, and **every
+field has a default**, so `{ "spread": 3 }` is a complete config meaning "like
+the default, but that". It can open the sample, an Apple album, or a photo
+query — the same query `book:photos` takes, written as data. The host prints
+the settings actually in force before it opens anything, because a host that
+silently fell back to a default looks exactly like one that read your file.
+
+`platform/sdl/README.md` has the keys, the fields and the headless check.
+
+**It is not a macOS application bundle**, which matters if the hope was to
+reach the system Photos library from it: a TCC permission attaches to a signed
+`.app` with a usage string in its `Info.plist`, and a binary run from a terminal
+inherits the terminal's grants instead. Reading a Photos library still goes
+through `tools/mac_photos.mjs`, which writes an index this host then opens.
+
 ## Formats
 
 `square-210`, `square-250`, `square-8.5in`, `a4`, `a4-landscape`, `a5`,
@@ -361,7 +556,7 @@ convert; the model stores points.
 ## Targets
 
 The engine is plain Ranger with no host dependencies beyond `gallery/evg`, and
-the full test suite passes on **JavaScript, Go and Python** — 76 assertions
+the full test suite passes on **JavaScript, Go and Python** — 220 assertions
 each. The demo additionally uses `gallery/pdf_writer`'s `FontManager` for real
 font metrics, which is why it lives in `src/book_demo.rgr` rather than in the
 library.
@@ -371,5 +566,5 @@ library.
 Hyphenation, optical margin alignment and a real justification engine (lines
 currently stretch at render time rather than being broken for even colour);
 text frames that are not rectangles; text wrapping around an image; footnotes;
-a table model; CMYK and ICC output; and the editor UI itself. `PLAN.md` has the
-order and the reasoning.
+a table model; a real ICC transform behind the CMYK conversion; and CMYK image
+data. `PLAN.md` has the order and the reasoning.

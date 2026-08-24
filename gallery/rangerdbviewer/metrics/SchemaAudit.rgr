@@ -1,0 +1,300 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SchemaAudit.rgr — the findings a schema alone can support.
+; ============================================================================
+;
+; Every rule here reasons from the `DatabaseSchema` and reads no rows. That
+; makes them free, repeatable, and available on a schema that came from a
+; `.sql` file or from replaying a migration history — not only on a live
+; connection.
+;
+;   index.duplicate     two indexes covering the same columns in the same order
+;   index.redundant     one index's columns are a prefix of another's
+;   fk.unindexed        a foreign key with no index on the referencing side
+;   fk.nullable         a foreign key column that admits NULL
+;   table.nopk          a table with no primary key
+;   index.onkey         a hand-written index duplicating the primary key
+;
+; ---------------------------------------------------------------------------
+; What is deliberately NOT here
+; ---------------------------------------------------------------------------
+;
+; "This index is unused." That needs a workload — a plan cache, a statement
+; log, something watched — and the schema cannot supply one. Reported from the
+; schema alone it would be a guess that gets an index dropped which a nightly
+; report depends on. `LiveMetrics` reports it where there IS evidence, and
+; nothing reports it where there is not.
+;
+; Low selectivity is the same: a single-column index on a column with two
+; distinct values is worth flagging, and how many distinct values a column has
+; is a fact about rows.
+; ============================================================================
+
+Import "Findings.rgr"
+Import "../../rangerdb/src/schema/SchemaToDdl.rgr"
+
+class SchemaAudit {
+    def out:FindingList (new FindingList)
+    def writer:SchemaToDdl (SchemaToDdl.forDialect(""))
+
+    Constructor () {
+    }
+
+    sfn run:FindingList (schema:DatabaseSchema) {
+        def a:SchemaAudit (new SchemaAudit)
+        return (a.audit(schema))
+    }
+
+    fn audit:FindingList (schema:DatabaseSchema) {
+        def i:int 0
+        def n:int (array_length schema.tables)
+        while (i < n) {
+            def t:DBTable (itemAt schema.tables i)
+            ; A view has no indexes and no key of its own; every rule below
+            ; would fire on every view in the database.
+            if (t.kind == "table") {
+                this.auditTable(t)
+            }
+            i = (i + 1)
+        }
+        this.auditForeignKeys(schema)
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Per table: keys and indexes
+    ; ------------------------------------------------------------------------
+    fn auditTable:void (t:DBTable) {
+        def pks:[string] (t.primaryKeyColumns())
+        if ((array_length pks) == 0) {
+            def f:Finding (Finding.of("table.nopk" (Severity.high()) t.name "the table has no primary key, so there is no way to name one of its rows"))
+            out.add(f)
+        }
+
+        def indexes:[DBIndex] (SchemaAudit.handWritten(t))
+        def n:int (array_length indexes)
+        def i:int 0
+        while (i < n) {
+            def a:DBIndex (itemAt indexes i)
+            ; …against the primary key
+            if ((array_length pks) > 0) {
+                if (SchemaAudit.sameColumns(a.columns pks)) {
+                    def onKey:Finding (Finding.of("index.onkey" (Severity.warn()) t.name ("the index " + a.name + " covers exactly the primary key, which the database already indexes")))
+                    onKey.object = a.name
+                    onKey.fix = ("DROP INDEX " + (writer.quote(a.name)))
+                    out.add(onKey)
+                }
+            }
+            ; …against each other
+            def k:int (i + 1)
+            while (k < n) {
+                def b:DBIndex (itemAt indexes k)
+                if (SchemaAudit.sameColumns(a.columns b.columns)) {
+                    def dup:Finding (Finding.of("index.duplicate" (Severity.warn()) t.name ("the indexes " + a.name + " and " + b.name + " cover the same columns in the same order, so one of them is paid for on every write and used by nothing")))
+                    dup.object = b.name
+                    dup.fix = ("DROP INDEX " + (writer.quote(b.name)))
+                    out.add(dup)
+                } {
+                    ; A prefix of another index is served BY that index, which
+                    ; is not true the other way round — so only the shorter one
+                    ; is redundant.
+                    if (SchemaAudit.isPrefixOf(a.columns b.columns)) {
+                        def red:Finding (Finding.of("index.redundant" (Severity.warn()) t.name ("the index " + a.name + " covers " + (SchemaAudit.joinNames(a.columns)) + ", which is a prefix of " + b.name + " — the longer index already serves it")))
+                        red.object = a.name
+                        red.fix = ("DROP INDEX " + (writer.quote(a.name)))
+                        out.add(red)
+                    }
+                    if (SchemaAudit.isPrefixOf(b.columns a.columns)) {
+                        def red2:Finding (Finding.of("index.redundant" (Severity.warn()) t.name ("the index " + b.name + " covers " + (SchemaAudit.joinNames(b.columns)) + ", which is a prefix of " + a.name + " — the longer index already serves it")))
+                        red2.object = b.name
+                        red2.fix = ("DROP INDEX " + (writer.quote(b.name)))
+                        out.add(red2)
+                    }
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Per relationship
+    ; ------------------------------------------------------------------------
+    fn auditForeignKeys:void (schema:DatabaseSchema) {
+        def i:int 0
+        def n:int (array_length schema.foreignKeys)
+        while (i < n) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys i)
+            def at:int (schema.indexOfTable(fk.fromTable))
+            if (at >= 0) {
+                def t:DBTable (itemAt schema.tables at)
+                this.auditOneKey(t fk)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn auditOneKey:void (t:DBTable fk:DBForeignKey) {
+        ; --- an index on the referencing side ---------------------------------
+        ; A key with none makes every delete of a parent row scan this whole
+        ; table, and every join from the parent do the same.
+        if ((SchemaAudit.coveredByAnyIndex(t fk.fromColumns)) == false) {
+            def name:string (SchemaAudit.suggestIndexName(t.name fk.fromColumns))
+            def f:Finding (Finding.of("fk.unindexed" (Severity.warn()) t.name ("the foreign key on " + (SchemaAudit.joinNames(fk.fromColumns)) + " has no index behind it, so deleting a row of " + fk.toTable + " scans this table")))
+            f.object = (SchemaAudit.joinNames(fk.fromColumns))
+            f.fix = ("CREATE INDEX " + (writer.quote(name)) + " ON " + (writer.quote(t.name)) + "(" + (writer.quoteList(fk.fromColumns)) + ")")
+            out.add(f)
+        }
+
+        ; --- a nullable referencing column -----------------------------------
+        ; Not wrong — an optional relationship is a real thing — but it is
+        ; worth saying, because a key that was MEANT to be required and is not
+        ; admits rows that belong to nothing.
+        def c:int 0
+        def nc:int (array_length fk.fromColumns)
+        while (c < nc) {
+            def cname:string (itemAt fk.fromColumns c)
+            def ci:int (t.columnIndex(cname))
+            if (ci >= 0) {
+                def col:SchemaColumn (itemAt t.columns ci)
+                if (col.nullable) {
+                    def f2:Finding (Finding.of("fk.nullable" (Severity.info()) t.name ("the foreign key column " + cname + " admits NULL, so a row of " + t.name + " may belong to no " + fk.toTable + " at all — deliberate for an optional relationship, a bug for a required one")))
+                    f2.object = cname
+                    f2.fix = ("ALTER TABLE " + (writer.quote(t.name)) + " ALTER COLUMN " + (writer.quote(cname)) + " SET NOT NULL")
+                    out.add(f2)
+                }
+            }
+            c = (c + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Helpers
+    ; ------------------------------------------------------------------------
+
+    ; Only the indexes somebody wrote. The one behind a PRIMARY KEY or a
+    ; UNIQUE constraint was created BY that constraint, and reporting it as a
+    ; duplicate of the constraint that made it is the classic false positive
+    ; this whole `origin` field exists to prevent.
+    sfn handWritten:[DBIndex] (t:DBTable) {
+        def list:[DBIndex]
+        def i:int 0
+        def n:int (array_length t.indexes)
+        while (i < n) {
+            def idx:DBIndex (itemAt t.indexes i)
+            if (idx.origin == "index") {
+                push list idx
+            }
+            i = (i + 1)
+        }
+        return list
+    }
+
+    sfn sameColumns:boolean (a:[string] b:[string]) {
+        def n:int (array_length a)
+        if (n != (array_length b)) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if (((itemAt a i) == (itemAt b i)) == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; `a` is a strict prefix of `b`.
+    sfn isPrefixOf:boolean (a:[string] b:[string]) {
+        def na:int (array_length a)
+        def nb:int (array_length b)
+        if (na == 0) {
+            return false
+        }
+        if (na >= nb) {
+            return false
+        }
+        def i:int 0
+        while (i < na) {
+            if (((itemAt a i) == (itemAt b i)) == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; An index serves a lookup on `wanted` when `wanted` is a prefix of the
+    ; index — a composite index on (a, b) answers a query on (a), and one on
+    ; (b, a) does not. Every index counts here, including the one behind a
+    ; UNIQUE constraint: a database uses it whoever created it.
+    sfn coveredByAnyIndex:boolean (t:DBTable wanted:[string]) {
+        def w:int (array_length wanted)
+        if (w == 0) {
+            return true
+        }
+        def i:int 0
+        def n:int (array_length t.indexes)
+        while (i < n) {
+            def idx:DBIndex (itemAt t.indexes i)
+            if ((array_length idx.columns) >= w) {
+                def same:boolean true
+                def k:int 0
+                while (k < w) {
+                    if (((itemAt idx.columns k) == (itemAt wanted k)) == false) {
+                        same = false
+                    }
+                    k = (k + 1)
+                }
+                if same {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        ; The primary key is indexed by the database whether or not anybody
+        ; wrote an index, so a key over the same leading columns is covered.
+        def pks:[string] (t.primaryKeyColumns())
+        if ((array_length pks) >= w) {
+            def ok:boolean true
+            def p:int 0
+            while (p < w) {
+                if (((itemAt pks p) == (itemAt wanted p)) == false) {
+                    ok = false
+                }
+                p = (p + 1)
+            }
+            if ok {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn joinNames:string (names:[string]) {
+        def s:string ""
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if (i > 0) {
+                s = (s + ", ")
+            }
+            s = (s + (itemAt names i))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn suggestIndexName:string (table:string columns:[string]) {
+        def s:string ("idx_" + table)
+        def i:int 0
+        def n:int (array_length columns)
+        while (i < n) {
+            s = (s + "_" + (itemAt columns i))
+            i = (i + 1)
+        }
+        return s
+    }
+}

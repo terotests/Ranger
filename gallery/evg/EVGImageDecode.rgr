@@ -35,6 +35,11 @@ class EVGImageDecode {
         ; JPEG SOI
         if ((b0 == 255) && (b1 == 216)) {
             def jdec:JPEGDecoder (new JPEGDecoder)
+            ; A picture is decoded here because something is being DRAWN, not
+            ; because anybody asked about the JPEG, so the decoder's own
+            ; narration is noise - and on a native host it is noise on
+            ; somebody's terminal, twenty-five lines per photograph.
+            jdec.quiet = true
             def jim:ImageBuffer (jdec.decodeBytes(bytes))
             if ((jim.width > 0) && (jim.height > 0)) {
                 def hit@(optional):ImageBuffer jim

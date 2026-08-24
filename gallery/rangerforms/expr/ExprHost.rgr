@@ -1,0 +1,164 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; ExprHost.rgr — where an expression's meaning comes from.
+; ============================================================================
+;
+; The same shape as `gallery/datagrid`'s `CellRuleHost`, for the same reason:
+; there are three plausible expression languages for a questionnaire, most
+; callers want exactly one of them, and none of them should have to carry the
+; other two.
+;
+;   NativeExpr    a small language, no external parser, identical everywhere
+;   JsExpr        ComponentEngine — what a SurveyJS form is written in
+;   XPathExpr     the XForms / ODK subset — what an Enketo form is written in
+;
+; ---------------------------------------------------------------------------
+; `names` is not optional
+; ---------------------------------------------------------------------------
+;
+; A host that could only be asked "what is the answer" would force the engine
+; to re-run every rule whenever anything changed, because it would have no way
+; to know which rules could possibly have been affected. `names(program)` —
+; what an expression READS — is what turns a pile of rules into a graph, and
+; the graph is the whole reason this engine is worth writing.
+;
+; So a host that cannot report its dependencies is not a host. A conservative
+; answer is allowed (report more names than the expression really reads, and
+; the engine merely does extra work); a wrong one is not (report fewer, and a
+; question silently stops updating).
+; ============================================================================
+
+Import "../model/AnswerState.rgr"
+
+; One node of a parsed expression. Deliberately one class rather than a
+; hierarchy: the tree is walked by an evaluator that switches on `kind`
+; anyway, and a dozen tiny classes would make the cross-target comparison
+; harder to read without making anything safer.
+class ExprNode {
+    ; 1 number · 2 text · 3 bool · 4 reference · 5 unary · 6 binary · 7 call
+    def kind:int 0
+    def num:double 0.0
+    def text:string ""
+    def flag:boolean false
+    def op:string ""
+    def kids:[ExprNode]
+
+    Constructor () {
+    }
+
+    sfn number:ExprNode (n:double) {
+        def e:ExprNode (new ExprNode)
+        e.kind = 1
+        e.num = n
+        return e
+    }
+
+    ; Named `ofText`, not `text`: this class already has a FIELD called
+    ; `text`, and a language whose members share one namespace — C++ among
+    ; them — cannot have both. Found by the cross-target conformance run,
+    ; which is what it is for.
+    sfn ofText:ExprNode (s:string) {
+        def e:ExprNode (new ExprNode)
+        e.kind = 2
+        e.text = s
+        return e
+    }
+
+    sfn truth:ExprNode (b:boolean) {
+        def e:ExprNode (new ExprNode)
+        e.kind = 3
+        e.flag = b
+        return e
+    }
+
+    sfn reference:ExprNode (name:string) {
+        def e:ExprNode (new ExprNode)
+        e.kind = 4
+        e.text = name
+        return e
+    }
+
+    sfn unary:ExprNode (op:string a:ExprNode) {
+        def e:ExprNode (new ExprNode)
+        e.kind = 5
+        e.op = op
+        push e.kids a
+        return e
+    }
+
+    sfn binary:ExprNode (op:string a:ExprNode b:ExprNode) {
+        def e:ExprNode (new ExprNode)
+        e.kind = 6
+        e.op = op
+        push e.kids a
+        push e.kids b
+        return e
+    }
+
+    sfn call:ExprNode (name:string args:[ExprNode]) {
+        def e:ExprNode (new ExprNode)
+        e.kind = 7
+        e.text = name
+        def i:int 0
+        def n:int (array_length args)
+        while (i < n) {
+            push e.kids (itemAt args i)
+            i = (i + 1)
+        }
+        return e
+    }
+}
+
+; A parsed expression, plus what it reads. A program that did not parse is
+; still a program — it evaluates to an error value, which is what keeps one
+; bad rule in a 500-question form from taking the form down.
+class ExprProgram {
+    def source:string ""
+    def root:ExprNode (new ExprNode)
+    def names:[string]
+    def ok:boolean false
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    sfn failed:ExprProgram (source:string why:string) {
+        def p:ExprProgram (new ExprProgram)
+        p.source = source
+        p.errorText = why
+        return p
+    }
+
+    fn reads:boolean (name:string) {
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if ((itemAt names i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
+
+class ExprHost {
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    fn hostName:string () {
+        return "none"
+    }
+
+    ; A host that cannot parse says so in the program rather than throwing.
+    fn parse:ExprProgram (source:string) {
+        return (ExprProgram.failed(source "no expression host installed"))
+    }
+
+    fn evaluate:FormValue (program:ExprProgram state:AnswerState) {
+        return (FormValue.ofError("no expression host installed"))
+    }
+}

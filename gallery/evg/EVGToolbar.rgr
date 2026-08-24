@@ -37,6 +37,7 @@
 Import "EVGColor.rgr"
 Import "EVGDisplayList.rgr"
 Import "EVGA11yTree.rgr"
+Import "EVGStyleSheet.rgr"
 
 ; The palette the strip draws itself with. An application hands one over rather
 ; than the toolbar reaching into a theme it cannot know about.
@@ -316,6 +317,76 @@ class EVGToolbar {
     ; A row with a large button in it is this tall instead of `rowH`; the
     ; ordinary chips centre themselves in it.
     def largeH:int 54
+    ; --- the strip's metrics, from a stylesheet -------------------------------
+    ;
+    ; The seven numbers above are what a strip on a desktop is. They are wrong
+    ; on a phone — a 30-pixel chip is a comfortable mouse target and a poor
+    ; finger one, and WCAG 2.2 asks for 44 — and they were wrong in a way that
+    ; could only be fixed by an `if` in whatever code laid the strip out, once
+    ; per caller.
+    ;
+    ; So they come from a stylesheet instead, and a stylesheet has `@media`.
+    ; The strip is not a tree of elements and this does not make it one: it
+    ; reads a fixed handful of classes, each standing for one metric, and
+    ; anything it does not find keeps the value it already had. That is enough
+    ; for the responsive part — the metrics ARE the layout — without a toolbar
+    ; that has to grow a box model.
+    ;
+    ;   .toolbar        { height: 34px; padding: 5px }   row height, edge pad
+    ;   .toolbar-tabs   { height: 28px }
+    ;   .toolbar-button { width: 30px; height: 54px }    chip width, large row
+    ;
+    ; The sheet's viewport must already be set; this asks it nothing about the
+    ; window, because a toolbar has no window either.
+    fn applyStyle:void (sheet:EVGStyleSheet) {
+        def strip (EVGElement.createDiv())
+        strip.className = "toolbar"
+        sheet.applyTree(strip "")
+        if (strip.height.isPixels()) {
+            def h:int (to_int strip.height.pixels)
+            if (h > 0) {
+                rowH = h
+            }
+        }
+        if (strip.box.paddingLeft.isPixels()) {
+            def p:int (to_int strip.box.paddingLeft.pixels)
+            if (p >= 0) {
+                pad = p
+            }
+        }
+        def tabsEl (EVGElement.createDiv())
+        tabsEl.className = "toolbar-tabs"
+        sheet.applyTree(tabsEl "")
+        if (tabsEl.height.isPixels()) {
+            def th:int (to_int tabsEl.height.pixels)
+            if (th > 0) {
+                tabH = th
+            }
+        }
+        def btn (EVGElement.createDiv())
+        btn.className = "toolbar-button"
+        sheet.applyTree(btn "")
+        if (btn.width.isPixels()) {
+            def bw:int (to_int btn.width.pixels)
+            if (bw > 0) {
+                iconW = bw
+            }
+        }
+        if (btn.height.isPixels()) {
+            def bh:int (to_int btn.height.pixels)
+            if (bh > 0) {
+                largeH = bh
+            }
+        }
+        ; A row can never be shorter than the chips standing in it.
+        if (largeH < rowH) {
+            largeH = rowH
+        }
+        if ((array_length items) > 0) {
+            this.layout(lastX 0 lastW)
+        }
+    }
+
     ; Lay the strip out right to left.
     ;
     ; This is the same switch `direction: rtl` is in EVGLayout, for the part
@@ -545,6 +616,48 @@ class EVGToolbar {
     ; Show a page. Out-of-range is ignored rather than clamped: a caller
     ; asking for a tab that is not there has a bug, and moving them to a
     ; neighbouring page hides it.
+    ; Which page a command's button sits on, or -1 when nothing on the strip
+    ; runs it.
+    fn tabOwning:int (command:string) {
+        def at:int (this.indexOfCommand(command))
+        if (at < 0) {
+            return -1
+        }
+        def i:int 0
+        def n:int (array_length tabs)
+        while (i < n) {
+            def t:ToolTab (itemAt tabs i)
+            if (at >= t.first) {
+                if (at < (t.first + t.count)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn indexOfCommand:int (command:string) {
+        def i:int 0
+        def n:int (array_length items)
+        while (i < n) {
+            def t:ToolItem (itemAt items i)
+            if (t.command == command) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Bring the page a command lives on to the front. A command run from a
+    ; link, a keyboard shortcut or a script leaves the strip showing the
+    ; button that would have run it — otherwise the window changes and the
+    ; toolbar goes on describing something else.
+    fn showTabFor:boolean (command:string) {
+        return (this.selectTab((this.tabOwning(command))))
+    }
+
     fn selectTab:boolean (i:int) {
         if (i < 0) {
             return false

@@ -3040,10 +3040,10 @@ class RangerFlowTest {
         def pk:[string] (customers.primaryKeyColumns())
         c.eqInt("single primary key" (array_length pk) 1)
         def emailIdx:int (customers.columnIndex("email"))
-        def email:DBColumn (itemAt customers.columns emailIdx)
+        def email:SchemaColumn (itemAt customers.columns emailIdx)
         c.ok("UNIQUE(email) recognised" email.isUnique)
         def countryIdx:int (customers.columnIndex("country_id"))
-        def country:DBColumn (itemAt customers.columns countryIdx)
+        def country:SchemaColumn (itemAt customers.columns countryIdx)
         c.ok("inline REFERENCES makes a foreign key" country.isForeignKey)
         c.ok("nullable foreign key" country.nullable)
 
@@ -3066,7 +3066,7 @@ class RangerFlowTest {
 
         ; types survive their parentheses
         def nameIdx:int (customers.columnIndex("name"))
-        def nameCol:DBColumn (itemAt customers.columns nameIdx)
+        def nameCol:SchemaColumn (itemAt customers.columns nameIdx)
         c.eqStr("type with length" nameCol.dataType "VARCHAR(120)")
 
         ; indexes, including the one declared separately
@@ -3078,7 +3078,7 @@ class RangerFlowTest {
         ; cardinality inference: unique FK column → one-to-one
         def payments:DBTable (schema.tableByName("payments"))
         def orderIdx:int (payments.columnIndex("order_id"))
-        def orderCol:DBColumn (itemAt payments.columns orderIdx)
+        def orderCol:SchemaColumn (itemAt payments.columns orderIdx)
         c.ok("unique foreign key column" orderCol.isUnique)
         def oneToOne:boolean false
         def manyToOne:boolean false

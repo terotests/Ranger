@@ -47,6 +47,28 @@ class PptxWeb {
         app.loadPresets(text)
     }
 
+    ; The window changed shape. A browser is the only host here whose surface
+    ; can change under it — a phone rotates, a desktop window is dragged — and
+    ; the chrome's breakpoints are re-evaluated from this.
+    fn resize:void (w:int h:int) {
+        app.resize(w h)
+        app.render()
+    }
+
+    ; Whether a finger is what is pointing at this page. Nothing in the
+    ; window's size says so: a laptop with a touchscreen is wide and coarse at
+    ; the same time, and a phone in landscape is neither narrow nor a mouse.
+    fn setCoarsePointer:void (coarse:boolean) {
+        app.setCoarsePointer(coarse)
+        app.render()
+    }
+
+    ; The chrome's breakpoints, for a host that wants its own.
+    fn setChromeCss:void (css:string) {
+        app.setChromeCss(css)
+        app.render()
+    }
+
     fn addFont:boolean (family:string data:buffer) {
         return (app.addFontBytes(family data))
     }
@@ -286,6 +308,14 @@ class PptxWeb {
 
     fn scene:string () {
         return (app.sceneJson())
+    }
+
+    ; ONE slide, alone, at a width the caller chooses: no chrome, no panel, no
+    ; selection handles. The frame `scene` returns is the editor; this is the
+    ; deck. A page that wants to print, or to export a picture, needs the
+    ; second one and had no way to ask for it.
+    fn slideScene:string (i:int widthPx:int) {
+        return (app.slideSceneJson(i widthPx))
     }
 
     fn imageParts:string () {

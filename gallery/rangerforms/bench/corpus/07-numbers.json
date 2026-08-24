@@ -1,0 +1,72 @@
+{
+  "name": "numbers",
+  "note": "the arithmetic and the aggregate functions",
+  "survey": {
+    "elements": [
+      {
+        "type": "text",
+        "name": "x",
+        "inputType": "number"
+      },
+      {
+        "type": "text",
+        "name": "y",
+        "inputType": "number"
+      },
+      {
+        "type": "text",
+        "name": "z",
+        "inputType": "number"
+      },
+      {
+        "type": "expression",
+        "name": "total",
+        "expression": "sum({x}, {y}, {z})"
+      },
+      {
+        "type": "expression",
+        "name": "biggest",
+        "expression": "max({x}, {y}, {z})"
+      },
+      {
+        "type": "expression",
+        "name": "smallest",
+        "expression": "min({x}, {y}, {z})"
+      },
+      {
+        "type": "expression",
+        "name": "mean",
+        "expression": "avg({x}, {y}, {z})"
+      },
+      {
+        "type": "expression",
+        "name": "rounded",
+        "expression": "round({x} / 3)"
+      }
+    ]
+  },
+  "script": [
+    {
+      "x": 10
+    },
+    {
+      "y": 4
+    },
+    {
+      "z": 7
+    },
+    {
+      "x": 1
+    }
+  ],
+  "knownDifferences": [
+    {
+      "question": "mean",
+      "reason": "empty is not zero"
+    },
+    {
+      "question": "rounded",
+      "reason": "empty is not zero"
+    }
+  ]
+}

@@ -1,0 +1,170 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; SchemaDiagram.rgr — an introspected schema, laid out and ready to draw.
+; ============================================================================
+;
+; There is deliberately almost nothing here. The pipeline it drives already
+; existed and is already tested:
+;
+;   DatabaseSchema → SchemaToGraph → LayeredLayout → EdgeLanes / OrthoRouter
+;                  → FlowView → (WebGL | SVG | PDF | HTML | SDL)
+;
+; What the viewer adds is the SUBJECT AREA. A nine-table fixture is a diagram;
+; a real database is four hundred tables and drawing all of them produces a
+; wall, not a picture. So a diagram is built from a named subset, and the
+; default subset — everything — is just the case where nobody has chosen yet.
+; ============================================================================
+
+Import "../../rangerdb/src/schema/Introspect.rgr"
+Import "../../rangerflow/domains/erd/SchemaToGraph.rgr"
+Import "../../rangerflow/layout/LayeredLayout.rgr"
+Import "../../rangerflow/layout/EdgeLanes.rgr"
+Import "../../rangerflow/layout/OrthoRouter.rgr"
+Import "../../rangerflow/core/FlowView.rgr"
+
+class SchemaDiagram {
+    def direction:string "LR"
+    def layerGap:double 150.0
+    def nodeGap:double 40.0
+    def notation:string "crowfoot"
+    ; Set after build(): what the layout and router actually did, so a caller
+    ; can report it rather than guess.
+    def nodeCount:int 0
+    def edgeCount:int 0
+    def layerCount:int 0
+    def repaired:int 0
+
+    Constructor () {
+    }
+
+    fn buildView:FlowView (schema:DatabaseSchema) {
+        def g:FlowGraph (this.buildGraph(schema))
+        def v:FlowView (FlowView.of(g))
+        v.notation = notation
+        return v
+    }
+
+    fn buildGraph:FlowGraph (schema:DatabaseSchema) {
+        def s2g:SchemaToGraph (new SchemaToGraph)
+        def g:FlowGraph (s2g.build(schema))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = direction
+        lay.layerGap = layerGap
+        lay.nodeGap = nodeGap
+        lay.run()
+        SchemaToGraph.faceEdges(g)
+        ; The same routing the demo does, minus the measurement commentary:
+        ; lanes, then the long-edge chains the layout held space for, then a
+        ; second lane pass that can see those chains, then the grid repair.
+        EdgeLanes.assign(g)
+        lay.routeLongEdges()
+        EdgeLanes.assign(g)
+        repaired = (OrthoRouter.repairAll(g))
+        nodeCount = (g.nodeCount())
+        edgeCount = (g.edgeCount())
+        layerCount = (lay.layerCount())
+        return g
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Subject areas — a database too large to draw at once.
+    ; ------------------------------------------------------------------------
+
+    ; Everything reachable from `root` by at most `depth` foreign keys, in
+    ; either direction. A key points one way but a reader follows it both, so
+    ; treating the graph as directed here would hide the parent of the table
+    ; you asked about.
+    sfn neighbourhood:DatabaseSchema (schema:DatabaseSchema root:string depth:int) {
+        def keep:[string:int]
+        set keep root 0
+        def frontier:[string]
+        push frontier root
+        def step:int 0
+        while (step < depth) {
+            def next:[string]
+            def i:int 0
+            def nf:int (array_length frontier)
+            while (i < nf) {
+                def here:string (itemAt frontier i)
+                def k:int 0
+                def nk:int (array_length schema.foreignKeys)
+                while (k < nk) {
+                    def fk:DBForeignKey (itemAt schema.foreignKeys k)
+                    if (fk.fromTable == here) {
+                        if ((has keep fk.toTable) == false) {
+                            set keep fk.toTable 0
+                            push next fk.toTable
+                        }
+                    }
+                    if (fk.toTable == here) {
+                        if ((has keep fk.fromTable) == false) {
+                            set keep fk.fromTable 0
+                            push next fk.fromTable
+                        }
+                    }
+                    k = (k + 1)
+                }
+                i = (i + 1)
+            }
+            clear frontier
+            def m:int 0
+            def nn:int (array_length next)
+            while (m < nn) {
+                push frontier (itemAt next m)
+                m = (m + 1)
+            }
+            step = (step + 1)
+        }
+        return (SchemaDiagram.subsetOf(schema keep))
+    }
+
+    ; The named tables and every foreign key with BOTH ends inside the subset.
+    ; A key with one end outside would draw an edge to a table that is not on
+    ; the page.
+    sfn subsetOf:DatabaseSchema (schema:DatabaseSchema keep:[string:int]) {
+        def out:DatabaseSchema (new DatabaseSchema)
+        out.name = schema.name
+        out.engine = schema.engine
+        def i:int 0
+        def n:int (array_length schema.tables)
+        while (i < n) {
+            def t:DBTable (itemAt schema.tables i)
+            if (has keep t.name) {
+                out.addTable(t)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        def nk:int (array_length schema.foreignKeys)
+        while (k < nk) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys k)
+            def haveFrom:boolean (has keep fk.fromTable)
+            def haveTo:boolean (has keep fk.toTable)
+            if haveFrom {
+                if haveTo {
+                    out.addForeignKey(fk)
+                }
+            }
+            k = (k + 1)
+        }
+        out.resolve()
+        return out
+    }
+
+    ; Tables only, no views — the usual first thing a reader wants from a
+    ; database whose reporting views outnumber its tables.
+    sfn tablesOnly:DatabaseSchema (schema:DatabaseSchema) {
+        def keep:[string:int]
+        def i:int 0
+        def n:int (array_length schema.tables)
+        while (i < n) {
+            def t:DBTable (itemAt schema.tables i)
+            if (t.kind == "table") {
+                set keep t.name 0
+            }
+            i = (i + 1)
+        }
+        return (SchemaDiagram.subsetOf(schema keep))
+    }
+}

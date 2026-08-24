@@ -1,0 +1,394 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DependencyGraph.rgr — what depends on what, and in which order to work it out.
+; ============================================================================
+;
+; A node is a (question, role) pair, because `guardian.visible` and
+; `guardian.required` can depend on different things and are worked out
+; separately. An edge is a name an expression READS:
+;
+;     height ─┐
+;             ├──► bmi.calculated ──► bmi
+;     weight ─┘
+;     age ────────► guardian.visible
+;        └────────► guardian.required
+;
+; A calculated rule also produces a VALUE, so anything reading `bmi` depends
+; on `bmi.calculated` — which is what makes a chain of calculations settle in
+; one pass instead of needing to be run until it stops changing.
+;
+; ---------------------------------------------------------------------------
+; A cycle is refused, not broken
+; ---------------------------------------------------------------------------
+;
+; Every engine that "handles" a cycle picks an arbitrary evaluation order, and
+; then behaves differently from the next engine. On a project whose whole
+; point is that the same source runs identically on six targets, an arbitrary
+; order is the one thing we cannot ship: a conformance suite would catch the
+; divergence and nobody could fix it, because there is no right answer to
+; diverge from.
+;
+; So a cyclic questionnaire does not load, and the error names the cycle.
+; ============================================================================
+
+Import "../model/Questionnaire.rgr"
+
+class GraphNode {
+    def question:string ""
+    def role:string ""
+    ; Node indexes this one reads from.
+    def reads:[int]
+    ; Node indexes that read from this one — the direction `invalidate` walks.
+    def feeds:[int]
+    ; Position in the evaluation order; -1 until `order` has been computed.
+    def rank:int -1
+
+    Constructor () {
+    }
+
+    fn key:string () {
+        return (question + "." + role)
+    }
+}
+
+class DependencyGraph {
+    def nodes:[GraphNode]
+    def byKey:[string:int]
+    ; question name → the node index that computes its VALUE, or absent when
+    ; a person answers it.
+    def producers:[string:int]
+    ; The evaluation order: node indexes, dependencies first.
+    def order:[int]
+    def ok:boolean false
+    def errorText:string ""
+    ; The cycle, named, when there is one.
+    def cycle:[string]
+
+    Constructor () {
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Building
+    ; ------------------------------------------------------------------------
+    sfn of:DependencyGraph (form:Questionnaire) {
+        def g:DependencyGraph (new DependencyGraph)
+        g.build(form)
+        return g
+    }
+
+    fn build:boolean (form:Questionnaire) {
+        clear nodes
+        clear order
+        clear cycle
+        errorText = ""
+        ok = false
+
+        ; Pass one: a node per rule.
+        def i:int 0
+        def n:int (array_length form.questions)
+        while (i < n) {
+            def q:Question (itemAt form.questions i)
+            def k:int 0
+            def nk:int (array_length q.rules)
+            while (k < nk) {
+                def r:Rule (itemAt q.rules k)
+                def at:int (this.addNode(q.name r.role))
+                if (r.role == "calculated") {
+                    def qname:string q.name
+                    set producers qname at
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+
+        ; Pass two: the edges. A rule that reads a question depends on
+        ; whatever computes that question — and on nothing at all when a
+        ; person answers it, because a person's answer is an input.
+        def j:int 0
+        def nj:int (array_length form.questions)
+        while (j < nj) {
+            def q2:Question (itemAt form.questions j)
+            def k2:int 0
+            def nk2:int (array_length q2.rules)
+            while (k2 < nk2) {
+                def r2:Rule (itemAt q2.rules k2)
+                def me:int (this.indexOf(q2.name r2.role))
+                def m:int 0
+                def nm:int (array_length r2.program.names)
+                while (m < nm) {
+                    def read:string (itemAt r2.program.names m)
+                    def src@(optional):int (get producers read)
+                    if (!null? src) {
+                        this.link((unwrap src) me)
+                    }
+                    ; …and on whether that question is SHOWING, because a
+                    ; hidden question's value is withheld from everything that
+                    ; reads it (see `AnswerState.valueOf`). Without this edge a
+                    ; question could go on being counted in a total after the
+                    ; branch that asked it was hidden.
+                    def visAt:int (this.indexOf(read "visible"))
+                    if (visAt >= 0) {
+                        this.link(visAt me)
+                    }
+                    m = (m + 1)
+                }
+                k2 = (k2 + 1)
+            }
+            j = (j + 1)
+        }
+
+        return (this.sort())
+    }
+
+    fn addNode:int (question:string role:string) {
+        def key:string (question + "." + role)
+        def found@(optional):int (get byKey key)
+        if (!null? found) {
+            return (unwrap found)
+        }
+        def node:GraphNode (new GraphNode)
+        node.question = question
+        node.role = role
+        def at:int (array_length nodes)
+        push nodes node
+        set byKey key at
+        return at
+    }
+
+    fn indexOf:int (question:string role:string) {
+        def key:string (question + "." + role)
+        def found@(optional):int (get byKey key)
+        if (null? found) {
+            return -1
+        }
+        return (unwrap found)
+    }
+
+    fn nodeAt:GraphNode (index:int) {
+        if (index < 0) {
+            return (new GraphNode)
+        }
+        if (index >= (array_length nodes)) {
+            return (new GraphNode)
+        }
+        return (itemAt nodes index)
+    }
+
+    ; `from` must be evaluated before `to`.
+    fn link:void (from:int to:int) {
+        if (from < 0) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (from == to) {
+            ; A rule that reads the question it computes. Recorded as an edge
+            ; so the sort reports it as the one-node cycle it is, rather than
+            ; being quietly dropped here and evaluated in some order.
+        }
+        def a:GraphNode (this.nodeAt(to))
+        def b:GraphNode (this.nodeAt(from))
+        if ((DependencyGraph.intHas(a.reads from)) == false) {
+            push a.reads from
+        }
+        if ((DependencyGraph.intHas(b.feeds to)) == false) {
+            push b.feeds to
+        }
+    }
+
+    sfn intHas:boolean (list:[int] want:int) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Ordering
+    ; ------------------------------------------------------------------------
+    ;
+    ; Kahn's algorithm, taking ready nodes in the order they were DECLARED.
+    ; That last part is not an implementation detail: two targets that
+    ; disagree about the order of a hash map's keys would produce two
+    ; different evaluation orders, and the conformance suite would report a
+    ; difference that is really about the runtime. Declaration order is the
+    ; one thing every target agrees on.
+    fn sort:boolean () {
+        clear order
+        def n:int (array_length nodes)
+        def remaining:[int]
+        def i:int 0
+        while (i < n) {
+            def node:GraphNode (itemAt nodes i)
+            push remaining (array_length node.reads)
+            i = (i + 1)
+        }
+        def done:[boolean]
+        def d:int 0
+        while (d < n) {
+            push done false
+            d = (d + 1)
+        }
+        def placed:int 0
+        def progress:boolean true
+        while progress {
+            progress = false
+            def k:int 0
+            while (k < n) {
+                if ((itemAt done k) == false) {
+                    if ((itemAt remaining k) == 0) {
+                        set_at done k true
+                        def node2:GraphNode (itemAt nodes k)
+                        node2.rank = placed
+                        push order k
+                        placed = (placed + 1)
+                        progress = true
+                        def f:int 0
+                        def nf:int (array_length node2.feeds)
+                        while (f < nf) {
+                            def to:int (itemAt node2.feeds f)
+                            set_at remaining to ((itemAt remaining to) - 1)
+                            f = (f + 1)
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+        }
+        if (placed == n) {
+            ok = true
+            return true
+        }
+        this.nameCycle(done)
+        ok = false
+        errorText = ("the form has a cycle: " + (DependencyGraph.joinNames(cycle)))
+        return false
+    }
+
+    ; The nodes that never became ready are exactly the ones in cycles, or fed
+    ; by one. Reported in declaration order so the message is stable, and as
+    ; the rule keys a person can search the form for.
+    fn nameCycle:void (done:[boolean]) {
+        clear cycle
+        def i:int 0
+        def n:int (array_length nodes)
+        while (i < n) {
+            if ((itemAt done i) == false) {
+                def node:GraphNode (itemAt nodes i)
+                push cycle (node.key())
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn joinNames:string (names:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length names)
+        while (i < n) {
+            if (i > 0) {
+                out = (out + " → ")
+            }
+            out = (out + (itemAt names i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; What one changed answer touches
+    ; ------------------------------------------------------------------------
+    ;
+    ; The transitive closure of `feeds`, from every node that reads the changed
+    ; question. This is the measurement Q3 in the plan is about: it must be
+    ; proportional to what actually depends on the answer, and not to the size
+    ; of the form.
+    fn dependentsOf:[int] (form:Questionnaire changed:string) {
+        def hit:[boolean]
+        def i:int 0
+        def n:int (array_length nodes)
+        while (i < n) {
+            push hit false
+            i = (i + 1)
+        }
+        ; The seeds: every rule that reads the changed name.
+        def stack:[int]
+        def j:int 0
+        def nj:int (array_length form.questions)
+        while (j < nj) {
+            def q:Question (itemAt form.questions j)
+            def k:int 0
+            def nk:int (array_length q.rules)
+            while (k < nk) {
+                def r:Rule (itemAt q.rules k)
+                if (r.program.reads(changed)) {
+                    def at:int (this.indexOf(q.name r.role))
+                    if (at >= 0) {
+                        if ((itemAt hit at) == false) {
+                            set_at hit at true
+                            push stack at
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            j = (j + 1)
+        }
+        ; …and everything downstream of them.
+        def top:int 0
+        while (top < (array_length stack)) {
+            def cur:int (itemAt stack top)
+            def node:GraphNode (this.nodeAt(cur))
+            def f:int 0
+            def nf:int (array_length node.feeds)
+            while (f < nf) {
+                def to:int (itemAt node.feeds f)
+                if ((itemAt hit to) == false) {
+                    set_at hit to true
+                    push stack to
+                }
+                f = (f + 1)
+            }
+            top = (top + 1)
+        }
+        ; Returned in evaluation order, so a caller can simply run them.
+        def out:[int]
+        def o:int 0
+        def no:int (array_length order)
+        while (o < no) {
+            def idx:int (itemAt order o)
+            if (itemAt hit idx) {
+                push out idx
+            }
+            o = (o + 1)
+        }
+        return out
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn describe:string () {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length order)
+        while (i < n) {
+            def node:GraphNode (this.nodeAt((itemAt order i)))
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (node.key()))
+            i = (i + 1)
+        }
+        return out
+    }
+}

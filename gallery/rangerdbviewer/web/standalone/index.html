@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RangerDBViewer — a database workbench with no server</title>
+    <style>
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; min-height: 100%;
+        background: linear-gradient(180deg, #eef1f6 0%, #dde3ec 100%);
+        color: #1a1f2b;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      body { display: grid; place-items: start center; padding: 24px; }
+      .stage { width: min(1280px, 100%); }
+      h1 { margin: 0 0 6px; font-size: 1.3rem; font-weight: 650; }
+      p.hint { margin: 0 0 14px; color: #5c6b80; font-size: 0.9rem; max-width: 80ch; line-height: 1.5; }
+      p.hint code { background: #dfe5ee; padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+      .frame {
+        background: #c9ced8; border: 1px solid #b3bac6; padding: 12px;
+        box-shadow: 0 16px 40px rgba(30,50,80,0.16); overflow: auto;
+      }
+      canvas { display: block; margin: 0 auto; background: #fff; outline: none; box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+      .bar { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; color: #5c6b80; font-size: 0.82rem; align-items: center; }
+      .bar strong { color: #2864d2; font-weight: 600; }
+      button { font: inherit; font-size: 0.82rem; padding: 3px 10px; background: #f4f6fa; color: #1a1f2b; border: 1px solid #b3bac6; cursor: pointer; }
+      button:hover { background: #e6ebf3; }
+      .note { margin-top: 8px; color: #7a4a1f; font-size: 0.82rem; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>RangerDBViewer · the database is in this tab</h1>
+      <p class="hint">
+        No server, and no database server either. <b>RangerDB</b> is written in
+        Ranger, so it compiles to JavaScript along with the viewer above it and
+        this page really holds a database rather than a picture of one:
+        the tables are created, rows are inserted, the schema is
+        <i>introspected</i>, and the result is drawn
+        <code>DatabaseSchema → RangerFlow → EVGDisplayList → WebGL 2</code>.
+        The strip is the shared EVG toolbar the document, deck and spreadsheet
+        editors use.
+        <br /><br />
+        RangerDB has no DDL yet, so it cannot describe a foreign key — and it
+        <i>says so</i> in the status line rather than implying the database has
+        none. Press <b>the SQL button</b> on the Schema page to read the same
+        schema from <code>CREATE TABLE</code> text instead: every relationship
+        appears, and there are no rows to browse. Both are real; neither
+        pretends to be the other.
+      </p>
+      <div class="frame">
+        <canvas id="screen" tabindex="0" width="1200" height="760"></canvas>
+      </div>
+      <div class="bar">
+        <button type="button" id="live">Live RangerDB</button>
+        <button type="button" id="fromSql">Schema from SQL</button>
+        <button type="button" id="diagram">Diagram</button>
+        <button type="button" id="cols">Columns</button>
+        <button type="button" id="rows">Rows</button>
+        <button type="button" id="svg">Download SVG</button>
+        <button type="button" id="ddl">Download SQL</button>
+        <span>engine: <strong id="engine">—</strong></span>
+        <span>section: <strong id="section">—</strong></span>
+        <span>cmds: <strong id="cmds">—</strong></span>
+        <span>backend: <strong id="backend">—</strong></span>
+        <span>build: <strong id="build">__BUILD__</strong></span>
+      </div>
+      <div class="note" id="status">starting…</div>
+    </div>
+    <script>
+      // If the compiled bundle 404s, the module below still runs and the only
+      // symptom is a bare "RangerDbViewerWeb is not defined". This records the
+      // failure so the page can explain what was skipped.
+      window.__engineMissing = null;
+    </script>
+    <script src="./rangerdbviewer_web.js" onerror="window.__engineMissing='rangerdbviewer_web.js'"></script>
+    <script type="module" src="./standalone.mjs"></script>
+  </body>
+</html>

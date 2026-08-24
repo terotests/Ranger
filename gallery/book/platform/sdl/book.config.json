@@ -1,0 +1,54 @@
+{
+  "_": "The desktop host's settings. Every field has a default, so any of these can be deleted; what is left still means 'like the default, but this'. The host prints what it actually decided at startup.",
+
+  "window": {
+    "width": 1400,
+    "height": 900,
+    "title": "Ranger Book Editor"
+  },
+
+  "_open": "sample | album | photos",
+  "open": "sample",
+
+  "_assets": "Where the photographs are NOW. For open=photos this re-roots the index's paths by file name; leave it empty to keep the index's own paths, which is what an index of absolute paths wants.",
+  "assets": "gallery/pdf_writer/assets/images",
+
+  "_album": "open = album: an iPhoto or Aperture library index. An empty name takes the first album somebody named.",
+  "album": {
+    "file": "gallery/book/fixtures/AlbumData.xml",
+    "name": ""
+  },
+
+  "_photos": "open = photos: a photo index, and the question to ask it. Empty fields are no bound; 'place' names a place the index itself defines, 'near' is a lat,lon of your own.",
+  "photos": {
+    "index": "gallery/book/fixtures/photo-index.json",
+    "from": "",
+    "to": "",
+    "place": "cottage",
+    "near": "",
+    "radiusKm": 0,
+    "text": "",
+    "title": ""
+  },
+
+  "format": "square-210",
+  "editing": false,
+  "_spread": "Which spread to open on, counted from 1.",
+  "spread": 1,
+  "output": "gallery/book/output/sdl",
+
+  "_fonts": "The layout measures with these and the painter draws with them. Listing 'faces' replaces the default list rather than adding to it.",
+  "fonts": {
+    "dir": "gallery/pdf_writer/assets/fonts",
+    "faces": [
+      "Open_Sans/OpenSans-Regular.ttf",
+      "Open_Sans/OpenSans-Bold.ttf",
+      "Open_Sans/OpenSans-Italic.ttf",
+      "Cinzel/Cinzel-Regular.ttf",
+      "Cinzel/Cinzel-Bold.ttf",
+      "Josefin_Sans/JosefinSans-Regular.ttf",
+      "Josefin_Sans/JosefinSans-Bold.ttf"
+    ],
+    "families": ["Cinzel", "Josefin Sans"]
+  }
+}

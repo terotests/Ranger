@@ -1,0 +1,312 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; LiveMetrics.rgr — the numbers only a running database has.
+; ============================================================================
+;
+; `SchemaAudit` reasons from the shape. This reads rows, so it can answer the
+; questions the shape cannot:
+;
+;   rowCounts()      how big each table actually is
+;   profile()        nulls, distinct values, min and max, per column
+;   orphanCheck()    rows whose foreign key points at nothing
+;   lowSelectivity() a single-column index over a column with two values
+;
+; ---------------------------------------------------------------------------
+; It costs something, and it says so before spending it
+; ---------------------------------------------------------------------------
+;
+; A distinct count is a scan. An orphan check is a join. On a table with two
+; hundred million rows those are minutes, and a tool that quietly spends them
+; because a panel came into view is a tool people learn to keep closed.
+;
+; So nothing here runs on its own. Every method is called deliberately, takes
+; the tables it is allowed to touch, and `estimateCost` answers "what will
+; this cost" before anything is asked to pay it.
+;
+; ---------------------------------------------------------------------------
+; Unused, versus no evidence
+; ---------------------------------------------------------------------------
+;
+; `unusedIndexes` takes a WORKLOAD — the set of index names something observed
+; being used. With no workload there is no finding, because "I did not see it
+; used" is not "it is unused", and the difference is an index dropped that a
+; month-end report needs.
+; ============================================================================
+
+Import "Findings.rgr"
+Import "../../rangerdb/src/schema/Introspect.rgr"
+Import "../../rangerdb/src/schema/SchemaToDdl.rgr"
+
+class ColumnStat {
+    def table:string ""
+    def column:string ""
+    def rows:int 0
+    def nulls:int 0
+    def distinct:int 0
+    def minText:string ""
+    def maxText:string ""
+
+    Constructor () {
+    }
+
+    fn nullFraction:double () {
+        if (rows == 0) {
+            return 0.0
+        }
+        return ((to_double nulls) / (to_double rows))
+    }
+
+    ; Distinct values per row, in [0, 1]. A column every row shares is 0; a
+    ; key is 1. An index over a column near zero rarely earns its keep.
+    fn selectivity:double () {
+        if (rows == 0) {
+            return 1.0
+        }
+        return ((to_double distinct) / (to_double rows))
+    }
+}
+
+class LiveMetrics {
+    def session:DBSession (new DBSession)
+    def out:FindingList (new FindingList)
+    def writer:SchemaToDdl (SchemaToDdl.forDialect(""))
+    ; Columns below this many distinct values per row are worth mentioning
+    ; when somebody has indexed them on their own.
+    def selectivityFloor:double 0.02
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    sfn over:LiveMetrics (s:DBSession) {
+        def m:LiveMetrics (new LiveMetrics)
+        m.session = s
+        return m
+    }
+
+    fn quoted:string (name:string) {
+        return (writer.quote(name))
+    }
+
+    fn scalarInt:int (sql:string) {
+        def chunk:DataChunk (session.execSql(sql))
+        def err:string (session.lastError())
+        if ((strlen err) > 0) {
+            errorText = err
+            return -1
+        }
+        if (chunk.rowCount == 0) {
+            return -1
+        }
+        def d:double (chunk.doubleAt(0 0))
+        return (to_int d)
+    }
+
+    fn scalarText:string (sql:string) {
+        def chunk:DataChunk (session.execSql(sql))
+        if (chunk.rowCount == 0) {
+            return ""
+        }
+        return (chunk.stringAt(0 0))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Sizes
+    ; ------------------------------------------------------------------------
+    fn rowCount:int (table:string) {
+        return (this.scalarInt(("SELECT COUNT(*) FROM " + (this.quoted(table)))))
+    }
+
+    ; What asking for a full profile of these tables will read. Rows, not
+    ; seconds — how long a row takes is the machine's business, and how many
+    ; there are is the part worth showing before somebody presses the button.
+    fn estimateCost:int (schema:DatabaseSchema tables:[string]) {
+        def total:int 0
+        def i:int 0
+        def n:int (array_length tables)
+        while (i < n) {
+            def name:string (itemAt tables i)
+            def at:int (schema.indexOfTable(name))
+            if (at >= 0) {
+                def t:DBTable (itemAt schema.tables at)
+                def rows:int t.rowEstimate
+                if (rows < 0) {
+                    rows = (this.rowCount(name))
+                }
+                if (rows > 0) {
+                    def cols:int (array_length t.columns)
+                    total = (total + (rows * cols))
+                }
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Column profiles
+    ; ------------------------------------------------------------------------
+    fn profileColumn:ColumnStat (t:DBTable c:SchemaColumn) {
+        def stat:ColumnStat (new ColumnStat)
+        stat.table = t.name
+        stat.column = c.name
+        def q:string (this.quoted(t.name))
+        def col:string (this.quoted(c.name))
+        stat.rows = (this.scalarInt(("SELECT COUNT(*) FROM " + q)))
+        if (stat.rows <= 0) {
+            return stat
+        }
+        stat.nulls = (this.scalarInt(("SELECT COUNT(*) FROM " + q + " WHERE " + col + " IS NULL")))
+        stat.distinct = (this.scalarInt(("SELECT COUNT(*) FROM (SELECT DISTINCT " + col + " FROM " + q + ")")))
+        stat.minText = (this.scalarText(("SELECT MIN(" + col + ") FROM " + q)))
+        stat.maxText = (this.scalarText(("SELECT MAX(" + col + ") FROM " + q)))
+        return stat
+    }
+
+    fn profileTable:[ColumnStat] (t:DBTable) {
+        def stats:[ColumnStat]
+        def i:int 0
+        def n:int (array_length t.columns)
+        while (i < n) {
+            def c:SchemaColumn (itemAt t.columns i)
+            push stats (this.profileColumn(t c))
+            i = (i + 1)
+        }
+        return stats
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Rules that need rows
+    ; ------------------------------------------------------------------------
+
+    ; A single-column index over a column with almost no distinct values. Only
+    ; hand-written indexes: the one behind a UNIQUE constraint is there to
+    ; enforce something, not to be fast.
+    fn lowSelectivity:void (t:DBTable) {
+        def i:int 0
+        def n:int (array_length t.indexes)
+        while (i < n) {
+            def idx:DBIndex (itemAt t.indexes i)
+            def single:boolean ((array_length idx.columns) == 1)
+            if (idx.origin == "index") {
+                if single {
+                    if ((idx.unique) == false) {
+                        def cname:string (itemAt idx.columns 0)
+                        def ci:int (t.columnIndex(cname))
+                        if (ci >= 0) {
+                            def c:SchemaColumn (itemAt t.columns ci)
+                            def stat:ColumnStat (this.profileColumn(t c))
+                            if (stat.rows > 0) {
+                                def sel:double (stat.selectivity())
+                                if (sel < selectivityFloor) {
+                                    def f:Finding (Finding.of("index.lowselectivity" (Severity.info()) t.name ("the index " + idx.name + " covers " + cname + ", which has " + (to_string stat.distinct) + " distinct values across " + (to_string stat.rows) + " rows — a scan is often cheaper than an index that selects most of the table")))
+                                    f.object = idx.name
+                                    f.observed = true
+                                    f.fix = ("DROP INDEX " + (this.quoted(idx.name)))
+                                    out.add(f)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Rows whose foreign key points at a parent that is not there. A database
+    ; with keys enforced cannot have these; plenty of databases do not enforce
+    ; them, and this is how that shows up.
+    fn orphanCheck:void (schema:DatabaseSchema fk:DBForeignKey) {
+        if ((array_length fk.fromColumns) != 1) {
+            return
+        }
+        if ((array_length fk.toColumns) != 1) {
+            return
+        }
+        def child:string (this.quoted(fk.fromTable))
+        def parent:string (this.quoted(fk.toTable))
+        def childCol:string (this.quoted((itemAt fk.fromColumns 0)))
+        def parentCol:string (this.quoted((itemAt fk.toColumns 0)))
+        def sql:string ("SELECT COUNT(*) FROM " + child + " c WHERE c." + childCol + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM " + parent + " p WHERE p." + parentCol + " = c." + childCol + ")")
+        def n:int (this.scalarInt(sql))
+        if (n > 0) {
+            def f:Finding (Finding.of("fk.orphans" (Severity.high()) fk.fromTable ((to_string n) + " rows have a " + (itemAt fk.fromColumns 0) + " that matches no row in " + fk.toTable + " — the relationship is not being enforced")))
+            f.object = (itemAt fk.fromColumns 0)
+            f.observed = true
+            out.add(f)
+        }
+    }
+
+    ; Every orphan check in the schema. Named separately from the one above
+    ; because this is the expensive one and a caller should have to say so.
+    fn orphanCheckAll:void (schema:DatabaseSchema) {
+        def i:int 0
+        def n:int (array_length schema.foreignKeys)
+        while (i < n) {
+            this.orphanCheck(schema (itemAt schema.foreignKeys i))
+            i = (i + 1)
+        }
+    }
+
+    ; An index nothing in `usedNames` was seen using. With an EMPTY workload
+    ; this reports nothing at all — see the header. Silence here is the
+    ; correct answer to "which indexes are unused" when nobody watched.
+    fn unusedIndexes:void (schema:DatabaseSchema usedNames:[string]) {
+        if ((array_length usedNames) == 0) {
+            return
+        }
+        def i:int 0
+        def n:int (array_length schema.tables)
+        while (i < n) {
+            def t:DBTable (itemAt schema.tables i)
+            def k:int 0
+            def nk:int (array_length t.indexes)
+            while (k < nk) {
+                def idx:DBIndex (itemAt t.indexes k)
+                if (idx.origin == "index") {
+                    if ((LiveMetrics.listHas(usedNames idx.name)) == false) {
+                        def f:Finding (Finding.of("index.unused" (Severity.warn()) t.name ("nothing in the observed workload used the index " + idx.name + ", and every write to " + t.name + " pays for it")))
+                        f.object = idx.name
+                        f.observed = true
+                        f.fix = ("DROP INDEX " + (this.quoted(idx.name)))
+                        out.add(f)
+                    }
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn listHas:boolean (list:[string] want:string) {
+        def i:int 0
+        def n:int (array_length list)
+        while (i < n) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Everything that reads rows, on the tables named. The caller decides
+    ; which tables and has been shown `estimateCost` first.
+    fn runOn:FindingList (schema:DatabaseSchema tables:[string]) {
+        def i:int 0
+        def n:int (array_length tables)
+        while (i < n) {
+            def at:int (schema.indexOfTable((itemAt tables i)))
+            if (at >= 0) {
+                def t:DBTable (itemAt schema.tables at)
+                if (t.kind == "table") {
+                    this.lowSelectivity(t)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

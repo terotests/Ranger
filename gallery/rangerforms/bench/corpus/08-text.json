@@ -1,0 +1,48 @@
+{
+  "name": "text",
+  "note": "text comparison and joining",
+  "survey": {
+    "elements": [
+      {
+        "type": "text",
+        "name": "first"
+      },
+      {
+        "type": "text",
+        "name": "last"
+      },
+      {
+        "type": "expression",
+        "name": "full",
+        "expression": "{first} + ' ' + {last}"
+      },
+      {
+        "type": "text",
+        "name": "same",
+        "visibleIf": "{first} = {last}"
+      },
+      {
+        "type": "text",
+        "name": "hasA",
+        "visibleIf": "{first} contains 'a'"
+      }
+    ]
+  },
+  "script": [
+    {
+      "first": "Ada"
+    },
+    {
+      "last": "Ada"
+    },
+    {
+      "last": "Lovelace"
+    }
+  ],
+  "knownDifferences": [
+    {
+      "question": "full",
+      "reason": "empty is not zero: joining two unanswered names gives no name, where SurveyJS gives a space"
+    }
+  ]
+}

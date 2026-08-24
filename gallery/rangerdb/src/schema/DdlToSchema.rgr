@@ -1,0 +1,810 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DdlToSchema.rgr — DDL statements in, a DatabaseSchema out.
+; ============================================================================
+;
+;   CREATE TABLE …  ─┐
+;   ALTER TABLE …    ├─▶ RangerSQL ─▶ AST ─▶ [this] ─▶ DatabaseSchema
+;   DROP TABLE …    ─┘
+;
+; This is what makes a migration history readable. A Flyway tree is a list of
+; SQL files; replaying it in order through here produces the schema at every
+; version, and the schema at a version is what the timeline shows, what the
+; differ compares, and what a drift report checks the live database against.
+;
+; ---------------------------------------------------------------------------
+; Why it lives in rangerdb rather than in rangersql
+; ---------------------------------------------------------------------------
+;
+; It needs both a SQL parser and a DatabaseSchema, and `rangerdb` already
+; imports `rangersql` for its SQL front end. Putting this in `rangersql`
+; instead would make the parser depend on the database library that depends on
+; the parser. So the rule stays: rangersql knows nothing about databases,
+; rangerdb knows about both.
+;
+; ---------------------------------------------------------------------------
+; It applies, it does not merely read
+; ---------------------------------------------------------------------------
+;
+; Statements are applied in order to a schema that is being built up, because
+; that is what a migration IS. `CREATE TABLE` then `ALTER TABLE … ADD COLUMN`
+; has to produce a table with the extra column, not two unrelated facts.
+;
+; A statement it cannot apply is COUNTED and NAMED rather than skipped in
+; silence: a schema replayed from a partly-understood history is not the same
+; thing as a schema, and everything downstream needs to be able to say so.
+; ============================================================================
+
+Import "DatabaseSchema.rgr"
+Import "../../../rangersql/src/core/Sql.rgr"
+
+class DdlToSchema {
+    def schema:DatabaseSchema (new DatabaseSchema)
+    def dialect:string ""
+    ; Statements that parsed but said nothing about schema shape (an INSERT in
+    ; a migration file, say). Not a problem, but worth counting.
+    def ignored:int 0
+    def applied:int 0
+    ; Statements that could not be read at all, with the reason. This is the
+    ; number that decides whether a replayed schema can be trusted.
+    def failures:[string]
+
+    Constructor () {
+    }
+
+    sfn of:DdlToSchema (dialectName:string) {
+        def d:DdlToSchema (new DdlToSchema)
+        d.dialect = dialectName
+        return d
+    }
+
+    fn failed:int () {
+        return (array_length failures)
+    }
+
+    fn trustworthy:boolean () {
+        return ((array_length failures) == 0)
+    }
+
+    fn report:string () {
+        def out:string ((to_string applied) + " applied")
+        if (ignored > 0) {
+            out = (out + ", " + (to_string ignored) + " not about schema")
+        }
+        def bad:int (array_length failures)
+        if (bad > 0) {
+            out = (out + ", " + (to_string bad) + " NOT UNDERSTOOD")
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Entry points
+    ; ------------------------------------------------------------------------
+
+    fn applyScript:boolean (sql:string) {
+        def stmts:[string] (DdlToSchema.splitStatements(sql))
+        def i:int 0
+        def n:int (array_length stmts)
+        while (i < n) {
+            def one:string (trim (itemAt stmts i))
+            if ((strlen one) > 0) {
+                this.applyOne(one)
+            }
+            i = (i + 1)
+        }
+        schema.resolve()
+        return (this.trustworthy())
+    }
+
+    fn applyOne:boolean (stmt:string) {
+        def parsed:SqlParseResult (Sql.parseWith(stmt dialect))
+        if ((parsed.okResult()) == false) {
+            push failures (parsed.error + "  ::  " + (DdlToSchema.shorten(stmt)))
+            return false
+        }
+        return (this.applyNode(parsed.ast parsed.root stmt))
+    }
+
+    fn applyNode:boolean (ast:SqlAst root:int stmt:string) {
+        def kind:int (ast.kindOf(root))
+        if (kind == (SqlKind.createTable())) {
+            return (this.doCreateTable(ast root stmt))
+        }
+        if (kind == (SqlKind.createView())) {
+            return (this.doCreateView(ast root stmt))
+        }
+        if (kind == (SqlKind.createIndex())) {
+            return (this.doCreateIndex(ast root))
+        }
+        if (kind == (SqlKind.dropStatement())) {
+            return (this.doDrop(ast root))
+        }
+        if (kind == (SqlKind.alterTable())) {
+            return (this.doAlterTable(ast root))
+        }
+        ; A SELECT or an INSERT in a migration file is perfectly ordinary and
+        ; changes no shape.
+        ignored = (ignored + 1)
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; CREATE TABLE
+    ; ------------------------------------------------------------------------
+    fn doCreateTable:boolean (ast:SqlAst root:int stmt:string) {
+        def name:string (DdlToSchema.nameOf(ast (ast.childAt(root (SqlRole.targetClause())))))
+        if ((strlen name) == 0) {
+            push failures ("CREATE TABLE with no name  ::  " + (DdlToSchema.shorten(stmt)))
+            return false
+        }
+        ; CREATE TABLE IF NOT EXISTS on a table that is already there does
+        ; nothing, which is the whole point of the clause.
+        def existing:int (schema.indexOfTable(name))
+        if (existing >= 0) {
+            if (ast.hasFlag(root (SqlFlag.ifNotExistsFlag()))) {
+                applied = (applied + 1)
+                return true
+            }
+            schema.removeTable(name)
+        }
+        def t:DBTable (schema.table(name))
+        t.sourceSql = stmt
+        def members:[int] (ast.childrenOf(root (SqlRole.definition())))
+        def i:int 0
+        def n:int (array_length members)
+        while (i < n) {
+            def m:int (itemAt members i)
+            def mk:int (ast.kindOf(m))
+            if (mk == (SqlKind.columnDef())) {
+                this.addColumn(ast t m)
+            }
+            if (mk == (SqlKind.tableConstraint())) {
+                this.addTableConstraint(ast t m)
+            }
+            i = (i + 1)
+        }
+        ; CREATE TABLE x AS SELECT … has a shape only the query knows, so the
+        ; table exists with no columns rather than with wrong ones.
+        applied = (applied + 1)
+        return true
+    }
+
+    fn addColumn:SchemaColumn (ast:SqlAst t:DBTable defId:int) {
+        def nameId:int (ast.childAt(defId (SqlRole.thisOperand())))
+        def name:string (ast.textOf(nameId))
+        def typeId:int (ast.childAt(defId (SqlRole.typeName())))
+        def typeText:string (this.render(ast typeId))
+        def col:SchemaColumn (t.column(name typeText))
+        def cons:[int] (ast.childrenOf(defId (SqlRole.constraintClause())))
+        def i:int 0
+        def n:int (array_length cons)
+        def pk:int 0
+        while (i < n) {
+            def c:int (itemAt cons i)
+            def word:string (ast.textOf(c))
+            if (word == "NOT NULL") {
+                col.nullable = false
+            }
+            if (word == "UNIQUE") {
+                col.isUnique = true
+            }
+            if (word == "COMMENT") {
+                col.comment = (DdlToSchema.unquote((this.render(ast (ast.childAt(c (SqlRole.thisOperand())))))))
+            }
+            if (word == "DEFAULT") {
+                col.defaultValue = (this.render(ast (ast.childAt(c (SqlRole.thisOperand())))))
+            }
+            def isPk:boolean false
+            if (word == "PRIMARY KEY") {
+                isPk = true
+            }
+            if (word == "PRIMARY KEY ASC") {
+                isPk = true
+            }
+            if (word == "PRIMARY KEY DESC") {
+                isPk = true
+            }
+            if isPk {
+                pk = (pk + 1)
+                col.isPrimaryKey = true
+                col.pkPosition = pk
+                ; A key column is not nullable, whatever the engine tolerates.
+                col.nullable = false
+            }
+            if (word == "REFERENCES") {
+                this.addInlineReference(ast t name c)
+            }
+            i = (i + 1)
+        }
+        return col
+    }
+
+    fn addInlineReference:void (ast:SqlAst t:DBTable column:string refId:int) {
+        def toTable:string (DdlToSchema.nameOf(ast (ast.childAt(refId (SqlRole.targetClause())))))
+        def fk:DBForeignKey (new DBForeignKey)
+        fk.fromTable = t.name
+        fk.toTable = toTable
+        push fk.fromColumns column
+        def refs:[int] (ast.childrenOf(refId (SqlRole.referenceColumns())))
+        def r:int 0
+        def nr:int (array_length refs)
+        while (r < nr) {
+            push fk.toColumns (ast.textOf((itemAt refs r)))
+            r = (r + 1)
+        }
+        this.noteActions(ast refId fk)
+        schema.addForeignKey(fk)
+    }
+
+    fn noteActions:void (ast:SqlAst holder:int fk:DBForeignKey) {
+        def acts:[int] (ast.childrenOf(holder (SqlRole.actionClause())))
+        def i:int 0
+        def n:int (array_length acts)
+        while (i < n) {
+            def phrase:string (ast.textOf((itemAt acts i)))
+            def isDelete:boolean (DdlToSchema.beginsWith(phrase "ON DELETE"))
+            if isDelete {
+                fk.onDelete = (substring phrase 10 (strlen phrase))
+            } {
+                if (DdlToSchema.beginsWith(phrase "ON UPDATE")) {
+                    fk.onUpdate = (substring phrase 10 (strlen phrase))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn addTableConstraint:void (ast:SqlAst t:DBTable conId:int) {
+        def word:string (ast.textOf(conId))
+        def cols:[int] (ast.childrenOf(conId (SqlRole.columnList())))
+        if (word == "PRIMARY KEY") {
+            def i:int 0
+            def n:int (array_length cols)
+            while (i < n) {
+                def cname:string (ast.textOf((itemAt cols i)))
+                def at:int (t.columnIndex(cname))
+                if (at >= 0) {
+                    def col:SchemaColumn (itemAt t.columns at)
+                    col.isPrimaryKey = true
+                    col.pkPosition = (i + 1)
+                    col.nullable = false
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        if (word == "UNIQUE") {
+            def idx:DBIndex (new DBIndex)
+            idx.origin = "unique"
+            idx.unique = true
+            idx.name = (this.constraintName(ast conId (t.name + "_unique")))
+            def u:int 0
+            def nu:int (array_length cols)
+            while (u < nu) {
+                push idx.columns (ast.textOf((itemAt cols u)))
+                u = (u + 1)
+            }
+            if (nu == 1) {
+                def only:string (itemAt idx.columns 0)
+                def at2:int (t.columnIndex(only))
+                if (at2 >= 0) {
+                    def col2:SchemaColumn (itemAt t.columns at2)
+                    col2.isUnique = true
+                }
+            }
+            push t.indexes idx
+            return
+        }
+        if (word == "CHECK") {
+            def ck:DBConstraint (new DBConstraint)
+            ck.kind = "check"
+            ck.name = (this.constraintName(ast conId ""))
+            ck.expression = (this.render(ast (ast.childAt(conId (SqlRole.thisOperand())))))
+            push t.constraints ck
+            return
+        }
+        if (word == "FOREIGN KEY") {
+            def fk:DBForeignKey (new DBForeignKey)
+            fk.name = (this.constraintName(ast conId ""))
+            fk.fromTable = t.name
+            fk.toTable = (DdlToSchema.nameOf(ast (ast.childAt(conId (SqlRole.targetClause())))))
+            def f:int 0
+            def nf:int (array_length cols)
+            while (f < nf) {
+                push fk.fromColumns (ast.textOf((itemAt cols f)))
+                f = (f + 1)
+            }
+            def refs:[int] (ast.childrenOf(conId (SqlRole.referenceColumns())))
+            def r:int 0
+            def nr:int (array_length refs)
+            while (r < nr) {
+                push fk.toColumns (ast.textOf((itemAt refs r)))
+                r = (r + 1)
+            }
+            this.noteActions(ast conId fk)
+            schema.addForeignKey(fk)
+        }
+    }
+
+    fn constraintName:string (ast:SqlAst conId:int fallback:string) {
+        def named:int (ast.childAt(conId (SqlRole.constraintClause())))
+        if (named >= 0) {
+            return (ast.textOf(named))
+        }
+        return fallback
+    }
+
+    ; ------------------------------------------------------------------------
+    ; CREATE VIEW / INDEX / DROP
+    ; ------------------------------------------------------------------------
+    fn doCreateView:boolean (ast:SqlAst root:int stmt:string) {
+        def name:string (DdlToSchema.nameOf(ast (ast.childAt(root (SqlRole.targetClause())))))
+        if ((schema.indexOfTable(name)) >= 0) {
+            schema.removeTable(name)
+        }
+        def t:DBTable (schema.table(name))
+        t.kind = "view"
+        t.sourceSql = stmt
+        def cols:[int] (ast.childrenOf(root (SqlRole.columnList())))
+        def n:int (array_length cols)
+        if (n > 0) {
+            def i:int 0
+            while (i < n) {
+                t.column((ast.textOf((itemAt cols i))) "")
+                i = (i + 1)
+            }
+            applied = (applied + 1)
+            return true
+        }
+        ; No explicit column list: a view's columns are its query's projection,
+        ; which is what an engine reports when asked. `SELECT *` is the one
+        ; case that cannot be answered from the text alone — the view then has
+        ; no columns here, which is honest rather than wrong.
+        this.columnsFromQuery(ast t (ast.childAt(root (SqlRole.bodyClause()))))
+        applied = (applied + 1)
+        return true
+    }
+
+    fn columnsFromQuery:void (ast:SqlAst t:DBTable body:int) {
+        if (body < 0) {
+            return
+        }
+        if ((ast.kindOf(body)) != (SqlKind.selectNode())) {
+            return
+        }
+        def items:[int] (ast.childrenOf(body (SqlRole.projection())))
+        def i:int 0
+        def n:int (array_length items)
+        while (i < n) {
+            def name:string (DdlToSchema.projectionName(ast (itemAt items i)))
+            if ((strlen name) > 0) {
+                t.column(name "")
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; What an engine will call this column of the view. An alias names itself;
+    ; a bare column keeps its own name; anything else (an expression, a star)
+    ; has no name the text can give it.
+    sfn projectionName:string (ast:SqlAst id:int) {
+        def kind:int (ast.kindOf(id))
+        if (kind == (SqlKind.aliasNode())) {
+            return (ast.textOf((ast.childAt(id (SqlRole.aliasName())))))
+        }
+        if (kind == (SqlKind.column())) {
+            return (ast.textOf((ast.childAt(id (SqlRole.thisOperand())))))
+        }
+        if (kind == (SqlKind.identifier())) {
+            return (ast.textOf(id))
+        }
+        return ""
+    }
+
+    fn doCreateIndex:boolean (ast:SqlAst root:int) {
+        def onTable:string (DdlToSchema.nameOf(ast (ast.childAt(root (SqlRole.targetClause())))))
+        def at:int (schema.indexOfTable(onTable))
+        if (at < 0) {
+            push failures ("CREATE INDEX on a table that does not exist: " + onTable)
+            return false
+        }
+        def t:DBTable (itemAt schema.tables at)
+        def idx:DBIndex (new DBIndex)
+        idx.name = (ast.textOf((ast.childAt(root (SqlRole.thisOperand())))))
+        idx.unique = (ast.hasFlag(root (SqlFlag.uniqueFlag())))
+        idx.origin = "index"
+        def pred:int (ast.childAt(root (SqlRole.whereClause())))
+        if (pred >= 0) {
+            idx.predicate = (this.render(ast pred))
+        }
+        def cols:[int] (ast.childrenOf(root (SqlRole.columnList())))
+        def i:int 0
+        def n:int (array_length cols)
+        while (i < n) {
+            push idx.columns (this.render(ast (itemAt cols i)))
+            i = (i + 1)
+        }
+        if (idx.unique) {
+            if (n == 1) {
+                def only:string (itemAt idx.columns 0)
+                def cat:int (t.columnIndex(only))
+                if (cat >= 0) {
+                    def col:SchemaColumn (itemAt t.columns cat)
+                    col.isUnique = true
+                }
+            }
+        }
+        push t.indexes idx
+        applied = (applied + 1)
+        return true
+    }
+
+    fn doDrop:boolean (ast:SqlAst root:int) {
+        def what:string (ast.textOf(root))
+        def targets:[int] (ast.childrenOf(root (SqlRole.targetClause())))
+        def i:int 0
+        def n:int (array_length targets)
+        while (i < n) {
+            def name:string (DdlToSchema.nameOf(ast (itemAt targets i)))
+            if (what == "INDEX") {
+                this.dropIndexNamed(name)
+            } {
+                def gone:boolean (schema.removeTable(name))
+                if (gone == false) {
+                    if ((ast.hasFlag(root (SqlFlag.ifExistsFlag()))) == false) {
+                        push failures ("DROP " + what + " on something that is not there: " + name)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        applied = (applied + 1)
+        return true
+    }
+
+    fn dropIndexNamed:void (name:string) {
+        def t:int 0
+        def nt:int (array_length schema.tables)
+        while (t < nt) {
+            def table:DBTable (itemAt schema.tables t)
+            def kept:[DBIndex]
+            def i:int 0
+            def n:int (array_length table.indexes)
+            while (i < n) {
+                def idx:DBIndex (itemAt table.indexes i)
+                if ((idx.name == name) == false) {
+                    push kept idx
+                }
+                i = (i + 1)
+            }
+            clear table.indexes
+            def k:int 0
+            def nk:int (array_length kept)
+            while (k < nk) {
+                push table.indexes (itemAt kept k)
+                k = (k + 1)
+            }
+            t = (t + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; ALTER TABLE
+    ; ------------------------------------------------------------------------
+    fn doAlterTable:boolean (ast:SqlAst root:int) {
+        def name:string (DdlToSchema.nameOf(ast (ast.childAt(root (SqlRole.targetClause())))))
+        def at:int (schema.indexOfTable(name))
+        if (at < 0) {
+            if (ast.hasFlag(root (SqlFlag.ifExistsFlag()))) {
+                applied = (applied + 1)
+                return true
+            }
+            push failures ("ALTER TABLE on a table that does not exist: " + name)
+            return false
+        }
+        def t:DBTable (itemAt schema.tables at)
+        def actions:[int] (ast.childrenOf(root (SqlRole.actionClause())))
+        def i:int 0
+        def n:int (array_length actions)
+        def allOk:boolean true
+        while (i < n) {
+            def ok:boolean (this.applyAction(ast t (itemAt actions i)))
+            if (ok == false) {
+                allOk = false
+            }
+            i = (i + 1)
+        }
+        applied = (applied + 1)
+        return allOk
+    }
+
+    fn applyAction:boolean (ast:SqlAst t:DBTable actionId:int) {
+        def word:string (ast.textOf(actionId))
+        def payload:int (ast.childAt(actionId (SqlRole.definition())))
+        def target:int (ast.childAt(actionId (SqlRole.thisOperand())))
+        def right:int (ast.childAt(actionId (SqlRole.rightOperand())))
+
+        if (DdlToSchema.beginsWith(word "ADD")) {
+            if (payload < 0) {
+                return true
+            }
+            def pk:int (ast.kindOf(payload))
+            if (pk == (SqlKind.columnDef())) {
+                this.addColumn(ast t payload)
+                return true
+            }
+            if (pk == (SqlKind.tableConstraint())) {
+                this.addTableConstraint(ast t payload)
+                return true
+            }
+            return true
+        }
+        if (DdlToSchema.beginsWith(word "DROP")) {
+            def dropName:string (ast.textOf(target))
+            return (DdlToSchema.dropColumn(t dropName))
+        }
+        if (word == "RENAME TO") {
+            def newName:string (DdlToSchema.nameOf(ast right))
+            return (this.renameTable(t newName))
+        }
+        if (DdlToSchema.beginsWith(word "RENAME")) {
+            def from:string (ast.textOf(target))
+            def to:string (ast.textOf(right))
+            def at:int (t.columnIndex(from))
+            if (at < 0) {
+                push failures ("RENAME COLUMN on a column that is not there: " + t.name + "." + from)
+                return false
+            }
+            def col:SchemaColumn (itemAt t.columns at)
+            col.name = to
+            return true
+        }
+        if (word == "ALTER COLUMN") {
+            return (this.alterColumn(ast t target payload))
+        }
+        return true
+    }
+
+    fn alterColumn:boolean (ast:SqlAst t:DBTable target:int payload:int) {
+        def cname:string (ast.textOf(target))
+        def at:int (t.columnIndex(cname))
+        if (at < 0) {
+            push failures ("ALTER COLUMN on a column that is not there: " + t.name + "." + cname)
+            return false
+        }
+        def col:SchemaColumn (itemAt t.columns at)
+        if (payload < 0) {
+            return true
+        }
+        def what:string (ast.textOf(payload))
+        if (what == "SET DATA TYPE") {
+            col.dataType = (this.render(ast (ast.childAt(payload (SqlRole.typeName())))))
+            return true
+        }
+        if (what == "TYPE") {
+            col.dataType = (this.render(ast (ast.childAt(payload (SqlRole.typeName())))))
+            return true
+        }
+        if (what == "SET DEFAULT") {
+            col.defaultValue = (this.render(ast (ast.childAt(payload (SqlRole.thisOperand())))))
+            return true
+        }
+        if (what == "DROP DEFAULT") {
+            col.defaultValue = ""
+            return true
+        }
+        if (what == "SET NOT NULL") {
+            col.nullable = false
+            return true
+        }
+        if (what == "DROP NOT NULL") {
+            col.nullable = true
+            return true
+        }
+        if (what == "COMMENT") {
+            col.comment = (DdlToSchema.unquote((this.render(ast (ast.childAt(payload (SqlRole.thisOperand())))))))
+            return true
+        }
+        return true
+    }
+
+    fn renameTable:boolean (t:DBTable newName:string) {
+        def oldName:string t.name
+        t.name = newName
+        def i:int 0
+        def n:int (array_length schema.foreignKeys)
+        while (i < n) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys i)
+            if (fk.fromTable == oldName) {
+                fk.fromTable = newName
+            }
+            if (fk.toTable == oldName) {
+                fk.toTable = newName
+            }
+            i = (i + 1)
+        }
+        schema.resolve()
+        return true
+    }
+
+    sfn dropColumn:boolean (t:DBTable name:string) {
+        def at:int (t.columnIndex(name))
+        if (at < 0) {
+            return true
+        }
+        def kept:[SchemaColumn]
+        def i:int 0
+        def n:int (array_length t.columns)
+        while (i < n) {
+            if (i != at) {
+                push kept (itemAt t.columns i)
+            }
+            i = (i + 1)
+        }
+        clear t.columns
+        def k:int 0
+        def nk:int (array_length kept)
+        while (k < nk) {
+            def c:SchemaColumn (itemAt kept k)
+            c.position = k
+            push t.columns c
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Helpers
+    ; ------------------------------------------------------------------------
+
+    ; A sub-tree back to SQL text. The generator already knows how, and a
+    ; second renderer here would be a second thing to keep correct.
+    fn render:string (ast:SqlAst id:int) {
+        if (id < 0) {
+            return ""
+        }
+        def d:SqlDialect (SqlDialects.byName(dialect))
+        def g:SqlGenerator (SqlGenerator.forDialect(d))
+        return (g.generate(ast id))
+    }
+
+    ; The unqualified name of a `table` node — the last part, which is the one
+    ; a schema keyed by name is keyed by.
+    sfn nameOf:string (ast:SqlAst id:int) {
+        if (id < 0) {
+            return ""
+        }
+        def self:int (ast.childAt(id (SqlRole.thisOperand())))
+        if (self < 0) {
+            return (ast.textOf(id))
+        }
+        return (ast.textOf(self))
+    }
+
+    sfn beginsWith:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == prefix)
+    }
+
+    sfn unquote:string (text:string) {
+        def n:int (strlen text)
+        if (n < 2) {
+            return text
+        }
+        def first:int (charAt text 0)
+        def last:int (charAt text (n - 1))
+        if (first == 39) {
+            if (last == 39) {
+                return (substring text 1 (n - 1))
+            }
+        }
+        return text
+    }
+
+    sfn shorten:string (text:string) {
+        def n:int (strlen text)
+        if (n <= 70) {
+            return text
+        }
+        return ((substring text 0 67) + "...")
+    }
+
+    ; Split a script into statements on `;`, respecting the three places a
+    ; semicolon means nothing: inside a string, inside a quoted identifier,
+    ; and inside a comment. A splitter that ignores those cuts a migration in
+    ; half at the first `;` in a DEFAULT 'a;b'.
+    sfn splitStatements:[string] (sql:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen sql)
+        while (i < n) {
+            def c:int (charAt sql i)
+            def piece:string (substring sql i (i + 1))
+            ; -- line comment
+            if (c == 45) {
+                if ((i + 1) < n) {
+                    if ((charAt sql (i + 1)) == 45) {
+                        while (i < n) {
+                            if ((charAt sql i) == 10) {
+                                break
+                            }
+                            i = (i + 1)
+                        }
+                        continue
+                    }
+                }
+            }
+            ; /* block comment */
+            if (c == 47) {
+                if ((i + 1) < n) {
+                    if ((charAt sql (i + 1)) == 42) {
+                        i = (i + 2)
+                        while (i < n) {
+                            if ((charAt sql i) == 42) {
+                                if ((i + 1) < n) {
+                                    if ((charAt sql (i + 1)) == 47) {
+                                        i = (i + 2)
+                                        break
+                                    }
+                                }
+                            }
+                            i = (i + 1)
+                        }
+                        continue
+                    }
+                }
+            }
+            ; '…' string, with '' as an escaped quote
+            if (c == 39) {
+                cur = (cur + piece)
+                i = (i + 1)
+                while (i < n) {
+                    def q:int (charAt sql i)
+                    cur = (cur + (substring sql i (i + 1)))
+                    i = (i + 1)
+                    if (q == 39) {
+                        if (i < n) {
+                            if ((charAt sql i) == 39) {
+                                cur = (cur + "'")
+                                i = (i + 1)
+                                continue
+                            }
+                        }
+                        break
+                    }
+                }
+                continue
+            }
+            ; "…" quoted identifier
+            if (c == 34) {
+                cur = (cur + piece)
+                i = (i + 1)
+                while (i < n) {
+                    def q2:int (charAt sql i)
+                    cur = (cur + (substring sql i (i + 1)))
+                    i = (i + 1)
+                    if (q2 == 34) {
+                        break
+                    }
+                }
+                continue
+            }
+            if (c == 59) {
+                push out cur
+                cur = ""
+                i = (i + 1)
+                continue
+            }
+            cur = (cur + piece)
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+}

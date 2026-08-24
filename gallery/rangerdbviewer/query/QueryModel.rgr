@@ -1,0 +1,657 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; QueryModel.rgr — what a query designer designs.
+; ============================================================================
+;
+;   ┌─ the tables, and how they meet ──────────────┐
+;   │  customers ──< orders ──< order_items         │
+;   ├───────────────────────────────────────────────┤
+;   │ field    table      sort  show  criteria      │
+;   │ name     customers  asc    ✓                  │
+;   │ total    orders            ✓     > 100        │
+;   │ country  customers         ✓     = 'FI'       │
+;   └───────────────────────────────────────────────┘
+;
+; The model is a `QuerySpec`, not SQL text.
+;
+; LibreOffice Base's designer builds SQL and hands it to the engine, and the
+; moment a query is beyond what the designer can draw it switches to "native
+; SQL mode" and the graphical half stops meaning anything. A structured spec
+; does not have that cliff: every backend takes it, the capability-fallback
+; engine covers whatever the backend cannot do — including the join — and the
+; SQL is generated FROM the model for a person to read rather than being the
+; model.
+;
+; ---------------------------------------------------------------------------
+; Criteria are written the way Base writes them
+; ---------------------------------------------------------------------------
+;
+;     > 100          the operator, then the value
+;     = 'FI'
+;     FI             no operator at all means equals
+;     is null
+;     like ada       a contains match
+;
+; Anything it cannot read is reported on the field rather than dropped, so a
+; query with one bad criterion says which one instead of quietly returning the
+; wrong rows.
+; ============================================================================
+
+Import "../../rangerdb/src/DBQuery.rgr"
+Import "../../rangerdb/src/schema/DatabaseSchema.rgr"
+Import "../../datagrid/src/SqlColumnRules.rgr"
+Import "../../rangerdb/src/schema/SchemaToDdl.rgr"
+
+class QueryField {
+    ; Which table it comes from — the alias, when there is one.
+    def table:string ""
+    def column:string ""
+    ; What the result calls it. Empty means `table.column`.
+    def alias:string ""
+    def shown:boolean true
+    ; "" | "asc" | "desc"
+    def sort:string ""
+    def criteria:string ""
+    ; Why the criterion could not be read, when it could not.
+    def problem:string ""
+
+    Constructor () {
+    }
+
+    sfn of:QueryField (table:string column:string) {
+        def f:QueryField (new QueryField)
+        f.table = table
+        f.column = column
+        return f
+    }
+
+    ; The name this field has in a joined result. `DBSession` qualifies every
+    ; column of a joined query, because two tables in one result nearly always
+    ; share a column name.
+    fn qualified:string () {
+        if ((strlen table) == 0) {
+            return column
+        }
+        return (table + "." + column)
+    }
+
+    fn outputName:string () {
+        if ((strlen alias) > 0) {
+            return alias
+        }
+        return (this.qualified())
+    }
+}
+
+class QueryModel {
+    def name:string "query"
+    ; The first table. Everything else is joined onto it, in order.
+    def base:string ""
+    def joins:[DBJoin]
+    def fields:[QueryField]
+    def limit:int 0
+    def distinctRows:boolean false
+    def errorText:string ""
+
+    Constructor () {
+    }
+
+    sfn on:QueryModel (table:string) {
+        def q:QueryModel (new QueryModel)
+        q.base = table
+        return q
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Building
+    ; ------------------------------------------------------------------------
+    fn join:DBJoin (kind:string table:string leftTable:string leftColumn:string rightColumn:string) {
+        def j:DBJoin (DBJoin.on(kind table (leftTable + "." + leftColumn) (table + "." + rightColumn)))
+        push joins j
+        return j
+    }
+
+    ; The join the SCHEMA already knows about. A designer that made somebody
+    ; retype a relationship the database has declared would be asking them to
+    ; get it wrong.
+    fn joinByKey:boolean (schema:DatabaseSchema fromTable:string toTable:string kind:string) {
+        def i:int 0
+        def n:int (array_length schema.foreignKeys)
+        while (i < n) {
+            def fk:DBForeignKey (itemAt schema.foreignKeys i)
+            def forward:boolean false
+            if (fk.fromTable == fromTable) {
+                if (fk.toTable == toTable) {
+                    forward = true
+                }
+            }
+            if forward {
+                def j:DBJoin (new DBJoin)
+                j.kind = kind
+                j.table = toTable
+                def c:int 0
+                def nc:int (array_length fk.fromColumns)
+                while (c < nc) {
+                    j.also((fromTable + "." + (itemAt fk.fromColumns c)) (toTable + "." + (itemAt fk.toColumns c)))
+                    c = (c + 1)
+                }
+                push joins j
+                return true
+            }
+            ; …and the same relationship read the other way round, because a
+            ; person drags from whichever table is already on the canvas.
+            def backward:boolean false
+            if (fk.toTable == fromTable) {
+                if (fk.fromTable == toTable) {
+                    backward = true
+                }
+            }
+            if backward {
+                def j2:DBJoin (new DBJoin)
+                j2.kind = kind
+                j2.table = toTable
+                def c2:int 0
+                def nc2:int (array_length fk.fromColumns)
+                while (c2 < nc2) {
+                    j2.also((fromTable + "." + (itemAt fk.toColumns c2)) (toTable + "." + (itemAt fk.fromColumns c2)))
+                    c2 = (c2 + 1)
+                }
+                push joins j2
+                return true
+            }
+            i = (i + 1)
+        }
+        errorText = ("no declared relationship between " + fromTable + " and " + toTable)
+        return false
+    }
+
+    fn field:QueryField (table:string column:string) {
+        def f:QueryField (QueryField.of(table column))
+        push fields f
+        return f
+    }
+
+    ; Every column of a table, which is what dragging the table's `*` does.
+    fn allOf:void (schema:DatabaseSchema table:string) {
+        def at:int (schema.indexOfTable(table))
+        if (at < 0) {
+            return
+        }
+        def t:DBTable (itemAt schema.tables at)
+        def i:int 0
+        def n:int (array_length t.columns)
+        while (i < n) {
+            def c:SchemaColumn (itemAt t.columns i)
+            this.field(table c.name)
+            i = (i + 1)
+        }
+    }
+
+    fn tables:[string] () {
+        def out:[string]
+        if ((strlen base) > 0) {
+            push out base
+        }
+        def i:int 0
+        def n:int (array_length joins)
+        while (i < n) {
+            def j:DBJoin (itemAt joins i)
+            push out (j.nameOf())
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn isJoined:boolean () {
+        return ((array_length joins) > 0)
+    }
+
+    ; ------------------------------------------------------------------------
+    ; What the engine runs
+    ; ------------------------------------------------------------------------
+    ;
+    ; A `QuerySpec`, never a string. What comes back is the same object the
+    ; Data panel builds for a single table, so one execution path serves both.
+    fn toSpec:QuerySpec () {
+        errorText = ""
+        def spec:QuerySpec (QuerySpec.forTable(base))
+        def i:int 0
+        def n:int (array_length joins)
+        while (i < n) {
+            push spec.joins ((itemAt joins i).copy())
+            i = (i + 1)
+        }
+        def joined:boolean (this.isJoined())
+        def f:int 0
+        def nf:int (array_length fields)
+        while (f < nf) {
+            def fld:QueryField (itemAt fields f)
+            fld.problem = ""
+            def colName:string fld.column
+            if joined {
+                colName = (fld.qualified())
+            }
+            if fld.shown {
+                spec.selectColumn(colName)
+            }
+            if (fld.sort == "asc") {
+                spec.orderBy(colName true)
+            }
+            if (fld.sort == "desc") {
+                spec.orderBy(colName false)
+            }
+            if ((strlen fld.criteria) > 0) {
+                def p:DBPredicate (QueryModel.predicateOf(colName fld.criteria fld))
+                if ((strlen fld.problem) == 0) {
+                    spec.filter.add(p)
+                } {
+                    if ((strlen errorText) == 0) {
+                        errorText = ((fld.outputName()) + ": " + fld.problem)
+                    }
+                }
+            }
+            f = (f + 1)
+        }
+        spec.limit = limit
+        return spec
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The same query, as SQL a person can read
+    ; ------------------------------------------------------------------------
+    ;
+    ; Generated FROM the model, and never the model itself. Base builds SQL and
+    ; runs it, so the moment a query outgrows the designer the graphical half
+    ; stops meaning anything; here the spec is what runs and this is what gets
+    ; shown, exported, and pasted into somebody else's tool.
+    fn toSql:string () {
+        def w:SchemaToDdl (SchemaToDdl.forDialect(""))
+        def joined:boolean (this.isJoined())
+        def sql:string "SELECT "
+        if distinctRows {
+            sql = (sql + "DISTINCT ")
+        }
+        def shownCount:int 0
+        def f:int 0
+        def nf:int (array_length fields)
+        while (f < nf) {
+            def fld:QueryField (itemAt fields f)
+            if fld.shown {
+                if (shownCount > 0) {
+                    sql = (sql + ", ")
+                }
+                sql = (sql + (QueryModel.columnSql(w fld joined)))
+                if ((strlen fld.alias) > 0) {
+                    sql = (sql + " AS " + (w.quote(fld.alias)))
+                }
+                shownCount = (shownCount + 1)
+            }
+            f = (f + 1)
+        }
+        if (shownCount == 0) {
+            sql = (sql + "*")
+        }
+        sql = (sql + "\nFROM " + (w.quote(base)))
+        def j:int 0
+        def nj:int (array_length joins)
+        while (j < nj) {
+            def join:DBJoin (itemAt joins j)
+            def word:string "INNER JOIN"
+            if (join.isLeft()) {
+                word = "LEFT JOIN"
+            }
+            sql = (sql + "\n" + word + " " + (w.quote(join.table)))
+            def c:int 0
+            def nc:int (array_length join.leftColumns)
+            while (c < nc) {
+                def word2:string " ON "
+                if (c > 0) {
+                    word2 = " AND "
+                }
+                sql = (sql + word2 + (QueryModel.qualifiedSql(w (itemAt join.leftColumns c))))
+                sql = (sql + " = " + (QueryModel.qualifiedSql(w (itemAt join.rightColumns c))))
+                c = (c + 1)
+            }
+            j = (j + 1)
+        }
+        def where:string ""
+        def wf:int 0
+        while (wf < nf) {
+            def cf:QueryField (itemAt fields wf)
+            if ((strlen cf.criteria) > 0) {
+                if ((strlen where) > 0) {
+                    where = (where + " AND ")
+                }
+                where = (where + (QueryModel.criterionSql(w cf joined)))
+            }
+            wf = (wf + 1)
+        }
+        if ((strlen where) > 0) {
+            sql = (sql + "\nWHERE " + where)
+        }
+        def order:string ""
+        def sf:int 0
+        while (sf < nf) {
+            def of:QueryField (itemAt fields sf)
+            if ((strlen of.sort) > 0) {
+                if ((strlen order) > 0) {
+                    order = (order + ", ")
+                }
+                order = (order + (QueryModel.columnSql(w of joined)))
+                if (of.sort == "desc") {
+                    order = (order + " DESC")
+                } {
+                    order = (order + " ASC")
+                }
+            }
+            sf = (sf + 1)
+        }
+        if ((strlen order) > 0) {
+            sql = (sql + "\nORDER BY " + order)
+        }
+        if (limit > 0) {
+            sql = (sql + "\nLIMIT " + (to_string limit))
+        }
+        return sql
+    }
+
+    sfn columnSql:string (w:SchemaToDdl fld:QueryField joined:boolean) {
+        if (joined == false) {
+            return (w.quote(fld.column))
+        }
+        return ((w.quote(fld.table)) + "." + (w.quote(fld.column)))
+    }
+
+    ; A `table.column` string, as two quoted names. The joins carry their
+    ; columns already qualified, because that is what the engine matches on.
+    sfn qualifiedSql:string (w:SchemaToDdl name:string) {
+        def dot:int (QueryModel.indexOfChar(name 46))
+        if (dot < 0) {
+            return (w.quote(name))
+        }
+        def left:string (substring name 0 dot)
+        def right:string (substring name (dot + 1) (strlen name))
+        return ((w.quote(left)) + "." + (w.quote(right)))
+    }
+
+    ; The criterion, in SQL, from the same text the spec reads — so the two
+    ; cannot say different things.
+    sfn criterionSql:string (w:SchemaToDdl fld:QueryField joined:boolean) {
+        def col:string (QueryModel.columnSql(w fld joined))
+        def src:string (SqlColumnRules.trimText(fld.criteria))
+        def lowered:string (to_lowercase src)
+        if (lowered == "is null") {
+            return (col + " IS NULL")
+        }
+        if (lowered == "is not null") {
+            return (col + " IS NOT NULL")
+        }
+        if (lowered == "not null") {
+            return (col + " IS NOT NULL")
+        }
+        if (QueryModel.opensWith(lowered "like ")) {
+            return (col + " LIKE " + (QueryModel.literalSql(("%" + (QueryModel.unquoted((substring src 5 (strlen src)))) + "%"))))
+        }
+        if (QueryModel.opensWith(lowered "begins ")) {
+            return (col + " LIKE " + (QueryModel.literalSql(((QueryModel.unquoted((substring src 7 (strlen src)))) + "%"))))
+        }
+        def op:string "="
+        def rest:string src
+        def taken:int 0
+        if (QueryModel.opensWith(src ">=")) {
+            op = ">="
+            taken = 2
+        } {
+            if (QueryModel.opensWith(src "<=")) {
+                op = "<="
+                taken = 2
+            } {
+                if (QueryModel.opensWith(src "<>")) {
+                    op = "<>"
+                    taken = 2
+                } {
+                    if (QueryModel.opensWith(src "!=")) {
+                        op = "<>"
+                        taken = 2
+                    } {
+                        if (QueryModel.opensWith(src ">")) {
+                            op = ">"
+                            taken = 1
+                        } {
+                            if (QueryModel.opensWith(src "<")) {
+                                op = "<"
+                                taken = 1
+                            } {
+                                if (QueryModel.opensWith(src "=")) {
+                                    op = "="
+                                    taken = 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (taken > 0) {
+            rest = (SqlColumnRules.trimText((substring src taken (strlen src))))
+        }
+        if ((strlen rest) == 0) {
+            return (col + " " + op + " ?")
+        }
+        if (QueryModel.isQuoted(rest)) {
+            return (col + " " + op + " " + (QueryModel.literalSql((QueryModel.unquoted(rest)))))
+        }
+        if (QueryModel.looksNumeric(rest)) {
+            return (col + " " + op + " " + rest)
+        }
+        def lowRest:string (to_lowercase rest)
+        if (lowRest == "true") {
+            return (col + " " + op + " TRUE")
+        }
+        if (lowRest == "false") {
+            return (col + " " + op + " FALSE")
+        }
+        return (col + " " + op + " " + (QueryModel.literalSql(rest)))
+    }
+
+    ; A string literal, with the one escape SQL has.
+    sfn literalSql:string (text:string) {
+        def out:string "\'"
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            if (ch == 39) {
+                out = (out + "\'\'")
+            } {
+                out = (out + (substring text i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return (out + "\'")
+    }
+
+    ; ------------------------------------------------------------------------
+    ; A criterion, as somebody types it
+    ; ------------------------------------------------------------------------
+    sfn predicateOf:DBPredicate (column:string text:string field:QueryField) {
+        def src:string (SqlColumnRules.trimText(text))
+        def lowered:string (to_lowercase src)
+        if (lowered == "is null") {
+            return (DBPredicate.nullCheck(column true))
+        }
+        if (lowered == "is not null") {
+            return (DBPredicate.nullCheck(column false))
+        }
+        if (lowered == "not null") {
+            return (DBPredicate.nullCheck(column false))
+        }
+        ; `like ada` is a contains match, which is what a person means by it in
+        ; a criteria box. SQL's wildcards are not offered, because a designer
+        ; that accepted `%` and then did not honour it would be worse than one
+        ; that never mentioned it.
+        if (QueryModel.opensWith(lowered "like ")) {
+            return (DBPredicate.compare(column (DBOp.hasText()) (DBValue.fromString((QueryModel.unquoted((substring src 5 (strlen src))))))))
+        }
+        if (QueryModel.opensWith(lowered "begins ")) {
+            return (DBPredicate.compare(column (DBOp.beginsWith()) (DBValue.fromString((QueryModel.unquoted((substring src 7 (strlen src))))))))
+        }
+        def op:int (DBOp.eq())
+        def rest:string src
+        def taken:int 0
+        if (QueryModel.opensWith(src ">=")) {
+            op = (DBOp.ge())
+            taken = 2
+        } {
+            if (QueryModel.opensWith(src "<=")) {
+                op = (DBOp.le())
+                taken = 2
+            } {
+                if (QueryModel.opensWith(src "<>")) {
+                    op = (DBOp.ne())
+                    taken = 2
+                } {
+                    if (QueryModel.opensWith(src "!=")) {
+                        op = (DBOp.ne())
+                        taken = 2
+                    } {
+                        if (QueryModel.opensWith(src ">")) {
+                            op = (DBOp.gt())
+                            taken = 1
+                        } {
+                            if (QueryModel.opensWith(src "<")) {
+                                op = (DBOp.lt())
+                                taken = 1
+                            } {
+                                if (QueryModel.opensWith(src "=")) {
+                                    op = (DBOp.eq())
+                                    taken = 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (taken > 0) {
+            rest = (SqlColumnRules.trimText((substring src taken (strlen src))))
+        }
+        if ((strlen rest) == 0) {
+            field.problem = "there is an operator but no value"
+            return (DBPredicate.nullCheck(column true))
+        }
+        return (DBPredicate.compare(column op (QueryModel.valueOf(rest))))
+    }
+
+    ; Quoted is text, whatever it looks like. Unquoted is a number when it is
+    ; one, and text otherwise — the rule every criteria box has ever used.
+    sfn valueOf:DBValue (text:string) {
+        if (QueryModel.isQuoted(text)) {
+            return (DBValue.fromString((QueryModel.unquoted(text))))
+        }
+        def lowered:string (to_lowercase text)
+        if (lowered == "true") {
+            return (DBValue.fromBool(true))
+        }
+        if (lowered == "false") {
+            return (DBValue.fromBool(false))
+        }
+        def asInt@(optional):int (to_int text)
+        if (!null? asInt) {
+            if (QueryModel.looksWhole(text)) {
+                return (DBValue.fromInt((unwrap asInt)))
+            }
+        }
+        def asNum@(optional):double (to_double text)
+        if (!null? asNum) {
+            if (QueryModel.looksNumeric(text)) {
+                return (DBValue.fromDouble((unwrap asNum)))
+            }
+        }
+        return (DBValue.fromString(text))
+    }
+
+    sfn looksWhole:boolean (text:string) {
+        if ((QueryModel.looksNumeric(text)) == false) {
+            return false
+        }
+        return ((QueryModel.indexOfChar(text 46)) < 0)
+    }
+
+    sfn looksNumeric:boolean (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        def digits:int 0
+        while (i < n) {
+            def ch:int (charAt text i)
+            def ok:boolean false
+            if (ch == 45) {
+                if (i == 0) {
+                    ok = true
+                }
+            }
+            if (ch == 46) {
+                ok = true
+            }
+            if (ch >= 48) {
+                if (ch <= 57) {
+                    ok = true
+                    digits = (digits + 1)
+                }
+            }
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    sfn isQuoted:boolean (text:string) {
+        def n:int (strlen text)
+        if (n < 2) {
+            return false
+        }
+        def first:int (charAt text 0)
+        def last:int (charAt text (n - 1))
+        if (first == 39) {
+            return (last == 39)
+        }
+        if (first == 34) {
+            return (last == 34)
+        }
+        return false
+    }
+
+    sfn unquoted:string (text:string) {
+        def s:string (SqlColumnRules.trimText(text))
+        if (QueryModel.isQuoted(s)) {
+            return (substring s 1 ((strlen s) - 1))
+        }
+        return s
+    }
+
+    sfn opensWith:boolean (text:string part:string) {
+        def n:int (strlen part)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == part)
+    }
+
+    sfn indexOfChar:int (text:string ch:int) {
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            if ((charAt text i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}

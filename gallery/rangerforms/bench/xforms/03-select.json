@@ -1,0 +1,11 @@
+{
+  "name": "select",
+  "note": "select1, select, and the two functions that read a multi-select",
+  "script": [
+    { "country": "SE" },
+    { "country": "PT" },
+    { "symptoms": ["cough"] },
+    { "symptoms": ["cough", "fever"] },
+    { "symptoms": [] }
+  ]
+}

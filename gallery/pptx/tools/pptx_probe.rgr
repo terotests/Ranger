@@ -118,6 +118,17 @@ class PptxProbe {
             }
             k = (k + 1)
         }
+        def wArg:int 960
+        if (argc >= 3) {
+            def pw@(optional):int (to_int (shell_arg 2))
+            if (!null? pw) { wArg = (unwrap pw) }
+        }
+        def hArg:int 720
+        if (argc >= 4) {
+            def ph@(optional):int (to_int (shell_arg 3))
+            if (!null? ph) { hArg = (unwrap ph) }
+        }
+        app.resize(wArg hArg)
         app.render()
         def rb:RasterBuffer (new RasterBuffer)
         rb.width = app.W

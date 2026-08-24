@@ -1,0 +1,229 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; DemoData.rgr — a small database the viewer can always open.
+; ============================================================================
+;
+; The web build has no disk. A page that cannot open a file still has to be
+; able to show something real, so "open a database" there means "build this
+; one in memory" — and the same seed is what the headless test and the CLI
+; demo use, so the thing being demonstrated is the thing being tested.
+;
+;   categories ─┐
+;               ├─< products ─< order_items >─ orders >─ customers
+;               ┘
+;
+; Five tables, five foreign keys, a self-referencing hierarchy on categories,
+; a composite primary key on order_items, a unique column, an index and a
+; view. That set is chosen to exercise the introspectors rather than to look
+; tidy: a composite key catches column ORDER being lost, the self-reference
+; catches an edge that starts and ends on one node, and the view catches an
+; engine that reports views as tables.
+; ============================================================================
+
+Import "DbSource.rgr"
+Import "../../rangerdb/src/schema/DdlToSchema.rgr"
+
+class DemoData {
+    sfn ddl:[string] () {
+        def out:[string]
+        push out "CREATE TABLE categories (id INTEGER PRIMARY KEY, name VARCHAR NOT NULL, parent_id INTEGER REFERENCES categories(id))"
+        push out "CREATE TABLE products (id INTEGER PRIMARY KEY, sku VARCHAR NOT NULL UNIQUE, name VARCHAR NOT NULL, category_id INTEGER REFERENCES categories(id), price DOUBLE)"
+        push out "CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR NOT NULL UNIQUE, name VARCHAR, country VARCHAR)"
+        push out "CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers(id), placed_on VARCHAR, total DOUBLE)"
+        push out "CREATE TABLE order_items (order_id INTEGER REFERENCES orders(id), product_id INTEGER REFERENCES products(id), quantity INTEGER, PRIMARY KEY (order_id, product_id))"
+        push out "CREATE INDEX idx_orders_customer ON orders (customer_id)"
+        push out "CREATE INDEX idx_products_category ON products (category_id)"
+        push out "CREATE VIEW v_order_totals AS SELECT id, total FROM orders"
+        return out
+    }
+
+    ; The same DDL as one document, for the path that needs no engine at all:
+    ; RangerFlow's SqlSchemaReader turns CREATE TABLE text into a
+    ; DatabaseSchema directly. That matters most in a browser, where the only
+    ; engine available is the one that cannot yet describe a foreign key.
+    sfn ddlText:string () {
+        def stmts:[string] (DemoData.ddl())
+        def out:string ""
+        def i:int 0
+        def n:int (array_length stmts)
+        while (i < n) {
+            out = (out + (itemAt stmts i) + ";\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn rows:[string] () {
+        def out:[string]
+        push out "INSERT INTO categories VALUES (1, 'Everything', NULL)"
+        push out "INSERT INTO categories VALUES (2, 'Audio', 1)"
+        push out "INSERT INTO categories VALUES (3, 'Cables', 2)"
+        push out "INSERT INTO products VALUES (1, 'SKU-100', 'Headphones', 2, 199.0)"
+        push out "INSERT INTO products VALUES (2, 'SKU-101', 'Patch cable', 3, 12.5)"
+        push out "INSERT INTO products VALUES (3, 'SKU-102', 'Monitor stand', 1, 89.0)"
+        push out "INSERT INTO customers VALUES (1, 'ada@example.com', 'Ada', 'Finland')"
+        push out "INSERT INTO customers VALUES (2, 'grace@example.com', 'Grace', 'Sweden')"
+        push out "INSERT INTO orders VALUES (1, 1, '2026-01-14', 211.5)"
+        push out "INSERT INTO orders VALUES (2, 2, '2026-02-02', 89.0)"
+        push out "INSERT INTO order_items VALUES (1, 1, 1)"
+        push out "INSERT INTO order_items VALUES (1, 2, 1)"
+        push out "INSERT INTO order_items VALUES (2, 3, 1)"
+        return out
+    }
+
+    ; A SQL engine gets the DDL. Everything is one statement per call because
+    ; the host drivers prepare a single statement at a time.
+    sfn seedSql:boolean (session:DBSession) {
+        def stmts:[string] (DemoData.ddl())
+        def i:int 0
+        def n:int (array_length stmts)
+        while (i < n) {
+            session.execSql((itemAt stmts i))
+            i = (i + 1)
+        }
+        def ins:[string] (DemoData.rows())
+        def k:int 0
+        def nk:int (array_length ins)
+        while (k < nk) {
+            session.execSql((itemAt ins k))
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; RangerDB has no DDL — Phase 4 is where that changes — so the same shape
+    ; is declared through the backend contract. It cannot carry the foreign
+    ; keys, the indexes or the view, and its introspector says so rather than
+    ; letting the viewer imply the database simply has none.
+    sfn seedContract:boolean (session:DBSession) {
+        def cat:[DBColumn]
+        push cat (DBColumn.createKey("id" 2))
+        push cat (DBColumn.create("name" 4))
+        push cat (DBColumn.create("parent_id" 2))
+        session.createTable("categories" cat)
+
+        def prod:[DBColumn]
+        push prod (DBColumn.createKey("id" 2))
+        push prod (DBColumn.create("sku" 4))
+        push prod (DBColumn.create("name" 4))
+        push prod (DBColumn.create("category_id" 2))
+        push prod (DBColumn.create("price" 3))
+        session.createTable("products" prod)
+
+        def cust:[DBColumn]
+        push cust (DBColumn.createKey("id" 2))
+        def emailCol:DBColumn (DBColumn.create("email" 4))
+        emailCol.nullable = false
+        push cust emailCol
+        push cust (DBColumn.create("name" 4))
+        push cust (DBColumn.create("country" 4))
+        session.createTable("customers" cust)
+
+        def ord:[DBColumn]
+        push ord (DBColumn.createKey("id" 2))
+        push ord (DBColumn.create("customer_id" 2))
+        push ord (DBColumn.create("placed_on" 4))
+        push ord (DBColumn.create("total" 3))
+        session.createTable("orders" ord)
+
+        def items:[DBColumn]
+        push items (DBColumn.createKey("order_id" 2))
+        push items (DBColumn.createKey("product_id" 2))
+        push items (DBColumn.create("quantity" 2))
+        session.createTable("order_items" items)
+
+        DemoData.insertRow(session "categories" 1 "Everything" 0 0.0)
+        DemoData.insertRow(session "categories" 2 "Audio" 1 0.0)
+        DemoData.insertRow(session "categories" 3 "Cables" 2 0.0)
+        DemoData.insertCustomer(session 1 "ada@example.com" "Ada" "Finland")
+        DemoData.insertCustomer(session 2 "grace@example.com" "Grace" "Sweden")
+        ; The same rows the SQL seed puts in, so every table in the demo has
+        ; something to look at. A Data panel that is empty for three of the
+        ; five tables reads as a broken panel rather than as an empty table.
+        DemoData.insertProduct(session 1 "SKU-100" "Headphones" 2 199.0)
+        DemoData.insertProduct(session 2 "SKU-101" "Patch cable" 3 12.5)
+        DemoData.insertProduct(session 3 "SKU-102" "Monitor stand" 1 89.0)
+        DemoData.insertOrder(session 1 1 "2026-01-14" 211.5)
+        DemoData.insertOrder(session 2 2 "2026-02-02" 89.0)
+        DemoData.insertItem(session 1 1 1)
+        DemoData.insertItem(session 1 2 1)
+        DemoData.insertItem(session 2 3 1)
+        return true
+    }
+
+    ; The demo schema WITH its relationships. RangerDB has no DDL, so its
+    ; introspector cannot report a foreign key — the same statements read
+    ; through RangerSQL can. Anything that needs the relationships (the
+    ; diagram, and the query designer's "join them the way the database says")
+    ; asks for this one rather than the introspected one.
+    sfn schemaFromSql:DatabaseSchema () {
+        def reader:DdlToSchema (DdlToSchema.of(""))
+        reader.applyScript((DemoData.ddlText()))
+        return reader.schema
+    }
+
+    sfn insertProduct:void (session:DBSession id:int sku:string name:string category:int price:double) {
+        def m:DBMutation (DBMutation.makeInsert("products"))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("sku" (DBValue.fromString(sku)))
+        m.withValue("name" (DBValue.fromString(name)))
+        m.withValue("category_id" (DBValue.fromInt(category)))
+        m.withValue("price" (DBValue.fromDouble(price)))
+        session.mutate(m)
+    }
+
+    sfn insertOrder:void (session:DBSession id:int customer:int placedOn:string total:double) {
+        def m:DBMutation (DBMutation.makeInsert("orders"))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("customer_id" (DBValue.fromInt(customer)))
+        m.withValue("placed_on" (DBValue.fromString(placedOn)))
+        m.withValue("total" (DBValue.fromDouble(total)))
+        session.mutate(m)
+    }
+
+    sfn insertItem:void (session:DBSession orderId:int productId:int quantity:int) {
+        def m:DBMutation (DBMutation.makeInsert("order_items"))
+        m.withValue("order_id" (DBValue.fromInt(orderId)))
+        m.withValue("product_id" (DBValue.fromInt(productId)))
+        m.withValue("quantity" (DBValue.fromInt(quantity)))
+        session.mutate(m)
+    }
+
+    sfn insertRow:void (session:DBSession table:string id:int name:string parent:int price:double) {
+        def m:DBMutation (DBMutation.makeInsert(table))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("name" (DBValue.fromString(name)))
+        if (parent > 0) {
+            m.withValue("parent_id" (DBValue.fromInt(parent)))
+        } {
+            m.withValue("parent_id" (DBValue.nullOf(2)))
+        }
+        session.mutate(m)
+    }
+
+    sfn insertCustomer:void (session:DBSession id:int email:string name:string country:string) {
+        def m:DBMutation (DBMutation.makeInsert("customers"))
+        m.withValue("id" (DBValue.fromInt(id)))
+        m.withValue("email" (DBValue.fromString(email)))
+        m.withValue("name" (DBValue.fromString(name)))
+        m.withValue("country" (DBValue.fromString(country)))
+        session.mutate(m)
+    }
+
+    ; Open an in-memory database on `engine` and fill it. Returns a source that
+    ; is already open, or one whose errorText says why it is not.
+    sfn openSeeded:DbSource (engine:string) {
+        def src:DbSource (DbSource.inMemory(engine))
+        def ok:boolean (src.openSession())
+        if (ok == false) {
+            return src
+        }
+        if (engine == "rangerdb") {
+            DemoData.seedContract(src.session)
+        } {
+            DemoData.seedSql(src.session)
+        }
+        return src
+    }
+}

@@ -1,0 +1,261 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; BookSdlConfig.rgr - what the desktop host is told to open, and how
+; ==============================================================================
+;
+; A browser host is configured by its URL and a command-line host by its
+; arguments. A window has neither: it is opened by double-clicking something,
+; and the thing that decides which book appears has to be a file.
+;
+;     book.config.json  ─►  BookSdlConfig  ─►  BookApp
+;
+; EVERY FIELD HAS A DEFAULT, and a missing file is not an error - it is the
+; defaults. That is deliberate: the first run of a new build should show a book
+; rather than a diagnostic, and a config with one line in it should mean "like
+; the default, but that one thing different" rather than "these six fields and
+; nothing else". A half-written config is the normal state of a config.
+;
+; What it does NOT do is hide what it decided. `describe()` prints the settings
+; that are actually in force, because a host that silently fell back to a
+; default is indistinguishable from one that read your file correctly - and
+; the difference matters the moment a path is wrong.
+; ==============================================================================
+
+Import "../../src/PhotoIndex.rgr"
+
+class BookSdlConfig {
+    ; --- the window -------------------------------------------------------
+    def width:int 1400
+    def height:int 900
+    def title:string "Ranger Book Editor"
+    ; Arm editing at once. A reader who opened the window to read wants the
+    ; pages; one who opened it to work wants the handles.
+    def editing:boolean false
+    ; Which spread to open on. Counted from 1, because that is how the window
+    ; and the page panel count them; 0 and 1 both mean the first.
+    def spread:int 1
+
+    ; --- where the faces are ----------------------------------------------
+    ; The layout measures with these and the painter rasterizes with them, and
+    ; if the two disagree the book breaks its lines in one place and draws them
+    ; in another. One directory, both jobs.
+    def fontDir:string "gallery/pdf_writer/assets/fonts"
+    def fontFiles:[string]
+    def fontFamilies:[string]
+
+    ; --- what to open -----------------------------------------------------
+    ; "sample" | "album" | "photos"
+    def open:string "sample"
+    ; Where the pictures are, as the document will name them.
+    def assets:string "gallery/pdf_writer/assets/images"
+
+    ; open = album
+    def albumFile:string "gallery/book/fixtures/AlbumData.xml"
+    def albumName:string ""
+
+    ; open = photos
+    def photoIndex:string "gallery/book/fixtures/photo-index.json"
+    def photoFrom:string ""
+    def photoTo:string ""
+    def photoNear:string ""
+    def photoRadiusKm:double 0.0
+    def photoText:string ""
+    def photoPlace:string ""
+    def photoTitle:string ""
+
+    ; --- the book ---------------------------------------------------------
+    def format:string "square-210"
+
+    ; --- where things are written -----------------------------------------
+    def outDir:string "gallery/book/output/sdl"
+
+    ; --- what happened while reading it -----------------------------------
+    def source:string "built-in defaults"
+    def note:string ""
+
+    ; The four faces the sample book is set in, filled in HERE rather than by
+    ; a helper the constructor hands `this` to. On C++ an object is not yet
+    ; owned by its shared_ptr while its constructor runs, so passing `this` out
+    ; of one throws `std::bad_weak_ptr` at the first call - which no other
+    ; target does, and which the es6 build will never tell you.
+    Constructor () {
+        push fontFiles "Open_Sans/OpenSans-Regular.ttf"
+        push fontFiles "Open_Sans/OpenSans-Bold.ttf"
+        push fontFiles "Open_Sans/OpenSans-Italic.ttf"
+        push fontFiles "Cinzel/Cinzel-Regular.ttf"
+        push fontFiles "Cinzel/Cinzel-Bold.ttf"
+        push fontFiles "Josefin_Sans/JosefinSans-Regular.ttf"
+        push fontFiles "Josefin_Sans/JosefinSans-Bold.ttf"
+        push fontFamilies "Cinzel"
+        push fontFamilies "Josefin Sans"
+    }
+
+    ; --------------------------------------------------------------------
+    ; Reading
+    ; --------------------------------------------------------------------
+
+    ; A missing file answers with the defaults and says so in `note`. Only a
+    ; file that is THERE and unreadable is worth complaining about, because
+    ; that is the case where somebody meant something and did not get it.
+    sfn fromFile:BookSdlConfig (dir:string name:string) {
+        def c (new BookSdlConfig())
+        if ((file_exists dir name) == false) {
+            c.note = ("no " + dir + "/" + name + " - using the defaults")
+            return c
+        }
+        ; See ApplePlist.parseFile: an optional string is a pointer on es6 and
+        ; a std::string on C++, so it is coalesced rather than tested.
+        def body:string (?? (read_file dir name) "")
+        if ((strlen body) == 0) {
+            c.note = ((dir + "/" + name) + " is empty - using the defaults")
+            return c
+        }
+        c.source = (dir + "/" + name)
+        BookSdlConfig.applyJson(c body)
+        return c
+    }
+
+    sfn applyJson:void (c:BookSdlConfig text:string) {
+        def parser (new JsonParser())
+        def root:JsonValue (parser.parse(text))
+        if ((root.isObject()) == false) {
+            c.note = "the config is not a JSON object - using the defaults"
+            return
+        }
+
+        def win:JsonValue (root.get("window"))
+        if (win.isObject()) {
+            c.width = (win.intOr("width" c.width))
+            c.height = (win.intOr("height" c.height))
+            c.title = (win.stringOr("title" c.title))
+        }
+
+        def fonts:JsonValue (root.get("fonts"))
+        if (fonts.isObject()) {
+            c.fontDir = (fonts.stringOr("dir" c.fontDir))
+            def faces:JsonValue (fonts.get("faces"))
+            if (faces.isArray()) {
+                ; A config that names faces REPLACES the defaults rather than
+                ; adding to them: a host that quietly kept loading a face you
+                ; removed is a host you cannot use to test a face.
+                def freshFiles:[string]
+                c.fontFiles = freshFiles
+                def i:int 0
+                while (i < (faces.count())) {
+                    def f:JsonValue (faces.at(i))
+                    push c.fontFiles (f.asString())
+                    i = (i + 1)
+                }
+            }
+            def fams:JsonValue (fonts.get("families"))
+            if (fams.isArray()) {
+                def freshFams:[string]
+                c.fontFamilies = freshFams
+                def k:int 0
+                while (k < (fams.count())) {
+                    def f2:JsonValue (fams.at(k))
+                    push c.fontFamilies (f2.asString())
+                    k = (k + 1)
+                }
+            }
+        }
+
+        c.open = (root.stringOr("open" c.open))
+        c.assets = (root.stringOr("assets" c.assets))
+        c.outDir = (root.stringOr("output" c.outDir))
+        c.editing = (root.boolOr("editing" c.editing))
+        c.spread = (root.intOr("spread" c.spread))
+        c.format = (root.stringOr("format" c.format))
+
+        def album:JsonValue (root.get("album"))
+        if (album.isObject()) {
+            c.albumFile = (album.stringOr("file" c.albumFile))
+            c.albumName = (album.stringOr("name" c.albumName))
+        }
+
+        def photos:JsonValue (root.get("photos"))
+        if (photos.isObject()) {
+            c.photoIndex = (photos.stringOr("index" c.photoIndex))
+            c.photoFrom = (photos.stringOr("from" c.photoFrom))
+            c.photoTo = (photos.stringOr("to" c.photoTo))
+            c.photoNear = (photos.stringOr("near" c.photoNear))
+            c.photoRadiusKm = (photos.doubleOr("radiusKm" c.photoRadiusKm))
+            c.photoText = (photos.stringOr("text" c.photoText))
+            c.photoPlace = (photos.stringOr("place" c.photoPlace))
+            c.photoTitle = (photos.stringOr("title" c.photoTitle))
+        }
+
+        if ((BookSdlConfig.knownOpen(c.open)) == false) {
+            c.note = (("\"open\": \"" + c.open) + "\" is not one of sample, album, photos - opening the sample")
+            c.open = "sample"
+        }
+    }
+
+    sfn knownOpen:boolean (what:string) {
+        if (what == "sample") {
+            return true
+        }
+        if (what == "album") {
+            return true
+        }
+        if (what == "photos") {
+            return true
+        }
+        return false
+    }
+
+    ; --------------------------------------------------------------------
+
+    ; The settings in force, printed at startup. Not the file's text: what the
+    ; host is actually going to do with it.
+    fn describe:string () {
+        def out:string ("config     " + source + "\n")
+        if ((strlen note) > 0) {
+            out = (out + "           " + note + "\n")
+        }
+        out = (out + "window     " + (to_string width) + " x " + (to_string height) + "\n")
+        out = (out + "fonts      " + fontDir + ", " + (to_string (array_length fontFiles)) + " face(s)\n")
+        out = (out + "opening    " + open + ", on spread " + (to_string spread) + "\n")
+        if (open == "album") {
+            def which:string albumName
+            if ((strlen which) == 0) {
+                which = "(the first album somebody named)"
+            }
+            out = (out + "album      " + albumFile + " - " + which + "\n")
+        }
+        if (open == "photos") {
+            out = (out + "index      " + photoIndex + "\n")
+            out = (out + "query      " + (this.queryText()) + "\n")
+        }
+        out = (out + "pictures   " + assets + "\n")
+        out = (out + "output     " + outDir)
+        return out
+    }
+
+    fn queryText:string () {
+        def bits:string ""
+        if ((strlen photoFrom) > 0) {
+            bits = (bits + "from " + photoFrom + " ")
+        }
+        if ((strlen photoTo) > 0) {
+            bits = (bits + "to " + photoTo + " ")
+        }
+        if ((strlen photoPlace) > 0) {
+            bits = (bits + "at " + photoPlace + " ")
+        }
+        if ((strlen photoNear) > 0) {
+            bits = (bits + "near " + photoNear + " ")
+        }
+        if (photoRadiusKm > 0.0) {
+            bits = (bits + "within " + (BookRenderer.num(photoRadiusKm)) + " km ")
+        }
+        if ((strlen photoText) > 0) {
+            bits = (bits + "matching \"" + photoText + "\" ")
+        }
+        if ((strlen bits) == 0) {
+            return "everything in the index"
+        }
+        return bits
+    }
+}

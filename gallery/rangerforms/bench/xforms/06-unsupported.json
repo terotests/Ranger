@@ -1,0 +1,5 @@
+{
+  "name": "unsupported",
+  "note": "a form the reader must REFUSE to score: a repeat, indexed-repeat, count() over a node set, and calendar arithmetic",
+  "script": []
+}

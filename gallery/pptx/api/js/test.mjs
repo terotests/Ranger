@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import zlib from "node:zlib";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../../../..");
@@ -136,10 +137,47 @@ ok("and a PDF", () => assert.equal(Buffer.from(pdf.slice(0, 5)).toString(), "%PD
 
 deck.addSlide().background("FFFFFF").addTextBox(60, 60, 800, 100, "Toinen sivu");
 const all = r.toPdfDeck(deck);
+/**
+ * The page operators, decompressed.
+ *
+ * The streams are `/FlateDecode`, so the words are not in the file as text and
+ * a byte search finds nothing — which is what turned this assertion red the
+ * moment the writer learned to compress, and what a reader does to the file
+ * before it can draw anything. Node's own zlib inflates it, which also proves
+ * the compression is real zlib rather than merely something our own inflater
+ * accepts. Font programs carry `/Length1` and are skipped: one inflates to a
+ * TrueType file and would put a megabyte of binary noise into the search.
+ */
+function pdfContent(bytes) {
+  const buf = Buffer.from(bytes);
+  let out = "";
+  const re = /<<([^>]*)>>\s*stream\r?\n/g;
+  const head = buf.toString("latin1");
+  let m;
+  while ((m = re.exec(head)) !== null) {
+    const dict = m[1];
+    const start = m.index + m[0].length;
+    const stop = head.indexOf("\nendstream", start);
+    if (stop < 0) continue;
+    if (dict.includes("/Length1")) continue;
+    const body = buf.subarray(start, stop);
+    if (dict.includes("/FlateDecode")) {
+      try { out += zlib.inflateSync(body).toString("latin1"); } catch { /* not ours */ }
+    } else {
+      out += body.toString("latin1");
+    }
+  }
+  return out;
+}
+
 ok("the whole deck prints as one document", () => {
-  const text = Buffer.from(all).toString("latin1");
-  assert.ok(text.includes("/Count 2"), "two pages in the page tree");
-  assert.ok(text.includes("(Toinen sivu) Tj"), "the second slide's words are on it");
+  const structure = Buffer.from(all).toString("latin1");
+  assert.ok(structure.includes("/Count 2"), "two pages in the page tree");
+  const drawn = pdfContent(all);
+  assert.ok(drawn.includes("(Toinen sivu) Tj"), "the second slide's words are on it");
+});
+ok("and its streams are compressed", () => {
+  assert.ok(Buffer.from(all).toString("latin1").includes("/FlateDecode"));
 });
 ok("and it reports carrying the pictures", () => assert.equal(r.imagesPrinted, true));
 ok("a slide past the end throws rather than answering nothing", () => {

@@ -1,0 +1,422 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; XPathExpr.rgr — the XForms / ODK expression subset, on the native evaluator.
+; ============================================================================
+;
+;     /data/age &lt; 18                     →   age < 18
+;     /data/weight div (/data/h * /data/h)  →   weight / (h * h)
+;     selected(/data/sym, 'fever')          →   selected(sym, 'fever')
+;     string-length(/data/name) &gt; 0      →   len(name) > 0
+;     not(/data/consent = 'yes')            →   not (consent == 'yes')
+;
+; The third host behind `ExprHost`, and the stress case the plan named. XForms
+; conditions are XPath over an instance tree, which is closer to a language
+; than anything on the SurveyJS side.
+;
+; ---------------------------------------------------------------------------
+; A SUBSET, said out loud
+; ---------------------------------------------------------------------------
+;
+; This is not XPath 1.0 and does not pretend to be. What it covers is the
+; shape ODK forms are actually written in: absolute paths into a flat
+; instance, the comparison and boolean operators, arithmetic with `div` and
+; `mod`, and the function set below. What it does NOT cover is named — see
+; `unsupportedFunctions` — and a form using any of it is REFUSED by the reader
+; rather than scored, because a form that agreed with ODK on everything except
+; the axis it used would be a lie about what this does.
+;
+; The exclusions are all one thing: XPath's node-set model. Predicates
+; (`[...]`), axes (`ancestor::`), `indexed-repeat`, `instance()` and
+; `position()` all address a TREE, and a questionnaire whose instance is flat
+; has no tree to address. Repeat groups are where that stops being true, and
+; repeat groups are not read yet either — so the two gaps are the same gap.
+;
+; ---------------------------------------------------------------------------
+; Paths are resolved by the READER, not here
+; ---------------------------------------------------------------------------
+;
+; `.` and `../sibling` mean something only relative to the bind they are on,
+; and `Questionnaire.compile` walks rules without saying which question it is
+; holding. So `XFormReader` makes every reference absolute before it stores
+; the expression, and what arrives here is context-free — which is also what
+; makes an error message point at a name a person can search the form for.
+; ============================================================================
+
+Import "NativeExpr.rgr"
+
+class XPathExpr extends NativeExpr {
+
+    Constructor () {
+    }
+
+    fn hostName:string () {
+        return "xpath"
+    }
+
+    fn preprocess:string (source:string) {
+        return (XPathExpr.translate(source))
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The rewrite
+    ; ------------------------------------------------------------------------
+    ;
+    ; Character by character rather than by replacing text, for the same reason
+    ; `SurveyExpr` does it that way: `'a div b'` is a string with the word
+    ; `div` in it and must survive, and `/data/x` inside a literal is four
+    ; characters.
+    sfn translate:string (src:string) {
+        def out:string ""
+        def n:int (strlen src)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt src i)
+            if (ch == 39) {
+                def e1:int (XPathExpr.endOfString(src i n 39))
+                out = (out + (substring src i e1))
+                i = e1
+            } {
+                if (ch == 34) {
+                    def e2:int (XPathExpr.endOfString(src i n 34))
+                    out = (out + (substring src i e2))
+                    i = e2
+                } {
+                    if (ch == 47) {
+                        ; A path. Its LAST segment is the question's name,
+                        ; because an XForms instance for a questionnaire
+                        ; without repeats is flat and every node in it has a
+                        ; name of its own.
+                        def taken:int (XPathExpr.pathAt(src i n))
+                        if (taken > 0) {
+                            out = (out + (XPathExpr.lastSegment((substring src i (i + taken)))))
+                            i = (i + taken)
+                        } {
+                            out = (out + "/")
+                            i = (i + 1)
+                        }
+                    } {
+                        def word:int (XPathExpr.wordAt(src i n))
+                        if (word > 0) {
+                            def raw:string (substring src i (i + word))
+                            out = (out + (XPathExpr.wordFor(raw)))
+                            i = (i + word)
+                            ; `true()` and `false()` are CALLS in XPath and
+                            ; literals here, so the empty argument list goes
+                            ; with the word. Left behind it would be a `()`
+                            ; the parser has nothing to do with, and the rule
+                            ; would fail to compile — which is how a
+                            ; `required="true()"` quietly became optional.
+                            if (XPathExpr.isLiteralWord(raw)) {
+                                i = (XPathExpr.skipEmptyArgs(src i n))
+                            }
+                        } {
+                            out = (out + (substring src i (i + 1)))
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; How many characters a path takes, starting at a `/`. Zero when the slash
+    ; is a division — which cannot happen in an XForms expression, where
+    ; division is spelled `div`, but which keeps this honest if it is ever
+    ; handed something else.
+    sfn pathAt:int (src:string at:int n:int) {
+        def i:int at
+        def segments:int 0
+        while (i < n) {
+            if ((charAt src i) != 47) {
+                break
+            }
+            i = (i + 1)
+            def start:int i
+            while (i < n) {
+                if ((XPathExpr.isPathChar((charAt src i))) == false) {
+                    break
+                }
+                i = (i + 1)
+            }
+            if (i == start) {
+                break
+            }
+            segments = (segments + 1)
+        }
+        if (segments == 0) {
+            return 0
+        }
+        return (i - at)
+    }
+
+    sfn isPathChar:boolean (ch:int) {
+        if (NativeExpr.isNameChar(ch)) {
+            ; A bracket is a PREDICATE in XPath, not part of a name, and this
+            ; does not do predicates — so it must not swallow one silently.
+            if (ch == 91) {
+                return false
+            }
+            if (ch == 93) {
+                return false
+            }
+            return true
+        }
+        ; A namespace prefix, and the `-` that ODK node names are full of.
+        if (ch == 58) {
+            return true
+        }
+        if (ch == 45) {
+            return true
+        }
+        return false
+    }
+
+    ; `/data/group/age` is `age`. The name a bind gives a node is the name the
+    ; questionnaire knows it by, and a nested group does not change it.
+    sfn lastSegment:string (path:string) {
+        def n:int (strlen path)
+        def i:int n
+        while (i > 0) {
+            if ((charAt path (i - 1)) == 47) {
+                break
+            }
+            i = (i - 1)
+        }
+        def seg:string (substring path i n)
+        ; A namespace prefix on a node name is not part of the name.
+        def colon:int (XPathExpr.lastAt(seg 58))
+        if (colon >= 0) {
+            return (substring seg (colon + 1) (strlen seg))
+        }
+        return seg
+    }
+
+    sfn lastAt:int (text:string ch:int) {
+        def i:int (strlen text)
+        while (i > 0) {
+            if ((charAt text (i - 1)) == ch) {
+                return (i - 1)
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The words XPath spells differently
+    ; ------------------------------------------------------------------------
+    sfn wordAt:int (src:string at:int n:int) {
+        if ((NativeExpr.isNameStart((charAt src at))) == false) {
+            return 0
+        }
+        ; A word that is preceded by a name character is part of that name.
+        if (at > 0) {
+            if (XPathExpr.isPathChar((charAt src (at - 1)))) {
+                return 0
+            }
+        }
+        def i:int at
+        while (i < n) {
+            if ((NativeExpr.isNameChar((charAt src i))) == false) {
+                ; `string-length` and `count-selected` are one word with a
+                ; hyphen in the middle of them.
+                if ((charAt src i) == 45) {
+                    i = (i + 1)
+                } {
+                    break
+                }
+            } {
+                i = (i + 1)
+            }
+        }
+        return (i - at)
+    }
+
+    sfn wordFor:string (word:string) {
+        if (word == "div") {
+            return "/"
+        }
+        if (word == "mod") {
+            return "%"
+        }
+        ; XPath's booleans are calls; ours are literals, and `true()` would
+        ; otherwise be a function nobody defined.
+        if (word == "true") {
+            return "true "
+        }
+        if (word == "false") {
+            return "false "
+        }
+        if (word == "string-length") {
+            return "len"
+        }
+        if (word == "count-selected") {
+            return "count"
+        }
+        if (word == "if") {
+            return "iif"
+        }
+        ; `number` and `int` both mean "read this as a number"; ours is
+        ; `number`, and rounding towards zero is not what `int()` promises
+        ; anywhere, so it is not offered as one.
+        if (word == "boolean-from-string") {
+            return "notempty"
+        }
+        return word
+    }
+
+    sfn isLiteralWord:boolean (word:string) {
+        if (word == "true") {
+            return true
+        }
+        return (word == "false")
+    }
+
+    ; Past a `()`, and past nothing at all when that is not what follows.
+    sfn skipEmptyArgs:int (src:string at:int n:int) {
+        def i:int at
+        while (i < n) {
+            if ((charAt src i) != 32) {
+                break
+            }
+            i = (i + 1)
+        }
+        if (i >= n) {
+            return at
+        }
+        if ((charAt src i) != 40) {
+            return at
+        }
+        def k:int (i + 1)
+        while (k < n) {
+            if ((charAt src k) != 32) {
+                break
+            }
+            k = (k + 1)
+        }
+        if (k >= n) {
+            return at
+        }
+        if ((charAt src k) != 41) {
+            return at
+        }
+        return (k + 1)
+    }
+
+    sfn endOfString:int (src:string at:int n:int quote:int) {
+        def i:int (at + 1)
+        while (i < n) {
+            def ch:int (charAt src i)
+            if (ch == quote) {
+                return (i + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ------------------------------------------------------------------------
+    ; What this deliberately does not do
+    ; ------------------------------------------------------------------------
+    ;
+    ; Every one of these addresses a TREE, and a flat instance has none. They
+    ; arrive with repeat groups, and repeat groups are the same gap.
+    sfn unsupportedFunctions:[string] () {
+        def out:[string]
+        push out "instance"
+        push out "indexed-repeat"
+        push out "position"
+        push out "count"
+        push out "current"
+        push out "randomize"
+        push out "jr:choice-name"
+        ; Calendar arithmetic, for the same reason SurveyJS's `age()` is out:
+        ; an approximation that agreed most of the time would be worse than an
+        ; absence that is named.
+        push out "today"
+        push out "now"
+        push out "date"
+        push out "decimal-date-time"
+        push out "format-date"
+        push out "regex"
+        return out
+    }
+
+    ; `count(...)` is on the list above because XPath's `count` counts a NODE
+    ; SET, which is a different question from "how many boxes were ticked" —
+    ; that one is `count-selected`, and it is supported. A form using the
+    ; other one is refused rather than answered differently.
+    ; Asked of the source a person WROTE, never of the rewrite. `count-selected`
+    ; becomes `count` on the way through, and checking the rewrite would refuse
+    ; the one function of the pair that is supported.
+    sfn usesUnsupported:string (source:string) {
+        def bad:[string] (XPathExpr.unsupportedFunctions())
+        def i:int 0
+        def n:int (array_length bad)
+        while (i < n) {
+            def name:string (itemAt bad i)
+            if (XPathExpr.callsFunction(source name)) {
+                return name
+            }
+            i = (i + 1)
+        }
+        ; A predicate, an axis, or a wildcard — the tree, again.
+        if (XPathExpr.holdsChar(source 91)) {
+            return "a predicate [...]"
+        }
+        if (XPathExpr.holdsPart(source "::")) {
+            return "an axis"
+        }
+        return ""
+    }
+
+    sfn callsFunction:boolean (source:string name:string) {
+        def n:int (strlen name)
+        def last:int ((strlen source) - n)
+        def i:int 0
+        while (i <= last) {
+            if ((substring source i (i + n)) == name) {
+                def before:boolean true
+                if (i > 0) {
+                    if (XPathExpr.isPathChar((charAt source (i - 1)))) {
+                        before = false
+                    }
+                }
+                if before {
+                    def k:int (i + n)
+                    while (k < (strlen source)) {
+                        if ((charAt source k) != 32) {
+                            break
+                        }
+                        k = (k + 1)
+                    }
+                    if (k < (strlen source)) {
+                        if ((charAt source k) == 40) {
+                            return true
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn holdsChar:boolean (text:string ch:int) {
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            if ((charAt text i) == ch) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn holdsPart:boolean (text:string part:string) {
+        return (NativeExpr.hasPart(text part))
+    }
+}

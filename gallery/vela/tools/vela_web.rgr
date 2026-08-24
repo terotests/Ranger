@@ -23,6 +23,23 @@ Import "../src/VlCommand.rgr"
 Import "../src/VlSvg.rgr"
 Import "../src/VlCompile.rgr"
 
+; What a render produced. The page reads these fields straight off the object.
+;
+; `render` below still answers JSON, because that is the published shape and
+; the smoke test drives it — but a chart of a hundred thousand marks is a
+; forty-megabyte SVG document, and putting it INSIDE a JSON string means
+; escaping all forty megabytes and parsing them back out on the other side. At
+; that size the envelope was 34% of everything the page waited for, to carry a
+; string that was already a string.
+class VlWebAnswer {
+    def ok:boolean false
+    def svg:string ""
+    def vega:string ""
+    def commands:int 0
+    def errors:[string]
+    def warnings:[string]
+}
+
 class VelaWeb {
 
     ; A Vega-Lite specification is compiled first; a Vega one is run as it
@@ -48,64 +65,87 @@ class VelaWeb {
         return false
     }
 
+    ; The published entry point: a specification in, JSON out.
     sfn render:string (specText:string zoneName:string) {
+        def answer:VlWebAnswer (VelaWeb.renderAnswer(specText zoneName true))
         def out:VlJson (VlJson.objectValue())
-        def errors:VlJson (VlJson.arrayValue())
+        if (! answer.ok) {
+            def errors:VlJson (VlJson.arrayValue())
+            for answer.errors e:string ei {
+                push errors.arr (VlJson.stringValue(e))
+            }
+            return (VelaWeb.failure(out errors))
+        }
         def warnings:VlJson (VlJson.arrayValue())
+        for answer.warnings w:string wi {
+            push warnings.arr (VlJson.stringValue(w))
+        }
+        out.setMember("ok" (VlJson.boolValue(true)))
+        out.setMember("svg" (VlJson.stringValue(answer.svg)))
+        out.setMember("vega" (VlJson.stringValue(answer.vega)))
+        out.setMember("commands" (VlJson.numberValue((to_double answer.commands))))
+        out.setMember("warnings" warnings)
+        def w (new VlJsonWriter())
+        return (w.write(out))
+    }
+
+    ; The same work without the envelope. `wantVega` decides whether the
+    ; compiled Vega specification is written out as text: it is what the
+    ; playground shows in its second pane, it is another whole document the
+    ; size of the data, and a caller that will not show it should not pay for
+    ; it.
+    sfn renderAnswer:VlWebAnswer (specText:string zoneName:string wantVega:boolean) {
+        def answer (new VlWebAnswer())
 
         def parser (new VlJsonParser())
         def source:VlJson (parser.parse(specText))
         if (! parser.ok) {
-            push errors.arr (VlJson.stringValue(("that is not valid JSON: " + parser.err)))
-            return (VelaWeb.failure(out errors))
+            push answer.errors ("that is not valid JSON: " + parser.err)
+            return answer
         }
 
         ; Vega-Lite in: compile it, and hand the Vega back too, because seeing
         ; what a specification became is most of what a playground is for.
         def spec:VlJson source
-        def vegaText:string ""
         if (VelaWeb.looksLikeVegaLite(source)) {
             def compiler (new VlCompile())
             def compiled:VlJson (compiler.compileSpec(source))
             for compiler.errors ce:string cei {
-                push errors.arr (VlJson.stringValue(ce))
+                push answer.errors ce
             }
             if ((array_length compiler.errors) > 0) {
-                return (VelaWeb.failure(out errors))
+                return answer
             }
             spec = compiled
-            def vw (new VlJsonWriter())
-            vegaText = (vw.writePretty(compiled))
+            if wantVega {
+                def vw (new VlJsonWriter())
+                answer.vega = (vw.writePretty(compiled))
+            }
         }
 
         def rt (new VlRuntime())
         rt.timeZoneName = zoneName
         def scene:VlSceneMark (rt.run(spec))
         for rt.errors re:string rei {
-            push errors.arr (VlJson.stringValue(re))
+            push answer.errors re
         }
         if ((array_length rt.errors) > 0) {
-            return (VelaWeb.failure(out errors))
+            return answer
         }
         for rt.warnings rw:string rwi {
-            push warnings.arr (VlJson.stringValue(rw))
+            push answer.warnings rw
         }
 
         def list:VlCommandList (VlSceneCommands.build(scene))
         def root:VlSceneItem (itemAt scene.items 0)
         def writer (new VlSvgWriter())
-        def doc:string (writer.writeDocument(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY")) rt.background))
+        answer.svg = (writer.writeDocument(list (root.number("viewWidth")) (root.number("viewHeight")) (root.number("originX")) (root.number("originY")) rt.background))
         for writer.unsupported un:string uni {
-            push warnings.arr (VlJson.stringValue(("not drawn as asked: " + un)))
+            push answer.warnings ("not drawn as asked: " + un)
         }
-
-        out.setMember("ok" (VlJson.boolValue(true)))
-        out.setMember("svg" (VlJson.stringValue(doc)))
-        out.setMember("vega" (VlJson.stringValue(vegaText)))
-        out.setMember("commands" (VlJson.numberValue((to_double (list.count())))))
-        out.setMember("warnings" warnings)
-        def w (new VlJsonWriter())
-        return (w.write(out))
+        answer.commands = (list.count())
+        answer.ok = true
+        return answer
     }
 
     sfn failure:string (out:VlJson errors:VlJson) {
