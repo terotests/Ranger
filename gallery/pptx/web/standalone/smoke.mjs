@@ -18,7 +18,13 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.join(HERE, "dist");
+// The same 98 assertions run against the WebAssembly build of this page, which
+// is the whole point of having one: two engines, one test, one page. `--dist`
+// points at the other build's output and `--engine` names the file whose
+// absence means "you did not build it".
+const DIST = path.resolve(argVal("--dist", path.join(HERE, "dist")));
+const ENGINE = argVal("--engine", "pptx_web.js");
+const BUILD_CMD = argVal("--build-cmd", "npm run pptx:web");
 const PORT = parseInt(argVal("--port", "8878"), 10);
 
 function argVal(flag, dflt) {
@@ -33,6 +39,10 @@ const MIME = {
   ".ttf": "font/ttf",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".png": "image/png",
+  // Without this the browser refuses `instantiateStreaming` and the WASM page
+  // fails with a MIME error rather than a missing file — which reads as a
+  // broken engine when it is a broken server.
+  ".wasm": "application/wasm",
 };
 
 /** Chrome, wherever this machine keeps it. */
@@ -116,8 +126,8 @@ function runChrome(bin, args) {
 }
 
 async function main() {
-  if (!fs.existsSync(path.join(DIST, "pptx_web.js"))) {
-    console.error("no build in " + DIST + " — run: npm run pptx:web");
+  if (!fs.existsSync(path.join(DIST, ENGINE))) {
+    console.error("no build in " + DIST + " — run: " + BUILD_CMD);
     process.exit(1);
   }
   const chrome = findChrome();

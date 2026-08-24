@@ -13,6 +13,14 @@
 #                PresentationML → EVGDisplayList → WebGL 2), and it opens
 #                ready to edit. Works on a phone — the chrome folds at
 #                breakpoints the app's own stylesheet states.
+#   /pptx-wasm/ -> the SAME editor as /pptx/, compiled the other way: Ranger →
+#                C++ → WebAssembly (Emscripten) rather than Ranger →
+#                JavaScript. One source file, two backends, and the page —
+#                standalone.mjs — is the same file in both, so the two URLs
+#                differ in exactly one thing and can be compared. It is a path
+#                in THIS artifact and not a workflow of its own because GitHub
+#                Pages allows one deployment per repository: a second
+#                deployer would clobber the site rather than sit beside it.
 #   /vela/    -> paste a Vega or Vega-Lite specification and see what the
 #                Ranger runtime draws. The compiler and the SVG renderer it
 #                loads are built from gallery/vela/src, so the page shows this
@@ -72,6 +80,15 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+
+# The Emscripten release the WebAssembly editor is built with. Pinned rather
+# than `latest` so a site deploy cannot change the engine's compiler under it,
+# and so the cache key means something. This is the release the two engines
+# were checked against — `node gallery/pptx/web/wasm/parity.mjs`, 61 236
+# display-list commands identical — so moving it is a change to verify, not a
+# number to bump.
+env:
+  EMSDK_VERSION: "6.0.8"
 
 permissions:
   contents: read
@@ -218,6 +235,65 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/pptx/gl/evg-webgl.js"
           test -s "$GITHUB_WORKSPACE/_site/pptx/deck.pptx"
           grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
+
+      # ---- The same editor, as WebAssembly, at /pptx-wasm/ ----------------
+      # Ranger -> C++ -> Emscripten -> WASM. This is the only route that
+      # carries a program this size today: the direct LLVM/WAT backend is
+      # freestanding (primitives, no strings or objects), and the Rust backend
+      # gets through the Ranger frontend but emits Rust that does not yet
+      # compile — see RUST_ISSUES.md for the taxonomy.
+      #
+      # emsdk is installed rather than pulled from a third-party action, and
+      # cached on the SDK version so a site deploy does not re-download 300 MB
+      # of toolchain every time.
+      - name: Cache the Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
+
+      - name: Install the Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install "$EMSDK_VERSION"
+          ~/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: Build the WebAssembly editor
+        run: |
+          # shellcheck disable=SC1091
+          source ~/emsdk/emsdk_env.sh
+          bash gallery/pptx/web/wasm/build.sh --out "$GITHUB_WORKSPACE/_site/pptx-wasm"
+
+      # Does the WebAssembly engine draw the same picture as the JavaScript
+      # one? Every fixture, every slide, command by command and field by
+      # field. This is the check that caught `-fno-exceptions` turning a
+      # `catch (...)` in the Ranger runtime into an abort on one deck — a
+      # fault no amount of looking at the page would have found, because the
+      # page it broke was not the one anybody opens.
+      - name: Check the two engines agree
+        run: |
+          # shellcheck disable=SC1091
+          source ~/emsdk/emsdk_env.sh
+          node gallery/pptx/web/wasm/parity.mjs
+
+      # And that what the artifact will actually carry is there. A page whose
+      # engine failed to copy looks exactly like one whose engine failed to
+      # compile, and both look fine until someone opens them.
+      - name: Check the WebAssembly page has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/pptx_wasm.wasm"
+          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/pptx_wasm.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/wasm-host.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/pptx-wasm/deck.pptx"
+          # The page must NOT have picked up the JavaScript engine as well —
+          # that would publish a page that looks like it runs on WebAssembly
+          # and does not.
+          test ! -e "$GITHUB_WORKSPACE/_site/pptx-wasm/pptx_web.js"
+          grep -q "installPptxWeb" "$GITHUB_WORKSPACE/_site/pptx-wasm/index.html"
 
       # ---- Playground at the site root -----------------------------------
       - name: Install playground dependencies
