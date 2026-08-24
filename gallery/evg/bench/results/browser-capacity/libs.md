@@ -8,10 +8,10 @@ Vela and Vega are given the same Vega-Lite specification and compile it themselv
 
 | nodes | vela-svg | vega-svg | vega-canvas | chartjs |
 |---:|---:|---:|---:|---:|
-| 10000 | 1019.8 | 198.6 | 149.5 | 79.9 |
-| 30000 | 2624.5 | 887.9 | 428.7 | 171.9 |
-| 100000 | 12127.6 | 3303.4 | 1210.8 | 843.7 |
-| 300000 | 35366.3 | 21922.1 | 4962.5 | 1657.9 |
+| 10000 | 699.2 | 340.0 | 206.7 | 75.5 |
+| 30000 | 1764.8 | 925.3 | 388.1 | 127.3 |
+| 100000 | 5770.3 | 3087.9 | 1458.9 | 931.2 |
+| 300000 | 18339.2 | 13305.1 | 4066.0 | 1521.8 |
 
 ## New numbers to a new picture (ms, median)
 
@@ -19,10 +19,10 @@ Every point moves. Vega keeps its dataflow and reuses what it can; Chart.js keep
 
 | nodes | vela-svg | vega-svg | vega-canvas | chartjs | vela-svg ÷ best other |
 |---:|---:|---:|---:|---:|---:|
-| 10000 | 911.1 | 477.1 | 156.3 | 44.7 | 20.4× |
-| 30000 | 3552.4 | 1498.5 | 515.7 | 70.8 | 50.2× |
-| 100000 | 10113.4 | 5447.1 | 1627.0 | 420.9 | 24.0× |
-| 300000 | 40038.0 | 17380.5 | 6066.6 | 762.3 | 52.5× |
+| 10000 | 591.1 | 444.0 | 152.0 | 44.4 | 13.3× |
+| 30000 | 1892.0 | 1407.7 | 443.0 | 71.0 | 26.6× |
+| 100000 | 8169.7 | 5427.0 | 2083.7 | 408.6 | 20.0× |
+| 300000 | 24062.0 | 14446.2 | 5593.9 | 715.8 | 33.6× |
 
 ## Marginal cost per node (µs)
 
@@ -30,8 +30,8 @@ A least-squares slope over every size measured, rather than a difference between
 
 |  | vela-svg | vega-svg | vega-canvas | chartjs |
 |---:|---:|---:|---:|---:|
-| first render | 119.5 | 76.8 | 16.8 | 5.4 |
-| update | 135.6 | 58.6 | 20.5 | 2.5 |
+| first render | 61.1 | 45.4 | 13.4 | 5.0 |
+| update | 81.4 | 48.2 | 18.8 | 2.3 |
 
 ## What each one put on the page
 

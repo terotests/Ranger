@@ -1111,13 +1111,15 @@ and across sizes, the whole call:
 | 30 000 | 5 225 ms | 2 354 ms |
 
 In the browser, against the libraries, the marginal cost of one more mark went
-from **144 µs to 71 µs**, and a hundred-mark chart from 18.5 ms to 12.6 ms —
-which is now *faster than official Vega draws the same specification* (20.1 ms).
-Past a thousand marks Vela is still behind, by about 1.7× rather than the 3×
-it was, and the remaining gap is no longer one function: it is the scene
-evaluation and the per-mark path building, which allocate an object per segment
-and take a hash lookup per property read. The numbers, and everything they were
-measured against, are in [`gallery/evg/bench`](../evg/bench/).
+from **144 µs to 67 µs** over the two passes, and a hundred-mark chart from
+18.5 ms to 12.3 ms — which is now *faster than official Vega draws the same
+specification* (23.5 ms), as it is at three hundred and at a thousand. The two
+are level at three thousand marks, and past that Vela is behind by about 1.7×
+rather than the 3× it was. The remaining gap is no longer one function: it is
+the scene evaluation and the per-mark path building, which allocate an object
+per segment and take a hash lookup per property read. The numbers, and
+everything they were measured against, are in
+[`gallery/evg/bench`](../evg/bench/).
 
 ### And then a second pass, when the question became "how many points"
 
