@@ -1,0 +1,847 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxApi — open a deck, read it, change it, write it back. No screen involved.
+; ==============================================================================
+;
+; This is the published surface of the .pptx reader and writer: the thing a
+; program outside this repository calls, and the thing the generated
+; documentation describes. Everything under it already existed — `PptxParser`,
+; `PptxResolver`, the model in `PptxModel`, `PptxWriter` — and was reachable
+; only through `PptxApp`, which is an EDITOR: it owns a view, a selection, a
+; scroll offset, an undo history and a text caret. A build server that wants to
+; put a customer's name on slide one had to construct all of that and then
+; carefully not use it.
+;
+; So this facade is HEADLESS by construction. It imports the parser, the model
+; and the writer, and it imports no renderer, no canvas and no font. That is not
+; tidiness: fonts are megabytes and a rasterizer is a different kind of
+; dependency from a ZIP reader, and a program that only rewrites text should not
+; pay for either. Rendering — PNG, PDF — lives in `PptxRenderApi` beside this
+; file, which imports this one and adds the drawing. Two entry points, and the
+; one you import decides what you carry.
+;
+; WHAT A HANDLE IS. `PptxDeck`, `PptxSlideRef` and `PptxShapeRef` hold an INDEX
+; into the model rather than the model object. A reference that held the object
+; would go on describing a shape after the shape was removed, and would write
+; changes into a slide the deck no longer contains. Holding the index means a
+; stale handle answers `false` from `exists()` and refuses to write, which is a
+; thing a caller can check rather than a thing that silently does nothing.
+;
+; WHY THERE ARE NO EXCEPTIONS HERE. Ranger's compiled JavaScript has no throw
+; that a C++ target would honour the same way, so a failure is a value: `ok` is
+; false and `error` says what happened. The JavaScript wrapper turns that into
+; a thrown `Error`, because that is what a JavaScript caller expects — the
+; translation belongs in the wrapper, not in code that also compiles to C++.
+; ==============================================================================
+
+Import "../src/PptxParser.rgr"
+Import "../src/PptxResolver.rgr"
+Import "../src/PptxWriter.rgr"
+Import "../src/PptxModel.rgr"
+Import "../src/PptxTextEdit.rgr"
+
+; ------------------------------------------------------------------------------
+; A run of text inside a shape, addressed by paragraph and position.
+; ------------------------------------------------------------------------------
+;
+; A deck's text is not a string: it is paragraphs of runs, and a run is the unit
+; that carries a font, a size, a weight and a colour. `setText` on a shape
+; replaces the lot and keeps the FIRST run's formatting, because that is what
+; someone filling in a template means. Reach for this class when that is not
+; what you mean — when the second half of a sentence has to be red and the first
+; half must not change.
+class PptxRunRef {
+    def shape:PptxShapeRef (new PptxShapeRef())
+    def para:int 0
+    def index:int 0
+
+    Constructor () {
+    }
+
+    ; Is this run still there? A handle taken before an edit that removed
+    ; paragraphs is a handle to nothing, and every writer below checks this
+    ; first rather than reaching past the end of an array.
+    fn exists:boolean () {
+        if ((shape.exists()) == false) {
+            return false
+        }
+        def sh:PptxShape (shape.model())
+        if (sh.hasText == false) {
+            return false
+        }
+        if ((para < 0) || (para >= (array_length sh.text.paragraphs))) {
+            return false
+        }
+        def p:PptxParagraph (itemAt sh.text.paragraphs para)
+        return ((index >= 0) && (index < (array_length p.runs)))
+    }
+
+    fn model:PptxTextRun () {
+        def sh:PptxShape (shape.model())
+        def p:PptxParagraph (itemAt sh.text.paragraphs para)
+        return (itemAt p.runs index)
+    }
+
+    fn text:string () {
+        if ((this.exists()) == false) {
+            return ""
+        }
+        def r:PptxTextRun (this.model())
+        return r.text
+    }
+
+    fn setText:PptxRunRef (s:string) {
+        if (this.exists()) {
+            def r:PptxTextRun (this.model())
+            r.text = s
+            shape.touch()
+        }
+        return this
+    }
+
+    ; The font this run NAMES. It is not necessarily the font it is drawn in —
+    ; a renderer substitutes what it has — but it is what the file says and
+    ; what PowerPoint will use.
+    fn font:PptxRunRef (family:string sizePt:double) {
+        if (this.exists()) {
+            def r:PptxTextRun (this.model())
+            if ((strlen family) > 0) {
+                r.fontFamily = family
+            }
+            if (sizePt > 0.0) {
+                r.fontSizePt = sizePt
+                r.sizeSet = true
+            }
+            shape.touch()
+        }
+        return this
+    }
+
+    fn bold:PptxRunRef (on:boolean) {
+        if (this.exists()) {
+            def r:PptxTextRun (this.model())
+            r.bold = on
+            shape.touch()
+        }
+        return this
+    }
+
+    fn italic:PptxRunRef (on:boolean) {
+        if (this.exists()) {
+            def r:PptxTextRun (this.model())
+            r.italic = on
+            shape.touch()
+        }
+        return this
+    }
+
+    ; "4472C4" — six hexadecimal digits, with or without a leading '#'.
+    fn color:PptxRunRef (hex:string) {
+        if (this.exists()) {
+            def r:PptxTextRun (this.model())
+            r.color = (PptxApi.colorOf(hex))
+            shape.touch()
+        }
+        return this
+    }
+}
+
+; ------------------------------------------------------------------------------
+; One shape on one slide: a box, a picture, a group, a text placeholder.
+; ------------------------------------------------------------------------------
+;
+; `index` addresses the slide's TOP-LEVEL shapes. A shape inside a group is not
+; reachable from here, and that is a stated limit rather than an oversight: a
+; group's children live in the group's own coordinate space, and handing them
+; out through the same handle as a slide's shapes would make `at(x y)` mean two
+; different things depending on where the shape came from.
+class PptxShapeRef {
+    def slide:PptxSlideRef (new PptxSlideRef())
+    def index:int 0
+
+    Constructor () {
+    }
+
+    fn exists:boolean () {
+        if ((slide.exists()) == false) {
+            return false
+        }
+        def sl:PptxSlide (slide.model())
+        return ((index >= 0) && (index < (array_length sl.shapes)))
+    }
+
+    fn model:PptxShape () {
+        def sl:PptxSlide (slide.model())
+        return (itemAt sl.shapes index)
+    }
+
+    ; Every writer calls this. A slide that is not marked dirty is COPIED
+    ; through byte for byte when the deck is saved over the file it came from —
+    ; which is the whole point of that path, and also the way an edit silently
+    ; fails to appear in the output if nothing says the slide changed.
+    fn touch:void () {
+        if (slide.exists()) {
+            def sl:PptxSlide (slide.model())
+            sl.dirty = true
+            sl.revision = (sl.revision + 1)
+        }
+    }
+
+    fn name:string () {
+        if ((this.exists()) == false) {
+            return ""
+        }
+        def sh:PptxShape (this.model())
+        return sh.name
+    }
+
+    fn setName:PptxShapeRef (s:string) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.name = s
+            this.touch()
+        }
+        return this
+    }
+
+    ; The preset geometry: "rect", "ellipse", "roundRect", "star5" — one of the
+    ; 187 names ECMA-376 defines. `gallery/office/geom/assets/presets.txt` is
+    ; the catalogue, and `gallery/pptx/docs/PRESET_SHAPES.md` lists them.
+    fn preset:string () {
+        if ((this.exists()) == false) {
+            return ""
+        }
+        def sh:PptxShape (this.model())
+        return sh.preset
+    }
+
+    fn setPreset:PptxShapeRef (name:string) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.preset = name
+            this.touch()
+        }
+        return this
+    }
+
+    fn x:double () {
+        if ((this.exists()) == false) {
+            return 0.0
+        }
+        def sh:PptxShape (this.model())
+        return sh.x
+    }
+
+    fn y:double () {
+        if ((this.exists()) == false) {
+            return 0.0
+        }
+        def sh:PptxShape (this.model())
+        return sh.y
+    }
+
+    fn width:double () {
+        if ((this.exists()) == false) {
+            return 0.0
+        }
+        def sh:PptxShape (this.model())
+        return sh.width
+    }
+
+    fn height:double () {
+        if ((this.exists()) == false) {
+            return 0.0
+        }
+        def sh:PptxShape (this.model())
+        return sh.height
+    }
+
+    fn rotation:double () {
+        if ((this.exists()) == false) {
+            return 0.0
+        }
+        def sh:PptxShape (this.model())
+        return sh.rotation
+    }
+
+    ; Points, from the top left of the slide. A deck stores English Metric
+    ; Units — 12700 to the point — and nothing above this line ever sees one.
+    ;
+    ; `hasXfrm` is set here because a shape that states no transform inherits
+    ; its box from the layout: moving such a shape without saying it now has
+    ; its own geometry writes a position the file does not carry, and the shape
+    ; reopens where the layout put it.
+    fn at:PptxShapeRef (nx:double ny:double) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.x = nx
+            sh.y = ny
+            sh.hasXfrm = true
+            this.touch()
+        }
+        return this
+    }
+
+    fn size:PptxShapeRef (w:double h:double) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.width = w
+            sh.height = h
+            sh.hasXfrm = true
+            this.touch()
+        }
+        return this
+    }
+
+    ; Degrees clockwise. The file stores sixtieths of a thousandth of a degree;
+    ; the writer converts, and a negative angle wraps rather than being written
+    ; as a negative number, which PowerPoint does not read.
+    fn rotate:PptxShapeRef (deg:double) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.rotation = deg
+            sh.hasXfrm = true
+            this.touch()
+        }
+        return this
+    }
+
+    fn fill:PptxShapeRef (hex:string) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.fill = (PptxApi.colorOf(hex))
+            sh.noFill = false
+            this.touch()
+        }
+        return this
+    }
+
+    fn noFill:PptxShapeRef () {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.noFill = true
+            this.touch()
+        }
+        return this
+    }
+
+    fn line:PptxShapeRef (hex:string widthPt:double) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.line = (PptxApi.colorOf(hex))
+            sh.noLine = false
+            if (widthPt > 0.0) {
+                sh.lineWidthPt = widthPt
+            }
+            this.touch()
+        }
+        return this
+    }
+
+    fn noLine:PptxShapeRef () {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.noLine = true
+            this.touch()
+        }
+        return this
+    }
+
+    ; Every character in the shape, paragraphs joined by a newline. This is what
+    ; a search reads; it is not what a writer should round-trip, because the
+    ; runs and their formatting are not in it.
+    fn text:string () {
+        if ((this.exists()) == false) {
+            return ""
+        }
+        def sh:PptxShape (this.model())
+        if (sh.hasText == false) {
+            return ""
+        }
+        return (sh.text.plainText())
+    }
+
+    ; Replace all of the text, keeping the first run's formatting.
+    ;
+    ; A newline starts a new paragraph, and each paragraph keeps the FIRST
+    ; paragraph's properties — alignment, bullet, indent. Filling a template is
+    ; what this is for: the box was styled by whoever made the template, and a
+    ; caller who replaces the words means to keep that styling. Building text
+    ; whose parts differ from one another is `runAt` and `addRun`.
+    fn setText:PptxShapeRef (s:string) {
+        if ((this.exists()) == false) {
+            return this
+        }
+        def sh:PptxShape (this.model())
+        def protoRun (new PptxTextRun())
+        def protoPara (new PptxParagraph())
+        if (sh.hasText && ((array_length sh.text.paragraphs) > 0)) {
+            def p0:PptxParagraph (itemAt sh.text.paragraphs 0)
+            protoPara = p0
+            if ((array_length p0.runs) > 0) {
+                protoRun = (itemAt p0.runs 0)
+            }
+        }
+        def body (new PptxTextBody())
+        if sh.hasText {
+            body = sh.text
+        }
+        def fresh:[PptxParagraph]
+        def lines:[string] (PptxApi.lines(s))
+        def i:int 0
+        while (i < (array_length lines)) {
+            def para (new PptxParagraph())
+            protoPara.copyFormatTo(para)
+            def run:PptxTextRun (PptxTextEdit.emptyLike(protoRun))
+            run.text = (itemAt lines i)
+            push para.runs run
+            push fresh para
+            i = (i + 1)
+        }
+        body.paragraphs = fresh
+        sh.text = body
+        sh.hasText = true
+        this.touch()
+        return this
+    }
+
+    fn paragraphCount:int () {
+        if ((this.exists()) == false) {
+            return 0
+        }
+        def sh:PptxShape (this.model())
+        if (sh.hasText == false) {
+            return 0
+        }
+        return (array_length sh.text.paragraphs)
+    }
+
+    fn runCount:int (para:int) {
+        if ((this.exists()) == false) {
+            return 0
+        }
+        def sh:PptxShape (this.model())
+        if (sh.hasText == false) {
+            return 0
+        }
+        if ((para < 0) || (para >= (array_length sh.text.paragraphs))) {
+            return 0
+        }
+        def p:PptxParagraph (itemAt sh.text.paragraphs para)
+        return (array_length p.runs)
+    }
+
+    fn runAt:PptxRunRef (para:int index:int) {
+        def r (new PptxRunRef())
+        r.shape = this
+        r.para = para
+        r.index = index
+        return r
+    }
+
+    ; Add a run to the end of a paragraph, formatted like the one before it.
+    ; A shape with no text at all gets its first paragraph here.
+    fn addRun:PptxRunRef (para:int text:string) {
+        if ((this.exists()) == false) {
+            return (this.runAt(0 0))
+        }
+        def sh:PptxShape (this.model())
+        if (sh.hasText == false) {
+            def body (new PptxTextBody())
+            sh.text = body
+            sh.hasText = true
+        }
+        while ((array_length sh.text.paragraphs) <= para) {
+            def p (new PptxParagraph())
+            push sh.text.paragraphs p
+        }
+        def target:PptxParagraph (itemAt sh.text.paragraphs para)
+        def run (new PptxTextRun())
+        if ((array_length target.runs) > 0) {
+            def lastAt:int ((array_length target.runs) - 1)
+            def last:PptxTextRun (itemAt target.runs lastAt)
+            run = (PptxTextEdit.emptyLike(last))
+        }
+        run.text = text
+        push target.runs run
+        this.touch()
+        return (this.runAt(para ((array_length target.runs) - 1)))
+    }
+
+    ; Horizontal alignment of every paragraph: "l", "ctr", "r", "just".
+    fn align:PptxShapeRef (how:string) {
+        if ((this.exists()) == false) {
+            return this
+        }
+        def sh:PptxShape (this.model())
+        if (sh.hasText == false) {
+            return this
+        }
+        def i:int 0
+        while (i < (array_length sh.text.paragraphs)) {
+            def p:PptxParagraph (itemAt sh.text.paragraphs i)
+            p.align = how
+            p.alignSet = true
+            i = (i + 1)
+        }
+        this.touch()
+        return this
+    }
+}
+
+; ------------------------------------------------------------------------------
+; One slide.
+; ------------------------------------------------------------------------------
+class PptxSlideRef {
+    def deck:PptxDeck (new PptxDeck())
+    def index:int 0
+
+    Constructor () {
+    }
+
+    fn exists:boolean () {
+        if (deck.ok == false) {
+            return false
+        }
+        return ((index >= 0) && (index < (array_length deck.pres.slides)))
+    }
+
+    fn model:PptxSlide () {
+        return (itemAt deck.pres.slides index)
+    }
+
+    fn width:double () {
+        if ((this.exists()) == false) {
+            return 0.0
+        }
+        def s:PptxSlide (this.model())
+        return s.width
+    }
+
+    fn height:double () {
+        if ((this.exists()) == false) {
+            return 0.0
+        }
+        def s:PptxSlide (this.model())
+        return s.height
+    }
+
+    fn shapeCount:int () {
+        if ((this.exists()) == false) {
+            return 0
+        }
+        def s:PptxSlide (this.model())
+        return (array_length s.shapes)
+    }
+
+    fn shapeAt:PptxShapeRef (i:int) {
+        def r (new PptxShapeRef())
+        r.slide = this
+        r.index = i
+        return r
+    }
+
+    ; The first shape whose name matches, or a handle that says it does not
+    ; exist. A template names its boxes — "Title", "Subtitle", "Footer" — and
+    ; filling one in by name is what most callers want; by index is what breaks
+    ; the moment somebody reorders the slide in PowerPoint.
+    fn shapeNamed:PptxShapeRef (name:string) {
+        def i:int 0
+        while (i < (this.shapeCount())) {
+            def sh:PptxShapeRef (this.shapeAt(i))
+            def got:string (sh.name())
+            if (got == name) {
+                return sh
+            }
+            i = (i + 1)
+        }
+        return (this.shapeAt(0 - 1))
+    }
+
+    ; Every character on the slide, shape by shape in the order they are drawn.
+    fn text:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (this.shapeCount())) {
+            def sh:PptxShapeRef (this.shapeAt(i))
+            def t:string (sh.text())
+            if ((strlen t) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + "\n")
+                }
+                out = (out + t)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn addTextBox:PptxShapeRef (x:double y:double w:double h:double text:string) {
+        def made:PptxShapeRef (this.addShape("rect" x y w h))
+        if (made.exists()) {
+            def sh:PptxShape (made.model())
+            sh.noFill = true
+            sh.noLine = true
+            made.setText(text)
+        }
+        return made
+    }
+
+    fn addShape:PptxShapeRef (preset:string x:double y:double w:double h:double) {
+        if ((this.exists()) == false) {
+            return (this.shapeAt(0 - 1))
+        }
+        def s:PptxSlide (this.model())
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.preset = preset
+        sh.x = x
+        sh.y = y
+        sh.width = w
+        sh.height = h
+        sh.hasXfrm = true
+        sh.name = (preset + " " + (to_string ((array_length s.shapes) + 1)))
+        push s.shapes sh
+        s.dirty = true
+        s.revision = (s.revision + 1)
+        return (this.shapeAt(((array_length s.shapes) - 1)))
+    }
+
+    fn removeShape:boolean (i:int) {
+        if ((this.exists()) == false) {
+            return false
+        }
+        def s:PptxSlide (this.model())
+        if ((i < 0) || (i >= (array_length s.shapes))) {
+            return false
+        }
+        def kept:[PptxShape]
+        def k:int 0
+        while (k < (array_length s.shapes)) {
+            if (k != i) {
+                push kept (itemAt s.shapes k)
+            }
+            k = (k + 1)
+        }
+        s.shapes = kept
+        s.dirty = true
+        s.revision = (s.revision + 1)
+        return true
+    }
+
+    fn background:PptxSlideRef (hex:string) {
+        if (this.exists()) {
+            def s:PptxSlide (this.model())
+            s.bg = (PptxApi.colorOf(hex))
+            s.dirty = true
+        }
+        return this
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The deck.
+; ------------------------------------------------------------------------------
+;
+; Two ways out, and the difference matters more than it looks:
+;
+;   `save()`     writes over the package the deck was OPENED from. Every part
+;                nobody here models — animations, embedded workbooks, custom
+;                XML, the parts a future version of PowerPoint adds — is copied
+;                through byte for byte, and only the slides marked dirty are
+;                rewritten. This is what "edit a document" should mean.
+;   `saveNew()`  writes a package built entirely from the model. Everything not
+;                modelled is gone. It is the right answer for a deck this API
+;                CREATED, and the wrong one for a deck it opened.
+;
+; `save()` on a created deck falls back to `saveNew()`, because there is no
+; package to write over — so the common case needs no thought.
+class PptxDeck {
+    ; false when opening failed. `error` says why; nothing else is usable.
+    def ok:boolean false
+    def error:string ""
+    def pres:PptxPresentation (new PptxPresentation())
+    ; The package this deck was read from, kept open so `save` can copy the
+    ; parts nothing here models.
+    def parser:PptxParser (new PptxParser())
+    def opened:boolean false
+
+    Constructor () {
+    }
+
+    fn slideCount:int () {
+        return (array_length pres.slides)
+    }
+
+    fn slideAt:PptxSlideRef (i:int) {
+        def r (new PptxSlideRef())
+        r.deck = this
+        r.index = i
+        return r
+    }
+
+    ; Points. A 16:9 deck is 960 by 540; the 4:3 default is 720 by 540.
+    fn width:double () {
+        return pres.slideWidth
+    }
+
+    fn height:double () {
+        return pres.slideHeight
+    }
+
+    fn setSize:PptxDeck (w:double h:double) {
+        pres.slideWidth = w
+        pres.slideHeight = h
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def s:PptxSlide (itemAt pres.slides i)
+            s.width = w
+            s.height = h
+            s.dirty = true
+            i = (i + 1)
+        }
+        return this
+    }
+
+    fn addSlide:PptxSlideRef () {
+        def s (new PptxSlide())
+        s.width = pres.slideWidth
+        s.height = pres.slideHeight
+        s.dirty = true
+        push pres.slides s
+        return (this.slideAt(((array_length pres.slides) - 1)))
+    }
+
+    fn removeSlide:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length pres.slides))) {
+            return false
+        }
+        def kept:[PptxSlide]
+        def k:int 0
+        while (k < (array_length pres.slides)) {
+            if (k != i) {
+                push kept (itemAt pres.slides k)
+            }
+            k = (k + 1)
+        }
+        pres.slides = kept
+        return true
+    }
+
+    ; Every character in the deck, slide by slide. What a search index reads.
+    fn text:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def sl:PptxSlideRef (this.slideAt(i))
+            def t:string (sl.text())
+            if ((strlen t) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + "\n")
+                }
+                out = (out + t)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn save:buffer () {
+        if (opened == false) {
+            return (this.saveNew())
+        }
+        def w (new PptxWriter())
+        return (w.toBufferOver(pres parser.pkg))
+    }
+
+    fn saveNew:buffer () {
+        def w (new PptxWriter())
+        return (w.toBuffer(pres))
+    }
+}
+
+; ------------------------------------------------------------------------------
+; The front door.
+; ------------------------------------------------------------------------------
+class PptxApi {
+    ; The version of this SURFACE, not of the repository. It changes when a
+    ; method changes meaning, so a caller can tell what it is talking to.
+    sdef VERSION:string "1"
+
+    ; Open a .pptx from its bytes.
+    ;
+    ; Bytes rather than a path on purpose: this has to work in a browser, where
+    ; there is no file system, and in a build step, where the deck arrived over
+    ; HTTP. A caller with a path reads it and hands the bytes over.
+    sfn open:PptxDeck (bytes:buffer) {
+        def deck (new PptxDeck())
+        def parser (new PptxParser())
+        def got:boolean (parser.openBytes(bytes "deck.pptx"))
+        if (got == false) {
+            deck.ok = false
+            deck.error = "the bytes are not a readable .pptx package"
+            return deck
+        }
+        def raw:PptxPresentation (parser.parsePresentation())
+        def resolver (new PptxResolver())
+        deck.pres = (resolver.resolvePresentation(raw))
+        deck.parser = parser
+        deck.opened = true
+        deck.ok = true
+        return deck
+    }
+
+    ; A deck with nothing in it: one 16:9 page size, no slides. `addSlide` is
+    ; the next call.
+    sfn create:PptxDeck () {
+        def deck (new PptxDeck())
+        deck.pres.slideWidth = 960.0
+        deck.pres.slideHeight = 540.0
+        deck.opened = false
+        deck.ok = true
+        return deck
+    }
+
+    ; Split on newlines. The language has no `split` operator and the three
+    ; editors here each grew their own; this one is the API's, and it keeps
+    ; empty lines — a caller who writes "a\n\nb" means a blank paragraph
+    ; between them, and dropping it silently renumbers everything after.
+    sfn lines:[string] (s:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def cp:int (charAt s i)
+            if (cp == 10) {
+                push out cur
+                cur = ""
+            } {
+                if (cp != 13) {
+                    cur = (cur + (substring s i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+
+    ; "4472C4", "#4472C4" — and a name nobody can parse gives a colour that is
+    ; not set, which the writer leaves out rather than writing black.
+    sfn colorOf:PptxColor (hex:string) {
+        def s:string (trim hex)
+        if ((strlen s) == 0) {
+            def none (new PptxColor())
+            return none
+        }
+        ; `charAt` answers a CODEPOINT, not a one-character string — 35 is '#'.
+        ; Comparing it against "#" compiles and is never true, which would have
+        ; sent "#4472C4" to the parser with the hash still on it.
+        if ((charAt s 0) == 35) {
+            s = (substring s 1 (strlen s))
+        }
+        return (PptxColor.srgbOf(s))
+    }
+}
