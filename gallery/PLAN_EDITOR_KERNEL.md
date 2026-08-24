@@ -206,6 +206,11 @@ Two lessons for anything extracted from here on:
 A shared editing kernel therefore cannot be parameterised over "the app's node
 type". Two idioms are available, both already proven here:
 
+> **When generics arrive**, the first two rows below stop being workarounds and
+> the kernel can hold its own operations. The use cases, with what each needs
+> from the type system, are written up for the implementer in
+> [`PLAN_GENERICS.md`](../PLAN_GENERICS.md).
+
 | idiom | example | use it for |
 |---|---|---|
 | rules over **ids and indices**, app keeps its own arrays | `OfficeHistory` | undo, selection sets, z-order, grouping |
