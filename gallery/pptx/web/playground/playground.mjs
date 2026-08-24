@@ -112,6 +112,35 @@ return deck;`,
 });
 return deck;`,
 
+  "A Vega chart, as vectors": `// A Vega-Lite specification, compiled and put on the slide as SHAPES.
+// No image: every bar below is a DrawingML rectangle in the .pptx the
+// editor on the right opened, and the labels are in the slide's text.
+const deck = Pptx.create();
+const slide = deck.addSlide().background("FFFFFF");
+
+slide.addTextBox(70, 40, 820, 50, "Revenue by quarter")
+     .run(0, 0).font("Calibri", 30).bold().color("#1F3864");
+
+const chart = Chart().font("Calibri");
+chart.addTo(slide, {
+  width: 460, height: 260,
+  data: { values: [
+    { quarter: "Q1", revenue: 28 },
+    { quarter: "Q2", revenue: 55 },
+    { quarter: "Q3", revenue: 43 },
+    { quarter: "Q4", revenue: 91 },
+  ]},
+  mark: { type: "bar", color: "#4472C4" },
+  encoding: {
+    x: { field: "quarter", type: "nominal", title: null },
+    y: { field: "revenue", type: "quantitative", title: "M€" },
+  },
+}, 70, 110, 620, 380);
+
+slide.addTextBox(70, 500, 820, 40, chart.shapeCount + " shapes — not one pixel of image")
+     .run(0, 0).font("Calibri", 16).color("#5B6B84");
+return deck;`,
+
   "Right to left": `const deck = Pptx.create();
 const slide = deck.addSlide().background("FFFFFF");
 
@@ -182,8 +211,8 @@ function step(delta) {
 function run() {
   let deck;
   try {
-    const fn = new Function("Pptx", "Renderer", '"use strict";\n' + $("code").value);
-    deck = fn(JsApi, renderer);
+    const fn = new Function("Pptx", "Renderer", "Chart", '"use strict";\n' + $("code").value);
+    deck = fn(JsApi, renderer, Chart);
   } catch (err) {
     return fail("the code threw: " + (err && err.message ? err.message : String(err)));
   }
@@ -244,6 +273,9 @@ function Shape(ref) {
 }
 function Slide(ref) {
   const o = {
+    // The handle itself, so `Chart.addTo` can reach past the wrapper — the
+    // same reason `Deck` carries one.
+    _ref: ref,
     shape: (i) => Shape(ref.shapeAt(i | 0)),
     shapeNamed: (n) => { const s = ref.shapeNamed(String(n)); return s.exists() ? Shape(s) : null; },
     addTextBox: (...a) => Shape(ref.addTextBox(...a)),
@@ -271,6 +303,30 @@ function Deck(ref) {
   }
   return o;
 }
+/**
+ * The chart facade, over the compiled `PptxVega`.
+ *
+ * `addTo` takes the specification as an object or as JSON text and puts the
+ * result on the slide as SHAPES — not as a picture. That is visible in the
+ * page rather than only claimed: the editor on the right opened the .pptx
+ * bytes, so every bar it draws came out of the file's shape tree.
+ */
+function Chart() {
+  const ref = new PptxVega();
+  const o = {
+    font: (f) => { ref.font(String(f)); return o; },
+    curveSteps: (n) => { ref.curveSteps(n | 0); return o; },
+    addTo: (slide, spec, x, y, w, h) => {
+      const text = typeof spec === "string" ? spec : JSON.stringify(spec);
+      const made = ref.addTo(slide._ref, text, +x, +y, +w, +h);
+      if (!ref.ok) throw new Error(ref.error || "the chart could not be drawn");
+      return Shape(made);
+    },
+  };
+  Object.defineProperty(o, "shapeCount", { get: () => ref.shapeCount });
+  return o;
+}
+
 const JsApi = {
   get version() { return PptxApi.version(); },
   create: () => Deck(PptxApi.create()),
@@ -360,3 +416,4 @@ window.__runPlayground = run;
 // Published so the smoke test can build a deck the same way the page does,
 // rather than inferring what happened from pixels.
 window.__jsApi = JsApi;
+window.__chart = Chart;

@@ -1,7 +1,7 @@
 {
   "name": "@ranger/pptx",
   "version": "0.1.0",
-  "description": "Open a .pptx, read it, change it, write it back — and draw it to PNG or PDF.",
+  "description": "Open a .pptx, read it, change it, write it back \u2014 and draw it to PNG or PDF.",
   "license": "AGPL-3.0-or-later",
   "type": "commonjs",
   "main": "./index.cjs",
@@ -16,13 +16,29 @@
       "types": "./render.d.ts",
       "import": "./render.mjs",
       "require": "./render.cjs"
+    },
+    "./chart": {
+      "types": "./chart.d.ts",
+      "import": "./chart.mjs",
+      "require": "./chart.cjs"
     }
   },
   "files": [
-    "index.cjs", "index.mjs", "index.d.ts",
-    "render.cjs", "render.mjs", "render.d.ts",
-    "dist/pptx_api.cjs", "dist/pptx_api_render.cjs",
+    "index.cjs",
+    "index.mjs",
+    "index.d.ts",
+    "render.cjs",
+    "render.mjs",
+    "render.d.ts",
+    "chart.cjs",
+    "chart.mjs",
+    "chart.d.ts",
+    "dist/pptx_api.cjs",
+    "dist/pptx_api_render.cjs",
+    "dist/pptx_api_chart.cjs",
     "README.md"
   ],
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

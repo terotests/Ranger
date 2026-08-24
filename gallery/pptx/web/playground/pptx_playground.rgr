@@ -10,8 +10,11 @@
 ; deck with one copy of the code and drew it with another could show a slide
 ; that no reader would ever get.
 ;
-; So one bundle holds both. `PptxWeb` is the viewer the standalone page already
-; uses, unchanged; `PptxApi` and `PptxRenderer` are the published surface. The
+; So one bundle holds all of it. `PptxWeb` is the viewer the standalone page
+; already uses, unchanged; `PptxApi`, `PptxRenderer` and `PptxVega` are the
+; published surface — the npm package splits those three into separate entry
+; points so a caller carries only what they name, and a single page that
+; offers all three has nothing to split. The
 ; page runs the reader's JavaScript against the second, takes the bytes it
 ; produces, and opens them in the first — which is exactly the round trip a
 ; caller makes when they write a deck and someone opens it in PowerPoint,
@@ -23,6 +26,7 @@
 
 Import "../pptx_web.rgr"
 Import "../../api/PptxRenderApi.rgr"
+Import "../../api/PptxChartApi.rgr"
 
 class PptxPlayground {
     ; @internal The viewer, so the page can hand a generated deck straight to it.

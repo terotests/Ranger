@@ -112,8 +112,8 @@ for (const name of presets) {
     await new Promise((r) => setTimeout(r, 400));
     const status = document.getElementById("status");
     // Run the code again directly so the deck's own bytes can be measured.
-    const fn = new Function("Pptx", "Renderer", '"use strict";\n' + document.getElementById("code").value);
-    const deck = fn(window.__jsApi, null);
+    const fn = new Function("Pptx", "Renderer", "Chart", '"use strict";\n' + document.getElementById("code").value);
+    const deck = fn(window.__jsApi, null, window.__chart);
     const bytes = deck.save();
     return {
       statusText: status.textContent,

@@ -172,6 +172,12 @@ class PptxResolver {
         out.fontRefColor = (this.cloneColor(shape.fontRefColor))
         out.hasPath = shape.hasPath
         out.pathUnit = shape.pathUnit
+        ; Dropping this drew every custom path closed, whatever the file said:
+        ; the parser reads `Z` and the renderer asks for it, and the resolved
+        ; copy in between was answering `false`... which the renderer's own
+        ; default then turned back into "closed". A hand-drawn open stroke came
+        ; out joined end to end.
+        out.pathClosed = shape.pathClosed
         out.fill = (this.cloneColor(shape.fill))
         out.line = (this.cloneColor(shape.line))
         out.lineWidthPt = shape.lineWidthPt

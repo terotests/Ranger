@@ -41,9 +41,9 @@ node --input-type=module -e "
   import fs from 'fs';
   globalThis.require = undefined;
   const src = fs.readFileSync('$STAGE/pptx_playground.js', 'utf8');
-  const names = (0, eval)(src + '; [typeof PptxPlayground, typeof PptxApi, typeof PptxRenderer, typeof PptxWeb].join(\",\")');
-  if (names !== 'function,function,function,function') {
-    console.error('the bundle does not define all four classes: ' + names);
+  const names = (0, eval)(src + '; [typeof PptxPlayground, typeof PptxApi, typeof PptxRenderer, typeof PptxVega, typeof PptxWeb].join(\",\")');
+  if (names !== 'function,function,function,function,function') {
+    console.error('the bundle does not define all five classes: ' + names);
     process.exit(1);
   }
 " || exit 1
@@ -60,6 +60,7 @@ node --input-type=module -e "
       + '\n;globalThis.PptxPlayground = PptxPlayground;'
       + '\n;globalThis.PptxApi = PptxApi;'
       + '\n;globalThis.PptxRenderer = PptxRenderer;'
+      + '\n;globalThis.PptxVega = PptxVega;'
       + '\n;globalThis.PptxWeb = PptxWeb;\n})();\n');
   }
 " || exit 1

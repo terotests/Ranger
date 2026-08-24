@@ -208,6 +208,7 @@
     "pptx:editor:host:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxEditHostTest.rgr -d=./gallery/pptx/bin -o=PptxEditHostTest.js -nodecli && node ./gallery/pptx/bin/PptxEditHostTest.js",
     "pptx:a11y:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxA11yTest.rgr -d=./gallery/pptx/bin -o=PptxA11yTest.js -nodecli && node ./gallery/pptx/bin/PptxA11yTest.js",
     "pptx:api:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxApiTest.rgr -d=./gallery/pptx/bin -o=PptxApiTest.js -nodecli && node ./gallery/pptx/bin/PptxApiTest.js",
+    "pptx:vega:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxVegaTest.rgr -d=./gallery/pptx/bin -o=PptxVegaTest.js -nodecli && node ./gallery/pptx/bin/PptxVegaTest.js",
     "pptx:api:render:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pptx/tests/PptxRenderApiTest.rgr -d=./gallery/pptx/bin -o=PptxRenderApiTest.js -nodecli && node ./gallery/pptx/bin/PptxRenderApiTest.js",
     "pptx:api:build": "bash gallery/pptx/api/js/build.sh",
     "pptx:api:js:test": "bash gallery/pptx/api/js/build.sh && node gallery/pptx/api/js/test.mjs",

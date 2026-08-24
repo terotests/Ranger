@@ -353,15 +353,18 @@ class PptxShapeRef {
     ; Every character in the shape, paragraphs joined by a newline. This is what
     ; a search reads; it is not what a writer should round-trip, because the
     ; runs and their formatting are not in it.
+    ;
+    ; A GROUP ANSWERS FOR ITS CHILDREN. This used to stop at the group and
+    ; return nothing, because a group carries no text body of its own — so a
+    ; deck whose text boxes had been grouped, which is most decks anybody has
+    ; arranged, read back as blank. Nothing failed; the search index was simply
+    ; empty and there was no way to tell that from a deck with no words in it.
     fn text:string () {
         if ((this.exists()) == false) {
             return ""
         }
         def sh:PptxShape (this.model())
-        if (sh.hasText == false) {
-            return ""
-        }
-        return (sh.text.plainText())
+        return (PptxApi.textOf(sh))
     }
 
     ; Replace all of the text, keeping the first run's formatting.
@@ -777,6 +780,32 @@ class PptxApi {
     ; out `undefined` in JavaScript and nothing had failed to build.
     sfn version:string () {
         return "1"
+    }
+
+    ; @internal Every character in a shape and in everything under it.
+    ;
+    ; Recursive because a group is a shape with no text body and a list of
+    ; shapes that have one. `PptxShapeRef.text` and `PptxSlideRef.text` both
+    ; come here so that a grouped text box counts exactly once and reads the
+    ; same whichever handle asked.
+    sfn textOf:string (sh:PptxShape) {
+        def out:string ""
+        if sh.hasText {
+            out = (sh.text.plainText())
+        }
+        def i:int 0
+        while (i < (array_length sh.children)) {
+            def child:PptxShape (itemAt sh.children i)
+            def t:string (PptxApi.textOf(child))
+            if ((strlen t) > 0) {
+                if ((strlen out) > 0) {
+                    out = (out + "\n")
+                }
+                out = (out + t)
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; Open a .pptx from its bytes.
