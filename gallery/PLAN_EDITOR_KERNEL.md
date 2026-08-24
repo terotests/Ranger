@@ -22,7 +22,7 @@ to live in a folder called `office/`.
 | layer | modules | consumers |
 |---|---|---|
 | `gallery/evg` | `EVGDisplayList`, `EVGToolbar` + `View`, `EVGSelectChrome`, `EVGWindow`, `EVGCommands`, `EVGTextEngine`, `EVGTextMeasurer`, `EVGImageDecode`, `EVGCodepoint` | all four, plus `rangerflow`, `pdf_writer`, `game_engine` |
-| `gallery/office` | `OfficeText`, `OfficeBidi`, `OfficeArabic`, `OfficeFont`, `OfficeColor`, `OfficeStyle`, `OfficeAsset`, `OfficePresetShapes`, `OfficeHistory`, `OfficeTextMetrics`, `OfficeTextRun`, `OfficeGeomFormula` | uneven — see §3 |
+| `gallery/office` | `OfficeText`, `OfficeBidi`, `OfficeArabic`, `OfficeFont`, `OfficeColor`, `OfficeStyle`, `OfficeAsset`, `OfficePresetShapes`, `OfficeHistory`, `OfficeTextMetrics`, `OfficeTextRun`, `OfficeGeomFormula`, `export/EVGListToElements` | uneven — see §3 |
 
 `gallery/office/README.md` already draws the line, and it is the right line:
 
@@ -51,7 +51,19 @@ is drawn by `EvgGlPainter` in a window. A fix to how a rounded rectangle is
 emitted reaches the browser, the window, the software canvas and the PDF at
 once, because they all read the same commands.
 
-**This is the seam to prefer whenever a choice exists.**
+**This is the seam to prefer whenever a choice exists.** Two more pieces of
+evidence arrived after this was written, both from work that had nothing to do
+with the book:
+
+- `PptxFromEvg` made the display list an **output** format for slides, so it
+  runs both ways. `BookToPptx` is forty lines of wiring on top and the book
+  exports to PowerPoint — no second renderer, and neither side knew about the
+  other.
+- `office/export/EVGListToElements` turned it into the PDF writer's input too,
+  "deliberately not pptx-specific: the .docx reader and the spreadsheet emit
+  the same display lists".
+
+A base class shared between four editors would not have produced either.
 
 ### Policy seam — a fix propagates when adopted, and adoption is invisible
 
@@ -93,24 +105,27 @@ reports that.
 
 | shared module | used by | not used by |
 |---|---|---|
-| `OfficeHistory` | datagrid, docx_viewer | **pptx, book** |
+| `OfficeHistory` | **all four** — since generics | — |
 | `OfficeTextMetrics` | docx_viewer | pptx, datagrid, book |
 | `OfficePresetShapes` | pptx | book |
-| `OfficeGeomFormula` | **nobody** | all four |
+| `OfficeGeomFormula` | `OfficePresetShapes`, so pptx transitively | — |
 
-Two consequences worth stating plainly:
+One consequence still stands:
 
-- **Four undo implementations exist** where one shared policy is available:
-  `PptxEdit` (4450 lines), `DocxEditController` (2027), `BookEdit` (1448), and
-  `OfficeHistory` (157) which two of them ignore.
 - **`gallery/office/text/OfficeTextMetrics.rgr` (217 lines) and
   `gallery/docx_viewer/src/DocxTextMetrics.rgr` (217 lines)** solve the same
   problem, and *both* open by calling themselves the single authority — "ONE
   measurement authority for paragraph text" against "how far along a line an
   offset is, and the inverse". Neither is wrong. There are simply two of them.
-- **`OfficeGeomFormula` is dead shared code**, which is the other failure mode:
-  a module extracted for a future that did not arrive, still carrying a test
-  that passes.
+
+> **Correction, and it makes this document's own point.** The first draft of
+> this table said `OfficeGeomFormula` was used by **nobody** and called it dead
+> shared code. It is not: `OfficePresetShapes` imports it and calls it at a
+> dozen sites, so pptx reaches it transitively. The error was in how the table
+> was measured — consumers were counted by grepping *outside* `gallery/office`,
+> which scores a shared module used by another shared module as unused. That is
+> §6's rule biting its own author: **a check must count the noun the failure is
+> about.** The undo row was measured the same way and happened to be right.
 
 ---
 
@@ -143,12 +158,33 @@ The rule this implies is cheap to state and easy to enforce in review:
 
 ---
 
-## 5. The mechanism that is missing: nothing runs any of it
+## 5. The mechanism that was missing — now landed ✅
 
-`.github/workflows/ci.yml` runs `test:es6`, `test:go`, `test:python`,
+**Done.** `.github/workflows/ci.yml` has a `gallery-editors` job running
+`npm run gallery:editors:test`: nineteen suites, ~90 s, **ungated** — "a
+compiler change breaks these exactly as easily as a gallery change does" — and
+wired into `test-gate`, so a red editor suite blocks the merge rather than
+merely printing.
+
+`scripts/run-gallery-editor-tests.sh` is better than the sketch that was here.
+It catches the trap a naive chain would have walked into, in its own words:
+
+> the compiler prints `[FAIL]` and still exits 0. A chain of npm scripts
+> therefore runs the STALE build from the previous compile and reports a pass —
+> which is the one way a CI job can be worse than no CI job.
+
+So each suite is failed on `[FAIL]` in the output, on a missing pass marker,
+**and** on a non-zero exit. What follows is kept as the reasoning that argued
+for it.
+
+---
+
+*(originally, when none of this ran)*
+
+`.github/workflows/ci.yml` ran `test:es6`, `test:go`, `test:python`,
 `test:dart`, `test:runtime`, and — for gallery-only PRs — `engine:pong:runner`.
 
-**No gallery editor suite runs in CI at all.** Not `book:test`, not `pptx:test`,
+**No gallery editor suite ran in CI at all.** Not `book:test`, not `pptx:test`,
 not `docx_viewer:test`, not `datagrid:test`, not any `office:*:test`.
 
 So today a fix propagates because a human remembers to run five suites. That is
@@ -158,8 +194,9 @@ to find out whether a shared change had broken anything. It had not — but the
 only reason anyone knows is that someone thought to look.
 
 **A shared codebase whose cross-module tests only run when someone remembers is
-four codebases with a shared folder.** This is the cheapest and highest-leverage
-item in this document, and it should land *before* any code moves. Roughly:
+four codebases with a shared folder.** This was the cheapest and
+highest-leverage item in this document, and the argument for landing it before
+any code moved. Roughly:
 
 ```yaml
 - run: npm run office:history:test && npm run office:metrics:test
@@ -226,14 +263,29 @@ here — a rotation is a matrix and a rectangle, and neither knows what a slide 
 
 Nothing below is started. Each stage names what would make it *finished*.
 
-### Stage A — the floor (no code moves)
+### Stage A — the floor (no code moves) — ✅ done
 
-1. Gallery suites in CI (§5).
-2. `gallery/office/README.md` names the book as a fourth editor.
-3. Delete or adopt `OfficeGeomFormula`. Dead shared code teaches the wrong
-   lesson about what the folder is for.
+1. ~~Gallery suites in CI~~ — landed, see §5.
+2. ~~`gallery/office/README.md` names the book as a fourth editor~~ — landed.
+3. ~~Delete or adopt `OfficeGeomFormula`~~ — withdrawn: it was never dead. See
+   the correction in §3.
 
-*Done when:* a red gallery suite blocks a merge.
+*Done when:* a red gallery suite blocks a merge. **It does** — `test-gate`
+fails on `gallery-editors`.
+
+### Stage B0 — the display list both ways — ✅ arrived on its own
+
+Not planned here, and it is the strongest evidence in the document.
+`gallery/pptx/src/PptxFromEvg.rgr` converts a display list *to* DrawingML, so
+anything that draws can be put on a slide. `gallery/book/src/BookToPptx.rgr`
+cashes that in for the book in forty lines.
+
+*Open, and it is shared work rather than book work:* `PptxFromEvg` drops IMAGE
+commands (it counts them in `unresolvedImages` and says why — a display list
+names a picture, it does not carry the bytes) and ignores clips, including the
+one that crops an image frame. A byte registry on the converter plus `a:srcRect`
+on the blip fixes both, for every producer at once — a Vela chart, a data grid,
+a .docx page and a book page.
 
 ### Stage B — transform maths (a data seam, lowest risk)
 
@@ -245,15 +297,18 @@ away.
 *Done when:* `PptxEdit` computes no rotation itself, and a book frame can be
 rotated with the same call.
 
-### Stage C — undo (a policy seam, proven design)
+### Stage C — undo (a policy seam, proven design) — ✅ done
 
-Adopt `OfficeHistory` in `pptx` and `book`. Note that `docx_viewer`'s history is
-a true operation log with inverses, which the CHANGELOG already records as the
-better design over the book's whole-document snapshots — so this is not "make
-book look like pptx", it is "give book what docx has".
+Landed with generics. `OfficeHistory` is now `@params(Op)` and holds the
+operations; all four editors use it — `OfficeHistory@(DocEditOp)`,
+`@(SpreadsheetUndoOp)`, `@(BookDocument)`, `@(PptxEditSnapshot)` — and
+`PptxEdit` gave up its own history array and cursor. That was the acceptance
+test named in [`PLAN_GENERICS.md`](../PLAN_GENERICS.md), and it is met.
 
-*Done when:* one wiring test drives a transaction through all four editors and
-asserts that one action is one undo in each.
+*Still open:* the **wiring test** — one test that drives a transaction through
+all four editors and asserts that one action is one undo in each. Four
+instantiations prove the type-checker is happy; they do not prove the rules are
+reached. This is §4's rule, and it is the one part of Stage C not yet done.
 
 ### Stage D — selection and manipulation (the biggest win the user named)
 

@@ -1,0 +1,64 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; book_slides.rgr - the book, as a PowerPoint deck
+; ==============================================================================
+;
+;   npm run book:slides
+;
+; One slide per page, in reading order. The conversion is `BookToPptx`, which
+; is wiring rather than a renderer: the book already draws into an
+; `EVGDisplayList` and `PptxFromEvg` already turns one into DrawingML.
+;
+; It prints what did NOT survive the trip, per page, because that is the part a
+; caller has to decide about - today pictures do not go at all and an image
+; frame's crop is ignored. See the header of `BookToPptx.rgr`.
+; ==============================================================================
+
+Import "BookToPptx.rgr"
+Import "BookApi.rgr"
+Import "BookSample.rgr"
+Import "../../pdf_writer/src/fonts/EVGFontSetup.rgr"
+
+class BookSlides {
+    sfn main:void () {
+        print "== Ranger book engine: slides =="
+
+        ; Real faces before layout, or the lines break in one place here and
+        ; another in the deck.
+        def setup (new EVGFontSetup())
+        setup.init("./gallery/book/" "")
+        def manager:FontManager (setup.getManager())
+        def measurer (new TTFTextMeasurer(manager))
+        def engine (new EVGTextEngine())
+        engine.setMeasurer(measurer)
+
+        def api (new BookApi())
+        api.useTextEngine(engine)
+        def doc:BookDocument (BookSample.laidOut("../../pdf_writer/assets/images/" api.flowEngine))
+        api.doc = doc
+        api.invalidate()
+        def flow:BookFlowResult (api.reflow())
+
+        def conv (new BookToPptx())
+        conv.assetBase = "gallery/pdf_writer/assets/images/"
+        def result (new BookSlideResult())
+        def deck:PptxDeck (conv.deck(doc flow api.flowEngine result))
+
+        print (result.describe())
+        def i:int 0
+        while (i < (array_length result.notes)) {
+            print ("  " + (itemAt result.notes i))
+            i = (i + 1)
+        }
+
+        def out:string "./gallery/book/output"
+        try {
+            create_dir out
+        } {
+        }
+        def bytes:buffer (deck.save())
+        buffer_write_file out "book.pptx" bytes
+        print (("Wrote " + out + "/book.pptx (") + (to_string (buffer_length bytes)) + " bytes)")
+    }
+}

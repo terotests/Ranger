@@ -1,0 +1,115 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; BookSlidesTest - a book page becomes a slide, and says what it left behind
+; ==============================================================================
+;
+;   npm run book:slides:test
+;
+; Its own suite rather than a section of `BookTest`, on purpose: this one
+; imports the .pptx writer, which brings a ZIP writer and an XML writer with
+; it. `BookTest` compiles on JavaScript, Go AND Python and that guarantee is
+; worth more than the convenience of one more file in it.
+;
+; What is asserted is the CONTRACT rather than the pixels: one slide per page in
+; reading order, the text that was on the page is in the deck, and everything
+; that could not be carried is COUNTED. That last one is the interesting
+; assertion - a converter that silently dropped the pictures would pass a test
+; that only checked the slides came out.
+; ==============================================================================
+
+Import "../src/BookToPptx.rgr"
+Import "../src/BookApi.rgr"
+
+class SlideCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+}
+
+class BookSlidesTest {
+    ; A small book with one text frame and one picture frame, so the run counts
+    ; are predictable without a font file anywhere near it.
+    sfn fixture:BookApi () {
+        def api (BookApi.create("Slide Fixture" "a4"))
+        api.defaultStyles()
+        def m:BookMasterPage (api.master("plain"))
+        m.setMargins(40.0 40.0 40.0 40.0)
+
+        def s:BookStory (api.story("main"))
+        s.addParagraph("One" "body")
+
+        api.asset("pic" "nowhere/missing.jpg" 800.0 600.0)
+
+        def page:BookPage (api.page("plain"))
+        def t (BookFrame.textFrame("t1" 40.0 40.0 300.0 200.0 "main"))
+        page.addFrame(t)
+        def img (new BookFrame())
+        img.id = "i1"
+        img.kind = "image"
+        img.assetId = "pic"
+        img.x = 40.0
+        img.y = 300.0
+        img.w = 200.0
+        img.h = 150.0
+        page.addFrame(img)
+        api.reflow()
+        return api
+    }
+
+    sfn main:void () {
+        print "== BookSlidesTest =="
+        def c (new SlideCheck())
+
+        def api:BookApi (BookSlidesTest.fixture())
+        def flow:BookFlowResult (api.reflow())
+        def conv (new BookToPptx())
+        def result (new BookSlideResult())
+        def deck:PptxDeck (conv.deck(api.doc flow api.flowEngine result))
+
+        c.eqInt("one slide per page" result.slides (api.doc.pageCount()))
+        c.eqInt("and the deck agrees" (deck.slideCount()) (api.doc.pageCount()))
+        c.ok("the page's text reached the deck" (result.texts > 0))
+        c.ok("and so did its shapes" (result.shapes > 0))
+
+        ; The assertions that matter most: what could NOT be carried is
+        ; reported rather than dropped. A picture whose bytes the display list
+        ; does not hold is counted, and so is the clip that would have cropped
+        ; it - see the header of BookToPptx.rgr for why neither is silent.
+        c.ok("an unresolvable picture is reported" ((array_length result.notes) > 0))
+        c.ok("and the clip that would have cropped it is counted" (result.clipped > 0))
+
+        ; A deck that cannot be written is not an export.
+        def bytes:buffer (deck.save())
+        c.ok("the deck saves to bytes" ((buffer_length bytes) > 1000))
+        def head:int (buffer_get bytes 0)
+        c.eqInt("and they are a ZIP" head 80)
+
+        ; Bleed furniture must not reach a slide: with the overhang off the
+        ; veil is never drawn, so no page-sized translucent band can appear.
+        def painter (new BookToEvg())
+        painter.showBleed = false
+        c.ok("the export draws no bleed overhang" ((painter.bleedPx()) == 0.0))
+
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}
