@@ -20,6 +20,7 @@
 ; ==============================================================================
 
 Import "../OfficeShapeCatalog.rgr"
+Import "../OfficeEmojiShapes.rgr"
 Import "../../../book/src/BookApp.rgr"
 Import "../../../pptx/src/PptxApp.rgr"
 Import "../../../pptx/api/PptxApi.rgr"
@@ -120,6 +121,58 @@ class OfficeShapeCatalogTest {
         c.ok("a star is not stroke-only" ((cat.isStrokeOnly("star5" 100.0 100.0)) == false))
     }
 
+    ; --- the emoji ---------------------------------------------------------
+
+    sfn testEmoji:void (c:ShapeCheck) {
+        print "-- the emoji outlines --"
+        def cat (new OfficeShapeCatalog())
+        def before:int (cat.count())
+        OfficeEmojiShapes.fill(cat)
+        def after:int (cat.count())
+        c.ok("the emoji join the catalogue" (after > (before + 200)))
+
+        ; They carry their own outline, so unlike a preset they draw with no
+        ; presets loaded and no font present. That is the whole point of
+        ; generating them at build time.
+        def dog:ShapeEntry (cat.find("emojiDogFace"))
+        c.ok("an emoji is found by id" (dog.id == "emojiDogFace"))
+        c.ok("and carries its own path" (dog.hasPath()))
+        def path:string (cat.pathFor("emojiDogFace" 100.0 100.0))
+        c.ok("which pathFor answers with" ((strlen path) > 100))
+        c.ok("and it is a path" ((substring path 0 1) == "M"))
+
+        ; A dog's face is an outline with eyes and a nose inside it. If the
+        ; extractor kept only the outer contour they would be gone, and the
+        ; only cheap way to say "the holes are still there" is to count the
+        ; subpaths.
+        c.ok("with more than one contour" ((OfficeShapeCatalogTest.countOf(path "M")) > 3))
+        c.ok("every one of them closed" ((OfficeShapeCatalogTest.countOf(path "M")) == (OfficeShapeCatalogTest.countOf(path "Z"))))
+        ; Quadratic, because TrueType is. A path of nothing but lines would
+        ; mean the curves were flattened, which is what makes a font look
+        ; like the 1990s clip art it is meant to replace.
+        c.ok("and curved" ((OfficeShapeCatalogTest.countOf(path "Q")) > 20))
+
+        ; The ids are prefixed because the presets already own these words.
+        c.ok("emoji ids do not collide with presets" ((cat.find("cloud")).hasPath()) == false)
+        c.ok("the emoji cloud is a separate entry" ((cat.find("emojiCloud")).hasPath()))
+
+        c.ok("they are grouped" ((array_length (cat.inCategory("Animals"))) > 20))
+        c.ok("and searchable" ((array_length (cat.search("rabbit"))) > 0))
+    }
+
+    ; @internal How many times one character appears.
+    sfn countOf:int (s:string ch:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            if ((substring s i (i + 1)) == ch) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
     ; @internal Whether a path string closes any of its rings.
     sfn hasZ:boolean (path:string) {
         def i:int 0
@@ -208,6 +261,7 @@ class OfficeShapeCatalogTest {
         print "== OfficeShapeCatalogTest =="
         def c (new ShapeCheck())
         OfficeShapeCatalogTest.testCatalogue(c)
+        OfficeShapeCatalogTest.testEmoji(c)
         OfficeShapeCatalogTest.testBookInserts(c)
         OfficeShapeCatalogTest.testSlideInserts(c)
         print ""

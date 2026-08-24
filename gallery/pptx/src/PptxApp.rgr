@@ -25,6 +25,7 @@ Import "../../evg/EVGWindow.rgr"
 Import "../../evg/EVGCommands.rgr"
 Import "../../evg/EVGSelectChrome.rgr"
 Import "../../office/geom/OfficeShapeCatalog.rgr"
+Import "../../office/geom/OfficeEmojiShapes.rgr"
 
 ; Which buttons a slide viewer has. The strip is the shared one — the same
 ; component the spreadsheet's and the document's are — and this is the only
@@ -317,6 +318,10 @@ class PptxApp {
     def wantRaster:boolean true
 
     Constructor () {
+        ; The emoji outlines. They carry their own path data, so unlike the
+        ; presets they need no file from the host and no loader call — the
+        ; moment this class exists the catalogue can draw them.
+        OfficeEmojiShapes.fill(shapes)
     }
 
     fn init:void (fontDir:string) {
@@ -3402,6 +3407,16 @@ class PptxApp {
             ; Bound to a local: `(obj.m()).field` does not resolve in Ranger.
             def entry:ShapeEntry (shapes.find(arg))
             if (entry.id != arg) {
+                return false
+            }
+            ; An entry that carries its own outline — every emoji — cannot go
+            ; in as a slide shape yet. `PptxShape.pathUnit` is ONE ring, and a
+            ; mushroom's spots and a panda's eye patches are rings of their
+            ; own: the outer ring alone is a blank blob, and one shape per ring
+            ; fills the holes in. Refusing is the honest answer until a shape
+            ; can hold several rings. The book editor takes them today because
+            ; a `BookFrame` holds the whole path.
+            if (entry.hasPath()) {
                 return false
             }
             def sw:double ((this.slideW()) * 0.25)

@@ -29,6 +29,7 @@
 ; ==============================================================================
 
 Import "../OfficeShapeCatalog.rgr"
+Import "../OfficeEmojiShapes.rgr"
 
 class ShapeSheet {
     sfn main:void () {
@@ -39,6 +40,9 @@ class ShapeSheet {
             return
         }
         cat.loadPresets(text)
+        ; The emoji outlines too, so one picture covers everything a picker
+        ; can offer. They carry their own path data and need no font here.
+        OfficeEmojiShapes.fill(cat)
 
         def cell:double 110.0
         def boxW:double 80.0

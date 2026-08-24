@@ -1,0 +1,273 @@
+; The emoji this build offers as shapes, one per line.
+;
+;   codepoint <tab> id <tab> label <tab> category <tab> keywords
+;
+; The codepoint is looked up in NotoEmoji-Regular.ttf and its glyph outline
+; becomes the shape's path. A line whose codepoint the font does not have is
+; reported and skipped, so this file can name more than a given build carries.
+;
+; Ids are prefixed `emoji` because the presets already own `cloud`, `sun`,
+; `heart`, `moon` and `gear6`, and a catalogue with two `cloud`s cannot answer
+; `find`.
+127793	emojiSeedling	Seedling	Nature	seedling
+127794	emojiEvergreenTree	Evergreen tree	Nature	evergreen tree
+127795	emojiDeciduousTree	Deciduous tree	Nature	deciduous tree
+127796	emojiPalmTree	Palm tree	Nature	palm tree
+127797	emojiCactus	Cactus	Nature	cactus
+127808	emojiFourLeafClover	Four leaf clover	Nature	four leaf clover
+127809	emojiMapleLeaf	Maple leaf	Nature	maple leaf
+127810	emojiFallenLeaf	Fallen leaf	Nature	fallen leaf
+127807	emojiHerb	Herb	Nature	herb
+127812	emojiMushroom	Mushroom	Nature	mushroom
+127800	emojiCherryBlossom	Cherry blossom	Nature	cherry blossom
+127801	emojiRose	Rose	Nature	rose
+127803	emojiSunflower	Sunflower	Nature	sunflower
+127799	emojiTulip	Tulip	Nature	tulip
+127802	emojiHibiscus	Hibiscus	Nature	hibiscus
+127804	emojiBlossom	Blossom	Nature	blossom
+128144	emojiBouquet	Bouquet	Nature	bouquet
+127774	emojiSunWithFace	Sun with face	Nature	sun
+9728	emojiBlackSunWithRays	Black sun with rays	Nature	black sun rays
+127769	emojiCrescentMoon	Crescent moon	Nature	crescent moon
+127765	emojiFullMoonSymbol	Full moon symbol	Nature	full moon
+9729	emojiCloud	Cloud	Nature	cloud
+10052	emojiSnowflake	Snowflake	Nature	snowflake
+9889	emojiHighVoltageSign	High voltage sign	Nature	high voltage
+128293	emojiFire	Fire	Nature	fire
+128167	emojiDroplet	Droplet	Nature	droplet
+127754	emojiWaterWave	Water wave	Nature	water wave
+127752	emojiRainbow	Rainbow	Nature	rainbow
+127775	emojiGlowingStar	Glowing star	Nature	glowing star
+128054	emojiDogFace	Dog face	Animals	dog
+128049	emojiCatFace	Cat face	Animals	cat
+128045	emojiMouseFace	Mouse face	Animals	mouse
+128048	emojiRabbitFace	Rabbit face	Animals	rabbit
+128059	emojiBearFace	Bear face	Animals	bear
+128060	emojiPandaFace	Panda face	Animals	panda
+129418	emojiFoxFace	Fox face	Animals	fox
+129409	emojiLionFace	Lion face	Animals	lion
+128047	emojiTigerFace	Tiger face	Animals	tiger
+128046	emojiCowFace	Cow face	Animals	cow
+128055	emojiPigFace	Pig face	Animals	pig
+128056	emojiFrogFace	Frog face	Animals	frog
+128053	emojiMonkeyFace	Monkey face	Animals	monkey
+128039	emojiPenguin	Penguin	Animals	penguin
+128038	emojiBird	Bird	Animals	bird
+128020	emojiChicken	Chicken	Animals	chicken
+129417	emojiOwl	Owl	Animals	owl
+128034	emojiTurtle	Turtle	Animals	turtle
+128013	emojiSnake	Snake	Animals	snake
+128031	emojiFish	Fish	Animals	fish
+128032	emojiTropicalFish	Tropical fish	Animals	tropical fish
+128044	emojiDolphin	Dolphin	Animals	dolphin
+128011	emojiWhale	Whale	Animals	whale
+128051	emojiSpoutingWhale	Spouting whale	Animals	spouting whale
+128025	emojiOctopus	Octopus	Animals	octopus
+128012	emojiSnail	Snail	Animals	snail
+128029	emojiHoneybee	Honeybee	Animals	honeybee
+128030	emojiLadyBeetle	Lady beetle	Animals	lady beetle
+129419	emojiButterfly	Butterfly	Animals	butterfly
+128375	emojiSpider	Spider	Animals	spider
+128028	emojiAnt	Ant	Animals	ant
+128062	emojiPawPrints	Paw prints	Animals	paw prints
+127823	emojiGreenApple	Green apple	Food	green apple
+127822	emojiRedApple	Red apple	Food	red apple
+127824	emojiPear	Pear	Food	pear
+127818	emojiTangerine	Tangerine	Food	tangerine
+127819	emojiLemon	Lemon	Food	lemon
+127820	emojiBanana	Banana	Food	banana
+127817	emojiWatermelon	Watermelon	Food	watermelon
+127815	emojiGrapes	Grapes	Food	grapes
+127827	emojiStrawberry	Strawberry	Food	strawberry
+127826	emojiCherries	Cherries	Food	cherries
+127825	emojiPeach	Peach	Food	peach
+127821	emojiPineapple	Pineapple	Food	pineapple
+129365	emojiCarrot	Carrot	Food	carrot
+127805	emojiEarOfMaize	Ear of maize	Food	ear maize
+127798	emojiHotPepper	Hot pepper	Food	hot pepper
+127813	emojiTomato	Tomato	Food	tomato
+127814	emojiAubergine	Aubergine	Food	aubergine
+127838	emojiBread	Bread	Food	bread
+129472	emojiCheeseWedge	Cheese wedge	Food	cheese wedge
+127829	emojiSliceOfPizza	Slice of pizza	Food	slice pizza
+127828	emojiHamburger	Hamburger	Food	hamburger
+127839	emojiFrenchFries	French fries	Food	french fries
+127790	emojiTaco	Taco	Food	taco
+127871	emojiPopcorn	Popcorn	Food	popcorn
+127849	emojiDoughnut	Doughnut	Food	doughnut
+127850	emojiCookie	Cookie	Food	cookie
+127856	emojiShortcake	Shortcake	Food	shortcake
+127874	emojiBirthdayCake	Birthday cake	Food	birthday cake
+127852	emojiCandy	Candy	Food	candy
+127853	emojiLollipop	Lollipop	Food	lollipop
+9749	emojiHotBeverage	Hot beverage	Food	hot beverage
+127861	emojiTeacupWithoutHandle	Teacup without handle	Food	teacup without handle
+127863	emojiWineGlass	Wine glass	Food	wine glass
+127866	emojiBeerMug	Beer mug	Food	beer mug
+127864	emojiCocktailGlass	Cocktail glass	Food	cocktail glass
+128663	emojiAutomobile	Automobile	Travel	automobile
+128661	emojiTaxi	Taxi	Travel	taxi
+128652	emojiBus	Bus	Travel	bus
+128658	emojiFireEngine	Fire engine	Travel	fire engine
+128659	emojiPoliceCar	Police car	Travel	police car
+128657	emojiAmbulance	Ambulance	Travel	ambulance
+128668	emojiTractor	Tractor	Travel	tractor
+128690	emojiBicycle	Bicycle	Travel	bicycle
+9992	emojiAirplane	Airplane	Travel	airplane
+128640	emojiRocket	Rocket	Travel	rocket
+128641	emojiHelicopter	Helicopter	Travel	helicopter
+9973	emojiSailboat	Sailboat	Travel	sailboat
+128674	emojiShip	Ship	Travel	ship
+9875	emojiAnchor	Anchor	Travel	anchor
+128642	emojiSteamLocomotive	Steam locomotive	Travel	steam locomotive
+128651	emojiTramCar	Tram car	Travel	tram car
+9968	emojiMountain	Mountain	Travel	mountain
+127956	emojiSnowCappedMountain	Snow capped mountain	Travel	snow capped mountain
+127755	emojiVolcano	Volcano	Travel	volcano
+127965	emojiDesertIsland	Desert island	Travel	desert island
+127968	emojiHouseBuilding	House building	Travel	house building
+127970	emojiOfficeBuilding	Office building	Travel	office building
+127979	emojiSchool	School	Travel	school
+127973	emojiHospital	Hospital	Travel	hospital
+127981	emojiFactory	Factory	Travel	factory
+127984	emojiEuropeanCastle	European castle	Travel	european castle
+9978	emojiTent	Tent	Travel	tent
+127745	emojiFoggy	Foggy	Travel	foggy
+9748	emojiUmbrellaWithRainDrops	Umbrella with rain drops	Travel	umbrella rain drops
+128294	emojiElectricTorch	Electric torch	Objects	electric torch
+128367	emojiCandle	Candle	Objects	candle
+9200	emojiAlarmClock	Alarm clock	Objects	alarm clock
+8987	emojiHourglass	Hourglass	Objects	hourglass
+128241	emojiMobilePhone	Mobile phone	Objects	mobile phone
+128187	emojiPersonalComputer	Personal computer	Objects	personal computer
+128421	emojiDesktopComputer	Desktop computer	Objects	desktop computer
+128424	emojiPrinter	Printer	Objects	printer
+128247	emojiCamera	Camera	Objects	camera
+127909	emojiMovieCamera	Movie camera	Objects	movie camera
+128250	emojiTelevision	Television	Objects	television
+128251	emojiRadio	Radio	Objects	radio
+127911	emojiHeadphone	Headphone	Objects	headphone
+127908	emojiMicrophone	Microphone	Objects	microphone
+128276	emojiBell	Bell	Objects	bell
+128273	emojiKey	Key	Objects	key
+128274	emojiLock	Lock	Objects	lock
+128275	emojiOpenLock	Open lock	Objects	open lock
+128296	emojiHammer	Hammer	Objects	hammer
+128295	emojiWrench	Wrench	Objects	wrench
+128297	emojiNutAndBolt	Nut and bolt	Objects	nut bolt
+9881	emojiGear	Gear	Objects	gear
+129522	emojiMagnet	Magnet	Objects	magnet
+128301	emojiTelescope	Telescope	Objects	telescope
+128300	emojiMicroscope	Microscope	Objects	microscope
+128279	emojiLinkSymbol	Link symbol	Objects	link
+128206	emojiPaperclip	Paperclip	Objects	paperclip
+128204	emojiPushpin	Pushpin	Objects	pushpin
+128205	emojiRoundPushpin	Round pushpin	Objects	round pushpin
+9999	emojiPencil	Pencil	Objects	pencil
+128395	emojiLowerLeftFountainPen	Lower left fountain pen	Objects	lower left fountain pen
+128213	emojiClosedBook	Closed book	Objects	closed book
+128214	emojiOpenBook	Open book	Objects	open book
+128218	emojiBooks	Books	Objects	books
+128220	emojiScroll	Scroll	Objects	scroll
+128196	emojiPageFacingUp	Page facing up	Objects	page facing up
+128193	emojiFileFolder	File folder	Objects	file folder
+128199	emojiCardIndex	Card index	Objects	card index
+9993	emojiEnvelope	Envelope	Objects	envelope
+128230	emojiPackage	Package	Objects	package
+128722	emojiShoppingTrolley	Shopping trolley	Objects	shopping trolley
+128176	emojiMoneyBag	Money bag	Objects	money bag
+128179	emojiCreditCard	Credit card	Objects	credit card
+128188	emojiBriefcase	Briefcase	Objects	briefcase
+127891	emojiGraduationCap	Graduation cap	Objects	graduation cap
+127913	emojiTopHat	Top hat	Objects	top hat
+128081	emojiCrown	Crown	Objects	crown
+128141	emojiRing	Ring	Objects	ring
+128142	emojiGemStone	Gem stone	Objects	gem stone
+127942	emojiTrophy	Trophy	Objects	trophy
+127941	emojiSportsMedal	Sports medal	Objects	sports medal
+9917	emojiSoccerBall	Soccer ball	Activities	soccer ball
+127936	emojiBasketballAndHoop	Basketball and hoop	Activities	basketball hoop
+127944	emojiAmericanFootball	American football	Activities	american football
+9918	emojiBaseball	Baseball	Activities	baseball
+127934	emojiTennisRacquetAndBall	Tennis racquet and ball	Activities	tennis racquet ball
+127952	emojiVolleyball	Volleyball	Activities	volleyball
+127923	emojiBowling	Bowling	Activities	bowling
+9971	emojiFlagInHole	Flag in hole	Activities	flag in hole
+9976	emojiIceSkate	Ice skate	Activities	ice skate
+127935	emojiSkiAndSkiBoot	Ski and ski boot	Activities	ski ski boot
+127919	emojiDirectHit	Direct hit	Activities	direct hit
+127922	emojiGameDie	Game die	Activities	game die
+129513	emojiJigsawPuzzlePiece	Jigsaw puzzle piece	Activities	jigsaw puzzle piece
+127925	emojiMusicalNote	Musical note	Activities	musical note
+127926	emojiMultipleMusicalNotes	Multiple musical notes	Activities	multiple musical notes
+127929	emojiMusicalKeyboard	Musical keyboard	Activities	musical keyboard
+127928	emojiGuitar	Guitar	Activities	guitar
+127930	emojiTrumpet	Trumpet	Activities	trumpet
+127931	emojiViolin	Violin	Activities	violin
+129345	emojiDrumWithDrumsticks	Drum with drumsticks	Activities	drum drumsticks
+127912	emojiArtistPalette	Artist palette	Activities	artist palette
+127917	emojiPerformingArts	Performing arts	Activities	performing arts
+127902	emojiFilmFrames	Film frames	Activities	film frames
+127916	emojiClapperBoard	Clapper board	Activities	clapper board
+127881	emojiPartyPopper	Party popper	Activities	party popper
+127880	emojiBalloon	Balloon	Activities	balloon
+127873	emojiWrappedPresent	Wrapped present	Activities	wrapped present
+10084	emojiHeavyBlackHeart	Heavy black heart	Symbols	heavy black heart
+128148	emojiBrokenHeart	Broken heart	Symbols	broken heart
+128150	emojiSparklingHeart	Sparkling heart	Symbols	sparkling heart
+11088	emojiWhiteMediumStar	White medium star	Symbols	white medium star
+10024	emojiSparkles	Sparkles	Symbols	sparkles
+10004	emojiHeavyCheckMark	Heavy check mark	Symbols	heavy check mark
+10060	emojiCrossMark	Cross mark	Symbols	cross mark
+10071	emojiHeavyExclamationMarkSymbol	Heavy exclamation mark symbol	Symbols	heavy exclamation mark
+10067	emojiBlackQuestionMarkOrnament	Black question mark ornament	Symbols	black question mark ornament
+9888	emojiWarningSign	Warning sign	Symbols	warning
+9940	emojiNoEntry	No entry	Symbols	no entry
+128268	emojiElectricPlug	Electric plug	Symbols	electric plug
+128267	emojiBattery	Battery	Symbols	battery
+128269	emojiLeftPointingMagnifyingGlass	Left pointing magnifying glass	Symbols	left pointing magnifying glass
+128172	emojiSpeechBalloon	Speech balloon	Symbols	speech balloon
+128173	emojiThoughtBalloon	Thought balloon	Symbols	thought balloon
+128064	emojiEyes	Eyes	Symbols	eyes
+128065	emojiEye	Eye	Symbols	eye
+129504	emojiBrain	Brain	Symbols	brain
+129728	emojiAnatomicalHeart	Anatomical heart	Symbols	anatomical heart
+129516	emojiDnaDoubleHelix	Dna double helix	Symbols	dna double helix
+129440	emojiMicrobe	Microbe	Symbols	microbe
+128138	emojiPill	Pill	Symbols	pill
+128137	emojiSyringe	Syringe	Symbols	syringe
+129658	emojiStethoscope	Stethoscope	Symbols	stethoscope
+9879	emojiAlembic	Alembic	Symbols	alembic
+129514	emojiTestTube	Test tube	Symbols	test tube
+129515	emojiPetriDish	Petri dish	Symbols	petri dish
+128752	emojiSatellite	Satellite	Symbols	satellite
+128225	emojiSatelliteAntenna	Satellite antenna	Symbols	satellite antenna
+127760	emojiGlobeWithMeridians	Globe with meridians	Symbols	globe meridians
+127757	emojiEarthGlobeEuropeAfrica	Earth globe europe africa	Symbols	earth globe europe africa
+129517	emojiCompass	Compass	Symbols	compass
+128506	emojiWorldMap	World map	Symbols	world map
+128200	emojiChartWithUpwardsTrend	Chart with upwards trend	Symbols	chart upwards trend
+128202	emojiBarChart	Bar chart	Symbols	bar chart
+128203	emojiClipboard	Clipboard	Symbols	clipboard
+128197	emojiCalendar	Calendar	Symbols	calendar
+127777	emojiThermometer	Thermometer	Symbols	thermometer
+9883	emojiAtomSymbol	Atom symbol	Symbols	atom
+128512	emojiGrinningFace	Grinning face	Faces	grinning
+128522	emojiSmilingFaceWithSmilingEyes	Smiling face with smiling eyes	Faces	smiling smiling eyes
+128514	emojiFaceWithTearsOfJoy	Face with tears of joy	Faces	tears joy
+128521	emojiWinkingFace	Winking face	Faces	winking
+128525	emojiSmilingFaceWithHeartShapedEyes	Smiling face with heart shaped eyes	Faces	smiling heart shaped eyes
+129300	emojiThinkingFace	Thinking face	Faces	thinking
+128528	emojiNeutralFace	Neutral face	Faces	neutral
+128533	emojiConfusedFace	Confused face	Faces	confused
+128546	emojiCryingFace	Crying face	Faces	crying
+128545	emojiPoutingFace	Pouting face	Faces	pouting
+128564	emojiSleepingFace	Sleeping face	Faces	sleeping
+128567	emojiFaceWithMedicalMask	Face with medical mask	Faces	medical mask
+128526	emojiSmilingFaceWithSunglasses	Smiling face with sunglasses	Faces	smiling sunglasses
+128580	emojiFaceWithRollingEyes	Face with rolling eyes	Faces	rolling eyes
+128128	emojiSkull	Skull	Faces	skull
+129302	emojiRobotFace	Robot face	Faces	robot
+128126	emojiAlienMonster	Alien monster	Faces	alien monster
+128123	emojiGhost	Ghost	Faces	ghost
+127875	emojiJackOLantern	Jack o lantern	Faces	jack o lantern

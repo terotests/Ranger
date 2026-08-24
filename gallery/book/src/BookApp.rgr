@@ -33,6 +33,7 @@ Import "BookPreflight.rgr"
 Import "BookSample.rgr"
 Import "BookAlbumImport.rgr"
 Import "../../office/geom/OfficeShapeCatalog.rgr"
+Import "../../office/geom/OfficeEmojiShapes.rgr"
 Import "PhotoScan.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGToolbarView.rgr"
@@ -189,6 +190,10 @@ class BookApp {
     def lastReport:BookPreflightReport (new BookPreflightReport())
 
     Constructor () {
+        ; The emoji outlines. They carry their own path data, so unlike the
+        ; presets they need no file from the host and no loader call — the
+        ; moment this class exists the catalogue can draw them.
+        OfficeEmojiShapes.fill(shapes)
     }
 
     ; ---------------------------------------------------------------------
