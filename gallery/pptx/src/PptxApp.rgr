@@ -233,10 +233,21 @@ class PptxApp {
     ; The speaker's notes, under the slide.
     def notesVisible:boolean true
     def notesH:int 92
+    ; The chrome's stylesheet — see `defaultChromeCss`. Parsed once and
+    ; re-evaluated on every resize, because that is when the media conditions
+    ; can change.
+    def chromeCss:string ""
+    def chromeSheet:EVGStyleSheet (new EVGStyleSheet())
+    def coarsePointer:boolean false
     ; The slide panel: the deck down the left-hand side.
     def panelW:int 150
     def panelVisible:boolean true
     def panelScroll:int 0
+    ; The deck as a STRIP ACROSS THE TOP rather than a column down the side,
+    ; which is what a phone wants: a phone is narrow and tall, so a column
+    ; spends the dimension there is least of. Nonzero height means the strip;
+    ; the stylesheet says which by giving `.slide-panel` a width or a height.
+    def panelH:int 0
     def panelDrag:int -1
     def panelDropAt:int -1
     def panelBuilt:int 0
@@ -332,7 +343,7 @@ class PptxApp {
         toolbar.build()
         toolbar.editOn = editMode
         toolbarH = (toolbar.heightFor(W))
-        view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
+        view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
         view.chromeW = (this.panelWidth())
         this.registerCommands()
     }
@@ -886,11 +897,87 @@ class PptxApp {
         this.ensureSlideVisible()
     }
 
+    ; --- the chrome, at the size it is actually being shown --------------------
+    ;
+    ; A deck editor on a phone is the same program as one on a desktop, and
+    ; the difference between them is entirely numbers: how wide the slide
+    ; list is, whether the notes are worth their vertical space, how big a
+    ; button has to be to hit with a thumb. Those numbers live here, as a
+    ; stylesheet, because a stylesheet has `@media` and an `if` in `resize`
+    ; would not — and because a host that wants different breakpoints can
+    ; replace the string instead of patching the app.
+    ;
+    ; A width of zero folds a thing away.
+    sfn defaultChromeCss:string () {
+        return (".slide-panel { width: 150px }"
+              + " .notes { height: 92px }"
+              + " .toolbar { height: 34px; padding-left: 5px }"
+              + " .toolbar-tabs { height: 28px }"
+              + " .toolbar-button { width: 30px; height: 54px }"
+              ; A tablet: the list of slides is worth less than the slide.
+              + " @media (max-width: 900px) { .slide-panel { width: 96px } }"
+              ; A phone: the notes are the first thing to go — they are the
+              ; least useful thing on a small screen and the most expensive,
+              ; because they cost height, which is what a phone has least of.
+              ; A phone: the deck goes ACROSS THE TOP. A phone is narrow and
+              ; tall, so a column down the side spends the dimension there is
+              ; least of — and it is the dimension the slide itself needs,
+              ; because a slide is wider than it is tall. A width of zero and
+              ; a height turns the column into a strip.
+              + " @media (max-width: 640px) { .slide-panel { width: 0px; height: 76px } .notes { height: 0px } }"
+              ; A thumb is not a mouse. 44px is what WCAG 2.2 asks for, and
+              ; nothing about a window's WIDTH says which is on it — a laptop
+              ; with a touchscreen is wide and coarse at the same time.
+              + " @media (pointer: coarse) { .toolbar { height: 48px; padding-left: 8px } .toolbar-button { width: 44px; height: 66px } }")
+    }
+
+    fn setChromeCss:void (css:string) {
+        chromeCss = css
+        chromeSheet = (new EVGStyleSheet())
+        chromeSheet.parse(css)
+        this.applyChrome()
+    }
+
+    ; Say the pointer is a finger. Nothing in a window's size can tell you
+    ; this, and getting it wrong makes every button either too small to hit
+    ; or too big to fit.
+    fn setCoarsePointer:void (coarse:boolean) {
+        coarsePointer = coarse
+        this.applyChrome()
+    }
+
+    fn applyChrome:void () {
+        if ((chromeSheet.getRuleCount()) == 0) {
+            chromeSheet.parse((PptxApp.defaultChromeCss()))
+        }
+        chromeSheet.setViewport((to_double W) (to_double H) coarsePointer)
+        def panel (EVGElement.createDiv())
+        panel.className = "slide-panel"
+        chromeSheet.applyTree(panel "")
+        if (panel.width.isPixels()) {
+            panelW = (to_int panel.width.pixels)
+        }
+        ; A width makes it a column and a height makes it a strip. Saying it
+        ; this way means a breakpoint can turn one into the other without the
+        ; stylesheet needing a word for "orientation" that CSS does not have.
+        if (panel.height.isPixels()) {
+            panelH = (to_int panel.height.pixels)
+        }
+        def notes (EVGElement.createDiv())
+        notes.className = "notes"
+        chromeSheet.applyTree(notes "")
+        if (notes.height.isPixels()) {
+            notesH = (to_int notes.height.pixels)
+        }
+        toolbar.applyStyle(chromeSheet)
+    }
+
     fn resize:void (nw:int nh:int) {
         W = nw
         H = nh
+        this.applyChrome()
         toolbarH = (toolbar.heightFor(W))
-        view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
+        view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
         view.chromeW = (this.panelWidth())
         view.resize(W H)
     }
@@ -2202,7 +2289,7 @@ class PptxApp {
     }
 
     fn slideOriginY:double () {
-        def top:double (to_double toolbarH)
+        def top:double (to_double (toolbarH + (this.panelHeight())))
         def slide@(optional):PptxSlide (this.currentSlide())
         if (null? slide) {
             return top
@@ -2213,7 +2300,7 @@ class PptxApp {
         if presenting {
             return ((this.showAreaY()) + (((this.showAreaH()) - hpx) * 0.5))
         }
-        def avail:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
+        def avail:double (to_double (((((H - toolbarH) - (this.panelHeight())) - statusH) - (this.notesHeight()))))
         def dy:double ((avail - hpx) * 0.5)
         if (dy < 0.0) {
             return top
@@ -2945,7 +3032,7 @@ class PptxApp {
         }
         if (id == "view.notes") {
             notesVisible = (notesVisible == false)
-            view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
+            view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
             if (notesVisible == false) {
                 if (editor.isEditingNotes()) {
                     editor.endTextEdit()
@@ -2955,7 +3042,7 @@ class PptxApp {
         }
         if (id == "notes.edit") {
             notesVisible = true
-            view.chromeH = ((toolbarH + statusH) + (this.notesHeight()))
+            view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
             return (editor.editNotes())
         }
         if (id == "notes.set") {
@@ -3892,18 +3979,64 @@ class PptxApp {
     ; virtualizing it: the rule is already here, the deck is just never long
     ; enough yet to notice.
 
+    ; The deck runs along ONE axis, and which axis is the only difference
+    ; between the column a desktop shows and the strip a phone does. Every
+    ; measurement below is stated as "along the deck" or "across it", so the
+    ; painter, the hit test, the scroll and the drag do not each need to know.
+    fn panelOnTop:boolean () {
+        if (panelVisible == false) {
+            return false
+        }
+        return (panelH > 0)
+    }
+
+    ; What the panel takes out of the WIDTH — zero when it is a strip on top.
     fn panelWidth:int () {
         if (panelVisible == false) {
+            return 0
+        }
+        if (panelH > 0) {
             return 0
         }
         return panelW
     }
 
+    ; …and out of the HEIGHT, which is zero when it is a column on the side.
+    fn panelHeight:int () {
+        if (panelVisible == false) {
+            return 0
+        }
+        if (panelH > 0) {
+            return panelH
+        }
+        return 0
+    }
+
     fn panelThumbW:int () {
+        if (this.panelOnTop()) {
+            ; Across the strip the height is given and the width follows the
+            ; slide's own shape, which is the opposite of the column.
+            def h:double (to_double (this.panelThumbH()))
+            def sw:double (this.slideW())
+            def sh:double (this.slideH())
+            if (sh <= 0.0) {
+                return 80
+            }
+            return (to_int ((h * sw) / sh))
+        }
         return ((this.panelWidth()) - 34)
     }
 
     fn panelThumbH:int () {
+        if (this.panelOnTop()) {
+            ; Room for the slide number under it and the selection frame
+            ; around it.
+            def h:int (panelH - 26)
+            if (h < 24) {
+                h = 24
+            }
+            return h
+        }
         def w:double (to_double (this.panelThumbW()))
         def sw:double (this.slideW())
         def sh:double (this.slideH())
@@ -3913,43 +4046,99 @@ class PptxApp {
         return (to_int ((w * sh) / sw))
     }
 
+    ; The pitch from one thumbnail to the next, ALONG the deck.
     fn panelStep:int () {
+        if (this.panelOnTop()) {
+            return ((this.panelThumbW()) + 12)
+        }
         return ((this.panelThumbH()) + 12)
     }
 
-    fn panelThumbX:int () {
-        return 26
-    }
-
-    ; The panel starts far enough below the strip that a section name written
-    ; above the first thumbnail has room to be read.
-    fn panelTop:int () {
+    ; Where the first thumbnail starts along the deck. The column leaves room
+    ; above it for a section name; the strip leaves room in front of it for
+    ; the same reason.
+    fn panelStart:int () {
+        if (this.panelOnTop()) {
+            return 26
+        }
         return (toolbarH + 20)
     }
 
+    ; …and where the deck sits ACROSS its own axis.
+    fn panelCross:int () {
+        if (this.panelOnTop()) {
+            return (toolbarH + 6)
+        }
+        return 26
+    }
+
+    fn panelThumbX:int () {
+        return (this.panelCross())
+    }
+
+    ; Kept for the column, which is what everything that asks by name means.
+    fn panelTop:int () {
+        return (this.panelStart())
+    }
+
+    fn panelThumbXAt:int (i:int) {
+        if (this.panelOnTop()) {
+            return (((this.panelStart()) + (i * (this.panelStep()))) - panelScroll)
+        }
+        return (this.panelCross())
+    }
+
+    fn panelThumbYAt:int (i:int) {
+        if (this.panelOnTop()) {
+            return (this.panelCross())
+        }
+        return (((this.panelStart()) + (i * (this.panelStep()))) - panelScroll)
+    }
+
     fn panelThumbY:int (i:int) {
-        return ((((this.panelTop()) + (i * (this.panelStep()))) - panelScroll))
+        return (this.panelThumbYAt(i))
+    }
+
+    ; The pointer's position along the deck.
+    fn panelAlong:int (px:int py:int) {
+        if (this.panelOnTop()) {
+            return px
+        }
+        return py
+    }
+
+    ; The band the panel occupies, whichever way round it is.
+    fn panelInBand:boolean (px:int py:int) {
+        if (panelVisible == false) {
+            return false
+        }
+        if (py < toolbarH) {
+            return false
+        }
+        if (py >= (H - statusH)) {
+            return false
+        }
+        if (this.panelOnTop()) {
+            return (py < (toolbarH + panelH))
+        }
+        return (px < (this.panelWidth()))
     }
 
     fn panelSlideAt:int (px:int py:int) {
-        if (panelVisible == false) {
+        if ((this.panelInBand(px py)) == false) {
             return (0 - 1)
         }
-        if (px >= (this.panelWidth())) {
-            return (0 - 1)
-        }
-        if (py < toolbarH) {
-            return (0 - 1)
-        }
-        if (py >= (H - statusH)) {
-            return (0 - 1)
+        def along:int (this.panelAlong(px py))
+        def extent:int (this.panelThumbH())
+        if (this.panelOnTop()) {
+            extent = (this.panelThumbW())
         }
         def n:int (this.slideCount())
         def i:int 0
         while (i < n) {
-            def y:int (this.panelThumbY(i))
-            if (py >= y) {
-                if (py < (y + (this.panelThumbH()))) {
+            def at:int (((this.panelStart()) + (i * (this.panelStep()))) - panelScroll)
+            if (along >= at) {
+                if (along < (at + extent)) {
                     return i
                 }
             }
@@ -3961,11 +4150,11 @@ class PptxApp {
     ; Where a drag would drop the slide it is carrying: between two thumbnails
     ; rather than on one, which is the difference between reordering and
     ; replacing.
-    fn panelDropIndex:int (py:int) {
+    fn panelDropIndex:int (along:int) {
         def n:int (this.slideCount())
         def step:int (this.panelStep())
-        def top:int ((this.panelTop()) - panelScroll)
-        def rel:int (py - top)
+        def top:int ((this.panelStart()) - panelScroll)
+        def rel:int (along - top)
         if (rel < 0) {
             return 0
         }
@@ -3983,6 +4172,9 @@ class PptxApp {
     fn panelMaxScroll:int () {
         def total:int ((this.slideCount()) * (this.panelStep()))
         def visible:int ((H - toolbarH) - statusH)
+        if (this.panelOnTop()) {
+            visible = W
+        }
         def maxScroll:int (total - visible)
         if (maxScroll < 0) {
             return 0
@@ -4059,15 +4251,20 @@ class PptxApp {
         if (panelVisible == false) {
             return
         }
-        def y:int (this.panelThumbY(index))
-        def top:int toolbarH
-        def bottom:int (H - statusH)
-        if (y < top) {
-            panelScroll = (panelScroll - (top - y))
+        def at:int (((this.panelStart()) + (index * (this.panelStep()))) - panelScroll)
+        def near:int toolbarH
+        def far:int (H - statusH)
+        def extent:int (this.panelThumbH())
+        if (this.panelOnTop()) {
+            near = 0
+            far = W
+            extent = (this.panelThumbW())
         }
-        def h:int (this.panelThumbH())
-        if ((y + h) > bottom) {
-            panelScroll = (panelScroll + (((y + h) - bottom) + 10))
+        if (at < near) {
+            panelScroll = (panelScroll - (near - at))
+        }
+        if ((at + extent) > far) {
+            panelScroll = (panelScroll + (((at + extent) - far) + 10))
         }
         if (panelScroll < 0) {
             panelScroll = 0
@@ -4079,16 +4276,9 @@ class PptxApp {
             return false
         }
         if pressed {
-            if (px >= (this.panelWidth())) {
-                return false
-            }
-            ; The panel is only the band between the toolbar and the status
-            ; line: a press above it belongs to the strip, and swallowing that
-            ; makes the left-hand buttons dead.
-            if (py < toolbarH) {
-                return false
-            }
-            if (py >= (H - statusH)) {
+            ; The panel is only its own band: a press above it belongs to the
+            ; strip, and swallowing that makes the toolbar dead.
+            if ((this.panelInBand(px py)) == false) {
                 return false
             }
             def hit:int (this.panelSlideAt(px py))
@@ -4102,7 +4292,7 @@ class PptxApp {
         }
         if (panelDrag >= 0) {
             if down {
-                panelDropAt = (this.panelDropIndex(py))
+                panelDropAt = (this.panelDropIndex((this.panelAlong(px py))))
                 return true
             }
         }
@@ -4202,26 +4392,42 @@ class PptxApp {
         }
         this.followSelectionInPanel()
         this.clampPanelScroll()
-        def w:int (this.panelWidth())
+        def onTop:boolean (this.panelOnTop())
+        def bandBg:EVGColor (EVGColor.rgb(32 36 47))
         def top:double (to_double toolbarH)
-        def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
-        dl.addRect(0.0 top (to_double w) height (EVGColor.rgb(32 36 47)))
-        dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
+        if onTop {
+            dl.addRect(0.0 top (to_double W) (to_double panelH) bandBg)
+            dl.addRect(0.0 (to_double ((toolbarH + panelH) - 1)) (to_double W) 1.0 theme.line)
+        } {
+            def w:int (this.panelWidth())
+            def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
+            dl.addRect(0.0 top (to_double w) height bandBg)
+            dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
+        }
         def n:int (this.slideCount())
         def tw:int (this.panelThumbW())
         def th:int (this.panelThumbH())
-        def tx:int (this.panelThumbX())
         def i:int 0
         while (i < n) {
-            def ty:int (this.panelThumbY(i))
+            def tx:int (this.panelThumbXAt(i))
+            def ty:int (this.panelThumbYAt(i))
             ; Only what is on screen is built — a hundred-slide deck must not
             ; cost a hundred display lists to show a dozen thumbnails.
             def visible:boolean true
-            if ((ty + th) < toolbarH) {
-                visible = false
-            }
-            if (ty > (H - statusH)) {
-                visible = false
+            if onTop {
+                if ((tx + tw) < 0) {
+                    visible = false
+                }
+                if (tx > W) {
+                    visible = false
+                }
+            } {
+                if ((ty + th) < toolbarH) {
+                    visible = false
+                }
+                if (ty > (H - statusH)) {
+                    visible = false
+                }
             }
             if visible {
                 def slide:PptxSlide (itemAt presentation.slides i)
@@ -4237,7 +4443,13 @@ class PptxApp {
                 } {
                     dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 border)
                 }
-                toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 theme.dim)
+                ; The number: beside a column's thumbnail, under a strip's,
+                ; because a strip has no room to its left.
+                if onTop {
+                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 theme.dim)
+                } {
+                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 theme.dim)
+                }
                 ; A section names the run of slides that starts here, so it is
                 ; written once, above the first of them.
                 def sec:int (editor.sectionOfSlide(i))
@@ -4247,9 +4459,14 @@ class PptxApp {
                         prev = (editor.sectionOfSlide((i - 1)))
                     }
                     if (sec != prev) {
-                        ; A section name is the deck's text, not ours.
-                        def secName:string (editor.sectionNameAt(sec))
-                        toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
+                        ; A section name is the deck's text, not ours. There
+                        ; is no room above a strip's thumbnails, so a strip
+                        ; does not write them — a name drawn over the toolbar
+                        ; is worse than one not drawn.
+                        if (onTop == false) {
+                            def secName:string (editor.sectionNameAt(sec))
+                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(150 170 210)))
+                        }
                     }
                 }
             }
@@ -4258,8 +4475,13 @@ class PptxApp {
         ; Where a dragged slide would land.
         if (panelDrag >= 0) {
             if (panelDropAt >= 0) {
-                def dropY:int ((((this.panelTop()) + (panelDropAt * (this.panelStep()))) - panelScroll) - 4)
-                dl.addRect((to_double tx) (to_double dropY) (to_double tw) 2.0 (EVGColor.rgb(232 84 120)))
+                def drop:int ((((this.panelStart()) + (panelDropAt * (this.panelStep()))) - panelScroll) - 4)
+                def mark:EVGColor (EVGColor.rgb(232 84 120))
+                if onTop {
+                    dl.addRect((to_double drop) (to_double (this.panelCross())) 2.0 (to_double th) mark)
+                } {
+                    dl.addRect((to_double (this.panelCross())) (to_double drop) (to_double tw) 2.0 mark)
+                }
             }
         }
     }

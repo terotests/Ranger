@@ -277,6 +277,74 @@ class PptxFrameTest {
         ; it was showing. The fix was two things: an emoji face loaded for
         ; fallback, and the rasterizer actually being GIVEN the manager that
         ; knows which face has which codepoint.
+        print "-- the chrome at the size it is being shown --"
+        ; A deck editor on a phone is the same program as on a desktop and the
+        ; difference is entirely numbers. They come from a stylesheet with
+        ; `@media` in it, so a host can change the breakpoints without
+        ; patching the app — and so there is ONE definition of "small screen"
+        ; rather than one per caller.
+        def rsp:PptxApp (PptxFrameTest.build())
+        rsp.resize(1280 800)
+        c.eqInt("a desktop keeps the full slide list" (rsp.panelWidth()) 150)
+        c.ok("and the notes" ((rsp.notesHeight()) > 0))
+        c.eqInt("with mouse-sized buttons" rsp.toolbar.iconW 30)
+
+        rsp.resize(820 700)
+        c.eqInt("a tablet narrows the list" (rsp.panelWidth()) 96)
+        c.ok("but keeps the notes" ((rsp.notesHeight()) > 0))
+
+        rsp.resize(390 844)
+        ; A phone turns the column into a strip across the top: a phone is
+        ; narrow and tall, and a column spends the dimension there is least
+        ; of — which is the one the slide needs, because a slide is wider
+        ; than it is tall.
+        c.ok("a phone puts the deck on top" (rsp.panelOnTop()))
+        c.eqInt("so it takes nothing out of the width" (rsp.panelWidth()) 0)
+        c.ok("and takes its room out of the height instead" ((rsp.panelHeight()) > 0))
+        ; The thumbnails now run left to right, and the strip is as tall as
+        ; one of them plus its number.
+        c.ok("the thumbnails run across" ((rsp.panelThumbXAt(1)) > (rsp.panelThumbXAt(0))))
+        c.eqInt("all on the same line" (rsp.panelThumbYAt(1)) (rsp.panelThumbYAt(0)))
+        c.ok("and a thumbnail is wider than it is tall" ((rsp.panelThumbW()) > (rsp.panelThumbH())))
+        ; A press still picks the slide it looks like it would.
+        def last:int ((rsp.slideCount()) - 1)
+        def hitX:int ((rsp.panelThumbXAt(last)) + (idiv (rsp.panelThumbW()) 2))
+        def hitY:int ((rsp.panelThumbYAt(last)) + (idiv (rsp.panelThumbH()) 2))
+        c.ok("the deck has more than one slide to test with" (last > 0))
+        c.eqInt("a press in the strip finds the slide under it" (rsp.panelSlideAt(hitX hitY)) last)
+        ; …and a press below the strip is the slide, not the deck.
+        c.eqInt("below the strip is not the deck any more"
+                (rsp.panelSlideAt(hitX ((rsp.toolbarH + (rsp.panelHeight())) + 10))) (0 - 1))
+        ; The slide starts under the strip rather than beside it.
+        c.ok("the slide is drawn below the strip" ((rsp.slideOriginY()) >= (to_double (rsp.toolbarH + (rsp.panelHeight())))))
+        c.ok("and starts at the left edge" ((rsp.slideOriginX()) < 40.0))
+        ; Height is what a phone has least of, and the notes are the least
+        ; useful thing to spend it on.
+        c.eqInt("and folds the notes away" (rsp.notesHeight()) 0)
+        ; What folding the notes away buys: the height they were taking is
+        ; the slide's now.
+        def freeH:int ((rsp.H - rsp.toolbarH) - rsp.statusH)
+        c.ok("leaving the slide the tallest thing on screen" (freeH > (idiv rsp.H 2)))
+
+        ; Nothing about a window's WIDTH says what is pointing at it: a laptop
+        ; with a touchscreen is wide and coarse at once.
+        rsp.resize(1280 800)
+        c.eqInt("a wide window with a mouse keeps small chips" rsp.toolbar.iconW 30)
+        rsp.setCoarsePointer(true)
+        c.eqInt("a wide window with a FINGER gets 44px ones" rsp.toolbar.iconW 44)
+        rsp.setCoarsePointer(false)
+        c.eqInt("and back" rsp.toolbar.iconW 30)
+
+        ; A host with different ideas replaces the sheet rather than the app.
+        rsp.setChromeCss(".slide-panel { width: 210px } .notes { height: 40px }")
+        rsp.resize(1280 800)
+        c.eqInt("a host can state its own chrome" (rsp.panelWidth()) 210)
+        c.eqInt("including the notes" (rsp.notesHeight()) 40)
+        ; …and with no breakpoints in it, a phone gets the same numbers,
+        ; because the host said so.
+        rsp.resize(390 844)
+        c.eqInt("with no breakpoints, a phone gets what it asked for" (rsp.panelWidth()) 210)
+
         print "-- a box sized for a font we do not have --"
         ; A deck names Calibri; we draw Open Sans, which is wider; a label the
         ; author sized to fit came out on two lines. The layout shrinks a body
