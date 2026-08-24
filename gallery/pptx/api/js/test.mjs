@@ -184,6 +184,34 @@ ok("a slide past the end throws rather than answering nothing", () => {
   assert.throws(() => r.toPng(deck, 9, 1), /no slide/);
 });
 
+// ---- translucency in the PDF ----------------------------------------------
+//
+// PDF has no alpha on a colour: a fill is `r g b rg` and that is all it gets.
+// Anything translucent is a graphics state named in the page's resources, and
+// without one every alpha in the document is silently 1 — a chart's shaded
+// band, drawn at a tenth opacity everywhere else, came out of the PDF as a
+// slab of solid colour over the plot it was meant to sit behind.
+ok("a translucent fill reaches the PDF as a graphics state", () => {
+  const d = Pptx.create();
+  const s = d.addSlide();
+  s.addShape("rect", 40, 40, 300, 200).fill("4472C4").noLine();
+  const faint = s.addShape("rect", 200, 100, 300, 200).fill("4472C4").noLine();
+  // The API has no opacity setter yet; the model does, and it is what the
+  // chart converter writes.
+  faint._.model().fill.alpha = 0.25;
+  const out = Buffer.from(r.toPdf(d, 0)).toString("latin1");
+  assert.ok(out.includes("/ExtGState"), "no ExtGState in the page resources");
+  assert.ok(out.includes("/ca 0.25"), "the fill alpha is not in the file");
+  const drawn = pdfContent(r.toPdf(d, 0));
+  assert.ok(drawn.includes("gs"), "nothing switches the state on");
+});
+ok("and an opaque document carries none", () => {
+  const d = Pptx.create();
+  d.addSlide().addShape("rect", 40, 40, 300, 200).fill("4472C4").noLine();
+  const out = Buffer.from(r.toPdf(d, 0)).toString("latin1");
+  assert.ok(!out.includes("/ExtGState"), "an opaque page should cost nothing");
+});
+
 // ---- the stylesheet -------------------------------------------------------
 //
 // The claim to defend here is the ORDERING one, because it is the only part a

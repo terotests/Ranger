@@ -125,6 +125,24 @@ class EVGPDFRenderer {
     ; fill, stroke and glyph to process ink on the way out, which is what a
     ; sheet-fed press wants and what PDF/X-1a requires.
     def colorMode:string "rgb"
+    ; --- transparency ---------------------------------------------------------
+    ;
+    ; PDF has no alpha on a colour. A fill is `r g b rg` and that is all three
+    ; numbers it gets; anything translucent is a GRAPHICS STATE, named in the
+    ; page's resources and switched on with `gs` before the paint.
+    ;
+    ; Left out, every alpha in the document was silently 1: a chart's shaded
+    ; band, drawn at a tenth opacity in the editor and in the PNG, came out of
+    ; the PDF as a slab of solid blue over the plot it was meant to sit behind.
+    ; Nothing reported it — the file was valid and the colour was right; only
+    ; the alpha was gone.
+    ;
+    ; One state per distinct (fill alpha, stroke alpha) pair, because a shape
+    ; can be translucent on one and not the other, and because a document with
+    ; four hundred translucent shapes should carry one dictionary rather than
+    ; four hundred.
+    def alphaFills:[double]
+    def alphaStrokes:[double]
     ; "" for an ordinary PDF, or "X-4" / "X-1a" to identify the file as one.
     ; The identification is a claim, and a claim has obligations: an output
     ; intent, a Trapped value, embedded fonts, and the boxes the bleed code
@@ -1185,6 +1203,7 @@ class EVGPDFRenderer {
                 }
                 pdf.writeString(" >>")
             }
+            pdf.writeString((this.extGStateDict()))
             pdf.writeString(" >> >>\n")
             pdf.writeString("endobj\n\n")
             push pageObjNumList nextObjNum
@@ -1607,6 +1626,7 @@ class EVGPDFRenderer {
             }
             pdf.writeString(" >>")
         }
+        pdf.writeString((this.extGStateDict()))
         pdf.writeString(" >> >>\n")
         pdf.writeString("endobj\n\n")
         def pageObjNum:int nextObjNum
@@ -2166,6 +2186,22 @@ class EVGPDFRenderer {
     fn writePaintOps:void (fillColor:EVGColor strokeColor:EVGColor strokeWidth:double fillRule:string dashArray:string dashOffset:double) {
         def evenOdd:boolean (fillRule == "evenodd")
 
+        ; Translucency first, and inside the q/Q the caller already opened, so
+        ; it is restored with everything else rather than leaking onto the next
+        ; shape.
+        def fa:double 1.0
+        if fillColor.isSet {
+            fa = fillColor.a
+        }
+        def sa:double 1.0
+        if strokeColor.isSet {
+            sa = strokeColor.a
+        }
+        def gs:string (this.alphaState(fa sa))
+        if ((strlen gs) > 0) {
+            streamBuffer.writeString(gs)
+        }
+
         if fillColor.isSet {
             def r:double (fillColor.r / 255.0)
             def g:double (fillColor.g / 255.0)
@@ -2478,6 +2514,10 @@ class EVGPDFRenderer {
     
     fn renderBackgroundWithRadius:void (x:double y:double w:double h:double color:EVGColor radius:double) {
         streamBuffer.writeString("q\n")
+        def gs:string (this.alphaState(color.a 1.0))
+        if ((strlen gs) > 0) {
+            streamBuffer.writeString(gs)
+        }
         ; Set fill color
         def r:double (color.r / 255.0)
         def g:double (color.g / 255.0)
@@ -3470,6 +3510,77 @@ class EVGPDFRenderer {
         push out ((y - k) / span)
         push out k
         return out
+    }
+
+    ; The name of the graphics state for this pair of alphas, registering it
+    ; if it is new. "" when both are opaque, which is the overwhelming majority
+    ; of a document and must cost nothing.
+    ; The `/ExtGState` entry of a page's resources, or "" when the page used no
+    ; translucency at all. Written inline rather than as its own object: a
+    ; state dictionary is two numbers, and an indirect object per alpha would
+    ; cost more bytes than it saves.
+    fn extGStateDict:string () {
+        def n:int (array_length alphaFills)
+        if (n == 0) {
+            return ""
+        }
+        def out:string " /ExtGState <<"
+        def i:int 0
+        while (i < n) {
+            def fa:double (itemAt alphaFills i)
+            def sa:double (itemAt alphaStrokes i)
+            out = (out + " /GS" + (to_string (i + 1)) + " << /Type /ExtGState")
+            out = (out + " /ca " + (this.formatNum(fa)))
+            out = (out + " /CA " + (this.formatNum(sa)))
+            out = (out + " >>")
+            i = (i + 1)
+        }
+        return (out + " >>")
+    }
+
+    fn alphaState:string (fillAlpha:double strokeAlpha:double) {
+        def fa:double (EVGPDFRenderer.clampAlpha(fillAlpha))
+        def sa:double (EVGPDFRenderer.clampAlpha(strokeAlpha))
+        if (fa >= 0.999) {
+            if (sa >= 0.999) {
+                return ""
+            }
+        }
+        def i:int 0
+        while (i < (array_length alphaFills)) {
+            def haveF:double (itemAt alphaFills i)
+            def haveS:double (itemAt alphaStrokes i)
+            if (EVGPDFRenderer.sameAlpha(haveF fa)) {
+                if (EVGPDFRenderer.sameAlpha(haveS sa)) {
+                    return ("/GS" + (to_string (i + 1)) + " gs\n")
+                }
+            }
+            i = (i + 1)
+        }
+        push alphaFills fa
+        push alphaStrokes sa
+        return ("/GS" + (to_string (array_length alphaFills)) + " gs\n")
+    }
+
+    sfn clampAlpha:double (a:double) {
+        if (a < 0.0) {
+            return 0.0
+        }
+        if (a > 1.0) {
+            return 1.0
+        }
+        return a
+    }
+
+    ; Two alphas the same to within what a PDF viewer can tell apart. Compared
+    ; exactly, a value arrived at by arithmetic makes a second state that draws
+    ; the same picture.
+    sfn sameAlpha:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.002)
     }
 
     fn fillOp:string (r:double g:double b:double) {
