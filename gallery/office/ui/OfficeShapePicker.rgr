@@ -1,0 +1,473 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeShapePicker.rgr — the window that lets somebody choose a shape
+; ==============================================================================
+;
+; `OfficeShapeCatalog` named 187 preset geometries and 262 emoji outlines, and
+; both editors could ask it for any of them by id. Neither had anywhere for a
+; person to SEE one, so in practice the slide editor still offered a rectangle
+; and an ellipse and the book editor offered a rectangle. A catalogue nobody
+; can browse is a catalogue nobody uses.
+;
+; This is that browser, and it is shared on purpose. It is the test of whether
+; the shared-kernel work was real: if the picker has to know which editor it is
+; in, the seam was never a seam.
+;
+;     BookApp ─┐                            ┌─► BookApp.insertShape(id)
+;              ├─► OfficeShapePicker ──id──►┤     (path frame, own outline)
+;     PptxApp ─┘        ▲                   └─► PptxEdit.addShapeAt(id …)
+;                       │                         (preset NAME on the slide)
+;              OfficeShapeCatalog
+;
+; It knows a catalogue and a window. It does not know what a page is, what a
+; slide is, or what either editor does with the answer — it hands back an id
+; and stops. That the two editors then do COMPLETELY different things with
+; that id is the point: the book turns it into an outline it owns, the deck
+; stores the preset name for PowerPoint to draw.
+;
+; DRAWN, NOT BUILT FROM CONTROLS. The whole body is one `addContentAt` region
+; that this class paints itself, rather than a grid of `EVGWindow` buttons.
+; A picker is a lot of little pictures and `EVGControl` has no picture kind;
+; adding one would push shape drawing down into `gallery/evg`, which has no
+; business knowing what a preset is.
+; ==============================================================================
+
+Import "../geom/OfficeShapeCatalog.rgr"
+Import "../../evg/EVGWindow.rgr"
+Import "../../evg/SVGPathParser.rgr"
+
+class OfficeShapePicker {
+    ; The catalogue is BORROWED. Each editor owns one, fills it with what it
+    ; wants — the book adds the emoji, the deck does not — and hands it here.
+    ; A picker that built its own would show shapes its host cannot insert.
+    def cat:OfficeShapeCatalog
+    def hasCat:boolean false
+
+    def win:EVGWindow (new EVGWindow)
+    def opened:boolean false
+
+    ; What is on show: a category, or everything when empty.
+    def category:string ""
+    def shown:[ShapeEntry]
+    def scroll:int 0
+
+    ; The id the host should insert, set by a press and cleared by `take`.
+    ; A field rather than a return value because the press that chooses and
+    ; the moment the host acts are two different calls.
+    def chosen:string ""
+
+    ; Geometry, in pixels. The side column holds the categories; the rest is
+    ; the grid.
+    def sideW:int 132
+    def cell:int 74
+    def gap:int 6
+    def rowH:int 90
+    ; The height of one category row. A FIELD because the hit test and the
+    ; painter both need it, and two copies of the same 22 is how a list that
+    ; looks right starts selecting the row above the one that was pressed.
+    def catStep:int 20
+
+    ; --- ids the window itself uses ---
+    sfn contentId:int () { return 8100 }
+    sfn closeId:int () { return 8101 }
+
+    Constructor () {
+    }
+
+    fn attach:void (c:OfficeShapeCatalog) {
+        cat = c
+        hasCat = true
+        this.refresh()
+    }
+
+    fn isOpen:boolean () {
+        if (opened == false) {
+            return false
+        }
+        return win.visible
+    }
+
+    ; --- opening and closing -------------------------------------------------
+
+    fn open:void (mgr:EVGWindowManager pageW:int pageH:int) {
+        if (hasCat == false) {
+            return
+        }
+        if opened {
+            win.visible = true
+            return
+        }
+        def w:int 660
+        def h:int 520
+        if (w > (pageW - 40)) {
+            w = (pageW - 40)
+        }
+        if (h > (pageH - 60)) {
+            h = (pageH - 60)
+        }
+        win.title = "Shapes"
+        win.closable = true
+        win.closeId = (OfficeShapePicker.closeId())
+        win.resizable = true
+        win.minW = 380
+        win.minH = 260
+        ; The width is set BEFORE the controls are laid out, and the content is
+        ; added in the flow rather than placed by hand.
+        ;
+        ; `setSize` moves a content region by the DELTA between the old window
+        ; width and the new one, so a content box given its final size and THEN
+        ; a `setSize` gets that size plus the delta: asking for 644 in a 660
+        ; window produced a body 1004 wide, drawn straight off the right of the
+        ; screen. Sizing the window first makes the delta zero.
+        win.w = w
+        win.reset()
+        win.addContent((OfficeShapePicker.contentId()) (h - 52))
+        win.finish()
+        win.setSize(w h)
+        win.openWithin((idiv (pageW - w) 2) (idiv (pageH - h) 2) pageW pageH)
+        win.visible = true
+        mgr.add(win)
+        opened = true
+        this.refresh()
+    }
+
+    fn close:void () {
+        win.visible = false
+    }
+
+    ; The window's own close box was pressed. Asked by the host after it lets
+    ; the window manager see a press, because the close is the window's
+    ; business and the consequence is this class's.
+    fn pollClose:boolean () {
+        if (win.activated == (OfficeShapePicker.closeId())) {
+            win.activated = -1
+            this.close()
+            return true
+        }
+        return false
+    }
+
+    ; --- what is on show -----------------------------------------------------
+
+    fn setCategory:void (name:string) {
+        category = name
+        scroll = 0
+        this.refresh()
+    }
+
+    fn refresh:void () {
+        clear shown
+        if (hasCat == false) {
+            return
+        }
+        def all:[ShapeEntry] (cat.entries)
+        if ((strlen category) > 0) {
+            all = (cat.inCategory(category))
+        }
+        def i:int 0
+        while (i < (array_length all)) {
+            push shown (itemAt all i)
+            i = (i + 1)
+        }
+    }
+
+    ; The id that was chosen, once. Returning it CLEARS it, so a host that
+    ; forgets to act does not insert the same shape on the next press.
+    fn take:string () {
+        def out:string chosen
+        chosen = ""
+        return out
+    }
+
+    fn hasChoice:boolean () {
+        return ((strlen chosen) > 0)
+    }
+
+    ; --- pressing ------------------------------------------------------------
+
+    ; A press, asked BEFORE the window manager sees it.
+    ;
+    ; The manager consumes anything inside a window — which is right for the
+    ; caption and the close box and wrong for a body this class drew — so the
+    ; content region is claimed here first and everything else falls through.
+    fn press:boolean (px:int py:int) {
+        if ((this.isOpen()) == false) {
+            return false
+        }
+        def cx:int (win.contentX())
+        def cy:int (win.contentY())
+        def box:EVGControl (win.contentControl())
+        if (px < cx) {
+            return false
+        }
+        if (py < cy) {
+            return false
+        }
+        if (px >= (cx + box.w)) {
+            return false
+        }
+        if (py >= (cy + box.h)) {
+            return false
+        }
+        if (px < (cx + sideW)) {
+            def idx:int (idiv (py - (cy + 8)) catStep)
+            def cats:[string] (cat.categories())
+            if (idx == 0) {
+                this.setCategory("")
+                return true
+            }
+            if (idx > 0) {
+                if ((idx - 1) < (array_length cats)) {
+                    this.setCategory((itemAt cats (idx - 1)))
+                }
+            }
+            return true
+        }
+        def gx:int ((cx + sideW) + gap)
+        def gw:int (((cx + box.w) - gx) - gap)
+        def cols:int (idiv gw (cell + gap))
+        if (cols < 1) {
+            cols = 1
+        }
+        def col:int (idiv (px - gx) (cell + gap))
+        if (col >= cols) {
+            return true
+        }
+        def row:int (idiv (py - (cy + gap)) rowH)
+        def at:int ((((row + scroll) * cols) + col))
+        if (at < 0) {
+            return true
+        }
+        if (at >= (array_length shown)) {
+            return true
+        }
+        def pick:ShapeEntry (itemAt shown at)
+        chosen = pick.id
+        return true
+    }
+
+    ; The wheel, so a category of 51 does not need a window 51 tall.
+    ;
+    ; No coordinates, because neither host routes the wheel by position — both
+    ; hand it straight to `scrollPanel`. While this window is up it is the
+    ; thing being read, so it takes the wheel; that is also what a modal-ish
+    ; picker should do.
+    fn wheel:boolean (delta:int) {
+        if ((this.isOpen()) == false) {
+            return false
+        }
+        if (delta > 0) {
+            scroll = (scroll + 1)
+        } {
+            scroll = (scroll - 1)
+        }
+        if (scroll < 0) {
+            scroll = 0
+        }
+        return true
+    }
+
+    ; --- painting ------------------------------------------------------------
+
+    ; The body, drawn after the window's own chrome.
+    fn paint:void (dl:EVGDisplayList) {
+        if ((this.isOpen()) == false) {
+            return
+        }
+        def cx:double (to_double (win.contentX()))
+        def cy:double (to_double (win.contentY()))
+        def box:EVGControl (win.contentControl())
+        def bw:double (to_double box.w)
+        def bh:double (to_double box.h)
+
+        def paper:EVGColor (EVGColor.rgb(252 251 249))
+        def side:EVGColor (EVGColor.rgb(243 241 238))
+        def line:EVGColor (EVGColor.rgb(220 216 211))
+        def ink:EVGColor (EVGColor.rgb(59 59 59))
+        def dim:EVGColor (EVGColor.rgb(120 116 112))
+        def hot:EVGColor (EVGColor.rgb(80 150 255))
+
+        ; A strip at the bottom for the count, kept out of both columns. The
+        ; book's catalogue has eighteen categories and the list reached the
+        ; bottom of the window, where the count was already sitting.
+        def footer:double 20.0
+        def bodyH:double (bh - footer)
+
+        dl.addRect(cx cy bw bh paper)
+        dl.addRect(cx cy (to_double sideW) bodyH side)
+        dl.addRect((cx + (to_double sideW)) cy 1.0 bodyH line)
+        dl.addRect(cx (cy + bodyH) bw 1.0 line)
+
+        ; The categories, "All" first.
+        def cats:[string] (cat.categories())
+        def ty:double (cy + 8.0)
+        def allOn:boolean ((strlen category) == 0)
+        def allCol:EVGColor dim
+        if allOn {
+            allCol = hot
+        }
+        dl.addText("All" (cx + 10.0) ty 12.0 allCol "sans-serif" allOn false 110.0 18.0)
+        def ci:int 0
+        while (ci < (array_length cats)) {
+            def name:string (itemAt cats ci)
+            def on:boolean (name == category)
+            def col:EVGColor dim
+            if on {
+                col = hot
+            }
+            def yy:double (ty + (to_double ((ci + 1) * catStep)))
+            if (yy < ((cy + bodyH) - 14.0)) {
+                dl.addText(name (cx + 10.0) yy 12.0 col "sans-serif" on false 118.0 18.0)
+            }
+            ci = (ci + 1)
+        }
+
+        ; The grid.
+        def gx:double ((cx + (to_double sideW)) + (to_double gap))
+        def gw:double (((cx + bw) - gx) - (to_double gap))
+        def gh:double (bodyH - (to_double gap))
+        def cols:int (idiv (to_int gw) (cell + gap))
+        if (cols < 1) {
+            cols = 1
+        }
+        def rows:int (idiv (to_int (bodyH - (to_double gap))) rowH)
+        if (rows < 1) {
+            rows = 1
+        }
+        def from:int (scroll * cols)
+        def upto:int (from + (rows * cols))
+        if (upto > (array_length shown)) {
+            upto = (array_length shown)
+        }
+        dl.addClip(gx cy gw gh)
+        def i:int from
+        while (i < upto) {
+            def e:ShapeEntry (itemAt shown i)
+            def k:int (i - from)
+            def col2:int (k - ((idiv k cols) * cols))
+            def row:int (idiv k cols)
+            def ox:double (gx + (to_double (col2 * (cell + gap))))
+            def oy:double ((cy + (to_double gap)) + (to_double (row * rowH)))
+            this.paintOne(dl e ox oy ink)
+            dl.addText((OfficeShapePicker.fit(e.label)) ox (oy + (to_double cell) + 2.0) 9.0 dim "sans-serif" false false (to_double cell) 12.0)
+            i = (i + 1)
+        }
+        dl.addClipEnd()
+
+        ; How much of it is on screen, because a grid that scrolls with no
+        ; sign that it does is a grid whose other 200 shapes do not exist.
+        def total:int (array_length shown)
+        def note:string ((to_string (from + 1)) + "-" + (to_string upto) + " of " + (to_string total))
+        if (total == 0) {
+            note = "nothing here"
+        }
+        dl.addText(note (cx + 10.0) ((cy + bh) - 15.0) 10.0 dim "sans-serif" false false 200.0 14.0)
+    }
+
+    ; One shape in its cell.
+    ;
+    ; The catalogue answers in the 0..1 box, so the transform that places it is
+    ; the cell size and the cell origin, and it is the same transform for a
+    ; preset and for an emoji — which is the whole reason a picker can show
+    ; both without a branch.
+    fn paintOne:void (dl:EVGDisplayList e:ShapeEntry ox:double oy:double ink:EVGColor) {
+        def side:double (to_double cell)
+        def inset:double 6.0
+        def s:double (side - (inset * 2.0))
+        ; A shape with a proportion it needs gets it, centred — the same
+        ; `aspect` an editor uses to size an insert.
+        def sw:double s
+        def sh:double s
+        if (e.aspect > 0.0) {
+            sw = (s * e.aspect)
+            if (sw > s) {
+                sw = s
+                sh = (s / e.aspect)
+            }
+        }
+        def px:double ((ox + inset) + ((s - sw) * 0.5))
+        def py:double ((oy + inset) + ((s - sh) * 0.5))
+
+        def parts:[ShapePart] (cat.partsFor(e.id sw sh))
+        if ((array_length parts) == 0) {
+            ; Nothing to draw is drawn as nothing, not as a substitute box:
+            ; the presets are absent until a host loads them, and a grid of
+            ; identical rectangles claiming to be 187 shapes is a lie.
+            return
+        }
+        ; A shape with a line as well as a body is drawn the way PowerPoint
+        ; draws it — pale body, dark line — because that is the only way the
+        ; line SHOWS. `chartPlus` is a square with a cross over it, and in one
+        ; colour it is a black square.
+        def body:EVGColor ink
+        def pk:int 0
+        while (pk < (array_length parts)) {
+            def look:ShapePart (itemAt parts pk)
+            if ((look.isFill()) == false) {
+                body = (EVGColor.rgb(198 194 189))
+            }
+            pk = (pk + 1)
+        }
+        def pi:int 0
+        while (pi < (array_length parts)) {
+            def part:ShapePart (itemAt parts pi)
+            def parser (new SVGPathParser())
+            parser.parse(part.path)
+            def rings:[PathRing] (parser.flattenRings(16 sw 0.0 0.0 sh px py))
+            if ((array_length rings) > 0) {
+                if (part.isFill()) {
+                    def f:double (part.shadeFactor())
+                    def col:EVGColor (OfficeShapePicker.shade(body f))
+                    ; Even-odd, so a donut has a hole and a panda has eyes.
+                    dl.addPolyRings(rings col true)
+                } {
+                    def ri:int 0
+                    while (ri < (array_length rings)) {
+                        def r2:PathRing (itemAt rings ri)
+                        dl.addPolyline(r2.pts 1.0 ink)
+                        ri = (ri + 1)
+                    }
+                }
+            }
+            pi = (pi + 1)
+        }
+    }
+
+    ; A label that fits its cell. `addText` is given a width and does not clip
+    ; to it, so "Non-isosceles trapezoid" ran straight over "No symbol".
+    sfn fit:string (label:string) {
+        def limit:int 13
+        if ((strlen label) <= limit) {
+            return label
+        }
+        return ((substring label 0 (limit - 1)) + "…")
+    }
+
+    ; One colour, shaded the way DrawingML asked. Without this a cube has one
+    ; face and an action button has no glyph.
+    sfn shade:EVGColor (base:EVGColor f:double) {
+        if (f == 1.0) {
+            return base
+        }
+        return (EVGColor.rgb((OfficeShapePicker.chan((base.red()) f)) (OfficeShapePicker.chan((base.green()) f)) (OfficeShapePicker.chan((base.blue()) f))))
+    }
+
+    sfn chan:int (v:int f:double) {
+        ; Shading a dark ink DOWN makes it black on black, so the shade is
+        ; applied away from the ink rather than towards zero: darker parts go
+        ; towards the paper, lighter parts towards it too, and both stay
+        ; visible against a light background.
+        def d:double ((to_double v) * f)
+        if (f > 1.0) {
+            d = (255.0 - ((255.0 - (to_double v)) / f))
+        }
+        if (d < 0.0) {
+            d = 0.0
+        }
+        if (d > 255.0) {
+            d = 255.0
+        }
+        return (floor (d + 0.5))
+    }
+}

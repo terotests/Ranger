@@ -34,6 +34,7 @@ Import "BookSample.rgr"
 Import "BookAlbumImport.rgr"
 Import "../../office/geom/OfficeShapeCatalog.rgr"
 Import "../../office/geom/OfficeEmojiShapes.rgr"
+Import "../../office/ui/OfficeShapePicker.rgr"
 Import "PhotoScan.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGToolbarView.rgr"
@@ -68,6 +69,7 @@ class BookToolbar extends EVGToolbar {
         this.add("frame.text" "" "Insert a text frame" (ToolIcon.textColor()))
         this.add("frame.image" "" "Insert a picture frame" (ToolIcon.report()))
         this.add("frame.shape" "" "Insert a shape" (ToolIcon.borderAll()))
+        this.add("shape.pick" "" "Browse the shapes" (ToolIcon.merge()))
         this.addSeparator()
         ; The two buttons that make this a book tool rather than a page tool.
         this.add("frame.link" "" "Flow the story through these frames" (ToolIcon.link()))
@@ -144,6 +146,12 @@ class BookApp {
     ; while and could only ever insert two.
     def shapes:OfficeShapeCatalog (new OfficeShapeCatalog())
 
+    ; The shared shape browser. Both editors put up the SAME window over the
+    ; same catalogue; what differs is only the one line that acts on the id it
+    ; hands back — which is the whole claim the shared work makes.
+    def picker:OfficeShapePicker (new OfficeShapePicker)
+
+
     ; Why the last album import failed, for a host to show. Empty after a
     ; successful one.
     def albumError:string ""
@@ -194,6 +202,7 @@ class BookApp {
         ; presets they need no file from the host and no loader call — the
         ; moment this class exists the catalogue can draw them.
         OfficeEmojiShapes.fill(shapes)
+        picker.attach(shapes)
     }
 
     ; ---------------------------------------------------------------------
@@ -736,6 +745,12 @@ class BookApp {
         if (id == "frame.image") {
             return (this.insertFrame("image"))
         }
+        ; The shared browser. The SAME command id in the slide editor opens
+        ; the same window over its own catalogue.
+        if (id == "shape.pick") {
+            picker.open(windows W H)
+            return true
+        }
         if (id == "frame.shape") {
             ; With no argument this is the plain box it always was; with a
             ; catalogue id it is that shape's outline. One command rather than
@@ -1014,7 +1029,13 @@ class BookApp {
     ; ---------------------------------------------------------------------
 
     fn pointer:boolean (px:int py:int pressed:boolean down:boolean released:boolean) {
+        ; Before the window manager, which consumes anything inside a window —
+        ; right for a caption, wrong for a body the picker drew itself.
+        if (this.pickerPointer(px py pressed)) {
+            return true
+        }
         if (windows.handlePointer(px py pressed down released)) {
+            picker.pollClose()
             return true
         }
         if (this.panelPointer(px py pressed down released)) {
@@ -1307,7 +1328,31 @@ class BookApp {
         return true
     }
 
+    ; A shape was chosen. Everything above this line is shared with the slide
+    ; editor; this is the line that is not, and it is one line: the book turns
+    ; the id into an outline it owns.
+    fn pickerPointer:boolean (px:int py:int pressed:boolean) {
+        if (pressed == false) {
+            return false
+        }
+        if ((picker.isOpen()) == false) {
+            return false
+        }
+        if ((picker.press(px py)) == false) {
+            return false
+        }
+        if (picker.hasChoice()) {
+            def id:string (picker.take())
+            this.insertShape(id)
+        }
+        return true
+    }
+
     fn scrollPanel:void (delta:int) {
+        ; While the browser is up it is the thing being read.
+        if (picker.wheel(delta)) {
+            return
+        }
         def step:int (this.panelStep())
         panelScroll = (panelScroll - (delta * step))
         if (panelScroll < 0) {
@@ -1515,6 +1560,8 @@ class BookApp {
             wnd.paintOverlay(framed view.ctx.tr)
             wi = (wi + 1)
         }
+        ; The picker's body, over its own window's chrome.
+        picker.paint(framed)
         return framed
     }
 

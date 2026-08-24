@@ -21,6 +21,7 @@
 
 Import "../OfficeShapeCatalog.rgr"
 Import "../OfficeEmojiShapes.rgr"
+Import "../../ui/OfficeShapePicker.rgr"
 Import "../../../book/src/BookApp.rgr"
 Import "../../../pptx/src/PptxApp.rgr"
 Import "../../../pptx/api/PptxApi.rgr"
@@ -236,6 +237,95 @@ class OfficeShapeCatalogTest {
         c.eqInt("and leaves no empty frame" (array_length ((app.editor.currentPage()).frames)) n0)
     }
 
+    ; --- the shared picker -------------------------------------------------
+    ;
+    ; The point of this one is not that a picker works. It is that the SAME
+    ; window, opened by the SAME command id, with the SAME press at the SAME
+    ; place in its grid, drives two editors that share no other code — and
+    ; that each of them ends up with the thing its own document is made of.
+    ;
+    ; If either editor ever needs its own picker, this test is where that
+    ; shows up: the two halves below would stop being copies of each other.
+    sfn testSharedPicker:void (c:ShapeCheck) {
+        print "-- one picker, two editors --"
+
+        ; ---- the book ----
+        def book (new BookApp)
+        book.W = 900
+        book.H = 600
+        book.initBare()
+        def api (BookApi.create("Picker" "a4"))
+        api.defaultStyles()
+        api.master("plain")
+        api.page("plain")
+        book.attach(api.doc)
+        book.loadShapePresets((OfficeShapeCatalogTest.presetText()))
+        book.runCommand("edit.toggle" "")
+
+        c.ok("the book opens the shared picker" (book.runCommand("shape.pick" "")))
+        c.ok("and it is on screen" (book.picker.isOpen()))
+        c.ok("showing the whole catalogue" ((array_length book.picker.shown) > 400))
+
+        def bBefore:int (array_length ((book.editor.currentPage()).frames))
+        def bx:int (((book.picker.win.contentX()) + book.picker.sideW) + (book.picker.gap + 10))
+        def by:int ((book.picker.win.contentY()) + (book.picker.gap + 10))
+        c.ok("a press in its grid is taken by the picker" (book.pickerPointer(bx by true)))
+        def bPage:BookPage (book.editor.currentPage())
+        def bAfter:int (array_length bPage.frames)
+        c.eqInt("and the book gained a frame" bAfter (bBefore + 1))
+        def frame:BookFrame (itemAt bPage.frames (bAfter - 1))
+        c.ok("carrying an outline the book owns" ((strlen frame.pathData) > 20))
+
+        ; ---- the deck: the same command, the same press ----
+        def deckApp (new PptxApp)
+        deckApp.W = 900
+        deckApp.H = 600
+        deckApp.initBare()
+        def deck:PptxDeck (PptxApi.create())
+        deck.addSlide()
+        deckApp.attachPresentation(deck.pres "test")
+        deckApp.loadPresets((OfficeShapeCatalogTest.presetText()))
+
+        c.ok("the deck opens the same picker" (deckApp.runCommand("shape.pick" "")))
+        c.ok("and it is on screen" (deckApp.picker.isOpen()))
+
+        def slide:PptxSlide (itemAt deck.pres.slides 0)
+        def sBefore:int (array_length slide.shapes)
+        def sx:int (((deckApp.picker.win.contentX()) + deckApp.picker.sideW) + (deckApp.picker.gap + 10))
+        def sy:int ((deckApp.picker.win.contentY()) + (deckApp.picker.gap + 10))
+        c.ok("the same press is taken there too" (deckApp.pickerPointer(sx sy true)))
+        def sAfter:int (array_length slide.shapes)
+        c.eqInt("and the deck gained a shape" sAfter (sBefore + 1))
+        def sh:PptxShape (itemAt slide.shapes (sAfter - 1))
+
+        ; The two documents got DIFFERENT things out of the one id, which is
+        ; what makes the picker shareable rather than merely shared: the book
+        ; holds an outline, the deck holds a preset name for PowerPoint to
+        ; draw from its own geometry.
+        c.ok("the deck stored a preset name" ((strlen sh.preset) > 0))
+        c.ok("not an outline" ((sh.hasPath) == false))
+
+        ; Both pressed cell 0 of the unfiltered grid, so both chose the same
+        ; entry. If that ever stops being true the assertion below is what
+        ; says so, rather than the two halves quietly drifting apart.
+        def firstBook:ShapeEntry (itemAt book.picker.shown 0)
+        def firstDeck:ShapeEntry (itemAt deckApp.picker.shown 0)
+        c.ok("both grids start at the same shape" (firstBook.id == firstDeck.id))
+        c.ok("and that is what the deck inserted" (sh.preset == firstDeck.id))
+
+        ; The categories are the picker's, not either editor's. The book's
+        ; catalogue carries the emoji and the deck's does not, and the same
+        ; window shows each host exactly what that host can insert.
+        c.ok("the book's picker offers the emoji groups" ((array_length (book.picker.cat.inCategory("Animals"))) > 20))
+        c.ok("the deck's does not" ((array_length (deckApp.picker.cat.inCategory("Animals"))) == 0))
+
+        ; Choosing a category is the picker's own business in both.
+        book.picker.setCategory("Brackets")
+        c.eqInt("a category narrows the grid" (array_length book.picker.shown) 6)
+        book.picker.setCategory("")
+        c.ok("and All puts it back" ((array_length book.picker.shown) > 400))
+    }
+
     sfn testSlideInserts:void (c:ShapeCheck) {
         print "-- the slide editor calls it --"
         def app (new PptxApp)
@@ -264,6 +354,7 @@ class OfficeShapeCatalogTest {
         OfficeShapeCatalogTest.testEmoji(c)
         OfficeShapeCatalogTest.testBookInserts(c)
         OfficeShapeCatalogTest.testSlideInserts(c)
+        OfficeShapeCatalogTest.testSharedPicker(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
