@@ -1229,18 +1229,24 @@ class GridApp {
         if uiRtlChosen {
             return
         }
-        if uiRtl {
-            return
-        }
+        this.setUiRtl((this.workbookIsRtl()))
+    }
+
+    ; Does any style in this workbook read right to left? The early return on
+    ; `uiRtl` that used to sit here made the mode STICKY — open an Arabic
+    ; workbook, then open an English one, and the interface stayed mirrored. A
+    ; reader who turned it off is protected by `uiRtlChosen`, which is what
+    ; records a decision; that early return protected nobody.
+    fn workbookIsRtl:boolean () {
         def i:int 0
         while (i < (array_length model.styles)) {
             def st:CellStyle (itemAt model.styles i)
             if (st.readingOrder == 2) {
-                this.setUiRtl(true)
-                return
+                return true
             }
             i = (i + 1)
         }
+        return false
     }
 
     fn runCommand:boolean (id:string arg:string) {
@@ -1254,13 +1260,16 @@ class GridApp {
             return true
         }
         if (id == "view.rtl") {
-            ; The latch goes down exactly when the reader turns the interface
-            ; OFF, and lifts when they turn it back on. "The reader said no"
-            ; is the only thing the automatic half has to respect — it never
-            ; turns the switch off, so a reader who turned it on by hand has
-            ; nothing to be overruled about.
+            ; Any use of this switch is a decision, and the automatic half
+            ; leaves it alone from here on — in BOTH directions.
+            ;
+            ; The latch used to go down only when the reader turned the
+            ; interface off, which was right while the automatic half could
+            ; only ever turn it ON. Now that it can also turn it off, a reader
+            ; who turned it on by hand over a left-to-right document would have
+            ; it taken away again by the next one they opened.
             def next:boolean (uiRtl == false)
-            uiRtlChosen = (next == false)
+            uiRtlChosen = true
             this.setUiRtl(next)
             return true
         }

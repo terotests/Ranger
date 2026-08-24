@@ -121,11 +121,52 @@ class OfficeRtlSwitchTest {
         app2.adoptDocumentDirection(doc)
         c.ok("Word: and the same document does not turn it on again"
             ((app2.uiRtl) == false))
-        ; Turning it back on by hand lifts the latch — the reader has said
-        ; yes again, and there is nothing left to protect them from.
+        ; Turning it back ON by hand keeps the latch DOWN, and this rule
+        ; changed deliberately. It used to lift — "the reader has said yes
+        ; again, and there is nothing left to protect them from" — which was
+        ; true only while the automatic half could never turn the switch off.
+        ; It can now, so yes needs protecting exactly as no does: otherwise a
+        ; reader who turns the interface on by hand loses it to the next
+        ; left-to-right file they open.
         app2.runCommand("view.rtl" "")
-        c.ok("Word: and saying yes again lifts the latch"
-            ((app2.uiRtlChosen) == false))
+        c.ok("Word: saying yes again is a decision too" app2.uiRtl)
+        c.ok("Word: and it keeps the latch down" app2.uiRtlChosen)
+
+        ; --- the bug this was reported as ---------------------------------------
+        ;
+        ; Open an Arabic file, then open an English one, and the interface
+        ; stayed mirrored with nothing on screen to explain why. The automatic
+        ; half only ever turned the switch ON: it returned early when the
+        ; interface was already turned around, so no later document could turn
+        ; it back. Nobody was protected by that — a reader's own choice is what
+        ; `uiRtlChosen` records — and every reader who opened one right-to-left
+        ; document was stuck with a mirrored interface for the rest of the
+        ; session.
+        def fresh (new DocxApp)
+        fresh.toolbar.build()
+        fresh.adoptDocumentDirection(doc)
+        c.ok("Word: an RTL document turns it on" fresh.uiRtl)
+        def ltr (new RichDocument)
+        def plain (new Paragraph)
+        plain.text = "Plain English"
+        push ltr.paragraphs plain
+        fresh.adoptDocumentDirection(ltr)
+        c.ok("Word: and a left-to-right one turns it back off"
+            ((fresh.uiRtl) == false))
+        c.ok("Word: the strip came back with it"
+            ((fresh.toolbar.rtl) == false))
+        fresh.adoptDocumentDirection(doc)
+        c.ok("Word: and it turns around again for the next RTL one" fresh.uiRtl)
+
+        ; …but never against the reader. Once they have touched the switch the
+        ; automatic half is finished, whichever way they set it.
+        def held (new DocxApp)
+        held.toolbar.build()
+        held.runCommand("view.rtl" "")
+        c.ok("Word: the reader turned it on by hand" held.uiRtl)
+        held.adoptDocumentDirection(ltr)
+        c.ok("Word: and a left-to-right document does not take it away"
+            held.uiRtl)
     }
 
     fn testPowerPoint:void () {
@@ -140,6 +181,54 @@ class OfficeRtlSwitchTest {
         c.ok("PowerPoint: and the strip with it" app.toolbar.rtl)
         app.runCommand("view.rtl" "")
         c.ok("PowerPoint: and back" ((app.uiRtl) == false))
+
+        ; The same stickiness, in the deck reader. An RTL deck turns the
+        ; interface around and a left-to-right one turns it back — the early
+        ; return that used to stop the second half meant one Arabic deck
+        ; mirrored the interface for the rest of the session.
+        def deck (new PptxApp)
+        deck.toolbar.build()
+        def arabic (new PptxPresentation)
+        def s1 (new PptxSlide)
+        def sh1 (new PptxShape)
+        def p1 (new PptxParagraph)
+        p1.rtl = 1
+        push sh1.text.paragraphs p1
+        push s1.shapes sh1
+        push arabic.slides s1
+        deck.presentation = arabic
+        deck.adoptDeckDirection()
+        c.ok("PowerPoint: an RTL deck turns it on" deck.uiRtl)
+
+        def english (new PptxPresentation)
+        def s2 (new PptxSlide)
+        def sh2 (new PptxShape)
+        def p2 (new PptxParagraph)
+        push sh2.text.paragraphs p2
+        push s2.shapes sh2
+        push english.slides s2
+        deck.presentation = english
+        deck.adoptDeckDirection()
+        c.ok("PowerPoint: and a left-to-right one turns it back off"
+            ((deck.uiRtl) == false))
+
+        ; A paragraph does not stop being Arabic for being inside a group, and
+        ; the walk that only looked at a slide's top-level shapes missed
+        ; exactly the shapes a diagram keeps its text in.
+        def grouped (new PptxPresentation)
+        def s3 (new PptxSlide)
+        def grp (new PptxShape)
+        grp.kind = (PptxShapeKind.group())
+        def kid (new PptxShape)
+        def p3 (new PptxParagraph)
+        p3.rtl = 1
+        push kid.text.paragraphs p3
+        push grp.children kid
+        push s3.shapes grp
+        push grouped.slides s3
+        deck.presentation = grouped
+        deck.adoptDeckDirection()
+        c.ok("PowerPoint: an RTL paragraph inside a group counts" deck.uiRtl)
     }
 
     fn testSpreadsheet:void () {
@@ -169,5 +258,23 @@ class OfficeRtlSwitchTest {
         app2.adoptWorkbookDirection()
         c.ok("Sheet: and does not undo the reader's choice"
             ((app2.uiRtl) == false))
+        ; And the same stickiness here. A workbook's reading order is set as a
+        ; FORMAT, so one style with it on is the whole answer — and one style
+        ; with it on used to mirror the interface until the program was closed.
+        def wb (new GridApp)
+        wb.view.toolbar.build()
+        def rtlStyle (new CellStyle)
+        rtlStyle.readingOrder = 2
+        push wb.model.styles rtlStyle
+        wb.adoptWorkbookDirection()
+        c.ok("Sheet: an RTL workbook turns it on" wb.uiRtl)
+
+        def plainStyles:[CellStyle]
+        def ltrStyle (new CellStyle)
+        push plainStyles ltrStyle
+        wb.model.styles = plainStyles
+        wb.adoptWorkbookDirection()
+        c.ok("Sheet: and a left-to-right one turns it back off"
+            ((wb.uiRtl) == false))
     }
 }
