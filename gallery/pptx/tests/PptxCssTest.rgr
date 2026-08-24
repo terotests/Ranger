@@ -1,0 +1,311 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxCssTest — a stylesheet over a deck, and what it is allowed to touch
+; ==============================================================================
+;
+; `CssCoreTest` next door proves the cascade. What is tested here is the half
+; the core knows nothing about: which element names a selector can use, which
+; properties inherit down to a run, which ones a slide cannot honour at all,
+; and — the rule the whole API rests on — that a fluent call beats the sheet.
+;
+; Most cases assert on the MODEL rather than on the file, because the model is
+; where a style lands and the writer has its own tests. The exception is the
+; last one, which saves and reopens: a style that reaches the model and not the
+; bytes is a style nobody will ever see.
+; ==============================================================================
+
+Import "../api/PptxApi.rgr"
+
+class PptxCssTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxCssTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn run:void () {
+        print "=== PptxCssTest ==="
+        this.testTheBriefExample()
+        this.testInheritance()
+        this.testElementNames()
+        this.testInlineWins()
+        this.testWhatASlideCannotDo()
+        this.testItReachesTheFile()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --- the example the API was designed around -------------------------------
+    fn testTheBriefExample:void () {
+        print "--- a title slide, styled by a sheet ---"
+        def deck:PptxDeck (PptxApi.create())
+        deck.addStyleSheet("slide.review { background-color: #ff3344 }\n.title { font-family: Calibri; font-size: 44pt; font-weight: bold; color: #1F3864 }\n.subtitle { font-family: Calibri; font-size: 22pt; color: #5B6B84 }\n.divider { fill: #4472C4; stroke: none }")
+        def slide:PptxSlideRef (deck.addSlide())
+        slide.addClass("review")
+        def title:PptxShapeRef (slide.addTextBox(70.0 150.0 820.0 110.0 "Quarterly review"))
+        title.setName("Title")
+        title.addClass("title")
+        def sub:PptxShapeRef (slide.addTextBox(70.0 265.0 820.0 60.0 "Sales, by region"))
+        sub.addClass("subtitle")
+        def rule:PptxShapeRef (slide.addShape("rect" 70.0 340.0 300.0 8.0))
+        rule.addClass("divider")
+        deck.applyStyles()
+
+        def sl:PptxSlide (slide.model())
+        this.check("the slide took its background" sl.bg.isSet)
+        this.eqStr("as the colour the sheet named" sl.bg.srgb "FF3344")
+
+        def t:PptxTextRun (PptxCssTest.firstRun(title))
+        this.eqStr("the title's font" t.fontFamily "Calibri")
+        this.check("its size" (PptxCssTest.near(t.fontSizePt 44.0)))
+        this.check("its weight" t.bold)
+        this.eqStr("and its colour" t.color.srgb "1F3864")
+
+        def s:PptxTextRun (PptxCssTest.firstRun(sub))
+        this.check("the subtitle is smaller" (PptxCssTest.near(s.fontSizePt 22.0)))
+        this.check("and not bold" (s.bold == false))
+
+        def r:PptxShape (rule.model())
+        this.check("the divider is filled" r.fill.isSet)
+        this.eqStr("as asked" r.fill.srgb "4472C4")
+        this.check("and has no line" r.noLine)
+
+        ; The PowerPoint name and the CSS id are different things.
+        this.eqStr("the object name is untouched" (title.name()) "Title")
+        this.eqStr("and it is not a style id" (title.styleId()) "")
+    }
+
+    ; --- inheritance -----------------------------------------------------------
+    ;
+    ; The reason a stylesheet is worth having on a deck at all: one rule on the
+    ; box, and every run inside it follows.
+    fn testInheritance:void () {
+        print "--- text properties reach the runs ---"
+        def deck:PptxDeck (PptxApi.create())
+        deck.addStyleSheet(".card { font-family: Georgia; font-size: 18pt; color: navy }")
+        def slide:PptxSlideRef (deck.addSlide())
+        def box:PptxShapeRef (slide.addTextBox(0.0 0.0 400.0 200.0 "first\nsecond"))
+        box.addClass("card")
+        box.addRun(0 " and more")
+        deck.applyStyles()
+
+        def sh:PptxShape (box.model())
+        this.eqInt("two paragraphs" (array_length sh.text.paragraphs) 2)
+        def p0:PptxParagraph (itemAt sh.text.paragraphs 0)
+        this.eqInt("the first has two runs" (array_length p0.runs) 2)
+        def a:PptxTextRun (itemAt p0.runs 0)
+        def b:PptxTextRun (itemAt p0.runs 1)
+        this.eqStr("the first run inherited the family" a.fontFamily "Georgia")
+        this.eqStr("and so did the second" b.fontFamily "Georgia")
+        this.check("a named colour resolved" (a.color.srgb == "000080"))
+        def p1:PptxParagraph (itemAt sh.text.paragraphs 1)
+        def c:PptxTextRun (itemAt p1.runs 0)
+        this.check("the second paragraph too" (PptxCssTest.near(c.fontSizePt 18.0)))
+
+        print "--- and a run rule is narrower than the box ---"
+        def deck2:PptxDeck (PptxApi.create())
+        deck2.addStyleSheet(".card { font-size: 18pt } .card run { font-weight: bold }")
+        def slide2:PptxSlideRef (deck2.addSlide())
+        def box2:PptxShapeRef (slide2.addTextBox(0.0 0.0 400.0 200.0 "words"))
+        box2.addClass("card")
+        deck2.applyStyles()
+        def run2:PptxTextRun (PptxCssTest.firstRun(box2))
+        this.check("the descendant rule reached the run" run2.bold)
+        this.check("and the box rule still did too" (PptxCssTest.near(run2.fontSizePt 18.0)))
+
+        print "--- a box property does NOT reach the run ---"
+        def deck3:PptxDeck (PptxApi.create())
+        deck3.addStyleSheet("textBox { fill: #123456 }")
+        def slide3:PptxSlideRef (deck3.addSlide())
+        def box3:PptxShapeRef (slide3.addTextBox(0.0 0.0 400.0 200.0 "words"))
+        deck3.applyStyles()
+        def sh3:PptxShape (box3.model())
+        this.check("the box took the fill" (sh3.fill.srgb == "123456"))
+        def run3:PptxTextRun (PptxCssTest.firstRun(box3))
+        this.check("and the run's colour was left alone" ((run3.color.srgb) != "123456"))
+    }
+
+    ; --- element names ---------------------------------------------------------
+    fn testElementNames:void () {
+        print "--- the element names a selector can use ---"
+        def deck:PptxDeck (PptxApi.create())
+        deck.addStyleSheet("textBox { fill: #111111 } shape { stroke: #222222 }")
+        def slide:PptxSlideRef (deck.addSlide())
+        def box:PptxShapeRef (slide.addTextBox(0.0 0.0 100.0 50.0 "words"))
+        def plain:PptxShapeRef (slide.addShape("ellipse" 0.0 60.0 100.0 50.0))
+        deck.applyStyles()
+        def bm:PptxShape (box.model())
+        def pm:PptxShape (plain.model())
+        this.eqStr("a text box is a textBox" bm.fill.srgb "111111")
+        this.check("and is not a bare shape" ((pm.fill.srgb) != "111111"))
+        this.eqStr("a shape with no text is a shape" pm.line.srgb "222222")
+        this.check("and a text box is not" ((bm.line.srgb) != "222222"))
+
+        print "--- an id addresses one box ---"
+        def deck2:PptxDeck (PptxApi.create())
+        deck2.addStyleSheet("#hero { fill: #ABCDEF }")
+        def slide2:PptxSlideRef (deck2.addSlide())
+        def one:PptxShapeRef (slide2.addShape("rect" 0.0 0.0 10.0 10.0))
+        one.setStyleId("hero")
+        def two:PptxShapeRef (slide2.addShape("rect" 0.0 20.0 10.0 10.0))
+        deck2.applyStyles()
+        def m1:PptxShape (one.model())
+        def m2:PptxShape (two.model())
+        this.eqStr("the one with the id" m1.fill.srgb "ABCDEF")
+        this.check("and not its neighbour" ((m2.fill.srgb) != "ABCDEF"))
+    }
+
+    ; --- inline wins -----------------------------------------------------------
+    ;
+    ; The rule that keeps every existing program predictable. A stylesheet that
+    ; could override a fluent call would make the meaning of `.fill("blue")`
+    ; depend on a file the reader of that line cannot see.
+    fn testInlineWins:void () {
+        print "--- a fluent call beats the sheet ---"
+        def deck:PptxDeck (PptxApi.create())
+        deck.addStyleSheet(".warning { fill: #FF0000 !important }")
+        def slide:PptxSlideRef (deck.addSlide())
+        def shape:PptxShapeRef (slide.addShape("rect" 0.0 0.0 100.0 40.0))
+        shape.addClass("warning")
+        shape.style("fill" "#0000FF")
+        deck.applyStyles()
+        def m:PptxShape (shape.model())
+        this.eqStr("blue, even against !important" m.fill.srgb "0000FF")
+
+        def bare:PptxShapeRef (slide.addShape("rect" 0.0 60.0 100.0 40.0))
+        bare.addClass("warning")
+        deck.applyStyles()
+        def bm:PptxShape (bare.model())
+        this.eqStr("and without one the sheet wins" bm.fill.srgb "FF0000")
+
+        print "--- classes come and go ---"
+        this.check("the class is there" (shape.hasClass("warning")))
+        shape.removeClass("warning")
+        this.check("and then is not" ((shape.hasClass("warning")) == false))
+        shape.addClass("a")
+        shape.addClass("a")
+        def am:PptxShape (shape.model())
+        this.eqInt("a class added twice is carried once" (array_length am.styleClasses) 1)
+    }
+
+    ; --- what a slide cannot do ------------------------------------------------
+    fn testWhatASlideCannotDo:void () {
+        print "--- what it cannot honour, it names ---"
+        def deck:PptxDeck (PptxApi.create())
+        deck.addStyleSheet(".grid { display: flex; gap: 12px; flex-direction: row }")
+        def slide:PptxSlideRef (deck.addSlide())
+        def box:PptxShapeRef (slide.addShape("rect" 0.0 0.0 100.0 40.0))
+        box.addClass("grid")
+        deck.applyStyles()
+        def warnings:[string] (deck.styleWarnings())
+        this.check("three layout properties were reported" ((array_length warnings) >= 3))
+        this.check("and `display` is named among them" (PptxCssTest.mentions(warnings "display")))
+        this.check("and `gap`" (PptxCssTest.mentions(warnings "gap")))
+
+        print "--- an unreadable selector is reported too ---"
+        def deck2:PptxDeck (PptxApi.create())
+        deck2.addStyleSheet("shape > run { fill: red }")
+        def slide2:PptxSlideRef (deck2.addSlide())
+        def w2:[string] (deck2.styleWarnings())
+        this.check("the combinator was named" ((array_length w2) > 0))
+
+        print "--- and a deck with no sheet is unaffected ---"
+        def plain:PptxDeck (PptxApi.create())
+        def s3:PptxSlideRef (plain.addSlide())
+        def b3:PptxShapeRef (s3.addTextBox(0.0 0.0 100.0 40.0 "words"))
+        b3.addClass("title")
+        def bytes:buffer (plain.saveNew())
+        this.check("it still saves" ((buffer_length bytes) > 0))
+        def w3:[string] (plain.styleWarnings())
+        this.eqInt("with nothing to report" (array_length w3) 0)
+    }
+
+    ; --- it reaches the file ---------------------------------------------------
+    ;
+    ; A style that lands in the model and not in the bytes is a style nobody
+    ; will ever see, so this one goes all the way out and back.
+    fn testItReachesTheFile:void () {
+        print "--- out to the file and back ---"
+        def deck:PptxDeck (PptxApi.create())
+        deck.addStyleSheet("slide { background-color: #102030 }\n.big { font-family: Verdana; font-size: 33pt; font-weight: bold; color: #C0FFEE }")
+        def slide:PptxSlideRef (deck.addSlide())
+        def box:PptxShapeRef (slide.addTextBox(40.0 40.0 500.0 120.0 "Styled by a sheet"))
+        box.addClass("big")
+        ; No applyStyles: saving has to do it, or every caller has to remember.
+        def bytes:buffer (deck.saveNew())
+        def again:PptxDeck (PptxApi.open(bytes))
+        this.check("it reopened" again.ok)
+        def s2:PptxSlideRef (again.slideAt(0))
+        def b2:PptxShapeRef (s2.shapeAt(0))
+        def run:PptxTextRun (PptxCssTest.firstRun(b2))
+        this.eqStr("the family survived the round trip" run.fontFamily "Verdana")
+        this.check("and the size" (PptxCssTest.near(run.fontSizePt 33.0)))
+        this.check("and the weight" run.bold)
+        this.eqStr("and the colour" run.color.srgb "C0FFEE")
+        def sl:PptxSlide (s2.model())
+        this.eqStr("and the slide's background" sl.bg.srgb "102030")
+    }
+
+    ; --- helpers ---------------------------------------------------------------
+
+    sfn firstRun:PptxTextRun (shape:PptxShapeRef) {
+        def sh:PptxShape (shape.model())
+        if (sh.hasText == false) {
+            return (new PptxTextRun())
+        }
+        if ((array_length sh.text.paragraphs) == 0) {
+            return (new PptxTextRun())
+        }
+        def para:PptxParagraph (itemAt sh.text.paragraphs 0)
+        if ((array_length para.runs) == 0) {
+            return (new PptxTextRun())
+        }
+        return (itemAt para.runs 0)
+    }
+
+    sfn mentions:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            def line:string (itemAt list i)
+            if ((indexOf line want) >= 0) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.01)
+    }
+}

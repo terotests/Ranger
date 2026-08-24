@@ -461,6 +461,36 @@ class EVGColor {
         if (lower == "brown") {
             return (EVGColor.rgb(165 42 42))
         }
+        ; The rest of the sixteen HTML 4 / CSS 2.1 names. The table above had
+        ; eleven of them and stopped, so `navy` — which is what somebody
+        ; writing a corporate deck reaches for first — parsed as no colour at
+        ; all and painted nothing. Completing the standard set is a line worth
+        ; drawing; the other 130-odd CSS names are not, and a program that
+        ; wants `rebeccapurple` can write the hex.
+        if (lower == "navy") {
+            return (EVGColor.rgb(0 0 128))
+        }
+        if (lower == "teal") {
+            return (EVGColor.rgb(0 128 128))
+        }
+        if (lower == "olive") {
+            return (EVGColor.rgb(128 128 0))
+        }
+        if (lower == "maroon") {
+            return (EVGColor.rgb(128 0 0))
+        }
+        if (lower == "silver") {
+            return (EVGColor.rgb(192 192 192))
+        }
+        if (lower == "lime") {
+            return (EVGColor.rgb(0 255 0))
+        }
+        if (lower == "aqua") {
+            return (EVGColor.rgb(0 255 255))
+        }
+        if (lower == "fuchsia") {
+            return (EVGColor.rgb(255 0 255))
+        }
         if (lower == "transparent") {
             return (EVGColor.transparent())
         }

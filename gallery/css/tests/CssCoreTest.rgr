@@ -1,0 +1,293 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; CssCoreTest — the parser, the matcher, the ranking and the values
+; ==============================================================================
+;
+; The core has no consumer in it, which is the point of testing it on its own:
+; every case here builds its nodes by hand, so a failure is a failure of the
+; cascade rather than of whatever was walking a document at the time.
+;
+; The cases that matter most are the ORDERING ones. A cascade that applies the
+; right properties in the wrong order is a cascade that works on every example
+; anybody writes while learning it and fails the first time two rules collide.
+; ==============================================================================
+
+Import "../CssCore.rgr"
+
+class CssCoreTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new CssCoreTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn run:void () {
+        print "=== CssCoreTest ==="
+        this.testParsing()
+        this.testSelectors()
+        this.testSpecificity()
+        this.testCascade()
+        this.testValues()
+        this.testBadInput()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    sfn nodeOf:CssNode (tag:string id:string) {
+        def n (new CssNode())
+        n.tag = tag
+        n.id = id
+        return n
+    }
+
+    ; --- parsing --------------------------------------------------------------
+    fn testParsing:void () {
+        print "--- parsing ---"
+        def sheet (new CssSheet())
+        sheet.parse("/* a note */ .title { color: #1F3864; font-size: 44pt }\n.a, .b { fill: red }")
+        this.eqInt("two rules" (sheet.ruleCount()) 2)
+        this.eqInt("and nothing to complain about" (sheet.errorCount()) 0)
+        def first:CssRule (itemAt sheet.rules 0)
+        this.eqInt("the first has two declarations" (array_length first.decls) 2)
+        def d0:CssDecl (itemAt first.decls 0)
+        this.eqStr("named" d0.name "color")
+        this.eqStr("and valued" d0.value "#1F3864")
+        def second:CssRule (itemAt sheet.rules 1)
+        this.eqInt("a selector list is one rule with two selectors" (array_length second.selectors) 2)
+
+        def cased (new CssSheet())
+        cased.parse("shape { FILL: Red }")
+        def r:CssRule (itemAt cased.rules 0)
+        def d:CssDecl (itemAt r.decls 0)
+        this.eqStr("a property name is folded to lower case" d.name "fill")
+        this.eqStr("and its value is left alone" d.value "Red")
+
+        def quoted (new CssSheet())
+        quoted.parse(".x { font-family: \"Segoe UI\" }")
+        def qr:CssRule (itemAt quoted.rules 0)
+        def qd:CssDecl (itemAt qr.decls 0)
+        this.eqStr("quotes come off the value" qd.value "Segoe UI")
+    }
+
+    ; --- selectors ------------------------------------------------------------
+    fn testSelectors:void () {
+        print "--- selectors ---"
+        def sheet (new CssSheet())
+        sheet.parse(".title {a:1} #hero {a:1} textBox {a:1} textBox.title {a:1} .title run {a:1} * {a:1}")
+        this.eqInt("six rules" (sheet.ruleCount()) 6)
+
+        def box:CssNode (CssCoreTest.nodeOf("textBox" "hero"))
+        box.addClass("title")
+
+        this.check("a class matches" (CssCoreTest.hits(sheet 0 box)))
+        this.check("an id matches" (CssCoreTest.hits(sheet 1 box)))
+        this.check("a tag matches" (CssCoreTest.hits(sheet 2 box)))
+        this.check("a tag with a class matches" (CssCoreTest.hits(sheet 3 box)))
+        this.check("a descendant selector does not match the ancestor itself" ((CssCoreTest.hits(sheet 4 box)) == false))
+        this.check("the universal selector matches" (CssCoreTest.hits(sheet 5 box)))
+
+        def other:CssNode (CssCoreTest.nodeOf("shape" ""))
+        this.check("a tag that is not this one does not match" ((CssCoreTest.hits(sheet 2 other)) == false))
+        this.check("nor does a class it does not carry" ((CssCoreTest.hits(sheet 0 other)) == false))
+
+        print "--- the descendant combinator ---"
+        def run:CssNode (CssCoreTest.nodeOf("run" ""))
+        run.parent = box
+        this.check("a run inside a .title box matches `.title run`" (CssCoreTest.hits(sheet 4 run)))
+        def loose:CssNode (CssCoreTest.nodeOf("run" ""))
+        this.check("a run with no parent does not" ((CssCoreTest.hits(sheet 4 loose)) == false))
+
+        ; Three deep, with the middle one irrelevant to the selector.
+        def deep (new CssSheet())
+        deep.parse("slide .title run { a: 1 }")
+        def slide:CssNode (CssCoreTest.nodeOf("slide" ""))
+        def mid:CssNode (CssCoreTest.nodeOf("shape" ""))
+        mid.addClass("title")
+        mid.parent = slide
+        def leaf:CssNode (CssCoreTest.nodeOf("run" ""))
+        leaf.parent = mid
+        this.check("a chain matches across a gap" (CssCoreTest.hits(deep 0 leaf)))
+        def orphan:CssNode (CssCoreTest.nodeOf("run" ""))
+        orphan.parent = mid
+        def loneMid:CssNode (CssCoreTest.nodeOf("shape" ""))
+        loneMid.addClass("title")
+        def loneLeaf:CssNode (CssCoreTest.nodeOf("run" ""))
+        loneLeaf.parent = loneMid
+        this.check("and fails when an ancestor is missing" ((CssCoreTest.hits(deep 0 loneLeaf)) == false))
+    }
+
+    ; --- specificity ----------------------------------------------------------
+    fn testSpecificity:void () {
+        print "--- specificity ---"
+        def sheet (new CssSheet())
+        sheet.parse("textBox {a:1} .title {a:1} #hero {a:1} textBox.title {a:1} .a.b {a:1}")
+        this.eqInt("a tag is 0,0,1" (CssCoreTest.specOf(sheet 0)) 1)
+        this.eqInt("a class is 0,1,0" (CssCoreTest.specOf(sheet 1)) 100)
+        this.eqInt("an id is 1,0,0" (CssCoreTest.specOf(sheet 2)) 10000)
+        this.eqInt("a tag and a class is 0,1,1" (CssCoreTest.specOf(sheet 3)) 101)
+        this.eqInt("two classes is 0,2,0" (CssCoreTest.specOf(sheet 4)) 200)
+        this.check("an id outranks any number of classes" ((CssCoreTest.specOf(sheet 2)) > (CssCoreTest.specOf(sheet 4))))
+    }
+
+    ; --- the cascade ----------------------------------------------------------
+    fn testCascade:void () {
+        print "--- what wins ---"
+        def node:CssNode (CssCoreTest.nodeOf("shape" "hero"))
+        node.addClass("warning")
+
+        def sheet (new CssSheet())
+        sheet.parse("shape { fill: green } .warning { fill: red }")
+        def got:CssComputed (CssCascade.resolve(sheet node))
+        this.eqStr("a class beats a tag" (got.get("fill")) "red")
+
+        def later (new CssSheet())
+        later.parse(".warning { fill: red } .warning { fill: blue }")
+        def got2:CssComputed (CssCascade.resolve(later node))
+        this.eqStr("at equal specificity the later rule wins" (got2.get("fill")) "blue")
+
+        def id (new CssSheet())
+        id.parse("#hero { fill: black } .warning { fill: red }")
+        def got3:CssComputed (CssCascade.resolve(id node))
+        this.eqStr("an id beats a class whatever the order" (got3.get("fill")) "black")
+
+        ; The rule the whole API depends on.
+        def inline:CssNode (CssCoreTest.nodeOf("shape" ""))
+        inline.addClass("warning")
+        inline.setInline("fill" "blue")
+        def sheet2 (new CssSheet())
+        sheet2.parse(".warning { fill: red }")
+        def got4:CssComputed (CssCascade.resolve(sheet2 inline))
+        this.eqStr("a fluent call beats the sheet" (got4.get("fill")) "blue")
+
+        def bang:CssNode (CssCoreTest.nodeOf("shape" ""))
+        bang.addClass("warning")
+        bang.setInline("fill" "blue")
+        def sheet3 (new CssSheet())
+        sheet3.parse("shape { fill: green } .warning { fill: red !important }")
+        def got5:CssComputed (CssCascade.resolve(sheet3 bang))
+        this.eqStr("and beats !important too, which is the point" (got5.get("fill")) "blue")
+
+        def noInline:CssNode (CssCoreTest.nodeOf("shape" ""))
+        noInline.addClass("warning")
+        def got6:CssComputed (CssCascade.resolve(sheet3 noInline))
+        this.eqStr("without one, !important wins the sheet" (got6.get("fill")) "red")
+
+        def unmatched:CssNode (CssCoreTest.nodeOf("run" ""))
+        def got7:CssComputed (CssCascade.resolve(sheet3 unmatched))
+        this.eqInt("a node nothing matched has nothing set" (got7.count()) 0)
+        this.check("and says so rather than answering a default" ((got7.has("fill")) == false))
+    }
+
+    ; --- values ---------------------------------------------------------------
+    fn testValues:void () {
+        print "--- values ---"
+        def blue:EVGColor (CssValue.color("#1F3864"))
+        this.eqInt("hex red" (blue.red()) 31)
+        this.eqInt("hex green" (blue.green()) 56)
+        this.eqInt("hex blue" (blue.blue()) 100)
+        def named:EVGColor (CssValue.color("navy"))
+        this.eqInt("a named colour is the same parser" (named.blue()) 128)
+
+        this.check("44pt is 44 points" (CssCoreTest.near((CssValue.fontPoints("44pt" 0.0)) 44.0)))
+        this.check("a bare number on a slide means points" (CssCoreTest.near((CssValue.fontPoints("44" 0.0)) 44.0)))
+        this.check("96px is 72 points" (CssCoreTest.near((CssValue.points("96px" 0.0)) 72.0)))
+        this.check("one inch is 72 points" (CssCoreTest.near((CssValue.points("1in" 0.0)) 72.0)))
+        this.check("a relative unit has nothing to resolve against" (CssCoreTest.near((CssValue.points("2em" 9.0)) 9.0)))
+        this.check("and neither has nonsense" (CssCoreTest.near((CssValue.points("wide" 9.0)) 9.0)))
+
+        this.check("bold is bold" (CssValue.isBold("bold")))
+        this.check("700 is bold" (CssValue.isBold("700")))
+        this.check("400 is not" ((CssValue.isBold("400")) == false))
+        this.check("italic is italic" (CssValue.isItalic("italic")))
+        this.eqStr("a family list gives the first name" (CssValue.firstFamily("Calibri, \"Segoe UI\", sans-serif")) "Calibri")
+        this.check("none means do not paint" (CssValue.isNone("none")))
+        this.check("and so does transparent" (CssValue.isNone("transparent")))
+        this.check("red does not" ((CssValue.isNone("red")) == false))
+    }
+
+    ; --- what it refuses ------------------------------------------------------
+    ;
+    ; A selector this layer cannot read must match NOTHING. The alternative —
+    ; reading `a > b` as `a b` — is a rule that silently styles more than it
+    ; was asked to, which is invisible until it is not.
+    fn testBadInput:void () {
+        print "--- what it refuses ---"
+        def sheet (new CssSheet())
+        sheet.parse("shape > run { fill: red }")
+        this.check("a child combinator is reported" ((sheet.errorCount()) > 0))
+        def run:CssNode (CssCoreTest.nodeOf("run" ""))
+        def shape:CssNode (CssCoreTest.nodeOf("shape" ""))
+        run.parent = shape
+        def got:CssComputed (CssCascade.resolve(sheet run))
+        this.check("and matches nothing rather than acting as a descendant" ((got.has("fill")) == false))
+
+        def at (new CssSheet())
+        at.parse("@media (max-width: 640px) { .x { fill: red } }")
+        this.check("an at-rule is reported rather than applied" ((at.errorCount()) > 0))
+        this.eqInt("and contributes no rules" (at.ruleCount()) 0)
+
+        def unclosed (new CssSheet())
+        unclosed.parse(".x { fill: red")
+        this.check("an unclosed block is reported" ((unclosed.errorCount()) > 0))
+
+        def empty (new CssSheet())
+        empty.parse("")
+        this.eqInt("an empty sheet is not an error" (empty.errorCount()) 0)
+        this.eqInt("and has no rules" (empty.ruleCount()) 0)
+    }
+
+    ; --- helpers ---------------------------------------------------------------
+
+    sfn hits:boolean (sheet:CssSheet ruleIndex:int node:CssNode) {
+        def rule:CssRule (itemAt sheet.rules ruleIndex)
+        def i:int 0
+        while (i < (array_length rule.selectors)) {
+            def sel:CssSelector (itemAt rule.selectors i)
+            if (CssMatch.selector(sel node)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn specOf:int (sheet:CssSheet ruleIndex:int) {
+        def rule:CssRule (itemAt sheet.rules ruleIndex)
+        def sel:CssSelector (itemAt rule.selectors 0)
+        return (sel.specificity())
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.01)
+    }
+}

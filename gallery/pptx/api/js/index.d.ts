@@ -26,6 +26,15 @@ export declare class Shape {
   readonly exists: boolean;
   readonly name: string;
   setName(s: string): this;
+  /** A class a stylesheet can address. A class added twice is carried once. */
+  addClass(...names: string[]): this;
+  removeClass(...names: string[]): this;
+  hasClass(name: string): boolean;
+  /** The id `#name` addresses — NOT `setName`, which is the PowerPoint object name. */
+  setStyleId(id: string): this;
+  readonly styleId: string;
+  /** One property, inline. Nothing in any sheet overrides it, `!important` included. */
+  style(name: string, value: string): this;
   /** One of the 187 ECMA-376 preset geometries: "rect", "ellipse", "star5". */
   readonly preset: string;
   setPreset(name: string): this;
@@ -68,6 +77,12 @@ export declare class Slide {
   addShape(preset: string, x: number, y: number, w: number, h: number): Shape;
   removeShape(i: number): boolean;
   background(hex: string): this;
+  /** A class a stylesheet can address: `slide.review { … }`. */
+  addClass(...names: string[]): this;
+  /** The id `#name` addresses. */
+  setStyleId(id: string): this;
+  /** One property, inline. No rule can beat it. */
+  style(name: string, value: string): this;
 }
 
 export declare class Deck {
@@ -80,6 +95,19 @@ export declare class Deck {
   slides(): Slide[];
   addSlide(): Slide;
   removeSlide(i: number): boolean;
+  /**
+   * CSS over the deck. Resolved when the deck is saved or drawn, not here.
+   *
+   * `.class`, `#id`, an element name (`slide`, `shape`, `textBox`, `picture`,
+   * `group`, `table`, `chart`, `paragraph`, `run`), the two combined, and the
+   * descendant combinator. `font-*` and `color` inherit down to the runs;
+   * `fill`, `stroke` and `stroke-width` do not. A fluent call always wins.
+   */
+  addStyleSheet(css: string): this;
+  /** Resolve the sheet now. Only needed to READ a styled value back. */
+  applyStyles(): this;
+  /** Properties a slide cannot honour, and selectors this layer cannot read. */
+  readonly styleWarnings: string[];
   /** Every character in the deck. What a search index reads. */
   readonly text: string;
   /**

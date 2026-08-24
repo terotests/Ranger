@@ -1,0 +1,514 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxCss.rgr — a stylesheet over the deck, resolved to DrawingML
+; ==============================================================================
+;
+; The fluent API says where a box IS and what it LOOKS LIKE in the same breath:
+;
+;     slide.addTextBox(70, 150, 820, 110, "Quarterly review")
+;          .run(0, 0).font("Calibri", 44).bold().color("#1F3864");
+;
+; Geometry belongs there — a slide has no layout to work it out from, and a
+; program placing a box knows where it wants it. Appearance does not. Written
+; that way, changing the house font means finding every call that named one,
+; and a deck built in a loop cannot say "the second line is smaller" without
+; putting an `if` in the middle of its own layout code.
+;
+; So a sheet, resolved by the same core EVG's stylesheet is built on:
+;
+;     deck.addStyleSheet(".title { font-family: Calibri; font-size: 44pt; " +
+;                        "font-weight: bold; color: #1F3864 }")
+;     slide.addTextBox(70, 150, 820, 110, "Quarterly review").addClass("title")
+;
+; ==============================================================================
+; WHAT THIS FILE DECIDES, AND WHAT CssCore DECIDED ALREADY
+; ==============================================================================
+;
+; `CssCore` read the text, matched the selectors, ranked them and handed back
+; the properties that apply. It has no idea what any of them MEAN. Everything
+; below is the meaning:
+;
+;   * which element names a selector can use — `slide`, `shape`, `textBox`,
+;     `picture`, `group`, `table`, `chart`, `paragraph`, `run`;
+;   * which properties inherit — the text ones, and only those;
+;   * which properties this format cannot honour at all;
+;   * and where each one lands in the model.
+;
+; INHERITANCE. `color`, `font-family`, `font-size`, `font-weight` and
+; `font-style` flow from a shape down through its paragraphs to its runs, which
+; is what makes `.title { font-size: 44pt }` do the obvious thing to a box
+; whose text is three runs long. `fill`, `stroke` and `stroke-width` do not
+; inherit, because a run has no fill and a paragraph inside a red box is not a
+; red paragraph. Those are CSS's own rules and they are the right ones here for
+; CSS's own reason: the inheriting properties describe TEXT, which is nested,
+; and the others describe a BOX, which is not.
+;
+; WHAT IS REPORTED RATHER THAN APPLIED. `display: flex`, `display: grid`, every
+; `flex-*` and `grid-*`, and `gap`. The core parses them because the same text
+; is read by EVG, which implements them. A slide has explicit geometry and no
+; layout pass at all, so honouring them here would mean inventing a layout
+; engine and a child hierarchy that `addShape(x, y, w, h)` does not have. They
+; go into `unsupported` — named, counted, and visible to a caller — rather than
+; being dropped in a silence that reads as "applied".
+;
+; WHY INLINE ALWAYS WINS, once more. `shape.addClass("warning").fill("blue")`
+; is blue, even against `.warning { fill: red !important }`. A fluent call is
+; the author stating it in the code in front of them; a sheet that could beat
+; it would make every existing call in every existing program conditional on a
+; file it cannot see.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "PptxShapeInk.rgr"
+Import "../../css/CssCore.rgr"
+
+class PptxCss {
+    def sheet:CssSheet (new CssSheet())
+    ; Property names the sheet used that a slide cannot honour, each once.
+    def unsupported:[string]
+    ; How many objects the last pass touched, and how many declarations landed.
+    def styled:int 0
+    def applied:int 0
+
+    Constructor () {
+        def u:[string]
+        unsupported = u
+    }
+
+    fn addStyleSheet:void (css:string) {
+        sheet.parse(css)
+    }
+
+    fn errorCount:int () {
+        return (sheet.errorCount())
+    }
+
+    fn errorAt:string (i:int) {
+        return (sheet.errorAt(i))
+    }
+
+    fn unsupportedCount:int () {
+        return (array_length unsupported)
+    }
+
+    ; --- the walk -------------------------------------------------------------
+
+    ; Resolve the sheet over every slide, shape, paragraph and run.
+    fn applyTo:void (pres:PptxPresentation) {
+        styled = 0
+        applied = 0
+        def i:int 0
+        while (i < (array_length pres.slides)) {
+            def slide:PptxSlide (itemAt pres.slides i)
+            this.applyToSlide(slide)
+            i = (i + 1)
+        }
+    }
+
+    fn applyToSlide:void (slide:PptxSlide) {
+        def node (new CssNode())
+        node.tag = "slide"
+        node.id = slide.styleId
+        PptxCss.copyInto(node slide.styleClasses slide.inlineStyleNames slide.inlineStyleValues)
+        def got:CssComputed (CssCascade.resolve(sheet node))
+        styled = (styled + 1)
+        this.paintSlide(slide got)
+        ; The slide's own text properties are the top of the inheritance chain,
+        ; so they travel down with the walk rather than being applied here.
+        def inherited (new CssComputed())
+        PptxCss.inherit(inherited got)
+        def i:int 0
+        while (i < (array_length slide.shapes)) {
+            def shape:PptxShape (itemAt slide.shapes i)
+            this.applyToShape(shape node inherited)
+            i = (i + 1)
+        }
+    }
+
+    fn applyToShape:void (shape:PptxShape parent:CssNode inherited:CssComputed) {
+        def node (new CssNode())
+        node.tag = (PptxCss.tagOf(shape))
+        node.id = shape.styleId
+        node.parent = parent
+        PptxCss.copyInto(node shape.styleClasses shape.inlineStyleNames shape.inlineStyleValues)
+        def own:CssComputed (CssCascade.resolve(sheet node))
+        styled = (styled + 1)
+        ; What the shape itself says, over what came down to it. Own wins,
+        ; which is what inheritance means.
+        def here (new CssComputed())
+        PptxCss.copyAll(here inherited)
+        PptxCss.copyAll(here own)
+        this.paintShape(shape here)
+
+        def down (new CssComputed())
+        PptxCss.inherit(down here)
+        if shape.hasText {
+            this.applyToBody(shape.text node down)
+        }
+        def i:int 0
+        while (i < (array_length shape.children)) {
+            def child:PptxShape (itemAt shape.children i)
+            this.applyToShape(child node down)
+            i = (i + 1)
+        }
+    }
+
+    fn applyToBody:void (body:PptxTextBody parent:CssNode inherited:CssComputed) {
+        def p:int 0
+        while (p < (array_length body.paragraphs)) {
+            def para:PptxParagraph (itemAt body.paragraphs p)
+            def pnode (new CssNode())
+            pnode.tag = "paragraph"
+            pnode.parent = parent
+            def own:CssComputed (CssCascade.resolve(sheet pnode))
+            styled = (styled + 1)
+            def here (new CssComputed())
+            PptxCss.copyAll(here inherited)
+            PptxCss.copyAll(here own)
+            this.paintParagraph(para here)
+            def down (new CssComputed())
+            PptxCss.inherit(down here)
+            def r:int 0
+            while (r < (array_length para.runs)) {
+                def run:PptxTextRun (itemAt para.runs r)
+                def rnode (new CssNode())
+                rnode.tag = "run"
+                rnode.parent = pnode
+                def rown:CssComputed (CssCascade.resolve(sheet rnode))
+                styled = (styled + 1)
+                def mine (new CssComputed())
+                PptxCss.copyAll(mine down)
+                PptxCss.copyAll(mine rown)
+                this.paintRun(run mine)
+                r = (r + 1)
+            }
+            p = (p + 1)
+        }
+    }
+
+    ; --- what each property means ---------------------------------------------
+
+    fn paintSlide:void (slide:PptxSlide got:CssComputed) {
+        def i:int 0
+        while (i < (got.count())) {
+            def name:string (itemAt got.names i)
+            def value:string (itemAt got.values i)
+            def took:boolean false
+            if (name == "background-color") {
+                slide.bg = (PptxCss.colorOf(value))
+                took = true
+            }
+            if (name == "background") {
+                slide.bg = (PptxCss.colorOf(value))
+                took = true
+            }
+            this.note(name took)
+            i = (i + 1)
+        }
+    }
+
+    fn paintShape:void (shape:PptxShape got:CssComputed) {
+        def i:int 0
+        while (i < (got.count())) {
+            def name:string (itemAt got.names i)
+            def value:string (itemAt got.values i)
+            def took:boolean false
+            if ((name == "fill") || (name == "background-color")) {
+                if (CssValue.isNone(value)) {
+                    shape.noFill = true
+                    shape.fill.isSet = false
+                } {
+                    shape.fill = (PptxCss.colorOf(value))
+                    shape.noFill = false
+                }
+                took = true
+            }
+            if ((name == "stroke") || (name == "border-color")) {
+                if (CssValue.isNone(value)) {
+                    shape.noLine = true
+                    shape.line.isSet = false
+                } {
+                    shape.line = (PptxCss.colorOf(value))
+                    shape.noLine = false
+                }
+                took = true
+            }
+            if ((name == "stroke-width") || (name == "border-width")) {
+                shape.lineWidthPt = (CssValue.points(value shape.lineWidthPt))
+                took = true
+            }
+            if (name == "opacity") {
+                ; A slide has no shape-level alpha, only a colour's. Folding it
+                ; into the fill is the closest true thing; a shape with no fill
+                ; has nothing to fold it into and says so.
+                if shape.fill.isSet {
+                    def a:double (CssValue.fontPoints(value 1.0))
+                    shape.fill.alpha = a
+                    took = true
+                }
+            }
+            if (name == "border-radius") {
+                def r:double (CssValue.points(value 0.0))
+                def shortest:double shape.width
+                if (shape.height < shortest) {
+                    shortest = shape.height
+                }
+                if (shortest > 0.0) {
+                    shape.preset = "roundRect"
+                    def adj:double (r / shortest)
+                    if (adj > 0.5) {
+                        adj = 0.5
+                    }
+                    shape.adj = adj
+                }
+                took = true
+            }
+            if (name == "text-align") {
+                took = true
+            }
+            if (PptxCss.isTextProperty(name)) {
+                ; Carried down to the runs rather than applied to the box. Not
+                ; unsupported — the opposite: it is where the whole point of a
+                ; stylesheet on a deck lives.
+                took = true
+            }
+            this.note(name took)
+            i = (i + 1)
+        }
+    }
+
+    fn paintParagraph:void (para:PptxParagraph got:CssComputed) {
+        def align:string (got.get("text-align"))
+        if ((strlen align) > 0) {
+            def a:string (PptxCss.alignOf(align))
+            if ((strlen a) > 0) {
+                para.align = a
+                para.alignSet = true
+                applied = (applied + 1)
+            }
+        }
+    }
+
+    fn paintRun:void (run:PptxTextRun got:CssComputed) {
+        def family:string (got.get("font-family"))
+        if ((strlen family) > 0) {
+            run.fontFamily = (CssValue.firstFamily(family))
+            applied = (applied + 1)
+        }
+        def size:string (got.get("font-size"))
+        if ((strlen size) > 0) {
+            run.fontSizePt = (CssValue.fontPoints(size run.fontSizePt))
+            run.sizeSet = true
+            applied = (applied + 1)
+        }
+        def weight:string (got.get("font-weight"))
+        if ((strlen weight) > 0) {
+            run.bold = (CssValue.isBold(weight))
+            run.boldSet = true
+            applied = (applied + 1)
+        }
+        def style:string (got.get("font-style"))
+        if ((strlen style) > 0) {
+            run.italic = (CssValue.isItalic(style))
+            run.italicSet = true
+            applied = (applied + 1)
+        }
+        def colour:string (got.get("color"))
+        if ((strlen colour) > 0) {
+            run.color = (PptxCss.colorOf(colour))
+            applied = (applied + 1)
+        }
+    }
+
+    ; A property the sheet stated and this format has nowhere to put. Recorded
+    ; once each — a sheet that names `display: flex` on forty boxes is one
+    ; thing a caller needs to be told, not forty.
+    fn note:void (name:string took:boolean) {
+        if took {
+            applied = (applied + 1)
+            return
+        }
+        def i:int 0
+        while (i < (array_length unsupported)) {
+            if ((itemAt unsupported i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push unsupported name
+    }
+
+    ; --- helpers ---------------------------------------------------------------
+
+    ; The element name a selector writes for this shape. `shape` matches every
+    ; one of them, so `.divider { fill: … }` and `shape { … }` both work while
+    ; `textBox run { … }` can still be narrower.
+    sfn tagOf:string (shape:PptxShape) {
+        if (shape.kind == (PptxShapeKind.picture())) {
+            return "picture"
+        }
+        if (shape.kind == (PptxShapeKind.group())) {
+            return "group"
+        }
+        if (shape.kind == (PptxShapeKind.connector())) {
+            return "connector"
+        }
+        if (shape.kind == (PptxShapeKind.table())) {
+            return "table"
+        }
+        if (shape.kind == (PptxShapeKind.chart())) {
+            return "chart"
+        }
+        if shape.hasText {
+            return "textBox"
+        }
+        return "shape"
+    }
+
+    ; The five that flow down. See the banner: they describe TEXT, which is
+    ; nested, and everything else describes a BOX, which is not.
+    sfn isTextProperty:boolean (name:string) {
+        if (name == "color") { return true }
+        if (name == "font-family") { return true }
+        if (name == "font-size") { return true }
+        if (name == "font-weight") { return true }
+        if (name == "font-style") { return true }
+        return false
+    }
+
+    sfn inherit:void (into:CssComputed from:CssComputed) {
+        def i:int 0
+        while (i < (from.count())) {
+            def name:string (itemAt from.names i)
+            if (PptxCss.isTextProperty(name)) {
+                into.set(name (itemAt from.values i))
+            }
+            if (name == "text-align") {
+                ; Not a CSS text property in the inheriting sense, but it IS
+                ; inherited in CSS and it is the one alignment a box has.
+                into.set(name (itemAt from.values i))
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn copyAll:void (into:CssComputed from:CssComputed) {
+        def i:int 0
+        while (i < (from.count())) {
+            into.set((itemAt from.names i) (itemAt from.values i))
+            i = (i + 1)
+        }
+    }
+
+    sfn copyInto:void (node:CssNode classes:[string] names:[string] values:[string]) {
+        def i:int 0
+        while (i < (array_length classes)) {
+            node.addClass((itemAt classes i))
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length names)) {
+            if (k < (array_length values)) {
+                node.setInline((itemAt names k) (itemAt values k))
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn colorOf:PptxColor (value:string) {
+        def col:EVGColor (CssValue.color(value))
+        return (PptxShapeInk.colorOf(col 1.0))
+    }
+
+    sfn alignOf:string (value:string) {
+        def v:string (CssSheet.lower((CssSheet.tidy(value))))
+        if (v == "left") { return "l" }
+        if (v == "start") { return "l" }
+        if (v == "center") { return "ctr" }
+        if (v == "centre") { return "ctr" }
+        if (v == "right") { return "r" }
+        if (v == "end") { return "r" }
+        if (v == "justify") { return "just" }
+        return ""
+    }
+
+    ; --- the identity a caller sets --------------------------------------------
+    ;
+    ; Static because the model has no methods on it — it is a struct the parser
+    ; fills — and the API facade is where the fluent spelling lives.
+
+    sfn addShapeClass:void (shape:PptxShape name:string) {
+        def i:int 0
+        while (i < (array_length shape.styleClasses)) {
+            if ((itemAt shape.styleClasses i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push shape.styleClasses name
+    }
+
+    sfn removeShapeClass:void (shape:PptxShape name:string) {
+        def kept:[string]
+        def i:int 0
+        while (i < (array_length shape.styleClasses)) {
+            def had:string (itemAt shape.styleClasses i)
+            if (had != name) {
+                push kept had
+            }
+            i = (i + 1)
+        }
+        shape.styleClasses = kept
+    }
+
+    sfn hasShapeClass:boolean (shape:PptxShape name:string) {
+        def i:int 0
+        while (i < (array_length shape.styleClasses)) {
+            if ((itemAt shape.styleClasses i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn setShapeStyle:void (shape:PptxShape name:string value:string) {
+        def key:string (CssSheet.lower((CssSheet.tidy(name))))
+        def i:int 0
+        while (i < (array_length shape.inlineStyleNames)) {
+            if ((itemAt shape.inlineStyleNames i) == key) {
+                set_at shape.inlineStyleValues i value
+                return
+            }
+            i = (i + 1)
+        }
+        push shape.inlineStyleNames key
+        push shape.inlineStyleValues value
+    }
+
+    sfn addSlideClass:void (slide:PptxSlide name:string) {
+        def i:int 0
+        while (i < (array_length slide.styleClasses)) {
+            if ((itemAt slide.styleClasses i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push slide.styleClasses name
+    }
+
+    sfn setSlideStyle:void (slide:PptxSlide name:string value:string) {
+        def key:string (CssSheet.lower((CssSheet.tidy(name))))
+        def i:int 0
+        while (i < (array_length slide.inlineStyleNames)) {
+            if ((itemAt slide.inlineStyleNames i) == key) {
+                set_at slide.inlineStyleValues i value
+                return
+            }
+            i = (i + 1)
+        }
+        push slide.inlineStyleNames key
+        push slide.inlineStyleValues value
+    }
+}

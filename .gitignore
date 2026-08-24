@@ -137,3 +137,6 @@ gallery/office/docs/dist/
 # The playground build output.
 gallery/pptx/web/playground/dist/
 gallery/pptx/web/playground/.stage/
+
+# Compiled CSS core tests.
+gallery/css/bin/

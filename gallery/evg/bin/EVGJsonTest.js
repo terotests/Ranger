@@ -740,6 +740,30 @@ EVGColor.parseNamed = function(name) {
   if ( lower == "brown" ) {
     return EVGColor.rgb(165, 42, 42);
   }
+  if ( lower == "navy" ) {
+    return EVGColor.rgb(0, 0, 128);
+  }
+  if ( lower == "teal" ) {
+    return EVGColor.rgb(0, 128, 128);
+  }
+  if ( lower == "olive" ) {
+    return EVGColor.rgb(128, 128, 0);
+  }
+  if ( lower == "maroon" ) {
+    return EVGColor.rgb(128, 0, 0);
+  }
+  if ( lower == "silver" ) {
+    return EVGColor.rgb(192, 192, 192);
+  }
+  if ( lower == "lime" ) {
+    return EVGColor.rgb(0, 255, 0);
+  }
+  if ( lower == "aqua" ) {
+    return EVGColor.rgb(0, 255, 255);
+  }
+  if ( lower == "fuchsia" ) {
+    return EVGColor.rgb(255, 0, 255);
+  }
   if ( lower == "transparent" ) {
     return EVGColor.transparent();
   }
@@ -1054,6 +1078,8 @@ class EVGElement  {
     this.glowIntensity = 0.0;
     this.bgImageSet = false;
     this.bgImagePath = "";
+    this.textDir = "";
+    this.resolvedRtl = false;
     this.direction = "row";
     this.align = "left";
     this.verticalAlign = "top";
@@ -1369,6 +1395,16 @@ class EVGElement  {
     this.fontSizeBase = parentEl.inheritedFontSize;
     this.rootFontSize = parentEl.rootFontSize;
     this.applyOwnFontSize();
+    this.applyOwnDirection(parentEl.resolvedRtl);
+  };
+  applyOwnDirection (inherited) {
+    this.resolvedRtl = inherited;
+    if ( this.textDir == "rtl" ) {
+      this.resolvedRtl = true;
+    }
+    if ( this.textDir == "ltr" ) {
+      this.resolvedRtl = false;
+    }
   };
   applyOwnFontSize () {
     let authored = this.fontSize.isSet;
@@ -1673,6 +1709,10 @@ class EVGElement  {
       return;
     }
     if ( name == "direction" ) {
+      if ( (value == "rtl") || (value == "ltr") ) {
+        this.textDir = value;
+        return;
+      }
       this.direction = value;
       return;
     }
@@ -1995,6 +2035,215 @@ EVGElement.splitSpaces = function(s) {
   }
   return out;
 };
+class EVGCodepoint  {
+  constructor() {
+  }
+}
+EVGCodepoint.breaksAfter = function(c) {
+  if ( (c == 45) || (c == 8208) ) {
+    return true;
+  }
+  if ( (c == 8211) || (c == 8212) ) {
+    return true;
+  }
+  if ( c == 47 ) {
+    return true;
+  }
+  return false;
+};
+EVGCodepoint.isSpace = function(c) {
+  if ( c == 32 ) {
+    return true;
+  }
+  if ( c == 9 ) {
+    return true;
+  }
+  return false;
+};
+EVGCodepoint.stringIsBytes = function() {
+  return ("ä".length) > 1;
+};
+EVGCodepoint.isHighSurrogate = function(u) {
+  return (u >= 55296) && (u <= 56319);
+};
+EVGCodepoint.isLowSurrogate = function(u) {
+  return (u >= 56320) && (u <= 57343);
+};
+EVGCodepoint.codeAt = function(s, i) {
+  const u = s.charCodeAt(i );
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return EVGCodepoint.utf8CodeAt(s, i, u);
+  }
+  if ( EVGCodepoint.isHighSurrogate(u) ) {
+    if ( (i + 1) < (s.length) ) {
+      const lo = s.charCodeAt((i + 1) );
+      if ( EVGCodepoint.isLowSurrogate(lo) ) {
+        return (((u - 55296) * 1024) + (lo - 56320)) + 65536;
+      }
+    }
+  }
+  return u;
+};
+EVGCodepoint.utf8CodeAt = function(s, i, u) {
+  const n = s.length;
+  if ( u < 128 ) {
+    return u;
+  }
+  if ( (u >= 192) && (u < 224) ) {
+    if ( (i + 1) < n ) {
+      const b1 = s.charCodeAt((i + 1) );
+      if ( EVGCodepoint.isUtf8Cont(b1) ) {
+        return ((u - 192) * 64) + (b1 - 128);
+      }
+    }
+    return u;
+  }
+  if ( (u >= 224) && (u < 240) ) {
+    if ( (i + 2) < n ) {
+      const c1 = s.charCodeAt((i + 1) );
+      const c2 = s.charCodeAt((i + 2) );
+      if ( EVGCodepoint.isUtf8Cont(c1) && EVGCodepoint.isUtf8Cont(c2) ) {
+        return (((u - 224) * 4096) + ((c1 - 128) * 64)) + (c2 - 128);
+      }
+    }
+    return u;
+  }
+  if ( (u >= 240) && (u < 248) ) {
+    if ( (i + 3) < n ) {
+      const d1 = s.charCodeAt((i + 1) );
+      const d2 = s.charCodeAt((i + 2) );
+      const d3 = s.charCodeAt((i + 3) );
+      if ( (EVGCodepoint.isUtf8Cont(d1) && EVGCodepoint.isUtf8Cont(d2)) && EVGCodepoint.isUtf8Cont(d3) ) {
+        return ((((u - 240) * 262144) + ((d1 - 128) * 4096)) + ((d2 - 128) * 64)) + (d3 - 128);
+      }
+    }
+    return u;
+  }
+  return u;
+};
+EVGCodepoint.isUtf8Cont = function(b) {
+  return (b >= 128) && (b < 192);
+};
+EVGCodepoint.utf8UnitsAt = function(s, i) {
+  const u = s.charCodeAt(i );
+  const n = s.length;
+  if ( u < 128 ) {
+    return 1;
+  }
+  if ( (u >= 192) && (u < 224) ) {
+    if ( (i + 1) < n ) {
+      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) ) {
+        return 2;
+      }
+    }
+    return 1;
+  }
+  if ( (u >= 224) && (u < 240) ) {
+    if ( (i + 2) < n ) {
+      if ( EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) ))) && EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) ))) ) {
+        return 3;
+      }
+    }
+    return 1;
+  }
+  if ( (u >= 240) && (u < 248) ) {
+    if ( (i + 3) < n ) {
+      const e1 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 1) )));
+      const e2 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 2) )));
+      const e3 = EVGCodepoint.isUtf8Cont((s.charCodeAt((i + 3) )));
+      if ( (e1 && e2) && e3 ) {
+        return 4;
+      }
+    }
+    return 1;
+  }
+  return 1;
+};
+EVGCodepoint.unitsAt = function(s, i) {
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return EVGCodepoint.utf8UnitsAt(s, i);
+  }
+  const u = s.charCodeAt(i );
+  if ( EVGCodepoint.isHighSurrogate(u) ) {
+    if ( (i + 1) < (s.length) ) {
+      if ( EVGCodepoint.isLowSurrogate((s.charCodeAt((i + 1) ))) ) {
+        return 2;
+      }
+    }
+  }
+  return 1;
+};
+EVGCodepoint.charCount = function(s) {
+  let n = 0;
+  let i = 0;
+  while (i < (s.length)) {
+    i = i + EVGCodepoint.unitsAt(s, i);
+    n = n + 1;
+  };
+  return n;
+};
+EVGCodepoint.count = function(s) {
+  let n = 0;
+  let i = 0;
+  while (i < (s.length)) {
+    i = i + EVGCodepoint.unitsAt(s, i);
+    n = n + 1;
+  };
+  return n;
+};
+EVGCodepoint.toArray = function(s) {
+  let out = [];
+  let i = 0;
+  while (i < (s.length)) {
+    out.push(EVGCodepoint.codeAt(s, i));
+    i = i + EVGCodepoint.unitsAt(s, i);
+  };
+  return out;
+};
+EVGCodepoint.toStr = function(cp) {
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return String.fromCharCode(cp);
+  }
+  if ( cp < 65536 ) {
+    return String.fromCharCode(cp);
+  }
+  const rel = cp - 65536;
+  const hi = 55296 + (Math.floor( (rel / 1024)));
+  const lo = 56320 + (rel % 1024);
+  return (String.fromCharCode(hi)) + (String.fromCharCode(lo));
+};
+EVGCodepoint.encodeUtf8 = function(s) {
+  if ( EVGCodepoint.stringIsBytes() ) {
+    return s;
+  }
+  let out = "";
+  let i = 0;
+  while (i < (s.length)) {
+    const cp = EVGCodepoint.codeAt(s, i);
+    i = i + EVGCodepoint.unitsAt(s, i);
+    if ( cp < 128 ) {
+      out = out + (String.fromCharCode(cp));
+    } else {
+      if ( cp < 2048 ) {
+        out = out + (String.fromCharCode((192 + (Math.floor( (cp / 64))))));
+        out = out + (String.fromCharCode((128 + (cp % 64))));
+      } else {
+        if ( cp < 65536 ) {
+          out = out + (String.fromCharCode((224 + (Math.floor( (cp / 4096))))));
+          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
+          out = out + (String.fromCharCode((128 + (cp % 64))));
+        } else {
+          out = out + (String.fromCharCode((240 + (Math.floor( (cp / 262144))))));
+          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 4096))) % 64))));
+          out = out + (String.fromCharCode((128 + ((Math.floor( (cp / 64))) % 64))));
+          out = out + (String.fromCharCode((128 + (cp % 64))));
+        }
+      }
+    }
+    continue;
+  };
+  return out;
+};
 class EVGTextMetrics  {
   constructor() {
     this.width = 0.0;
@@ -2067,6 +2316,7 @@ class EVGTextMeasurer  {
     let currentLine = "";
     let currentWidth = 0.0;
     let wordStart = 0;
+    let joiner = " ";
     const textLen = text.length;
     let i = 0;
     while (i <= textLen) {
@@ -2085,19 +2335,34 @@ class EVGTextMeasurer  {
       if ( ch == 10 ) {
         isWordEnd = true;
       }
+      let hyphen = false;
+      if ( isEnd == false ) {
+        if ( EVGCodepoint.breaksAfter(ch) ) {
+          if ( i > wordStart ) {
+            isWordEnd = true;
+            hyphen = true;
+          }
+        }
+      }
       if ( isWordEnd ) {
+        let wordEnd = i;
+        if ( hyphen ) {
+          wordEnd = i + 1;
+        }
         let word = "";
-        if ( i > wordStart ) {
-          word = text.substring(wordStart, i );
+        if ( wordEnd > wordStart ) {
+          word = text.substring(wordStart, wordEnd );
         }
         const wordWidth = this.measureTextWidth(word, fontFamily, fontSize);
         let spaceWidth = 0.0;
         if ( (currentLine.length) > 0 ) {
-          spaceWidth = this.measureTextWidth(" ", fontFamily, fontSize);
+          if ( (joiner.length) > 0 ) {
+            spaceWidth = this.measureTextWidth(joiner, fontFamily, fontSize);
+          }
         }
         if ( ((currentWidth + spaceWidth) + wordWidth) <= maxWidth ) {
           if ( (currentLine.length) > 0 ) {
-            currentLine = currentLine + " ";
+            currentLine = currentLine + joiner;
             currentWidth = currentWidth + spaceWidth;
           }
           currentLine = currentLine + word;
@@ -2113,6 +2378,10 @@ class EVGTextMeasurer  {
           lines.push(currentLine);
           currentLine = "";
           currentWidth = 0.0;
+        }
+        joiner = " ";
+        if ( hyphen ) {
+          joiner = "";
         }
         wordStart = i + 1;
       }
@@ -3693,20 +3962,19 @@ VectorShapes.num = function(v) {
   }
   const scaled = Math.floor( ((a * 10000.0) + 0.5));
   const whole = ((scaled / 10000) | 0);
-  const fracPart = scaled - (whole * 10000);
+  let fracPart = scaled - (whole * 10000);
   let out = (whole.toString());
   if ( fracPart > 0 ) {
-    let frac = (fracPart.toString());
-    while ((frac.length) < 4) {
-      frac = "0" + frac;
+    let digits = 4;
+    while ((fracPart - ((((fracPart / 10) | 0)) * 10)) == 0) {
+      fracPart = ((fracPart / 10) | 0);
+      digits = digits - 1;
     };
-    while ((frac.length) > 1) {
-      const lastCh = frac.charCodeAt(((frac.length) - 1) );
-      if ( lastCh == 48 ) {
-        frac = frac.substring(0, ((frac.length) - 1) );
-      } else {
-        break;
-      }
+    let frac = (fracPart.toString());
+    let pad = digits - (frac.length);
+    while (pad > 0) {
+      frac = "0" + frac;
+      pad = pad - 1;
     };
     out = (out + ".") + frac;
   }
@@ -5282,6 +5550,34 @@ class EVGDisplayList  {
     this.setPolyBounds(c);
     this.cmds.push(c);
   };
+  addPolyRings (rings, col, evenOddFill) {
+    if ( (rings.length) == 0 ) {
+      return;
+    }
+    const c = new EVGDrawCmd();
+    c.kind = 6;
+    c.evenOdd = evenOddFill;
+    c.r = col.red();
+    c.g = col.green();
+    c.b = col.blue();
+    c.a = col.alpha();
+    let i = 0;
+    while (i < (rings.length)) {
+      const ring = rings[i];
+      let j = 0;
+      while (j < (ring.pts.length)) {
+        c.pts.push(ring.pts[j]);
+        j = j + 1;
+      };
+      c.ringEnds.push(c.pts.length);
+      i = i + 1;
+    };
+    if ( (c.pts.length) < 6 ) {
+      return;
+    }
+    this.setPolyBounds(c);
+    this.cmds.push(c);
+  };
   addPolygon (pts, col) {
     if ( (pts.length) < 6 ) {
       return;
@@ -5701,6 +5997,34 @@ class EVGDisplayList  {
     };
     out = out + "]}";
     return out;
+  };
+  offsetBy (dx, dy) {
+    let i = 0;
+    while (i < (this.cmds.length)) {
+      const c = this.cmds[i];
+      if ( c.kind != 5 ) {
+        c.x = c.x + dx;
+        c.y = c.y + dy;
+        let pi = 0;
+        while (pi < (c.pts.length)) {
+          const even = (pi % 2) == 0;
+          if ( even ) {
+            c.pts[pi] = (c.pts[pi]) + dx;
+          } else {
+            c.pts[pi] = (c.pts[pi]) + dy;
+          }
+          pi = pi + 1;
+        };
+      }
+      i = i + 1;
+    };
+  };
+  appendFrom (src) {
+    let i = 0;
+    while (i < (src.cmds.length)) {
+      this.cmds.push(src.cmds[i]);
+      i = i + 1;
+    };
   };
   summary () {
     let rects = 0;

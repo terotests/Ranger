@@ -71,6 +71,15 @@ class Shape {
   get exists() { return this._.exists(); }
   get name() { return this._.name(); }
   setName(s) { this._.setName(String(s)); return this; }
+  /** A class a stylesheet can address. Repeatable; a class added twice is carried once. */
+  addClass(...names) { for (const n of names) this._.addClass(String(n)); return this; }
+  removeClass(...names) { for (const n of names) this._.removeClass(String(n)); return this; }
+  hasClass(name) { return this._.hasClass(String(name)); }
+  /** The id `#name` addresses. NOT `setName`, which is the PowerPoint object name. */
+  setStyleId(id) { this._.setStyleId(String(id)); return this; }
+  get styleId() { return this._.styleId(); }
+  /** One property, inline. Nothing in any sheet can override it, `!important` included. */
+  style(name, value) { this._.style(String(name), String(value)); return this; }
   /** "rect", "ellipse", "star5" — one of the 187 ECMA-376 preset geometries. */
   get preset() { return this._.preset(); }
   setPreset(name) { this._.setPreset(String(name)); return this; }
@@ -130,6 +139,12 @@ class Slide {
   }
   removeShape(i) { return this._.removeShape(i | 0); }
   background(hex) { this._.background(String(hex)); return this; }
+  /** A class a stylesheet can address: `slide.review { … }`. */
+  addClass(...names) { for (const n of names) this._.addClass(String(n)); return this; }
+  /** The id `#name` addresses. */
+  setStyleId(id) { this._.setStyleId(String(id)); return this; }
+  /** One property, inline. No rule can beat it. */
+  style(name, value) { this._.style(String(name), String(value)); return this; }
 }
 
 class Deck {
@@ -153,6 +168,18 @@ class Deck {
   }
   addSlide() { return new Slide(this._.addSlide()); }
   removeSlide(i) { return this._.removeSlide(i | 0); }
+  /**
+   * CSS over the deck.
+   *
+   * Resolved when the deck is saved — or drawn, or `applyStyles()` is called —
+   * rather than here, because a sheet is declarative and the boxes it
+   * describes are usually created after it.
+   */
+  addStyleSheet(css) { this._.addStyleSheet(String(css)); return this; }
+  /** Resolve the sheet now. Only needed to READ a styled value back. */
+  applyStyles() { this._.applyStyles(); return this; }
+  /** Properties a slide cannot honour and selectors this layer cannot read. */
+  get styleWarnings() { return this._.styleWarnings(); }
   /** Every character in the deck. What a search index reads. */
   get text() { return this._.text(); }
   /**

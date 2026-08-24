@@ -1,0 +1,994 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; CssCore.rgr — the parser, the selectors, the specificity and the cascade
+; ==============================================================================
+;
+; CSS turns up in this repository twice for two unrelated reasons. EVG has a
+; stylesheet because a print document has to change its look without editing
+; its component tree. The .pptx API is getting one because a deck built by a
+; program has the same problem, and the fluent alternative —
+;
+;     .run(0, 0).font("Calibri", 44).bold().color("#1F3864")
+;
+; — puts the look of every box at the place it is created, which is exactly
+; what a stylesheet exists to stop.
+;
+; They are NOT the same consumer. EVG resolves into a layout — boxes, flex,
+; grid, line breaking. PowerPoint resolves into DrawingML, where geometry is
+; explicit and there is no layout to resolve into at all. So what is shared is
+; the part underneath both: reading the text, matching a selector, ranking two
+; rules that both matched, and reading a value.
+;
+;             ┌──────────── CssCore ────────────┐
+;             │ parse · selectors · specificity │
+;             │ cascade · values                │
+;             └────────┬───────────────┬────────┘
+;                      │               │
+;              EVG resolver     PPTX resolver
+;                      │               │
+;              layout + render   DrawingML
+;
+; What is deliberately NOT here: layout of any kind, and any notion of what a
+; property MEANS. `display: flex` parses — it has to, because the same text is
+; read by a consumer that implements it — and this layer has no opinion on
+; whether anyone honours it. A resolver reports what it cannot support; see
+; `PptxCss.unsupported`.
+;
+; THE SELECTOR SUBSET, and why it stops where it does. A tag, an id, one or
+; more classes, and the descendant combinator:
+;
+;     .title            #hero            textBox
+;     textBox.title     shape.divider    .title run       *
+;
+; Left out: `:first-child`, `:nth-child`, `:hover`, `:not`, attribute
+; selectors, and the `>`, `+`, `~` combinators. Each of them costs a tree walk
+; with sibling indices in it, and none of them earns that on a deck: there is
+; no hover on a slide, and a program that wants the third box addresses it by
+; index in the language it is already writing. Adding them later is additive —
+; they are more ways to fail `matchesPart`, not a different matcher.
+;
+; SPECIFICITY is the real one, because a made-up ranking is a ranking somebody
+; has to learn: (ids, classes, tags) compared in that order, ties broken by
+; source order, and everything beaten by an inline declaration. Packed into one
+; int as a*10000 + b*100 + c, which cannot overflow before a selector has a
+; hundred classes in it.
+;
+; VALUES come from `EVGColor` and `EVGUnit` rather than from a second
+; implementation written here. Both are leaf modules — no layout, no element,
+; no display list, nothing imported at all — so this is the shared colour
+; parser the diagram above asks for, sitting where it already sat. Writing a
+; second one would give `.fill("red")` and `fill: red` two chances to disagree,
+; which is the outcome the whole exercise is meant to avoid.
+; ==============================================================================
+
+Import "../evg/EVGColor.rgr"
+Import "../evg/EVGUnit.rgr"
+
+; One `name: value` pair.
+class CssDecl {
+    def name:string ""
+    def value:string ""
+    ; `!important` lifts a declaration above the rest of the sheet — but NOT
+    ; above an inline one. A fluent call is the author saying it here, now, in
+    ; the code in front of them; a sheet cannot outrank that without making the
+    ; API unpredictable, which is the one thing a styling layer must not do.
+    def important:boolean false
+
+    Constructor () {
+    }
+}
+
+; One compound selector: `textBox.title#hero`. No combinator in it.
+class CssSelectorPart {
+    ; "" matches any tag, which is what `*` and a bare `.class` both mean.
+    def tag:string ""
+    def id:string ""
+    def classes:[string]
+
+    Constructor () {
+        def c:[string]
+        classes = c
+    }
+
+    fn isUniversal:boolean () {
+        if ((strlen tag) > 0) { return false }
+        if ((strlen id) > 0) { return false }
+        return ((array_length classes) == 0)
+    }
+}
+
+; A descendant chain. The LAST part is the subject — the node being matched —
+; and the ones before it have to be found somewhere among its ancestors.
+class CssSelector {
+    def parts:[CssSelectorPart]
+    ; Where this selector appeared in the sheet. Ties in specificity go to the
+    ; later one, which is what every CSS engine does and what an author expects
+    ; when they add a rule at the bottom to override one at the top.
+    def order:int 0
+    ; A selector that could not be read. Kept rather than dropped so it matches
+    ; nothing: a misspelt selector that styles everything is worse than one
+    ; that styles nothing, because it is invisible until it is not.
+    def broken:boolean false
+
+    Constructor () {
+        def p:[CssSelectorPart]
+        parts = p
+    }
+
+    ; (ids, classes, tags), packed. See the banner.
+    fn specificity:int () {
+        def ids:int 0
+        def cls:int 0
+        def tags:int 0
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:CssSelectorPart (itemAt parts i)
+            if ((strlen part.id) > 0) {
+                ids = (ids + 1)
+            }
+            cls = (cls + (array_length part.classes))
+            if ((strlen part.tag) > 0) {
+                tags = (tags + 1)
+            }
+            i = (i + 1)
+        }
+        return (((ids * 10000) + (cls * 100)) + tags)
+    }
+
+    fn text:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:CssSelectorPart (itemAt parts i)
+            if (i > 0) {
+                out = (out + " ")
+            }
+            out = (out + part.tag)
+            if ((strlen part.id) > 0) {
+                out = (out + "#" + part.id)
+            }
+            def k:int 0
+            while (k < (array_length part.classes)) {
+                out = (out + "." + (itemAt part.classes k))
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+class CssRule {
+    def selectors:[CssSelector]
+    def decls:[CssDecl]
+
+    Constructor () {
+        def s:[CssSelector]
+        selectors = s
+        def d:[CssDecl]
+        decls = d
+    }
+}
+
+; What a consumer hands the matcher: the CSS identity of one of its own
+; objects, and the way up to its parent.
+;
+; A deliberately thin struct rather than an interface on the model, so nothing
+; in here has to know what a slide, a shape or an EVG element is — and so a
+; consumer can build these lazily while it walks, which is what both do.
+class CssNode {
+    ; The type name the sheet writes: "slide", "shape", "textBox", "run".
+    def tag:string ""
+    ; The STYLE id, which is not the object's name. See PptxCss: a shape's
+    ; PowerPoint name is what an author sees in the selection pane, and
+    ; conflating the two means renaming a box silently restyles it.
+    def id:string ""
+    def classes:[string]
+    def parent@(optional):CssNode
+    ; What the fluent API already stated on this object. Nothing in the sheet
+    ; can beat it — see `CssDecl.important`.
+    def inlineNames:[string]
+    def inlineValues:[string]
+
+    Constructor () {
+        def c:[string]
+        classes = c
+        def n:[string]
+        inlineNames = n
+        def v:[string]
+        inlineValues = v
+    }
+
+    fn addClass:void (name:string) {
+        if ((this.hasClass(name)) == false) {
+            push classes name
+        }
+    }
+
+    fn hasClass:boolean (name:string) {
+        def i:int 0
+        while (i < (array_length classes)) {
+            if ((itemAt classes i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn setInline:void (name:string value:string) {
+        def i:int 0
+        while (i < (array_length inlineNames)) {
+            if ((itemAt inlineNames i) == name) {
+                set_at inlineValues i value
+                return
+            }
+            i = (i + 1)
+        }
+        push inlineNames name
+        push inlineValues value
+    }
+}
+
+; One declaration that won its property, and what beat what.
+class CssWon {
+    def name:string ""
+    def value:string ""
+    ; 0 = from the sheet, 1 = !important, 2 = inline. Kept so a resolver can
+    ; tell an author's own call from a rule that happened to agree with it.
+    def source:int 0
+    def specificity:int 0
+    def order:int 0
+
+    Constructor () {
+    }
+}
+
+; The properties that apply to one node, after the cascade.
+class CssComputed {
+    def names:[string]
+    def values:[string]
+
+    Constructor () {
+        def n:[string]
+        names = n
+        def v:[string]
+        values = v
+    }
+
+    fn has:boolean (name:string) {
+        return ((this.indexOfName(name)) >= 0)
+    }
+
+    fn indexOfName:int (name:string) {
+        def i:int 0
+        while (i < (array_length names)) {
+            if ((itemAt names i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn get:string (name:string) {
+        def at:int (this.indexOfName(name))
+        if (at < 0) {
+            return ""
+        }
+        return (itemAt values at)
+    }
+
+    fn set:void (name:string value:string) {
+        def at:int (this.indexOfName(name))
+        if (at >= 0) {
+            set_at values at value
+            return
+        }
+        push names name
+        push values value
+    }
+
+    fn count:int () {
+        return (array_length names)
+    }
+}
+
+; ==============================================================================
+; The sheet
+; ==============================================================================
+
+class CssSheet {
+    def rules:[CssRule]
+    def errors:[string]
+    def counter:int 0
+
+    Constructor () {
+        def r:[CssRule]
+        rules = r
+        def e:[string]
+        errors = e
+    }
+
+    fn ruleCount:int () {
+        return (array_length rules)
+    }
+
+    fn errorCount:int () {
+        return (array_length errors)
+    }
+
+    fn errorAt:string (i:int) {
+        if ((i < 0) || (i >= (array_length errors))) {
+            return ""
+        }
+        return (itemAt errors i)
+    }
+
+    ; Add a sheet. Called more than once, the later rules simply come later in
+    ; source order — which is what a second `addStyleSheet` should mean.
+    fn parse:void (css:string) {
+        def src:string (CssSheet.stripComments(css))
+        def n:int (strlen src)
+        def i:int 0
+        while (i < n) {
+            def open:int (CssSheet.findChar(src i 123))
+            if (open < 0) {
+                def rest:string (substring src i n)
+                def tail:string (CssSheet.tidy(rest))
+                if ((strlen tail) > 0) {
+                    push errors ("a selector with no block: " + tail)
+                }
+                return
+            }
+            def selText:string (CssSheet.tidy((substring src i open)))
+            def close:int (CssSheet.matchingBrace(src open))
+            if (close < 0) {
+                push errors ("no closing brace for: " + selText)
+                return
+            }
+            def body:string (substring src (open + 1) close)
+            ; An at-rule — `@media`, `@font-face` — is a block this layer has
+            ; no opinion about. Recorded rather than parsed: a consumer that
+            ; wants media queries reads them from its own layer, and one that
+            ; does not must not silently apply what is inside.
+            if ((strlen selText) > 0) {
+                def first:int (charAt selText 0)
+                if (first == 64) {
+                    push errors ("at-rules are not read here: " + selText)
+                } {
+                    this.addRules(selText body)
+                }
+            }
+            i = (close + 1)
+        }
+    }
+
+    fn addRules:void (selText:string body:string) {
+        def decls:[CssDecl] (CssSheet.parseDeclarations(body))
+        if ((array_length decls) == 0) {
+            return
+        }
+        def rule (new CssRule())
+        rule.decls = decls
+        def sels:[string] (CssSheet.splitOn(selText 44))
+        def i:int 0
+        while (i < (array_length sels)) {
+            def text:string (CssSheet.tidy((itemAt sels i)))
+            if ((strlen text) > 0) {
+                def sel:CssSelector (CssSheet.parseSelector(text))
+                sel.order = counter
+                counter = (counter + 1)
+                if sel.broken {
+                    push errors ("a selector this layer cannot read: " + text)
+                }
+                push rule.selectors sel
+            }
+            i = (i + 1)
+        }
+        if ((array_length rule.selectors) > 0) {
+            push rules rule
+        }
+    }
+
+    ; `.title run`, `textBox.divider`, `#hero`, `*`.
+    sfn parseSelector:CssSelector (text:string) {
+        def sel (new CssSelector())
+        def words:[string] (CssSheet.splitWhitespace(text))
+        def i:int 0
+        while (i < (array_length words)) {
+            def word:string (itemAt words i)
+            def part:CssSelectorPart (CssSheet.parsePart(word))
+            def bare:boolean (part.isUniversal())
+            if bare {
+                ; `*` is legal and matches everything, so a universal part is
+                ; only broken when the word was not `*` at all.
+                if (word != "*") {
+                    sel.broken = true
+                }
+            }
+            push sel.parts part
+            i = (i + 1)
+        }
+        if ((array_length sel.parts) == 0) {
+            sel.broken = true
+        }
+        return sel
+    }
+
+    sfn parsePart:CssSelectorPart (word:string) {
+        def part (new CssSelectorPart())
+        def n:int (strlen word)
+        def i:int 0
+        def kind:int 0
+        def buf:string ""
+        while (i < n) {
+            def c:int (charAt word i)
+            ; A combinator this layer does not implement. Marking the whole
+            ; word unusable is what keeps `a > b` from silently meaning `a b`.
+            if ((c == 62) || (c == 43)) {
+                part.tag = ""
+                part.id = ""
+                def empty:[string]
+                part.classes = empty
+                return part
+            }
+            if (c == 126) {
+                part.tag = ""
+                part.id = ""
+                def empty2:[string]
+                part.classes = empty2
+                return part
+            }
+            if ((c == 46) || (c == 35)) {
+                CssSheet.flushPart(part kind buf)
+                buf = ""
+                kind = 1
+                if (c == 35) {
+                    kind = 2
+                }
+            } {
+                buf = (buf + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        CssSheet.flushPart(part kind buf)
+        return part
+    }
+
+    sfn flushPart:void (part:CssSelectorPart kind:int buf:string) {
+        if ((strlen buf) == 0) {
+            return
+        }
+        if (kind == 1) {
+            push part.classes buf
+            return
+        }
+        if (kind == 2) {
+            part.id = buf
+            return
+        }
+        if (buf != "*") {
+            part.tag = buf
+        }
+    }
+
+    sfn parseDeclarations:[CssDecl] (body:string) {
+        def out:[CssDecl]
+        def parts:[string] (CssSheet.splitOn(body 59))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def piece:string (CssSheet.tidy((itemAt parts i)))
+            if ((strlen piece) > 0) {
+                def colon:int (CssSheet.findChar(piece 0 58))
+                if (colon > 0) {
+                    def name:string (CssSheet.lower((CssSheet.tidy((substring piece 0 colon)))))
+                    def value:string (CssSheet.tidy((substring piece (colon + 1) (strlen piece))))
+                    def decl (new CssDecl())
+                    decl.name = name
+                    def bang:int (CssSheet.indexOfText(value "!important"))
+                    if (bang >= 0) {
+                        decl.important = true
+                        value = (CssSheet.tidy((substring value 0 bang)))
+                    }
+                    decl.value = (CssSheet.unquote(value))
+                    if ((strlen decl.name) > 0) {
+                        push out decl
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- text helpers ---------------------------------------------------------
+
+    sfn stripComments:string (css:string) {
+        def out:string ""
+        def n:int (strlen css)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt css i)
+            def isStart:boolean false
+            if (c == 47) {
+                if ((i + 1) < n) {
+                    if ((charAt css (i + 1)) == 42) {
+                        isStart = true
+                    }
+                }
+            }
+            if isStart {
+                def j:int (i + 2)
+                def done:boolean false
+                while ((j + 1) < n) {
+                    if ((charAt css j) == 42) {
+                        if ((charAt css (j + 1)) == 47) {
+                            i = (j + 2)
+                            done = true
+                            j = n
+                        }
+                    }
+                    if (done == false) {
+                        j = (j + 1)
+                    }
+                }
+                if (done == false) {
+                    return out
+                }
+            } {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    sfn findChar:int (s:string from:int ch:int) {
+        def n:int (strlen s)
+        def i:int from
+        while (i < n) {
+            if ((charAt s i) == ch) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn matchingBrace:int (s:string open:int) {
+        def n:int (strlen s)
+        def depth:int 0
+        def i:int open
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 123) {
+                depth = (depth + 1)
+            }
+            if (c == 125) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn splitOn:[string] (s:string sep:int) {
+        def out:[string]
+        def buf:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == sep) {
+                push out buf
+                buf = ""
+            } {
+                buf = (buf + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        push out buf
+        return out
+    }
+
+    sfn splitWhitespace:[string] (s:string) {
+        def out:[string]
+        def buf:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13)) {
+                if ((strlen buf) > 0) {
+                    push out buf
+                    buf = ""
+                }
+            } {
+                buf = (buf + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        if ((strlen buf) > 0) {
+            push out buf
+        }
+        return out
+    }
+
+    sfn tidy:string (s:string) {
+        def n:int (strlen s)
+        def from:int 0
+        while (from < n) {
+            def c:int (charAt s from)
+            if ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13)) {
+                from = (from + 1)
+            } {
+                return (CssSheet.tidyEnd((substring s from n)))
+            }
+        }
+        return ""
+    }
+
+    sfn tidyEnd:string (s:string) {
+        def upto:int (strlen s)
+        while (upto > 0) {
+            def c:int (charAt s (upto - 1))
+            if ((((c == 32) || (c == 9)) || (c == 10)) || (c == 13)) {
+                upto = (upto - 1)
+            } {
+                return (substring s 0 upto)
+            }
+        }
+        return ""
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c >= 65) && (c <= 90)) {
+                c = (c + 32)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn indexOfText:int (s:string want:string) {
+        def n:int (strlen s)
+        def m:int (strlen want)
+        if (m == 0) {
+            return (0 - 1)
+        }
+        def i:int 0
+        while ((i + m) <= n) {
+            if ((substring s i (i + m)) == want) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn unquote:string (s:string) {
+        def n:int (strlen s)
+        if (n < 2) {
+            return s
+        }
+        def first:int (charAt s 0)
+        def last:int (charAt s (n - 1))
+        if ((first == 34) && (last == 34)) {
+            return (substring s 1 (n - 1))
+        }
+        if ((first == 39) && (last == 39)) {
+            return (substring s 1 (n - 1))
+        }
+        return s
+    }
+}
+
+; ==============================================================================
+; Matching and the cascade
+; ==============================================================================
+
+class CssMatch {
+    Constructor () {
+    }
+
+    ; Does the compound selector describe this node?
+    sfn part:boolean (p:CssSelectorPart node:CssNode) {
+        if ((strlen p.tag) > 0) {
+            if (p.tag != node.tag) {
+                return false
+            }
+        }
+        if ((strlen p.id) > 0) {
+            if (p.id != node.id) {
+                return false
+            }
+        }
+        def i:int 0
+        while (i < (array_length p.classes)) {
+            def want:string (itemAt p.classes i)
+            if ((node.hasClass(want)) == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The whole chain, right to left. The last part has to describe the node
+    ; itself; every earlier one has to describe SOME ancestor, in order.
+    ;
+    ; Right to left rather than left to right because that is the only way that
+    ; terminates cheaply: a node has ONE parent chain, so the walk is bounded
+    ; by the depth of the tree. Left to right would have to search downward
+    ; from every candidate ancestor.
+    sfn selector:boolean (sel:CssSelector node:CssNode) {
+        if sel.broken {
+            return false
+        }
+        def n:int (array_length sel.parts)
+        if (n == 0) {
+            return false
+        }
+        def last:CssSelectorPart (itemAt sel.parts (n - 1))
+        if ((CssMatch.part(last node)) == false) {
+            return false
+        }
+        def up@(optional):CssNode node.parent
+        return (CssMatch.ancestors(sel (n - 2) up))
+    }
+
+    ; Each remaining part, against a strictly higher ancestor than the last.
+    ;
+    ; Taking the NEAREST ancestor that matches is not a shortcut, it is the
+    ; right answer: every part after this one must match something strictly
+    ; higher still, and stopping at the nearest match leaves the largest set of
+    ; ancestors for them. A farther match can therefore never succeed where the
+    ; nearest one failed.
+    sfn ancestors:boolean (sel:CssSelector at:int from@(optional):CssNode) {
+        if (at < 0) {
+            return true
+        }
+        def want:CssSelectorPart (itemAt sel.parts at)
+        def cursor@(optional):CssNode from
+        while ((null? cursor) == false) {
+            def here:CssNode (unwrap cursor)
+            def up@(optional):CssNode here.parent
+            if (CssMatch.part(want here)) {
+                return (CssMatch.ancestors(sel (at - 1) up))
+            }
+            cursor = up
+        }
+        return false
+    }
+}
+
+class CssCascade {
+    Constructor () {
+    }
+
+    ; Every property that applies to `node`, with the winner for each.
+    ;
+    ; Order of battle, weakest first: a sheet rule, then a more specific sheet
+    ; rule, then a later one at equal specificity, then `!important`, then an
+    ; inline declaration. Inline is last on purpose — see `CssDecl.important`:
+    ; a fluent call is the author saying it in the code in front of them, and a
+    ; stylesheet that could beat it would make the existing API unpredictable.
+    sfn resolve:CssComputed (sheet:CssSheet node:CssNode) {
+        def out (new CssComputed())
+        def wonNames:[string]
+        def wonRank:[int]
+        def wonOrder:[int]
+        def wonSource:[int]
+
+        def r:int 0
+        while (r < (array_length sheet.rules)) {
+            def rule:CssRule (itemAt sheet.rules r)
+            def best:int (0 - 1)
+            def bestOrder:int 0
+            def s:int 0
+            while (s < (array_length rule.selectors)) {
+                def sel:CssSelector (itemAt rule.selectors s)
+                if (CssMatch.selector(sel node)) {
+                    def spec:int (sel.specificity())
+                    if (spec > best) {
+                        best = spec
+                        bestOrder = sel.order
+                    } {
+                        if (spec == best) {
+                            if (sel.order > bestOrder) {
+                                bestOrder = sel.order
+                            }
+                        }
+                    }
+                }
+                s = (s + 1)
+            }
+            if (best >= 0) {
+                def d:int 0
+                while (d < (array_length rule.decls)) {
+                    def decl:CssDecl (itemAt rule.decls d)
+                    def rank:int best
+                    def source:int 0
+                    if decl.important {
+                        ; Above every ordinary rule and below inline, which one
+                        ; step of rank says exactly.
+                        rank = (best + 1000000)
+                        source = 1
+                    }
+                    CssCascade.offer(out wonNames wonRank wonOrder wonSource decl.name decl.value rank bestOrder source)
+                    d = (d + 1)
+                }
+            }
+            r = (r + 1)
+        }
+
+        ; Inline last and above everything.
+        def i:int 0
+        while (i < (array_length node.inlineNames)) {
+            def name:string (itemAt node.inlineNames i)
+            def value:string (itemAt node.inlineValues i)
+            CssCascade.offer(out wonNames wonRank wonOrder wonSource name value 100000000 i 2)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn offer:void (out:CssComputed wonNames:[string] wonRank:[int] wonOrder:[int] wonSource:[int] name:string value:string rank:int order:int source:int) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (array_length wonNames)) {
+            if ((itemAt wonNames i) == name) {
+                at = i
+                i = (array_length wonNames)
+            } {
+                i = (i + 1)
+            }
+        }
+        if (at < 0) {
+            push wonNames name
+            push wonRank rank
+            push wonOrder order
+            push wonSource source
+            out.set(name value)
+            return
+        }
+        def heldRank:int (itemAt wonRank at)
+        if (rank < heldRank) {
+            return
+        }
+        if (rank == heldRank) {
+            def heldOrder:int (itemAt wonOrder at)
+            if (order < heldOrder) {
+                return
+            }
+        }
+        set_at wonRank at rank
+        set_at wonOrder at order
+        set_at wonSource at source
+        out.set(name value)
+    }
+}
+
+; ==============================================================================
+; Values
+; ==============================================================================
+
+class CssValue {
+    Constructor () {
+    }
+
+    ; Is this the word a stylesheet uses to mean "do not paint"?
+    sfn isNone:boolean (value:string) {
+        def v:string (CssSheet.lower((CssSheet.tidy(value))))
+        if (v == "none") { return true }
+        if (v == "transparent") { return true }
+        return false
+    }
+
+    ; A colour, through EVGColor — the one implementation. `#1F3864`,
+    ; `rgb(68 114 196)`, `hsl(220 50% 30%)` and the named colours all arrive
+    ; here already understood.
+    sfn color:EVGColor (value:string) {
+        return (EVGColor.parse((CssSheet.tidy(value))))
+    }
+
+    ; A length in POINTS, which is what a slide measures in.
+    ;
+    ; `EVGUnit` folds the absolute print units into CSS pixels at parse time,
+    ; so this is that answer scaled by 72/96. A relative unit — `em`, `%` — has
+    ; nothing to resolve against at this layer and comes back as `fallback`.
+    sfn points:double (value:string fallback:double) {
+        def text:string (CssSheet.tidy(value))
+        if ((strlen text) == 0) {
+            return fallback
+        }
+        def u:EVGUnit (EVGUnit.parse(text))
+        if (u.isSet == false) {
+            return fallback
+        }
+        if ((u.isPixels()) == false) {
+            return fallback
+        }
+        return (u.value * (72.0 / 96.0))
+    }
+
+    ; A font size. Written `44pt` on a slide far more often than `44px`, and
+    ; both have to mean what they say — which is exactly what `points` does,
+    ; except that a bare number here means points rather than pixels because
+    ; nobody writing a deck means pixels.
+    sfn fontPoints:double (value:string fallback:double) {
+        def text:string (CssSheet.tidy(value))
+        if ((strlen text) == 0) {
+            return fallback
+        }
+        if (CssValue.isBareNumber(text)) {
+            def num@(optional):double (to_double text)
+            return (unwrap num)
+        }
+        return (CssValue.points(text fallback))
+    }
+
+    sfn isBareNumber:boolean (text:string) {
+        def n:int (strlen text)
+        if (n == 0) {
+            return false
+        }
+        def i:int 0
+        def digits:int 0
+        while (i < n) {
+            def c:int (charAt text i)
+            def ok:boolean false
+            if ((c >= 48) && (c <= 57)) {
+                ok = true
+                digits = (digits + 1)
+            }
+            if (c == 46) { ok = true }
+            if (c == 45) { ok = true }
+            if (c == 43) { ok = true }
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    sfn isBold:boolean (value:string) {
+        def v:string (CssSheet.lower((CssSheet.tidy(value))))
+        if (v == "bold") { return true }
+        if (v == "bolder") { return true }
+        if (v == "600") { return true }
+        if (v == "700") { return true }
+        if (v == "800") { return true }
+        if (v == "900") { return true }
+        return false
+    }
+
+    sfn isItalic:boolean (value:string) {
+        def v:string (CssSheet.lower((CssSheet.tidy(value))))
+        if (v == "italic") { return true }
+        if (v == "oblique") { return true }
+        return false
+    }
+
+    ; `font-family: Calibri, "Segoe UI", sans-serif` — the first name, because
+    ; a slide names ONE face and the fallback list is the reader's business.
+    sfn firstFamily:string (value:string) {
+        def parts:[string] (CssSheet.splitOn(value 44))
+        if ((array_length parts) == 0) {
+            return ""
+        }
+        return (CssSheet.unquote((CssSheet.tidy((itemAt parts 0)))))
+    }
+}
