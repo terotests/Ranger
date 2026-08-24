@@ -6459,6 +6459,677 @@ EVGA11yTree.jsonString = function(v) {
   };
   return out + "\"";
 };
+class EVGStyleDecl  {
+  constructor() {
+    this.name = "";
+    this.value = "";
+    this.name = "";
+    this.value = "";
+  }
+}
+class EVGMediaQuery  {
+  constructor() {
+    this.minWidth = 0.0 - 1.0;
+    this.maxWidth = 0.0 - 1.0;
+    this.minHeight = 0.0 - 1.0;
+    this.maxHeight = 0.0 - 1.0;
+    this.orientation = "";
+    this.pointer = 0;
+    this.broken = false;
+  }
+  isEmpty () {
+    if ( this.broken ) {
+      return false;
+    }
+    if ( this.minWidth >= 0.0 ) {
+      return false;
+    }
+    if ( this.maxWidth >= 0.0 ) {
+      return false;
+    }
+    if ( this.minHeight >= 0.0 ) {
+      return false;
+    }
+    if ( this.maxHeight >= 0.0 ) {
+      return false;
+    }
+    if ( (this.orientation.length) > 0 ) {
+      return false;
+    }
+    if ( this.pointer != 0 ) {
+      return false;
+    }
+    return true;
+  };
+  matches (w, h, coarse) {
+    if ( this.broken ) {
+      return false;
+    }
+    if ( this.isEmpty() ) {
+      return true;
+    }
+    if ( w <= 0.0 ) {
+      return false;
+    }
+    if ( this.minWidth >= 0.0 ) {
+      if ( w < this.minWidth ) {
+        return false;
+      }
+    }
+    if ( this.maxWidth >= 0.0 ) {
+      if ( w > this.maxWidth ) {
+        return false;
+      }
+    }
+    if ( this.minHeight >= 0.0 ) {
+      if ( h < this.minHeight ) {
+        return false;
+      }
+    }
+    if ( this.maxHeight >= 0.0 ) {
+      if ( h > this.maxHeight ) {
+        return false;
+      }
+    }
+    if ( (this.orientation.length) > 0 ) {
+      let want = "landscape";
+      if ( h > w ) {
+        want = "portrait";
+      }
+      if ( this.orientation != want ) {
+        return false;
+      }
+    }
+    if ( this.pointer == 1 ) {
+      if ( coarse == false ) {
+        return false;
+      }
+    }
+    if ( this.pointer == 2 ) {
+      if ( coarse ) {
+        return false;
+      }
+    }
+    return true;
+  };
+}
+class EVGStyleRule  {
+  constructor() {
+    this.theme = "";
+    this.className = "";
+    this.decls = [];
+    this.order = 0;
+    this.media = new EVGMediaQuery();
+    this.theme = "";
+    this.className = "";
+    this.order = 0;
+  }
+  isThemeScoped () {
+    return (this.theme.length) > 0;
+  };
+}
+class EVGStyleSheet  {
+  constructor() {
+    this.rules = [];
+    this.errors = [];
+    this.ruleCounter = 0;
+    this.pendingMedia = new EVGMediaQuery();
+    this.viewportW = 0.0;
+    this.viewportH = 0.0;
+    this.coarsePointer = false;
+    this.ruleCounter = 0;
+  }
+  setViewport (w, h, coarse) {
+    this.viewportW = w;
+    this.viewportH = h;
+    this.coarsePointer = coarse;
+  };
+  getRuleCount () {
+    return this.rules.length;
+  };
+  getErrorCount () {
+    return this.errors.length;
+  };
+  getError (i) {
+    return this.errors[i];
+  };
+  parse (css) {
+    const src = this.stripComments(css);
+    this.parseBlock(src, new EVGMediaQuery());
+  };
+  parseBlock (src, cond) {
+    const __len = src.length;
+    let i = 0;
+    while (i < __len) {
+      const braceAt = this.findChar(src, i, 123);
+      if ( braceAt < 0 ) {
+        const tail = (src.substring(i, __len )).trim();
+        if ( (tail.length) > 0 ) {
+          this.errors.push("Ignored trailing text with no rule body: " + tail);
+        }
+        return;
+      }
+      const selectorText = (src.substring(i, braceAt )).trim();
+      if ( (this).startsWith(selectorText, "@media") ) {
+        const endAt = this.matchingBrace(src, braceAt);
+        if ( endAt < 0 ) {
+          this.errors.push("Unclosed @media block: " + selectorText);
+          return;
+        }
+        const inner = src.substring((braceAt + 1), endAt );
+        const q = this.parseMedia(((selectorText.substring(6, (selectorText.length) )).trim()));
+        this.parseBlock(inner, this.andQuery(cond, q));
+        i = endAt + 1;
+      } else {
+        if ( (selectorText.length) > 0 ) {
+          if ( (selectorText.charCodeAt(0 )) == 64 ) {
+            const skipTo = this.matchingBrace(src, braceAt);
+            if ( skipTo < 0 ) {
+              this.errors.push("Unclosed at-rule: " + selectorText);
+              return;
+            }
+            this.errors.push("Unsupported at-rule ignored: " + selectorText);
+            i = skipTo + 1;
+            continue;
+          }
+        }
+        const closeAt = this.findChar(src, (braceAt + 1), 125);
+        if ( closeAt < 0 ) {
+          this.errors.push("Unclosed rule body for selector: " + selectorText);
+          return;
+        }
+        const body = src.substring((braceAt + 1), closeAt );
+        this.addRulesIn(selectorText, body, cond);
+        i = closeAt + 1;
+      }
+    };
+  };
+  matchingBrace (s, open) {
+    const __len = s.length;
+    let depth = 0;
+    let i = open;
+    while (i < __len) {
+      const c = s.charCodeAt(i );
+      if ( c == 123 ) {
+        depth = depth + 1;
+      }
+      if ( c == 125 ) {
+        depth = depth - 1;
+        if ( depth == 0 ) {
+          return i;
+        }
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  parseMedia (text) {
+    const q = new EVGMediaQuery();
+    const body = text.trim();
+    if ( (body.length) == 0 ) {
+      this.errors.push("Empty @media condition");
+      q.broken = true;
+      return q;
+    }
+    if ( this.findChar(body, 0, 44) >= 0 ) {
+      this.errors.push("Comma-separated media queries are not supported: " + body);
+      q.broken = true;
+      return q;
+    }
+    const parts = this.splitFeatures(body);
+    let i = 0;
+    while (i < (parts.length)) {
+      const feat = (parts[i]).trim();
+      if ( (feat.length) > 0 ) {
+        this.applyFeature(q, feat, body);
+      }
+      i = i + 1;
+    };
+    return q;
+  };
+  splitFeatures (body) {
+    let out = [];
+    const __len = body.length;
+    let i = 0;
+    while (i < __len) {
+      const open = this.findChar(body, i, 40);
+      if ( open < 0 ) {
+        const tail = (body.substring(i, __len )).trim();
+        if ( (tail.length) > 0 ) {
+          if ( tail != "and" ) {
+            out.push(tail);
+          }
+        }
+        return out;
+      }
+      const close = this.findChar(body, (open + 1), 41);
+      if ( close < 0 ) {
+        out.push(body.substring((open + 1), __len ));
+        return out;
+      }
+      out.push(body.substring((open + 1), close ));
+      i = close + 1;
+    };
+    return out;
+  };
+  applyFeature (q, feat, whole) {
+    const colon = this.findChar(feat, 0, 58);
+    if ( colon < 0 ) {
+      this.errors.push("Media feature without a value: " + feat);
+      q.broken = true;
+      return;
+    }
+    const name = (feat.substring(0, colon )).trim();
+    const value = (feat.substring((colon + 1), (feat.length) )).trim();
+    if ( name == "orientation" ) {
+      if ( (value == "portrait") || (value == "landscape") ) {
+        q.orientation = value;
+        return;
+      }
+      this.errors.push("Unknown orientation: " + value);
+      q.broken = true;
+      return;
+    }
+    if ( name == "pointer" ) {
+      if ( value == "coarse" ) {
+        q.pointer = 1;
+        return;
+      }
+      if ( value == "fine" ) {
+        q.pointer = 2;
+        return;
+      }
+      this.errors.push("Unknown pointer value: " + value);
+      q.broken = true;
+      return;
+    }
+    const px = this.parsePx(value);
+    if ( typeof(px) === "undefined" ) {
+      this.errors.push("Media feature value is not a length: " + feat);
+      q.broken = true;
+      return;
+    }
+    const v = px;
+    if ( name == "min-width" ) {
+      q.minWidth = v;
+      return;
+    }
+    if ( name == "max-width" ) {
+      q.maxWidth = v;
+      return;
+    }
+    if ( name == "min-height" ) {
+      q.minHeight = v;
+      return;
+    }
+    if ( name == "max-height" ) {
+      q.maxHeight = v;
+      return;
+    }
+    this.errors.push("Unsupported media feature: " + name);
+    q.broken = true;
+  };
+  parsePx (value) {
+    let __none;
+    const v = value.trim();
+    const __len = v.length;
+    if ( __len == 0 ) {
+      return __none;
+    }
+    let digits = v;
+    if ( __len > 2 ) {
+      if ( (v.substring((__len - 2), __len )) == "px" ) {
+        digits = (v.substring(0, (__len - 2) )).trim();
+      }
+    }
+    if ( (digits.length) == 0 ) {
+      return __none;
+    }
+    let i = 0;
+    let dots = 0;
+    while (i < (digits.length)) {
+      const c = digits.charCodeAt(i );
+      if ( c == 46 ) {
+        dots = dots + 1;
+      } else {
+        if ( (c < 48) || (c > 57) ) {
+          return __none;
+        }
+      }
+      i = i + 1;
+    };
+    if ( dots > 1 ) {
+      return __none;
+    }
+    return isNaN( parseFloat(digits) ) ? undefined : parseFloat(digits);
+  };
+  andQuery (a, b) {
+    if ( a.isEmpty() ) {
+      return b;
+    }
+    if ( b.isEmpty() ) {
+      return a;
+    }
+    const q = new EVGMediaQuery();
+    q.broken = a.broken || b.broken;
+    q.minWidth = EVGStyleSheet.larger(a.minWidth, b.minWidth);
+    q.maxWidth = EVGStyleSheet.smaller(a.maxWidth, b.maxWidth);
+    q.minHeight = EVGStyleSheet.larger(a.minHeight, b.minHeight);
+    q.maxHeight = EVGStyleSheet.smaller(a.maxHeight, b.maxHeight);
+    q.orientation = a.orientation;
+    if ( (b.orientation.length) > 0 ) {
+      if ( (a.orientation.length) > 0 ) {
+        if ( a.orientation != b.orientation ) {
+          q.broken = true;
+        }
+      }
+      q.orientation = b.orientation;
+    }
+    q.pointer = a.pointer;
+    if ( b.pointer != 0 ) {
+      if ( a.pointer != 0 ) {
+        if ( a.pointer != b.pointer ) {
+          q.broken = true;
+        }
+      }
+      q.pointer = b.pointer;
+    }
+    return q;
+  };
+  stripComments (css) {
+    let out = "";
+    const __len = css.length;
+    let i = 0;
+    while (i < __len) {
+      const c = css.charCodeAt(i );
+      let isStart = false;
+      if ( c == 47 ) {
+        if ( (i + 1) < __len ) {
+          if ( (css.charCodeAt((i + 1) )) == 42 ) {
+            isStart = true;
+          }
+        }
+      }
+      if ( isStart ) {
+        let j = i + 2;
+        let closed = false;
+        while ((j < __len) && (closed == false)) {
+          if ( (css.charCodeAt(j )) == 42 ) {
+            if ( (j + 1) < __len ) {
+              if ( (css.charCodeAt((j + 1) )) == 47 ) {
+                closed = true;
+              }
+            }
+          }
+          if ( closed == false ) {
+            j = j + 1;
+          }
+        };
+        out = out + " ";
+        i = j + 2;
+      } else {
+        out = out + (css.substring(i, (i + 1) ));
+        i = i + 1;
+      }
+    };
+    return out;
+  };
+  findChar (s, from, ch) {
+    const __len = s.length;
+    let i = from;
+    while (i < __len) {
+      if ( (s.charCodeAt(i )) == ch ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return 0 - 1;
+  };
+  addRules (selectorText, body) {
+    this.addRulesIn(selectorText, body, new EVGMediaQuery());
+  };
+  addRulesIn (selectorText, body, cond) {
+    const decls = this.parseDeclarations(body);
+    const selectors = this.splitOn(selectorText, 44);
+    let i = 0;
+    while (i < (selectors.length)) {
+      const sel = (selectors[i]).trim();
+      if ( (sel.length) > 0 ) {
+        this.pendingMedia = cond;
+        this.addRuleForSelector(sel, decls);
+      }
+      i = i + 1;
+    };
+    this.pendingMedia = new EVGMediaQuery();
+  };
+  addRuleForSelector (sel, decls) {
+    const parts = this.splitWhitespace(sel);
+    const n = parts.length;
+    if ( n == 1 ) {
+      const only = parts[0];
+      if ( this.isClassToken(only) == false ) {
+        this.errors.push("Unsupported selector (only .class and .theme-x .class are supported): " + sel);
+        return;
+      }
+      const rule = new EVGStyleRule();
+      rule.className = only.substring(1, (only.length) );
+      this.pushRule(rule, decls);
+      return;
+    }
+    if ( n == 2 ) {
+      const scope = parts[0];
+      const target = parts[1];
+      if ( (this.isClassToken(scope) == false) || (this.isClassToken(target) == false) ) {
+        this.errors.push("Unsupported selector (only .class and .theme-x .class are supported): " + sel);
+        return;
+      }
+      const scopeName = scope.substring(1, (scope.length) );
+      if ( (this).startsWith(scopeName, "theme-") == false ) {
+        this.errors.push("Descendant selectors are only supported as `.theme-<name> .class`: " + sel);
+        return;
+      }
+      const rule2 = new EVGStyleRule();
+      rule2.theme = scopeName.substring(6, (scopeName.length) );
+      rule2.className = target.substring(1, (target.length) );
+      this.pushRule(rule2, decls);
+      return;
+    }
+    this.errors.push("Unsupported selector (too many parts): " + sel);
+  };
+  pushRule (rule, decls) {
+    rule.decls = decls;
+    rule.media = this.pendingMedia;
+    rule.order = this.ruleCounter;
+    this.ruleCounter = this.ruleCounter + 1;
+    this.rules.push(rule);
+  };
+  isClassToken (tok) {
+    if ( (tok.length) < 2 ) {
+      return false;
+    }
+    return (tok.charCodeAt(0 )) == 46;
+  };
+  startsWith (s, prefix) {
+    const pl = prefix.length;
+    if ( (s.length) < pl ) {
+      return false;
+    }
+    return (s.substring(0, pl )) == prefix;
+  };
+  parseDeclarations (body) {
+    let out = [];
+    const parts = this.splitOn(body, 59);
+    let i = 0;
+    while (i < (parts.length)) {
+      const part = (parts[i]).trim();
+      if ( (part.length) > 0 ) {
+        const colon = this.findChar(part, 0, 58);
+        if ( colon < 0 ) {
+          this.errors.push("Declaration without ':' ignored: " + part);
+        } else {
+          const d = new EVGStyleDecl();
+          d.name = (part.substring(0, colon )).trim();
+          d.value = this.unquote(((part.substring((colon + 1), (part.length) )).trim()));
+          if ( ((d.name.length) > 0) && ((d.value.length) > 0) ) {
+            out.push(d);
+          } else {
+            this.errors.push("Incomplete declaration ignored: " + part);
+          }
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  unquote (s) {
+    const __len = s.length;
+    if ( __len < 2 ) {
+      return s;
+    }
+    const first = s.charCodeAt(0 );
+    const last = s.charCodeAt((__len - 1) );
+    if ( ((first == 34) && (last == 34)) || ((first == 39) && (last == 39)) ) {
+      let inner = 1;
+      while (inner < (__len - 1)) {
+        if ( (s.charCodeAt(inner )) == first ) {
+          return s;
+        }
+        inner = inner + 1;
+      };
+      return s.substring(1, (__len - 1) );
+    }
+    return s;
+  };
+  splitOn (s, sep) {
+    let out = [];
+    const __len = s.length;
+    let start = 0;
+    let i = 0;
+    while (i < __len) {
+      if ( (s.charCodeAt(i )) == sep ) {
+        out.push(s.substring(start, i ));
+        start = i + 1;
+      }
+      i = i + 1;
+    };
+    out.push(s.substring(start, __len ));
+    return out;
+  };
+  splitWhitespace (s) {
+    let out = [];
+    const __len = s.length;
+    let start = 0;
+    let inTok = false;
+    let i = 0;
+    while (i < __len) {
+      const c = s.charCodeAt(i );
+      const isSpace = ((c == 32) || (c == 9)) || ((c == 10) || (c == 13));
+      if ( isSpace ) {
+        if ( inTok ) {
+          out.push(s.substring(start, i ));
+          inTok = false;
+        }
+      } else {
+        if ( inTok == false ) {
+          start = i;
+          inTok = true;
+        }
+      }
+      i = i + 1;
+    };
+    if ( inTok ) {
+      out.push(s.substring(start, __len ));
+    }
+    return out;
+  };
+  applyTreeIn (root, theme, w, h, coarse) {
+    this.setViewport(w, h, coarse);
+    this.applyTree(root, theme);
+  };
+  applyTree (root, theme) {
+    this.applyTo(root, theme);
+    let i = 0;
+    const n = root.getChildCount();
+    while (i < n) {
+      this.applyTree(root.getChild(i), theme);
+      i = i + 1;
+    };
+  };
+  applyTo (el, theme) {
+    if ( (el.className.length) == 0 ) {
+      return;
+    }
+    const classes = this.splitWhitespace(el.className);
+    this.applyGroup(el, classes, theme, false);
+    this.applyGroup(el, classes, theme, true);
+  };
+  applyGroup (el, classes, theme, themeScoped) {
+    let i = 0;
+    const n = this.rules.length;
+    while (i < n) {
+      const rule = this.rules[i];
+      if ( rule.isThemeScoped() == themeScoped ) {
+        let applies = true;
+        if ( themeScoped ) {
+          applies = rule.theme == theme;
+        }
+        if ( applies ) {
+          applies = rule.media.matches(this.viewportW, this.viewportH, this.coarsePointer);
+        }
+        if ( applies ) {
+          if ( this.matchesClass(classes, rule.className) ) {
+            this.applyDecls(el, rule);
+          }
+        }
+      }
+      i = i + 1;
+    };
+  };
+  matchesClass (classes, want) {
+    let i = 0;
+    while (i < (classes.length)) {
+      if ( (classes[i]) == want ) {
+        return true;
+      }
+      i = i + 1;
+    };
+    return false;
+  };
+  applyDecls (el, rule) {
+    let i = 0;
+    while (i < (rule.decls.length)) {
+      const d = rule.decls[i];
+      if ( el.hasInline(d.name) == false ) {
+        el.setAttribute(d.name, d.value);
+      }
+      i = i + 1;
+    };
+  };
+}
+EVGStyleSheet.larger = function(a, b) {
+  if ( a < 0.0 ) {
+    return b;
+  }
+  if ( b < 0.0 ) {
+    return a;
+  }
+  if ( a > b ) {
+    return a;
+  }
+  return b;
+};
+EVGStyleSheet.smaller = function(a, b) {
+  if ( a < 0.0 ) {
+    return b;
+  }
+  if ( b < 0.0 ) {
+    return a;
+  }
+  if ( a < b ) {
+    return a;
+  }
+  return b;
+};
 class EVGToolbarTheme  {
   constructor() {
     this.bg = EVGColor.rgb(236, 240, 246);
@@ -6779,6 +7450,53 @@ class EVGToolbar  {
     this.lastX = 0;
     this.lastW = 0;
   }
+  applyStyle (sheet) {
+    const strip = EVGElement.createDiv();
+    strip.className = "toolbar";
+    sheet.applyTree(strip, "");
+    if ( strip.height.isPixels() ) {
+      const h = Math.floor( strip.height.pixels);
+      if ( h > 0 ) {
+        this.rowH = h;
+      }
+    }
+    if ( strip.box.paddingLeft.isPixels() ) {
+      const p = Math.floor( strip.box.paddingLeft.pixels);
+      if ( p >= 0 ) {
+        this.pad = p;
+      }
+    }
+    const tabsEl = EVGElement.createDiv();
+    tabsEl.className = "toolbar-tabs";
+    sheet.applyTree(tabsEl, "");
+    if ( tabsEl.height.isPixels() ) {
+      const th = Math.floor( tabsEl.height.pixels);
+      if ( th > 0 ) {
+        this.tabH = th;
+      }
+    }
+    const btn = EVGElement.createDiv();
+    btn.className = "toolbar-button";
+    sheet.applyTree(btn, "");
+    if ( btn.width.isPixels() ) {
+      const bw = Math.floor( btn.width.pixels);
+      if ( bw > 0 ) {
+        this.iconW = bw;
+      }
+    }
+    if ( btn.height.isPixels() ) {
+      const bh = Math.floor( btn.height.pixels);
+      if ( bh > 0 ) {
+        this.largeH = bh;
+      }
+    }
+    if ( this.largeH < this.rowH ) {
+      this.largeH = this.rowH;
+    }
+    if ( (this.items.length) > 0 ) {
+      this.layout(this.lastX, 0, this.lastW);
+    }
+  };
   add (command, arg, label, icon) {
     const t = new ToolItem();
     t.command = command;
@@ -6931,6 +7649,39 @@ class EVGToolbar  {
       i = i + 1;
     };
     return -1;
+  };
+  tabOwning (command) {
+    const at = this.indexOfCommand(command);
+    if ( at < 0 ) {
+      return -1;
+    }
+    let i = 0;
+    const n = this.tabs.length;
+    while (i < n) {
+      const t = this.tabs[i];
+      if ( at >= t.first ) {
+        if ( at < (t.first + t.count) ) {
+          return i;
+        }
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  indexOfCommand (command) {
+    let i = 0;
+    const n = this.items.length;
+    while (i < n) {
+      const t = this.items[i];
+      if ( t.command == command ) {
+        return i;
+      }
+      i = i + 1;
+    };
+    return -1;
+  };
+  showTabFor (command) {
+    return this.selectTab(this.tabOwning(command));
   };
   selectTab (i) {
     if ( i < 0 ) {
@@ -16867,6 +17618,32 @@ function __js_main() {
   dd.pressItem(0);
   c.ok("pressing it again shuts it", dd.pressItem(0));
   c.eqInt("shut", dd.openMenu, -1);
+  const styled = EVGToolbarTest.build();
+  styled.layout(0, 0, 900);
+  const wasIcon = styled.iconW;
+  const wasRow = styled.rowH;
+  const sheet = new EVGStyleSheet();
+  sheet.parse(".toolbar { height: 34px; padding-left: 5px } .toolbar-button { width: 30px } @media (pointer: coarse) { .toolbar { height: 48px; padding-left: 8px } .toolbar-button { width: 44px } }");
+  c.eqInt("the sheet parses cleanly", sheet.getErrorCount(), 0);
+  sheet.setViewport(1200.0, 800.0, false);
+  styled.applyStyle(sheet);
+  c.eqInt("with a mouse the chip keeps its size", styled.iconW, 30);
+  c.eqInt("and the row its height", styled.rowH, 34);
+  sheet.setViewport(390.0, 844.0, true);
+  styled.applyStyle(sheet);
+  c.eqInt("a coarse pointer gets a 44px chip", styled.iconW, 44);
+  c.eqInt("and a taller row", styled.rowH, 48);
+  c.eqInt("and the edge padding follows", styled.pad, 8);
+  const firstBtn = (styled).at(0);
+  c.ok("the buttons were laid out again at the new size", firstBtn.w >= 44);
+  c.ok("and a click still lands on the button it looks like", styled.hit((firstBtn.x + 2), (firstBtn.y + 2)) == 0);
+  const silent = new EVGStyleSheet();
+  silent.parse(".something-else { width: 5px }");
+  silent.setViewport(390.0, 844.0, true);
+  styled.applyStyle(silent);
+  c.eqInt("a sheet with nothing to say changes nothing", styled.iconW, 44);
+  c.eqInt("the built-in chip width is the desktop one", wasIcon, 30);
+  c.eqInt("as is the row height", wasRow, 34);
   console.log("");
   console.log((("passed=" + ((c.passed.toString()))) + " failed=") + ((c.failed.toString())));
   if ( c.failed == 0 ) {

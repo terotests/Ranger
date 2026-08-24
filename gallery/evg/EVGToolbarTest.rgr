@@ -477,6 +477,50 @@ class EVGToolbarTest {
         c.ok("pressing it again shuts it" (dd.pressItem(0)))
         c.eqInt("shut" dd.openMenu -1)
 
+        ; --- the strip's metrics come from a stylesheet ------------------------
+        ; A 30-pixel chip is a comfortable mouse target and a poor finger one.
+        ; The numbers that decide that are the whole of the strip's layout, so
+        ; making THEM responsive makes the strip responsive — without the
+        ; toolbar growing a box model.
+        def styled:EVGToolbar (EVGToolbarTest.build())
+        styled.layout(0 0 900)
+        def wasIcon:int styled.iconW
+        def wasRow:int styled.rowH
+        def sheet (new EVGStyleSheet())
+        sheet.parse(".toolbar { height: 34px; padding-left: 5px } .toolbar-button { width: 30px } @media (pointer: coarse) { .toolbar { height: 48px; padding-left: 8px } .toolbar-button { width: 44px } }")
+        c.eqInt("the sheet parses cleanly" (sheet.getErrorCount()) 0)
+
+        ; A mouse: the desktop numbers, unchanged.
+        sheet.setViewport(1200.0 800.0 false)
+        styled.applyStyle(sheet)
+        c.eqInt("with a mouse the chip keeps its size" styled.iconW 30)
+        c.eqInt("and the row its height" styled.rowH 34)
+
+        ; A finger: the targets grow, and the strip is laid out again with
+        ; them — a metric that changed after layout would be a strip whose
+        ; buttons are drawn in one place and clicked in another.
+        sheet.setViewport(390.0 844.0 true)
+        styled.applyStyle(sheet)
+        c.eqInt("a coarse pointer gets a 44px chip" styled.iconW 44)
+        c.eqInt("and a taller row" styled.rowH 48)
+        c.eqInt("and the edge padding follows" styled.pad 8)
+        def firstBtn:ToolItem (styled.at(0))
+        c.ok("the buttons were laid out again at the new size" (firstBtn.w >= 44))
+        c.ok("and a click still lands on the button it looks like"
+             ((styled.hit((firstBtn.x + 2) (firstBtn.y + 2))) == 0))
+
+        ; A sheet that says nothing leaves every metric alone, which is what
+        ; makes this safe to call from a caller that has no stylesheet yet.
+        def silent (new EVGStyleSheet())
+        silent.parse(".something-else { width: 5px }")
+        silent.setViewport(390.0 844.0 true)
+        styled.applyStyle(silent)
+        c.eqInt("a sheet with nothing to say changes nothing" styled.iconW 44)
+
+        ; And the desktop strip really was the desktop strip to begin with.
+        c.eqInt("the built-in chip width is the desktop one" wasIcon 30)
+        c.eqInt("as is the row height" wasRow 34)
+
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed == 0) {
