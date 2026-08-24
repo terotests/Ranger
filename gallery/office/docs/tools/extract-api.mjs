@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Build the model of a published API surface, from the Ranger that declares it.
  *
@@ -23,11 +24,13 @@
  * — every facade in this repository is written that way — so the documentation
  * is the source rather than a second description of it that drifts.
  *
- * Writes docs/site/src/data/<id>-api.json.
+ * Writes gallery/office/docs/.model/<id>-api.json, which the renderer next
+ * door turns into pages. Both the model and the pages stay under gallery/:
+ * the comments this reads are AGPL text, and the documentation site is MIT.
  */
 import fs from "node:fs";
 import path from "node:path";
-import { ROOT, DOCS, DATA, readJson, writeJson } from "./lib/paths.mjs";
+import { ROOT, REGISTRY, DATA, readJson, writeJson } from "./paths.mjs";
 
 /**
  * Plumbing a caller never touches, marked in the source.
@@ -171,7 +174,7 @@ function parseFile(relFile) {
 }
 
 function main() {
-  const registry = readJson(path.join(DOCS, "api-sources.json"));
+  const registry = readJson(REGISTRY);
   let total = 0;
   for (const api of registry.apis) {
     const entries = api.entries.map((e) => ({ ...e, ...parseFile(e.file) }));

@@ -181,6 +181,7 @@ class PptxToEvg {
         mapped.shadow = child.shadow
         mapped.hasPath = child.hasPath
         mapped.pathUnit = child.pathUnit
+        mapped.pathClosed = child.pathClosed
         def sx:double 1.0
         def sy:double 1.0
         if ((shape.chW > 0.0) && (shape.width > 0.0)) {

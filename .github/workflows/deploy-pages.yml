@@ -17,6 +17,11 @@
 #                Ranger runtime draws. The compiler and the SVG renderer it
 #                loads are built from gallery/vela/src, so the page shows this
 #                commit's own output rather than a recorded one.
+#   /office/  -> the .pptx API playground: code on the left writing a deck, the
+#                editor on the right opening the bytes it produced. Its
+#                reference is at /office/reference/, generated from the Ranger
+#                facades. It is built HERE rather than into /docs/ because it
+#                quotes AGPL comments and the documentation site is MIT.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -54,9 +59,10 @@ on:
       - "docs/**"
       - "gallery/evg/**"
       - "gallery/vela/**"
-      # These carry the deck editor AND the API reference: /docs/office/ is
-      # generated from the facades under gallery/pptx/api, so a change to one
-      # republishes the documentation without docs/ being touched.
+      # These carry the deck editor, the API playground AND the API reference
+      # at /office/reference/, which is generated from the facades under
+      # gallery/pptx/api — so a change to one republishes the reference
+      # without docs/ being touched.
       - "gallery/pptx/**"
       - "gallery/office/**"
       - "gallery/pdf_writer/src/**"
@@ -165,11 +171,19 @@ jobs:
       - name: Build the Office API playground
         run: bash gallery/pptx/web/playground/build.sh --out "$GITHUB_WORKSPACE/_site/office"
 
+      # ---- .pptx API reference at /office/reference/ ----------------------
+      # Beside the playground it documents and under the same licence as the
+      # code both are built from. `npm run docs:generate` no longer builds it —
+      # see the banner in gallery/office/docs/tools/render-reference.mjs.
+      - name: Build the Office API reference
+        run: bash gallery/office/docs/build.sh --out "$GITHUB_WORKSPACE/_site/office/reference"
+
       # The same check the deck editor gets below, for the same reason: a page
       # whose engine failed to copy looks exactly like one whose engine failed
       # to compile, and both look fine until someone opens them.
       - name: Check the Office API playground has an engine
         run: |
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/index.html"
           test -s "$GITHUB_WORKSPACE/_site/office/pptx_playground.js"
           test -s "$GITHUB_WORKSPACE/_site/office/playground.mjs"
           test -s "$GITHUB_WORKSPACE/_site/office/gl/evg-webgl.js"

@@ -334,10 +334,21 @@ class PptxWriter {
 
     ; A flattened path is written as one, rather than as the preset it stopped
     ; being — the points are what the viewer drew.
+    ;
+    ; TWO POINTS IS A PATH. The threshold used to be three, and a two-point
+    ; path — a hand-drawn straight line, a chart's axis rule — fell through to
+    ; whatever preset the shape still carried underneath, which is a rectangle.
+    ;
+    ; AND IT IS NOT ALWAYS CLOSED. `<a:close/>` used to be written on every
+    ; one, which the parser then read back as `pathClosed` — so a stroke that
+    ; was open when it was drawn came back joined end to end, and if it had a
+    ; fill it came back as a solid blob. `PptxShape.pathClosed` has recorded
+    ; the answer since the parser learned to read it; this is the writer
+    ; finally asking.
     sfn geomXml:string (shape:PptxShape) {
         if shape.hasPath {
             def n:int (idiv (array_length shape.pathUnit) 2)
-            if (n > 2) {
+            if (n >= 2) {
                 def out:string "<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=\"0\" t=\"0\" r=\"100000\" b=\"100000\"/><a:pathLst><a:path w=\"100000\" h=\"100000\">"
                 def i:int 0
                 while (i < n) {
@@ -353,7 +364,11 @@ class PptxWriter {
                     }
                     i = (i + 1)
                 }
-                return (out + "<a:close/></a:path></a:pathLst></a:custGeom>")
+                def tail:string "</a:path></a:pathLst></a:custGeom>"
+                if shape.pathClosed {
+                    return (out + "<a:close/>" + tail)
+                }
+                return (out + tail)
             }
         }
         def preset:string shape.preset

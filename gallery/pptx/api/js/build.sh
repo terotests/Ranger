@@ -3,12 +3,14 @@
 #
 #   npm run pptx:api:build
 #
-# Two bundles, and the split is the point. `pptx_api.cjs` is the headless
+# Three bundles, and the split is the point. `pptx_api.cjs` is the headless
 # document API — a ZIP reader, an XML parser, the model and the writer.
 # `pptx_api_render.cjs` adds the canvas, the font manager, the image decoders
-# and the PDF writer, and is several times the size. In Ranger an import is not
-# lazy, so the only way for a caller who rewrites template text to not also
-# carry a rasterizer is for the two never to be compiled together.
+# and the PDF writer, and is several times the size. `pptx_api_chart.cjs` adds
+# Vela: a Vega and Vega-Lite compiler, its expression language and its scales.
+# In Ranger an import is not lazy, so the only way for a caller who rewrites
+# template text to not also carry a rasterizer or a chart compiler is for the
+# three never to be compiled together.
 set -e
 cd "$(dirname "$0")/../../../.."
 OUT=gallery/pptx/api/js/dist
@@ -34,6 +36,7 @@ build() {
 
 build gallery/pptx/api/PptxApi.rgr pptx_api.cjs
 build gallery/pptx/api/PptxRenderApi.rgr pptx_api_render.cjs
+build gallery/pptx/api/PptxChartApi.rgr pptx_api_chart.cjs
 
 # Loadable? A bundle that throws while being required is a bundle that fails
 # for the first person to install it rather than in this build.
@@ -42,5 +45,7 @@ node -e "
   if (typeof a.PptxApi !== 'function') throw new Error('pptx_api.cjs defines no PptxApi');
   const b = require('./$OUT/pptx_api_render.cjs');
   if (typeof b.PptxRenderer !== 'function') throw new Error('pptx_api_render.cjs defines no PptxRenderer');
-  console.log('  both bundles load');
+  const c = require('./$OUT/pptx_api_chart.cjs');
+  if (typeof c.PptxVega !== 'function') throw new Error('pptx_api_chart.cjs defines no PptxVega');
+  console.log('  all three bundles load');
 "

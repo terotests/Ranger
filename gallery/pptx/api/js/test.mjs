@@ -12,7 +12,7 @@
  *   * a failure is an exception rather than a value nobody checked;
  *   * an index past the end throws instead of answering a handle that
  *     swallows writes;
- *   * both entry points and both module systems resolve.
+ *   * all three entry points and both module systems resolve.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -182,6 +182,56 @@ ok("and its streams are compressed", () => {
 ok("and it reports carrying the pictures", () => assert.equal(r.imagesPrinted, true));
 ok("a slide past the end throws rather than answering nothing", () => {
   assert.throws(() => r.toPng(deck, 9, 1), /no slide/);
+});
+
+// ---- the chart entry point ------------------------------------------------
+//
+// The claim to defend is that a chart is SHAPES. So the checks are on what the
+// .pptx actually carries: a group with a chart's worth of children in it, the
+// axis labels in the slide's text, and no image part anywhere in the package.
+// An implementation that rasterised the chart and pasted it in would pass a
+// test that only asked whether a chart appeared.
+const { Chart } = require_("./chart.cjs");
+const SPEC = {
+  width: 420, height: 240,
+  data: { values: [{ a: "Q1", b: 28 }, { a: "Q2", b: 55 }, { a: "Q3", b: 43 }, { a: "Q4", b: 91 }] },
+  mark: "bar",
+  encoding: { x: { field: "a", type: "nominal" }, y: { field: "b", type: "quantitative" } },
+};
+
+const cdeck = Pptx.create();
+const cslide = cdeck.addSlide();
+const chart = new Chart();
+const group = chart.addTo(cslide, SPEC, 60, 60, 600, 360);
+
+ok("a specification becomes one group on the slide", () => {
+  assert.equal(cslide.shapeCount, 1);
+  assert.ok(chart.shapeCount > 20, `only ${chart.shapeCount} shapes`);
+  assert.equal(group.exists, true);
+});
+ok("an object is accepted as well as JSON text", () => {
+  const d2 = Pptx.create();
+  const s2 = d2.addSlide();
+  new Chart().addTo(s2, JSON.stringify(SPEC), 0, 0, 400, 300);
+  assert.equal(s2.shapeCount, 1);
+});
+ok("a bad specification throws rather than drawing nothing", () => {
+  const d3 = Pptx.create();
+  const s3 = d3.addSlide();
+  assert.throws(() => new Chart().addTo(s3, "{not json", 0, 0, 100, 100));
+});
+
+const cbytes = cdeck.save();
+ok("the categories are in the slide's TEXT, not in pixels", () => {
+  const reopened = Pptx.open(cbytes);
+  assert.ok(reopened.slide(0).text.includes("Q3"));
+});
+ok("and the package carries no image part at all", () => {
+  // Entry names live in the central directory as plain bytes, so this reads
+  // the package without unzipping it — and a media part would be there.
+  const names = Buffer.from(cbytes).toString("latin1");
+  assert.ok(!names.includes("ppt/media/"), "a media part is in the package");
+  assert.ok(!names.includes(".png"), "a PNG is in the package");
 });
 
 console.log("");

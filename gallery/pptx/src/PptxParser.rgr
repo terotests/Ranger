@@ -998,7 +998,11 @@ class PptxParser {
             return
         }
         def pts:[double] (PptxGeom.flattenData(data))
-        if ((array_length pts) >= 6) {
+        ; Two points is a path. The threshold was three, which quietly dropped
+        ; a straight two-point custGeom back onto whatever preset the shape
+        ; carried underneath — a rectangle where a line had been drawn. The
+        ; writer states two-point paths now, so reading them back matters.
+        if ((array_length pts) >= 4) {
             shape.hasPath = true
             shape.pathUnit = pts
             ; Kept, because the flattening below is about to lose it and the

@@ -62,6 +62,39 @@ the bytes inside the ZIP, so they are handed to the PDF writer directly rather
 than looked for on disk — which means this works in a browser as well.
 `renderer.imagesPrinted` reports whether the last PDF carried them.
 
+## Charts, as shapes rather than as a picture
+
+```js
+import { Chart } from "@ranger/pptx/chart";
+
+new Chart().font("Calibri").addTo(slide, {
+  width: 460, height: 260,
+  data: { values: [{ q: "Q1", revenue: 28 }, { q: "Q2", revenue: 55 }] },
+  mark: "bar",
+  encoding: { x: { field: "q", type: "nominal" },
+              y: { field: "revenue", type: "quantitative" } },
+}, 70, 110, 620, 380);
+```
+
+A Vega or Vega-Lite specification, compiled and put on the slide as DrawingML:
+`prstGeom` rectangles for the bars, lines for the gridlines, `custGeom` for the
+areas and the wedges, text boxes for the labels. Not a picture — which is what
+"export chart to PowerPoint" normally means, and what costs you the resolution,
+the editability and the text.
+
+Measured on a four-bar chart with both axes: 35 shapes, 14.5 KB of slide XML
+that deflates to 1.4 KB, against 30.7 KB for a 1280×720 PNG of the same slide.
+Every bar is selectable, every label is editable, and the numbers are in
+`slide.text`, so a search index and a screen reader both reach them.
+
+It is a third entry point for the same reason `render` is a second one: the
+bundle behind it carries a Vega compiler, its expression language and its
+scales, and a build step that only fills in a template should not.
+
+`addTo` returns the GROUP. The chart keeps the aspect ratio the specification
+asked for and is centred in the box, so state the size in the specification and
+the room in the box.
+
 ## What throws
 
 A failure is an exception, not a value nobody checked: bytes that are not a
