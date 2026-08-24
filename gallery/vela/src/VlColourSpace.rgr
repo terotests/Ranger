@@ -1,0 +1,184 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; VlColourSpace.rgr — mixing two colours somewhere other than in RGB
+; ==============================================================================
+;
+; A colour ramp built from a SCHEME is sampled from colours somebody already
+; chose to sit beside each other, and mixing two adjacent ones in plain RGB is
+; what the reference does. A ramp built from colours the SPECIFICATION names is
+; different: the Vega-Lite compiler writes `"interpolate": "hcl"` onto that
+; scale, and it is right to. Two brand colours mixed in RGB run their midpoint
+; through grey — a red-to-teal ramp passes through mud on the way — because RGB
+; has no axis that means "how colourful" and the interpolation drains both ends
+; at once. HCL has one, so the midpoint stays a colour.
+;
+; This is d3's conversion rather than a textbook one, because the reference is
+; d3 and the numbers have to agree to the byte:
+;
+;   * sRGB is linearised with the piecewise 2.4 curve, not with a plain gamma;
+;   * the white point is D50 (0.96422, 1, 0.82521), which is what `d3-color`
+;     uses — a D65 white is a defensible choice and answers different numbers;
+;   * hue takes the SHORT way round, which is `interpolateHcl` and not
+;     `interpolateHclLong`;
+;   * a colour with no chroma has no hue at all, and takes the other end's —
+;     otherwise grey-to-blue starts by swinging through red.
+;
+; The last one is the only part that is a judgement rather than arithmetic, and
+; it is d3's judgement: `hue(NaN, h)` is constant `h`.
+; ==============================================================================
+
+Import "VlMath.rgr"
+Import "VlJson.rgr"
+
+class VlColourSpace {
+    Constructor () {
+    }
+
+    ; d3-color's D50 white point.
+    sfn whiteX:double () {
+        return 0.96422
+    }
+
+    sfn whiteY:double () {
+        return 1.0
+    }
+
+    sfn whiteZ:double () {
+        return 0.82521
+    }
+
+    ; One channel of sRGB, 0..255, as light rather than as a stored number.
+    sfn toLinear:double (v:int) {
+        def x:double ((to_double v) / 255.0)
+        if (x <= 0.04045) {
+            return (x / 12.92)
+        }
+        return (VlMath.pow(((x + 0.055) / 1.055) 2.4))
+    }
+
+    sfn fromLinear:double (x:double) {
+        def v:double x
+        if (v <= 0.0031308) {
+            v = (12.92 * v)
+        } {
+            v = ((1.055 * (VlMath.pow(v (1.0 / 2.4)))) - 0.055)
+        }
+        return (255.0 * v)
+    }
+
+    ; The cube-root-ish curve Lab is built on, with its straight section near
+    ; zero so the derivative stays finite.
+    sfn xyzToLab:double (t:double) {
+        def t1:double (6.0 / 29.0)
+        def t2:double ((3.0 * t1) * t1)
+        def t3:double ((t1 * t1) * t1)
+        def t0:double (4.0 / 29.0)
+        if (t > t3) {
+            return (VlMath.pow(t (1.0 / 3.0)))
+        }
+        return ((t / t2) + t0)
+    }
+
+    sfn labToXyz:double (t:double) {
+        def t1:double (6.0 / 29.0)
+        def t2:double ((3.0 * t1) * t1)
+        def t0:double (4.0 / 29.0)
+        if (t > t1) {
+            return ((t * t) * t)
+        }
+        return (t2 * (t - t0))
+    }
+
+    ; sRGB → Lab, as [L, a, b].
+    sfn toLab:[double] (r:int g:int b:int) {
+        def lr:double (VlColourSpace.toLinear(r))
+        def lg:double (VlColourSpace.toLinear(g))
+        def lb:double (VlColourSpace.toLinear(b))
+        def y:double (VlColourSpace.xyzToLab(((((0.2225045 * lr) + (0.7168786 * lg)) + (0.0606169 * lb)) / (VlColourSpace.whiteY()))))
+        def x:double (VlColourSpace.xyzToLab(((((0.4360747 * lr) + (0.3850649 * lg)) + (0.1430804 * lb)) / (VlColourSpace.whiteX()))))
+        def z:double (VlColourSpace.xyzToLab(((((0.0139322 * lr) + (0.0971045 * lg)) + (0.7141733 * lb)) / (VlColourSpace.whiteZ()))))
+        def out:[double]
+        push out ((116.0 * y) - 16.0)
+        push out (500.0 * (x - y))
+        push out (200.0 * (y - z))
+        return out
+    }
+
+    ; Lab → sRGB, clamped and rounded.
+    sfn fromLab:[int] (L:double a:double bb:double) {
+        def y:double ((L + 16.0) / 116.0)
+        def x:double (y + (a / 500.0))
+        def z:double (y - (bb / 200.0))
+        def X:double ((VlColourSpace.whiteX()) * (VlColourSpace.labToXyz(x)))
+        def Y:double ((VlColourSpace.whiteY()) * (VlColourSpace.labToXyz(y)))
+        def Z:double ((VlColourSpace.whiteZ()) * (VlColourSpace.labToXyz(z)))
+        def r:double (VlColourSpace.fromLinear((((3.1338561 * X) - (1.6168667 * Y)) - (0.4906146 * Z))))
+        def g:double (VlColourSpace.fromLinear((((0.0 - (0.9787684 * X)) + (1.9161415 * Y)) + (0.0334540 * Z))))
+        def b:double (VlColourSpace.fromLinear((((0.0719453 * X) - (0.2289914 * Y)) + (1.4052427 * Z))))
+        def out:[int]
+        push out (VlColourSpace.clamp255(r))
+        push out (VlColourSpace.clamp255(g))
+        push out (VlColourSpace.clamp255(b))
+        return out
+    }
+
+    sfn clamp255:int (v:double) {
+        def n:int (floor (v + 0.5))
+        if (n < 0) {
+            return 0
+        }
+        if (n > 255) {
+            return 255
+        }
+        return n
+    }
+
+    ; Two colours mixed in HCL, written as `rgb(r, g, b)`.
+    sfn mixHcl:string (ar:int ag:int ab:int br:int bg:int bb:int t:double) {
+        def A:[double] (VlColourSpace.toLab(ar ag ab))
+        def B:[double] (VlColourSpace.toLab(br bg bb))
+        def aL:double (itemAt A 0)
+        def aa:double (itemAt A 1)
+        def ab2:double (itemAt A 2)
+        def bL:double (itemAt B 0)
+        def ba:double (itemAt B 1)
+        def bb2:double (itemAt B 2)
+
+        def aC:double (sqrt ((aa * aa) + (ab2 * ab2)))
+        def bC:double (sqrt ((ba * ba) + (bb2 * bb2)))
+        def deg:double (180.0 / 3.141592653589793)
+        def aH:double ((atan2 ab2 aa) * deg)
+        def bH:double ((atan2 bb2 ba) * deg)
+        ; A colour with no chroma has no hue to speak of, and d3 gives it the
+        ; other end's rather than zero — which would start a grey-to-blue ramp
+        ; by swinging through red.
+        def aGrey:boolean (aC < 0.0001)
+        def bGrey:boolean (bC < 0.0001)
+        if aGrey {
+            aH = bH
+        }
+        if bGrey {
+            bH = aH
+        }
+        ; The SHORT way round, which is `interpolateHcl`.
+        def dH:double (bH - aH)
+        if (dH > 180.0) {
+            dH = (dH - 360.0)
+        }
+        if (dH < (0.0 - 180.0)) {
+            dH = (dH + 360.0)
+        }
+        def h:double (aH + (dH * t))
+        def c:double (aC + ((bC - aC) * t))
+        def L:double (aL + ((bL - aL) * t))
+        def rad:double (h / deg)
+        def outA:double (c * (cos rad))
+        def outB:double (c * (sin rad))
+        def rgb:[int] (VlColourSpace.fromLab(L outA outB))
+        def r:int (itemAt rgb 0)
+        def g:int (itemAt rgb 1)
+        def b:int (itemAt rgb 2)
+        return ((((((("rgb(" + (VlJson.intToText(r))) + ", ") + (VlJson.intToText(g))) + ", ") + (VlJson.intToText(b))) + ")"))
+    }
+}

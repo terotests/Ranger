@@ -3882,17 +3882,48 @@ class VlCompile {
         ; Merged one axis at a time instead, a chart whose first layer bins its
         ; x and whose second reads it whole was ruled off by the second — a
         ; grid down a histogram, which the reference does not draw.
+        ;
+        ; WHICH AXES ARE THE SAME AXIS. The scale AND the side, but only where
+        ; the layer NAMED a side. Measured against the reference:
+        ;
+        ;   both layers silent              -> one axis, at the default side
+        ;   first names top, second silent  -> one axis, at the top
+        ;   first silent, second names top  -> one axis, at the top
+        ;   both name a side, and differ    -> two axes, one per side
+        ;
+        ; So a side a layer merely inherited never makes a second axis, and an
+        ; explicit side wins whichever layer it came from.
         def total:int (axes.count())
         def fresh:[string:int]
         def freshNames:[string]
         def k:int 0
         while (k < total) {
-            def key:string (VlCompile.axisKey((axes.at(k))))
-            if (! (has seen key)) {
+            def a0:VlJson (axes.at(k))
+            def scale:string (a0.stringOr("scale" ""))
+            def key:string (VlCompile.axisKey(a0))
+            def stated:boolean (a0.boolOr("__orientStated" false))
+            def taken:boolean (has seen key)
+            if (! taken) {
+                if (stated) {
+                    ; An explicit side takes over an axis that is only standing
+                    ; where it is by default, rather than adding a second one.
+                    def bare:string (scale + "/*")
+                    if (has seen bare) {
+                        VlCompile.reorient(into scale (a0.stringOr("orient" "")))
+                        set seen key 1
+                        taken = true
+                    }
+                } {
+                    ; A side nobody asked for yields to one somebody did.
+                    taken = (VlCompile.scaleClaimed(seen scale))
+                }
+            }
+            if (! taken) {
                 if (! (has fresh key)) {
                     set fresh key 1
                     push freshNames key
                 }
+                push freshNames (VlCompile.anyKey(scale))
             }
             k = (k + 1)
         }
@@ -3902,6 +3933,7 @@ class VlCompile {
             k = (k + 1)
             def key2:string (VlCompile.axisKey(a))
             if (has fresh key2) {
+                a.removeMember("__orientStated")
                 if (a.boolOr("grid" false)) {
                     VlCompile.insertBeforeLabels(into a)
                 } {
@@ -3914,9 +3946,54 @@ class VlCompile {
         }
     }
 
+    ; Has any axis already been placed on this scale, whatever side it stands
+    ; on? Asked only for an axis whose side is a default, which must merge
+    ; rather than stand opposite.
+    ;
+    ; Recorded under a key of its own rather than found by scanning the map:
+    ; `seen` is a `[string:int]`, and Ranger's `for keys …` walks an ARRAY of
+    ; that name rather than a map's keys — so a scan written that way compiles,
+    ; runs over nothing and answers false for every scale.
+    sfn anyKey:string (scale:string) {
+        return (scale + "/#any")
+    }
+
+    sfn scaleClaimed:boolean (seen:[string:int] scale:string) {
+        return (has seen (VlCompile.anyKey(scale)))
+    }
+
+    ; Move the axes already placed on a scale to the side a later layer named.
+    sfn reorient:void (into:VlJson scale:string orient:string) {
+        if ((strlen orient) == 0) {
+            return
+        }
+        for into.arr one:VlJson oi {
+            if ((one.stringOr("scale" "")) == scale) {
+                one.setMember("orient" (VlJson.stringValue(orient)))
+            }
+        }
+    }
+
+    ; What makes two layers' axes the same axis.
+    ;
+    ; The scale AND the side — a chart may legitimately carry an axis at the
+    ; top and another at the bottom, and the reference writes both when both
+    ; layers asked for a side by name.
+    ;
+    ; But only then. A layer that stated no side at all contributes an axis
+    ; whose orient is merely the default, and the reference merges that into
+    ; whatever the layer before it asked for. Keyed by side regardless, a heat
+    ; map whose first layer put its quarters along the TOP got a second,
+    ; unasked-for axis of the same quarters along the bottom, with the field
+    ; name under it — which reads as the chart having been drawn twice.
     sfn axisKey:string (a:VlJson) {
         def out:string (a.stringOr("scale" ""))
-        return ((out + "/") + (a.stringOr("orient" "")))
+        if (a.boolOr("__orientStated" false)) {
+            return ((out + "/") + (a.stringOr("orient" "")))
+        }
+        ; A side nobody named. `*` rather than the side itself, so that
+        ; `mergeAxes` can still tell the two apart after the fact.
+        return (out + "/*")
     }
 
     sfn insertBeforeLabels:void (into:VlJson a:VlJson) {
@@ -8816,15 +8893,28 @@ class VlCompile {
     ; stands; a TIME UNIT is looked up by its name, because a list of days is
     ; written "mon", "tue" and the column holds instants. Both the short name
     ; and the long one are tried, which is what the reference accepts.
+    ;
+    ; THE LIST IS ONLY FOLDED TO LOWER CASE ON THE TIME PATH, and that is the
+    ; whole of the difference. A time unit's expression wraps the read in
+    ; `lower(timeFormat(...))`, so both sides arrive folded and a list written
+    ; "Mon", "Tue" still matches. A plain column is read as `datum["region"]`
+    ; and is NOT folded — so folding only the list compared "spain" against
+    ; "Spain", `indexof` answered -1 for every row, every category got the same
+    ; sort key, and the domain came out in the order it already had. Which is
+    ; alphabetical, and looks close enough to a working sort to be missed: it
+    ; was, until a heat map whose regions had to run best-to-worst came out
+    ; A to Z.
     fn pushStatedOrder:void (transforms:VlJson) {
         for channels ch:VlChannel ci {
             def name:string (this.statedOrderField(ch))
             if ((strlen name) > 0) {
                 def w (new VlJsonWriter())
-                def list:string (w.write((VlCompile.lowerList((ch.def0.get("sort"))))))
+                def stated:VlJson (ch.def0.get("sort"))
+                def list:string (w.write(stated))
                 def read:string (VlCompile.datumRef((ch.outField())))
                 def expr:string (((("indexof(" + list) + ", ") + read) + ")")
                 if ((strlen ch.timeUnit) > 0) {
+                    list = (w.write((VlCompile.lowerList(stated))))
                     def short:string "%a"
                     def long:string "%A"
                     if (VlCompile.namesMonths(ch.timeUnits)) {
@@ -9740,6 +9830,14 @@ class VlCompile {
                 ; is not a dash pattern at all.
                 if ((key != "grid") && (! (VlCompile.isConditional((given.get(key)))))) {
                     a.setMember(key (given.get(key)))
+                }
+                ; Remembered for `mergeAxes`, and taken off again there. A
+                ; layer that did not state its own side must MERGE into one
+                ; that did rather than stand on the opposite side of the plot;
+                ; two layers that each named a side get an axis each. Nothing
+                ; downstream of the merge may see this key.
+                if (key == "orient") {
+                    a.setMember("__orientStated" (VlJson.boolValue(true)))
                 }
             }
         }

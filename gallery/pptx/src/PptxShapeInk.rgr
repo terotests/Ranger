@@ -1,0 +1,274 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxShapeInk.rgr — the four shapes every drawing turns into
+; ==============================================================================
+;
+; Two converters now write DrawingML from something that is not a .pptx:
+; `PptxVegaShapes` from Vela's command list, and `PptxFromEvg` from an EVG
+; display list. They have different inputs and the same output, and the
+; interesting decisions are all in the output half:
+;
+;   * a colour is an EVG colour and a slide wants six hexadecimal digits;
+;   * a filled ring is a `custGeom` in the shape's OWN unit square, so the box
+;     has to be the ring's bounding box and a flat ring has to be given room;
+;   * a straight segment is `prstGeom "line"` with flips, which is the one
+;     spelling where a zero-height box is legal;
+;   * a label has an anchor POINT and an alignment, and a slide has a BOX.
+;
+; That last one is the reason this file exists rather than being copied twice.
+; The box is built around the anchor wide enough that the text cannot reach
+; either end, wrapping is turned off, and the alignment inside the box does the
+; placing — which puts the glyphs where the anchor says without either
+; converter owning a font metric. And because a drawing rotates a label about
+; its ANCHOR while DrawingML rotates a shape about its CENTRE, the box's centre
+; is itself rotated about the anchor first. Get that wrong and every rotated
+; axis title sits a box-width away from where it belongs, further out the wider
+; the label — which reads as a layout bug rather than a rotation one, and cost
+; an afternoon the first time.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class PptxShapeInk {
+    Constructor () {
+    }
+
+    ; --- colour ---------------------------------------------------------------
+
+    ; An EVG colour as a slide states one: six hexadecimal digits and an alpha.
+    sfn colorOf:PptxColor (col:EVGColor alpha:double) {
+        def r:int (col.red())
+        def g:int (col.green())
+        def b:int (col.blue())
+        return (PptxShapeInk.rgbaOf(r g b ((col.alpha()) * alpha)))
+    }
+
+    sfn rgbaOf:PptxColor (r:int g:int b:int alpha:double) {
+        def hex:string ((PptxShapeInk.hex2(r)) + (PptxShapeInk.hex2(g)) + (PptxShapeInk.hex2(b)))
+        def out:PptxColor (PptxColor.srgbOf(hex))
+        out.alpha = alpha
+        if (out.alpha > 1.0) {
+            out.alpha = 1.0
+        }
+        if (out.alpha < 0.0) {
+            out.alpha = 0.0
+        }
+        return out
+    }
+
+    sfn hex2:string (v:int) {
+        def n:int v
+        if (n < 0) { n = 0 }
+        if (n > 255) { n = 255 }
+        def hi:int (idiv n 16)
+        def lo:int (n - (hi * 16))
+        return ((PptxShapeInk.hexDigit(hi)) + (PptxShapeInk.hexDigit(lo)))
+    }
+
+    sfn hexDigit:string (v:int) {
+        if (v < 10) {
+            return (strfromcode (48 + v))
+        }
+        return (strfromcode (65 + (v - 10)))
+    }
+
+    ; "none" is how a drawing says "do not paint this", and it is not a colour:
+    ; parsing it would give black, which is the most visible possible way to be
+    ; wrong.
+    sfn paints:boolean (colour:string) {
+        if ((strlen colour) == 0) {
+            return false
+        }
+        if (colour == "none") {
+            return false
+        }
+        if (colour == "transparent") {
+            return false
+        }
+        return true
+    }
+
+    sfn isBold:boolean (weight:string) {
+        if (weight == "bold") { return true }
+        if (weight == "bolder") { return true }
+        if (weight == "600") { return true }
+        if (weight == "700") { return true }
+        if (weight == "800") { return true }
+        if (weight == "900") { return true }
+        return false
+    }
+
+    ; --- geometry -------------------------------------------------------------
+
+    ; A straight segment.
+    ;
+    ; `prstGeom "line"` runs from the top left of the box to the bottom right,
+    ; so the DIRECTION is carried by the flips rather than by the geometry —
+    ; which is how PowerPoint itself writes a straight connector, and why a
+    ; zero-height box is legal here and would not be for a `custGeom`.
+    sfn segment:PptxShape (x1:double y1:double x2:double y2:double) {
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.hasXfrm = true
+        sh.preset = "line"
+        sh.noFill = true
+        sh.x = x1
+        sh.y = y1
+        sh.width = (x2 - x1)
+        sh.height = (y2 - y1)
+        if (sh.width < 0.0) {
+            sh.x = x2
+            sh.width = (0.0 - sh.width)
+            sh.flipH = true
+        }
+        if (sh.height < 0.0) {
+            sh.y = y2
+            sh.height = (0.0 - sh.height)
+            sh.flipV = true
+        }
+        return sh
+    }
+
+    ; One ring of a flattened outline, as a `custGeom`.
+    ;
+    ; `pathUnit` is stated in the shape's own unit square and the writer
+    ; multiplies it back up, so the box has to be the ring's bounding box. A
+    ; DEGENERATE box is a real shape — a single-datum line series, a zero-height
+    ; area — and it still has to be drawn, so the box is widened to a hundredth
+    ; of a point. That moves nothing: every point is then at the same fraction
+    ; of it.
+    ;
+    ; `closed` is the difference between a shape and a stroke. A polyline that
+    ; is closed draws a segment from the last point back to the first, and if it
+    ; is also filled it paints a blob over half the picture.
+    sfn ring:PptxShape (pts:[double] from:int upto:int closed:boolean) {
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.hasXfrm = true
+        if ((upto - from) < 4) {
+            return sh
+        }
+        def minX:double (itemAt pts from)
+        def minY:double (itemAt pts (from + 1))
+        def maxX:double minX
+        def maxY:double minY
+        def k:int (from + 2)
+        while (k < upto) {
+            def px:double (itemAt pts k)
+            def py:double (itemAt pts (k + 1))
+            if (px < minX) { minX = px }
+            if (px > maxX) { maxX = px }
+            if (py < minY) { minY = py }
+            if (py > maxY) { maxY = py }
+            k = (k + 2)
+        }
+        def bw:double (maxX - minX)
+        def bh:double (maxY - minY)
+        if (bw < 0.01) { bw = 0.01 }
+        if (bh < 0.01) { bh = 0.01 }
+        sh.x = minX
+        sh.y = minY
+        sh.width = bw
+        sh.height = bh
+        sh.hasPath = true
+        sh.pathClosed = closed
+        def unit:[double]
+        def j:int from
+        while (j < upto) {
+            def qx:double (itemAt pts j)
+            def qy:double (itemAt pts (j + 1))
+            push unit ((qx - minX) / bw)
+            push unit ((qy - minY) / bh)
+            j = (j + 2)
+        }
+        sh.pathUnit = unit
+        return sh
+    }
+
+    ; --- text -----------------------------------------------------------------
+
+    ; A label placed by its ANCHOR, in a box wide enough that the alignment can
+    ; do the placing. See the banner: `angle` rotates about the anchor, not
+    ; about the box.
+    ;
+    ; `align` is "left" / "center" / "right" and `baseline` is "top" / "middle"
+    ; / "bottom" / "alphabetic", which are the words both SVG and the display
+    ; list use. `alphabetic` puts the anchor ON the baseline, roughly a third of
+    ; the size below the visual centre of a line of Latin text.
+    sfn label:PptxShape (body:string sizePt:double family:string bold:boolean align:string baseline:string angle:double anchorX:double anchorY:double colour:PptxColor) {
+        def chars:int ((strlen body) + 4)
+        def boxW:double (sizePt * (to_double chars))
+        def boxH:double (sizePt * 1.6)
+        def cx:double 0.0
+        if (align == "left") {
+            cx = (boxW * 0.5)
+        }
+        if (align == "right") {
+            cx = (0.0 - (boxW * 0.5))
+        }
+        def cy:double 0.0
+        if (baseline == "top") {
+            cy = (boxH * 0.5)
+        }
+        if (baseline == "bottom") {
+            cy = (0.0 - (boxH * 0.5))
+        }
+        if (baseline == "alphabetic") {
+            cy = (0.0 - (sizePt * 0.34))
+        }
+        def rx:double cx
+        def ry:double cy
+        if ((angle > 0.001) || (angle < (0.0 - 0.001))) {
+            def rad:double ((angle * 3.141592653589793) / 180.0)
+            def cs:double (cos rad)
+            def sn:double (sin rad)
+            rx = ((cx * cs) - (cy * sn))
+            ry = ((cx * sn) + (cy * cs))
+        }
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.hasXfrm = true
+        sh.preset = "rect"
+        sh.x = ((anchorX + rx) - (boxW * 0.5))
+        sh.y = ((anchorY + ry) - (boxH * 0.5))
+        sh.width = boxW
+        sh.height = boxH
+        sh.rotation = angle
+        sh.noFill = true
+        sh.noLine = true
+
+        def tb (new PptxTextBody())
+        tb.wrap = false
+        tb.anchor = "ctr"
+        tb.anchorSet = true
+        tb.insetL = 0.0
+        tb.insetR = 0.0
+        tb.insetT = 0.0
+        tb.insetB = 0.0
+        tb.insetsSet = true
+        def para (new PptxParagraph())
+        para.align = "ctr"
+        if (align == "left") {
+            para.align = "l"
+        }
+        if (align == "right") {
+            para.align = "r"
+        }
+        para.alignSet = true
+        def run (new PptxTextRun())
+        run.text = body
+        run.fontFamily = family
+        run.fontSizePt = sizePt
+        run.sizeSet = true
+        run.boldSet = true
+        run.bold = bold
+        run.color = colour
+        push para.runs run
+        push tb.paragraphs para
+        sh.hasText = true
+        sh.text = tb
+        return sh
+    }
+}

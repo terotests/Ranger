@@ -1,0 +1,315 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxFromEvgTest — the display list as an output format for slides
+; ==============================================================================
+;
+; The list is built by hand here rather than by drawing something, because what
+; is under test is the TRANSLATION and a hand-built list is the only way to put
+; one of every command kind through it — including the two that have no
+; DrawingML spelling and have to be reported rather than drawn.
+;
+; The second half is a round trip that uses no fixture at all: a slide is
+; turned into a display list by `PptxToEvg` and back into shapes by
+; `PptxFromEvg`. Nothing about the drawing is asserted — only that a slide
+; survives the journey with its rectangles still rectangles and its words still
+; words, which is the property that makes the seam worth having.
+; ==============================================================================
+
+Import "../src/PptxFromEvg.rgr"
+Import "../src/PptxToEvg.rgr"
+Import "../api/PptxApi.rgr"
+
+class PptxFromEvgTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new PptxFromEvgTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn run:void () {
+        print "=== PptxFromEvgTest ==="
+        this.testEveryKind()
+        this.testWhatCannotBeSaid()
+        this.testRoundTripThroughEvg()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    ; --- one of every kind ----------------------------------------------------
+    fn testEveryKind:void () {
+        print "--- every command kind ---"
+        def dl (new EVGDisplayList())
+
+        def box (new EVGDrawCmd())
+        box.kind = 0
+        box.x = 0.0
+        box.y = 0.0
+        box.w = 100.0
+        box.h = 40.0
+        box.r = 68
+        box.g = 114
+        box.b = 196
+        box.a = 1.0
+        push dl.cmds box
+
+        def rounded (new EVGDrawCmd())
+        rounded.kind = 0
+        rounded.x = 0.0
+        rounded.y = 60.0
+        rounded.w = 100.0
+        rounded.h = 40.0
+        rounded.radius = 8.0
+        rounded.r = 200
+        rounded.g = 60
+        rounded.b = 60
+        rounded.a = 1.0
+        push dl.cmds rounded
+
+        def edge (new EVGDrawCmd())
+        edge.kind = 1
+        edge.x = 0.0
+        edge.y = 120.0
+        edge.w = 100.0
+        edge.h = 40.0
+        edge.thickness = 2.0
+        edge.r = 30
+        edge.g = 30
+        edge.b = 30
+        edge.a = 1.0
+        push dl.cmds edge
+
+        def words (new EVGDrawCmd())
+        words.kind = 3
+        words.x = 4.0
+        words.y = 180.0
+        words.text = "Hello"
+        words.fontSize = 16.0
+        words.fontFamily = "Calibri"
+        words.fontWeight = "bold"
+        words.textAlign = "left"
+        words.a = 1.0
+        push dl.cmds words
+
+        def poly (new EVGDrawCmd())
+        poly.kind = 6
+        push poly.pts 0.0
+        push poly.pts 220.0
+        push poly.pts 60.0
+        push poly.pts 220.0
+        push poly.pts 30.0
+        push poly.pts 270.0
+        push poly.ringEnds 6
+        poly.r = 20
+        poly.g = 160
+        poly.b = 90
+        poly.a = 1.0
+        push dl.cmds poly
+
+        def stroke (new EVGDrawCmd())
+        stroke.kind = 7
+        push stroke.pts 0.0
+        push stroke.pts 300.0
+        push stroke.pts 50.0
+        push stroke.pts 320.0
+        push stroke.pts 100.0
+        push stroke.pts 300.0
+        push stroke.ringEnds 6
+        stroke.thickness = 1.5
+        stroke.r = 120
+        stroke.g = 40
+        stroke.b = 200
+        stroke.a = 1.0
+        push dl.cmds stroke
+
+        def conv (new PptxFromEvg())
+        def group:PptxShape (conv.build(dl 40.0 30.0))
+        this.eqInt("a shape for every drawable command" (array_length group.children) 6)
+        this.eqInt("and the group knows it" conv.shapeCount 6)
+        this.eqInt("one of them is text" conv.textCount 1)
+
+        this.eqStr("a filled box is a rect" (PptxFromEvgTest.presetAt(group 0)) "rect")
+        this.eqStr("a rounded one is a roundRect" (PptxFromEvgTest.presetAt(group 1)) "roundRect")
+        def round:PptxShape (itemAt group.children 1)
+        this.check("with an adjust value" (round.adj > 0.0))
+        this.eqStr("a border is a rect too" (PptxFromEvgTest.presetAt(group 2)) "rect")
+        def border:PptxShape (itemAt group.children 2)
+        this.check("but with a line and no fill" (border.noFill && border.line.isSet))
+
+        def label:PptxShape (itemAt group.children 3)
+        this.check("the text came across" label.hasText)
+        def para:PptxParagraph (itemAt label.text.paragraphs 0)
+        def run:PptxTextRun (itemAt para.runs 0)
+        this.eqStr("with its words" run.text "Hello")
+        this.check("and its weight" run.bold)
+
+        def filled:PptxShape (itemAt group.children 4)
+        this.check("a path is a closed custGeom" (filled.hasPath && filled.pathClosed))
+        this.check("that is filled" filled.fill.isSet)
+        def line:PptxShape (itemAt group.children 5)
+        this.check("a stroke is an OPEN custGeom" (line.hasPath && (line.pathClosed == false)))
+        this.check("that is not filled" line.noFill)
+        this.check("and carries a width" (line.lineWidthPt > 0.0))
+
+        ; The group has to cover its children or PowerPoint clips it on the
+        ; first edit, and it is placed where it was asked for.
+        this.check("the group starts where it was put" ((PptxFromEvgTest.near(group.x 40.0)) && (PptxFromEvgTest.near(group.y 30.0))))
+        def covers:boolean (PptxFromEvgTest.covers(group))
+        this.check("and covers everything in it" covers)
+        this.check("children share its coordinate space" (PptxFromEvgTest.near(group.chW group.width)))
+    }
+
+    ; --- what the format cannot say -------------------------------------------
+    ;
+    ; A conversion that silently drops a clip produces a slide showing what the
+    ; drawing meant to hide. It is still the only thing DrawingML can do; what
+    ; is tested is that it is COUNTED, so a caller can decide.
+    fn testWhatCannotBeSaid:void () {
+        print "--- what it cannot say, it reports ---"
+        def dl (new EVGDisplayList())
+        def push0 (new EVGDrawCmd())
+        push0.kind = 4
+        push0.a = 1.0
+        push dl.cmds push0
+        def pic (new EVGDrawCmd())
+        pic.kind = 2
+        pic.src = "logo.png"
+        pic.a = 1.0
+        push dl.cmds pic
+        def pop (new EVGDrawCmd())
+        pop.kind = 5
+        pop.a = 1.0
+        push dl.cmds pop
+
+        def conv (new PptxFromEvg())
+        def group:PptxShape (conv.build(dl 0.0 0.0))
+        this.eqInt("nothing was drawn" (array_length group.children) 0)
+        this.eqInt("the clip was counted" conv.clipped 1)
+        this.eqInt("and so was the picture it could not place" conv.unresolvedImages 1)
+    }
+
+    ; --- a slide through EVG and back -----------------------------------------
+    fn testRoundTripThroughEvg:void () {
+        print "--- a slide out through EVG and back as shapes ---"
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        def r1:PptxShapeRef (slide.addShape("rect" 40.0 40.0 200.0 80.0))
+        r1.fill("4472C4")
+        r1.noLine()
+        def t1:PptxShapeRef (slide.addTextBox(40.0 160.0 400.0 60.0 "Through the display list"))
+        def model:PptxSlide (slide.model())
+
+        def conv (new PptxToEvg())
+        def dl:EVGDisplayList (conv.slideToDisplayList(model))
+        this.check("the slide drew something" ((array_length dl.cmds) > 0))
+
+        ; The slide's display list is in PIXELS — `PptxToEvg.ptToPx` — so the
+        ; default 0.75 points per unit is exactly the way back.
+        def back (new PptxFromEvg())
+        def group:PptxShape (back.build(dl 0.0 0.0))
+        this.check("and it came back as shapes" ((array_length group.children) > 0))
+        this.check("with its words intact" ((indexOf (PptxFromEvgTest.wordsIn(group)) "display list") >= 0))
+        this.check("and a rectangle still a rectangle" ((PptxFromEvgTest.countPreset(group "rect")) > 0))
+
+        ; And the shapes are a slide: put the group on a fresh deck, save it,
+        ; and read the words back out of the FILE.
+        def out:PptxDeck (PptxApi.create())
+        def s2:PptxSlideRef (out.addSlide())
+        def m2:PptxSlide (s2.model())
+        push m2.shapes group
+        m2.dirty = true
+        def bytes:buffer (out.saveNew())
+        def again:PptxDeck (PptxApi.open(bytes))
+        def s3:PptxSlideRef (again.slideAt(0))
+        def words:string (s3.text())
+        this.check("the words survived being written out" ((indexOf words "display list") >= 0))
+    }
+
+    ; --- helpers ---------------------------------------------------------------
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d < 0.51)
+    }
+
+    sfn presetAt:string (group:PptxShape i:int) {
+        def sh:PptxShape (itemAt group.children i)
+        return sh.preset
+    }
+
+    sfn countPreset:int (group:PptxShape preset:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length group.children)) {
+            def sh:PptxShape (itemAt group.children i)
+            if (sh.hasPath == false) {
+                if (sh.preset == preset) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn wordsIn:string (group:PptxShape) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length group.children)) {
+            def sh:PptxShape (itemAt group.children i)
+            if sh.hasText {
+                out = (out + " " + (sh.text.plainText()))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Every child inside the group's box. A label's box is deliberately wider
+    ; than its text, so the fit is computed from the children — this checks the
+    ; computation actually covered them.
+    sfn covers:boolean (group:PptxShape) {
+        def i:int 0
+        while (i < (array_length group.children)) {
+            def sh:PptxShape (itemAt group.children i)
+            def right:double (sh.x + sh.width)
+            def bottom:double (sh.y + sh.height)
+            if (right > ((group.x + group.width) + 0.01)) {
+                return false
+            }
+            if (bottom > ((group.y + group.height) + 0.01)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+}

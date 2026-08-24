@@ -24,6 +24,7 @@ Import "VlJson.rgr"
 Import "VlMath.rgr"
 Import "VlTime.rgr"
 Import "VlFormat.rgr"
+Import "VlColourSpace.rgr"
 
 class VlScaleTick {
     def value:double 0.0
@@ -77,6 +78,31 @@ class VlScale {
     ; Where the middle of the range sits in the domain, when the chart said.
     def domainMid:double 0.0
     def hasDomainMid:boolean false
+    ; A PIECEWISE domain: more than two numbers, each of which is a stop the
+    ; range's corresponding entry sits exactly on.
+    ;
+    ;     "domain": [80, 100, 120]
+    ;     "range":  ["#F3B1A8", "#F0F2F5", "#3FB9A8"]
+    ;
+    ; 80 is the first colour, 100 the second, 120 the third, and everything
+    ; between is mixed within its own segment — which is not the same picture
+    ; as interpolating from 80 to 120 through the middle colour, because the
+    ; two halves can be different widths.
+    ;
+    ; `domainMid` is the special case of this with three stops where the
+    ; middle one is named separately, and it stays: the reference has both
+    ; spellings and a diverging scheme uses that one.
+    def domainStops:[double]
+    ; The colour space a ramp is mixed IN.
+    ;
+    ; "" is the default this file has always used — plain RGB, which is what a
+    ; scheme's own colours are sampled and mixed in. A specification that names
+    ; its OWN colours gets `"interpolate": "hcl"` written onto the scale by the
+    ; Vega-Lite compiler, because mixing two brand colours in RGB runs the
+    ; midpoint through grey and HCL does not. Two of those are visibly
+    ; different — a red-to-teal ramp through RGB passes through mud — so this
+    ; is not a rounding difference to shrug at.
+    def interpolateSpace:string ""
 
     ; Bin boundaries, when the scale was built for binned data. An axis over a
     ; binned scale labels the bins, not an arbitrary tick count.
@@ -520,7 +546,51 @@ class VlScale {
         return out
     }
 
+    ; Where a value sits when the domain names more than two stops.
+    ;
+    ; Stop `i` of `m` lands exactly on `i / (m - 1)`, which is where the range's
+    ; own entry `i` sits once `colourAt` has divided [0, 1] into equal segments
+    ; — so the two line up when the domain and the range are the same length,
+    ; which is what a piecewise scale is written as. Outside the ends the value
+    ; is clamped rather than extrapolated: extrapolating a colour ramp produces
+    ; a colour that is not in the range at all.
+    fn piecewiseFraction:double (value:double) {
+        def m:int (array_length domainStops)
+        def last:int (m - 1)
+        def first:double (itemAt domainStops 0)
+        if (value <= first) {
+            return 0.0
+        }
+        def top:double (itemAt domainStops last)
+        if (value >= top) {
+            return 1.0
+        }
+        def i:int 0
+        while (i < last) {
+            def lo:double (itemAt domainStops i)
+            def hi:double (itemAt domainStops (i + 1))
+            if ((value >= lo) && (value <= hi)) {
+                def span:double (hi - lo)
+                def within:double 0.0
+                if (span > 0.0) {
+                    within = ((value - lo) / span)
+                }
+                return (((to_double i) + within) / (to_double last))
+            }
+            i = (i + 1)
+        }
+        return 1.0
+    }
+
+    fn hasPiecewise:boolean () {
+        return ((array_length domainStops) > 2)
+    }
+
     fn fraction:double (value:double) {
+        def piecewise:boolean (this.hasPiecewise())
+        if piecewise {
+            return (this.piecewiseFraction(value))
+        }
         ; A scale may name a value that has to land in the MIDDLE of its range
         ; however far from the middle of its domain it is. That is what a
         ; diverging colour ramp is for — nothing above zero should be drawn in
@@ -639,6 +709,10 @@ class VlScale {
     ; way — thirteen of three hundred and sixty-one wind directions came out a
     ; count off in one channel, which is invisible and wrong.
     fn rampFraction:double (value:double) {
+        def piecewise:boolean (this.hasPiecewise())
+        if piecewise {
+            return (this.piecewiseFraction(value))
+        }
         if hasDomainMid {
             return (this.fraction(value))
         }
@@ -736,9 +810,18 @@ class VlScale {
         def local:double (scaled - (to_double i))
         def a:string (itemAt rangeValues i)
         def b:string (itemAt rangeValues (i + 1))
-        def r:int (VlScale.mixChannel((VlScale.hexChannel(a 0)) (VlScale.hexChannel(b 0)) local))
-        def g:int (VlScale.mixChannel((VlScale.hexChannel(a 1)) (VlScale.hexChannel(b 1)) local))
-        def bl:int (VlScale.mixChannel((VlScale.hexChannel(a 2)) (VlScale.hexChannel(b 2)) local))
+        def ar:int (VlScale.hexChannel(a 0))
+        def ag:int (VlScale.hexChannel(a 1))
+        def ab:int (VlScale.hexChannel(a 2))
+        def br:int (VlScale.hexChannel(b 0))
+        def bg:int (VlScale.hexChannel(b 1))
+        def bb:int (VlScale.hexChannel(b 2))
+        if (interpolateSpace == "hcl") {
+            return (VlColourSpace.mixHcl(ar ag ab br bg bb local))
+        }
+        def r:int (VlScale.mixChannel(ar br local))
+        def g:int (VlScale.mixChannel(ag bg local))
+        def bl:int (VlScale.mixChannel(ab bb local))
         return ((((((("rgb(" + (VlJson.intToText(r))) + ", ") + (VlJson.intToText(g))) + ", ") + (VlJson.intToText(bl))) + ")"))
     }
 

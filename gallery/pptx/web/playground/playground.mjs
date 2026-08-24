@@ -112,6 +112,48 @@ return deck;`,
 });
 return deck;`,
 
+  "A stylesheet, not fluent calls": `// The same slide as the first preset, with the look in a sheet
+// instead of on every call. font-* and color inherit down to the
+// runs; fill and stroke do not. A fluent call always wins.
+const deck = Pptx.create();
+
+deck.addStyleSheet(\`
+  slide.review { background-color: #FFFFFF }
+
+  .title {
+    font-family: Calibri;
+    font-size: 44pt;
+    font-weight: bold;
+    color: #1F3864;
+  }
+
+  .subtitle {
+    font-family: Calibri;
+    font-size: 22pt;
+    color: #5B6B84;
+  }
+
+  .divider { fill: #4472C4; stroke: none }
+\`);
+
+const slide = deck.addSlide().addClass("review");
+
+slide.addTextBox(70, 150, 820, 110, "Quarterly review")
+     .setName("Title")
+     .addClass("title");
+
+slide.addTextBox(70, 265, 820, 60, "Sales, by region")
+     .addClass("subtitle");
+
+slide.addShape("rect", 70, 340, 300, 8).addClass("divider");
+
+// Inline beats the sheet, !important included.
+slide.addShape("rect", 70, 370, 300, 8)
+     .addClass("divider")
+     .style("fill", "#E8452C");
+
+return deck;`,
+
   "A Vega chart, as vectors": `// A Vega-Lite specification, compiled and put on the slide as SHAPES.
 // No image: every bar below is a DrawingML rectangle in the .pptx the
 // editor on the right opened, and the labels are in the slide's text.
@@ -261,9 +303,12 @@ function Run(ref) {
 function Shape(ref) {
   const o = {};
   for (const m of ["setName", "setPreset", "at", "size", "rotate", "fill", "noFill",
-                   "line", "noLine", "setText", "align"]) {
+                   "line", "noLine", "setText", "align", "setStyleId", "style"]) {
     o[m] = (...a) => { ref[m](...a); return o; };
   }
+  o.addClass = (...names) => { for (const n of names) ref.addClass(String(n)); return o; };
+  o.removeClass = (...names) => { for (const n of names) ref.removeClass(String(n)); return o; };
+  o.hasClass = (name) => ref.hasClass(String(name));
   o.run = (p, i) => Run(ref.runAt(p | 0, i | 0));
   o.addRun = (p, t) => Run(ref.addRun(p | 0, String(t)));
   for (const g of ["name", "preset", "x", "y", "width", "height", "rotation", "text"]) {
@@ -282,6 +327,9 @@ function Slide(ref) {
     addShape: (...a) => Shape(ref.addShape(...a)),
     removeShape: (i) => ref.removeShape(i | 0),
     background: (hex) => { ref.background(String(hex)); return o; },
+    addClass: (...names) => { for (const n of names) ref.addClass(String(n)); return o; },
+    setStyleId: (id) => { ref.setStyleId(String(id)); return o; },
+    style: (name, value) => { ref.style(String(name), String(value)); return o; },
   };
   for (const g of ["width", "height", "shapeCount", "text"]) {
     Object.defineProperty(o, g, { get: () => ref[g]() });
@@ -297,6 +345,9 @@ function Deck(ref) {
     setSize: (w, h) => { ref.setSize(w, h); return o; },
     save: () => fromRanger(ref.save()),
     saveNew: () => fromRanger(ref.saveNew()),
+    addStyleSheet: (css) => { ref.addStyleSheet(String(css)); return o; },
+    applyStyles: () => { ref.applyStyles(); return o; },
+    styleWarnings: () => ref.styleWarnings(),
   };
   for (const g of ["slideCount", "width", "height", "text"]) {
     Object.defineProperty(o, g, { get: () => ref[g]() });

@@ -1,0 +1,346 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxFromEvg.rgr — an EVG display list becomes DrawingML. The other direction.
+; ==============================================================================
+;
+; `PptxToEvg` turns a slide into a display list so the engine can draw it. This
+; is the inverse, and it makes the display list an OUTPUT FORMAT for slides:
+; anything in this repository that can draw into an `EVGDisplayList` — a Vela
+; chart, an EVG-laid-out document, a data grid, a flow diagram — can be put on
+; a slide as shapes without knowing that PresentationML exists.
+;
+; WHY IT LIVES HERE AND NOT IN gallery/evg. Because the dependency has to run
+; this way round. EVG knows nothing about Office and should go on knowing
+; nothing; the .pptx side already imports EVG. A file under gallery/evg that
+; imported PptxModel would make the layout engine depend on a document format,
+; which is the direction the gallery is built to avoid.
+;
+; HOW THIS DIFFERS FROM PptxVegaShapes, AND WHY BOTH EXIST. A display list is
+; POST-FLATTENING: by the time a drawing reaches it a rounded bar is a polygon,
+; a pie wedge is a polygon, and a label's position has already been resolved.
+; Everything still comes out as vectors — that is the point — but the SEMANTICS
+; are gone, so more of it lands as `custGeom` and less as a preset an author can
+; drag. Converting from Vela's command list instead keeps a bar a rectangle and
+; a scatter point an ellipse, which is smaller on disk and better to edit.
+;
+; So: `PptxVegaShapes` is the specialisation, used when the source is a Vega
+; specification, and this is the universal one, used when the source is
+; whatever else drew. Both emit through `PptxShapeInk`, so a colour, a ring and
+; a label mean the same thing in either.
+;
+; WHAT IS DROPPED, AND SAID SO. Clips (`PUSH_CLIP` / `POP_CLIP`) have no
+; DrawingML spelling short of putting every clipped shape in its own group with
+; a mask, which PowerPoint does not have either; content outside a clip is
+; therefore drawn rather than hidden, and `clipped` reports how many clips were
+; ignored so a caller can tell. Gradients become their first stop. A shadow
+; becomes a shadow, because the model has one.
+; ==============================================================================
+
+Import "PptxModel.rgr"
+Import "PptxShapeInk.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class PptxFromEvg {
+    ; What "sans-serif" is called on a slide, for a command that named a family
+    ; the deck does not have. A display list normally names a real face.
+    def sansFamily:string "Calibri"
+    ; Below this a label is a smudge at any zoom.
+    def minFontPt:double 5.0
+    ; Points per display-list unit. A display list is in CSS pixels and a slide
+    ; is in points, so a drawing laid out at 96 dpi is 0.75 here — which is the
+    ; default, and is why a 960x540 page lands exactly on a 720x540 slide.
+    def unit:double 0.75
+
+    def shapeCount:int 0
+    def textCount:int 0
+    ; How many clip commands were ignored. Not an error and not nothing: a
+    ; drawing that relied on a clip to hide something comes out showing it.
+    def clipped:int 0
+    ; Pictures are the one thing here that stays a picture, and a display list
+    ; names them by `src` rather than carrying the bytes. Counted so a caller
+    ; knows the slide is missing them.
+    def unresolvedImages:int 0
+
+    Constructor () {
+    }
+
+    ; The whole list as one group, placed at (x, y) in points.
+    ;
+    ; The group is sized from the drawing's own extent rather than from a box
+    ; the caller states, because a display list has no page: it is whatever was
+    ; drawn into it. Scale it by setting `unit` before calling.
+    fn build:PptxShape (dl:EVGDisplayList x:double y:double) {
+        shapeCount = 0
+        textCount = 0
+        clipped = 0
+        unresolvedImages = 0
+        def group (new PptxShape())
+        group.kind = (PptxShapeKind.group())
+        group.name = "Drawing"
+        group.hasXfrm = true
+        group.x = x
+        group.y = y
+
+        def n:int (array_length dl.cmds)
+        def i:int 0
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            this.emit(group c x y)
+            i = (i + 1)
+        }
+        ; The box is the union of what was drawn. A group whose ext does not
+        ; cover its children is one PowerPoint clips on the first edit.
+        this.fitTo(group x y)
+        return group
+    }
+
+    fn fitTo:void (group:PptxShape x:double y:double) {
+        def w:double 0.0
+        def h:double 0.0
+        def i:int 0
+        while (i < (array_length group.children)) {
+            def sh:PptxShape (itemAt group.children i)
+            def right:double ((sh.x + sh.width) - x)
+            def bottom:double ((sh.y + sh.height) - y)
+            if (right > w) { w = right }
+            if (bottom > h) { h = bottom }
+            i = (i + 1)
+        }
+        if (w < 1.0) { w = 1.0 }
+        if (h < 1.0) { h = 1.0 }
+        group.width = w
+        group.height = h
+        ; Children hold slide points, so the child space is the group's own box
+        ; and nothing is scaled twice.
+        group.chX = x
+        group.chY = y
+        group.chW = w
+        group.chH = h
+    }
+
+    ; --- one command ----------------------------------------------------------
+
+    fn emit:void (group:PptxShape c:EVGDrawCmd ox:double oy:double) {
+        if (c.a <= 0.0) {
+            if (c.kind != 3) {
+                return
+            }
+        }
+        if (c.kind == 0) {
+            this.emitRect(group c ox oy)
+            return
+        }
+        if (c.kind == 1) {
+            this.emitBorder(group c ox oy)
+            return
+        }
+        if (c.kind == 2) {
+            ; A display list names a picture; it does not carry it. The bytes
+            ; belong to whoever built the list, so this counts what it cannot
+            ; place rather than inventing an empty frame.
+            unresolvedImages = (unresolvedImages + 1)
+            return
+        }
+        if (c.kind == 3) {
+            this.emitText(group c ox oy)
+            return
+        }
+        if (c.kind == 4) {
+            clipped = (clipped + 1)
+            return
+        }
+        if (c.kind == 5) {
+            return
+        }
+        if (c.kind == 6) {
+            this.emitRings(group c ox oy true)
+            return
+        }
+        this.emitRings(group c ox oy false)
+    }
+
+    ; A filled box. Rounded corners are a `roundRect`, which is a preset an
+    ; author can drag rather than a polygon they cannot.
+    fn emitRect:void (group:PptxShape c:EVGDrawCmd ox:double oy:double) {
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.hasXfrm = true
+        sh.preset = "rect"
+        sh.x = (ox + (c.x * unit))
+        sh.y = (oy + (c.y * unit))
+        sh.width = (c.w * unit)
+        sh.height = (c.h * unit)
+        if (c.radius > 0.0) {
+            sh.preset = "roundRect"
+            def shortest:double sh.width
+            if (sh.height < shortest) {
+                shortest = sh.height
+            }
+            if (shortest > 0.0) {
+                def adj:double ((c.radius * unit) / shortest)
+                if (adj > 0.5) {
+                    adj = 0.5
+                }
+                sh.adj = adj
+            }
+        }
+        if c.hasGrad {
+            ; The model carries a two-stop linear gradient and the display list
+            ; carries the same, so this one survives rather than being flattened.
+            sh.fillGrad.isSet = true
+            sh.fillGrad.dir = c.gradDir
+            sh.fillGrad.c1 = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+            sh.fillGrad.c2 = (PptxShapeInk.rgbaOf(c.r2 c.g2 c.b2 c.a2))
+        } {
+            sh.fill = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+        }
+        sh.noLine = true
+        if c.hasShadow {
+            sh.shadow.isSet = true
+            sh.shadow.offsetXPt = (c.shadowX * unit)
+            sh.shadow.offsetYPt = (c.shadowY * unit)
+            sh.shadow.blurPt = (c.shadowBlur * unit)
+            sh.shadow.color = (PptxShapeInk.rgbaOf(c.shadowR c.shadowG c.shadowB 1.0))
+            sh.shadow.alpha = c.shadowA
+        }
+        sh.name = ("Box " + (to_string ((array_length group.children) + 1)))
+        this.attach(group sh)
+    }
+
+    ; An outline. One rectangle with a line and no fill rather than four
+    ; segments: it is a quarter of the XML and it stays one thing to select.
+    fn emitBorder:void (group:PptxShape c:EVGDrawCmd ox:double oy:double) {
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.hasXfrm = true
+        sh.preset = "rect"
+        if (c.radius > 0.0) {
+            sh.preset = "roundRect"
+        }
+        sh.x = (ox + (c.x * unit))
+        sh.y = (oy + (c.y * unit))
+        sh.width = (c.w * unit)
+        sh.height = (c.h * unit)
+        sh.noFill = true
+        sh.line = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+        sh.lineWidthPt = (c.thickness * unit)
+        if (sh.lineWidthPt < 0.25) {
+            sh.lineWidthPt = 0.25
+        }
+        sh.name = ("Border " + (to_string ((array_length group.children) + 1)))
+        this.attach(group sh)
+    }
+
+    ; A path or a stroke. `ringEnds` says where each ring stops, and one ring
+    ; becomes one shape — so an even-odd hole is FILLED rather than cut, which
+    ; is the one thing this conversion cannot say.
+    fn emitRings:void (group:PptxShape c:EVGDrawCmd ox:double oy:double filled:boolean) {
+        def total:int (array_length c.pts)
+        if (total < 4) {
+            return
+        }
+        def moved:[double]
+        def k:int 0
+        while (k < total) {
+            def px:double (itemAt c.pts k)
+            def py:double (itemAt c.pts (k + 1))
+            push moved (ox + (px * unit))
+            push moved (oy + (py * unit))
+            k = (k + 2)
+        }
+        def ends:[int] c.ringEnds
+        def count:int (array_length ends)
+        def from:int 0
+        def i:int 0
+        while (i < count) {
+            def upto:int (itemAt ends i)
+            if ((upto - from) >= 4) {
+                def sh:PptxShape (PptxShapeInk.ring(moved from upto filled))
+                if filled {
+                    sh.fill = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+                    sh.noLine = true
+                } {
+                    sh.noFill = true
+                    sh.line = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+                    sh.lineWidthPt = (c.thickness * unit)
+                    if (sh.lineWidthPt < 0.25) {
+                        sh.lineWidthPt = 0.25
+                    }
+                }
+                sh.name = ("Path " + (to_string ((array_length group.children) + 1)))
+                this.attach(group sh)
+            }
+            from = upto
+            i = (i + 1)
+        }
+        ; A command with points and no ring ends is one ring.
+        if (count == 0) {
+            def only:PptxShape (PptxShapeInk.ring(moved 0 total filled))
+            if filled {
+                only.fill = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+                only.noLine = true
+            } {
+                only.noFill = true
+                only.line = (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+                only.lineWidthPt = (c.thickness * unit)
+                if (only.lineWidthPt < 0.25) {
+                    only.lineWidthPt = 0.25
+                }
+            }
+            only.name = ("Path " + (to_string ((array_length group.children) + 1)))
+            this.attach(group only)
+        }
+    }
+
+    ; A run of text.
+    ;
+    ; The display list's convention is that `y` is the TOP of the line box and
+    ; `textAlign` names the horizontal anchor — and, by a quirk worth knowing
+    ; before reading the display list, `textAlign == "italic"` is how a slanted
+    ; run is marked. So the baseline word handed to `PptxShapeInk.label` is
+    ; "top", and the alignment is read out separately.
+    fn emitText:void (group:PptxShape c:EVGDrawCmd ox:double oy:double) {
+        def body:string c.text
+        if ((strlen body) == 0) {
+            return
+        }
+        def size:double (c.fontSize * unit)
+        if (size < minFontPt) {
+            return
+        }
+        def align:string "left"
+        if (c.textAlign == "center") {
+            align = "center"
+        }
+        if (c.textAlign == "right") {
+            align = "right"
+        }
+        def family:string c.fontFamily
+        if ((strlen family) == 0) {
+            family = sansFamily
+        }
+        if (family == "sans-serif") {
+            family = sansFamily
+        }
+        def bold:boolean (c.fontWeight == "bold")
+        def ink:PptxColor (PptxShapeInk.rgbaOf(c.r c.g c.b c.a))
+        def ax:double (ox + (c.x * unit))
+        def ay:double (oy + (c.y * unit))
+        def sh:PptxShape (PptxShapeInk.label(body size family bold align "top" c.rotate ax ay ink))
+        if (c.textAlign == "italic") {
+            def para:PptxParagraph (itemAt sh.text.paragraphs 0)
+            def run:PptxTextRun (itemAt para.runs 0)
+            run.italicSet = true
+            run.italic = true
+        }
+        sh.name = ("Text " + (to_string ((array_length group.children) + 1)))
+        textCount = (textCount + 1)
+        this.attach(group sh)
+    }
+
+    fn attach:void (group:PptxShape sh:PptxShape) {
+        push group.children sh
+        shapeCount = (shapeCount + 1)
+    }
+}

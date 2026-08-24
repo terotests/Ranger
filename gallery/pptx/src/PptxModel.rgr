@@ -829,6 +829,23 @@ class PptxShape {
     ; rather than dragged. It can still be selected — a lock you cannot select
     ; is a lock you cannot undo.
     def locked:boolean false
+    ; --- CSS identity --------------------------------------------------------
+    ;
+    ; What a stylesheet can address this shape by. Deliberately NOT `name`:
+    ; `name` is the PowerPoint object name, the one an author sees in the
+    ; selection pane and renames without thinking about styling, and letting a
+    ; rename silently restyle a box would be a surprise nobody could debug.
+    ; `styleId` is a styling concept and is set on purpose.
+    ;
+    ; Empty on every shape that came out of a file. Nothing reads these unless
+    ; a sheet was added, so a deck that never mentions CSS pays a string and an
+    ; empty array per shape and no behaviour at all.
+    def styleId:string ""
+    def styleClasses:[string]
+    ; Properties the fluent API stated on this shape, which no rule may
+    ; override — see `CssCascade.resolve`. Names and values in step.
+    def inlineStyleNames:[string]
+    def inlineStyleValues:[string]
     ; Custom / flattened path in shape-local unit coords (optional)
     def hasPath:boolean false
     def pathUnit:[double]
@@ -860,6 +877,12 @@ class PptxShape {
     Constructor () {
         def c:[PptxShape]
         children = c
+        def sc:[string]
+        styleClasses = sc
+        def isn:[string]
+        inlineStyleNames = isn
+        def isv:[string]
+        inlineStyleValues = isv
         def tc:[PptxTableCell]
         tableCells = tc
         def cw:[double]
@@ -872,6 +895,12 @@ class PptxShape {
 }
 
 class PptxSlide {
+    ; What a stylesheet addresses this slide by — `slide.review` and
+    ; `#opening`. See PptxShape.styleId for why this is not the slide's name.
+    def styleId:string ""
+    def styleClasses:[string]
+    def inlineStyleNames:[string]
+    def inlineStyleValues:[string]
     ; The part this slide came out of, and whether anything has been done to it
     ; since. A save that keeps the file it opened rewrites only the slides that
     ; were touched — everything else is copied through byte for byte, which is
@@ -929,6 +958,12 @@ class PptxSlide {
         shapes = s
         def b:[PptxBuildStep]
         build = b
+        def sc:[string]
+        styleClasses = sc
+        def isn:[string]
+        inlineStyleNames = isn
+        def isv:[string]
+        inlineStyleValues = isv
     }
 
     fn notesText:string () {

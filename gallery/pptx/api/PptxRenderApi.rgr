@@ -132,6 +132,11 @@ class PptxRenderer {
     ; size, and a caller asking for "twice as sharp" means that whatever the
     ; page is.
     fn toPng:buffer (deck:PptxDeck index:int scale:double) {
+        ; The sheet has to have been resolved before anything reads the
+        ; model. Saving does it; drawing has to do it too, or a deck that
+        ; was styled and then rendered without being saved comes out
+        ; unstyled — with nothing anywhere reporting a problem.
+        deck.applyStyles()
         def empty:buffer (buffer_alloc 0)
         if (deck.ok == false) {
             error = "the deck is not open"
@@ -190,6 +195,11 @@ class PptxRenderer {
     ; second input format, and it is deliberately not pptx-specific: the .docx
     ; reader and the spreadsheet emit the same display lists.
     fn toPdf:buffer (deck:PptxDeck index:int) {
+        ; The sheet has to have been resolved before anything reads the
+        ; model. Saving does it; drawing has to do it too, or a deck that
+        ; was styled and then rendered without being saved comes out
+        ; unstyled — with nothing anywhere reporting a problem.
+        deck.applyStyles()
         def empty:buffer (buffer_alloc 0)
         if (deck.ok == false) {
             error = "the deck is not open"
@@ -280,6 +290,11 @@ class PptxRenderer {
     ; That is a real limit and it is stated rather than hidden: PowerPoint has
     ; one size per presentation, so a deck that hits it was assembled from two.
     fn toPdfDeck:buffer (deck:PptxDeck) {
+        ; The sheet has to have been resolved before anything reads the
+        ; model. Saving does it; drawing has to do it too, or a deck that
+        ; was styled and then rendered without being saved comes out
+        ; unstyled — with nothing anywhere reporting a problem.
+        deck.applyStyles()
         def empty:buffer (buffer_alloc 0)
         if (deck.ok == false) {
             error = "the deck is not open"

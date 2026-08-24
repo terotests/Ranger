@@ -62,6 +62,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
+Import "PptxShapeInk.rgr"
 Import "../../evg/EVGColor.rgr"
 Import "../../evg/PathBuilder.rgr"
 Import "../../evg/SVGPathParser.rgr"
@@ -214,12 +215,12 @@ class PptxVegaShapes {
         }
         def wantFill:boolean false
         if cmd.hasFill {
-            wantFill = (PptxVegaShapes.paints(cmd.fill))
+            wantFill = (PptxShapeInk.paints(cmd.fill))
         }
         def wantStroke:boolean false
         if cmd.hasStroke {
             if (cmd.strokeWidth > 0.0) {
-                wantStroke = (PptxVegaShapes.paints(cmd.stroke))
+                wantStroke = (PptxShapeInk.paints(cmd.stroke))
             }
         }
         if (wantFill == false) {
@@ -289,28 +290,10 @@ class PptxVegaShapes {
         def y1:double (oy + (cmd.y * scale))
         def x2:double (ox + (cmd.x2 * scale))
         def y2:double (oy + (cmd.y2 * scale))
-        def sh (new PptxShape())
-        sh.kind = (PptxShapeKind.shape())
-        sh.hasXfrm = true
-        sh.preset = "line"
-        sh.x = x1
-        sh.y = y1
-        sh.width = (x2 - x1)
-        sh.height = (y2 - y1)
-        if (sh.width < 0.0) {
-            sh.x = x2
-            sh.width = (0.0 - sh.width)
-            sh.flipH = true
-        }
-        if (sh.height < 0.0) {
-            sh.y = y2
-            sh.height = (0.0 - sh.height)
-            sh.flipV = true
-        }
+        def sh:PptxShape (PptxShapeInk.segment(x1 y1 x2 y2))
         sh.name = ("Line " + (to_string ((array_length group.children) + 1)))
-        sh.noFill = true
         def col:EVGColor (EVGColor.parse(cmd.stroke))
-        sh.line = (PptxVegaShapes.colorOf(col (cmd.strokeOpacity * cmd.opacity)))
+        sh.line = (PptxShapeInk.colorOf(col (cmd.strokeOpacity * cmd.opacity)))
         sh.lineWidthPt = (cmd.strokeWidth * scale)
         if (sh.lineWidthPt < 0.25) {
             sh.lineWidthPt = 0.25
@@ -369,54 +352,9 @@ class PptxVegaShapes {
         if (n < 4) {
             return
         }
-        def minX:double (itemAt ring.pts 0)
-        def minY:double (itemAt ring.pts 1)
-        def maxX:double minX
-        def maxY:double minY
-        def k:int 2
-        while (k < n) {
-            def px:double (itemAt ring.pts k)
-            def py:double (itemAt ring.pts (k + 1))
-            if (px < minX) { minX = px }
-            if (px > maxX) { maxX = px }
-            if (py < minY) { minY = py }
-            if (py > maxY) { maxY = py }
-            k = (k + 2)
-        }
-        def bw:double (maxX - minX)
-        def bh:double (maxY - minY)
-        ; A degenerate box is a real shape — a single-point line series, a zero
-        ; height area — and it still has to be drawn. Widening the box moves
-        ; nothing, because the points are then all at the same fraction of it.
-        if (bw < 0.01) {
-            bw = 0.01
-        }
-        if (bh < 0.01) {
-            bh = 0.01
-        }
-        def sh (new PptxShape())
-        sh.kind = (PptxShapeKind.shape())
-        sh.hasXfrm = true
-        sh.x = minX
-        sh.y = minY
-        sh.width = bw
-        sh.height = bh
-        sh.hasPath = true
-        ; A stroke-only command is a POLYLINE, not an outline: closing it draws
-        ; a segment back to the start that the specification never asked for,
-        ; and filling it paints a blob over the plot. That is what `pathClosed`
-        ; is for, and it is why the writer had to learn to honour it.
-        sh.pathClosed = wantFill
-        def unit:[double]
-        def j:int 0
-        while (j < n) {
-            def qx:double (itemAt ring.pts j)
-            def qy:double (itemAt ring.pts (j + 1))
-            push unit ((qx - minX) / bw)
-            push unit ((qy - minY) / bh)
-            j = (j + 2)
-        }
-        sh.pathUnit = unit
+        ; A stroke-only command is a POLYLINE, not an outline — see
+        ; `PptxShapeInk.ring`, which is where that distinction is written down.
+        def sh:PptxShape (PptxShapeInk.ring(ring.pts 0 n wantFill))
         sh.name = ("Mark " + (to_string ((array_length group.children) + 1)))
         this.paint(sh cmd wantFill wantStroke scale)
         this.attach(group sh)
@@ -424,19 +362,9 @@ class PptxVegaShapes {
 
     ; --- text --------------------------------------------------------------
 
-    ; A label, an axis title, a legend entry.
-    ;
-    ; A command carries an anchor POINT and an alignment; a slide carries a
-    ; BOX. So the box is built around the anchor wide enough that the text
-    ; cannot reach either end, wrapping is turned off, and the alignment inside
-    ; the box does the placing — which puts the glyphs where the anchor says
-    ; without this file owning a font metric.
-    ;
-    ; Vega rotates a label about its ANCHOR and DrawingML rotates a shape about
-    ; its CENTRE, so for a rotated label the box's centre is itself rotated
-    ; about the anchor first. Without that, every y-axis title on every chart
-    ; sat a box-width away from where it belonged — and the wider the label,
-    ; the further out, which reads as a layout bug rather than a rotation one.
+    ; A label, an axis title, a legend entry. The anchor-to-box translation is
+    ; `PptxShapeInk.label`, which both converters share; what is decided here
+    ; is only what Vega means by the command's own fields.
     fn emitText:void (group:PptxShape cmd:VlDrawCommand ox:double oy:double scale:double) {
         def body:string cmd.text
         if ((strlen body) == 0) {
@@ -448,93 +376,17 @@ class PptxVegaShapes {
         }
         def ax:double ((ox + ((cmd.x + cmd.dx) * scale)))
         def ay:double ((oy + ((cmd.y + cmd.dy) * scale)))
-        ; Room for a label of any length this can be handed. A box too wide
-        ; costs nothing — the text is centred, left- or right-aligned in it and
-        ; the box itself has no fill and no line — while a box too narrow wraps
-        ; a label onto two lines and moves it.
-        def chars:int ((strlen body) + 4)
-        def boxW:double (size * (to_double chars))
-        def boxH:double (size * 1.6)
-        ; Where the box's centre sits relative to the anchor, before rotation.
-        def cx:double 0.0
-        if (cmd.align == "left") {
-            cx = (boxW * 0.5)
-        }
-        if (cmd.align == "right") {
-            cx = (0.0 - (boxW * 0.5))
-        }
-        def cy:double 0.0
-        if (cmd.baseline == "top") {
-            cy = (boxH * 0.5)
-        }
-        if (cmd.baseline == "bottom") {
-            cy = (0.0 - (boxH * 0.5))
-        }
-        ; `alphabetic` puts the ANCHOR on the baseline, which is roughly a
-        ; third of the size below the visual centre of a line of Latin text.
-        if (cmd.baseline == "alphabetic") {
-            cy = (0.0 - (size * 0.34))
-        }
-        def rot:double cmd.angle
-        def rx:double cx
-        def ry:double cy
-        if ((rot > 0.001) || (rot < (0.0 - 0.001))) {
-            def rad:double ((rot * 3.141592653589793) / 180.0)
-            def cs:double (cos rad)
-            def sn:double (sin rad)
-            rx = ((cx * cs) - (cy * sn))
-            ry = ((cx * sn) + (cy * cs))
-        }
-        def sh (new PptxShape())
-        sh.kind = (PptxShapeKind.shape())
-        sh.hasXfrm = true
-        sh.preset = "rect"
-        sh.x = ((ax + rx) - (boxW * 0.5))
-        sh.y = ((ay + ry) - (boxH * 0.5))
-        sh.width = boxW
-        sh.height = boxH
-        sh.rotation = rot
-        sh.noFill = true
-        sh.noLine = true
-        sh.name = ("Label " + (to_string ((array_length group.children) + 1)))
-
-        def tb (new PptxTextBody())
-        tb.wrap = false
-        tb.anchor = "ctr"
-        tb.anchorSet = true
-        tb.insetL = 0.0
-        tb.insetR = 0.0
-        tb.insetT = 0.0
-        tb.insetB = 0.0
-        tb.insetsSet = true
-        def para (new PptxParagraph())
-        para.align = "ctr"
-        if (cmd.align == "left") {
-            para.align = "l"
-        }
-        if (cmd.align == "right") {
-            para.align = "r"
-        }
-        para.alignSet = true
-        def run (new PptxTextRun())
-        run.text = body
-        run.fontFamily = sansFamily
-        run.fontSizePt = size
-        run.sizeSet = true
-        run.boldSet = true
-        run.bold = (PptxVegaShapes.isBold(cmd.fontWeight))
         def col:EVGColor (EVGColor.rgb(0 0 0))
         if cmd.hasFill {
-            def paints:boolean (PptxVegaShapes.paints(cmd.fill))
+            def paints:boolean (PptxShapeInk.paints(cmd.fill))
             if paints {
                 col = (EVGColor.parse(cmd.fill))
             }
         }
-        run.color = (PptxVegaShapes.colorOf(col (cmd.fillOpacity * cmd.opacity)))
-        push para.runs run
-        push tb.paragraphs para
-        sh.hasText = true
-        sh.text = tb
+        def ink:PptxColor (PptxShapeInk.colorOf(col (cmd.fillOpacity * cmd.opacity)))
+        def bold:boolean (PptxShapeInk.isBold(cmd.fontWeight))
+        def sh:PptxShape (PptxShapeInk.label(body size sansFamily bold cmd.align cmd.baseline cmd.angle ax ay ink))
+        sh.name = ("Label " + (to_string ((array_length group.children) + 1)))
         textCount = (textCount + 1)
         this.attach(group sh)
     }
@@ -549,13 +401,13 @@ class PptxVegaShapes {
     fn paint:void (sh:PptxShape cmd:VlDrawCommand wantFill:boolean wantStroke:boolean scale:double) {
         if wantFill {
             def col:EVGColor (EVGColor.parse(cmd.fill))
-            sh.fill = (PptxVegaShapes.colorOf(col (cmd.fillOpacity * cmd.opacity)))
+            sh.fill = (PptxShapeInk.colorOf(col (cmd.fillOpacity * cmd.opacity)))
         } {
             sh.noFill = true
         }
         if wantStroke {
             def scol:EVGColor (EVGColor.parse(cmd.stroke))
-            sh.line = (PptxVegaShapes.colorOf(scol (cmd.strokeOpacity * cmd.opacity)))
+            sh.line = (PptxShapeInk.colorOf(scol (cmd.strokeOpacity * cmd.opacity)))
             sh.lineWidthPt = (cmd.strokeWidth * scale)
             if (sh.lineWidthPt < 0.25) {
                 sh.lineWidthPt = 0.25
@@ -598,44 +450,6 @@ class PptxVegaShapes {
         }
     }
 
-    ; "none" is how a specification says "do not paint this", and it is not a
-    ; colour: parsing it would give black, which is the most visible possible
-    ; way to be wrong.
-    sfn paints:boolean (colour:string) {
-        if ((strlen colour) == 0) {
-            return false
-        }
-        if (colour == "none") {
-            return false
-        }
-        if (colour == "transparent") {
-            return false
-        }
-        return true
-    }
-
-    sfn isBold:boolean (weight:string) {
-        if (weight == "bold") {
-            return true
-        }
-        if (weight == "bolder") {
-            return true
-        }
-        if (weight == "600") {
-            return true
-        }
-        if (weight == "700") {
-            return true
-        }
-        if (weight == "800") {
-            return true
-        }
-        if (weight == "900") {
-            return true
-        }
-        return false
-    }
-
     sfn largest4:double (a:double b:double c:double d:double) {
         def m:double a
         if (b > m) { m = b }
@@ -644,37 +458,4 @@ class PptxVegaShapes {
         return m
     }
 
-    ; An EVG colour as a slide states one: six hexadecimal digits and an alpha.
-    sfn colorOf:PptxColor (col:EVGColor alpha:double) {
-        def r:int (col.red())
-        def g:int (col.green())
-        def b:int (col.blue())
-        def hex:string ((PptxVegaShapes.hex2(r)) + (PptxVegaShapes.hex2(g)) + (PptxVegaShapes.hex2(b)))
-        def out:PptxColor (PptxColor.srgbOf(hex))
-        def a:double (col.alpha())
-        out.alpha = (a * alpha)
-        if (out.alpha > 1.0) {
-            out.alpha = 1.0
-        }
-        if (out.alpha < 0.0) {
-            out.alpha = 0.0
-        }
-        return out
-    }
-
-    sfn hex2:string (v:int) {
-        def n:int v
-        if (n < 0) { n = 0 }
-        if (n > 255) { n = 255 }
-        def hi:int (idiv n 16)
-        def lo:int (n - (hi * 16))
-        return ((PptxVegaShapes.hexDigit(hi)) + (PptxVegaShapes.hexDigit(lo)))
-    }
-
-    sfn hexDigit:string (v:int) {
-        if (v < 10) {
-            return (strfromcode (48 + v))
-        }
-        return (strfromcode (65 + (v - 10)))
-    }
 }

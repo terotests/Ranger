@@ -1,0 +1,53 @@
+{
+  "$comment": "A layered heat map, which is three separate faults in one picture. (1) The first layer puts its quarters along the TOP and the second layer states no side at all — one axis, not two, and the reference agrees. (2) The regions are sorted by a stated list rather than alphabetically, which needs the list compared against the data verbatim. (3) The colour domain names THREE stops, which is a piecewise scale and not a list of categories.",
+  "width": 260,
+  "height": 180,
+  "data": {
+    "values": [
+      { "region": "Nordics", "quarter": "Q1", "attainment": 103 },
+      { "region": "Nordics", "quarter": "Q2", "attainment": 118 },
+      { "region": "DACH", "quarter": "Q1", "attainment": 94 },
+      { "region": "DACH", "quarter": "Q2", "attainment": 106 },
+      { "region": "Spain", "quarter": "Q1", "attainment": 82 },
+      { "region": "Spain", "quarter": "Q2", "attainment": 98 }
+    ]
+  },
+  "layer": [
+    {
+      "mark": { "type": "rect" },
+      "encoding": {
+        "x": {
+          "field": "quarter",
+          "type": "ordinal",
+          "title": null,
+          "axis": { "orient": "top", "labelAngle": 0, "domain": false, "ticks": false }
+        },
+        "y": {
+          "field": "region",
+          "type": "ordinal",
+          "sort": ["Nordics", "DACH", "Spain"],
+          "title": null,
+          "axis": { "domain": false, "ticks": false }
+        },
+        "color": {
+          "field": "attainment",
+          "type": "quantitative",
+          "legend": null,
+          "scale": {
+            "domain": [80, 100, 120],
+            "range": ["#E9877F", "#E7ECF3", "#35B7A5"]
+          }
+        }
+      }
+    },
+    {
+      "mark": { "type": "text", "fontSize": 11 },
+      "encoding": {
+        "x": { "field": "quarter", "type": "ordinal" },
+        "y": { "field": "region", "type": "ordinal", "sort": ["Nordics", "DACH", "Spain"] },
+        "text": { "field": "attainment" }
+      }
+    }
+  ],
+  "config": { "view": { "stroke": null } }
+}

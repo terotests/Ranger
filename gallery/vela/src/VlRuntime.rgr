@@ -1612,6 +1612,16 @@ class VlRuntime {
         sc.align = (sdef.doubleOr("align" 0.5))
         sc.round = (sdef.boolOr("round" false))
         sc.clamp = (sdef.boolOr("clamp" false))
+        ; Which colour space a ramp is mixed in.
+        ;
+        ; Read BEFORE the range, and applied only where the range turns out to
+        ; be a list of colours the specification wrote. The Vega-Lite compiler
+        ; puts `"interpolate": "hcl"` on a scheme's scale as well, and the
+        ; reference does not honour it there — a scheme carries its own
+        ; interpolator, and the colours it hands back are mixed in plain RGB.
+        ; Applied to both, forty-nine existing charts moved by a unit or two
+        ; per channel, which is how the distinction came to light.
+        sc.interpolateSpace = (sdef.stringOr("interpolate" ""))
         sc.logBase = (sdef.doubleOr("base" 10.0))
         sc.powExponent = (sdef.doubleOr("exponent" 1.0))
 
@@ -1741,6 +1751,25 @@ class VlRuntime {
             }
             if (((allNumbers && (total == 2)) && (! discrete))) {
                 sc.setNumericDomain((d.at(0).asDouble()) (d.at(1).asDouble()))
+                return
+            }
+            ; MORE than two numbers on a continuous scale is a PIECEWISE
+            ; domain, not a list of categories. Falling through to the discrete
+            ; branch below turned `"domain": [80, 100, 120]` into the three
+            ; category strings "80", "100" and "120" and left the numeric ends
+            ; at their defaults of 0 and 1 — so every value in a target-
+            ; attainment heat map, all of them between 82 and 118, came out
+            ; past the top of the domain and every cell was painted the last
+            ; colour in the range. Nothing failed; the chart was simply one
+            ; flat colour, and the legend gave it away by labelling itself 0.0
+            ; to 1.0.
+            if ((allNumbers && (total > 2)) && (! discrete)) {
+                def pi:int 0
+                while (pi < total) {
+                    push sc.domainStops ((d.at(pi)).asDouble())
+                    pi = (pi + 1)
+                }
+                sc.setNumericDomain(((d.at(0)).asDouble()) ((d.at((total - 1))).asDouble()))
                 return
             }
             k = 0
@@ -1924,6 +1953,9 @@ class VlRuntime {
             def scheme:[string] (config.schemeFor((r.str)))
             if ((array_length scheme) > 0) {
                 sc.rampRange = (config.schemeIsRamp((r.str)))
+                ; A scheme brings its own mixing. See `interpolateSpace`.
+                sc.interpolateSpace = ""
+
                 for scheme color:string ci {
                     push sc.rangeValues color
                 }
@@ -2023,6 +2055,7 @@ class VlRuntime {
                 def scheme:[string] (config.schemeFor((r.stringOr("scheme" ""))))
                 if ((array_length scheme) > 0) {
                     sc.rampRange = (config.schemeIsRamp((r.stringOr("scheme" ""))))
+                    sc.interpolateSpace = ""
                     for scheme color:string ci {
                         push sc.rangeValues color
                     }

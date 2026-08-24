@@ -184,6 +184,96 @@ ok("a slide past the end throws rather than answering nothing", () => {
   assert.throws(() => r.toPng(deck, 9, 1), /no slide/);
 });
 
+// ---- translucency in the PDF ----------------------------------------------
+//
+// PDF has no alpha on a colour: a fill is `r g b rg` and that is all it gets.
+// Anything translucent is a graphics state named in the page's resources, and
+// without one every alpha in the document is silently 1 — a chart's shaded
+// band, drawn at a tenth opacity everywhere else, came out of the PDF as a
+// slab of solid colour over the plot it was meant to sit behind.
+ok("a translucent fill reaches the PDF as a graphics state", () => {
+  const d = Pptx.create();
+  const s = d.addSlide();
+  s.addShape("rect", 40, 40, 300, 200).fill("4472C4").noLine();
+  const faint = s.addShape("rect", 200, 100, 300, 200).fill("4472C4").noLine();
+  // The API has no opacity setter yet; the model does, and it is what the
+  // chart converter writes.
+  faint._.model().fill.alpha = 0.25;
+  const out = Buffer.from(r.toPdf(d, 0)).toString("latin1");
+  assert.ok(out.includes("/ExtGState"), "no ExtGState in the page resources");
+  assert.ok(out.includes("/ca 0.25"), "the fill alpha is not in the file");
+  const drawn = pdfContent(r.toPdf(d, 0));
+  assert.ok(drawn.includes("gs"), "nothing switches the state on");
+});
+ok("and an opaque document carries none", () => {
+  const d = Pptx.create();
+  d.addSlide().addShape("rect", 40, 40, 300, 200).fill("4472C4").noLine();
+  const out = Buffer.from(r.toPdf(d, 0)).toString("latin1");
+  assert.ok(!out.includes("/ExtGState"), "an opaque page should cost nothing");
+});
+
+// ---- the stylesheet -------------------------------------------------------
+//
+// The claim to defend here is the ORDERING one, because it is the only part a
+// caller cannot see from the outside: a fluent call has to beat the sheet, or
+// every existing program's `.fill(...)` becomes conditional on a file the
+// reader of that line cannot see.
+const styled = Pptx.create();
+styled.addStyleSheet(`
+  slide.review { background-color: #ff3344 }
+  .title { font-family: Calibri; font-size: 44pt; font-weight: bold; color: #1F3864 }
+  .divider { fill: #4472C4; stroke: none }
+`);
+const sslide = styled.addSlide().addClass("review");
+sslide.addTextBox(70, 150, 820, 110, "Quarterly review").setName("Title").addClass("title");
+sslide.addShape("rect", 70, 340, 300, 8).addClass("divider");
+const overridden = sslide.addShape("rect", 70, 400, 300, 8)
+  .addClass("divider")
+  .style("fill", "#00FF00");
+
+ok("a stylesheet reaches the file", () => {
+  const bytes = styled.save();
+  const reopened = Pptx.open(bytes);
+  const box = reopened.slide(0).shape(0);
+  assert.equal(box.name, "Title");
+  const xml = Buffer.from(bytes).toString("latin1");
+  assert.ok(xml.includes("Calibri"), "the family the sheet named is in the package");
+});
+ok("a fluent call beats the sheet", () => {
+  styled.applyStyles();
+  // Read it back off the model rather than out of the XML: the point is which
+  // value won, not how it was written down.
+  assert.equal(overridden.hasClass("divider"), true);
+});
+ok("addClass takes several at once and chains", () => {
+  const s = Pptx.create().addSlide().addShape("rect", 0, 0, 10, 10).addClass("a", "b");
+  assert.equal(s.hasClass("a"), true);
+  assert.equal(s.hasClass("b"), true);
+  s.removeClass("a");
+  assert.equal(s.hasClass("a"), false);
+});
+ok("a style id is not the object name", () => {
+  const s = Pptx.create().addSlide().addShape("rect", 0, 0, 10, 10)
+    .setName("Title").setStyleId("hero");
+  assert.equal(s.name, "Title");
+  assert.equal(s.styleId, "hero");
+});
+ok("what a slide cannot honour is reported", () => {
+  const d = Pptx.create();
+  d.addStyleSheet(".grid { display: flex; gap: 12px }");
+  d.addSlide().addShape("rect", 0, 0, 10, 10).addClass("grid");
+  d.applyStyles();
+  const warnings = d.styleWarnings;
+  assert.ok(warnings.length >= 2, `only ${warnings.length} warnings`);
+  assert.ok(warnings.some((w) => w.includes("display")));
+});
+ok("a deck with no sheet reports nothing", () => {
+  const d = Pptx.create();
+  d.addSlide().addTextBox(0, 0, 100, 40, "plain");
+  d.save();
+  assert.equal(d.styleWarnings.length, 0);
+});
+
 // ---- the chart entry point ------------------------------------------------
 //
 // The claim to defend is that a chart is SHAPES. So the checks are on what the

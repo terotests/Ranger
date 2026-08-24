@@ -38,6 +38,7 @@
 Import "../src/PptxParser.rgr"
 Import "../src/PptxResolver.rgr"
 Import "../src/PptxWriter.rgr"
+Import "../src/PptxCss.rgr"
 Import "../src/PptxModel.rgr"
 Import "../src/PptxTextEdit.rgr"
 
@@ -367,6 +368,76 @@ class PptxShapeRef {
         return (PptxApi.textOf(sh))
     }
 
+    ; --- the CSS identity ----------------------------------------------------
+
+    ; Give this shape a class a stylesheet can address.
+    ;
+    ; Chainable and repeatable: `addClass("card").addClass("wide")` carries
+    ; both, and a class added twice is carried once.
+    fn addClass:PptxShapeRef (name:string) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            PptxCss.addShapeClass(sh name)
+            this.touch()
+        }
+        return this
+    }
+
+    fn removeClass:PptxShapeRef (name:string) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            PptxCss.removeShapeClass(sh name)
+            this.touch()
+        }
+        return this
+    }
+
+    fn hasClass:boolean (name:string) {
+        if ((this.exists()) == false) {
+            return false
+        }
+        def sh:PptxShape (this.model())
+        return (PptxCss.hasShapeClass(sh name))
+    }
+
+    ; The id a stylesheet addresses with `#name`.
+    ;
+    ; NOT `setName`. That is the PowerPoint object name — what an author sees
+    ; in the selection pane and renames without thinking about styling — and
+    ; conflating the two would mean a rename silently restyles the box. Set
+    ; both when you want both.
+    fn setStyleId:PptxShapeRef (id:string) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            sh.styleId = id
+            this.touch()
+        }
+        return this
+    }
+
+    fn styleId:string () {
+        if ((this.exists()) == false) {
+            return ""
+        }
+        def sh:PptxShape (this.model())
+        return sh.styleId
+    }
+
+    ; One property, stated here rather than in a sheet.
+    ;
+    ; This is CSS's inline style and it behaves like it: nothing in any sheet
+    ; can override it, `!important` included. The fluent setters beside it —
+    ; `fill`, `noLine`, `run(0,0).bold()` — write the model directly and are
+    ; not affected by the cascade either, so the two spellings agree.
+    fn style:PptxShapeRef (name:string value:string) {
+        if (this.exists()) {
+            def sh:PptxShape (this.model())
+            PptxCss.setShapeStyle(sh name value)
+            this.touch()
+        }
+        return this
+    }
+
     ; Replace all of the text, keeping the first run's formatting.
     ;
     ; A newline starts a new paragraph, and each paragraph keeps the FIRST
@@ -583,6 +654,36 @@ class PptxSlideRef {
         return out
     }
 
+    ; --- the CSS identity ----------------------------------------------------
+
+    ; Give this slide a class a stylesheet can address: `slide.review { … }`.
+    fn addClass:PptxSlideRef (name:string) {
+        if (this.exists()) {
+            def s:PptxSlide (this.model())
+            PptxCss.addSlideClass(s name)
+        }
+        return this
+    }
+
+    ; The id a stylesheet addresses with `#name`. See `PptxShapeRef.setStyleId`
+    ; for why this is separate from anything the file calls the slide.
+    fn setStyleId:PptxSlideRef (id:string) {
+        if (this.exists()) {
+            def s:PptxSlide (this.model())
+            s.styleId = id
+        }
+        return this
+    }
+
+    ; One property, stated here rather than in a sheet. No rule can beat it.
+    fn style:PptxSlideRef (name:string value:string) {
+        if (this.exists()) {
+            def s:PptxSlide (this.model())
+            PptxCss.setSlideStyle(s name value)
+        }
+        return this
+    }
+
     fn addTextBox:PptxShapeRef (x:double y:double w:double h:double text:string) {
         def made:PptxShapeRef (this.addShape("rect" x y w h))
         if (made.exists()) {
@@ -672,8 +773,67 @@ class PptxDeck {
     ; parts nothing here models.
     def parser:PptxParser (new PptxParser())
     def opened:boolean false
+    ; The stylesheet, empty until `addStyleSheet` is called. Resolving an empty
+    ; sheet over a deck sets nothing and costs one walk, so a deck that never
+    ; mentions CSS is unaffected by any of this.
+    def css:PptxCss (new PptxCss())
+    def hasCss:boolean false
 
     Constructor () {
+    }
+
+    ; Add CSS over the deck.
+    ;
+    ; The rules are resolved when the deck is SAVED — or when `applyStyles` is
+    ; called — rather than here, because a sheet is declarative and the boxes
+    ; it describes are usually created after it. Called more than once, the
+    ; later rules simply come later in source order, which is what a second
+    ; sheet should mean.
+    ;
+    ; The selector subset is small on purpose: `.class`, `#id`, an element name
+    ; (`slide`, `shape`, `textBox`, `picture`, `group`, `table`, `chart`,
+    ; `paragraph`, `run`), the two combined, and the descendant combinator.
+    ; `font-family`, `font-size`, `font-weight`, `font-style` and `color`
+    ; inherit down to the runs; `fill`, `stroke` and `stroke-width` do not.
+    ; Anything a slide cannot honour — `display: flex` and the rest of the
+    ; layout properties — is reported through `styleWarnings` rather than
+    ; ignored in silence.
+    fn addStyleSheet:PptxDeck (text:string) {
+        css.addStyleSheet(text)
+        hasCss = true
+        return this
+    }
+
+    ; Resolve the sheet over every slide, shape, paragraph and run.
+    ;
+    ; Called for you by `save` and `saveNew`, and by the renderer before it
+    ; draws — so the only reason to call it yourself is to READ a styled value
+    ; back off the model before doing either.
+    ;
+    ; Idempotent: the cascade computes the same answer from the same sheet and
+    ; the same classes, so calling it twice sets the same values twice.
+    fn applyStyles:PptxDeck () {
+        if hasCss {
+            css.applyTo(pres)
+        }
+        return this
+    }
+
+    ; Property names the sheet used that a slide cannot honour, and the
+    ; selectors this layer could not read. Empty when everything landed.
+    fn styleWarnings:[string] () {
+        def out:[string]
+        def i:int 0
+        while (i < (css.errorCount())) {
+            push out (css.errorAt(i))
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length css.unsupported)) {
+            push out ("a slide has nowhere to put `" + (itemAt css.unsupported k) + "`")
+            k = (k + 1)
+        }
+        return out
     }
 
     fn slideCount:int () {
@@ -754,6 +914,7 @@ class PptxDeck {
     }
 
     fn save:buffer () {
+        this.applyStyles()
         if (opened == false) {
             return (this.saveNew())
         }
@@ -762,6 +923,7 @@ class PptxDeck {
     }
 
     fn saveNew:buffer () {
+        this.applyStyles()
         def w (new PptxWriter())
         return (w.toBuffer(pres))
     }
