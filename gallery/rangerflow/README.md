@@ -35,6 +35,7 @@ npm run rangerflow:org         # an organisation chart
 npm run rangerflow:process     # a swimlane process
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
 npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
+npm run rangerflow:bench:compare  # same timings vs @xyflow/system + d3-force
 npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
@@ -774,21 +775,25 @@ selector.
 
 ## Performance
 
-`npm run rangerflow:bench -- 500`, Node 22 in this container:
+`npm run rangerflow:bench -- 500`, and the head-to-head against React Flow's
+own stack (`npm run rangerflow:bench:compare`). Latest numbers:
+[`docs/BENCH.md`](docs/BENCH.md).
 
-| Step | 500 nodes / 570 edges |
-| --- | --- |
-| force layout, 300 ticks | 265 ms |
-| layered layout | 7 ms |
-| scene build, fit to screen | 13 ms (303 of 500 nodes drawn, 197 culled) |
-| scene build, 1:1 zoom | 15 ms (25 drawn, 475 culled) |
-| display-list JSON | 55 ms / 568 KB |
-| node drag, 60 frames | 184 ms — **3.1 ms/frame** |
+| Step | 500 nodes / 570 edges | vs React Flow stack |
+| --- | ---: | --- |
+| edge paths (64k) | 21 ms | **2.2×** faster than `@xyflow/system` |
+| force layout, 300 ticks | 205 ms | **1.8×** faster than `d3-force` |
+| layered layout | 6 ms | (React Flow has no built-in Sugiyama) |
+| scene build, fit to screen | 87 ms (355 drawn / 145 culled) | canvas path; RF is DOM |
+| node drag, per frame | 94 ms | canvas path; RF is DOM |
 
-Culling is the number to watch: React Flow renders only what the viewport
-contains, and with no DOM to do it for us `FlowView` drops off-screen nodes
-while building and reports how many, so a benchmark can see the difference
-rather than take it on faith.
+Behavioural / geometry parity against React Flow: **98.6%**
+(`npm run rangerflow:parity`).
+
+Culling is the number to watch on the scene rows: React Flow renders only what
+the viewport contains, and with no DOM to do it for us `FlowView` drops
+off-screen nodes while building and reports how many, so a benchmark can see
+the difference rather than take it on faith.
 
 ## The browser page
 
