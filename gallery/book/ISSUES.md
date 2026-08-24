@@ -104,3 +104,31 @@ That is the worst shape a stale build can take: the flag is accepted, nothing
 warns, and the file is wrong in a way that is invisible until a press trims
 into the picture. `npm run book:print` recompiles the tool before using it, the
 way `book:pdf` already did.
+
+## 8. A dropped picture's `blob:` URL must not be given a base
+
+`loadImages` in `gallery/evg/gl/evg-webgl.js` sets `img.src = base + src`, and
+the book page passes `base: "./"` because the sample's photographs are named by
+document-relative paths. An album's photographs are not: they arrive from a
+file input or a drop, so their URL is `blob:http://…`, already absolute, and
+prefixing it produces `./blob:http://…` — a URL that loads nothing.
+
+Nothing errors. `Image.onerror` resolves the promise, the display list still
+carries the picture, the page still renders, and every page comes out blank
+paper with the captions on it. The standalone page now applies the base itself
+and passes `base: ""`, and the self test asserts that every album picture has a
+TEXTURE rather than that it has a draw command — which is the distinction the
+bug lives in.
+
+## 9. A method named for a Go keyword compiles, then does not
+
+`BookAlbumImport` had a method called `select`. The es6 build was fine, the
+tests passed, and the Go build produced a file the Go toolchain could not parse
+at all — `syntax error: unexpected keyword select`, dozens of them, from one
+method name. The es6 target will never tell you: only `npm run book:test:go`
+does, which is the argument for running it on every change rather than at the
+end.
+
+`indexOfFrom` is the same class of trap from the other side: a static method
+whose name starts with an existing global operator is swallowed by it, and the
+class then does not have the method at all.

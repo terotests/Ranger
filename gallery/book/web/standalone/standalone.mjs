@@ -68,14 +68,35 @@ const FAMILIES = ["Cinzel", "Josefin Sans"];
  */
 const texCache = new Map();
 
+/**
+ * Pictures the reader handed over rather than ones the page can fetch.
+ *
+ * An album's photographs come out of a file input or a drop, so they have no
+ * URL the document could name. The document names them anyway — under the
+ * `imageRoot` the import was given — and this maps that name to the blob URL
+ * the picture actually lives at. Nothing is uploaded: the whole album is read
+ * in the page.
+ */
+const localImages = new Map();
+
 async function texturesFor(doc) {
   const srcs = new Set(
     (doc.list?.cmds || []).filter((c) => c.k === 2 && c.src).map((c) => c.src)
   );
   const missing = [...srcs].filter((s) => !texCache.has(s));
   if (missing.length) {
-    const fresh = await loadImages({ list: { cmds: missing.map((src) => ({ k: 2, src })) } }, { base: "./" });
-    for (const [k, v] of fresh) texCache.set(k, v);
+    // Fetched under whatever URL the picture really has, cached under the name
+    // the document uses — the display list is the only thing that knows both.
+    //
+    // The base is applied here rather than by `loadImages`: a dropped
+    // picture's URL is a `blob:` one, already absolute, and prefixing it with
+    // "./" makes a URL that loads nothing and fails silently as a blank page.
+    const cmds = missing.map((src) => ({ k: 2, src: localImages.get(src) || "./" + src }));
+    const fresh = await loadImages({ list: { cmds } }, { base: "" });
+    for (const src of missing) {
+      const url = localImages.get(src) || "./" + src;
+      if (fresh.get(url)) texCache.set(src, fresh.get(url));
+    }
   }
   return texCache;
 }
@@ -130,6 +151,28 @@ async function boot() {
     web.addImage(p, await fetchBuffer("./" + p + q));
   }
   await redraw();
+  // `?album=1` opens the bundled iPhoto fixture instead of the sample book, so
+  // the album path can be looked at - or screenshotted - without dropping
+  // files on the page by hand.
+  if (new URLSearchParams(location.search).has("album")) {
+    await openBundledAlbum();
+    // Opening a book puts the reader on its first spread, so `?spread=` has to
+    // be honoured again - after, not before.
+    for (let i = 0; i < wanted; i++) web.command("nav.next", "");
+    if (wanted) await redraw();
+  }
+}
+
+/** The fixture library that ships in the build, opened as if it were dropped. */
+async function openBundledAlbum() {
+  const wanted = new URLSearchParams(location.search).get("albumName") || "";
+  const xml = await fetch("./fixtures/AlbumData.xml").then((r) => r.text());
+  const files = [new File([xml], "AlbumData.xml", { type: "text/xml" })];
+  for (const img of ["Example_scaled.jpg", "GPS_test.jpg", "Canon_40D_scaled.jpg"]) {
+    const blob = await fetch("./assets/" + img).then((r) => r.blob());
+    files.push(new File([blob], img, { type: "image/jpeg" }));
+  }
+  return openAlbum(files, wanted);
 }
 
 async function redraw() {
@@ -249,6 +292,117 @@ for (const el of document.querySelectorAll("[data-cmd]")) {
   });
 }
 
+// --- opening an Apple photo album -------------------------------------------
+//
+// iPhoto and Aperture describe a whole library in one property list, and that
+// file plus the photographs it names is all an album is. Both are read HERE:
+// the plist parser, the album reader and the layout are compiled into
+// book_web.js, so dropping a library on this page does not send it anywhere.
+//
+// The order matters and is not obvious. A picture's own shape decides which
+// page it gets — landscape bleeds off the edges, portrait sits in the margin —
+// so every picture is measured BEFORE the album is opened. Handing the sizes
+// over afterwards would lay the book out blind and then be right too late.
+
+const ALBUM_ROOT = "album/";
+const pickEl = document.getElementById("album-pick");
+let albumFiles = null;
+
+function isIndexFile(f) {
+  const n = f.name.toLowerCase();
+  return n.endsWith(".xml") || n.endsWith(".plist");
+}
+
+/** A picture's pixel size, without decoding it into the page any further. */
+function sizeOf(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => resolve({ w: 0, h: 0 });
+    img.src = url;
+  });
+}
+
+async function openAlbum(files, albumName) {
+  const list = [...files];
+  const index = list.find(isIndexFile);
+  if (!index) {
+    say("no AlbumData.xml among those files", true);
+    return false;
+  }
+  const xml = await index.text();
+
+  const names = (web.albumNames(xml) || "").split("\n").filter(Boolean);
+  if (!albumName) {
+    if (names.length > 1) {
+      // More than one album in the library: offer them, open the first, and
+      // let the reader switch without dropping the files again.
+      pickEl.innerHTML = "";
+      for (const n of names) {
+        const o = document.createElement("option");
+        o.value = n;
+        o.textContent = n;
+        pickEl.append(o);
+      }
+      pickEl.hidden = false;
+    }
+    albumName = names[0] || "";
+  }
+  if (pickEl && !pickEl.hidden) pickEl.value = albumName;
+
+  // The photographs, under the names the document will ask for them by.
+  for (const url of localImages.values()) URL.revokeObjectURL(url);
+  localImages.clear();
+  texCache.clear();
+  const pictures = list.filter((f) => !isIndexFile(f));
+  for (const f of pictures) {
+    const url = URL.createObjectURL(f);
+    localImages.set(ALBUM_ROOT + f.name, url);
+    const { w, h } = await sizeOf(url);
+    if (w > 0) web.noteImageSize(f.name, w, h);
+  }
+
+  if (!web.openAppleAlbum(xml, albumName, ALBUM_ROOT)) {
+    say(web.albumError() || "the album could not be read", true);
+    return false;
+  }
+  albumFiles = list;
+  await redraw();
+  say(`opened “${albumName}” — ${pictures.length} photograph(s)`, false);
+  return true;
+}
+
+/** A one-line message in the header, beside the document's own state. */
+function say(text, bad) {
+  if (!stateEl) return;
+  stateEl.textContent = text;
+  stateEl.className = bad ? "warn" : "";
+}
+
+const filesEl = document.getElementById("album-files");
+document.getElementById("open-album")?.addEventListener("click", () => filesEl?.click());
+filesEl?.addEventListener("change", () => {
+  if (filesEl.files?.length) openAlbum(filesEl.files, "");
+});
+pickEl?.addEventListener("change", () => {
+  if (albumFiles) openAlbum(albumFiles, pickEl.value);
+});
+
+for (const type of ["dragenter", "dragover"]) {
+  window.addEventListener(type, (e) => {
+    e.preventDefault();
+    document.body.classList.add("dropping");
+  });
+}
+for (const type of ["dragleave", "drop"]) {
+  window.addEventListener(type, () => document.body.classList.remove("dropping"));
+}
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const files = [...(e.dataTransfer?.files || [])];
+  if (files.length) openAlbum(files, "");
+});
+
 // The book leaves the page the way it would leave a print shop: as the same
 // SVG the command-line demo writes, produced by the same renderer, here.
 document.getElementById("save")?.addEventListener("click", () => {
@@ -324,6 +478,43 @@ async function selftest() {
     check("a spread can be saved as SVG in the page", svg.startsWith("<svg") && svg.length > 500);
     const pre = web.preflightText();
     check("preflight runs in the page", pre.includes("error(s)"));
+
+    // The album path, driven the way a reader drives it: the same files, as
+    // File objects, through the same function the drop handler calls. It is
+    // the only way to know that the parser, the sizes and the textures line up
+    // without a person dragging something onto the page.
+    const fixture = await fetch("./fixtures/AlbumData.xml").then((r) => r.text());
+    const names = (web.albumNames(fixture) || "").split("\n").filter(Boolean);
+    check("the albums somebody named are listed", names.length === 2);
+    check("and Apple's own \u201cPhotos\u201d is not among them", !names.includes("Photos"));
+    check("including the one with an entity in its name", names.includes("Kes\u00e4 rannalla"));
+
+    const files = [new File([fixture], "AlbumData.xml", { type: "text/xml" })];
+    for (const img of ["Example_scaled.jpg", "GPS_test.jpg", "Canon_40D_scaled.jpg"]) {
+      const blob = await fetch("./assets/" + img).then((r) => r.blob());
+      files.push(new File([blob], img, { type: "image/jpeg" }));
+    }
+    const opened = await openAlbum(files, "Kes\u00e4 rannalla");
+    check("the album opens in the page", opened === true);
+    const album = JSON.parse(web.metaJson());
+    check("the book is the album's", album.title === "Kes\u00e4 rannalla");
+    check("with a page per photograph and a title page", album.pages >= 4);
+
+    web.command("nav.next", "");
+    // Drawn, not just built: the texture cache is filled by `redraw`, and the
+    // check below is about whether the pictures reached the canvas.
+    await redraw();
+    const albumCmds = JSON.parse(web.sceneJson())?.list?.cmds || [];
+    const albumPics = albumCmds.filter((c) => c.k === 2 && c.src?.startsWith("album/"));
+    check("the album's photographs are placed", albumPics.length > 0);
+    // Placed is not drawn. A dropped picture has a blob: URL, and a texture
+    // loaded under the wrong URL fails silently - the page renders, the page
+    // is blank, and nothing says so.
+    check("and their textures loaded", albumPics.every((c) => texCache.get(c.src)));
+    check("and their captions with them", albumCmds.some((c) => c.k === 3 && c.text?.includes("kolikon")));
+    // A picture the page measured is a picture preflight can check, so the
+    // "no known pixel size" warning must be gone.
+    check("the pictures were measured in the page", !web.preflightText().includes("unknown-size"));
   } catch (e) {
     results.push("FAIL threw " + e);
   }

@@ -31,6 +31,7 @@ Import "BookEdit.rgr"
 Import "BookView.rgr"
 Import "BookPreflight.rgr"
 Import "BookSample.rgr"
+Import "BookAlbumImport.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
@@ -135,6 +136,15 @@ class BookApp {
     def theme:EVGToolbarTheme (new EVGToolbarTheme)
     def toolbarH:int 30
     def statusH:int 22
+    ; Why the last album import failed, for a host to show. Empty after a
+    ; successful one.
+    def albumError:string ""
+    ; Picture sizes the host has read for itself, waiting for an album to
+    ; belong to. Three arrays rather than a map because that is what crosses
+    ; every target Ranger compiles to without an allocation per lookup.
+    def albumSizeNames:[string]
+    def albumSizeW:[double]
+    def albumSizeH:[double]
     def status:string ""
 
     ; How far ink may run past the trim, and whether the canvas shows it. With
@@ -276,6 +286,64 @@ class BookApp {
     fn loadSample:void (assetBase:string) {
         def d:BookDocument (BookSample.laidOut(assetBase editor.flow))
         this.attach(d)
+    }
+
+    ; An Apple photo album, opened as a book. `xml` is the text of an iPhoto
+    ; or Aperture library index - a file the host read, or one the reader
+    ; dropped on the page - and `imageRoot` is the prefix the pictures will be
+    ; asked for under, since the paths inside the index point at somebody
+    ; else's Mac.
+    ;
+    ; It lays out through the editor's OWN flow engine, so the captions break
+    ; where the canvas will draw them breaking. The host still has to hand the
+    ; pictures over afterwards: `assetPaths` says which ones, exactly as it
+    ; does for the sample.
+    fn loadAppleAlbum:boolean (xml:string albumName:string imageRoot:string) {
+        def album:AppleAlbum (AppleAlbum.fromXml(xml albumName))
+        if ((strlen album.error) > 0) {
+            albumError = album.error
+            return false
+        }
+        def s:int 0
+        while (s < (array_length albumSizeNames)) {
+            def name:string (itemAt albumSizeNames s)
+            def w:double (itemAt albumSizeW s)
+            def h:double (itemAt albumSizeH s)
+            album.applySize(name w h)
+            s = (s + 1)
+        }
+        def images:[AlbumPhoto] (album.images())
+        if ((array_length images) == 0) {
+            albumError = ("the album '" + album.name + "' has no photographs in it")
+            return false
+        }
+        def imp (new BookAlbumImport())
+        imp.imageRoot = imageRoot
+        def api:BookApi (imp.buildUsing(album editor.flow))
+        albumError = ""
+        this.attach(api.doc)
+        return true
+    }
+
+    ; How big a picture is, from a host that can read one but cannot list a
+    ; directory. Say it before opening the album: the layout asks each picture
+    ; its shape while it is choosing the page for it.
+    fn noteImageSize:void (fileName:string w:double h:double) {
+        push albumSizeNames fileName
+        push albumSizeW w
+        push albumSizeH h
+    }
+
+    ; The album names in a library index, so a host can ask which one before
+    ; opening it. An empty answer is a file that is not a library.
+    sfn appleAlbumNames:[string] (xml:string) {
+        def reader (new ApplePlist())
+        def root:PlistValue (reader.parse(xml))
+        if ((reader.ok) == false) {
+            def none:[string]
+            return none
+        }
+        return (AppleAlbum.albumNames(root))
     }
 
     ; The asset paths the sample refers to, so a host can read the files and

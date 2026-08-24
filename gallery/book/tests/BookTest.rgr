@@ -21,6 +21,7 @@
 ; ==============================================================================
 
 Import "../src/BookApi.rgr"
+Import "../src/BookAlbumImport.rgr"
 
 class Check {
     def passed:int 0
@@ -719,6 +720,200 @@ class BookTest {
         return false
     }
 
+
+    ; ---------------------------------------------------------------------
+    ; Apple photo albums
+    ; ---------------------------------------------------------------------
+
+    ; A library index in miniature, written the way iPhoto writes one: numeric
+    ; character references for anything above ASCII, a special album Apple made
+    ; for itself, a movie in the master list, and one photograph whose caption
+    ; is only its file name.
+    sfn albumXml:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        out = (out + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">")
+        out = (out + "<plist version=\"1.0\"><dict>")
+        out = (out + "<key>List of Albums</key><array>")
+        out = (out + "<dict><key>AlbumName</key><string>Photos</string>")
+        out = (out + "<key>Album Type</key><string>Special Roll</string>")
+        out = (out + "<key>KeyList</key><array><string>17</string></array></dict>")
+        out = (out + "<dict><key>AlbumName</key><string>Kes&#228; &amp; meri</string>")
+        out = (out + "<key>Album Type</key><string>Regular</string>")
+        out = (out + "<key>KeyList</key><array><string>18</string><string>17</string><string>20</string></array></dict>")
+        out = (out + "</array>")
+        out = (out + "<key>Master Image List</key><dict>")
+        out = (out + "<key>17</key><dict><key>MediaType</key><string>Image</string>")
+        out = (out + "<key>Caption</key><string>Alin oksa</string>")
+        out = (out + "<key>Rating</key><integer>5</integer>")
+        out = (out + "<key>ImagePath</key><string>/Users/x/Pictures/iPhoto Library/Masters/a.jpg</string>")
+        out = (out + "<key>DateAsTimerInterval</key><real>551450000.0</real></dict>")
+        out = (out + "<key>18</key><dict><key>MediaType</key><string>Image</string>")
+        out = (out + "<key>Caption</key><string>IMG_4021.JPG</string>")
+        out = (out + "<key>Comment</key><string>Mets&#228;</string>")
+        out = (out + "<key>Rating</key><integer>2</integer>")
+        out = (out + "<key>ImagePath</key><string>/Users/x/Pictures/iPhoto Library/Masters/b.jpg</string>")
+        out = (out + "<key>DateAsTimerInterval</key><real>551360000.0</real></dict>")
+        out = (out + "<key>20</key><dict><key>MediaType</key><string>Movie</string>")
+        out = (out + "<key>Caption</key><string>Aallot</string>")
+        out = (out + "<key>ImagePath</key><string>/Users/x/Pictures/iPhoto Library/Masters/c.mov</string>")
+        out = (out + "<key>DateAsTimerInterval</key><real>556800000.0</real></dict>")
+        out = (out + "</dict></dict></plist>")
+        return out
+    }
+
+    sfn testPlist:void (c:Check) {
+        print "-- property lists --"
+        def reader (new ApplePlist())
+        def root:PlistValue (reader.parse((BookTest.albumXml())))
+        c.ok("a property list parses" reader.ok)
+        c.ok("the root is a dictionary" (root.isDict()))
+
+        def albums:PlistValue (root.get("List of Albums"))
+        c.eqInt("both albums are read" (albums.count()) 2)
+        def second:PlistValue (albums.at(1))
+        ; The DOCTYPE was skipped whole rather than read for entity
+        ; declarations, and only the five predefined entities plus numeric
+        ; references were expanded.
+        c.eqStr("a numeric reference and an entity decode" (second.stringFor("AlbumName")) "Kesä & meri")
+
+        def missing:PlistValue (root.get("No Such Key"))
+        c.ok("a missing key answers with nothing" ((missing.exists()) == false))
+        c.ok("and chains without an error" (((missing.get("deeper")).exists()) == false))
+        c.eqInt("a missing key's count is zero" (missing.count()) 0)
+
+        def masters:PlistValue (root.get("Master Image List"))
+        def one:PlistValue (masters.get("17"))
+        c.eqInt("an integer is read as one" (one.intFor("Rating")) 5)
+        c.near("a real is read as one" (one.doubleFor("DateAsTimerInterval")) 551450000.0 1.0)
+
+        ; A binary property list is refused rather than half-read into nonsense.
+        def binary (new ApplePlist())
+        def nothing:PlistValue (binary.parse("bplist00  junk"))
+        c.ok("a binary plist is refused" ((binary.ok) == false))
+        c.ok("and says how to convert it" (BookTest.hasSub(binary.error "plutil")))
+    }
+
+    sfn testAppleTime:void (c:Check) {
+        print "-- Apple timer intervals --"
+        ; Seconds from 2001-01-01, not from 1970. Getting this wrong is a
+        ; 31-year error that still produces a plausible-looking date.
+        c.eqStr("an interval becomes a civil date" (AppleTime.dateText(551450000.0)) "2018-06-23")
+        c.eqStr("the epoch itself" (AppleTime.dateText(1.0)) "2001-01-01")
+        ; A leap day, which is where a civil-date algorithm that rounds instead
+        ; of truncating goes wrong.
+        c.eqStr("a leap day" (AppleTime.dateText(478396800.0)) "2016-02-29")
+        c.eqStr("a month reads as a month" (AppleTime.monthText(551450000.0)) "June 2018")
+        c.eqStr("no date is no text" (AppleTime.dateText(0.0)) "")
+    }
+
+    sfn testAppleAlbum:void (c:Check) {
+        print "-- Apple albums --"
+        def xml:string (BookTest.albumXml())
+        def album:AppleAlbum (AppleAlbum.fromXml(xml "Kesä & meri"))
+        c.eqStr("the named album is found" album.error "")
+        c.eqInt("with everything its key list names" (album.count()) 3)
+
+        ; The KeyList's order, not the master list's: that is the order the
+        ; album was arranged in.
+        def first:AlbumPhoto (album.at(0))
+        c.eqStr("in the album's own order" (first.fileName()) "b.jpg")
+
+        def images:[AlbumPhoto] (album.images())
+        c.eqInt("a movie is not a photograph" (array_length images) 2)
+
+        ; iPhoto captions an untouched photograph with its file name.
+        c.eqStr("a file-name caption falls through to the comment" (first.captionText()) "Metsä")
+        def second:AlbumPhoto (album.at(1))
+        c.eqStr("a real caption is kept" (second.captionText()) "Alin oksa")
+
+        def starred:[AlbumPhoto] (album.rated(3))
+        c.eqInt("only the starred ones" (array_length starred) 1)
+
+        ; The paths belong to the Mac that wrote the library.
+        album.relocate("photos")
+        def moved:AlbumPhoto (album.at(0))
+        c.eqStr("relocating re-roots every path" moved.path "photos/b.jpg")
+
+        c.ok("a size can be handed in" (album.applySize("b.jpg" 4000.0 3000.0)))
+        def sized:AlbumPhoto (album.at(0))
+        c.near("and reaches the photograph" sized.width 4000.0 0.001)
+
+        def lister (new ApplePlist())
+        def libRoot:PlistValue (lister.parse(xml))
+        def named:[string] (AppleAlbum.albumNames(libRoot))
+        c.eqInt("only the albums somebody named are listed" (array_length named) 1)
+
+        def wrong:AppleAlbum (AppleAlbum.fromXml(xml "Nothing Like This"))
+        c.ok("an album that is not there says so" ((strlen wrong.error) > 0))
+
+        ; No index at all: a modern Photos library reaches the same code as a
+        ; list of file names the host enumerated.
+        def paths:[string]
+        push paths "/tmp/one.jpg"
+        push paths "/tmp/two.jpg"
+        def loose:AppleAlbum (AppleAlbum.fromPaths("Exported" paths))
+        c.eqInt("a folder of pictures is an album too" (loose.count()) 2)
+    }
+
+    sfn testAlbumImport:void (c:Check) {
+        print "-- album import --"
+        def album:AppleAlbum (AppleAlbum.fromXml((BookTest.albumXml()) "Kesä & meri"))
+        ; One landscape, one portrait - which is what chooses the pages.
+        album.applySize("b.jpg" 4000.0 3000.0)
+        album.applySize("a.jpg" 3000.0 4000.0)
+
+        def imp (new BookAlbumImport())
+        imp.imageRoot = "photos"
+        def api:BookApi (imp.build(album))
+        c.eqStr("the book takes the album's name" api.doc.title "Kesä & meri")
+        c.eqInt("a title page and a page per photograph" (api.doc.pageCount()) 4)
+        c.eqInt("the movie is not placed" (array_length api.doc.assets) 2)
+
+        def a0:BookAsset (itemAt api.doc.assets 0)
+        c.eqStr("the pictures are re-rooted" a0.path "photos/b.jpg")
+        c.eqStr("and captioned from the album" a0.caption "Metsä")
+
+        ; The landscape picture bleeds off its page; the portrait one does not.
+        def landscape:BookPage (api.doc.pageAt(1))
+        def portrait:BookPage (api.doc.pageAt(2))
+        c.ok("a landscape photograph fills the page" (BookSample.isFullBleed(landscape)))
+        c.ok("a portrait one sits inside the margin" ((BookSample.isFullBleed(portrait)) == false))
+
+        ; A full-bleed page would otherwise lose its caption entirely.
+        c.ok("a full-bleed page is captioned anyway" (BookAlbumImport.hasCaption(landscape)))
+
+        ; The frame took the picture's shape, so the caption underneath it is
+        ; under the PICTURE rather than under empty paper.
+        def img:BookFrame (BookTest.firstImage(portrait))
+        def ratio:double (img.w / img.h)
+        c.near("the frame has the photograph's proportions" ratio 0.75 0.02)
+
+        def sorted:AppleAlbum (AppleAlbum.fromXml((BookTest.albumXml()) "Kesä & meri"))
+        def onlyPics:[AlbumPhoto] (sorted.images())
+        def byDate:[AlbumPhoto] (BookAlbumImport.byDate(onlyPics))
+        def oldest:AlbumPhoto (itemAt byDate 0)
+        c.eqStr("sorting by date puts the oldest first" (oldest.fileName()) "b.jpg")
+
+        def few (new BookAlbumImport())
+        few.maxPhotos = 1
+        few.titlePage = false
+        few.signature = 0
+        def small:BookApi (few.build(album))
+        c.eqInt("a limit is a limit" (array_length small.doc.assets) 1)
+    }
+
+    sfn firstImage:BookFrame (page:BookPage) {
+        def i:int 0
+        while (i < (array_length page.frames)) {
+            def f:BookFrame (itemAt page.frames i)
+            if (f.kind == "image") {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new BookFrame())
+    }
+
     sfn main:void () {
         print "== BookTest =="
         def c (new Check())
@@ -741,6 +936,10 @@ class BookTest {
         BookTest.testCoverArithmetic(c)
         BookTest.testExtentAndBlanks(c)
         BookTest.testPreflightAgainstSpec(c)
+        BookTest.testPlist(c)
+        BookTest.testAppleTime(c)
+        BookTest.testAppleAlbum(c)
+        BookTest.testAlbumImport(c)
 
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))

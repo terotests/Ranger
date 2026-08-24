@@ -124,6 +124,20 @@ class BookAutoLayout {
     def bleedOverhang:double 8.503937007874017
     ; Keep adding pages after the story ends, until every image is placed.
     def placeAllImages:boolean true
+
+    ; Let each picture's own shape choose its recipe instead of taking the next
+    ; one in the rotation. A landscape photograph and a portrait one do not
+    ; want the same page, and a fixed rotation is exactly what makes an
+    ; auto-laid-out album look auto-laid-out. Off by default: a book whose
+    ; pictures illustrate a story wants the rhythm of the rotation, not the
+    ; accident of what the camera was holding.
+    def byOrientation:boolean false
+
+    ; Size a picture's frame to the picture's own proportions rather than to
+    ; the recipe's box. Off by default for the same reason as `byOrientation`:
+    ; a book whose pictures are furniture wants boxes that line up, and one
+    ; whose pictures are the point wants the whole photograph.
+    def fitFramesToAspect:boolean false
     ; The paper. A generated page inherits it, because a book printed on cream
     ; stock and previewed on white is two different books.
     def background:string ""
@@ -202,6 +216,13 @@ class BookAutoLayout {
                 if (recipeIndex >= recipeCount) {
                     recipeIndex = 0
                 }
+                if byOrientation {
+                    if imagesLeft {
+                        def peekId:string (itemAt assetIds assetIndex)
+                        def picked:BookRecipe (this.recipeFor(doc peekId recipeIndex recipe))
+                        recipe = picked
+                    }
+                }
 
                 ; A recipe that wants an image but has none left becomes a text
                 ; page rather than a page with a hole in it. And once the story
@@ -271,9 +292,35 @@ class BookAutoLayout {
                                 }
                             }
                         } {
-                            def ih:double (innerH * recipe.imageShare)
-                            img.x = innerX
-                            img.w = innerW
+                            def boxH:double (innerH * recipe.imageShare)
+                            def ih:double boxH
+                            def iw:double innerW
+                            def ix:double innerX
+                            if fitFramesToAspect {
+                                ; The frame takes the picture's own shape
+                                ; inside the space the recipe gave it, so a
+                                ; portrait photograph is not cropped to a
+                                ; landscape box - and the caption, which is
+                                ; placed under the frame, ends up under the
+                                ; PICTURE rather than under empty paper.
+                                def a0:BookAsset (doc.assetFor(assetId))
+                                if (a0.naturalWidth > 0.0) {
+                                    if (a0.naturalHeight > 0.0) {
+                                        def sx:double (innerW / a0.naturalWidth)
+                                        def sy:double (boxH / a0.naturalHeight)
+                                        def sc:double sx
+                                        if (sy < sx) {
+                                            sc = sy
+                                        }
+                                        iw = (a0.naturalWidth * sc)
+                                        ih = (a0.naturalHeight * sc)
+                                        def slack:double (innerW - iw)
+                                        ix = (innerX + (slack * 0.5))
+                                    }
+                                }
+                            }
+                            img.x = ix
+                            img.w = iw
                             img.h = ih
                             if recipe.imageOnTop {
                                 img.y = innerY
@@ -372,6 +419,52 @@ class BookAutoLayout {
             result.note((n + " image(s) were not placed"))
         }
         return result
+    }
+
+    ; The recipe this particular picture wants. A picture whose pixel size is
+    ; unknown - nobody has opened the file - keeps the rotation's choice rather
+    ; than being guessed at.
+    fn recipeFor:BookRecipe (doc:BookDocument assetId:string from:int fallback:BookRecipe) {
+        def a:BookAsset (doc.assetFor(assetId))
+        if (a.naturalWidth <= 0.0) {
+            return fallback
+        }
+        if (a.naturalHeight <= 0.0) {
+            return fallback
+        }
+        def aspect:double (a.aspect())
+        ; A wide picture fills the page edge to edge; a tall one sits inside
+        ; the margin, where its caption has somewhere to go. Between the two
+        ; thresholds a picture is square enough that either reads as deliberate.
+        if (aspect >= 1.15) {
+            return (this.matchingFrom(from true fallback))
+        }
+        if (aspect <= 0.87) {
+            return (this.matchingFrom(from false fallback))
+        }
+        return fallback
+    }
+
+    ; The next recipe from `start` that places a picture the requested way.
+    ; Searching from the rotation's own position rather than from zero is what
+    ; keeps picture-at-the-top and picture-at-the-foot alternating.
+    fn matchingFrom:BookRecipe (start:int wantsBleed:boolean fallback:BookRecipe) {
+        def n:int (array_length recipes)
+        def i:int 0
+        while (i < n) {
+            def idx:int (start + i)
+            if (idx >= n) {
+                idx = (idx - n)
+            }
+            def r:BookRecipe (itemAt recipes idx)
+            if r.wantsImage {
+                if (r.bleed == wantsBleed) {
+                    return r
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
     }
 
     ; ---------------------------------------------------------------------

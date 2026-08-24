@@ -123,6 +123,38 @@ the half that needs a caret and a properties panel:
 6. **Saving.** The document is data; a `.book` file is a serializer and a
    parser, and `toJson` is already most of the first one.
 
+## Stage 4b — bringing pictures in (done, for Apple)
+
+An empty book is not the thing anybody wants to make. `ApplePlist` +
+`BookAppleAlbum` + `BookAlbumImport` + `BookAlbumMeasure` take an iPhoto or
+Aperture library index — or, for a modern Photos library that has no index, a
+list of file names the host enumerated — and answer with a laid-out book:
+`npm run book:album` on the command line, a drop on the serverless page.
+
+The parts of that worth keeping when the next source is added:
+
+- The **reader** (an album: names, paths, captions, ratings, dates) is separate
+  from the **import** (an album: pages), which is separate from **measuring**
+  (pixel sizes off the file). Only the third touches a disk, which is why the
+  first two run in a browser.
+- Sizes are known **before** the layout, because the layout asks each picture
+  which way up it is. A source that cannot answer that keeps the rotation's
+  page and is reported by preflight as unknown rather than assumed fine.
+- The picture's own metadata is not automatically a caption. A file name under
+  a photograph is worse than nothing.
+
+Left, in the order it would be worth doing:
+
+1. **Google Photos Takeout**, which is a folder of JPEGs beside a `.json` per
+   picture — the same reader shape, a different index.
+2. **A folder with no index at all**, ordered by EXIF date. `fromPaths` takes
+   it already; what is missing is the host that enumerates a directory, since
+   Ranger has no directory listing.
+3. **Faces and places**, which iPhoto's index carries and a photo book uses
+   for its chapter openings.
+4. **A picture the reader has cropped in the editor**, written back to the
+   album rather than only to the book.
+
 ## Stage 5 — output that a printer accepts
 
 Done (stage 5a): `BookPrintSpec` holds a supplier's requirements as data and

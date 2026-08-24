@@ -73,6 +73,42 @@ class BookWeb {
         app.loadSample(assetBase)
     }
 
+    ; An Apple photo album. The page reads AlbumData.xml out of a dropped
+    ; file, hands the text over, and then serves the pictures under
+    ; `imageRoot` the same way it serves the sample's - by path, through
+    ; `addImage`. False means the import failed; `albumError` says why.
+    fn openAppleAlbum:boolean (xml:string albumName:string imageRoot:string) {
+        return (app.loadAppleAlbum(xml albumName imageRoot))
+    }
+
+    ; A picture's own pixel size, read by the page. Hand these over BEFORE
+    ; `openAppleAlbum`: the import chooses each page from the shape of the
+    ; photograph going on it.
+    fn noteImageSize:void (fileName:string w:double h:double) {
+        app.noteImageSize(fileName w h)
+    }
+
+    fn albumError:string () {
+        return app.albumError
+    }
+
+    ; The album names in a dropped library index, so the page can ask which
+    ; one. Joined with newlines: a Ranger array does not cross into JavaScript
+    ; as an array, and one string the page splits is honest about that.
+    fn albumNames:string (xml:string) {
+        def names:[string] (BookApp.appleAlbumNames(xml))
+        def out:string ""
+        def i:int 0
+        while (i < (array_length names)) {
+            if (i > 0) {
+                out = (out + "\n")
+            }
+            out = (out + (itemAt names i))
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn assetCount:int () {
         def paths:[string] (app.assetPaths())
         return (array_length paths)

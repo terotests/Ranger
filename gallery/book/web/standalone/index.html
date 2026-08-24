@@ -69,6 +69,8 @@
         touch-action: none;
         outline: none;
       }
+      body.dropping canvas { border-color: #b08d57; box-shadow: 0 0 0 3px rgba(176, 141, 87, 0.35); }
+      #album-pick { font: inherit; font-size: 12px; padding: 0.25rem; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--text); }
       kbd {
         background: #ffffff;
         border: 1px solid var(--line);
@@ -91,14 +93,20 @@
       <button data-cmd="view.frames">Frames</button>
       <button data-cmd="view.margins">Margins</button>
       <button data-cmd="book.preflight">Preflight</button>
+      <button id="open-album">Open Apple album…</button>
+      <select id="album-pick" hidden></select>
       <button id="save">Save spread (SVG)</button>
       <span id="hint" style="color: var(--muted); font-size: 12px">
-        <kbd>Ctrl</kbd>+<kbd>E</kbd> edit · <kbd>Ctrl</kbd>+<kbd>L</kbd> link · <kbd>←</kbd><kbd>→</kbd> spread
+        <kbd>Ctrl</kbd>+<kbd>E</kbd> edit · <kbd>Ctrl</kbd>+<kbd>L</kbd> link · <kbd>←</kbd><kbd>→</kbd> spread · drop an <em>AlbumData.xml</em> and its photos here
       </span>
       <span id="build">build __BUILD__</span>
     </header>
     <main>
       <canvas id="view" width="1180" height="800" tabindex="0"></canvas>
+      <!-- An iPhoto/Aperture library index plus the photographs it names. The
+           page never uploads them: the parser and the layout are compiled into
+           this file, so the album is read where it is opened. -->
+      <input id="album-files" type="file" multiple accept=".xml,.plist,image/jpeg,image/png" hidden />
       <!-- Read back by smoke.mjs through --dump-dom; invisible otherwise. -->
       <div id="probe" hidden>
         backend <strong id="backend">?</strong>

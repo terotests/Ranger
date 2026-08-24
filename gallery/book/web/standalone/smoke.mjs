@@ -37,6 +37,7 @@ const MIME = {
   ".jpeg": "image/jpeg",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".xml": "text/xml; charset=utf-8",
 };
 
 function findChrome() {
@@ -163,16 +164,24 @@ async function main() {
     }
 
     if (SHOT) {
-      const shot = path.resolve(HERE, "../../artifacts/01_editor.png");
-      fs.mkdirSync(path.dirname(shot), { recursive: true });
-      await runChrome(chrome, [
-        ...GL_ARGS,
-        "--virtual-time-budget=20000",
-        "--window-size=1220,940",
-        "--screenshot=" + shot,
-        `http://127.0.0.1:${PORT}/index.html?spread=2&edit=1`,
-      ]);
-      console.log("  wrote " + path.relative(process.cwd(), shot));
+      const shots = [
+        ["01_editor.png", "?spread=2&edit=1"],
+        // The same editor with an Apple photo album open in it, read from the
+        // library index that ships in the build.
+        ["02_album.png", "?album=1&spread=1"],
+      ];
+      for (const [name, query] of shots) {
+        const shot = path.resolve(HERE, "../../artifacts/" + name);
+        fs.mkdirSync(path.dirname(shot), { recursive: true });
+        await runChrome(chrome, [
+          ...GL_ARGS,
+          "--virtual-time-budget=20000",
+          "--window-size=1220,940",
+          "--screenshot=" + shot,
+          `http://127.0.0.1:${PORT}/index.html${query}`,
+        ]);
+        console.log("  wrote " + path.relative(process.cwd(), shot));
+      }
     }
     console.log("\nthe book editor ran in a browser with no host behind it");
   } finally {

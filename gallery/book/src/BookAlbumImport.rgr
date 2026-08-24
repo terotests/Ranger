@@ -1,0 +1,390 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; BookAlbumImport.rgr - an Apple album, turned into a book that can be printed
+; ==============================================================================
+;
+;     def album:AppleAlbum (AppleAlbum.fromFile(dir "AlbumData.xml" "Kesa"))
+;     def imp (new BookAlbumImport())
+;     imp.imageRoot = "photos"
+;     def api:BookApi (imp.build(album))
+;
+; What this adds over "put every photo on a page" is the two decisions a photo
+; book actually turns on.
+;
+; ORIENTATION DECIDES THE PAGE. A portrait photograph and a landscape one do
+; not want the same treatment, so the recipe is chosen per picture from its own
+; aspect: a landscape picture bleeds off the page, a portrait one sits in the
+; margin with its caption beneath. Fixing one recipe for the whole book is what
+; makes an auto-laid-out album look automatic.
+;
+; A CAPTION IS THE ALBUM'S, NOT THE FILE'S. iPhoto captions an untouched
+; photograph with its file name, so `IMG_4021.JPG` would otherwise be printed
+; under it. `AlbumPhoto.captionText` refuses that and falls back to the comment
+; or the date - see there.
+;
+; The pictures' pixel sizes are NOT read here: this file has no file access, so
+; the same import runs in a browser. `BookAlbumMeasure` fills them in where
+; there is a disk, and preflight reports 0-by-0 as unknown rather than assuming
+; the resolution is fine.
+; ==============================================================================
+
+Import "BookApi.rgr"
+Import "BookSample.rgr"
+Import "BookAppleAlbum.rgr"
+
+class BookAlbumImport {
+    def format:string "square-210"
+    def masterName:string "album"
+    ; An empty title takes the album's own name.
+    def title:string ""
+    def subtitle:string ""
+    ; Where the pictures are on THIS machine. Empty keeps the library's paths,
+    ; which is right only when the book is built on the Mac that wrote them.
+    def imageRoot:string ""
+    def captions:boolean true
+    ; The auto layout leaves a full-bleed picture uncaptioned - over a
+    ; photograph that reaches all four edges there is nowhere safe to put type,
+    ; so it calls that a manual edit. An album is mostly full-bleed pictures,
+    ; and a photo book whose captions vanish on two pages in three is worse
+    ; than one that solves the problem: the caption gets a small slab of paper
+    ; to sit on, at the foot, inside the safety margin.
+    def captionsOnBleed:boolean true
+    def titlePage:boolean true
+    ; 0 keeps every picture; 3 keeps the ones somebody starred.
+    def minRating:int 0
+    ; 0 keeps the album's own order; a photo book usually wants time.
+    def sortByDate:boolean true
+    def signature:int 4
+    def maxPhotos:int 0
+
+    Constructor () {
+        format = "square-210"
+        masterName = "album"
+        captions = true
+        titlePage = true
+        sortByDate = true
+        signature = 4
+    }
+
+    ; --------------------------------------------------------------------
+
+    ; The album as a document that is already laid out and padded. The API it
+    ; answers is the same one the editor and the print pipeline take, so an
+    ; imported album is not a second kind of book.
+    fn build:BookApi (album:AppleAlbum) {
+        def flow (new BookFlowEngine())
+        return (this.buildUsing(album flow))
+    }
+
+    ; The same, told which text engine to measure with. Captions are the only
+    ; text in an album book, and a caption measured with guessed widths breaks
+    ; in a different place than the one in the PDF - so the engine is a
+    ; parameter rather than a detail.
+    fn buildWith:BookApi (album:AppleAlbum engine:EVGTextEngine) {
+        def flow (new BookFlowEngine())
+        flow.setTextEngine(engine)
+        return (this.buildUsing(album flow))
+    }
+
+    ; The same again, sharing a flow engine the caller already owns - which is
+    ; what the editor has: its measurements come from the canvas it is drawing
+    ; on, and a second engine would lay the book out to different widths than
+    ; the ones it then displays.
+    fn buildUsing:BookApi (album:AppleAlbum flow:BookFlowEngine) {
+        def bookTitle:string title
+        if ((strlen bookTitle) == 0) {
+            bookTitle = album.name
+        }
+        if ((strlen bookTitle) == 0) {
+            bookTitle = "Album"
+        }
+        def api:BookApi (BookApi.create(bookTitle format))
+        api.flowEngine = flow
+        api.auto.setEngine(flow)
+        api.renderer.setFlowEngine(flow)
+        def sub:string subtitle
+        if ((strlen sub) == 0) {
+            sub = (album.periodText())
+        }
+        api.doc.author = sub
+        BookSample.addStyles(api.doc)
+        this.addMaster(api)
+
+        ; An album has no prose, so the story exists and is empty: the auto
+        ; layout still asks it whether text is left, and a missing story would
+        ; be a missing answer rather than "none".
+        api.story("main")
+
+        def chosen:[AlbumPhoto] (this.pickPhotos(album))
+        def ids:[string] (this.addAssets(api chosen))
+
+        def auto:BookAutoLayout api.auto
+        auto.background = (BookPalette.paper())
+        def recipes:[BookRecipe] (BookAlbumImport.albumRecipes())
+        auto.setRecipes(recipes)
+        auto.placeAllImages = true
+        auto.byOrientation = true
+        auto.fitFramesToAspect = true
+        if this.titlePage {
+            def page:BookPage (auto.addTitlePage(api.doc))
+            this.dressTitlePage(api.doc page bookTitle sub (array_length chosen))
+        }
+        api.autoLayoutWith("main" ids masterName)
+        if (signature > 1) {
+            auto.padToSignature(api.doc signature)
+        }
+        if captionsOnBleed {
+            if captions {
+                this.captionBleedPages(api.doc)
+            }
+        }
+        BookAlbumImport.paperPages(api.doc)
+        api.invalidate()
+        return api
+    }
+
+    ; Paper under every page, and nothing else. Not `BookSample.dressPages`:
+    ; that one stamps the sample's leaf ornament on every full-bleed page,
+    ; which belongs to the bear's book and lands on top of an album's caption.
+    sfn paperPages:void (d:BookDocument) {
+        def paper:string (BookPalette.paper())
+        def i:int 0
+        while (i < (d.pageCount())) {
+            def p:BookPage (d.pageAt(i))
+            if ((strlen p.background) == 0) {
+                p.background = paper
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Caption the pages the auto layout left uncaptioned. Only the full-bleed
+    ; ones, only where the picture has something to say, and only once - the
+    ; import may be run again over a document that already has them.
+    fn captionBleedPages:void (d:BookDocument) {
+        def i:int 0
+        while (i < (d.pageCount())) {
+            def page:BookPage (d.pageAt(i))
+            if (BookSample.isFullBleed(page)) {
+                if ((BookAlbumImport.hasCaption(page)) == false) {
+                    def text:string (BookAlbumImport.captionOf(d page))
+                    if ((strlen text) > 0) {
+                        this.addBleedCaption(d page text)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn addBleedCaption:void (d:BookDocument page:BookPage text:string) {
+        def master:BookMasterPage (d.masterFor(masterName))
+        def recto:boolean (page.isRecto())
+        def leftMargin:double (master.leftMarginFor(recto))
+        def rightMargin:double (master.rightMarginFor(recto))
+        def usable:double (page.width - leftMargin)
+        def innerW:double (usable - rightMargin)
+        def slabW:double (innerW * 0.68)
+        def slabH:double 30.0
+        def bottom:double (page.height - master.marginBottom)
+        def slabY:double (bottom - slabH)
+
+        def slab (new BookFrame())
+        slab.id = (d.nextId("slab"))
+        slab.kind = "shape"
+        slab.fill = (BookPalette.paper())
+        ; Not opaque: the picture should still be visible under the paper, or
+        ; the caption reads as a sticker rather than as part of the page.
+        slab.opacity = 0.88
+        slab.x = leftMargin
+        slab.y = slabY
+        slab.w = slabW
+        slab.h = slabH
+        slab.layer = "overlay"
+        page.addFrame(slab)
+
+        def cap (new BookFrame())
+        cap.id = (d.nextId("cap"))
+        cap.kind = "text"
+        cap.text = text
+        cap.styleName = "caption"
+        cap.x = (leftMargin + 9.0)
+        cap.y = (slabY + 9.0)
+        cap.w = (slabW - 18.0)
+        cap.h = (slabH - 12.0)
+        cap.layer = "overlay"
+        page.addFrame(cap)
+    }
+
+    sfn hasCaption:boolean (page:BookPage) {
+        def i:int 0
+        while (i < (array_length page.frames)) {
+            def f:BookFrame (itemAt page.frames i)
+            if (f.styleName == "caption") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; What the picture on this page is called. A page holds one picture in an
+    ; album, so the first image frame's asset is the answer.
+    sfn captionOf:string (d:BookDocument page:BookPage) {
+        def i:int 0
+        while (i < (array_length page.frames)) {
+            def f:BookFrame (itemAt page.frames i)
+            if (f.kind == "image") {
+                def a:BookAsset (d.assetFor(f.assetId))
+                return a.caption
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; The pictures this book will hold: images only, starred if asked, in the
+    ; order they were taken if asked, and no more than `maxPhotos` of them.
+    ;
+    ; Not `select`: that is a Go keyword, and a method named for one compiles
+    ; to source the Go toolchain cannot parse - which the es6 build never
+    ; notices.
+    fn pickPhotos:[AlbumPhoto] (album:AppleAlbum) {
+        def kept:[AlbumPhoto] (album.rated(minRating))
+        if sortByDate {
+            kept = (BookAlbumImport.byDate(kept))
+        }
+        if (maxPhotos <= 0) {
+            return kept
+        }
+        def out:[AlbumPhoto]
+        def i:int 0
+        while (i < (array_length kept)) {
+            if (i >= maxPhotos) {
+                return out
+            }
+            push out (itemAt kept i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Oldest first. An insertion sort: an album is tens or hundreds of
+    ; pictures, and a photo already in date order - the common case - costs one
+    ; pass here.
+    sfn byDate:[AlbumPhoto] (photos:[AlbumPhoto]) {
+        def out:[AlbumPhoto]
+        def i:int 0
+        while (i < (array_length photos)) {
+            def p:AlbumPhoto (itemAt photos i)
+            def at:int (array_length out)
+            def j:int 0
+            while (j < (array_length out)) {
+                def q:AlbumPhoto (itemAt out j)
+                if (at == (array_length out)) {
+                    if (p.appleSeconds < q.appleSeconds) {
+                        at = j
+                    }
+                }
+                j = (j + 1)
+            }
+            insert out at p
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn addAssets:[string] (api:BookApi photos:[AlbumPhoto]) {
+        def out:[string]
+        def prefix:string (AppleAlbum.withSlash(imageRoot))
+        def i:int 0
+        while (i < (array_length photos)) {
+            def p:AlbumPhoto (itemAt photos i)
+            def id:string ("photo-" + (to_string (i + 1)))
+            def path:string p.path
+            if ((strlen prefix) > 0) {
+                path = (prefix + (AppleAlbum.baseName(p.path)))
+            }
+            def a:BookAsset (api.asset(id path p.width p.height))
+            if captions {
+                a.caption = (p.captionText())
+            }
+            push out id
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --------------------------------------------------------------------
+
+    ; The recipes an album wants. Not the picture-book set: that one alternates
+    ; text and pictures, and there is no text here, so every recipe places a
+    ; picture and the variation is in how.
+    sfn albumRecipes:[BookRecipe] () {
+        def out:[BookRecipe]
+        def full:BookRecipe (BookRecipe.create("full-bleed" 1.0 true true true false))
+        push out full
+        def framed:BookRecipe (BookRecipe.create("image-top" 0.78 true false true false))
+        push out framed
+        def bleed2:BookRecipe (BookRecipe.create("full-bleed" 1.0 true true true false))
+        push out bleed2
+        def lower:BookRecipe (BookRecipe.create("image-bottom" 0.78 false false true false))
+        push out lower
+        return out
+    }
+
+    fn addMaster:void (api:BookApi) {
+        def m:BookMasterPage (api.master(masterName))
+        ; Wider at the foot than at the head, because the folio lives there and
+        ; a picture that stops level with the type block looks like it slipped.
+        m.setMargins(40.0 44.0 52.0 34.0)
+        m.showPageNumber = true
+        m.pageNumberOffset = 26.0
+    }
+
+    fn dressTitlePage:void (d:BookDocument page:BookPage bookTitle:string sub:string count:int) {
+        page.background = (BookPalette.paper())
+        def w:double page.width
+        def h:double page.height
+        def margin:double (w * 0.12)
+        def inner:double (w - (margin * 2.0))
+
+        def eyebrow (new BookFrame())
+        eyebrow.id = (d.nextId("eyebrow"))
+        eyebrow.kind = "text"
+        eyebrow.text = ((to_string count) + " photographs")
+        eyebrow.styleName = "eyebrow"
+        eyebrow.x = margin
+        eyebrow.w = inner
+        eyebrow.h = 18.0
+        def top:double (h * 0.36)
+        eyebrow.y = (top - 34.0)
+        page.addFrame(eyebrow)
+
+        def rule (new BookFrame())
+        rule.id = (d.nextId("rule"))
+        rule.kind = "shape"
+        rule.fill = (BookPalette.gold())
+        rule.w = 88.0
+        rule.h = 3.0
+        rule.x = ((w - 88.0) * 0.5)
+        rule.y = (top + 104.0)
+        page.addFrame(rule)
+
+        ; The title page's own text, not the placeholders: an album's title is
+        ; known here, and a page that still says "{title}" in the editor is a
+        ; page somebody has to fix by hand.
+        def i:int 0
+        while (i < (array_length page.frames)) {
+            def f:BookFrame (itemAt page.frames i)
+            if (f.text == "{title}") {
+                f.text = bookTitle
+            }
+            if (f.text == "{author}") {
+                f.text = sub
+            }
+            i = (i + 1)
+        }
+    }
+}

@@ -11,9 +11,10 @@ npm run book:web:serve      # …and serve it at http://localhost:8003
 npm run book:demo           # lay the book out, check it, write SVG + TSX
 npm run book:pdf            # …and turn it into a PDF with the existing EVG tooling
 npm run book:print          # the files a printer wants: interior + cover + manifest
-npm run book:test           # 76 assertions on the engine, JavaScript
-npm run book:test:go        # the same 76 on Go (and book:test:python on Python)
-npm run book:editor:test    # 64 more on the editor and the host seam
+npm run book:album          # make a book out of an Apple photo album
+npm run book:test           # 161 assertions on the engine, JavaScript
+npm run book:test:go        # the same 161 on Go (and book:test:python on Python)
+npm run book:editor:test    # 79 more on the editor and the host seam
 npm run book:web:test       # drive the page in a real browser, on WebGL
 ```
 
@@ -86,6 +87,14 @@ BookApp.rgr          the host seam: the only place a window pixel becomes a
 BookSample.rgr       one book, in code, that the demo prints and the editor
                      opens — so the thing being demonstrated is a thing that
                      has actually been through a press.
+
+ApplePlist.rgr       the XML property list, as far as an album index needs it.
+BookAppleAlbum.rgr   an iPhoto/Aperture library index → an album: the
+                     photographs, in the album's order, with their captions.
+BookAlbumImport.rgr  an album → a laid-out book. No file access, so it runs in
+                     the browser too.
+BookAlbumMeasure.rgr the pictures' pixel sizes, off their JPEG headers. The
+                     only part of the album path that touches a disk.
 ```
 
 Output goes out through machinery that already existed:
@@ -351,6 +360,57 @@ api.writeTsx("./out" "book.tsx")
 book as data: pages, frames, positions, which frame continues into which, and
 whether anything is overset.
 
+## Opening an Apple photo album
+
+![An album open in the editor](artifacts/02_album.png)
+
+iPhoto and Aperture describe a whole library in one XML property list —
+`AlbumData.xml` beside the library, `ApertureData.xml` for Aperture — and that
+file plus the photographs it names is all an album is. `ApplePlist.rgr` reads
+the property list, `BookAppleAlbum.rgr` joins `List of Albums` to
+`Master Image List`, and `BookAlbumImport.rgr` turns the result into the same
+`BookApi` everything else here takes.
+
+```bash
+npm run book:album                                     # the bundled fixture
+npm run book:album -- -list -library ~/Pictures/iPhoto\ Library
+npm run book:album -- -library ~/Pictures/iPhoto\ Library -album "Kesä 2019" \
+                      -images ~/photos -min-rating 3 -format square-250
+```
+
+The editor opens one too, with no server and nothing uploaded: **drop an
+`AlbumData.xml` and its photographs onto the page**, or use *Open Apple
+album…*. The parser and the layout are compiled into `book_web.js`, so the
+library is read where it is opened.
+
+Three decisions are worth knowing about, because they are what separates this
+from "one photograph per page":
+
+**Orientation chooses the page.** A landscape photograph bleeds off all four
+edges; a portrait one sits inside the margin with its caption beneath it, in a
+frame that has taken the picture's own proportions — so the caption is under
+the picture rather than under empty paper. That needs the pixel sizes *before*
+the layout, which is why `BookAlbumMeasure` runs first on the command line and
+why the browser measures each dropped file before opening the album.
+
+**A caption is the album's, not the file's.** iPhoto captions an untouched
+photograph with its file name, so `IMG_4021.JPG` would otherwise be printed
+under it. A caption that looks like a file name falls through to the comment,
+then to the date, then to silence. And a full-bleed page gets its caption on a
+small slab of paper at the foot rather than losing it: the auto layout calls a
+caption over a bleeding picture a manual edit, which is right for a story book
+and wrong for an album.
+
+**A modern Photos library has no index.** Apple stopped writing `AlbumData.xml`,
+so an album exported to a folder arrives through `AppleAlbum.fromPaths` — the
+host enumerates the files, since Ranger has no directory listing, and
+everything downstream is the same code.
+
+`gallery/book/fixtures/AlbumData.xml` is a real iPhoto index in miniature:
+three photographs, two albums plus one of Apple's own, a movie, and Finnish
+captions written as numeric character references exactly as iPhoto writes them.
+The browser build ships it, so `?album=1` opens it without a Mac.
+
 ## Formats
 
 `square-210`, `square-250`, `square-8.5in`, `a4`, `a4-landscape`, `a5`,
@@ -361,7 +421,7 @@ convert; the model stores points.
 ## Targets
 
 The engine is plain Ranger with no host dependencies beyond `gallery/evg`, and
-the full test suite passes on **JavaScript, Go and Python** — 76 assertions
+the full test suite passes on **JavaScript, Go and Python** — 161 assertions
 each. The demo additionally uses `gallery/pdf_writer`'s `FontManager` for real
 font metrics, which is why it lives in `src/book_demo.rgr` rather than in the
 library.
@@ -371,5 +431,5 @@ library.
 Hyphenation, optical margin alignment and a real justification engine (lines
 currently stretch at render time rather than being broken for even colour);
 text frames that are not rectangles; text wrapping around an image; footnotes;
-a table model; CMYK and ICC output; and the editor UI itself. `PLAN.md` has the
-order and the reasoning.
+a table model; a real ICC transform behind the CMYK conversion; and CMYK image
+data. `PLAN.md` has the order and the reasoning.

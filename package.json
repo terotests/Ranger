@@ -27,6 +27,7 @@
     "book:test:go": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=go ./gallery/book/tests/BookTest.rgr -d=./gallery/book/bin -o=BookTest.go -nodecli && cd gallery/book/bin && go run BookTest.go",
     "book:test:python": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=python ./gallery/book/tests/BookTest.rgr -d=./gallery/book/bin -o=BookTest.py -nodecli && python3 ./gallery/book/bin/BookTest.py",
     "book:demo": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/book/src/book_demo.rgr -d=./gallery/book/bin -o=book_demo.js -nodecli && node ./gallery/book/bin/book_demo.js",
+    "book:album": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/book/src/book_album.rgr -d=./gallery/book/bin -o=book_album.js -nodecli && node ./gallery/book/bin/book_album.js",
     "book:module": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/book/src/BookApp.rgr -d=./gallery/book/bin -o=book_app_module.cjs",
     "book:editor:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/book/tests/BookEditorTest.rgr -d=./gallery/book/bin -o=BookEditorTest.js -nodecli && node ./gallery/book/bin/BookEditorTest.js",
     "book:window": "npm run book:module && node gallery/book/web/serve.mjs --open",

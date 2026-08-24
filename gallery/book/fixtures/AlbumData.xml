@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Application Version</key>
+	<string>9.6.1</string>
+	<key>ArchiveId</key>
+	<string>1</string>
+	<key>Archive Path</key>
+	<string>/Users/example/Pictures/iPhoto Library</string>
+	<key>List of Albums</key>
+	<array>
+		<dict>
+			<key>AlbumId</key>
+			<integer>999000</integer>
+			<key>AlbumName</key>
+			<string>Photos</string>
+			<key>Album Type</key>
+			<string>Special Roll</string>
+			<key>PhotoCount</key>
+			<integer>3</integer>
+			<key>KeyList</key>
+			<array>
+				<string>17</string>
+				<string>18</string>
+				<string>19</string>
+			</array>
+		</dict>
+		<dict>
+			<key>AlbumId</key>
+			<integer>4213</integer>
+			<key>AlbumName</key>
+			<string>Kes&#228; rannalla</string>
+			<key>Album Type</key>
+			<string>Regular</string>
+			<key>Master</key>
+			<false/>
+			<key>PhotoCount</key>
+			<integer>3</integer>
+			<key>KeyList</key>
+			<array>
+				<string>18</string>
+				<string>17</string>
+				<string>19</string>
+			</array>
+		</dict>
+		<dict>
+			<key>AlbumId</key>
+			<integer>4218</integer>
+			<key>AlbumName</key>
+			<string>Talvi &amp; hiihtoloma</string>
+			<key>Album Type</key>
+			<string>Regular</string>
+			<key>PhotoCount</key>
+			<integer>1</integer>
+			<key>KeyList</key>
+			<array>
+				<string>19</string>
+			</array>
+		</dict>
+	</array>
+	<key>Master Image List</key>
+	<dict>
+		<key>17</key>
+		<dict>
+			<key>MediaType</key>
+			<string>Image</string>
+			<key>Caption</key>
+			<string>Alin oksa, ensimm&#xE4;isen&#228; aamuna</string>
+			<key>Comment</key>
+			<string></string>
+			<key>GUID</key>
+			<string>2wDdhOCJT2SBAgfF9pM0lg</string>
+			<key>Roll</key>
+			<integer>12</integer>
+			<key>Rating</key>
+			<integer>5</integer>
+			<key>ImagePath</key>
+			<string>/Users/example/Pictures/iPhoto Library/Masters/2019/06/Example_scaled.jpg</string>
+			<key>ThumbPath</key>
+			<string>/Users/example/Pictures/iPhoto Library/Thumbnails/2019/06/Example_scaled.jpg</string>
+			<key>OriginalPath</key>
+			<string>/Users/example/Pictures/iPhoto Library/Originals/2019/06/Example.jpg</string>
+			<key>DateAsTimerInterval</key>
+			<real>551450000.000000</real>
+			<key>ModDateAsTimerInterval</key>
+			<real>551460000.000000</real>
+			<key>latitude</key>
+			<real>60.169900</real>
+			<key>longitude</key>
+			<real>24.938400</real>
+		</dict>
+		<key>18</key>
+		<dict>
+			<key>MediaType</key>
+			<string>Image</string>
+			<key>Caption</key>
+			<string>IMG_4021.JPG</string>
+			<key>Comment</key>
+			<string>Mets&#228;, vanhan kolikon v&#228;rinen</string>
+			<key>Roll</key>
+			<integer>12</integer>
+			<key>Rating</key>
+			<integer>4</integer>
+			<key>ImagePath</key>
+			<string>/Users/example/Pictures/iPhoto Library/Masters/2019/06/GPS_test.jpg</string>
+			<key>OriginalPath</key>
+			<string>/Users/example/Pictures/iPhoto Library/Originals/2019/06/GPS_test.jpg</string>
+			<key>DateAsTimerInterval</key>
+			<real>551360000.000000</real>
+		</dict>
+		<key>19</key>
+		<dict>
+			<key>MediaType</key>
+			<string>Image</string>
+			<key>Caption</key>
+			<string>Miss&#228; vesi kulkee hitaasti ja kirkkaana</string>
+			<key>Roll</key>
+			<integer>19</integer>
+			<key>Rating</key>
+			<integer>3</integer>
+			<key>ImagePath</key>
+			<string>/Users/example/Pictures/iPhoto Library/Masters/2019/08/Canon_40D_scaled.jpg</string>
+			<key>DateAsTimerInterval</key>
+			<real>556800000.000000</real>
+		</dict>
+		<key>20</key>
+		<dict>
+			<key>MediaType</key>
+			<string>Movie</string>
+			<key>Caption</key>
+			<string>Aallot</string>
+			<key>Rating</key>
+			<integer>0</integer>
+			<key>ImagePath</key>
+			<string>/Users/example/Pictures/iPhoto Library/Masters/2019/08/IMG_4099.MOV</string>
+			<key>DateAsTimerInterval</key>
+			<real>556810000.000000</real>
+		</dict>
+	</dict>
+	<key>List of Rolls</key>
+	<array>
+		<dict>
+			<key>RollID</key>
+			<integer>12</integer>
+			<key>RollName</key>
+			<string>Kes&#228;kuu 2018</string>
+			<key>KeyList</key>
+			<array>
+				<string>17</string>
+				<string>18</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
