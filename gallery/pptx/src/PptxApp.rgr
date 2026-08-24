@@ -2030,6 +2030,21 @@ class PptxApp {
         return ("{\"width\":" + (EVGDisplayList.num((to_double W))) + ",\"height\":" + (EVGDisplayList.num((to_double H))) + ",\"list\":" + body + "}")
     }
 
+    ; The same frame as typed arrays instead of text.
+    ;
+    ; `sceneJson` above is what every host has used; on a chart-heavy slide it
+    ; is five sixths of the frame. See the banner on `EVGSceneBinary` for the
+    ; measurements and for why the two describe the same picture to the unit.
+    fn sceneBinary:EVGSceneBinary () {
+        view.slideIndex = index
+        view.slideCount = (this.slideCount())
+        def dl:EVGDisplayList (this.buildFrame())
+        def bin:EVGSceneBinary (dl.toBinary())
+        bin.width = (to_double W)
+        bin.height = (to_double H)
+        return bin
+    }
+
     ; One slide as its own scene, at a stated width in pixels.
     ;
     ; `sceneJson` is the editor — chrome, panel, handles and all. Printing and
