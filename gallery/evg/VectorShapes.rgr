@@ -301,19 +301,20 @@ class VectorShapes {
 
         def out:string (to_string whole)
         if (fracPart > 0) {
-            def frac:string (to_string fracPart)
-            while ((strlen frac) < 4) {
-                frac = ("0" + frac)
+            ; The trailing zeros go before the digits become text. Half a pixel
+            ; is 5000 ten-thousandths, and trimming that as a STRING — pad to
+            ; four, then cut one character at a time — allocated four strings
+            ; to write "5". Every coordinate of every mark comes through here.
+            def digits:int 4
+            while ((fracPart - ((idiv fracPart 10) * 10)) == 0) {
+                fracPart = (idiv fracPart 10)
+                digits = (digits - 1)
             }
-            ; fracPart is non-zero, so stripping trailing zeros always leaves
-            ; at least one significant digit.
-            while ((strlen frac) > 1) {
-                def lastCh:int (charAt frac ((strlen frac) - 1))
-                if (lastCh == 48) {
-                    frac = (substring frac 0 ((strlen frac) - 1))
-                } {
-                    break
-                }
+            def frac:string (to_string fracPart)
+            def pad:int (digits - (strlen frac))
+            while (pad > 0) {
+                frac = ("0" + frac)
+                pad = (pad - 1)
             }
             out = (out + "." + frac)
         }

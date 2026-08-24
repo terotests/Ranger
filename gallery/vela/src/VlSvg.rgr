@@ -420,50 +420,72 @@ class VlSvgWriter {
     }
 
     ; ---------------------------------------------------------------- escaping ---
+    ; Both escapes copy RUNS rather than characters. The old pair took one
+    ; `substring text k (k + 1)` and one concatenation per character of every
+    ; label on the page; almost none of those characters need escaping, so the
+    ; run between two that do is copied in one piece instead.
     sfn escapeText:string (text:string) {
-        def out:string ""
         def total:int (strlen text)
+        def out:string ""
+        def start:int 0
         def k:int 0
         while (k < total) {
-            def c:string (substring text k (k + 1))
-            if (c == "&") {
-                out = (out + "&amp;")
-            } {
-                if (c == "<") {
-                    out = (out + "&lt;")
-                } {
-                    if (c == ">") {
-                        out = (out + "&gt;")
-                    } {
-                        out = (out + c)
-                    }
+            def c:int (charAt text k)
+            if ((c == 38) || ((c == 60) || (c == 62))) {
+                if (k > start) {
+                    out = (out + (substring text start k))
                 }
+                if (c == 38) {
+                    out = (out + "&amp;")
+                }
+                if (c == 60) {
+                    out = (out + "&lt;")
+                }
+                if (c == 62) {
+                    out = (out + "&gt;")
+                }
+                start = (k + 1)
             }
             k = (k + 1)
+        }
+        if (start == 0) {
+            return text
+        }
+        if (total > start) {
+            out = (out + (substring text start total))
         }
         return out
     }
 
     sfn escapeAttribute:string (text:string) {
-        def out:string ""
         def total:int (strlen text)
+        def out:string ""
+        def start:int 0
         def k:int 0
         while (k < total) {
-            def c:string (substring text k (k + 1))
-            if (c == "&") {
-                out = (out + "&amp;")
-            } {
-                if (c == "\"") {
-                    out = (out + "&quot;")
-                } {
-                    if (c == "<") {
-                        out = (out + "&lt;")
-                    } {
-                        out = (out + c)
-                    }
+            def c:int (charAt text k)
+            if ((c == 38) || ((c == 34) || (c == 60))) {
+                if (k > start) {
+                    out = (out + (substring text start k))
                 }
+                if (c == 38) {
+                    out = (out + "&amp;")
+                }
+                if (c == 34) {
+                    out = (out + "&quot;")
+                }
+                if (c == 60) {
+                    out = (out + "&lt;")
+                }
+                start = (k + 1)
             }
             k = (k + 1)
+        }
+        if (start == 0) {
+            return text
+        }
+        if (total > start) {
+            out = (out + (substring text start total))
         }
         return out
     }

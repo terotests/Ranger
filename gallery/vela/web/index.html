@@ -531,7 +531,11 @@
 
     var answer;
     try {
-      answer = JSON.parse(VelaWeb.render(text, $("zone").value));
+      // The object API rather than the JSON one. `render` puts the whole SVG
+      // document inside a JSON string, which means escaping it and parsing it
+      // back out: at a hundred thousand marks that is forty megabytes through
+      // two more passes, and a third of everything this page waits for.
+      answer = VelaWeb.renderAnswer(text, $("zone").value, true);
     } catch (err) {
       status.textContent = "";
       note("bad", "the runtime threw: " + (err && err.message ? err.message : String(err)));
