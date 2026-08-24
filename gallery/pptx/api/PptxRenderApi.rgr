@@ -42,13 +42,14 @@ class PptxRenderer {
     def view:PptxView (new PptxView())
     def ready:boolean false
     def error:string ""
-    ; False, and stated on the object rather than buried in a comment: a PDF
-    ; from here carries the shapes and the text and not the pictures. The PDF
-    ; writer takes an image as a path on disk and every decoder under it takes
-    ; a directory and a file name, while a document names its pictures by
-    ; package part and hands the bytes around. Until that takes bytes, a deck
-    ; with a logo on it prints without the logo.
-    def imagesPrinted:boolean false
+    ; Whether the last PDF carried the deck's pictures. True since
+    ; `EVGPDFRenderer.registerImage` — the renderer used to resolve a picture's
+    ; `src` as a path on disk while a document names its pictures by package
+    ; part, so there was no way to give it the bytes at all and a deck with a
+    ; logo on it died on ENOENT. It is still a field rather than a constant
+    ; because a picture this reader could not DECODE is still one the PDF will
+    ; not have, and a caller is entitled to know before sending the file.
+    def imagesPrinted:boolean true
 
     Constructor () {
         view.initBare(64 64)
@@ -204,13 +205,11 @@ class PptxRenderer {
         ; which is how that kind of mistake survives review.
         def dl:EVGDisplayList (this.slideList(deck slide index))
         def bg:EVGColor (this.slideBg(slide))
-        ; `false`: the PDF writer resolves a picture's `src` as a path on
-        ; disk, and a display list names one by its package part. See the note
-        ; in `EVGListToElements` — the shapes and the text print, the pictures
-        ; do not, and `imagesPrinted` says so rather than leaving it to be
-        ; noticed in the output.
-        def root:EVGElement (EVGListToElements.fillOpt(dl slide.width slide.height bg false))
+        def root:EVGElement (EVGListToElements.convert(dl slide.width slide.height bg))
 
+        ; `cachePresentationImages` above filled the view's cache; the
+        ; renderer is built after it so `pdfRenderer` has something to hand
+        ; over.
         def renderer:EVGPDFRenderer (this.pdfRenderer(slide.width slide.height))
         def out:buffer (renderer.render(root))
         return out
@@ -227,6 +226,22 @@ class PptxRenderer {
         renderer.setFontManager(view.ctx.tr.fm)
         def measurer (new TTFTextMeasurer(view.ctx.tr.fm))
         renderer.setMeasurer(measurer)
+        ; The deck's pictures, by the same name the display list will use for
+        ; them. The painter has already decoded every one of them into the
+        ; view's cache — a .pptx carries its media inside the ZIP and names it
+        ; by package part, so there is no path for the PDF writer to open and
+        ; it used to die trying.
+        def parts:[string] (keys view.imageCache)
+        def i:int 0
+        while (i < (array_length parts)) {
+            def part:string (itemAt parts i)
+            def pix@(optional):ImageBuffer (get view.imageCache part)
+            if (!null? pix) {
+                renderer.registerImage(part (unwrap pix))
+            }
+            i = (i + 1)
+        }
+        imagesPrinted = true
         return renderer
     }
 
@@ -283,7 +298,7 @@ class PptxRenderer {
             def slide:PptxSlide (ref.model())
             def dl:EVGDisplayList (this.slideList(deck slide i))
             def bg:EVGColor (this.slideBg(slide))
-            def pg:EVGElement (EVGListToElements.pageFrom(dl pw ph bg false))
+            def pg:EVGElement (EVGListToElements.pageFrom(dl pw ph bg true))
             section.addChild(pg)
             i = (i + 1)
         }

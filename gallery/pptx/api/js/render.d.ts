@@ -7,11 +7,7 @@ export declare class Renderer {
   readonly ready: boolean;
   /** Why the last call produced nothing. */
   readonly error: string;
-  /**
-   * False. The PDF writer resolves a picture by PATH and a document names its
-   * pictures by package part, so a deck with a logo on it prints without the
-   * logo. The shapes and the text are there.
-   */
+  /** Whether the last PDF carried the deck's pictures. */
   readonly imagesPrinted: boolean;
 
   /** Every face in a directory laid out like `gallery/pdf_writer/assets/fonts`. */

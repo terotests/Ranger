@@ -141,7 +141,7 @@ ok("the whole deck prints as one document", () => {
   assert.ok(text.includes("/Count 2"), "two pages in the page tree");
   assert.ok(text.includes("(Toinen sivu) Tj"), "the second slide's words are on it");
 });
-ok("and it says pictures are not printed yet", () => assert.equal(r.imagesPrinted, false));
+ok("and it reports carrying the pictures", () => assert.equal(r.imagesPrinted, true));
 ok("a slide past the end throws rather than answering nothing", () => {
   assert.throws(() => r.toPng(deck, 9, 1), /no slide/);
 });

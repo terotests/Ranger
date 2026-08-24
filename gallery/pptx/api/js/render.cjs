@@ -24,12 +24,7 @@ class Renderer {
   get ready() { return this._.ready; }
   /** Why the last call produced nothing. */
   get error() { return this._.error; }
-  /**
-   * False, and worth reading before trusting a PDF: the PDF writer resolves a
-   * picture by PATH and a document names its pictures by package part, so a
-   * deck with a logo on it prints without the logo. The shapes and the text
-   * are there.
-   */
+  /** Whether the last PDF carried the deck's pictures. */
   get imagesPrinted() { return this._.imagesPrinted; }
 
   /** Every face in a directory laid out like `gallery/pdf_writer/assets/fonts`. */

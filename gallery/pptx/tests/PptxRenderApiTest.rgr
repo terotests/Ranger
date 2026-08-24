@@ -90,6 +90,7 @@ class PptxRenderApiTest {
         this.testPng()
         this.testPdf()
         this.testPdfDeck()
+        this.testPdfImages()
         this.testRefusals()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
@@ -327,6 +328,47 @@ class PptxRenderApiTest {
             def pages:int (PptxRenderApiTest.countOf(all "/Type /Page "))
             this.eqInt("with a page per slide" pages (real.slideCount()))
         }
+    }
+
+    ; --- pictures in a printed deck ---------------------------------------------
+    ;
+    ; This is the case that used to KILL the process rather than print badly:
+    ; `EVGPDFRenderer` resolved a picture by path, a .pptx names its pictures
+    ; by package part, and the first slide with a logo on it reached `readJPEG`
+    ; with "./ppt/media//logo.png" and died on ENOENT. So the first assertion
+    ; here is simply that a deck with images in it prints at all.
+    fn testPdfImages:void () {
+        print "--- a deck with pictures in it ---"
+        def raw:buffer (buffer_read_file "gallery/pptx/fixtures" "20-business-deck.pptx")
+        this.check("the fixture is there" ((buffer_length raw) > 0))
+        if ((buffer_length raw) == 0) {
+            return
+        }
+        def deck:PptxDeck (PptxApi.open(raw))
+        this.check("it opens" deck.ok)
+
+        def r (new PptxRenderer())
+        r.useFontDir("gallery/pdf_writer/assets/fonts")
+        def pdf:buffer (r.toPdfDeck(deck))
+        this.check("the deck prints" (PptxRenderApiTest.isPdf(pdf)))
+        this.check("and says its pictures went in" r.imagesPrinted)
+
+        ; An image XObject is what a picture IS in a PDF. Without one the file
+        ; is a valid PDF of the same slides with the pictures missing, which is
+        ; exactly the state this replaces — and it would pass every check
+        ; above.
+        def xobjects:int (PptxRenderApiTest.countOf(pdf "/Subtype /Image"))
+        this.check("with an image object in it" (xobjects > 0))
+        def dct:int (PptxRenderApiTest.countOf(pdf "/DCTDecode"))
+        this.check("encoded as JPEG data" (dct > 0))
+        def rgb:int (PptxRenderApiTest.countOf(pdf "/ColorSpace /DeviceRGB"))
+        this.check("in colour" (rgb > 0))
+
+        ; …and the picture is drawn, not merely embedded. `Do` is the operator
+        ; that paints an XObject; an object nothing invokes is dead weight in
+        ; the file and invisible on the page.
+        def draws:int (PptxRenderApiTest.countOf(pdf " Do\n"))
+        this.check("and painted onto a page" (draws > 0))
     }
 
     fn testRefusals:void () {

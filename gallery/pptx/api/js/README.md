@@ -57,10 +57,10 @@ deck's pages can differ in size.
 The PDF is vector: the text is text a reader can select and search, drawn in
 the face the deck was measured in and embedded once for the whole document.
 
-**Pictures do not print yet.** The PDF writer resolves an image by path and a
-document names its pictures by package part, so a deck with a logo on it prints
-without the logo — the shapes and the text are there. `renderer.imagesPrinted`
-says so rather than leaving it to be found in the output.
+Pictures print too. A `.pptx` names its pictures by package part and carries
+the bytes inside the ZIP, so they are handed to the PDF writer directly rather
+than looked for on disk — which means this works in a browser as well.
+`renderer.imagesPrinted` reports whether the last PDF carried them.
 
 ## What throws
 
