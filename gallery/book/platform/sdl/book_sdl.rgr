@@ -1,0 +1,625 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; book_sdl - the book editor in a desktop window, SDL2 + OpenGL
+; ==============================================================================
+;
+;   SDL event  → UIInput → BookApp → BookEditor        (this process)
+;   BookApp    → EVGDisplayList → EvgGlPainter → OpenGL
+;
+; The same `BookApp` the browser page drives, with the browser taken out.
+; Nothing in the editor knows which of the three hosts it is in - the browser,
+; a Node window, or this - because the seam is the display list, and
+; `evg-webgl.js` draws it in a tab while `EvgGlPainter` draws it here from the
+; same commands.
+;
+; The window, the input and the GL present path are the DataGrid's `dgfx_*`
+; layer, which is generic SDL2 plumbing that happens to live over there; the
+; schema editor borrows it the same way. A second copy would be a second thing
+; to keep correct.
+;
+; WHAT A WINDOW NEEDS THAT THE OTHER TWO HOSTS DID NOT
+;
+; A URL configures a browser host and arguments configure a command-line one.
+; A window is opened by double-clicking it, so what it opens has to come from
+; a FILE - `book.config.json`, read by `BookSdlConfig`, with every field
+; defaulted so a partial config means "like the default but this".
+;
+; Usage (after build.sh):
+;   ./tmp/book-sdl/book_sdl [book.config.json] [frames]
+;   SDL_VIDEODRIVER=dummy ./tmp/book-sdl/book_sdl … 30      # headless
+;
+; Keys: ← → spread · e edit · b bleed · m margins · f frames · g guides
+;       s save the spread as SVG · p preflight · z undo · y redo · q quit
+; ==============================================================================
+
+Import "BookSdlConfig.rgr"
+Import "../../src/BookApp.rgr"
+Import "../../src/PhotoScan.rgr"
+Import "../../src/BookAlbumMeasure.rgr"
+Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
+Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
+
+class BookSdl {
+    def cfg:BookSdlConfig (new BookSdlConfig())
+    def app:BookApp (new BookApp)
+    def input:UIInput (new UIInput)
+    def painter:EvgGlPainter (new EvgGlPainter)
+    def tr:UITextRenderer (new UITextRenderer)
+    ; The picture cache the painter reads. A book is mostly photographs, so
+    ; unlike the schema editor this one does real work.
+    def images:GridImages (new GridImages)
+
+    def pw:int 1400
+    def ph:int 900
+    def frames:int 0
+    def hasWindow:boolean false
+    def wantQuit:boolean false
+    def prevDown:boolean false
+    def status:string ""
+    def lastCommands:int 0
+    def lastText:int 0
+    def lastImages:int 0
+
+    Constructor () {
+    }
+
+    ; ----------------------------------------------------------- the faces --
+    ;
+    ; Loaded TWICE, into two things, on purpose. `app` measures with them -
+    ; that is what decides where every line breaks - and `tr` rasterizes with
+    ; them. Loading one and not the other is the failure this stack is built to
+    ; prevent: a book laid out to one set of widths and drawn with another
+    ; looks almost right, which is worse than looking wrong.
+    fn loadFaces:int () {
+        ; The directory FIRST. `UITextRenderer` resolves a face against the
+        ; directories it has been given, and one registered afterwards is one
+        ; that was not there when the face was looked up - which fails by
+        ; printing "Failed to load font" and carrying on with a fallback.
+        tr.addFontDir(cfg.fontDir)
+
+        def measured:int 0
+        def drawn:int 0
+        def first:boolean true
+        def i:int 0
+        while (i < (array_length cfg.fontFiles)) {
+            def rel:string (itemAt cfg.fontFiles i)
+            def bytes:buffer (buffer_read_file cfg.fontDir rel)
+            if ((buffer_length bytes) > 0) {
+                ; The FIRST face goes in as a named family. `addFont` is what
+                ; tells the renderer it has a real face at all; without it
+                ; every measurement falls back to a bitmap step, nothing ever
+                ; wraps, and a title runs off the trim.
+                if first {
+                    app.addFontBytes("Open Sans" bytes)
+                    first = false
+                } {
+                    app.addFaceBytes(bytes)
+                }
+                measured = (measured + 1)
+            } {
+                print ("  missing face: " + cfg.fontDir + "/" + rel)
+            }
+            ; And the same file into the painter's own manager, by path. Both
+            ; counted separately: they are two loads that can fail apart, and
+            ; the failure that matters - measuring with one set of widths and
+            ; drawing with another - is invisible if only one number is shown.
+            if (tr.fm.loadFont(rel)) {
+                drawn = (drawn + 1)
+            }
+            i = (i + 1)
+        }
+        def f:int 0
+        while (f < (array_length cfg.fontFamilies)) {
+            app.noteFamily((itemAt cfg.fontFamilies f))
+            f = (f + 1)
+        }
+        painter.fontFamily = "Open Sans"
+        if (measured != drawn) {
+            print ("  WARNING: measuring with " + (to_string measured) + " face(s) and drawing with " + (to_string drawn))
+        }
+        return drawn
+    }
+
+    ; -------------------------------------------------------- the document --
+    fn openDocument:boolean () {
+        if (cfg.open == "album") {
+            return (this.openAlbum())
+        }
+        if (cfg.open == "photos") {
+            return (this.openPhotos())
+        }
+        app.loadSample((AppleAlbum.withSlash(cfg.assets)))
+        status = "the sample book"
+        return true
+    }
+
+    fn openAlbum:boolean () {
+        def dir:string (BookSdl.dirOf(cfg.albumFile))
+        def name:string (AppleAlbum.baseName(cfg.albumFile))
+        def album:AppleAlbum (AppleAlbum.fromFile(dir name cfg.albumName))
+        if ((strlen album.error) > 0) {
+            print ("  " + album.error)
+            return false
+        }
+        ; The pixel sizes before the layout, because the layout asks each
+        ; picture which way up it is.
+        def measured:int (BookAlbumMeasure.measure(album cfg.assets))
+        def imp (new BookAlbumImport())
+        imp.format = cfg.format
+        imp.imageRoot = cfg.assets
+        def api:BookApi (imp.buildUsing(album app.editor.flow))
+        app.attach(api.doc)
+        status = (album.name + " - " + (to_string (album.count())) + " photograph(s), " + (to_string measured) + " measured")
+        return true
+    }
+
+    fn openPhotos:boolean () {
+        def dir:string (BookSdl.dirOf(cfg.photoIndex))
+        def name:string (AppleAlbum.baseName(cfg.photoIndex))
+        def index:PhotoIndex (PhotoIndex.fromFile(dir name))
+        if ((strlen index.error) > 0) {
+            print ("  " + index.error)
+            return false
+        }
+        def q (new PhotoQuery())
+        if ((strlen cfg.photoFrom) > 0) {
+            q.fromSeconds = (PhotoTime.fromIso(cfg.photoFrom false))
+        }
+        if ((strlen cfg.photoTo) > 0) {
+            q.toSeconds = (PhotoTime.fromIso(cfg.photoTo true))
+        }
+        if ((strlen cfg.photoPlace) > 0) {
+            def place:PhotoPlace (index.placeNamed(cfg.photoPlace))
+            if ((strlen place.name) == 0) {
+                print ("  the index names no place called '" + cfg.photoPlace + "'")
+                return false
+            }
+            q.atPlace(place)
+        }
+        if ((strlen cfg.photoNear) > 0) {
+            def lat:double (BookSdl.beforeComma(cfg.photoNear))
+            def lon:double (BookSdl.afterComma(cfg.photoNear))
+            def km:double cfg.photoRadiusKm
+            if (km <= 0.0) {
+                km = 5.0
+            }
+            q.near(lat lon km)
+        }
+        q.text = cfg.photoText
+        def found:[PhotoRecord] (index.search(q))
+        if ((array_length found) == 0) {
+            print ("  nothing matched: " + (q.describe()))
+            return false
+        }
+        def title:string cfg.photoTitle
+        if ((strlen title) == 0) {
+            title = "Photographs"
+        }
+        def album:AppleAlbum (PhotoIndex.asAlbum(title found))
+        def imp (new BookAlbumImport())
+        imp.format = cfg.format
+        ; An index's paths belong to whoever wrote it - a folder that has since
+        ; moved, or a Mac this is not. `assets` re-roots them onto where the
+        ; pictures are NOW, by file name; leaving it empty in the config keeps
+        ; the index's own paths, which is what an index with absolute paths
+        ; wants.
+        imp.imageRoot = cfg.assets
+        def api:BookApi (imp.buildUsing(album app.editor.flow))
+        app.attach(api.doc)
+        status = ((to_string (array_length found)) + " of " + (to_string (index.count())) + " - " + (q.describe()))
+        return true
+    }
+
+    ; The photographs the document names, decoded once into the painter's
+    ; cache. The display list carries the same path strings, so the cache key
+    ; and the document's own name for a picture are one string - exactly as in
+    ; the browser host.
+    fn loadPictures:int () {
+        def paths:[string] (app.assetPaths())
+        def ok:int 0
+        def i:int 0
+        while (i < (array_length paths)) {
+            def p:string (itemAt paths i)
+            def dir:string (BookSdl.dirOf(p))
+            def name:string (AppleAlbum.baseName(p))
+            def bytes:buffer (buffer_read_file dir name)
+            if ((buffer_length bytes) > 0) {
+                def dec:DecodedImage (images.decode(p "jpeg" bytes))
+                if dec.ok {
+                    ok = (ok + 1)
+                } {
+                    print ("  " + p + ": " + dec.note)
+                }
+                ; The soft canvas measures and hit-tests against the same
+                ; picture, so it is given the bytes too.
+                app.addImageBytes(p bytes)
+            } {
+                print ("  missing picture: " + p)
+            }
+            i = (i + 1)
+        }
+        return ok
+    }
+
+    ; ------------------------------------------------------------- window --
+    fn openWindow:void () {
+        def ok:int (dgfx_open cfg.title pw ph)
+        if (ok == 1) {
+            hasWindow = true
+        } {
+            print "  dgfx_open failed (no display?) - running headless"
+        }
+    }
+
+    fn syncWindowSize:void () {
+        def ww:int (dgfx_window_width)
+        def wh:int (dgfx_window_height)
+        if (ww < 480) {
+            return
+        }
+        if (wh < 360) {
+            return
+        }
+        if (ww == pw) {
+            if (wh == ph) {
+                return
+            }
+        }
+        pw = ww
+        ph = wh
+        app.resize(pw ph)
+    }
+
+    ; -------------------------------------------------------------- input --
+    ; SDL reports the pointer in window points, which is the space `BookApp`
+    ; maps to page points, so there is nothing to convert here. `UIInput` wants
+    ; a level and the app derives the edges, which is the same contract the
+    ; browser host uses.
+    fn pumpInput:void () {
+        dgfx_poll
+        this.syncWindowSize()
+        def mx:int (dgfx_mouse_x)
+        def my:int (dgfx_mouse_y)
+        def btn:int (dgfx_mouse_buttons)
+        def down:boolean false
+        if ((bit_and btn 1) != 0) {
+            down = true
+        }
+        input.newFrame()
+        input.setModifiers((dgfx_shift_down) (dgfx_ctrl_down))
+        input.setPointerPos(mx my)
+        input.setPointerDown(down)
+        def wy:int (dgfx_wheel)
+        if (wy != 0) {
+            input.addScroll(wy)
+        }
+        def text:string (dgfx_take_text)
+        if ((strlen text) > 0) {
+            this.handleText(text)
+        }
+        def k:int (dgfx_pop_key)
+        while (k != 0) {
+            this.handleKey(k)
+            k = (dgfx_pop_key)
+        }
+        app.update(input)
+        prevDown = down
+    }
+
+    ; The dgfx key codes, mapped to what BookApp's key table expects.
+    fn handleKey:void (k:int) {
+        if (k == 4) {
+            wantQuit = true
+            return
+        }
+        if (k == 9) {
+            app.key((UIKey.del()) false)
+            return
+        }
+        if (k == 5) {
+            app.key((UIKey.left()) (dgfx_shift_down))
+            return
+        }
+        if (k == 6) {
+            app.key((UIKey.right()) (dgfx_shift_down))
+            return
+        }
+        if (k == 7) {
+            app.key((UIKey.up()) (dgfx_shift_down))
+            return
+        }
+        if (k == 8) {
+            app.key((UIKey.down()) (dgfx_shift_down))
+            return
+        }
+    }
+
+    ; Bare letters rather than Ctrl chords, for the reason the schema editor
+    ; gives: a window without a terminal behind it does not reliably get a text
+    ; event while Ctrl is held, and a key that silently does nothing is worse
+    ; than a simpler key.
+    fn handleText:void (text:string) {
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:string (substring text i (i + 1))
+            this.command(c)
+            i = (i + 1)
+        }
+    }
+
+    fn command:void (c:string) {
+        if (c == "q") {
+            wantQuit = true
+            return
+        }
+        if (c == "s") {
+            this.saveSpread()
+            return
+        }
+        if (c == "p") {
+            print (app.runPreflightText())
+            status = "preflight printed to the console"
+            return
+        }
+        def id:string (BookSdl.commandFor(c))
+        if ((strlen id) > 0) {
+            app.runCommand(id "")
+            status = (app.statusLine())
+        }
+    }
+
+    ; One letter to one editor command. A table rather than a chain of ifs
+    ; because this is exactly the list a README has to repeat, and two lists
+    ; that must agree should be one list.
+    sfn commandFor:string (c:string) {
+        if (c == "e") {
+            return "edit.toggle"
+        }
+        if (c == "b") {
+            return "view.bleed"
+        }
+        if (c == "m") {
+            return "view.margins"
+        }
+        if (c == "f") {
+            return "view.frames"
+        }
+        if (c == "g") {
+            return "view.guides"
+        }
+        if (c == "z") {
+            return "edit.undo"
+        }
+        if (c == "y") {
+            return "edit.redo"
+        }
+        if (c == "n") {
+            return "nav.next"
+        }
+        if (c == "v") {
+            return "nav.prev"
+        }
+        return ""
+    }
+
+    fn saveSpread:void () {
+        def spread:int (app.editor.spreadIndex())
+        def svg:string (app.spreadSvgAt(spread))
+        try {
+            create_dir cfg.outDir
+        } {
+        }
+        def name:string ("spread-" + (BookSdl.pad3(spread + 1)) + ".svg")
+        write_file cfg.outDir name svg
+        status = ("wrote " + cfg.outDir + "/" + name)
+        print ("  " + status)
+    }
+
+    ; -------------------------------------------------------------- frame --
+    fn drawFrame:void () {
+        def dl:EVGDisplayList (app.buildFrame())
+        if hasWindow {
+            painter.draw(dl pw ph tr images)
+        }
+        lastCommands = (dl.count())
+        lastText = (BookSdl.countKind(dl 3))
+        lastImages = (BookSdl.countKind(dl 2))
+        frames = (frames + 1)
+    }
+
+    sfn countKind:int (dl:EVGDisplayList kind:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; What the last frame held, printed when the run ends.
+    ;
+    ; This is the whole of the headless check. Without a display there are no
+    ; pixels to look at, and "it did not crash" is not evidence that a book was
+    ; laid out - a host that opened nothing and drew an empty desk would also
+    ; not crash. Commands, text runs and pictures are three numbers that cannot
+    ; all be right by accident.
+    fn report:void () {
+        print "-- last frame --"
+        print (("commands   " + (to_string lastCommands)))
+        print (("text runs  " + (to_string lastText)))
+        print (("pictures   " + (to_string lastImages)))
+        def d:BookDocument (app.document())
+        print (("pages      " + (to_string (d.pageCount()))) + " in " + (to_string (d.spreadCount())) + " spread(s)")
+        def r:BookPreflightReport (app.runPreflight())
+        print (("preflight  " + (to_string (r.errorCount()))) + " error(s), " + (to_string (r.warningCount())) + " warning(s)")
+    }
+
+    fn run:int (maxFrames:int) {
+        print (cfg.describe())
+        pw = cfg.width
+        ph = cfg.height
+        app.W = pw
+        app.H = ph
+        app.initBare()
+
+        def faces:int (this.loadFaces())
+        print (("faces      " + (to_string faces)) + " loaded from " + cfg.fontDir)
+        if (faces == 0) {
+            print "           no face loaded - text will be measured with a bitmap step and will not wrap"
+        }
+
+        if ((this.openDocument()) == false) {
+            return 1
+        }
+        def pictures:int (this.loadPictures())
+        print ("opened     " + status)
+        print (("pictures   " + (to_string pictures)) + " decoded")
+
+        if cfg.editing {
+            app.runCommand("edit.toggle" "")
+        }
+        ; Turned to, not jumped to: `nav.next` is the same command the key and
+        ; the toolbar use, so opening on a spread cannot drift away from
+        ; turning to it.
+        def turns:int (cfg.spread - 1)
+        def t:int 0
+        while (t < turns) {
+            app.runCommand("nav.next" "")
+            t = (t + 1)
+        }
+
+        this.openWindow()
+        def running:boolean true
+        while running {
+            this.pumpInput()
+            this.drawFrame()
+            if (dgfx_should_close) {
+                running = false
+            }
+            if wantQuit {
+                running = false
+            }
+            if (maxFrames > 0) {
+                if (frames >= maxFrames) {
+                    running = false
+                }
+            }
+        }
+        if hasWindow {
+            dgfx_close
+        }
+        this.report()
+        return 0
+    }
+
+    ; --------------------------------------------------------------------
+
+    sfn dirOf:string (path:string) {
+        def n:int (strlen path)
+        def cut:int -1
+        def i:int 0
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if (c == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        if (cut == 0) {
+            return "/"
+        }
+        return (substring path 0 cut)
+    }
+
+    sfn pad3:string (n:int) {
+        if (n < 10) {
+            return ("00" + (to_string n))
+        }
+        if (n < 100) {
+            return ("0" + (to_string n))
+        }
+        return (to_string n)
+    }
+
+    sfn beforeComma:double (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == ",") {
+                return (BookSdl.toNumber((substring text 0 i)))
+            }
+            i = (i + 1)
+        }
+        return (BookSdl.toNumber(text))
+    }
+
+    sfn afterComma:double (text:string) {
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            if ((substring text i (i + 1)) == ",") {
+                return (BookSdl.toNumber((substring text (i + 1) n)))
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
+    sfn toNumber:double (text:string) {
+        def v:double (?? (to_double text) 0.0)
+        return v
+    }
+
+    sfn isNumber:boolean (a:string) {
+        if ((strlen a) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen a)) {
+            def ch:int (charAt a i)
+            if (ch < 48) {
+                return false
+            }
+            if (ch > 57) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn main:void () {
+        print "== Ranger book editor - SDL2 / OpenGL =="
+        def host (new BookSdl)
+        def configPath:string "gallery/book/platform/sdl/book.config.json"
+        def maxFrames:int 0
+        def i:int 0
+        def n:int (shell_arg_cnt)
+        while (i < n) {
+            def a:string (shell_arg i)
+            if (BookSdl.isNumber(a)) {
+                def parsed:int (?? (str2int a) 0)
+                maxFrames = parsed
+            } {
+                configPath = a
+            }
+            i = (i + 1)
+        }
+        def dir:string (BookSdl.dirOf(configPath))
+        def name:string (AppleAlbum.baseName(configPath))
+        host.cfg = (BookSdlConfig.fromFile(dir name))
+        def code:int (host.run(maxFrames))
+        print ("book-sdl done: frames=" + (to_string host.frames))
+        if (code != 0) {
+            exit 1
+        }
+    }
+}

@@ -1,0 +1,94 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; BookAlbumMeasure.rgr - what size the album's pictures actually are
+; ==============================================================================
+;
+; Kept apart from `BookAlbumImport` because this is the only part of the album
+; path that touches a disk. The import runs in a browser; this does not, and
+; putting the two in one file would have dragged a JPEG reader into the
+; editor's bundle for nothing.
+;
+; Two things are read out of each file's header, and only the header - a
+; 40-megapixel photograph is not decoded to be measured:
+;
+;   the pixel size, which is what decides whether the picture will print at
+;   300 ppi in the frame the layout gave it, and
+;
+;   the EXIF orientation, because a phone photograph is usually stored
+;   landscape with a tag saying "turn it". Measuring it landscape puts every
+;   portrait picture in the wrong frame, which is exactly the mistake the
+;   orientation-driven layout was written to avoid.
+; ==============================================================================
+
+Import "BookAppleAlbum.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGMetadata.rgr"
+
+class BookAlbumMeasure {
+    ; Fill in every photo's pixel size, in place. Answers how many were read;
+    ; the ones that were not keep 0 by 0, which preflight reports as unknown
+    ; rather than passing.
+    sfn measure:int (album:AppleAlbum root:string) {
+        def parser (new JPEGMetadataParser())
+        def dir:string root
+        if ((strlen dir) == 0) {
+            dir = "."
+        }
+        def done:int 0
+        def i:int 0
+        while (i < (array_length album.photos)) {
+            def p:AlbumPhoto (itemAt album.photos i)
+            if (p.isImage()) {
+                def name:string (AppleAlbum.baseName(p.path))
+                def where:string dir
+                if ((strlen root) == 0) {
+                    ; No relocation: read the picture where the library says it
+                    ; is, which works on the Mac that wrote the library.
+                    where = (BookAlbumMeasure.dirNameOf(p.path))
+                    name = (AppleAlbum.baseName(p.path))
+                }
+                if (file_exists where name) {
+                    def info:JPEGMetadataInfo (parser.parseMetadata(where name))
+                    if info.isValid {
+                        def w:double (to_double info.width)
+                        def h:double (to_double info.height)
+                        ; 5 to 8 are the quarter turns. A picture stored
+                        ; landscape and tagged upright is a portrait picture.
+                        if (info.orientation >= 5) {
+                            if (info.orientation <= 8) {
+                                def swap:double w
+                                w = h
+                                h = swap
+                            }
+                        }
+                        p.width = w
+                        p.height = h
+                        done = (done + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return done
+    }
+
+    sfn dirNameOf:string (path:string) {
+        def n:int (strlen path)
+        def cut:int -1
+        def i:int 0
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if ((c == "/") || (c == "\\")) {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut < 0) {
+            return "."
+        }
+        if (cut == 0) {
+            return "/"
+        }
+        return (substring path 0 cut)
+    }
+}

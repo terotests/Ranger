@@ -123,6 +123,47 @@ the half that needs a caret and a properties panel:
 6. **Saving.** The document is data; a `.book` file is a serializer and a
    parser, and `toJson` is already most of the first one.
 
+## Stage 4b — bringing pictures in (done, for Apple)
+
+An empty book is not the thing anybody wants to make. `ApplePlist` +
+`BookAppleAlbum` + `BookAlbumImport` + `BookAlbumMeasure` take an iPhoto or
+Aperture library index — or, for a modern Photos library that has no index, a
+list of file names the host enumerated — and answer with a laid-out book:
+`npm run book:album` on the command line, a drop on the serverless page.
+
+The parts of that worth keeping when the next source is added:
+
+- The **reader** (an album: names, paths, captions, ratings, dates) is separate
+  from the **import** (an album: pages), which is separate from **measuring**
+  (pixel sizes off the file). Only the third touches a disk, which is why the
+  first two run in a browser.
+- Sizes are known **before** the layout, because the layout asks each picture
+  which way up it is. A source that cannot answer that keeps the rotation's
+  page and is reported by preflight as unknown rather than assumed fine.
+- The picture's own metadata is not automatically a caption. A file name under
+  a photograph is worse than nothing.
+
+Since then the second source is in as well: `PhotoIndex` + `PhotoScan` index a
+folder of photographs and search it by date range, by radius and by text, and
+`tools/mac_photos.mjs` reaches a real Photos library through Photos.app and
+Spotlight and converts what was chosen out of HEIC. The editor searches the
+same index in the page.
+
+Left, in the order it would be worth doing:
+
+1. **Google Photos Takeout**, which is a folder of JPEGs beside a `.json` per
+   picture — the same reader shape, a different index.
+2. **HEIC read directly**, so a Mac is not needed to see an iPhone photograph.
+   It is a HEIF container around HEVC; the metadata alone would be enough for
+   indexing and is much less work than decoding one.
+3. **Place names**, which needs a gazetteer — or, more cheaply, the names the
+   library already knows: Photos stores reverse-geocoded place names per
+   picture and AppleScript does not expose them, but an export does.
+4. **Faces**, which iPhoto's index carries and a photo book uses for its
+   chapter openings.
+5. **A picture the reader has cropped in the editor**, written back to the
+   album rather than only to the book.
+
 ## Stage 5 — output that a printer accepts
 
 Done (stage 5a): `BookPrintSpec` holds a supplier's requirements as data and

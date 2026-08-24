@@ -31,6 +31,8 @@ Import "BookEdit.rgr"
 Import "BookView.rgr"
 Import "BookPreflight.rgr"
 Import "BookSample.rgr"
+Import "BookAlbumImport.rgr"
+Import "PhotoScan.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 Import "../../evg/EVGToolbarView.rgr"
 Import "../../evg/EVGWindow.rgr"
@@ -135,6 +137,22 @@ class BookApp {
     def theme:EVGToolbarTheme (new EVGToolbarTheme)
     def toolbarH:int 30
     def statusH:int 22
+    ; Why the last album import failed, for a host to show. Empty after a
+    ; successful one.
+    def albumError:string ""
+    ; Picture sizes the host has read for itself, waiting for an album to
+    ; belong to. Three arrays rather than a map because that is what crosses
+    ; every target Ranger compiles to without an allocation per lookup.
+    def albumSizeNames:[string]
+    def albumSizeW:[double]
+    def albumSizeH:[double]
+    ; Photographs the host has shown this editor, and the last search over
+    ; them. The index is the editor's, not the document's: it survives opening
+    ; and closing books, which is what makes "now show me the ones from
+    ; August" a second question rather than a second import.
+    def photos:PhotoIndex (new PhotoIndex())
+    def found:[PhotoRecord]
+    def lastQuery:string ""
     def status:string ""
 
     ; How far ink may run past the trim, and whether the canvas shows it. With
@@ -276,6 +294,159 @@ class BookApp {
     fn loadSample:void (assetBase:string) {
         def d:BookDocument (BookSample.laidOut(assetBase editor.flow))
         this.attach(d)
+    }
+
+    ; An Apple photo album, opened as a book. `xml` is the text of an iPhoto
+    ; or Aperture library index - a file the host read, or one the reader
+    ; dropped on the page - and `imageRoot` is the prefix the pictures will be
+    ; asked for under, since the paths inside the index point at somebody
+    ; else's Mac.
+    ;
+    ; It lays out through the editor's OWN flow engine, so the captions break
+    ; where the canvas will draw them breaking. The host still has to hand the
+    ; pictures over afterwards: `assetPaths` says which ones, exactly as it
+    ; does for the sample.
+    fn loadAppleAlbum:boolean (xml:string albumName:string imageRoot:string) {
+        def album:AppleAlbum (AppleAlbum.fromXml(xml albumName))
+        if ((strlen album.error) > 0) {
+            albumError = album.error
+            return false
+        }
+        def s:int 0
+        while (s < (array_length albumSizeNames)) {
+            def name:string (itemAt albumSizeNames s)
+            def w:double (itemAt albumSizeW s)
+            def h:double (itemAt albumSizeH s)
+            album.applySize(name w h)
+            s = (s + 1)
+        }
+        def images:[AlbumPhoto] (album.images())
+        if ((array_length images) == 0) {
+            albumError = ("the album '" + album.name + "' has no photographs in it")
+            return false
+        }
+        def imp (new BookAlbumImport())
+        imp.imageRoot = imageRoot
+        def api:BookApi (imp.buildUsing(album editor.flow))
+        albumError = ""
+        this.attach(api.doc)
+        return true
+    }
+
+    ; How big a picture is, from a host that can read one but cannot list a
+    ; directory. Say it before opening the album: the layout asks each picture
+    ; its shape while it is choosing the page for it.
+    fn noteImageSize:void (fileName:string w:double h:double) {
+        push albumSizeNames fileName
+        push albumSizeW w
+        push albumSizeH h
+    }
+
+    ; ---------------------------------------------------------------------
+    ; Photographs, searched by when and where
+    ; ---------------------------------------------------------------------
+
+    ; One picture, read into the index out of its own bytes. The EXIF gives the
+    ; date, the position and the size, so a folder dropped on the editor
+    ; becomes searchable without anything else being consulted.
+    fn indexPhoto:boolean (fileName:string bytes:buffer imageRoot:string) {
+        def r:PhotoRecord (PhotoScan.fromBuffer(fileName bytes imageRoot))
+        photos.add(r)
+        return (r.appleSeconds > 0.0)
+    }
+
+    ; An index somebody else made - `tools/mac_photos.mjs`, which is the path
+    ; that reaches a Photos library and its HEIC files. Merged rather than
+    ; replacing, so a collector's index and a folder dropped on the page can
+    ; both be in front of the same search.
+    fn addPhotoIndexJson:boolean (text:string) {
+        def incoming:PhotoIndex (PhotoIndex.fromJson(text))
+        if ((strlen incoming.error) > 0) {
+            albumError = incoming.error
+            return false
+        }
+        def i:int 0
+        while (i < (incoming.count())) {
+            def r:PhotoRecord (incoming.at(i))
+            photos.add(r)
+            i = (i + 1)
+        }
+        def p:int 0
+        while (p < (array_length incoming.places)) {
+            photos.addPlace((itemAt incoming.places p))
+            p = (p + 1)
+        }
+        return true
+    }
+
+    fn photoCount:int () {
+        return (photos.count())
+    }
+
+    fn photoSummary:string () {
+        return (photos.describe())
+    }
+
+    ; Ask the question. Empty strings and zeros mean "no bound", so a page can
+    ; send whatever its fields hold without deciding which of them are set.
+    ; Answers how many matched, and remembers them for `openFound`.
+    fn searchPhotos:int (fromDay:string toDay:string lat:double lon:double radiusKm:double text:string) {
+        def q (new PhotoQuery())
+        if ((strlen fromDay) > 0) {
+            q.fromSeconds = (PhotoTime.fromIso(fromDay false))
+        }
+        if ((strlen toDay) > 0) {
+            q.toSeconds = (PhotoTime.fromIso(toDay true))
+        }
+        if (radiusKm > 0.0) {
+            q.near(lat lon radiusKm)
+        }
+        q.text = text
+        def hits:[PhotoRecord] (photos.search(q))
+        found = hits
+        lastQuery = (q.describe())
+        return (array_length hits)
+    }
+
+    fn foundCount:int () {
+        return (array_length found)
+    }
+
+    fn lastQueryText:string () {
+        return lastQuery
+    }
+
+    ; The last search's answer, as a book. The pictures are named by the paths
+    ; the index carries, which is what the host served them under, so the same
+    ; texture cache that drew the album draws these.
+    fn openFound:boolean (title:string) {
+        if ((array_length found) == 0) {
+            albumError = "nothing matched, so there is no book to make"
+            return false
+        }
+        def name:string title
+        if ((strlen name) == 0) {
+            name = "Photographs"
+        }
+        def album:AppleAlbum (PhotoIndex.asAlbum(name found))
+        def imp (new BookAlbumImport())
+        imp.title = name
+        def api:BookApi (imp.buildUsing(album editor.flow))
+        albumError = ""
+        this.attach(api.doc)
+        return true
+    }
+
+    ; The album names in a library index, so a host can ask which one before
+    ; opening it. An empty answer is a file that is not a library.
+    sfn appleAlbumNames:[string] (xml:string) {
+        def reader (new ApplePlist())
+        def root:PlistValue (reader.parse(xml))
+        if ((reader.ok) == false) {
+            def none:[string]
+            return none
+        }
+        return (AppleAlbum.albumNames(root))
     }
 
     ; The asset paths the sample refers to, so a host can read the files and
@@ -704,6 +875,34 @@ class BookApp {
         def r:BookPreflightReport (preflight.run(editor.doc editor.flowResult))
         lastReport = r
         return r
+    }
+
+    ; The current spread as SVG, and preflight as text. Both hosts wanted
+    ; them - the browser page to hand the reader a download, the desktop
+    ; window to write a file - and both had built their own `BookApi` around
+    ; the editor's document to get them. Once is enough.
+    fn spreadSvgAt:string (index:int) {
+        return ((this.exportApi()).spreadSvg(index))
+    }
+
+    fn documentTsxText:string () {
+        return ((this.exportApi()).tsx())
+    }
+
+    fn runPreflightText:string () {
+        def r:BookPreflightReport (this.runPreflight())
+        return (r.asText())
+    }
+
+    ; An API over the editor's own document and its own flow result. The flow
+    ; is marked valid because the editor keeps it so: re-flowing here would
+    ; measure a second time and could disagree with what is on the screen.
+    fn exportApi:BookApi () {
+        def api (new BookApi())
+        api.doc = editor.doc
+        api.flow = editor.flowResult
+        api.flowValid = true
+        return api
     }
 
     fn openPreflight:void () {

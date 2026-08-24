@@ -37,6 +37,24 @@ class QuantizationTable {
 }
 
 class JPEGDecoder {
+    ; Say nothing while decoding.
+    ;
+    ; This decoder narrates - twenty-five lines per photograph, every
+    ; marker and every tenth row - which is useful when you are debugging a
+    ; JPEG and is noise everywhere else. In a browser it goes to a console
+    ; nobody has open; in a native window it goes to the terminal, so a book
+    ; of forty pictures opens behind a thousand lines of scrolling.
+    ;
+    ; Off by default, so every existing caller is unchanged. A caller that
+    ; decodes pictures as a side effect of doing something else turns it on.
+    def quiet:boolean false
+
+    fn say:void (msg:string) {
+        if quiet {
+            return
+        }
+        print msg
+    }
     def data:buffer (buffer_alloc 0)
     def dataLen:int 0
     
@@ -137,7 +155,7 @@ class JPEGDecoder {
         width = (this.readUint16BE(pos + 3))
         numComponents = (buffer_get data (pos + 5))
         
-        print ("  Image: " + (to_string width) + "x" + (to_string height) + ", " + (to_string numComponents) + " components")
+        this.say(("  Image: " + (to_string width) + "x" + (to_string height) + ", " + (to_string numComponents) + " components"))
         
         clear components
         maxHSamp = 1
@@ -157,7 +175,7 @@ class JPEGDecoder {
             if (comp.vSamp > maxVSamp) { maxVSamp = comp.vSamp }
             
             push components comp
-            print ("    Component " + (to_string comp.id) + ": " + (to_string comp.hSamp) + "x" + (to_string comp.vSamp) + " sampling, quant table " + (to_string comp.quantTableId))
+            this.say(("    Component " + (to_string comp.id) + ": " + (to_string comp.hSamp) + "x" + (to_string comp.vSamp) + " sampling, quant table " + (to_string comp.quantTableId)))
             
             offset = offset + 3
             i = i + 1
@@ -172,7 +190,7 @@ class JPEGDecoder {
         mcusPerRow = (to_int ((width + mcuWidth - 1) / mcuWidth))
         mcusPerCol = (to_int ((height + mcuHeight - 1) / mcuHeight))
         
-        print ("  MCU size: " + (to_string mcuWidth) + "x" + (to_string mcuHeight) + ", grid: " + (to_string mcusPerRow) + "x" + (to_string mcusPerCol))
+        this.say(("  MCU size: " + (to_string mcuWidth) + "x" + (to_string mcuHeight) + ", grid: " + (to_string mcusPerRow) + "x" + (to_string mcusPerCol)))
     }
     
     fn parseDQT:void (pos:int length:int) {
@@ -202,7 +220,7 @@ class JPEGDecoder {
                 i = i + 1
             }
             
-            print ("  Quantization table " + (to_string tableId) + " (" + (to_string (precision + 1)) + "-byte values)")
+            this.say(("  Quantization table " + (to_string tableId) + " (" + (to_string (precision + 1)) + "-byte values)"))
         }
     }
     
@@ -224,7 +242,7 @@ class JPEGDecoder {
                 if (comp.id == compId) {
                     comp.dcTableId = (bit_shr tableSelect 4)
                     comp.acTableId = (bit_and tableSelect 15)
-                    print ("    Component " + (to_string compId) + ": DC table " + (to_string comp.dcTableId) + ", AC table " + (to_string comp.acTableId))
+                    this.say(("    Component " + (to_string compId) + ": DC table " + (to_string comp.dcTableId) + ", AC table " + (to_string comp.acTableId)))
                 }
                 j = j + 1
             }
@@ -268,19 +286,19 @@ class JPEGDecoder {
         
         ; Check SOI
         if (dataLen < 2) {
-            print "Error: File too small"
+            this.say("Error: File too small")
             return false
         }
         
         def m1:int (buffer_get data 0)
         def m2:int (buffer_get data 1)
         if ((m1 != 255) || (m2 != 216)) {
-            print "Error: Not a JPEG file (missing SOI)"
+            this.say("Error: Not a JPEG file (missing SOI)")
             return false
         }
         
         pos = 2
-        print "Parsing JPEG markers..."
+        this.say("Parsing JPEG markers...")
         
         while (pos < (dataLen - 1)) {
             def marker1:int (buffer_get data pos)
@@ -311,7 +329,7 @@ class JPEGDecoder {
             }
             if (marker2 == 217) {
                 ; EOI
-                print "  End of Image"
+                this.say("  End of Image")
                 return true
             }
             if ((marker2 >= 208) && (marker2 <= 215)) {
@@ -330,32 +348,32 @@ class JPEGDecoder {
             
             ; Process marker
             if (marker2 == 192) {
-                print "  SOF0 (Baseline DCT)"
+                this.say("  SOF0 (Baseline DCT)")
                 this.parseSOF(dataStart markerDataLen)
             }
             if (marker2 == 193) {
-                print "  SOF1 (Extended Sequential DCT)"
+                this.say("  SOF1 (Extended Sequential DCT)")
                 this.parseSOF(dataStart markerDataLen)
             }
             if (marker2 == 194) {
-                print "  SOF2 (Progressive DCT) - NOT SUPPORTED"
+                this.say("  SOF2 (Progressive DCT) - NOT SUPPORTED")
                 return false
             }
             if (marker2 == 196) {
-                print "  DHT (Huffman Tables)"
+                this.say("  DHT (Huffman Tables)")
                 huffman.parseDHT(data dataStart markerDataLen)
             }
             if (marker2 == 219) {
-                print "  DQT (Quantization Tables)"
+                this.say("  DQT (Quantization Tables)")
                 this.parseDQT(dataStart markerDataLen)
             }
             if (marker2 == 221) {
                 ; DRI - Define Restart Interval
                 restartInterval = (this.readUint16BE(dataStart))
-                print ("  DRI (Restart Interval: " + (to_string restartInterval) + ")")
+                this.say(("  DRI (Restart Interval: " + (to_string restartInterval) + ")"))
             }
             if (marker2 == 218) {
-                print "  SOS (Start of Scan)"
+                this.say("  SOS (Start of Scan)")
                 this.parseSOS(dataStart markerDataLen)
                 ; After SOS, entropy-coded data follows
                 ; Skip to end of scan data
@@ -363,13 +381,13 @@ class JPEGDecoder {
                 continue
             }
             if (marker2 == 224) {
-                print "  APP0 (JFIF)"
+                this.say("  APP0 (JFIF)")
             }
             if (marker2 == 225) {
-                print "  APP1 (EXIF)"
+                this.say("  APP1 (EXIF)")
             }
             if (marker2 == 254) {
-                print "  COM (Comment)"
+                this.say("  COM (Comment)")
             }
             
             pos = pos + 2 + markerLen
@@ -443,29 +461,33 @@ class JPEGDecoder {
         ; Main decode function
         ; Reset all state before decoding new image
         this.reset()
+        ; The table builder narrates too. Passed here rather than in the
+        ; constructor, because a caller sets `quiet` on the decoder AFTER
+        ; constructing it - which is the only moment it could.
+        huffman.quiet = quiet
 
         data = bytes
         dataLen = (buffer_length data)
 
-        print ("Decoding JPEG in-memory (" + (to_string dataLen) + " bytes)")
+        this.say(("Decoding JPEG in-memory (" + (to_string dataLen) + " bytes)"))
         
         ; Parse markers
         def ok:boolean (this.parseMarkers())
         if (ok == false) {
-            print "Error parsing JPEG markers"
+            this.say("Error parsing JPEG markers")
             def errImg (new ImageBuffer())
             errImg.init(1 1)
             return errImg
         }
         
         if ((width == 0) || (height == 0)) {
-            print "Error: Invalid image dimensions"
+            this.say("Error: Invalid image dimensions")
             def errImg (new ImageBuffer())
             errImg.init(1 1)
             return errImg
         }
         
-        print ("Decoding " + (to_string scanDataLen) + " bytes of scan data...")
+        this.say(("Decoding " + (to_string scanDataLen) + " bytes of scan data..."))
         
         ; Create output image
         def img (new ImageBuffer())
@@ -585,11 +607,11 @@ class JPEGDecoder {
             
             ; Progress indicator
             if ((mcuY % 10) == 0) {
-                print ("  Row " + (to_string mcuY) + "/" + (to_string mcusPerCol))
+                this.say(("  Row " + (to_string mcuY) + "/" + (to_string mcusPerCol)))
             }
         }
         
-        print "Decode complete!"
+        this.say("Decode complete!")
         return img
     }
     

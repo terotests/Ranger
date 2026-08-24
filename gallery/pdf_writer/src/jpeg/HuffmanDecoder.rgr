@@ -94,6 +94,9 @@ class HuffmanTable {
 }
 
 class HuffmanDecoder {
+    ; Say nothing while building tables. Set by whoever owns this decoder -
+    ; see JPEGDecoder.quiet, which is the flag a caller actually reaches.
+    def quiet:boolean false
     ; DC tables (indexed by table ID)
     def dcTable0:HuffmanTable (new HuffmanTable())
     def dcTable1:HuffmanTable (new HuffmanTable())
@@ -170,7 +173,9 @@ class HuffmanDecoder {
             if (tableClass == 1) {
                 classStr = "AC"
             }
-            print ("  Huffman table " + classStr + (to_string tableId) + ": " + (to_string totalSymbols) + " symbols")
+            if (quiet == false) {
+                print ("  Huffman table " + classStr + (to_string tableId) + ": " + (to_string totalSymbols) + " symbols")
+            }
         }
     }
 }

@@ -1,0 +1,215 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; book_album.rgr - a book made out of an Apple photo album
+; ==============================================================================
+;
+;   npm run book:album
+;   npm run book:album -- -library ~/Pictures/iPhoto\ Library -album "Kesa 2019"
+;
+; The whole trip, in the order it has to happen:
+;
+;   AlbumData.xml  ->  the album's pictures, in the album's order
+;   the JPEG headers -> their pixel sizes, so orientation can choose the pages
+;   auto layout      -> pages, captions, a title page, a signature
+;   preflight        -> what a printer would complain about, before they do
+;
+; With no arguments it runs on the fixture in `gallery/book/fixtures`, which is
+; a real iPhoto index in miniature - three photographs, two albums, one movie,
+; Finnish captions written as numeric character references, exactly as iPhoto
+; writes them. That is a test you can look at, not just one that passes.
+;
+; ARGUMENTS
+;
+;   -library DIR    the folder holding AlbumData.xml (an iPhoto library)
+;   -file NAME      the index's name, if it is not AlbumData.xml
+;   -album NAME     which album; omitted takes the first one somebody named
+;   -images DIR     where the pictures are NOW, if the library has moved
+;   -read DIR       where to OPEN them from, if that is a different path
+;                   (only when -images is relative to the output folder)
+;   -out DIR        where to write (default gallery/book/output/album)
+;   -format NAME    square-210, a4, ... (default square-210)
+;   -min-rating N   keep only the pictures rated N stars or better
+;   -max N          keep at most N pictures
+;   -list           print the album names in the library and stop
+; ==============================================================================
+
+Import "BookAlbumImport.rgr"
+Import "BookAlbumMeasure.rgr"
+Import "../../pdf_writer/src/fonts/EVGFontSetup.rgr"
+
+class BookAlbumCli {
+    sfn main:void () {
+        print "== Ranger book engine: Apple album =="
+
+        def library:string "./gallery/book/fixtures"
+        def indexName:string "AlbumData.xml"
+        def albumName:string ""
+        ; Two roots, because they are measured from different places: the one
+        ; written into the book is relative to the folder the pages are written
+        ; into, and the one used to OPEN the pictures is relative to where this
+        ; is being run from. They are the same string whenever it is absolute,
+        ; which is the normal case for a real library.
+        def images:string "../../../pdf_writer/assets/images"
+        def readRoot:string "./gallery/pdf_writer/assets/images"
+        def out:string "./gallery/book/output/album"
+        def format:string "square-210"
+        def minRating:int 0
+        def maxPhotos:int 0
+        def listOnly:boolean false
+
+        def argCount:int (shell_arg_cnt)
+        def i:int 0
+        while (i < argCount) {
+            def flag:string (shell_arg i)
+            def hasNext:boolean ((i + 1) < argCount)
+            def value:string ""
+            if hasNext {
+                value = (shell_arg (i + 1))
+            }
+            if (flag == "-list") {
+                listOnly = true
+            }
+            if (flag == "-library") {
+                library = value
+                i = (i + 1)
+            }
+            if (flag == "-file") {
+                indexName = value
+                i = (i + 1)
+            }
+            if (flag == "-album") {
+                albumName = value
+                i = (i + 1)
+            }
+            if (flag == "-images") {
+                images = value
+                readRoot = value
+                i = (i + 1)
+            }
+            if (flag == "-read") {
+                readRoot = value
+                i = (i + 1)
+            }
+            if (flag == "-out") {
+                out = value
+                i = (i + 1)
+            }
+            if (flag == "-format") {
+                format = value
+                i = (i + 1)
+            }
+            if (flag == "-min-rating") {
+                def r@(optional):int (str2int value)
+                if r {
+                    minRating = (unwrap r)
+                }
+                i = (i + 1)
+            }
+            if (flag == "-max") {
+                def m@(optional):int (str2int value)
+                if m {
+                    maxPhotos = (unwrap m)
+                }
+                i = (i + 1)
+            }
+            i = (i + 1)
+        }
+
+        if listOnly {
+            BookAlbumCli.listAlbums(library indexName)
+            return
+        }
+
+        def album:AppleAlbum (AppleAlbum.fromFile(library indexName albumName))
+        if ((strlen album.error) > 0) {
+            print ("Could not read the album: " + album.error)
+            return
+        }
+        print (("Album '" + album.name + "' - ") + (to_string (album.count())) + " item(s), " + (album.periodText()))
+
+        ; The pixel sizes have to be known BEFORE the layout, because the
+        ; layout asks each picture which way up it is.
+        def openFrom:string readRoot
+        if ((strlen openFrom) == 0) {
+            openFrom = images
+        }
+        def measured:int (BookAlbumMeasure.measure(album openFrom))
+        def total:int (album.count())
+        print ((("Measured " + (to_string measured)) + " of ") + (to_string total) + " picture(s)")
+        if (measured < total) {
+            print "  (an unmeasured picture keeps the rotation's page and is reported unknown by preflight)"
+        }
+
+        ; Real faces before layout, or the captions break where nothing else
+        ; will break them.
+        def setup (new EVGFontSetup())
+        setup.init("./gallery/book/" "")
+        def manager:FontManager (setup.getManager())
+        def measurer (new TTFTextMeasurer(manager))
+        def engine (new EVGTextEngine())
+        engine.setMeasurer(measurer)
+
+        def imp (new BookAlbumImport())
+        imp.format = format
+        imp.imageRoot = images
+        imp.minRating = minRating
+        imp.maxPhotos = maxPhotos
+        def api:BookApi (imp.buildWith(album engine))
+
+        print (api.summary())
+        def report:BookPreflightReport (api.runPreflight())
+        print "Preflight:"
+        print (report.asText())
+
+        BookAlbumCli.ensureDir(out)
+        def spreads:int (api.writeSpreads(out "spread-"))
+        api.writeTsx(out "album.tsx")
+        write_file out "album.json" (api.toJson())
+        write_file out "preflight.txt" (report.asText())
+        print ((("Wrote " + (to_string spreads)) + " spread(s), album.tsx, album.json and preflight.txt to ") + out)
+    }
+
+    sfn listAlbums:void (library:string indexName:string) {
+        def reader (new ApplePlist())
+        def root:PlistValue (reader.parseFile(library indexName))
+        if ((reader.ok) == false) {
+            print ("Could not read the library: " + reader.error)
+            return
+        }
+        def names:[string] (AppleAlbum.albumNames(root))
+        print (("Albums in " + library + "/" + indexName) + ":")
+        def i:int 0
+        while (i < (array_length names)) {
+            print ("  " + (itemAt names i))
+            i = (i + 1)
+        }
+    }
+
+    ; `create_dir` does not make parents, and the album's output lives one
+    ; level below the demo's, so the parent is made first. It throws when the
+    ; directory is already there, which is not an error here.
+    sfn ensureDir:void (path:string) {
+        def n:int (strlen path)
+        def cut:int -1
+        def i:int 0
+        while (i < n) {
+            def c:string (substring path i (i + 1))
+            if (c == "/") {
+                cut = i
+            }
+            i = (i + 1)
+        }
+        if (cut > 0) {
+            def parent:string (substring path 0 cut)
+            try {
+                create_dir parent
+            } {
+            }
+        }
+        try {
+            create_dir path
+        } {
+        }
+    }
+}

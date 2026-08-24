@@ -91,6 +91,11 @@ cp gallery/pdf_writer/assets/fonts/Josefin_Sans/JosefinSans-Bold.ttf "$OUT/fonts
 for img in Example_scaled.jpg GPS_test.jpg Canon_40D_scaled.jpg; do
   cp "gallery/pdf_writer/assets/images/$img" "$OUT/assets/$img"
 done
+# An iPhoto library index, in miniature. The page can open an album the reader
+# drops on it; shipping one means the selftest can drive that path, and means
+# there is something to try without owning a Mac.
+mkdir -p "$OUT/fixtures"
+cp gallery/book/fixtures/AlbumData.xml "$OUT/fixtures/AlbumData.xml"
 
 # --- the build stamp ---------------------------------------------------------
 # A rebuilt page a browser will not fetch is indistinguishable from a page that
