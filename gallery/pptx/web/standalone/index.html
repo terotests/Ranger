@@ -60,11 +60,32 @@
       @media (max-width: 900px) { .siteline { display: none; } }
       details.about { color: #9fb0c4; font-size: 0.9rem; margin: 0 0 14px; }
       details.about summary { cursor: pointer; color: #ffb27a; }
-      /* Where a phone's own keyboard types. Off screen rather than
-         `display:none`, because a field that is not laid out cannot be
-         focused and a field that cannot be focused raises no keyboard. */
-      #softkeys { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px;
-                  opacity: 0; border: 0; padding: 0; }
+      /* Where a phone's own keyboard types.
+         Inside the viewport, not off screen: iOS will not raise a keyboard
+         for a field it considers outside the page, so `left: -9999px` looked
+         right and did nothing. Invisible instead — no size to speak of, no
+         paint, and behind everything.
+         `font-size: 16px` is not a style choice: iOS zooms the whole page in
+         when a field smaller than that takes focus, and the reader is then
+         looking at a slide four times too big with no obvious way back. */
+      #softkeys { position: fixed; left: 0; top: 0; width: 1px; height: 1px;
+                  opacity: 0; z-index: -1; border: 0; padding: 0; margin: 0;
+                  font-size: 16px; background: transparent; color: transparent;
+                  caret-color: transparent; }
+      /* Print: the slides, one to a page, and nothing else. `hidden` keeps
+         the container out of the way on screen; the print sheet takes it
+         back and hides everything around it instead. */
+      #printout { display: none; }
+      @media print {
+        html, body { background: #fff; color: #000; padding: 0; margin: 0; height: auto; }
+        .stage, .bar, details.about, .siteline, h1 { display: none !important; }
+        #printout { display: block !important; }
+        #printout img { display: block; width: 100%; height: auto; break-after: page;
+                        page-break-after: always; }
+        #printout img:last-child { break-after: auto; page-break-after: auto; }
+        /* A 16:9 slide wastes most of a portrait page. */
+        @page { size: landscape; margin: 10mm; }
+      }
       .bar { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: #9fb0c4; font-size: 0.82rem; align-items: center; }
       .bar strong { color: #ffb27a; font-weight: 600; }
       button { font: inherit; font-size: 0.82rem; padding: 3px 10px; background: #2a3039; color: #e8ecf2; border: 1px solid #3d4550; cursor: pointer; }
@@ -104,6 +125,8 @@
              page loads. A page that looks unfixed is usually a page the
              browser kept from last time. -->
         <span>build: <strong id="build">__BUILD__</strong></span>
+        <button type="button" id="png">Export PNG</button>
+        <button type="button" id="print">Print / PDF</button>
         <label>open a .pptx <input id="file" type="file" accept=".pptx" /></label>
         <input id="image" type="file" accept="image/png,image/jpeg" hidden />
       </div>
@@ -135,5 +158,10 @@
       });
     </script>
     <script type="module" src="./standalone.mjs?v=__BUILD__"></script>
+    <!-- Where the slides go when the reader prints. Empty and hidden until
+         then; one image per page. Drawn rather than printed from the screen,
+         because what is on screen is the EDITOR — panel, handles, dark
+         chrome — and none of that belongs on paper. -->
+    <div id="printout" aria-hidden="true"></div>
   </body>
 </html>

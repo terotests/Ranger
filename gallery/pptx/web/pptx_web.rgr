@@ -310,6 +310,14 @@ class PptxWeb {
         return (app.sceneJson())
     }
 
+    ; ONE slide, alone, at a width the caller chooses: no chrome, no panel, no
+    ; selection handles. The frame `scene` returns is the editor; this is the
+    ; deck. A page that wants to print, or to export a picture, needs the
+    ; second one and had no way to ask for it.
+    fn slideScene:string (i:int widthPx:int) {
+        return (app.slideSceneJson(i widthPx))
+    }
+
     fn imageParts:string () {
         return (app.imagePartsJson())
     }
