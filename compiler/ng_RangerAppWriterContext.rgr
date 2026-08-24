@@ -1164,7 +1164,14 @@ class RangerAppWriterContext {
         ; def sec:CodeNode (itemAt node.expression_value.children 1)
         ; def fc:CodeNode (sec.getFirst())
       } {
-        this.addError(node ('Unknown type: ' + node.type_name + " type ID : " + node.value_type))    
+        ; A generic class named without its arguments is not an unknown type,
+        ; it is a known one asked for incompletely -- and "Unknown type: Box"
+        ; sends the reader looking for a missing import.
+        if (this.hasTemplateNode(node.type_name)) {
+          this.addError(node (((node.type_name + " is a generic class and needs a type argument, for example ") + node.type_name) + "@(int)"))
+        } {
+          this.addError(node ('Unknown type: ' + node.type_name + " type ID : " + node.value_type))
+        }    
       }
     }
 ;    this.addError(node ((((('Invalid or missing type definition: ' + node.type_name) + " ") + node.key_type) + " ") + node.array_type))
@@ -1478,7 +1485,18 @@ class RangerAppWriterContext {
     if (givenCnt != wantCnt) {
       def wantStr:string ("" + wantCnt)
       def gotStr:string ("" + givenCnt)
-      this.addError(typeArgs ((((templateName + " expects ") + wantStr) + " type arguments, got ") + gotStr))
+      def declared_names:string ""
+      for declared.children pn:CodeNode pi {
+        if (pi > 0) {
+          declared_names = (declared_names + " ")
+        }
+        declared_names = (declared_names + pn.vref)
+      }
+      def wantWord:string " type arguments"
+      if (wantCnt == 1) {
+        wantWord = " type argument"
+      }
+      this.addError(typeArgs ((((((templateName + " is declared @params(") + declared_names) + ") and takes ") + wantStr) + wantWord + ", given ") + gotStr))
       return res
     }
     def match:RangerArgMatch (new RangerArgMatch ())

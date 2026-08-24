@@ -133,11 +133,18 @@ class History @params(Op) {     ; declare with @params
 
 def h:History@(int) (new History@(int) ())     ; instantiate with @(...)
 def rows:History@([string]) (new History@([string]) ())
+def byId:Store@([string:int]) (new Store@([string:int]) ())
 ```
+
+Also allowed: `[string:T]` fields, a constructor with arguments, `Extends`, and
+one generic class holding another at its own parameter (`def slot:Cell@(T)`).
 
 No bounds, no constraints, no variance. Each instantiation is expanded into a
 concrete class (`History_int`, `History_arr_string`) before codegen, so every
 target sees ordinary classes. Traits take `@params` the same way.
+
+**No static side:** `sfn` in a generic class is unreachable — only the
+instantiations exist. Put statics on a plain class beside it.
 
 ## Arrays
 

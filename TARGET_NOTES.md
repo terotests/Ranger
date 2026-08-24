@@ -541,10 +541,13 @@ same every time: the Node build compiles these files (with
     `Number::toString` directly; it agrees with `String(v)` on 4623 values —
     4000 random 64-bit patterns and every power of ten from 1e-320 to 1e308.
 
-29. **An ARRAY whose elements are arrays still owns nothing** — the third of
-    the family and the one still open. 25 and 26 fixed the map side;
-    `[[string]]` on LLVM keeps the outer array and comes back with the inner
-    one empty (`rows 1  ,` where every other target prints `rows 1 x,y`).
+29. **A collection nested inside a collection still owns nothing** — the third
+    of the family and the one still open. 25 and 26 fixed the map-of-arrays
+    side; `[[string]]` on LLVM keeps the outer array and comes back with the
+    inner one empty (`rows 1  ,` where every other target prints
+    `rows 1 x,y`), and `[string:[string:int]]` **segfaults** as soon as the
+    inner map holds a second entry — one entry reads back correctly, which is
+    what a freed-but-not-yet-reused buffer looks like.
     Reproduces with no generic class anywhere in the program, so it is the
     element-kind classification and not the monomorphiser, and the generics
     conformance case (`tests/conformance/generic_class/`, one generic class

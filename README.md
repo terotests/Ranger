@@ -1305,11 +1305,33 @@ class Main {
 }
 ```
 
-A type parameter can be used as an array element, a parameter type and a
-return type. There are no bounds, no constraints and no variance: nothing is
-asked of the argument type, so a class, a record, a `shape` and a collection
-type all fit. Where a generic container needs to compare two values, pass the
+A type parameter can be used as an array element, a map value, a parameter
+type and a return type, and a generic class may hold another one at its own
+parameter:
+
+```
+class Store @params(T) {
+    def byId:[string:T]         ; a map value
+    def slot:Cell@(T) (new Cell@(T) ())   ; another generic, at T
+    fn take:T (id:string) {     ; a return type
+        def v:T (unwrap (get byId id))
+        return v
+    }
+}
+```
+
+A generic class may have a constructor with arguments and may `Extends` a
+plain class. The type argument itself may be a class, a record, a `shape`, a
+primitive, an array (`History@([string])`) or a map (`Store@([string:int])`).
+
+There are no bounds, no constraints and no variance: nothing is asked of the
+argument type. Where a generic container needs to compare two values, pass the
 comparison in rather than reaching for a constraint.
+
+**A generic class has no static side.** `sfn` inside one is not reachable —
+only the instantiations exist at run time, and `History_int.describe()` is not
+a name anybody should have to write. Put statics on a plain class beside it;
+`gallery/office/editor/OfficeHistory.rgr` splits exactly that way.
 
 **How it compiles.** Each distinct instantiation is expanded into an ordinary
 concrete class before any writer runs — `History@(int)` becomes `History_int`

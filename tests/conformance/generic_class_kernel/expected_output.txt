@@ -1,0 +1,6 @@
+assets: 2 cover [a1,a2]
+nums: 2 y=42
+rows: 1 two=2
+holder: 7 seven
+tagged: 3 bumped=3
+Done

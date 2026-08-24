@@ -64,6 +64,28 @@ instance.
 The instance is per target process. The compiler writes the registry that the
 target language needs, so the program does not hold a global variable.
 
+## How do I write one class that holds several types?
+
+Declare the class with `@params(...)` and give the arguments with `@(...)`.
+
+<TargetOutput example={ex("faq/generic-class")} targets={model.generated.targets} />
+
+The target code holds `History_int` and `History_string`, two separate
+classes. The compiler makes one class for each set of arguments before it
+writes the target, so a target language does not need generics of its own and
+no target writes the type parameter. Neither class can see the fields of the
+other.
+
+A type parameter is usable as an array element, as a map value, as a parameter
+type and as a return type. The argument can be a primitive, a class, a record,
+a shape, an array (`History@([string])`) or a map (`Store@([string:int])`).
+There are no bounds and no constraints, so when the class must compare two
+values, give it the comparison function at construction.
+
+A generic class has no static side. Only the instantiations exist, so a `sfn`
+in a generic class is not reachable. Put the static functions in a plain class
+beside it.
+
 ## How do I write an object to JSON and read it back?
 
 Add the annotation `@serialize(true)` to the class. The compiler then writes

@@ -15,7 +15,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Three things had to be fixed under it. `RangerArgMatch.add` answered *true* for any type-parameter name longer than one character **without recording it** — reasonable for the operator matcher, where a long name is a concrete type to match against, and fatal for a declaration, so `@params(Op)` bound nothing and every copy kept `Op` as a type name. Declared parameters now bind whatever they are called. A type argument that is itself a collection may not stay a type NAME — left as one, every writer spells a class called `[string]` — so `def x:Op` with `Op` bound to `[string]` becomes the array node it stands for, and the writers see an ordinary `[string]` parameter. And templates are registered in a pass of their own before collection: a class variable of a generic type collected before the file declaring it saw an undeclared name, which made **import order** decide whether a program compiled — four of the docx suites built and two did not, on the same source.
 
-  `tests/conformance/generic_class/` is the case worth writing first: one generic class at **two different types** in one program, one at an **array type**, one at a **shape type**. `npm run test:generics` compiles it for all fourteen targets and runs it on every toolchain present, comparing output. It found two defects. The Rust writer pushed a borrowed slice parameter into a nested array with `.clone()`, which clones the reference rather than the elements — `[[string]]` never compiled on Rust, with or without a generic class; it takes `.to_vec()` now. And LLVM loses the elements of a nested array entirely, which also reproduces with no generic class in sight and is left open as ISSUES #73 rather than papered over — the generics suite compares every line but that one on LLVM, and says why.
+  **What a type parameter may be and where it may go**, after working through
+  what an author reaches for next: an array element, a **map value**
+  (`[string:T]`, which is `Store<T>`), a parameter, a return type, and the
+  parameter of **another generic class held as a field** — `Cell@(T)` inside
+  `Holder@(T)`, which is the shape `Transaction<Op>` inside `History<Op>`
+  needs, and the one that proves expansion recurses rather than stopping at the
+  outermost reference. A generic class may take constructor arguments and may
+  `Extends` a plain class. A type ARGUMENT may be a class, a record, a shape, a
+  primitive, an array or a map — the map form needed a fix of its own, because
+  the annotation's own parse splits `[string:int]` at the colon (a colon inside
+  a word is a type separator everywhere else in the language) and the argument
+  arrived as `[string`, silently. It is put back together rather than teaching
+  the tokeniser about brackets, which would put every other token in the
+  language up for re-checking.
+
+  **A generic class has no static side**, and now says so. Only instantiations
+  exist at run time, so `sfn` inside one is unreachable; the error used to be
+  "no description for called object", which sends the reader looking for a
+  missing import. Three more messages went the same way: naming a generic class
+  with no argument at all said "Unknown type: Box" and now says it is a generic
+  class and shows the spelling; the wrong number of arguments now names what
+  the class was declared with; and a type argument list on a class that takes
+  none was **dropped in silence**, so `new Plain@(int)` compiled as
+  `new Plain` and left the author believing Plain was generic.
+
+  `tests/conformance/generic_class/` is the case worth writing first: one generic class at **two different types** in one program, one at an **array type**, one at a **shape type**. `npm run test:generics` compiles it for all fourteen targets and runs it on every toolchain present, comparing output. It found two defects. The Rust writer pushed a borrowed slice parameter into a nested array with `.clone()`, which clones the reference rather than the elements — `[[string]]` never compiled on Rust, with or without a generic class; it takes `.to_vec()` now. And LLVM loses the elements of a nested array entirely, which also reproduces with no generic class in sight and is left open as ISSUES #73 rather than papered over.
+
+  A second case, `tests/conformance/generic_class_kernel/`, covers the shapes the editors actually ask for, and turned up two more target defects of the same character — both reproducible in twenty lines with no generic class in them. **ISSUES #73 grew a worse form**: `[string:[string:int]]` does not merely come back wrong on LLVM, it segfaults, and only once the inner map holds a *second* entry — one entry reads back correctly, which is what a freed-but-not-yet-reused buffer looks like. **ISSUES #74 is new**: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. The cause is pinned down — a call in statement position keeps the shape `(slot.put (v))` while the mutability analysis only reads the desugared `(call slot get ())` that a call in value position becomes — but the fix decides `&self` vs `&mut self` for every method on the target and belongs in its own change. Both are skipped by name, with the issue number, and codegen is still asserted for both targets.
+
+  Documented where a reader will actually look: the language guide's *Types*
+  page, the FAQ (with a compiled example whose output the site shows for all
+  thirteen documented targets — `History_int` and `History_string` side by
+  side, which is the design in one screenshot), the README and the offline
+  syntax card.
 
 - **`OfficeHistory` holds the operations, and three editors deleted their undo stacks** — the shared undo file used to end its explanation with an apology: *"Ranger has no generics either, so this deliberately does not try to hold the ops themselves — each editor keeps its own array."* It held the *rules* — what one action is, what falls off at the cap, when trimming is safe — and two of the three editors that needed them ignored it, because taking the rules without the array meant rebuilding a parallel `[int]` of transaction ids at every call site. The apology is gone: `OfficeHistory@(DocEditOp)`, `OfficeHistory@(SpreadsheetUndoOp)`, `OfficeHistory@(BookDocument)` and `OfficeHistory@(PptxEditSnapshot)` are four separate concrete classes, none of which knows anything about the others' entries.
 

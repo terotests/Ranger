@@ -4420,7 +4420,11 @@ class RangerAppWriterContext  {
     } else {
       if ( node.value_type == 20 ) {
       } else {
-        this.addError(node, (("Unknown type: " + node.type_name) + " type ID : ") + node.value_type);
+        if ( this.hasTemplateNode(node.type_name) ) {
+          this.addError(node, ((node.type_name + " is a generic class and needs a type argument, for example ") + node.type_name) + "@(int)");
+        } else {
+          this.addError(node, (("Unknown type: " + node.type_name) + " type ID : ") + node.value_type);
+        }
       }
     }
     return false;
@@ -4679,7 +4683,19 @@ class RangerAppWriterContext  {
     if ( givenCnt != wantCnt ) {
       const wantStr = "" + wantCnt;
       const gotStr = "" + givenCnt;
-      this.addError(typeArgs, (((templateName + " expects ") + wantStr) + " type arguments, got ") + gotStr);
+      let declared_names = "";
+      for ( let pi = 0; pi < declared.children.length; pi++) {
+        var pn = declared.children[pi];
+        if ( pi > 0 ) {
+          declared_names = declared_names + " ";
+        }
+        declared_names = declared_names + pn.vref;
+      };
+      let wantWord = " type arguments";
+      if ( wantCnt == 1 ) {
+        wantWord = " type argument";
+      }
+      this.addError(typeArgs, ((((((templateName + " is declared @params(") + declared_names) + ") and takes ") + wantStr) + wantWord) + ", given ") + gotStr);
       return res;
     }
     const match = new RangerArgMatch();
@@ -13122,10 +13138,37 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         }));
       }
     };
+    normalizeTypeArg (ch) {
+      const v = ch.vref;
+      const vlen = v.length;
+      if ( vlen < 2 ) {
+        return;
+      }
+      if ( (v.charCodeAt(0 )) != ("[".charCodeAt(0)) ) {
+        return;
+      }
+      const vLast = vlen - 1;
+      if ( (v.charCodeAt(vLast )) == ("]".charCodeAt(0)) ) {
+        return;
+      }
+      const t = ch.type_name;
+      const tlen = t.length;
+      if ( tlen < 1 ) {
+        return;
+      }
+      const tLast = tlen - 1;
+      if ( (t.charCodeAt(tLast )) != ("]".charCodeAt(0)) ) {
+        return;
+      }
+      ch.vref = (v + ":") + t;
+      ch.type_name = "";
+      ch.has_type_annotation = false;
+    };
     async genericInstanceName (baseName, tAnn, ctx, wr) {
       let tstr = "";
       for ( let i = 0; i < tAnn.children.length; i++) {
         var ch = tAnn.children[i];
+        this.normalizeTypeArg(ch);
         await this.CheckVRefTypeAnnotationOf(ch, ctx, wr);
         const part = this.typeArgKey(ch.vref);
         tstr = (tstr + "_") + part;
@@ -13160,7 +13203,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const tAnn = node.vref_annotation;
         if ( ctx.hasTemplateNode(node.vref) ) {
           const instName = await this.genericInstanceName(node.vref, (tAnn), ctx, wr);
-          await ctx.createGenericClassInstance(node.vref, instName, tAnn, this, wr);
+          const made = await ctx.createGenericClassInstance(node.vref, instName, (tAnn), this, wr);
+          if ( typeof(made) === "undefined" ) {
+            return true;
+          }
           node.vref = instName;
           node.has_vref_annotation = false;
           return true;
@@ -13169,6 +13215,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.addError(node, ("Trait class " + node.vref) + " is not defined");
         } else {
           const testC = ctx.findClass(node.vref);
+          if ( (testC.is_trait == false) && (testC.node.hasExpressionProperty("params") == false) ) {
+            ctx.addError(node, node.vref + " takes no type arguments: it is not declared with @params(...)");
+            node.has_vref_annotation = false;
+            return false;
+          }
           if ( testC.is_trait ) {
             if ( testC.node.hasExpressionProperty("params") ) {
               const params = testC.node.getExpressionProperty("params");
@@ -13196,7 +13247,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         const tAnn = node.type_annotation;
         if ( ctx.hasTemplateNode(node.type_name) ) {
           const instName = await this.genericInstanceName(node.type_name, (tAnn), ctx, wr);
-          await ctx.createGenericClassInstance(node.type_name, instName, tAnn, this, wr);
+          const made = await ctx.createGenericClassInstance(node.type_name, instName, (tAnn), this, wr);
+          if ( typeof(made) === "undefined" ) {
+            return true;
+          }
           node.type_name = instName;
           node.has_type_annotation = false;
           return true;
@@ -13205,6 +13259,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           ctx.addError(node, ("Trait class " + node.type_name) + " is not defined");
         } else {
           const testC = ctx.findClass(node.type_name);
+          if ( (testC.is_trait == false) && (testC.node.hasExpressionProperty("params") == false) ) {
+            ctx.addError(node, node.type_name + " takes no type arguments: it is not declared with @params(...)");
+            node.has_type_annotation = false;
+            return false;
+          }
           if ( testC.is_trait ) {
             if ( testC.node.hasExpressionProperty("params") ) {
               const params = testC.node.getExpressionProperty("params");
@@ -16514,7 +16573,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 }
                 classRefDesc = ctx.getVariableDef(strname);
                 if ( (typeof(classRefDesc) === "undefined") || (typeof(classRefDesc.nameNode) === "undefined") ) {
-                  ctx.addError(obj, "Error, no description for called object: " + strname);
+                  if ( ctx.hasTemplateNode(strname) ) {
+                    ctx.addError(obj, strname + " is a generic class, so it has no static side: only its instantiations exist. Move the static to a plain class.");
+                  } else {
+                    ctx.addError(obj, "Error, no description for called object: " + strname);
+                  }
                   break;
                 }
                 classRefDesc.ref_cnt = 1 + classRefDesc.ref_cnt;

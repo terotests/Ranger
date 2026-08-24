@@ -4042,12 +4042,48 @@ class RangerFlowParser {
   }
 
   ; myClass@(xxx)
+  ; A MAP type argument arrives in two pieces. `Store@([string:int])` is one
+  ; token to a reader and three to the tokeniser, because a colon inside a
+  ; word is a type separator everywhere else in the language: the argument
+  ; comes back as vref `[string` with type_name `int]`. Putting it back
+  ; together here is a great deal safer than teaching the tokeniser about
+  ; brackets, which would put every other token in the language up for
+  ; re-checking.
+  fn normalizeTypeArg:void (ch:CodeNode) {
+    def v:string ch.vref
+    def vlen:int (strlen v)
+    if (vlen < 2) {
+      return
+    }
+    if ((charAt v 0) != (charcode "[")) {
+      return
+    }
+    def vLast:int (vlen - 1)
+    if ((charAt v vLast) == (charcode "]")) {
+      ; already whole -- an array argument has no colon to split on
+      return
+    }
+    def t:string ch.type_name
+    def tlen:int (strlen t)
+    if (tlen < 1) {
+      return
+    }
+    def tLast:int (tlen - 1)
+    if ((charAt t tLast) != (charcode "]")) {
+      return
+    }
+    ch.vref = ((v + ":") + t)
+    ch.type_name = ""
+    ch.has_type_annotation = false
+  }
+
   ; `History@(SlideOp)` -> the name of its concrete class, `History_SlideOp`.
   ; Each type argument is resolved first, so `Store@(History@(int))` expands
   ; the inner class before it names the outer one.
   fn genericInstanceName:string (baseName:string tAnn:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def tstr:string ""
     for tAnn.children ch:CodeNode i {
+      this.normalizeTypeArg(ch)
       this.CheckVRefTypeAnnotationOf( ch ctx wr )
       def part:string (this.typeArgKey(ch.vref))
       tstr = ((tstr + "_") + part)
@@ -4089,7 +4125,13 @@ class RangerFlowParser {
       ; `new History@(SlideOp) ()` -- expand the class, then point the `new` at it
       if (ctx.hasTemplateNode(node.vref)) {
         def instName:string (this.genericInstanceName(node.vref (unwrap tAnn) ctx wr))
-        ctx.createGenericClassInstance( node.vref instName (unwrap tAnn) this wr )
+        def made@(optional):RangerAppClassDesc (ctx.createGenericClassInstance( node.vref instName (unwrap tAnn) this wr ))
+        ; Nothing was built -- the arguments were wrong and have been reported.
+        ; Pointing the reference at a class that does not exist only turns one
+        ; error into three.
+        if (null? made) {
+          return true
+        }
         node.vref = instName
         node.has_vref_annotation = false
         return true
@@ -4098,6 +4140,14 @@ class RangerFlowParser {
         ctx.addError(node ('Trait class ' + node.vref + ' is not defined'))
       } {
         def testC (ctx.findClass(node.vref))
+        ; A type argument list on a class that takes none used to be dropped in
+        ; silence, so `new Plain@(int)` compiled as `new Plain` and the author
+        ; was left believing Plain was generic.
+        if ((testC.is_trait == false) && ((testC.node.hasExpressionProperty("params")) == false)) {
+          ctx.addError(node ((node.vref + ' takes no type arguments: it is not declared with @params(...)')))
+          node.has_vref_annotation = false
+          return false
+        }
         if(testC.is_trait) {
           if (testC.node.hasExpressionProperty("params")) {
             def params (testC.node.getExpressionProperty("params"))
@@ -4129,7 +4179,10 @@ class RangerFlowParser {
       ; returning one -- all three arrive here
       if (ctx.hasTemplateNode(node.type_name)) {
         def instName:string (this.genericInstanceName(node.type_name (unwrap tAnn) ctx wr))
-        ctx.createGenericClassInstance( node.type_name instName (unwrap tAnn) this wr )
+        def made@(optional):RangerAppClassDesc (ctx.createGenericClassInstance( node.type_name instName (unwrap tAnn) this wr ))
+        if (null? made) {
+          return true
+        }
         node.type_name = instName
         node.has_type_annotation = false
         return true
@@ -4138,6 +4191,11 @@ class RangerFlowParser {
         ctx.addError(node ('Trait class ' + node.type_name + ' is not defined'))
       } {
         def testC (ctx.findClass(node.type_name))
+        if ((testC.is_trait == false) && ((testC.node.hasExpressionProperty("params")) == false)) {
+          ctx.addError(node ((node.type_name + ' takes no type arguments: it is not declared with @params(...)')))
+          node.has_type_annotation = false
+          return false
+        }
         if(testC.is_trait) {
           if (testC.node.hasExpressionProperty("params")) {
             def params (testC.node.getExpressionProperty("params"))
@@ -7860,7 +7918,15 @@ class RangerFlowParser {
               }
               classRefDesc = (ctx.getVariableDef(strname))
               if ( (null? classRefDesc) || (null? classRefDesc.nameNode) ) {
-                ctx.addError(obj ('Error, no description for called object: ' + strname))
+                ; A generic class has no name of its own at runtime -- only its
+                ; instantiations do -- so there is nothing for a static call to
+                ; be addressed to. Saying "no description" sends the reader
+                ; looking for a missing import instead.
+                if (ctx.hasTemplateNode(strname)) {
+                  ctx.addError(obj ((strname + ' is a generic class, so it has no static side: only its instantiations exist. Move the static to a plain class.')))
+                } {
+                  ctx.addError(obj ('Error, no description for called object: ' + strname))
+                }
                 break _
               }
               classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)

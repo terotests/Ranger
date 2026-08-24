@@ -1,0 +1,169 @@
+; Test: the generic shapes the shared editing kernel actually asks for.
+;
+; The first case (`generic_class`) is the language question — a parameter as an
+; array element, a parameter type and a return type, at two types, an array
+; type and a shape type. This one is the USE question, and every class below is
+; a shape named in PLAN_EDITOR_KERNEL's queue:
+;
+;   Store@(T)       id -> thing, which needs `[string:T]` — assets, styles
+;   Holder@(T)      a generic class used INSIDE another one, at its own
+;                   parameter: Transaction<Op> inside History<Op>
+;   Tagged@(T)      a generic class that extends a plain one
+;   a constructor that takes arguments, and a method returning [T]
+;
+; A map as the type ARGUMENT is here too (`Store@([string:int])`), because the
+; annotation's own parse splits it at the colon and it has to be put back
+; together — the failure was silent, binding the parameter to "[string".
+
+class Store @params(T) {
+    def byId:[string:T]
+    def ids:[string]
+    def label:string ""
+
+    Constructor (name:string) {
+        label = name
+    }
+
+    fn put:void (id:string v:T) {
+        set byId id v
+        push ids id
+    }
+    fn take:T (id:string) {
+        def v:T (unwrap (get byId id))
+        return v
+    }
+    fn keys:[string] () {
+        return ids
+    }
+    fn count:int () {
+        return (array_length ids)
+    }
+}
+
+; One generic class holding another, at its OWN type parameter — the shape
+; `Transaction<Op>` inside `History<Op>` needs, and the one that proves
+; expansion recurses rather than stopping at the outermost reference.
+class Slot @params(V) {
+    def held:[V]
+
+    fn put:void (v:V) {
+        clear held
+        push held v
+    }
+    fn get:V () {
+        def r:V (last held)
+        return r
+    }
+    fn filled:boolean () {
+        return ((array_length held) > 0)
+    }
+}
+
+class Holder @params(T) {
+    def slot:Slot@(T) (new Slot@(T) ())
+
+    fn keep:void (v:T) {
+        slot.put(v)
+    }
+    fn taken:T () {
+        return (slot.get())
+    }
+}
+
+class NamedThing {
+    def name:string ""
+
+    Constructor (n:string) {
+        name = n
+    }
+}
+
+class BaseCounter {
+    def hits:int 0
+
+    fn bump:void () {
+        hits = (hits + 1)
+    }
+}
+
+; A generic class that extends a plain one: the copy keeps what it extends.
+class Tagged @params(T) {
+    Extends (BaseCounter)
+
+    def items:[T]
+
+    fn add:void (v:T) {
+        push items v
+        this.bump()
+    }
+    fn size:int () {
+        return (array_length items)
+    }
+}
+
+class GenericKernelTest {
+
+    fn aStoreOfObjects:void () {
+        def assets:Store@(NamedThing) (new Store@(NamedThing) ("assets"))
+        assets.put("a1" (new NamedThing("logo")))
+        assets.put("a2" (new NamedThing("cover")))
+        def got:NamedThing (assets.take("a2"))
+        def n (assets.count())
+        def ks:[string] (assets.keys())
+        def joined (join ks ",")
+        print ((((assets.label + ": ") + n) + " ") + got.name + " [" + joined + "]")
+    }
+
+    fn aStoreOfScalars:void () {
+        def nums:Store@(int) (new Store@(int) ("nums"))
+        nums.put("x" 41)
+        nums.put("y" 42)
+        def v (nums.take("y"))
+        def n (nums.count())
+        print ((((nums.label + ": ") + n) + " y=") + v)
+    }
+
+    ; The type argument is itself a map. It arrives split at the colon and has
+    ; to be reassembled, which was silently binding the parameter to "[string".
+    fn aStoreOfMaps:void () {
+        def rows:Store@([string:int]) (new Store@([string:int]) ("rows"))
+        def r:[string:int]
+        set r "one" 1
+        set r "two" 2
+        rows.put("r1" r)
+        def back:[string:int] (rows.take("r1"))
+        def two:int (unwrap (get back "two"))
+        def n (rows.count())
+        print ((((rows.label + ": ") + n) + " two=") + two)
+    }
+
+    fn oneGenericInsideAnother:void () {
+        def h:Holder@(int) (new Holder@(int) ())
+        h.keep(7)
+        def v (h.taken())
+        def hs:Holder@(string) (new Holder@(string) ())
+        hs.keep("seven")
+        def sv (hs.taken())
+        print ((("holder: " + v) + " ") + sv)
+    }
+
+    fn aGenericThatExtends:void () {
+        def t:Tagged@(int) (new Tagged@(int) ())
+        t.add(1)
+        t.add(2)
+        t.add(3)
+        def n (t.size())
+        def hits (t.hits)
+        print ((("tagged: " + n) + " bumped=") + hits)
+    }
+
+    sfn m@(main):void () {
+        def t (new GenericKernelTest())
+        t.aStoreOfObjects()
+        t.aStoreOfScalars()
+        t.aStoreOfMaps()
+        t.oneGenericInsideAnother()
+        t.aGenericThatExtends()
+        print "Done"
+    }
+}
