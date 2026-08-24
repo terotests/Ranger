@@ -35,6 +35,11 @@ Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../office/export/EVGListToElements.rgr"
 
+; Draws decks. Give it fonts, then ask for a PNG or a PDF.
+;
+; It is built on `PptxView` — the editor's own painter — so a PNG from here
+; and a screenshot of the editor are the same picture rather than two
+; renderings that agree until they do not.
 class PptxRenderer {
     ; The slide painter — the same one the desktop editor and the browser build
     ; draw with, so a PNG from here and a screenshot of the editor are the same
@@ -215,7 +220,7 @@ class PptxRenderer {
         return out
     }
 
-    ; The renderer, set up the way both PDF paths need it. It is one method
+    ; @internal The renderer, set up the way both PDF paths need it. It is one method
     ; because the two used to be two, and the multi-page one quietly missed
     ; `setMeasurer` — which does not fail, it falls back to guessed widths, so
     ; every line on every page was laid out against a font nobody measured.
@@ -245,7 +250,7 @@ class PptxRenderer {
         return renderer
     }
 
-    ; The display list for one slide, at PDF scale. Shared by both PDF paths
+    ; @internal The display list for one slide, at PDF scale. Shared by both PDF paths
     ; so a page in a deck and the same page on its own cannot come out
     ; differently.
     fn slideList:EVGDisplayList (deck:PptxDeck slide:PptxSlide index:int) {
@@ -254,6 +259,7 @@ class PptxRenderer {
         return (view.converter.slideToDisplayList(slide))
     }
 
+    ; @internal The colour behind one slide.
     fn slideBg:EVGColor (slide:PptxSlide) {
         def bg:EVGColor (EVGColor.parse("#FFFFFF"))
         if slide.bg.isSet {

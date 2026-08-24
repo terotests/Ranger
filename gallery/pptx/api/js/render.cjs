@@ -50,6 +50,10 @@ class Renderer {
     return out;
   }
 
+  /** The pixel size of the last PNG, once one has been drawn. */
+  get pngWidth() { return this._.pngWidth(); }
+  get pngHeight() { return this._.pngHeight(); }
+
   /** One slide as a vector PDF page at the slide's own size in points. */
   toPdf(deck, slide = 0) {
     const out = fromRanger(this._.toPdf(deck._, slide | 0));

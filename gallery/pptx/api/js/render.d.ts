@@ -23,6 +23,10 @@ export declare class Renderer {
 
   /** `scale` multiplies 96 dots per inch, not a pixel width. */
   toPng(deck: Deck, slide?: number, scale?: number): Uint8Array;
+  /** The pixel size of the last PNG, once one has been drawn. */
+  readonly pngWidth: number;
+  readonly pngHeight: number;
+
   /** One slide as a vector page at the slide's own size in points. */
   toPdf(deck: Deck, slide?: number): Uint8Array;
   /** The whole deck as one PDF, a page per slide, fonts embedded once. */

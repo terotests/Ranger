@@ -77,6 +77,7 @@ class PptxRunRef {
         return ((index >= 0) && (index < (array_length p.runs)))
     }
 
+    ; @internal The model object behind the handle. Callers use the methods.
     fn model:PptxTextRun () {
         def sh:PptxShape (shape.model())
         def p:PptxParagraph (itemAt sh.text.paragraphs para)
@@ -171,12 +172,13 @@ class PptxShapeRef {
         return ((index >= 0) && (index < (array_length sl.shapes)))
     }
 
+    ; @internal The model object behind the handle. Callers use the methods.
     fn model:PptxShape () {
         def sl:PptxSlide (slide.model())
         return (itemAt sl.shapes index)
     }
 
-    ; Every writer calls this. A slide that is not marked dirty is COPIED
+    ; @internal Every writer calls this. A slide that is not marked dirty is COPIED
     ; through byte for byte when the deck is saved over the file it came from —
     ; which is the whole point of that path, and also the way an edit silently
     ; fails to appear in the output if nothing says the slide changed.
@@ -507,6 +509,7 @@ class PptxSlideRef {
         return ((index >= 0) && (index < (array_length deck.pres.slides)))
     }
 
+    ; @internal The model object behind the handle. Callers use the methods.
     fn model:PptxSlide () {
         return (itemAt deck.pres.slides index)
     }
@@ -810,7 +813,7 @@ class PptxApi {
         return deck
     }
 
-    ; Split on newlines. The language has no `split` operator and the three
+    ; @internal Split on newlines. The language has no `split` operator and the three
     ; editors here each grew their own; this one is the API's, and it keeps
     ; empty lines — a caller who writes "a\n\nb" means a blank paragraph
     ; between them, and dropping it silently renumbers everything after.
@@ -835,7 +838,7 @@ class PptxApi {
         return out
     }
 
-    ; "4472C4", "#4472C4" — and a name nobody can parse gives a colour that is
+    ; @internal "4472C4", "#4472C4" — and a name nobody can parse gives a colour that is
     ; not set, which the writer leaves out rather than writing black.
     sfn colorOf:PptxColor (hex:string) {
         def s:string (trim hex)

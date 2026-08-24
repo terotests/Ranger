@@ -127,3 +127,7 @@ gallery/pdf_writer/bin/print_finishing_test.js
 
 # Built JavaScript API bundles — compiled from the Ranger sources beside them.
 gallery/pptx/api/js/dist/
+
+# API reference pages, generated from the Ranger facades by docs/tools.
+docs/site/src/content/docs/office/
+docs/site/src/data/*-api.json

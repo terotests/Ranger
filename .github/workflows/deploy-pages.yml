@@ -49,6 +49,9 @@ on:
       - "docs/**"
       - "gallery/evg/**"
       - "gallery/vela/**"
+      # The API reference is generated FROM these, so a change to a facade
+      # changes the published documentation without touching docs/.
+      - "gallery/pptx/api/**"
       - "gallery/pdf_writer/src/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
