@@ -209,3 +209,28 @@ unchanged, and the two places that decode a picture *as a side effect of
 drawing something* — `EVGImageDecode` and `GridImages` — turn it on. It has to
 be propagated into `HuffmanDecoder` at decode time rather than in the
 constructor, because a caller can only set it after constructing the decoder.
+
+## 16. Seven faces loaded, none of them bound: the whole book drawn in a bitmap font
+
+The native host loaded its faces with `tr.fm.loadFont(path)` — the FontManager
+directly. That loads the file, returns true, and logs `Loaded font 'Cinzel'
+(Regular)`, so all seven faces reported success. What it does not do is any of
+the things `UITextRenderer.loadFont(family, path)` does: bind the face to the
+rasterizer, install the TrueType measurer, or set `hasFont`. `applyFace`
+returns immediately while `hasFont` is false, so `RasterText` kept its built-in
+bitmap font and **every glyph in the window was drawn in it** — while the
+layout had been measured with the real metrics, so the line breaks were right
+and the letterforms were not.
+
+It looks like a retro style choice, not a defect. And the host's own guard —
+"measuring with N face(s) and drawing with M" — passed cleanly, because both
+counters were counting files that loaded rather than asking whether anything
+was bound. A check that counts the wrong noun is worse than no check: it
+reports the failure as fine.
+
+The first face now goes through `tr.loadFont`, the rest through `tr.addFace`
+(which is what joins the bold, italic and per-codepoint fallback pool), and the
+host asks `tr.hasFont` and prints the bound face on every run. `EvgGlPainter`
+has an early return when the wanted face is already the current one, which was
+harmless before only by accident: with nothing bound, "already current" meant
+"still the bitmap font".
