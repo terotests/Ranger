@@ -649,6 +649,186 @@ class TrueTypeFont {
     fn getFontData:buffer () {
         return fontData
     }
+
+    ; --- the font, with the tables a PDF cannot use taken out ---------------------
+    ;
+    ; A .ttf carries a great deal that only a layout engine wants. PDF 32000
+    ; asks a `/FontFile2` for `glyf`, `head`, `hhea`, `hmtx`, `loca` and
+    ; `maxp`, plus `cvt `, `fpgm` and `prep` when the glyphs are hinted, and
+    ; `cmap` for a non-symbolic font. Everything else is the producer's
+    ; business, and by the time a PDF is written the producer has already done
+    ; its work: the kerning is baked into the text positions this writer emits,
+    ; so `kern` describes adjustments nobody will apply again.
+    ;
+    ; It is worth being exact about the size of that, because it is not a
+    ; rounding: in Open Sans Regular, `kern` is 112,182 bytes of a 217,360-byte
+    ; file. More than half of every embedded copy was a table the reader would
+    ; never open. With `post`, `DSIG`, `name`, `GSUB`, `GPOS`, `GDEF`, `OS/2`
+    ; and `gasp` beside it, 60% of the file goes.
+    ;
+    ; The kept tables are copied BYTE FOR BYTE, so their checksums stay true
+    ; and no glyph is touched. `head.checkSumAdjustment` covers the whole file
+    ; and will no longer match, which is the one thing a subsetter cannot avoid
+    ; without recomputing it; every reader treats it as advisory.
+    sfn keepsInPdf:boolean (tag:string) {
+        if (tag == "glyf") { return true }
+        if (tag == "head") { return true }
+        if (tag == "hhea") { return true }
+        if (tag == "hmtx") { return true }
+        if (tag == "loca") { return true }
+        if (tag == "maxp") { return true }
+        if (tag == "cvt ") { return true }
+        if (tag == "fpgm") { return true }
+        if (tag == "prep") { return true }
+        if (tag == "cmap") { return true }
+        ; PDF does not need these three, and they are kept anyway.
+        ;
+        ; A `/FontFile2` is read by the PDF reader's own parser, but an
+        ; embedded font does not always stop there — a reader that hands the
+        ; program to the system's font machinery, or a tool that extracts it,
+        ; meets a STRICTER parser. Chromium runs every face through the
+        ; OpenType Sanitiser, which refuses a font with no `name`, `OS/2` or
+        ; `post`, and refusing is what it did to the first version of this:
+        ; structurally perfect, every offset in range, every checksum intact,
+        ; and rejected.
+        ;
+        ; They cost 11,346 bytes in Open Sans against the 112,182 that `kern`
+        ; alone was costing, so this is not the trade it looks like. It also
+        ; means the stripped font can be handed to a real font engine and
+        ; checked, which is worth more than the bytes.
+        if (tag == "name") { return true }
+        if (tag == "OS/2") { return true }
+        if (tag == "post") { return true }
+        return false
+    }
+
+    fn pdfFontData:buffer () {
+        def kept:[TTFTableRecord]
+        def i:int 0
+        while (i < (array_length tables)) {
+            def t:TTFTableRecord (itemAt tables i)
+            if (TrueTypeFont.keepsInPdf(t.tag)) {
+                push kept t
+            }
+            i = (i + 1)
+        }
+        if ((array_length kept) == 0) {
+            return fontData
+        }
+        ; A table directory is sorted by tag, and a reader is entitled to
+        ; binary-search it. The records are already in tag order in a
+        ; well-formed font, but a font is not always well formed.
+        def n:int (array_length kept)
+        def a:int 0
+        while (a < n) {
+            def b:int (a + 1)
+            while (b < n) {
+                def x:TTFTableRecord (itemAt kept a)
+                def y:TTFTableRecord (itemAt kept b)
+                if (TrueTypeFont.tagLess(y.tag x.tag)) {
+                    set_at kept a y
+                    set_at kept b x
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+
+        ; Offsets first, so the directory can be written before the tables.
+        ; Every table starts on a four-byte boundary.
+        def headerLen:int (12 + (16 * n))
+        def offsets:[int]
+        def at:int headerLen
+        def k:int 0
+        while (k < n) {
+            push offsets at
+            def t2:TTFTableRecord (itemAt kept k)
+            at = (at + t2.length)
+            while ((at % 4) != 0) {
+                at = (at + 1)
+            }
+            k = (k + 1)
+        }
+        def total:int at
+
+        def out:buffer (buffer_alloc total)
+        def w:int 0
+        ; sfnt version 1.0 for TrueType outlines.
+        TrueTypeFont.put32(out 0 65536)
+        TrueTypeFont.put16(out 4 n)
+        ; searchRange / entrySelector / rangeShift: the binary-search hints.
+        def pow2:int 1
+        def log2:int 0
+        while ((pow2 * 2) <= n) {
+            pow2 = (pow2 * 2)
+            log2 = (log2 + 1)
+        }
+        TrueTypeFont.put16(out 6 (pow2 * 16))
+        TrueTypeFont.put16(out 8 log2)
+        TrueTypeFont.put16(out 10 ((n * 16) - (pow2 * 16)))
+
+        def d:int 0
+        while (d < n) {
+            def rec:TTFTableRecord (itemAt kept d)
+            def base:int (12 + (16 * d))
+            def ti:int 0
+            while (ti < 4) {
+                def ch:int 32
+                if (ti < (strlen rec.tag)) {
+                    ch = (charAt rec.tag ti)
+                }
+                buffer_set out (base + ti) ch
+                ti = (ti + 1)
+            }
+            TrueTypeFont.put32(out (base + 4) rec.checksum)
+            TrueTypeFont.put32(out (base + 8) (itemAt offsets d))
+            TrueTypeFont.put32(out (base + 12) rec.length)
+            ; The table itself, verbatim.
+            def src:int rec.offset
+            def dst:int (itemAt offsets d)
+            def c:int 0
+            while (c < rec.length) {
+                buffer_set out (dst + c) (buffer_get fontData (src + c))
+                c = (c + 1)
+            }
+            d = (d + 1)
+        }
+        return out
+    }
+
+    ; Which of two four-character tags sorts first. The language has no `<` on
+    ; strings, and a table directory that is not in tag order is one a reader
+    ; may binary-search into the wrong entry.
+    sfn tagLess:boolean (a:string b:string) {
+        def i:int 0
+        while (i < 4) {
+            def ca:int 32
+            def cb:int 32
+            if (i < (strlen a)) {
+                ca = (charAt a i)
+            }
+            if (i < (strlen b)) {
+                cb = (charAt b i)
+            }
+            if (ca != cb) {
+                return (ca < cb)
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn put16:void (b:buffer at:int v:int) {
+        buffer_set b at (bit_and (bit_shr v 8) 255)
+        buffer_set b (at + 1) (bit_and v 255)
+    }
+
+    sfn put32:void (b:buffer at:int v:int) {
+        buffer_set b at (bit_and (bit_shr v 24) 255)
+        buffer_set b (at + 1) (bit_and (bit_shr v 16) 255)
+        buffer_set b (at + 2) (bit_and (bit_shr v 8) 255)
+        buffer_set b (at + 3) (bit_and v 255)
+    }
     
     ; Get PostScript name for PDF
     fn getPostScriptName:string () {

@@ -20,6 +20,7 @@ Import "../../../evg/SvgParser.rgr"
 Import "Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
+Import "PdfFlate.rgr"
 Import "../fonts/TTFSubset.rgr"
 Import "../../../evg/EVGGrapheme.rgr"
 Import "../jpeg/JPEGReader.rgr"
@@ -202,6 +203,40 @@ class EVGPDFRenderer {
     ; called `readJPEG` on a path that does not exist and the process died on
     ; ENOENT.
     def suppliedImages:[string:ImageBuffer]
+
+    ; face key → the object number of the FontFile2 stream already written for
+    ; it, so a second name resolving to the same face points at the first copy.
+    def fontFileByFace:[string:int]
+
+    ; --- streams, written small --------------------------------------------------
+    ;
+    ; Every stream here used to be written raw. `/FlateDecode` is what PDF has
+    ; for that, and it is the same deflate the PNG writer uses. Compressed data
+    ; that is already compressed grows, so a stream that did not shrink is
+    ; written as it was — see `PdfFlate.worthIt`.
+    fn writeStream:void (pdf:GrowableBuffer body:buffer extra:string) {
+        def packed:buffer (PdfFlate.zlib(body))
+        def raw:int (buffer_length body)
+        if (PdfFlate.worthIt(body packed)) {
+            pdf.writeString("<< /Length " + (to_string (buffer_length packed)) + " /Filter /FlateDecode" + extra + " >>\n")
+            pdf.writeString("stream\n")
+            pdf.writeBuffer(packed)
+        } {
+            pdf.writeString("<< /Length " + (to_string raw) + extra + " >>\n")
+            pdf.writeString("stream\n")
+            pdf.writeBuffer(body)
+        }
+        pdf.writeString("\nendstream\n")
+        pdf.writeString("endobj\n\n")
+    }
+
+    ; The face a name resolves to, as a key. Two NAMES can resolve to one FACE
+    ; — a family whose italic was never loaded answers the regular one for both
+    ; — and each was embedding the whole file again. On a five-slide deck that
+    ; was 217KB of byte-identical duplicate in a 531KB file.
+    sfn faceKey:string (f:TrueTypeFont) {
+        return (f.fontFamily + "/" + f.fontStyle)
+    }
 
     fn registerImage:void (src:string pixels:ImageBuffer) {
         set suppliedImages src pixels
@@ -841,20 +876,25 @@ class EVGPDFRenderer {
             def ttfFont:TrueTypeFont (fontManager.getFont(fontName))
             
             if (ttfFont.unitsPerEm > 0) {
-                ; Embed TrueType font
-                def fontFileData:buffer (ttfFont.getFontData())
-                def fontFileLen:int (buffer_length fontFileData)
-                
-                ; Font file stream object
-                push objectOffsets (pdf.size())
-                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-                pdf.writeString("<< /Length " + (to_string fontFileLen) + " /Length1 " + (to_string fontFileLen) + " >>\n")
-                pdf.writeString("stream\n")
-                pdf.writeBuffer(fontFileData)
-                pdf.writeString("\nendstream\n")
-                pdf.writeString("endobj\n\n")
-                def fontFileObjNum:int nextObjNum
-                nextObjNum = nextObjNum + 1
+                ; Embed TrueType font — once per FACE, not once per name.
+                def key:string (EVGPDFRenderer.faceKey(ttfFont))
+                def already@(optional):int (get fontFileByFace key)
+                def fontFileObjNum:int 0
+                if (!null? already) {
+                    fontFileObjNum = (unwrap already)
+                } {
+                    def fontFileData:buffer (ttfFont.pdfFontData())
+                    def fontFileLen:int (buffer_length fontFileData)
+                    push objectOffsets (pdf.size())
+                    pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                    ; `/Length1` is the size BEFORE the filter: a reader needs
+                    ; the original length to parse the TrueType tables, and the
+                    ; compressed length is what `/Length` says.
+                    this.writeStream(pdf fontFileData (" /Length1 " + (to_string fontFileLen)))
+                    fontFileObjNum = nextObjNum
+                    set fontFileByFace key fontFileObjNum
+                    nextObjNum = nextObjNum + 1
+                }
                 
                 ; Font descriptor object
                 push objectOffsets (pdf.size())
@@ -1096,11 +1136,7 @@ class EVGPDFRenderer {
             
             push objectOffsets (pdf.size())
             pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-            pdf.writeString("<< /Length " + (to_string contentLen) + " >>\n")
-            pdf.writeString("stream\n")
-            pdf.writeBuffer(contentData)
-            pdf.writeString("\nendstream\n")
-            pdf.writeString("endobj\n\n")
+            this.writeStream(pdf contentData "")
             push contentObjNumList nextObjNum
             nextObjNum = nextObjNum + 1
             ci = ci + 1
@@ -1280,20 +1316,25 @@ class EVGPDFRenderer {
             def ttfFont:TrueTypeFont (fontManager.getFont(fontName))
             
             if (ttfFont.unitsPerEm > 0) {
-                ; Embed TrueType font
-                def fontFileData:buffer (ttfFont.getFontData())
-                def fontFileLen:int (buffer_length fontFileData)
-                
-                ; Font file stream object
-                push objectOffsets (pdf.size())
-                pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-                pdf.writeString("<< /Length " + (to_string fontFileLen) + " /Length1 " + (to_string fontFileLen) + " >>\n")
-                pdf.writeString("stream\n")
-                pdf.writeBuffer(fontFileData)
-                pdf.writeString("\nendstream\n")
-                pdf.writeString("endobj\n\n")
-                def fontFileObjNum:int nextObjNum
-                nextObjNum = nextObjNum + 1
+                ; Embed TrueType font — once per FACE, not once per name.
+                def key:string (EVGPDFRenderer.faceKey(ttfFont))
+                def already@(optional):int (get fontFileByFace key)
+                def fontFileObjNum:int 0
+                if (!null? already) {
+                    fontFileObjNum = (unwrap already)
+                } {
+                    def fontFileData:buffer (ttfFont.pdfFontData())
+                    def fontFileLen:int (buffer_length fontFileData)
+                    push objectOffsets (pdf.size())
+                    pdf.writeString((to_string nextObjNum) + " 0 obj\n")
+                    ; `/Length1` is the size BEFORE the filter: a reader needs
+                    ; the original length to parse the TrueType tables, and the
+                    ; compressed length is what `/Length` says.
+                    this.writeStream(pdf fontFileData (" /Length1 " + (to_string fontFileLen)))
+                    fontFileObjNum = nextObjNum
+                    set fontFileByFace key fontFileObjNum
+                    nextObjNum = nextObjNum + 1
+                }
                 
                 ; Font descriptor object
                 push objectOffsets (pdf.size())
@@ -1525,11 +1566,7 @@ class EVGPDFRenderer {
         ; Content stream object
         push objectOffsets (pdf.size())
         pdf.writeString((to_string nextObjNum) + " 0 obj\n")
-        pdf.writeString("<< /Length " + (to_string contentLen) + " >>\n")
-        pdf.writeString("stream\n")
-        pdf.writeBuffer(contentData)
-        pdf.writeString("\nendstream\n")
-        pdf.writeString("endobj\n\n")
+        this.writeStream(pdf contentData "")
         def contentObjNum:int nextObjNum
         nextObjNum = nextObjNum + 1
         

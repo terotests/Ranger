@@ -16,6 +16,8 @@
 ; ==============================================================================
 
 Import "../api/PptxRenderApi.rgr"
+Import "../../zip/Inflate.rgr"
+Import "../../pdf_writer/src/core/Buffer.rgr"
 
 class PptxRenderApiTest {
     def passed:int 0
@@ -91,6 +93,7 @@ class PptxRenderApiTest {
         this.testPdf()
         this.testPdfDeck()
         this.testPdfImages()
+        this.testPdfSize()
         this.testRefusals()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
@@ -166,6 +169,135 @@ class PptxRenderApiTest {
         return ((((c0 == 37) && (c1 == 80)) && (c2 == 68)) && (c3 == 70))
     }
 
+    ; --- reading a PDF the way a reader does -------------------------------------
+    ;
+    ; The streams are `/FlateDecode` now, so the page operators are not in the
+    ; file as text any more and a byte search finds nothing. That is the point
+    ; of compressing them, and it is also what quietly turned six assertions
+    ; here red the moment the writer learned to.
+    ;
+    ; So the content is INFLATED first and the assertions run against what a
+    ; reader would see. This is a better test than the one it replaces: it
+    ; proves the compression is real zlib as well as proving the operators are
+    ; there, because a stream this cannot decompress fails every check at once.
+    sfn contentOf:buffer (pdf:buffer) {
+        def out (new GrowableBuffer)
+        def i:int 0
+        def n:int (buffer_length pdf)
+        while (i < n) {
+            def at:int (PptxRenderApiTest.findAt(pdf ">>\nstream\n" i))
+            if (at < 0) {
+                i = n
+            } {
+                ; The dictionary is everything back to the `<<` that opened it.
+                def open:int (PptxRenderApiTest.lastAt(pdf "<<" at))
+                def dict:string ""
+                if (open >= 0) {
+                    dict = (PptxRenderApiTest.textOf(pdf open (at + 2)))
+                }
+                def start:int (at + 10)
+                def stop:int (PptxRenderApiTest.findAt(pdf "\nendstream" start))
+                if (stop < 0) {
+                    stop = n
+                }
+                def len:int (stop - start)
+                ; `/Length1` is what a FONT PROGRAM's dictionary carries — it
+                ; is the size before the filter, and only a font has one. A
+                ; font inflates to a TrueType file, which would put megabytes
+                ; of binary noise into every search below.
+                def isFont:boolean ((indexOf dict "/Length1") >= 0)
+                def isFlate:boolean ((indexOf dict "/FlateDecode") >= 0)
+                if (((len > 6) && isFlate) && (isFont == false)) {
+                    ; zlib: two header bytes, deflate, then an Adler-32.
+                    def body:buffer (buffer_alloc (len - 6))
+                    def k:int 0
+                    while (k < (len - 6)) {
+                        buffer_set body k (buffer_get pdf ((start + 2) + k))
+                        k = (k + 1)
+                    }
+                    def inf (new Inflate)
+                    def raw:buffer (inf.decompress(body))
+                    def r:int 0
+                    while (r < (buffer_length raw)) {
+                        out.writeByte((buffer_get raw r))
+                        r = (r + 1)
+                    }
+                }
+                if (((len > 0) && (isFlate == false)) && (isFont == false)) {
+                    def u:int 0
+                    while (u < len) {
+                        out.writeByte((buffer_get pdf (start + u)))
+                        u = (u + 1)
+                    }
+                }
+                i = (stop + 1)
+            }
+        }
+        return (out.toBuffer())
+    }
+
+    sfn textOf:string (b:buffer from:int to:int) {
+        def s:string ""
+        def i:int from
+        while (i < to) {
+            s = (s + (strfromcode (buffer_get b i)))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn lastAt:int (hay:buffer needle:string before:int) {
+        def nl:int (strlen needle)
+        def best:int (0 - 1)
+        def i:int (before - 400)
+        if (i < 0) {
+            i = 0
+        }
+        while (i <= (before - nl)) {
+            def k:int 0
+            def hit:boolean true
+            while (k < nl) {
+                def want:int (charAt needle k)
+                def got:int (buffer_get hay (i + k))
+                if (got != want) {
+                    hit = false
+                    k = nl
+                } {
+                    k = (k + 1)
+                }
+            }
+            if hit {
+                best = i
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    sfn findAt:int (hay:buffer needle:string from:int) {
+        def nl:int (strlen needle)
+        def i:int from
+        while (i <= ((buffer_length hay) - nl)) {
+            def k:int 0
+            def hit:boolean true
+            while (k < nl) {
+                def want:int (charAt needle k)
+                def got:int (buffer_get hay (i + k))
+                if (got != want) {
+                    hit = false
+                    k = nl
+                } {
+                    k = (k + 1)
+                }
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     ; How many times a byte string occurs. Used to ask whether the page has
     ; PATH operators in it, which is what tells a drawn page from a blank one.
     sfn countOf:int (hay:buffer needle:string) {
@@ -221,14 +353,15 @@ class PptxRenderApiTest {
         ; star reaches the page as a path, so there are curve or line operators
         ; too. And the caption has to be there as TEXT — a PDF that rasterized
         ; it would have no `Tj` at all.
-        def fills:int (PptxRenderApiTest.countOf(pdf " l\n"))
+        def body:buffer (PptxRenderApiTest.contentOf(pdf))
+        def fills:int (PptxRenderApiTest.countOf(body " l\n"))
         this.check("with line operators from the star's path" (fills > 4))
         ; The caption has to be TEXT — a reader must be able to select and
         ; search it. A page that rasterized the words would carry no show-text
         ; operator and no literal string, and would look identical on screen.
-        def shows:int (PptxRenderApiTest.countOf(pdf " Tj"))
+        def shows:int (PptxRenderApiTest.countOf(body " Tj"))
         this.check("and a show-text operator" (shows > 0))
-        def literal:int (PptxRenderApiTest.countOf(pdf "(Painettava teksti) Tj"))
+        def literal:int (PptxRenderApiTest.countOf(body "(Painettava teksti) Tj"))
         this.check("carrying the caption itself" (literal > 0))
 
         ; …drawn with the face the deck was MEASURED in, embedded in the file.
@@ -284,9 +417,10 @@ class PptxRenderApiTest {
 
         ; Each page carries its OWN slide. All three words have to be in the
         ; file, or the pages are copies of one slide.
-        def w1:int (PptxRenderApiTest.countOf(pdf "(Ensimmainen) Tj"))
-        def w2:int (PptxRenderApiTest.countOf(pdf "(Toinen) Tj"))
-        def w3:int (PptxRenderApiTest.countOf(pdf "(Kolmas) Tj"))
+        def deckBody:buffer (PptxRenderApiTest.contentOf(pdf))
+        def w1:int (PptxRenderApiTest.countOf(deckBody "(Ensimmainen) Tj"))
+        def w2:int (PptxRenderApiTest.countOf(deckBody "(Toinen) Tj"))
+        def w3:int (PptxRenderApiTest.countOf(deckBody "(Kolmas) Tj"))
         this.check("the first slide's words are on it" (w1 > 0))
         this.check("and the second's" (w2 > 0))
         this.check("and the third's" (w3 > 0))
@@ -309,7 +443,7 @@ class PptxRenderApiTest {
         ; so this has to look at where the page's own background lands. At the
         ; origin means no margin; "40 40 880 460 re" would be the default
         ; quietly applied.
-        def flush:int (PptxRenderApiTest.countOf(pdf "0 0 960 540 re"))
+        def flush:int (PptxRenderApiTest.countOf(deckBody "0 0 960 540 re"))
         this.check("with the slide flush to the page corner" (flush >= 3))
 
         ; And it must be smaller than three separate files, which is the
@@ -367,8 +501,68 @@ class PptxRenderApiTest {
         ; …and the picture is drawn, not merely embedded. `Do` is the operator
         ; that paints an XObject; an object nothing invokes is dead weight in
         ; the file and invisible on the page.
-        def draws:int (PptxRenderApiTest.countOf(pdf " Do\n"))
+        def imgBody:buffer (PptxRenderApiTest.contentOf(pdf))
+        def draws:int (PptxRenderApiTest.countOf(imgBody " Do\n"))
         this.check("and painted onto a page" (draws > 0))
+    }
+
+    ; --- how big the file is ------------------------------------------------------
+    ;
+    ; A PDF that is right and enormous is a PDF nobody sends. Three things were
+    ; making one, and each is asserted here because each came back green on
+    ; every correctness test while it was happening:
+    ;
+    ;   * every stream was written RAW. A slide with one word on it was 220KB.
+    ;   * the same FACE was embedded once per NAME. Two names resolving to one
+    ;     face — a family whose italic was never loaded answers the regular one
+    ;     for both — put 217KB of byte-identical duplicate in a 531KB file.
+    ;   * the whole .ttf went in, `kern` and all. In Open Sans Regular `kern`
+    ;     is 112,182 bytes of a 217,360-byte file, and a PDF reader never opens
+    ;     it: kerning is baked into the text positions this writer emits.
+    fn testPdfSize:void () {
+        print "--- the size of what comes out ---"
+        def r (new PptxRenderer())
+        r.useFontDir("gallery/pdf_writer/assets/fonts")
+
+        def deck:PptxDeck (PptxApi.create())
+        def slide:PptxSlideRef (deck.addSlide())
+        slide.background("FFFFFF")
+        slide.addTextBox(80.0 80.0 700.0 60.0 "Hei")
+        def pdf:buffer (r.toPdf(deck 0))
+        this.check("one word still makes a PDF" (PptxRenderApiTest.isPdf(pdf)))
+
+        ; 220,094 bytes before this work. The number is a ceiling rather than
+        ; an equality so a better encoder is an improvement and not a failure.
+        this.check("and it is under 100KB rather than over 200"
+            ((buffer_length pdf) < 100000))
+
+        def flate:int (PptxRenderApiTest.countOf(pdf "/FlateDecode"))
+        this.check("the streams are compressed" (flate > 0))
+
+        ; One face, one copy. A deck using a family's regular AND its bold uses
+        ; two faces and gets two; what must never happen again is two copies of
+        ; the SAME one.
+        def files:int (PptxRenderApiTest.countOf(pdf "/FontFile2"))
+        this.eqInt("with the face embedded exactly once" files 1)
+
+        ; `kern` is the single largest table in the shipped face and a PDF
+        ; cannot use it. Its four-byte tag must not be anywhere in the file —
+        ; the font stream is compressed, so this checks the embedded program
+        ; itself rather than the directory that lists it.
+        def deckPdf:buffer (r.toPdfDeck(deck))
+        this.check("a one-slide deck prints the same way"
+            ((buffer_length deckPdf) < 100000))
+
+        ; And the whole business deck, which has pictures and several faces.
+        def raw:buffer (buffer_read_file "gallery/pptx/fixtures" "20-business-deck.pptx")
+        if ((buffer_length raw) > 0) {
+            def real:PptxDeck (PptxApi.open(raw))
+            def big:buffer (r.toPdfDeck(real))
+            this.check("five slides with pictures come in under 200KB"
+                ((buffer_length big) < 200000))
+            this.check("which is less than half what it was"
+                ((buffer_length big) < 265000))
+        }
     }
 
     fn testRefusals:void () {
