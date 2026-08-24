@@ -136,8 +136,10 @@ def rows:History@([string]) (new History@([string]) ())
 def byId:Store@([string:int]) (new Store@([string:int]) ())
 ```
 
-Also allowed: `[string:T]` fields, a constructor with arguments, `Extends`, and
-one generic class holding another at its own parameter (`def slot:Cell@(T)`).
+Also allowed: `[string:T]` fields, a constructor with arguments, `Extends`, one
+generic class holding another at its own parameter (`def slot:Cell@(T)`), an
+instantiation as a collection element (`def kids:[Tree@(T)]`,
+`def byName:[string:Tree@(int)]`), and a generic class naming itself.
 
 No bounds, no constraints, no variance. Each instantiation is expanded into a
 concrete class (`History_int`, `History_arr_string`) before codegen, so every

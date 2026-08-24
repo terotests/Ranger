@@ -4175,24 +4175,43 @@ class RangerFlowParser {
   fn CheckTypeAnnotationOf:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if(node.has_type_annotation) {
       def tAnn (node.type_annotation)
+
+      ; `def kids:[Node@(int)]` and `def byId:[string:Node@(int)]` carry the
+      ; arguments on the ELEMENT type, which lives in array_type rather than in
+      ; type_name. The parser already collects the annotation onto the
+      ; collection node; without this the lookup ran against an empty name and
+      ; the program was told "Trait class  is not defined".
+      def onElement:boolean false
+      def targetName:string node.type_name
+      if ((strlen targetName) == 0) {
+        if ((strlen node.array_type) > 0) {
+          targetName = node.array_type
+          onElement = true
+        }
+      }
+
       ; `def h:History@(SlideOp)`, a parameter of that type or a method
       ; returning one -- all three arrive here
-      if (ctx.hasTemplateNode(node.type_name)) {
-        def instName:string (this.genericInstanceName(node.type_name (unwrap tAnn) ctx wr))
-        def made@(optional):RangerAppClassDesc (ctx.createGenericClassInstance( node.type_name instName (unwrap tAnn) this wr ))
+      if (ctx.hasTemplateNode(targetName)) {
+        def instName:string (this.genericInstanceName(targetName (unwrap tAnn) ctx wr))
+        def made@(optional):RangerAppClassDesc (ctx.createGenericClassInstance( targetName instName (unwrap tAnn) this wr ))
         if (null? made) {
           return true
         }
-        node.type_name = instName
+        if onElement {
+          node.array_type = instName
+        } {
+          node.type_name = instName
+        }
         node.has_type_annotation = false
         return true
       }
-      if(false == (ctx.isDefinedClass(node.type_name))) {
-        ctx.addError(node ('Trait class ' + node.type_name + ' is not defined'))
+      if(false == (ctx.isDefinedClass(targetName))) {
+        ctx.addError(node ('Trait class ' + targetName + ' is not defined'))
       } {
-        def testC (ctx.findClass(node.type_name))
+        def testC (ctx.findClass(targetName))
         if ((testC.is_trait == false) && ((testC.node.hasExpressionProperty("params")) == false)) {
-          ctx.addError(node ((node.type_name + ' takes no type arguments: it is not declared with @params(...)')))
+          ctx.addError(node ((targetName + ' takes no type arguments: it is not declared with @params(...)')))
           node.has_type_annotation = false
           return false
         }
@@ -4209,7 +4228,11 @@ class RangerFlowParser {
             def my_class_name ( testC.name + tstr)
             def ann (unwrap tAnn)
             ctx.createTraitInstanceClass( testC.name my_class_name ann this wr )
-            node.type_name = my_class_name
+            if onElement {
+              node.array_type = my_class_name
+            } {
+              node.type_name = my_class_name
+            }
             node.has_type_annotation = false
             return true
           }

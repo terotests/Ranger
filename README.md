@@ -1320,6 +1320,21 @@ class Store @params(T) {
 }
 ```
 
+An instantiation is an ordinary type, so it can be the element type of a
+collection, and a generic class may name itself at its own parameter:
+
+```
+class Tree @params(T) {
+    def held:[T]
+    def kids:[Tree@(T)]                 ; an array of instantiations
+    fn adopt:void (k:Tree@(T)) {        ; and itself as a parameter type
+        push kids k
+    }
+}
+
+def byName:[string:Tree@(int)]          ; and as a map value
+```
+
 A generic class may have a constructor with arguments and may `Extends` a
 plain class. The type argument itself may be a class, a record, a `shape`, a
 primitive, an array (`History@([string])`) or a map (`Store@([string:int])`).

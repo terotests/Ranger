@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the tokeniser about brackets, which would put every other token in the
   language up for re-checking.
 
+  **An instantiation is an ordinary type**, so it can be a collection's element
+  type — `def kids:[Tree@(T)]`, `def byName:[string:Tree@(int)]` — and a
+  generic class can name ITSELF at its own parameter. The element type of a
+  collection lives in `array_type` rather than in `type_name`, and the
+  annotation was being looked up against an empty name, so the program was told
+  "Trait class  is not defined" with a blank where the class should be. Naming
+  itself does not send the expansion round for ever: the instance is registered
+  before its body is walked.
+
   **A generic class has no static side**, and now says so. Only instantiations
   exist at run time, so `sfn` inside one is unreachable; the error used to be
   "no description for called object", which sends the reader looking for a

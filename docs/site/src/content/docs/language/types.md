@@ -153,6 +153,22 @@ type and as a return type. A generic class can hold another generic class at
 its own parameter, can have a constructor with arguments, and can extend a
 plain class.
 
+An instantiation is an ordinary type. It can be the element type of a
+collection, and a generic class can name itself.
+
+```lisp
+class Tree @params(T) {
+    def held:[T]
+    def kids:[Tree@(T)]
+
+    fn adopt:void (k:Tree@(T)) {
+        push kids k
+    }
+}
+
+def byName:[string:Tree@(int)]
+```
+
 | The argument can be | Example |
 | --- | --- |
 | A primitive | `History@(int)` |

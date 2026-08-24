@@ -13245,22 +13245,34 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     async CheckTypeAnnotationOf (node, ctx, wr) {
       if ( node.has_type_annotation ) {
         const tAnn = node.type_annotation;
-        if ( ctx.hasTemplateNode(node.type_name) ) {
-          const instName = await this.genericInstanceName(node.type_name, (tAnn), ctx, wr);
-          const made = await ctx.createGenericClassInstance(node.type_name, instName, (tAnn), this, wr);
+        let onElement = false;
+        let targetName = node.type_name;
+        if ( (targetName.length) == 0 ) {
+          if ( (node.array_type.length) > 0 ) {
+            targetName = node.array_type;
+            onElement = true;
+          }
+        }
+        if ( ctx.hasTemplateNode(targetName) ) {
+          const instName = await this.genericInstanceName(targetName, (tAnn), ctx, wr);
+          const made = await ctx.createGenericClassInstance(targetName, instName, (tAnn), this, wr);
           if ( typeof(made) === "undefined" ) {
             return true;
           }
-          node.type_name = instName;
+          if ( onElement ) {
+            node.array_type = instName;
+          } else {
+            node.type_name = instName;
+          }
           node.has_type_annotation = false;
           return true;
         }
-        if ( false == ctx.isDefinedClass(node.type_name) ) {
-          ctx.addError(node, ("Trait class " + node.type_name) + " is not defined");
+        if ( false == ctx.isDefinedClass(targetName) ) {
+          ctx.addError(node, ("Trait class " + targetName) + " is not defined");
         } else {
-          const testC = ctx.findClass(node.type_name);
+          const testC = ctx.findClass(targetName);
           if ( (testC.is_trait == false) && (testC.node.hasExpressionProperty("params") == false) ) {
-            ctx.addError(node, node.type_name + " takes no type arguments: it is not declared with @params(...)");
+            ctx.addError(node, targetName + " takes no type arguments: it is not declared with @params(...)");
             node.has_type_annotation = false;
             return false;
           }
@@ -13277,7 +13289,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               const my_class_name = testC.name + tstr;
               const ann = tAnn;
               await ctx.createTraitInstanceClass(testC.name, my_class_name, ann, this, wr);
-              node.type_name = my_class_name;
+              if ( onElement ) {
+                node.array_type = my_class_name;
+              } else {
+                node.type_name = my_class_name;
+              }
               node.has_type_annotation = false;
               return true;
             }

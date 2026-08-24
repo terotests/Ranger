@@ -70,6 +70,31 @@ class Holder @params(T) {
     }
 }
 
+; A generic class that names ITSELF at its own type parameter, and holds an
+; array of itself. Nothing here may recurse for ever while it expands.
+class Tree @params(T) {
+    def held:[T]
+    def kids:[Tree@(T)]
+
+    fn hold:void (v:T) {
+        push held v
+    }
+    fn adopt:void (k:Tree@(T)) {
+        push kids k
+    }
+    fn childCount:int () {
+        return (array_length kids)
+    }
+    fn childAt:Tree@(T) (i:int) {
+        def k:Tree@(T) (itemAt kids i)
+        return k
+    }
+    fn newest:T () {
+        def v:T (last held)
+        return v
+    }
+}
+
 class NamedThing {
     def name:string ""
 
@@ -147,6 +172,39 @@ class GenericKernelTest {
         print ((("holder: " + v) + " ") + sv)
     }
 
+    ; A generic instance as the ELEMENT type of a collection, and a generic
+    ; class that names ITSELF at its own parameter. The element type lives in
+    ; `array_type` rather than in `type_name`, so the annotation was looked up
+    ; against an empty name and answered "Trait class  is not defined".
+    fn collectionsOfInstances:void () {
+        def boxes:[Slot@(int)]
+        def one:Slot@(int) (new Slot@(int) ())
+        one.put(11)
+        push boxes one
+        def back:Slot@(int) (last boxes)
+        def bn (array_length boxes)
+        def bv (back.get())
+
+        def byName:[string:Slot@(string)]
+        def s1:Slot@(string) (new Slot@(string) ())
+        s1.put("here")
+        set byName "a" s1
+        def got:Slot@(string) (unwrap (get byName "a"))
+        def gv (got.get())
+        print ((((("boxes: " + bn) + " ") + bv) + " ") + gv)
+    }
+
+    fn aSelfReferringGeneric:void () {
+        def root:Tree@(int) (new Tree@(int) ())
+        def kid:Tree@(int) (new Tree@(int) ())
+        kid.hold(4)
+        root.adopt(kid)
+        def n (root.childCount())
+        def first:Tree@(int) (root.childAt(0))
+        def v (first.newest())
+        print ((("tree: " + n) + " ") + v)
+    }
+
     fn aGenericThatExtends:void () {
         def t:Tagged@(int) (new Tagged@(int) ())
         t.add(1)
@@ -163,6 +221,8 @@ class GenericKernelTest {
         t.aStoreOfScalars()
         t.aStoreOfMaps()
         t.oneGenericInsideAnother()
+        t.collectionsOfInstances()
+        t.aSelfReferringGeneric()
         t.aGenericThatExtends()
         print "Done"
     }
