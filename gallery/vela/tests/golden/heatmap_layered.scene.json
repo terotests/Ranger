@@ -1,0 +1,277 @@
+{
+  "marktype": "group",
+  "name": "root",
+  "role": "frame",
+  "items": [
+    {
+      "x": 0,
+      "y": 0,
+      "width": 260,
+      "height": 180,
+      "fill": "transparent",
+      "stroke": null,
+      "background": "white",
+      "viewWidth": 328,
+      "viewHeight": 202,
+      "originX": 63,
+      "originY": 17,
+      "items": [
+        {
+          "marktype": "group",
+          "role": "axis",
+          "items": [
+            {
+              "x": 0.5,
+              "y": 0.5,
+              "orient": "top",
+              "offset": 0,
+              "position": 0,
+              "titlePadding": 4,
+              "minExtent": 0,
+              "maxExtent": 200,
+              "range": 260,
+              "items": [
+                {
+                  "marktype": "text",
+                  "role": "axis-label",
+                  "items": [
+                    {
+                      "x": 64.5,
+                      "y": -2,
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "Q1",
+                      "font": "sans-serif",
+                      "fontSize": 10,
+                      "align": "center",
+                      "baseline": "bottom",
+                      "angle": 0,
+                      "limit": 180
+                    },
+                    {
+                      "x": 194.5,
+                      "y": -2,
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "Q2",
+                      "font": "sans-serif",
+                      "fontSize": 10,
+                      "align": "center",
+                      "baseline": "bottom",
+                      "angle": 0,
+                      "limit": 180
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "marktype": "group",
+          "role": "axis",
+          "items": [
+            {
+              "x": 0.5,
+              "y": 0.5,
+              "orient": "left",
+              "offset": 0,
+              "position": 0,
+              "titlePadding": 4,
+              "minExtent": 0,
+              "maxExtent": 200,
+              "range": 180,
+              "items": [
+                {
+                  "marktype": "text",
+                  "role": "axis-label",
+                  "items": [
+                    {
+                      "x": -2,
+                      "y": 29.5,
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "Nordics",
+                      "font": "sans-serif",
+                      "fontSize": 10,
+                      "align": "right",
+                      "baseline": "middle",
+                      "angle": 0,
+                      "limit": 180
+                    },
+                    {
+                      "x": -2,
+                      "y": 89.5,
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "DACH",
+                      "font": "sans-serif",
+                      "fontSize": 10,
+                      "align": "right",
+                      "baseline": "middle",
+                      "angle": 0,
+                      "limit": 180
+                    },
+                    {
+                      "x": -2,
+                      "y": 149.5,
+                      "fill": "#000",
+                      "opacity": 1,
+                      "text": "Spain",
+                      "font": "sans-serif",
+                      "fontSize": 10,
+                      "align": "right",
+                      "baseline": "middle",
+                      "angle": 0,
+                      "limit": 180
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "marktype": "rect",
+          "name": "layer_0_marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 0,
+              "y": 0,
+              "width": 130,
+              "height": 60,
+              "fill": "rgb(211, 227, 241)",
+              "ariaRoleDescription": "rect",
+              "description": "quarter: Q1; region: Nordics; attainment: 103"
+            },
+            {
+              "x": 130,
+              "y": 0,
+              "width": 130,
+              "height": 60,
+              "fill": "rgb(72, 189, 181)",
+              "ariaRoleDescription": "rect",
+              "description": "quarter: Q2; region: Nordics; attainment: 118"
+            },
+            {
+              "x": 0,
+              "y": 60,
+              "width": 130,
+              "height": 60,
+              "fill": "rgb(218, 209, 240)",
+              "ariaRoleDescription": "rect",
+              "description": "quarter: Q1; region: DACH; attainment: 94"
+            },
+            {
+              "x": 130,
+              "y": 60,
+              "width": 130,
+              "height": 60,
+              "fill": "rgb(187, 219, 236)",
+              "ariaRoleDescription": "rect",
+              "description": "quarter: Q2; region: DACH; attainment: 106"
+            },
+            {
+              "x": 0,
+              "y": 120,
+              "width": 130,
+              "height": 60,
+              "fill": "rgb(238, 142, 152)",
+              "ariaRoleDescription": "rect",
+              "description": "quarter: Q1; region: Spain; attainment: 82"
+            },
+            {
+              "x": 130,
+              "y": 120,
+              "width": 130,
+              "height": 60,
+              "fill": "rgb(223, 228, 243)",
+              "ariaRoleDescription": "rect",
+              "description": "quarter: Q2; region: Spain; attainment: 98"
+            }
+          ]
+        },
+        {
+          "marktype": "text",
+          "name": "layer_1_marks",
+          "role": "mark",
+          "items": [
+            {
+              "x": 65,
+              "y": 30,
+              "fill": "black",
+              "text": 103,
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "ariaRoleDescription": "text",
+              "description": "quarter: Q1; region: Nordics; attainment: 103"
+            },
+            {
+              "x": 195,
+              "y": 30,
+              "fill": "black",
+              "text": 118,
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "ariaRoleDescription": "text",
+              "description": "quarter: Q2; region: Nordics; attainment: 118"
+            },
+            {
+              "x": 65,
+              "y": 90,
+              "fill": "black",
+              "text": 94,
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "ariaRoleDescription": "text",
+              "description": "quarter: Q1; region: DACH; attainment: 94"
+            },
+            {
+              "x": 195,
+              "y": 90,
+              "fill": "black",
+              "text": 106,
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "ariaRoleDescription": "text",
+              "description": "quarter: Q2; region: DACH; attainment: 106"
+            },
+            {
+              "x": 65,
+              "y": 150,
+              "fill": "black",
+              "text": 82,
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "ariaRoleDescription": "text",
+              "description": "quarter: Q1; region: Spain; attainment: 82"
+            },
+            {
+              "x": 195,
+              "y": 150,
+              "fill": "black",
+              "text": 98,
+              "font": "sans-serif",
+              "fontSize": 11,
+              "align": "center",
+              "baseline": "middle",
+              "ariaRoleDescription": "text",
+              "description": "quarter: Q2; region: Spain; attainment: 98"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

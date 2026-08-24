@@ -302,6 +302,49 @@ class VlScaleTest {
         this.check("ordinal x" (ord.mapOrdinal((VlJson.stringValue("x")))) "#4c78a8")
         this.check("ordinal y" (ord.mapOrdinal((VlJson.stringValue("y")))) "#f58518")
 
+        ; --- a piecewise domain ---
+        ;
+        ; More than two numbers in a domain are STOPS, one per colour, not a
+        ; pair of ends and not a list of categories. Read as categories — which
+        ; is where they fell — a linear scale kept its default ends of 0 and 1,
+        ; every value in a target-attainment heat map landed past the top, and
+        ; every cell was painted the last colour in the range. The chart looked
+        ; deliberate; only the legend, labelled 0.0 to 1.0, gave it away.
+        def piece (new VlScale())
+        piece.scaleType = "linear"
+        piece.setNumericDomain(80.0 120.0)
+        push piece.domainStops 80.0
+        push piece.domainStops 100.0
+        push piece.domainStops 120.0
+        push piece.rangeValues "#FF0000"
+        push piece.rangeValues "#888888"
+        push piece.rangeValues "#00FF00"
+        this.check("the first stop is the first colour" (piece.mapRamp(80.0)) "rgb(255, 0, 0)")
+        this.check("the middle stop is the middle colour" (piece.mapRamp(100.0)) "rgb(136, 136, 136)")
+        this.check("the last stop is the last colour" (piece.mapRamp(120.0)) "rgb(0, 255, 0)")
+        ; Ten per cent into the FIRST segment, not five per cent of the whole.
+        this.check("between the first two" (piece.mapRamp(82.0)) "rgb(243, 14, 14)")
+        this.check("and between the last two" (piece.mapRamp(118.0)) "rgb(14, 243, 14)")
+        ; Outside the ends is clamped, because extrapolating a ramp produces a
+        ; colour that is not in the range at all.
+        this.check("below the domain" (piece.mapRamp(40.0)) "rgb(255, 0, 0)")
+        this.check("above it" (piece.mapRamp(200.0)) "rgb(0, 255, 0)")
+
+        ; Segments of different widths, which is the whole reason a piecewise
+        ; domain exists: read as a plain span from 0 to 100, the value 90 is
+        ; nine tenths along and comes out nearly the last colour. It is not —
+        ; it is halfway through the second of two segments.
+        def uneven (new VlScale())
+        uneven.scaleType = "linear"
+        uneven.setNumericDomain(0.0 100.0)
+        push uneven.domainStops 0.0
+        push uneven.domainStops 80.0
+        push uneven.domainStops 100.0
+        push uneven.rangeValues "#000000"
+        push uneven.rangeValues "#000000"
+        push uneven.rangeValues "#FFFFFF"
+        this.check("a wide segment then a narrow one" (uneven.mapRamp(90.0)) "rgb(128, 128, 128)")
+
         if (failures > 0) {
             print ("FAILURES: " + (to_string failures))
         } {
