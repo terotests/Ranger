@@ -52,6 +52,7 @@ on:
       # The API reference is generated FROM these, so a change to a facade
       # changes the published documentation without touching docs/.
       - "gallery/pptx/api/**"
+      - "gallery/pptx/web/playground/**"
       - "gallery/pdf_writer/src/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -150,6 +151,13 @@ jobs:
       # this commit actually does.
       - name: Build the EVG showcase
         run: node gallery/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
+
+      # ---- .pptx API playground at /office/ -------------------------------
+      # The published API and the slide editor in one page: the code writes a
+      # deck, the editor opens the BYTES it produced. A build here proves the
+      # writer and the reader agree, which no unit test on either alone does.
+      - name: Build the Office API playground
+        run: bash gallery/pptx/web/playground/build.sh --out "$GITHUB_WORKSPACE/_site/office"
 
       # ---- Vela playground at /vela/ --------------------------------------
       # Paste a Vega or Vega-Lite specification and see what the Ranger

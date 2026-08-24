@@ -1,0 +1,362 @@
+/**
+ * playground.mjs — run the reader's code against the published API, then open
+ * what it produced in the editor beside it.
+ *
+ * The round trip is the point. The code on the left calls `PptxApi` and ends
+ * with a deck; the page takes `deck.save()` — the actual .pptx bytes, ZIP and
+ * all — and hands them to `PptxWeb.openDeck`, which is the standalone viewer
+ * unchanged. So the picture on the right is not a preview of the model in
+ * memory: it is the file, parsed back from bytes, drawn by the editor. A bug
+ * in the writer shows up here as a wrong slide rather than as a correct
+ * preview and a broken download.
+ *
+ * Both halves are in one bundle (`pptx_playground.rgr`) for the same reason:
+ * a page that generated with one copy of the code and drew with another could
+ * show a slide no reader would ever get.
+ */
+import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback }
+  from "./gl/evg-webgl.js";
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("screen"), statusEl = $("status");
+const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+if (!gl) { statusEl.textContent = "WebGL 2 not available"; throw new Error("WebGL 2 required"); }
+$("backend").textContent = "webgl2";
+
+const FONTS = [
+  ["Open Sans", "OpenSans-Regular.ttf", { family: "Open Sans", weight: "400", style: "normal" }],
+  [null, "OpenSans-Bold.ttf", { family: "Open Sans", weight: "700", style: "normal" }],
+  [null, "OpenSans-Italic.ttf", { family: "Open Sans", weight: "400", style: "italic" }],
+  [null, "OpenSans-BoldItalic.ttf", { family: "Open Sans", weight: "700", style: "italic" }],
+  [null, "NotoEmoji-Regular.ttf", { family: "Noto Emoji", weight: "400", style: "normal" }],
+  [null, "NotoSans-Regular.ttf", { family: "Noto Sans", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Regular.ttf", { family: "El Messiri", weight: "400", style: "normal" }],
+  [null, "ElMessiri-Bold.ttf", { family: "El Messiri", weight: "700", style: "normal" }],
+];
+const dedupe = (list) => [...new Set(list.filter(Boolean))];
+
+/** A Ranger `buffer`: an ArrayBuffer with a DataView hung off it. */
+function asRangerBuffer(ab) { ab._view = new DataView(ab); return ab; }
+function toRanger(bytes) {
+  const ab = bytes instanceof ArrayBuffer
+    ? bytes
+    : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  return asRangerBuffer(ab);
+}
+const fromRanger = (buf) => new Uint8Array(buf);
+async function bytesOf(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(url + " → " + res.status);
+  return asRangerBuffer(await res.arrayBuffer());
+}
+
+/**
+ * The same faces, told to the BROWSER as well as to our own FontManager.
+ * The layout measures with ours and the GL backend rasterizes through a 2D
+ * canvas; without this the canvas has never heard of the family and draws the
+ * system sans at widths nobody measured.
+ */
+async function registerBrowserFaces(bytes) {
+  if (typeof FontFace !== "function" || !document.fonts) return;
+  await Promise.all(FONTS.map(async ([, file, css], i) => {
+    if (!css) return;
+    try {
+      const face = new FontFace(css.family, bytes[i], { weight: css.weight, style: css.style });
+      await face.load();
+      document.fonts.add(face);
+    } catch (e) { console.warn("could not register " + file + ":", e); }
+  }));
+}
+
+const PRESETS = {
+  "A title slide": `// The deck is yours to build. \`Pptx\` and \`Renderer\` are in scope.
+const deck = Pptx.create();
+const slide = deck.addSlide().background("FFFFFF");
+
+slide.addTextBox(70, 150, 820, 110, "Quarterly review")
+     .setName("Title")
+     .run(0, 0).font("Calibri", 44).bold().color("#1F3864");
+
+slide.addTextBox(70, 265, 820, 60, "Sales, by region")
+     .run(0, 0).font("Calibri", 22).color("#5B6B84");
+
+slide.addShape("rect", 70, 340, 300, 8).fill("4472C4").noLine();
+return deck;`,
+
+  "Shapes and colour": `const deck = Pptx.create();
+const slide = deck.addSlide().background("0E1116");
+
+const shapes = ["star5", "hexagon", "roundRect", "ellipse", "triangle", "heart"];
+const colours = ["E8452C", "F0A202", "2CA58D", "4472C4", "8E5BB5", "E8607A"];
+
+shapes.forEach((name, i) => {
+  const col = i % 3, row = (i / 3) | 0;
+  slide.addShape(name, 90 + col * 270, 90 + row * 210, 200, 170)
+       .fill(colours[i])
+       .noLine();
+});
+
+slide.addTextBox(90, 470, 800, 50, "Six of the 187 preset geometries")
+     .run(0, 0).font("Calibri", 20).color("#9FB0C4");
+return deck;`,
+
+  "Several slides": `const deck = Pptx.create();
+
+["Problem", "Approach", "Result"].forEach((word, i) => {
+  const slide = deck.addSlide().background("FFFFFF");
+  slide.addTextBox(80, 90, 800, 90, word)
+       .run(0, 0).font("Calibri", 40).bold().color("#1F3864");
+  slide.addShape("rect", 80, 200, 60 + i * 260, 26).fill("4472C4").noLine();
+  slide.addTextBox(80, 250, 800, 60, "Slide " + (i + 1) + " of 3")
+       .run(0, 0).font("Calibri", 18).color("#7A8AA0");
+});
+return deck;`,
+
+  "Right to left": `const deck = Pptx.create();
+const slide = deck.addSlide().background("FFFFFF");
+
+slide.addTextBox(80, 120, 800, 90, "مرحبا بالعالم")
+     .align("r")
+     .run(0, 0).font("Arabic Typesetting", 44).color("#1F3864");
+
+slide.addTextBox(80, 230, 800, 60, "Arabic is shaped and reordered before it is drawn")
+     .run(0, 0).font("Calibri", 18).color("#5B6B84");
+return deck;`,
+};
+
+let web = null, renderer = null, deckBytes = null;
+let lastScene = "", slideIndex = 0, slideCount = 0;
+
+function fail(message) {
+  statusEl.className = "bad";
+  statusEl.textContent = message;
+}
+
+function draw() {
+  if (!web) return;
+  const text = web.scene();
+  if (text === lastScene) return;
+  lastScene = text;
+  const doc = JSON.parse(text);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.round(doc.width * dpr), h = Math.round(doc.height * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  canvas.style.height = doc.height + "px";
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0.055, 0.067, 0.086, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+  renderDisplayList(gl, doc, { dpr, images: window.__pptxImages || new Map() });
+}
+
+async function showDeck(bytes) {
+  deckBytes = bytes;
+  if (!web.openDeck(toRanger(bytes), "playground.pptx")) {
+    return fail("the editor could not open the bytes the API produced: " + web.note);
+  }
+  window.__pptxImages = await loadImages(JSON.parse(web.scene()), {
+    partBytes: (part) => fromRanger(web.imageBytes(part)),
+    parts: JSON.parse(web.imageParts() || "[]"),
+  }).catch(() => new Map());
+  slideCount = web.slideCount() | 0;
+  slideIndex = 0;
+  web.gotoSlide(0);
+  lastScene = "";
+  draw();
+  where();
+}
+
+function where() {
+  $("where").textContent = slideCount ? `${slideIndex + 1} / ${slideCount}` : "—";
+}
+
+function step(delta) {
+  if (!slideCount) return;
+  slideIndex = Math.max(0, Math.min(slideCount - 1, slideIndex + delta));
+  web.gotoSlide(slideIndex);
+  lastScene = "";
+  draw();
+  where();
+}
+
+/** Run the reader's code. It returns a Deck; anything else is a mistake worth naming. */
+function run() {
+  let deck;
+  try {
+    const fn = new Function("Pptx", "Renderer", '"use strict";\n' + $("code").value);
+    deck = fn(JsApi, renderer);
+  } catch (err) {
+    return fail("the code threw: " + (err && err.message ? err.message : String(err)));
+  }
+  if (!deck || typeof deck.save !== "function") {
+    return fail("the code has to `return` a deck — the last line of every preset does.");
+  }
+  let bytes;
+  try {
+    bytes = deck.save();
+  } catch (err) {
+    return fail("saving the deck failed: " + err.message);
+  }
+  showDeck(bytes).then(() => {
+    statusEl.className = "good";
+    statusEl.textContent =
+      `${slideCount} slide(s), ${bytes.length.toLocaleString()} bytes — opened from the file, `
+      + `not from the model in memory.`;
+  });
+}
+
+/**
+ * The JavaScript shape of the API, over the compiled classes.
+ *
+ * The npm package's wrapper is the same translation and cannot be imported
+ * here: it is CommonJS over the Node bundle. This is the browser's copy of it,
+ * and it is deliberately thin — the argument order, the names and the fluency
+ * are the facade's, so code written here runs unchanged against the package.
+ */
+const wrap = (ref, methods, getters) => {
+  const o = {};
+  for (const m of methods) o[m] = (...a) => { const r = ref[m](...a); return r === ref ? o : r; };
+  for (const [name, fn] of Object.entries(getters || {})) {
+    Object.defineProperty(o, name, { get: () => fn(ref), enumerable: true });
+  }
+  return o;
+};
+
+function Run(ref) {
+  const o = {};
+  for (const m of ["setText", "font", "bold", "italic", "color"]) {
+    o[m] = (...a) => { ref[m](...a); return o; };
+  }
+  Object.defineProperty(o, "text", { get: () => ref.text() });
+  return o;
+}
+function Shape(ref) {
+  const o = {};
+  for (const m of ["setName", "setPreset", "at", "size", "rotate", "fill", "noFill",
+                   "line", "noLine", "setText", "align"]) {
+    o[m] = (...a) => { ref[m](...a); return o; };
+  }
+  o.run = (p, i) => Run(ref.runAt(p | 0, i | 0));
+  o.addRun = (p, t) => Run(ref.addRun(p | 0, String(t)));
+  for (const g of ["name", "preset", "x", "y", "width", "height", "rotation", "text"]) {
+    Object.defineProperty(o, g, { get: () => ref[g]() });
+  }
+  return o;
+}
+function Slide(ref) {
+  const o = {
+    shape: (i) => Shape(ref.shapeAt(i | 0)),
+    shapeNamed: (n) => { const s = ref.shapeNamed(String(n)); return s.exists() ? Shape(s) : null; },
+    addTextBox: (...a) => Shape(ref.addTextBox(...a)),
+    addShape: (...a) => Shape(ref.addShape(...a)),
+    removeShape: (i) => ref.removeShape(i | 0),
+    background: (hex) => { ref.background(String(hex)); return o; },
+  };
+  for (const g of ["width", "height", "shapeCount", "text"]) {
+    Object.defineProperty(o, g, { get: () => ref[g]() });
+  }
+  return o;
+}
+function Deck(ref) {
+  const o = {
+    _ref: ref,
+    slide: (i) => Slide(ref.slideAt(i | 0)),
+    addSlide: () => Slide(ref.addSlide()),
+    removeSlide: (i) => ref.removeSlide(i | 0),
+    setSize: (w, h) => { ref.setSize(w, h); return o; },
+    save: () => fromRanger(ref.save()),
+    saveNew: () => fromRanger(ref.saveNew()),
+  };
+  for (const g of ["slideCount", "width", "height", "text"]) {
+    Object.defineProperty(o, g, { get: () => ref[g]() });
+  }
+  return o;
+}
+const JsApi = {
+  get version() { return PptxApi.version(); },
+  create: () => Deck(PptxApi.create()),
+  open: (bytes) => {
+    const d = PptxApi.open(toRanger(bytes));
+    if (!d.ok) throw new Error(d.error);
+    return Deck(d);
+  },
+};
+
+function saveFile(name, bytes, mime) {
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function boot() {
+  statusEl.textContent = "loading fonts…";
+  const faces = await Promise.all(FONTS.map(([, f]) => bytesOf("./fonts/" + f)));
+
+  web = new PptxWeb();
+  web.start(canvas.width, canvas.height);
+  const play = new PptxPlayground();
+  renderer = play.renderer;
+
+  FONTS.forEach(([family], i) => {
+    if (family) { web.addFont(family, faces[i]); renderer.addFont(family, faces[i]); }
+    else { web.addFace(faces[i]); renderer.addFace(faces[i]); }
+  });
+  await registerBrowserFaces(faces);
+  setFontFallback(dedupe(FONTS.map(([, , css]) => css && css.family)));
+  await document.fonts.ready;
+
+  statusEl.textContent = "loading shapes…";
+  try {
+    const presets = await fetch("./presets.txt");
+    if (presets.ok) {
+      const text = await presets.text();
+      web.loadPresets(text);
+      renderer.usePresets(text);
+    }
+  } catch (e) { console.warn("preset shapes unavailable:", e); }
+
+  const select = $("preset");
+  for (const name of Object.keys(PRESETS)) {
+    const opt = document.createElement("option");
+    opt.value = name; opt.textContent = name;
+    select.appendChild(opt);
+  }
+  select.addEventListener("change", () => { $("code").value = PRESETS[select.value]; run(); });
+  $("code").value = PRESETS[Object.keys(PRESETS)[0]];
+
+  $("run").addEventListener("click", run);
+  $("prev").addEventListener("click", () => step(-1));
+  $("next").addEventListener("click", () => step(1));
+  $("code").addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); run(); }
+  });
+  $("download").addEventListener("click", () => {
+    if (deckBytes) saveFile("playground.pptx", deckBytes,
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  });
+  $("png").addEventListener("click", () => {
+    if (!deckBytes) return;
+    const d = PptxApi.open(toRanger(deckBytes));
+    const png = fromRanger(renderer.toPng(d, slideIndex, 2.0));
+    if (png.length) saveFile(`slide-${slideIndex + 1}.png`, png, "image/png");
+    else fail(renderer.error || "the slide could not be drawn");
+  });
+  $("pdf").addEventListener("click", () => {
+    if (!deckBytes) return;
+    const d = PptxApi.open(toRanger(deckBytes));
+    const pdf = fromRanger(renderer.toPdfDeck(d));
+    if (pdf.length) saveFile("playground.pdf", pdf, "application/pdf");
+    else fail(renderer.error || "the deck could not be printed");
+  });
+
+  run();
+  window.__playgroundReady = true;
+}
+
+boot().catch((e) => fail("could not start: " + e.message));
+window.__runPlayground = run;
+// Published so the smoke test can build a deck the same way the page does,
+// rather than inferring what happened from pixels.
+window.__jsApi = JsApi;

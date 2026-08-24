@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@ranger/pptx — playground</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+         background: #12151a; color: #e8ecf2; }
+  header { padding: 14px 18px 10px; border-bottom: 1px solid #232a33; }
+  h1 { margin: 0 0 4px; font-size: 1.05rem; font-weight: 650; }
+  p.hint { margin: 0; color: #9fb0c4; font-size: 0.85rem; }
+  p.hint code { background: #1b212a; padding: 1px 5px; border-radius: 3px; }
+  main { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.15fr);
+         gap: 0; align-items: stretch; min-height: 0; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid #232a33; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+         padding: 8px 12px; border-bottom: 1px solid #232a33; color: #9fb0c4; font-size: 0.8rem; }
+  button, select { font: inherit; font-size: 0.8rem; padding: 3px 10px; background: #212934;
+                   color: #e8ecf2; border: 1px solid #3a4552; border-radius: 4px; cursor: pointer; }
+  button:hover, select:hover { background: #2a3441; }
+  textarea { flex: 1; min-height: 340px; resize: vertical; border: 0; outline: 0;
+             background: #0e1116; color: #dbe4ee; padding: 12px;
+             font: 13px/1.55 ui-monospace, Menlo, Consolas, monospace; tab-size: 2; }
+  canvas { display: block; width: 100%; background: #0e1116; }
+  #status { padding: 8px 12px; font-size: 0.8rem; color: #9fb0c4; border-top: 1px solid #232a33;
+            white-space: pre-wrap; }
+  #status.bad { color: #ff9d9d; }
+  #status.good { color: #9ee6a5; }
+  .slides { display: flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>@ranger/pptx — write a deck, see it in the editor</h1>
+  <p class="hint">
+    The code on the left runs against the published API. The bytes it produces are opened
+    in the slide editor on the right — the same build, so what you see is what a
+    <code>.pptx</code> reader gets. Build <code>__BUILD__</code>.
+  </p>
+</header>
+<main>
+  <section class="pane">
+    <div class="bar">
+      <select id="preset"></select>
+      <button id="run">Run</button>
+      <button id="download">Download .pptx</button>
+      <button id="png">PNG</button>
+      <button id="pdf">PDF</button>
+    </div>
+    <textarea id="code" spellcheck="false"></textarea>
+  </section>
+  <section class="pane">
+    <div class="bar">
+      <span class="slides">
+        <button id="prev">‹</button>
+        <span id="where">—</span>
+        <button id="next">›</button>
+      </span>
+      <span id="backend">—</span>
+    </div>
+    <canvas id="screen" width="880" height="560"></canvas>
+    <div id="status">loading…</div>
+  </section>
+</main>
+<script src="pptx_playground.js?v=__BUILD__"></script>
+<script type="module" src="playground.mjs?v=__BUILD__"></script>
+</body>
+</html>

@@ -131,3 +131,7 @@ gallery/pptx/api/js/dist/
 # API reference pages, generated from the Ranger facades by docs/tools.
 docs/site/src/content/docs/office/
 docs/site/src/data/*-api.json
+
+# The playground build output.
+gallery/pptx/web/playground/dist/
+gallery/pptx/web/playground/.stage/
