@@ -88,7 +88,8 @@ renders it with the software backend (writes `/tmp/three_cube.ppm`).
 ### EVG print stills (`ThreeEvgSnapshot`)
 
 `three_evg_snapshot.rgr` projects a Three scene through
-`ThreeEvgVectorBackend` into **EVG PATH polygons** (not a low-res bitmap):
+`ThreeEvgVectorBackend` into **EVG PATH polygons** with **Lambert lighting as
+SVG `linearGradient` fills** (not a low-res bitmap):
 
 ```ranger
 def dl (ThreeEvgSnapshot.toDisplayList(scene camera 400 400 480.0 560.0 40.0 40.0))
@@ -96,13 +97,13 @@ def svg (ThreeEvgSnapshot.toSvg(scene camera 400 400 480.0 560.0 40.0 40.0))
 def png (ThreeEvgSnapshot.toVectorPng(scene camera 400 400 480 560 40 40 "assets" "print.png"))
 ```
 
-- `toDisplayList` — page background + one filled PATH triangle per mesh face
-  (painter's algorithm) for PDF / SoftPainter / GPU list backends
-- `toSvg` / `toSvgFile` — true vector document for print / paste
-- `toVectorPng` — AA polygon fill at page resolution (preview only)
+- Ambient + directional lights drive a two-stop gradient per polygon toward the light
+- Textured faces are UV-subdivided into per-texel polygons
+- `toSvg` emits `<linearGradient gradientUnits="userSpaceOnUse">` — true vector print
+- `toVectorPng` previews the same ramps in a RasterBuffer
 
-`three_evg_snapshot_test.rgr` (in `run.sh`) asserts PATH/SVG wiring and writes
-`three/artifacts/three_evg_cube.svg` plus `three/artifacts/three_evg_print.png`.
+`three_evg_snapshot_test.rgr` (in `run.sh`) asserts PATH/SVG gradient wiring and
+writes `three/artifacts/three_evg_cube.svg` plus `three/artifacts/three_evg_print.png`.
 
 ## The 1:1 Three.js cube runs in the TSX interpreter (façade PoC)
 
