@@ -29621,11 +29621,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 ctx.unsetInExpr();
                               }
                             } else {
+                              const stdCellWrap = this.rustArgNeedsCellWrap(arg_3, nVal_3, ctx);
+                              if ( stdCellWrap ) {
+                                wr.out("Rc::new(RefCell::new(", false);
+                              }
                               ctx.setInExpr();
                               wr.suppress_expr_parens = true;
                               await this.WalkNode(nVal_3, ctx, wr);
                               wr.suppress_expr_parens = false;
                               ctx.unsetInExpr();
+                              if ( stdCellWrap ) {
+                                wr.out("))", false);
+                              }
                               const argNameN_2 = arg_3.nameNode;
                               let arg_type_2 = argNameN_2.value_type;
                               if ( ((arg_type_2 == 10) || (arg_type_2 == 11)) || (arg_type_2 == 0) ) {
@@ -30966,7 +30973,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       sCtx_3.is_function = true;
                                       const fnBNode_1 = variant_2.fnBody;
                                       this.rustFnReturnsUnion = this.rustUnionReturnOf(variant_2, ctx);
+                                      this.rustFnReturnNameNode = variant_2.nameNode;
+                                      this.rust_receiverless_method = method_uses_this_1 == false;
+                                      this.rust_emit_class_name = cl.name;
+                                      const savedInhThisName = this.thisName;
+                                      if ( this.rust_receiverless_method ) {
+                                        this.thisName = "__self_rc.borrow_mut()";
+                                      }
                                       await this.walkRustFnBody(fnBNode_1, sCtx_3, wr);
+                                      this.thisName = savedInhThisName;
+                                      this.rust_receiverless_method = false;
+                                      this.rust_emit_class_name = "";
                                       this.rustFnReturnsUnion = "";
                                     }
                                     wr.newline();
@@ -31799,6 +31816,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             ctx.unsetInExpr();
                             wr.out(";", true);
                             return true;
+                          };
+                          rustArgNeedsCellWrap (arg, nVal, ctx) {
+                            if ( arg.rust_needs_rc_wrap == false ) {
+                              return false;
+                            }
+                            const acNN = arg.nameNode;
+                            if ( typeof(acNN) === "undefined" ) {
+                              return false;
+                            }
+                            const acN = acNN;
+                            if ( ((acN.array_type.length) > 0) || ((acN.key_type.length) > 0) ) {
+                              return false;
+                            }
+                            return this.rustInitRcState(nVal, ctx) == 0;
                           };
                           rustTraitCoerceRoot (right, fieldTypeName, ctx) {
                             if ( (fieldTypeName.length) == 0 ) {
@@ -32992,7 +33023,21 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       let retStaticName = "";
                                       if ( (typeof(retVal.fnDesc) !== "undefined" && retVal.fnDesc != null )  ) {
                                         const retFnD = retVal.fnDesc;
-                                        if ( retFnD.rust_can_be_static ) {
+                                        let retNoRecv = retFnD.rust_can_be_static;
+                                        if ( retNoRecv == false ) {
+                                          const retBody = retFnD.fnBody;
+                                          if ( (typeof(retBody) !== "undefined" && retBody != null )  ) {
+                                            const retFnCtxO = retFnD.fnCtx;
+                                            let retFnCtx = ctx;
+                                            if ( (typeof(retFnCtxO) !== "undefined" && retFnCtxO != null )  ) {
+                                              retFnCtx = retFnCtxO;
+                                            }
+                                            if ( this.rustMethodNeedsReceiver(retFnD, (retBody), retFnCtx, ctx) == false ) {
+                                              retNoRecv = true;
+                                            }
+                                          }
+                                        }
+                                        if ( retNoRecv ) {
                                           const retCC = retFnD.container_class;
                                           if ( (typeof(retCC) !== "undefined" && retCC != null )  ) {
                                             const retCCD = retCC;

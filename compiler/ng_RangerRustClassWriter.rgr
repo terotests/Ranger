@@ -6648,11 +6648,18 @@ class RangerRustClassWriter {
                   ctx.unsetInExpr()
                 }
               } {
+                def stdCellWrap:boolean (this.rustArgNeedsCellWrap(arg nVal ctx))
+                if stdCellWrap {
+                  wr.out("Rc::new(RefCell::new(" false)
+                }
                 ctx.setInExpr()
                 wr.suppress_expr_parens = true
                 this.WalkNode(nVal ctx wr)
                 wr.suppress_expr_parens = false
                 ctx.unsetInExpr()
+                if stdCellWrap {
+                  wr.out("))" false)
+                }
                 ; Clone non-primitives
                 def argNameN:CodeNode (unwrap arg.nameNode)
                 def arg_type:RangerNodeType argNameN.value_type
@@ -8257,7 +8264,21 @@ class RangerRustClassWriter {
                 sCtx.is_function = true
                 def fnBNode:CodeNode (unwrap variant.fnBody)
                 rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
+                ; the same declaration the inherent copy walks with. Without
+                ; it `return (new ToolItem)` from a `:ToolItem` method came
+                ; out as the bare struct where the handle was declared —
+                ; the copy compiled and the inherited one did not.
+                rustFnReturnNameNode = variant.nameNode
+                rust_receiverless_method = (method_uses_this == false)
+                rust_emit_class_name = cl.name
+                def savedInhThisName:string thisName
+                if rust_receiverless_method {
+                  thisName = "__self_rc.borrow_mut()"
+                }
                 this.walkRustFnBody(fnBNode sCtx wr)
+                thisName = savedInhThisName
+                rust_receiverless_method = false
+                rust_emit_class_name = ""
                 rustFnReturnsUnion = ""
               }
               wr.newline()
@@ -9246,6 +9267,24 @@ class RangerRustClassWriter {
     ctx.unsetInExpr()
     wr.out(";" true)
     return true
+  }
+
+  ; A raw value handed to a parameter that holds a shared class: `(new
+  ; VlJson)` is the one shared-class expression that carries no cell of its
+  ; own, so the cell goes on at the call site.
+  fn rustArgNeedsCellWrap:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext) {
+    if (arg.rust_needs_rc_wrap == false) {
+      return false
+    }
+    def acNN@(optional):CodeNode arg.nameNode
+    if (null? acNN) {
+      return false
+    }
+    def acN:CodeNode (unwrap acNN)
+    if (((strlen acN.array_type) > 0) || ((strlen acN.key_type) > 0)) {
+      return false
+    }
+    return ((this.rustInitRcState(nVal ctx)) == 0)
   }
 
   ; The value being stored into a `Rc<RefCell<dyn XTrait>>` field already
@@ -10725,7 +10764,24 @@ class RangerRustClassWriter {
               def retStaticName:string ""
               if (!null? retVal.fnDesc) {
                 def retFnD:RangerAppFunctionDesc (unwrap retVal.fnDesc)
-                if retFnD.rust_can_be_static {
+                ; …and a method that carries the hidden `__self_rc` is
+                ; receiverless too, not only one that never touches `this`.
+                ; The same question the other call sites ask.
+                def retNoRecv:boolean retFnD.rust_can_be_static
+                if (retNoRecv == false) {
+                  def retBody@(optional):CodeNode retFnD.fnBody
+                  if (!null? retBody) {
+                    def retFnCtxO@(optional):RangerAppWriterContext retFnD.fnCtx
+                    def retFnCtx:RangerAppWriterContext ctx
+                    if (!null? retFnCtxO) {
+                      retFnCtx = (unwrap retFnCtxO)
+                    }
+                    if ((this.rustMethodNeedsReceiver(retFnD (unwrap retBody) retFnCtx ctx)) == false) {
+                      retNoRecv = true
+                    }
+                  }
+                }
+                if retNoRecv {
                   def retCC@(optional):RangerAppClassDesc retFnD.container_class
                   if (!null? retCC) {
                     def retCCD:RangerAppClassDesc (unwrap retCC)
