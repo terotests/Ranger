@@ -5,7 +5,9 @@ description: Vela compiles Vega and Vega-Lite. VlChart builds a chart by calling
 
 import PptxExample from "../../components/PptxExample.astro";
 import PptxApiExample from "../../components/PptxApiExample.astro";
+import ChartApiExample from "../../components/ChartApiExample.astro";
 import { vegaChart } from "../../examples/pptx-live.js";
+import { chartBar } from "../../examples/vela-live.js";
 
 Charts in this gallery have two published surfaces, and they meet at EVG.
 
@@ -45,21 +47,13 @@ editor opened — not a picture. Page with **‹** / **›**.
 
 ## The chart API (Vela)
 
-There is no npm package yet. A Ranger program imports the source. The live
-page on the EVG showcase loads the compiled classes into the browser, so
-`chart.bar().x("region")` is those classes' own methods.
+There is no npm package yet. A Ranger program imports the source. The
+JavaScript below calls the compiled classes in this page — `chart.bar()` is
+`VlChart.bar()`. Press **Run**. The [Chart API reference](/Ranger/office/reference/vela/)
+has a second live example, and [`/evg/chart-api/`](/Ranger/evg/chart-api/) is
+the same API with a Ranger tab beside it.
 
-```lisp
-def data (VlDataset.create())
-data.row().str("region" "North").num("sales" 120.0)
-data.row().str("region" "South").num("sales" 93.0)
-
-def chart (VlChart.create(data))
-chart.size(300 200)
-chart.bar().x("region").y("sales")
-
-def spec:VlJson (chart.toSpec())
-```
+<ChartApiExample title="chart.bar — sales by region" code={chartBar} />
 
 Four rules the API follows:
 

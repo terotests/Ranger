@@ -10,14 +10,18 @@ Guides can iframe it with `?embed=1&preset=…` so a page runs an example and
 shows the slide stack it produced. `PptxExample.astro` is that iframe.
 `PptxApiExample.astro` is the other shape: the JavaScript lives in a code
 editor on the page, **Run** sends it to a slides-only viewer, and the
-viewer opens the `.pptx` those bytes produced.
+viewer opens the `.pptx` those bytes produced. `ChartApiExample.astro` is
+the Chart API equivalent: **Run** sends `VlChart` calls to a chart-only
+iframe of [`/evg/chart-api/`](https://terotests.github.io/Ranger/evg/chart-api/).
 
 ```
 npm run office:docs:generate          # model + Starlight Markdown from the facades
 npm run office:docs:sync-playground   # copy the built playground into the docs site
+npm run office:docs:sync-chart-api    # copy the live Chart API page into the docs site
 npm run office:docs:dev               # generate, copy, then a local Starlight server
 npm run office:docs                   # generate, copy, then the static site
-npm run pptx:playground               # build the playground the embeds load
+npm run pptx:playground               # build the playground the PPTX embeds load
+npm run showcase                      # build the Chart API page the Vela embeds load
 ```
 
 ## Why it is not in the language documentation
@@ -40,10 +44,11 @@ playground rather than beside the language documentation.
 | --- | --- |
 | `api-sources.json` | Which facades are published, the URL slug (`page`), and how each Ranger name is spelled in JavaScript. |
 | `tools/extract-api.mjs` | Reads the Ranger, writes the model to `.model/<id>-api.json`. |
-| `tools/render-starlight.mjs` | Model → Starlight Markdown (`pptx.mdx`, `vela.md`, …). The PowerPoint page embeds live `PptxApiExample` blocks. |
+| `tools/render-starlight.mjs` | Model → Starlight Markdown (`pptx.mdx`, `vela.mdx`, …). Those two pages embed live `PptxApiExample` / `ChartApiExample` blocks. |
 | `tools/check-api-coverage.mjs` | Fails the build when a documented method has no counterpart in the JavaScript wrapper. A Ranger-only API records no wrapper and is skipped. |
 | `tools/sync-playground.mjs` | Copies the built playground into `site/public/playground/` so live examples can iframe it. |
-| `site/` | The Astro + Starlight project. Guides are written by hand. API pages are generated. Live examples use `PptxExample.astro` (whole playground) and `PptxApiExample.astro` (editor on the page, viewer below). |
+| `tools/sync-chart-api.mjs` | Copies the live Chart API page into `site/public/chart-api/` so Vela examples can iframe it. |
+| `site/` | The Astro + Starlight project. Guides are written by hand. API pages are generated. Live examples use `PptxExample.astro` (whole playground), `PptxApiExample.astro` (editor on the page, slide viewer below) and `ChartApiExample.astro` (editor on the page, SVG below). |
 
 A method marked `; @internal` in its Ranger comment stays out of the pages
 without being hidden from the source.
