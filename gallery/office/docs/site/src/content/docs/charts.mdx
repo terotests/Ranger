@@ -4,6 +4,8 @@ description: Vela compiles Vega and Vega-Lite. VlChart builds a chart by calling
 ---
 
 import PptxExample from "../../components/PptxExample.astro";
+import PptxApiExample from "../../components/PptxApiExample.astro";
+import { vegaChart } from "../../examples/pptx-live.js";
 
 Charts in this gallery have two published surfaces, and they meet at EVG.
 
@@ -88,19 +90,11 @@ the page cannot drift apart.
 
 ## Charts on a PowerPoint slide
 
-```js
-import { Chart } from "@ranger/pptx/chart";
+`@ranger/pptx/chart` is `Chart()` in the playground. The editor below runs
+that call: a Vega-Lite specification becomes DrawingML shapes on the slide.
+Press **Run**. The numbers in the labels are in `slide.text`.
 
-new Chart().font("Calibri").addTo(slide, {
-  width: 460, height: 260,
-  data: { values: [{ q: "Q1", revenue: 28 }, { q: "Q2", revenue: 55 }] },
-  mark: "bar",
-  encoding: {
-    x: { field: "q", type: "nominal" },
-    y: { field: "revenue", type: "quantitative" },
-  },
-}, 70, 110, 620, 380);
-```
+<PptxApiExample title="Chart.addTo — a bar chart as shapes" code={vegaChart} viewerHeight="24rem" />
 
 This is not a PowerPoint chart part (`c:chart` plus an embedded workbook).
 It is a group of shapes. Ungrouping in PowerPoint leaves the bars and the

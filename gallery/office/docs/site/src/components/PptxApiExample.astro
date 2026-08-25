@@ -1,0 +1,89 @@
+---
+/**
+ * A docs-native API example: the JavaScript lives in a code editor on the
+ * page. Pressing Run sends it to a slides-only playground iframe, which
+ * writes a .pptx and opens those bytes in the viewer. The editor is the
+ * documentation; the iframe is only the result.
+ */
+// SPDX-License-Identifier: AGPL-3.0-or-later
+interface Props {
+  code: string;
+  title?: string;
+  editorRows?: number;
+  viewerHeight?: string;
+}
+
+const { code, title = "Live API example", editorRows, viewerHeight = "22rem" } = Astro.props;
+const lineCount = code.split("\n").length;
+const rows = editorRows ?? Math.min(18, Math.max(8, lineCount + 1));
+const params = new URLSearchParams({ embed: "1", view: "slides", run: "0" });
+const src = `${import.meta.env.BASE_URL}playground/?${params.toString()}`;
+const playgroundHref = `${import.meta.env.BASE_URL}playground/`;
+---
+
+<figure class="pptx-api-example not-content">
+  <div class="pptx-api-example__bar">
+    <span class="pptx-api-example__title">{title}</span>
+    <button type="button" data-run>Run ▶</button>
+    <span class="pptx-api-example__hint">Ctrl+Enter runs. The viewer opens the .pptx the code produced.</span>
+    <a class="pptx-api-example__open" href={playgroundHref}>Open in the playground</a>
+  </div>
+  <textarea
+    class="pptx-api-example__code"
+    spellcheck="false"
+    rows={rows}
+    aria-label={title}
+  >{code}</textarea>
+  <iframe
+    class="pptx-api-example__frame"
+    src={src}
+    title={`${title} — slide viewer`}
+    style={`height: ${viewerHeight}`}
+    allow="webgl"
+    loading="lazy"
+  ></iframe>
+</figure>
+
+<script>
+  function send(frame: HTMLIFrameElement, snippet: string) {
+    try {
+      const w = frame.contentWindow as Window & { __playgroundReady?: boolean } | null;
+      if (w && w.__playgroundReady) {
+        w.postMessage({ type: "pptx-embed", view: "slides", code: snippet }, "*");
+        return true;
+      }
+    } catch {
+      /* iframe not ready */
+    }
+    return false;
+  }
+
+  function bind(root: HTMLElement) {
+    const editor = root.querySelector("textarea");
+    const button = root.querySelector<HTMLButtonElement>("button[data-run]");
+    const frame = root.querySelector("iframe");
+    if (!editor || !button || !frame) return;
+
+    const arm = () => {
+      const t = window.setInterval(() => {
+        if (send(frame, editor.value)) window.clearInterval(t);
+      }, 50);
+      window.setTimeout(() => window.clearInterval(t), 30000);
+    };
+
+    button.addEventListener("click", () => {
+      if (!send(frame, editor.value)) arm();
+    });
+    editor.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (!send(frame, editor.value)) arm();
+      }
+    });
+
+    frame.addEventListener("load", arm);
+    arm();
+  }
+
+  document.querySelectorAll<HTMLElement>(".pptx-api-example").forEach(bind);
+</script>
