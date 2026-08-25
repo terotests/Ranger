@@ -53,7 +53,34 @@
   .cols { padding: 10px 14px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--muted); }
   .cols b { color: var(--ink); font-weight: 600; }
   .hidden { display: none; }
+  /*
+   * Docs pages iframe this page with ?embed=1&view=chart. Hide the
+   * playground chrome so the remaining surface is the drawing — the parent
+   * holds the code editor.
+   */
+  html.embed, html.embed body { height: 100%; margin: 0; overflow: hidden; }
+  html.embed header { display: none; }
+  html.embed main { height: 100vh; max-width: none; margin: 0; padding: 0; gap: 0; }
+  html.chart-only main { grid-template-columns: minmax(0, 1fr); }
+  html.chart-only main > div:first-child { display: none; }
+  html.chart-only .head,
+  html.chart-only #spec,
+  html.chart-only #vega { display: none !important; }
+  html.chart-only section { border: 0; border-radius: 0; height: 100%; display: flex; flex-direction: column; }
+  html.chart-only #chart { flex: 1; min-height: 0; }
+  html.chart-only .embed-error {
+    margin: 0; padding: 14px; font: 13px/1.45 var(--mono); color: #b42318; white-space: pre-wrap;
+  }
 </style>
+<script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    if (q.get("embed") === "1" || q.get("embed") === "true") {
+      document.documentElement.classList.add("embed");
+      if (q.get("view") === "chart") document.documentElement.classList.add("chart-only");
+    }
+  })();
+</script>
 </head>
 <body>
 <header>
@@ -319,7 +346,17 @@ function render() {
 function fail(message) {
   status.className = "bad";
   status.textContent = message;
-  chart.innerHTML = "";
+  // Chart-only embeds hide the editor column, where #status lives. Put the
+  // error on the drawing so a docs reader still sees why Run did nothing.
+  if (document.documentElement.classList.contains("chart-only")) {
+    chart.replaceChildren();
+    const p = document.createElement("p");
+    p.className = "embed-error";
+    p.textContent = message;
+    chart.appendChild(p);
+  } else {
+    chart.innerHTML = "";
+  }
 }
 
 let timer = null;
@@ -368,7 +405,49 @@ code.addEventListener("input", schedule);
 data.addEventListener("input", schedule);
 
 data.value = DATA;
-load("bar");
+
+function applyEmbed() {
+  const q = new URLSearchParams(location.search);
+  const embed = q.get("embed") === "1" || q.get("embed") === "true";
+  if (embed) {
+    document.documentElement.classList.add("embed");
+    document.body.classList.add("embed");
+    window.__embedMode = true;
+    if (q.get("view") === "chart") document.documentElement.classList.add("chart-only");
+  }
+  const which = q.get("preset");
+  if (which && PRESETS[which]) preset = which;
+  const wait = embed && q.get("run") === "0";
+  return { wait, autorun: !wait };
+}
+
+window.addEventListener("message", (ev) => {
+  if (ev.source !== window.parent) return;
+  const d = ev.data;
+  if (!d || d.type !== "vela-embed") return;
+  document.documentElement.classList.add("embed");
+  window.__embedMode = true;
+  if (d.view === "chart") document.documentElement.classList.add("chart-only");
+  if (d.lang === "js" || d.lang === "rgr") {
+    language = d.lang;
+    for (const other of document.querySelectorAll("[data-lang]")) {
+      other.setAttribute("aria-pressed", String(other.dataset.lang === language));
+    }
+  }
+  if (typeof d.data === "string" && d.data.trim()) data.value = d.data;
+  if (typeof d.code === "string" && d.code.trim()) {
+    code.value = d.code;
+    render();
+  }
+});
+
+const embedState = applyEmbed();
+if (embedState.autorun) {
+  load(preset);
+} else {
+  status.textContent = "waiting for code…";
+}
+window.__chartApiReady = true;
 </script>
 </body>
 </html>

@@ -204,6 +204,9 @@ jobs:
       - name: Copy the playground into the Office docs
         run: OFFICE_PLAYGROUND_DIST="$GITHUB_WORKSPACE/_site/office" node gallery/office/docs/tools/sync-playground.mjs
 
+      - name: Copy the Chart API page into the Office docs
+        run: OFFICE_CHART_API_DIST="$GITHUB_WORKSPACE/_site/evg/chart-api" node gallery/office/docs/tools/sync-chart-api.mjs
+
       - name: Install Office documentation dependencies
         working-directory: gallery/office/docs/site
         run: npm ci
@@ -223,6 +226,8 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/office/reference/evg/index.html"
           test -s "$GITHUB_WORKSPACE/_site/office/reference/playground/index.html"
           test -s "$GITHUB_WORKSPACE/_site/office/reference/playground/playground.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/chart-api/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/office/reference/chart-api/vela_chart_api.js"
           grep -q "AGPL" "$GITHUB_WORKSPACE/_site/office/reference/index.html"
 
       # The same check the deck editor gets below, for the same reason: a page
