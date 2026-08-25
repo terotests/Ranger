@@ -1,0 +1,94 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; OfficeShapeNativeTest.rgr — the catalogue, on a target with real pointers
+; ==============================================================================
+;
+;   npm run office:shapes:native
+;
+; `OfficeShapeCatalogTest` is the real suite and it imports both editors, which
+; makes it a JavaScript test: the whole book and the whole deck is more C++
+; than a check like this is worth compiling.
+;
+; This is the small half that has to run natively, and it exists because of one
+; specific defect that JavaScript cannot have:
+;
+;     Constructor () {
+;         OfficeShapeCatalog.fill(this)     ; <- legal, compiles, throws
+;     }
+;
+; Handing `this` out of a constructor is fine on a garbage-collected target and
+; fatal on every backend that owns objects by reference count. C++ reaches the
+; shared pointer through `shared_from_this()` and inside a constructor there is
+; none yet, so the native book editor died on `std::bad_weak_ptr` before it
+; drew a frame; the WebAssembly build died the same way; the Rust backend
+; refuses to emit the call at all. Every JavaScript test passed throughout.
+;
+; It asserts BEHAVIOUR and not shape — that the catalogue can be built and then
+; counted, searched and drawn from — so it holds whichever way the constructor
+; is fixed. The fix that landed builds the table lazily on first use; an
+; earlier one built it as a plain list and assigned it. This test passes both,
+; and would have failed the version that shipped.
+;
+; Merely constructing the catalogue is what used to throw, but a test that only
+; constructed it would pass if the filling quietly did nothing — so it counts,
+; finds, and draws as well.
+; ==============================================================================
+
+Import "../OfficeShapeCatalog.rgr"
+
+class NativeCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+}
+
+class OfficeShapeNativeTest {
+    sfn main:void () {
+        print "== OfficeShapeNativeTest =="
+        def c (new NativeCheck())
+
+        ; The line that used to abort the process.
+        def cat (new OfficeShapeCatalog())
+        c.ok("the catalogue can be constructed at all" true)
+        c.ok("and it is full" ((cat.count()) == 187))
+
+        ; The three passes that ran inside the constructor, each of which used
+        ; to be handed `this`.
+        def e:ShapeEntry (cat.find("star5"))
+        c.ok("entries carry their names" (e.label == "5-point star"))
+        def brace:ShapeEntry (cat.find("leftBrace"))
+        c.ok("markNoFill ran" brace.noFill)
+        def gear:ShapeEntry (cat.find("gear6"))
+        c.ok("markAspect ran" (gear.aspect > 0.0))
+
+        ; And it draws, on a target where a string is bytes rather than UTF-16
+        ; code units — which is where the number formatting would show up.
+        def text:string (?? (read_file "gallery/office/geom/assets" "presets.txt") "")
+        c.ok("the presets are readable" ((strlen text) > 1000))
+        cat.loadPresets(text)
+        def path:string (cat.pathFor("star5" 100.0 100.0))
+        c.ok("a preset becomes path data" ((strlen path) > 20))
+        c.ok("and it is a path" ((substring path 0 1) == "M"))
+        def line:string (cat.strokePathFor("straightConnector1" 100.0 100.0))
+        c.ok("a connector has something to stroke" ((strlen line) > 5))
+        c.ok("and nothing to fill" ((strlen (cat.pathFor("straightConnector1" 100.0 100.0))) == 0))
+
+        print (("passed=" + (to_string c.passed)) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        }
+    }
+}

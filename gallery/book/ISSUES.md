@@ -331,5 +331,60 @@ U-turn and the four navigation arrows.
   transform, not a second frame — two frames would scale independently and
   could not be moved together. The slide editor is unaffected: it stores the
   preset name and its renderer draws every path.
+* ~~A `BookFrame` also holds one contour.~~ **Fixed.** `BookToEvg.paintPath`
+  filled each ring of a path on its own, so a letter O came out solid and every
+  emoji was a blob — a panda with no eye patches. It needed no new field at
+  all: the rings were already in hand from the path parser and were simply
+  being handed over one at a time. One `addPolyRings` under the even-odd rule
+  instead of a loop of `addPolygon`. The SVG and XAML exports were never
+  affected — they write the path data as one `<path>` and let the renderer
+  apply the fill rule.
 * **The book editor paints one colour.** It can now ask for the parts but has
   nowhere to put their shades, for the same reason.
+
+## 18. The shape catalogue aborted the native editor before it drew a frame
+
+`OfficeShapeCatalog`'s constructor read:
+
+```
+Constructor () {
+    OfficeShapeCatalog.fill(this)
+    OfficeShapeCatalog.markNoFill(this)
+    OfficeShapeCatalog.markAspect(this)
+}
+```
+
+which is legal Ranger, compiles clean on all fourteen targets, and passes every
+JavaScript test. On C++ it throws. The writer reaches a shared pointer to the
+object through `shared_from_this()`, and inside a constructor there is no
+shared pointer yet, so the SDL book editor died on `std::bad_weak_ptr` after
+printing its banner and before drawing anything.
+
+This is the same defect as §14, in a different file. It is worse than §14
+because it is not only C++: **every backend that owns objects by reference
+count rejects it.** The WebAssembly build threw the same `bad_weak_ptr` the
+moment anything opened, and the Rust backend refuses to emit the call at all.
+JavaScript happens to work, which is why it shipped.
+
+Two people found it independently and in different ways — one by running the
+native book editor, one by building the deck editor to WebAssembly — and the
+fix that landed is the lazy one, because it is the smaller change: the
+constructor does nothing and an `ensure()` guarded by a flag fills the table on
+first use. `count`, `find` and the four other methods that read `entries`
+directly call it; the rest reach them through `find`.
+
+That has two consequences worth naming, both caught by assertions rather than
+by reading. `OfficeShapePicker.refresh` read `cat.entries` past the methods and
+so saw an empty list — it asks `cat.all()` now. And `OfficeEmojiShapes.fill`
+APPENDS, so built lazily an append before first use lands *ahead* of the 187,
+and `arc` stops being the first thing a picker shows; it calls `ensure()`
+first, and so does the generator that writes it.
+
+**And there is a test for it this time.** `npm run office:shapes:native` builds
+the catalogue and uses it on JavaScript *and* on C++, because the whole point
+is that the two disagree. It asserts behaviour rather than shape, so it holds
+whichever way the constructor is fixed. The main suite cannot do this — it imports both
+editors, and compiling the whole book and the whole deck to C++ is more than a
+constructor check is worth — so the native half is a separate, small file. It
+does not merely construct the catalogue: a `build` that quietly returned
+nothing would pass that, so it counts, finds and draws as well.

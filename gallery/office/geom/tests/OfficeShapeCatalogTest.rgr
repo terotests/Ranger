@@ -161,6 +161,41 @@ class OfficeShapeCatalogTest {
         c.ok("and searchable" ((array_length (cat.search("rabbit"))) > 0))
     }
 
+    ; @internal The most contours any one fill command in a frame carries.
+    ; A painter that fills rings separately answers 1 for every command.
+    sfn widestRing:int (dl:EVGDisplayList) {
+        def best:int 0
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            def n:int (array_length c.ringEnds)
+            if (n > best) {
+                best = n
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; @internal How many times a substring appears.
+    sfn countSub:int (s:string want:string) {
+        def n:int 0
+        def w:int (strlen want)
+        if (w == 0) {
+            return 0
+        }
+        def i:int 0
+        while ((i + w) <= (strlen s)) {
+            if ((substring s i (i + w)) == want) {
+                n = (n + 1)
+                i = (i + w)
+            } {
+                i = (i + 1)
+            }
+        }
+        return n
+    }
+
     ; @internal How many times one character appears.
     sfn countOf:int (s:string ch:string) {
         def n:int 0
@@ -229,6 +264,15 @@ class OfficeShapeCatalogTest {
         c.ok("stroked" ((strlen line.stroke) > 0))
         c.ok("and not filled" ((strlen line.fill) == 0))
         c.ok("with a width to stroke it at" (line.strokeWidth > 0.0))
+
+        ; An emoji is several contours and they have to be filled TOGETHER.
+        ; Filled one at a time - which is what the painter used to do - a
+        ; panda's eye patches fill in and it is a blob. The frame carries the
+        ; path as text, so the only place this shows is the display list.
+        c.ok("an emoji inserts in the book" (app.runCommand("frame.shape" "emojiPandaFace")))
+        def dl:EVGDisplayList (app.buildFrame())
+        def rings:int (OfficeShapeCatalogTest.widestRing(dl))
+        c.ok("and its contours are filled as one" (rings > 5))
 
         ; A shape that cannot be produced must not leave an invisible frame.
         def n0:int (array_length ((app.editor.currentPage()).frames))
@@ -313,11 +357,38 @@ class OfficeShapeCatalogTest {
         c.ok("both grids start at the same shape" (firstBook.id == firstDeck.id))
         c.ok("and that is what the deck inserted" (sh.preset == firstDeck.id))
 
-        ; The categories are the picker's, not either editor's. The book's
-        ; catalogue carries the emoji and the deck's does not, and the same
-        ; window shows each host exactly what that host can insert.
+        ; Both catalogues carry the emoji now. They did not always: the deck
+        ; refused them while a slide shape could hold one contour, and the
+        ; assertion below was the opposite of what it says.
         c.ok("the book's picker offers the emoji groups" ((array_length (book.picker.cat.inCategory("Animals"))) > 20))
-        c.ok("the deck's does not" ((array_length (deckApp.picker.cat.inCategory("Animals"))) == 0))
+        c.ok("and so does the deck's" ((array_length (deckApp.picker.cat.inCategory("Animals"))) > 20))
+
+        ; --- an outline on a slide -------------------------------------------
+        ;
+        ; A preset goes in as a NAME, because PowerPoint draws it from its own
+        ; geometry at whatever size it is dragged to. An emoji has no preset
+        ; name, so it goes in as the outline itself — and its contours have to
+        ; stay apart, or a panda's eye patches fill in and it is a blob.
+        def n0:int (array_length slide.shapes)
+        c.ok("an emoji inserts on a slide" (deckApp.runCommand("shape.insert" "emojiPandaFace")))
+        def n1:int (array_length slide.shapes)
+        c.eqInt("as one shape" n1 (n0 + 1))
+        def panda:PptxShape (itemAt slide.shapes (n1 - 1))
+        c.ok("carrying an outline" panda.hasPath)
+        c.ok("closed, so it is an area and not a stroke" panda.pathClosed)
+        c.ok("with several contours" ((array_length panda.pathEnds) > 2))
+        ; The boundaries must be indices into the points, ascending, and the
+        ; last one must be the end. An off-by-one here is a shape that draws
+        ; almost right, which is the hardest kind of wrong to notice.
+        def last:int (itemAt panda.pathEnds ((array_length panda.pathEnds) - 1))
+        c.eqInt("whose last boundary is the end of the points" last (array_length panda.pathUnit))
+        c.ok("and whose first is not" ((itemAt panda.pathEnds 0) < last))
+
+        ; It survives the round trip through the file format. The writer puts
+        ; one <a:path> per contour and the parser used to read only the first,
+        ; so this is the assertion that says both halves were changed.
+        def xml:string (PptxWriter.geomXml(panda))
+        c.ok("the writer states every contour" ((OfficeShapeCatalogTest.countSub(xml "<a:path ")) == (array_length panda.pathEnds)))
 
         ; Choosing a category is the picker's own business in both.
         book.picker.setCategory("Brackets")

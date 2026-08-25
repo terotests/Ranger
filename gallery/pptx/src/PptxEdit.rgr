@@ -262,6 +262,13 @@ class PptxClone {
             push s.pathUnit (itemAt src.pathUnit pi)
             pi = (pi + 1)
         }
+        ; The contour boundaries travel with the points. A duplicate that
+        ; kept the points and dropped these is a shape whose holes fill in.
+        def pe:int 0
+        while (pe < (array_length src.pathEnds)) {
+            push s.pathEnds (itemAt src.pathEnds pe)
+            pe = (pe + 1)
+        }
         s.tableRows = src.tableRows
         s.tableCols = src.tableCols
         def ci:int 0
@@ -1668,6 +1675,55 @@ class PptxEditor {
         sh.width = w
         sh.height = h
         sh.hasXfrm = true
+        sh.fill = (PptxColor.srgbOf("4472C4"))
+        push s.shapes sh
+        this.select(sh.editId)
+        this.pushSnapshot("insert shape")
+        return sh.editId
+    }
+
+    ; A shape whose geometry is an OUTLINE rather than a preset name.
+    ;
+    ; `pts` are in the shape's own unit square, which is what `pathUnit` holds
+    ; and what the writer multiplies back up, and `ends` say where each contour
+    ; stops — pass an empty list for a shape that is one ring.
+    ;
+    ; This is what an emoji is on a slide. A preset name would be simpler and
+    ; there is no preset for a panda.
+    fn addPathShapeAt:int (pts:[double] ends:[int] x:double y:double w:double h:double) {
+        def slide@(optional):PptxSlide (this.currentSlide())
+        if (null? slide) {
+            return 0
+        }
+        if ((array_length pts) < 6) {
+            return 0
+        }
+        def s:PptxSlide (unwrap slide)
+        def sh (new PptxShape())
+        sh.kind = (PptxShapeKind.shape())
+        sh.editId = nextId
+        nextId = (nextId + 1)
+        sh.name = ("Shape " + (to_string sh.editId))
+        sh.preset = "rect"
+        sh.x = x
+        sh.y = y
+        sh.width = w
+        sh.height = h
+        sh.hasXfrm = true
+        sh.hasPath = true
+        ; Closed, because an outline encloses an area. An open path is a
+        ; stroke and the painter fills nothing for one.
+        sh.pathClosed = true
+        def i:int 0
+        while (i < (array_length pts)) {
+            push sh.pathUnit (itemAt pts i)
+            i = (i + 1)
+        }
+        def e:int 0
+        while (e < (array_length ends)) {
+            push sh.pathEnds (itemAt ends e)
+            e = (e + 1)
+        }
         sh.fill = (PptxColor.srgbOf("4472C4"))
         push s.shapes sh
         this.select(sh.editId)
