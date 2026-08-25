@@ -1377,6 +1377,14 @@ class RangerRustClassWriter {
           return "__self_rc.borrow_mut()"
         }
       }
+      ; The same field, reached the other way. A method whose name is also a
+      ; Lang.rgr operator — `clear`, `set` — is parsed into the
+      ; `(call obj method args)` shape, and that path marks the receiver
+      ; place rather than the call receiver: `family.clear()` inside a
+      ; receiverless method is still `&mut self.family`.
+      if rust_recv_place_mut {
+        return "__self_rc.borrow_mut()"
+      }
       return "__self_rc.borrow()"
     }
     return thisName

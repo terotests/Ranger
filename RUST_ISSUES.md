@@ -673,8 +673,42 @@ below this one).
 
 ### What is left
 
-21 warnings, no errors. They are the ordinary ones: `while true`, unused
-imports, one `unconditional_recursion`.
+22 warnings, no errors. They are the ordinary ones: `while true`, unused
+imports, `private_interfaces` on the trait families.
+
+### A method named after an operator arrives in the other node shape
+
+_Later in August 2026._ The ODF reader (`gallery/odp/`, `gallery/office/`)
+landed on master and brought 12 errors back with it, in two families that
+were one bug:
+
+    (__self_rc.borrow().strike).clear();   // E0596, ten of these
+    pub fn setIfStated(slot : &StyleText, …)  { (slot).set(…); }   // E0596, two
+
+`clear` and `set` are also the names of Lang.rgr operators, so the front end
+parses `family.clear()` into the `(call obj method args)` node it builds for
+a call on an EXPRESSION rather than the dotted `hasFnCall` node an ordinary
+`family.wipe()` gets. Two analyses only ever looked at the dotted shape:
+
+* the receiver's borrow through `this` — `rustThisPathPrefix` reads
+  `rust_path_head_mut`, which the dotted path sets and the call path does
+  not (it sets `rust_recv_place_mut` instead, which the Rc segments already
+  honoured). Now the head honours it too.
+* the parameter's borrow — `analyzeParamMethodCalls` now asks the same
+  question of the call node.
+
+Under the second sat a third, older bug worth naming on its own:
+`nodeDirectlyMutatesSelf` recognised `this.field = v` and not the bare
+`field = v` that a class written without `this.` uses. So
+`doesMethodMutate("StyleText", "set")` answered *no* for every class in that
+style, and a parameter called through kept `&T`. The field's own descriptor
+settles it now, which also means a local that shadows a field does not count
+as one.
+
+Worth noting for what it says about the shape of this work: the ODF reader is
+new code that nobody wrote with Rust in mind, and it cost two emitter rules
+and one analysis. The families are not endless, but they are not exhausted
+either — each new program finds the ones its style happens to reach.
 
 A WASM *build* exists now too, at `gallery/pptx/web/wasm-rust/`: `bind.rs`
 beside it exports the editor over the C ABI and `host.mjs` presents the module

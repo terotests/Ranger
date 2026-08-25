@@ -1211,6 +1211,28 @@ class StaticAnalyzer {
     return (this.nodeDirectlyMutatesSelf((unwrap fn.fnBody)))
   }
   
+  ; Is the target of this write THIS object? Two spellings of
+  ; the same thing: `this.field = v`, and the bare `field = v` a class that
+  ; never writes `this.` uses. Only the first was recognised, so every class
+  ; written in the implicit style answered "does not mutate" to
+  ; doesMethodMutate — and a parameter it was called through kept `&T`.
+  ; The name's own descriptor settles it, so a local that shadows a field
+  ; does not count as one.
+  fn writeTargetIsSelf:boolean (target:CodeNode) {
+    if ((array_length target.ns) > 0) {
+      if ((itemAt target.ns 0) == "this") {
+        return true
+      }
+    }
+    if target.hasParamDesc {
+      def wtP:RangerAppParamDesc target.paramDesc
+      if wtP.is_class_variable {
+        return true
+      }
+    }
+    return false
+  }
+
   ; Check if a node directly mutates self (without following method calls)
   fn nodeDirectlyMutatesSelf:boolean (node:CodeNode) {
     ; Check for assignment to this.field: (= this.field value)
@@ -1218,22 +1240,14 @@ class StaticAnalyzer {
       if ((array_length node.children) >= 2) {
         def first:CodeNode (node.getFirst())
         if (first.vref == "=") {
-          def lhs:CodeNode (node.getSecond())
-          if ((array_length lhs.ns) > 0) {
-            def firstPart:string (itemAt lhs.ns 0)
-            if (firstPart == "this") {
-              return true
-            }
+          if (this.writeTargetIsSelf((node.getSecond()))) {
+            return true
           }
         }
         ; Check for mutating operators on this.field: (push this.array item)
         if (this.isMutatingOperator(first.vref)) {
-          def target:CodeNode (node.getSecond())
-          if ((array_length target.ns) > 0) {
-            def firstPart:string (itemAt target.ns 0)
-            if (firstPart == "this") {
-              return true
-            }
+          if (this.writeTargetIsSelf((node.getSecond()))) {
+            return true
           }
         }
       }
@@ -1417,6 +1431,41 @@ class StaticAnalyzer {
       }
     }
     
+    ; The same call, in the other shape the front end builds. A method whose
+    ; name is also a Lang.rgr operator — `set`, `clear` — arrives as the
+    ; `(call obj method args)` node an expression receiver gets, and the
+    ; dotted test above never sees it. `slot.set(v)` on a parameter is a
+    ; write to the caller's object either way.
+    if node.has_call {
+      if ((array_length node.children) >= 3) {
+        def hcObj:CodeNode (node.getSecond())
+        def hcMethod:CodeNode (node.getThird())
+        def hcRoot:string hcObj.vref
+        if ((array_length hcObj.ns) == 1) {
+          hcRoot = (itemAt hcObj.ns 0)
+        }
+        if ((strlen hcRoot) > 0) {
+          if (hcRoot != "this") {
+            def hcParam:RangerAppParamDesc (fnCtx.getVariableDef(hcRoot))
+            if ((strlen hcParam.name) > 0) {
+              if (hcParam.varType == RangerContextVarType.FunctionParameter) {
+                if (!null? hcParam.nameNode) {
+                  def hcTypeNode:CodeNode (unwrap hcParam.nameNode)
+                  if (this.doesMethodMutate(hcTypeNode.type_name hcMethod.vref)) {
+                    hcParam.needs_cpp_reference = true
+                    hcParam.rust_borrow_type = 2
+                    if debug {
+                      print (("StaticAnalysis: " + hcRoot) + " needs &mut (calls mutating method through a call node)")
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     ; Recurse to children
     for node.children child:CodeNode i {
       this.analyzeParamMethodCalls(child fnCtx fn)
