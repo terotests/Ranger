@@ -211,7 +211,8 @@ async function main() {
     console.log("  npm potrace available");
   }
 
-  console.log("  name            ranger_cmds  npm_ms   cli_ms   npm_path  cli_path");
+  console.log("  name            ranger_cmds ranger_path  cli_path   ratio");
+  let qualityFail = 0;
   for (const c of cases) {
     const data = makeBitmap(c);
     let npmRes = null;
@@ -230,9 +231,23 @@ async function main() {
     }
     const r = ranger[c.name] || {};
     const fmt = (v) => (v == null ? "   n/a" : String(v).padStart(7));
+    const ratio =
+      cliRes && r.pathChars
+        ? (r.pathChars / cliRes.pathChars).toFixed(2) + "x"
+        : "   n/a";
     console.log(
-      `  ${c.name.padEnd(14)} ${fmt(r.commands)} ${fmt(npmRes && npmRes.ms.toFixed(1))} ${fmt(cliRes && cliRes.ms.toFixed(1))} ${fmt(npmRes && npmRes.pathChars)} ${fmt(cliRes && cliRes.pathChars)}`
+      `  ${c.name.padEnd(14)} ${fmt(r.commands)} ${fmt(r.pathChars)} ${fmt(cliRes && cliRes.pathChars)} ${String(ratio).padStart(7)}`
     );
+    // Quality gate: rect/ring must stay within 1.5× CLI path size (or absolute slack).
+    if (cliRes && r.pathChars != null && (c.name.startsWith("rect_") || c.name.startsWith("ring_"))) {
+      const limit = Math.max(cliRes.pathChars * 1.5, cliRes.pathChars + 40);
+      if (r.pathChars > limit) {
+        console.log(`  FAIL quality ${c.name}: ranger pathChars ${r.pathChars} > limit ${limit.toFixed(0)} (cli ${cliRes.pathChars})`);
+        qualityFail++;
+      } else {
+        console.log(`  PASS quality ${c.name}`);
+      }
+    }
   }
 
   const wall = existsSync(join(OUT, "bench_ranger.log"))
@@ -240,6 +255,7 @@ async function main() {
     : null;
   if (wall) console.log(`  ${wall}`);
   console.log("  (ranger per-case ms are in the overall wall time; npm/cli are timed here)");
+  if (qualityFail > 0) process.exit(1);
 }
 
 main().catch((e) => {

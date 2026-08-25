@@ -23,6 +23,7 @@ class EvgBitmapTracerTest {
         test.testImageBuffer(t)
         test.testEVGElement(t)
         test.testOptimalRectPolygon(t)
+        test.testCurveModeRectCompact(t)
         t.summary()
     }
 
@@ -182,5 +183,24 @@ class EvgBitmapTracerTest {
         t.eqInt("optimal rect: command budget" (array_length cmds) 5)
         ; Path char budget should be in the same league as CLI potrace for a rect.
         t.ok("path data stays compact" ((strlen (tr.getPathData())) < 120))
+    }
+
+    ; Default optcurve=true runs alphamax + optiCurve. For an axis-aligned rect
+    ; every vertex is a CORNER, so emit collapses to the same compact polygon
+    ; the Potrace CLI SVG produces (no midpoint staging).
+    fn testCurveModeRectCompact:void (t:RgTest) {
+        def bm:EvgBinaryBitmap (this.filledRect(40 40 8 8 20 16))
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.optcurve = true
+        opts.alphamax = 1.0
+        opts.opttolerance = 0.2
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromBinary(bm opts))
+        tr.trace()
+        def cmds:[PathCommand] (tr.getCommands())
+        t.eqInt("curve-mode rect: one moveto" (this.countType(cmds "M")) 1)
+        t.eqInt("curve-mode rect: three linetos" (this.countType(cmds "L")) 3)
+        t.eqInt("curve-mode rect: no cubics on a box" (this.countType(cmds "C")) 0)
+        t.eqInt("curve-mode rect: command budget" (array_length cmds) 5)
+        t.ok("curve-mode path stays compact" ((strlen (tr.getPathData())) < 120))
     }
 }

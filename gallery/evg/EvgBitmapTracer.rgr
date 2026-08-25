@@ -16,6 +16,7 @@
 
 Import "EvgTraceTypes.rgr"
 Import "EvgTraceFit.rgr"
+Import "EvgTraceCurve.rgr"
 Import "PathBuilder.rgr"
 Import "EVGElement.rgr"
 Import "EVGColor.rgr"
@@ -427,12 +428,11 @@ class EvgBitmapTracer {
     }
 
     ; ----------------------------------------------------------------------
-    ; 2–4. Polygon simplify + alphamax smooth → path commands
+    ; 2–4. Optimal polygon + alphamax smooth + optiCurve → path commands
     ; ----------------------------------------------------------------------
 
-    ; Curve optimization / polygon stage. When optcurve is false we still run
-    ; the optimal polygon, then emit straight edges (Potrace -n is about
-    ; joining Beziers, not about skipping the polygon phase).
+    ; When optcurve is false: emit the optimal polygon as straight edges.
+    ; When true: alphamax smooth followed by optiCurve (Potrace default).
     fn emitCommands:void () {
         def out:[PathCommand]
         def ri:int 0
@@ -442,7 +442,9 @@ class EvgBitmapTracer {
             def n:int (array_length poly)
             if (n >= 3) {
                 if options.optcurve {
-                    this.appendSmooth(out poly)
+                    def curve:EvgTraceCurve (EvgTraceCurve.fromPolygon(poly options.alphamax))
+                    def opt:EvgTraceCurve (curve.optimize(options.opttolerance))
+                    opt.emit(out)
                 } {
                     this.appendPolygon(out poly)
                 }
@@ -460,123 +462,6 @@ class EvgBitmapTracer {
         while (i < n) {
             def p:EvgTracePoint (itemAt poly i)
             push out (VectorShapes.lineTo(p.x p.y))
-            i = (i + 1)
-        }
-        push out (VectorShapes.closePath())
-    }
-
-    fn modI:int (a:int n:int) {
-        def r:int (a - ((idiv a n) * n))
-        if (r < 0) {
-            r = (r + n)
-        }
-        return r
-    }
-
-    fn interval:EvgTracePoint (lambda:double a:EvgTracePoint b:EvgTracePoint) {
-        def x:double ((a.x * (1.0 - lambda)) + (b.x * lambda))
-        def y:double ((a.y * (1.0 - lambda)) + (b.y * lambda))
-        return (EvgTracePoint.of(x y))
-    }
-
-    ; 2D cross of (p1-p0) × (p2-p0)
-    fn dpara:double (p0:EvgTracePoint p1:EvgTracePoint p2:EvgTracePoint) {
-        def x1:double (p1.x - p0.x)
-        def y1:double (p1.y - p0.y)
-        def x2:double (p2.x - p0.x)
-        def y2:double (p2.y - p0.y)
-        return ((x1 * y2) - (y1 * x2))
-    }
-
-    fn ddenom:double (p0:EvgTracePoint p2:EvgTracePoint) {
-        def ax:double (p0.x - p2.x)
-        def ay:double (p0.y - p2.y)
-        ; infinity-norm style denominator used by Potrace's corner measure
-        def r:double (EvgBitmapTracer.absD(ax))
-        def s:double (EvgBitmapTracer.absD(ay))
-        if (s > r) {
-            return (r + s)
-        }
-        return (r + s)
-    }
-
-    ; Alphamax corner detection + cubic emission (Potrace smooth stage).
-    fn appendSmooth:void (out:[PathCommand] poly:[EvgTracePoint]) {
-        def m:int (array_length poly)
-        if (m < 3) {
-            return
-        }
-        def tags:[string]
-        def c0:[EvgTracePoint]
-        def c1:[EvgTracePoint]
-        def c2:[EvgTracePoint]
-        def i:int 0
-        while (i < m) {
-            push tags "CURVE"
-            push c0 (EvgTracePoint.of(0.0 0.0))
-            push c1 (EvgTracePoint.of(0.0 0.0))
-            push c2 (EvgTracePoint.of(0.0 0.0))
-            i = (i + 1)
-        }
-        i = 0
-        while (i < m) {
-            def j:int (this.modI((i + 1) m))
-            def k:int (this.modI((i + 2) m))
-            def vi:EvgTracePoint (itemAt poly i)
-            def vj:EvgTracePoint (itemAt poly j)
-            def vk:EvgTracePoint (itemAt poly k)
-            def p4:EvgTracePoint (this.interval(0.5 vk vj))
-            def denom:double (this.ddenom(vi vk))
-            def alpha:double (4.0 / 3.0)
-            if (denom != 0.0) {
-                def para:double (this.dpara(vi vj vk))
-                def ratio:double (para / denom)
-                def dd:double (EvgBitmapTracer.absD(ratio))
-                if (dd > 1.0) {
-                    alpha = (1.0 - (1.0 / dd))
-                } {
-                    alpha = 0.0
-                }
-                alpha = (alpha / 0.75)
-            }
-            if (alpha >= options.alphamax) {
-                set tags j "CORNER"
-                set c1 j vj
-                set c2 j p4
-            } {
-                def a2:double alpha
-                if (a2 < 0.55) {
-                    a2 = 0.55
-                }
-                if (a2 > 1.0) {
-                    a2 = 1.0
-                }
-                def p2:EvgTracePoint (this.interval((0.5 + (0.5 * a2)) vi vj))
-                def p3:EvgTracePoint (this.interval((0.5 + (0.5 * a2)) vk vj))
-                set tags j "CURVE"
-                set c0 j p2
-                set c1 j p3
-                set c2 j p4
-            }
-            i = (i + 1)
-        }
-        ; Start at the midpoint between the last vertex and the first — the
-        ; conventional Potrace origin for a closed smooth curve.
-        def start:EvgTracePoint (itemAt c2 (m - 1))
-        push out (VectorShapes.moveTo(start.x start.y))
-        i = 0
-        while (i < m) {
-            def tag:string (itemAt tags i)
-            def endP:EvgTracePoint (itemAt c2 i)
-            if (tag == "CORNER") {
-                def corner:EvgTracePoint (itemAt c1 i)
-                push out (VectorShapes.lineTo(corner.x corner.y))
-                push out (VectorShapes.lineTo(endP.x endP.y))
-            } {
-                def a:EvgTracePoint (itemAt c0 i)
-                def b:EvgTracePoint (itemAt c1 i)
-                push out (VectorShapes.cubicTo(a.x a.y b.x b.y endP.x endP.y))
-            }
             i = (i + 1)
         }
         push out (VectorShapes.closePath())

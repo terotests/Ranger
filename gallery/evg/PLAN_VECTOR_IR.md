@@ -201,6 +201,9 @@ gallery/evg/
   VectorViewBox.rgr     (viewBox + preserveAspectRatio → element-box transform)
   SvgParser.rgr         (XML subset → EVGElement / vector display list)
   EvgBitmapTracer.rgr   (bitmap → path; Potrace-style params for benchmarking)
+  EvgTraceFit.rgr       (optimal polygon: calcLon / bestPolygon / adjustVertices)
+  EvgTraceCurve.rgr     (alphamax smooth + optiCurve)
+  EvgTraceTypes.rgr     (shared bitmap/options/point types)
 
 gallery/pdf_writer/src/raster/
   VectorRasterizer.rgr  (extracted from RasterText)

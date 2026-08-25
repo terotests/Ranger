@@ -1789,6 +1789,589 @@ VectorShapes.num = function(v) {
   }
   return out;
 };
+class EvgTraceOpti  {
+  constructor() {
+    this.pen = 0.0;
+    this.c0 = EvgTracePoint.of(0.0, 0.0);
+    this.c1 = EvgTracePoint.of(0.0, 0.0);
+    this.t = 0.0;
+    this.s = 0.0;
+    this.alpha = 0.0;
+    this.ok = false;
+  }
+}
+class EvgTraceCurve  {
+  constructor() {
+    this.n = 0;
+    this.tag = [];
+    this.vertex = [];
+    this.c0 = [];
+    this.c1 = [];
+    this.c2 = [];
+    this.alpha = [];
+    this.alpha0 = [];
+    this.beta = [];
+    let t = [];
+    this.tag = t;
+    let v_1 = [];
+    this.vertex = v_1;
+    let a = [];
+    this.c0 = a;
+    let b = [];
+    this.c1 = b;
+    let c = [];
+    this.c2 = c;
+    let al = [];
+    this.alpha = al;
+    let a0 = [];
+    this.alpha0 = a0;
+    let be = [];
+    this.beta = be;
+  }
+  curveCount () {
+    let nC = 0;
+    let i = 0;
+    while (i < this.n) {
+      if ( (this.tag[i]) == "CURVE" ) {
+        nC = nC + 1;
+      }
+      i = i + 1;
+    };
+    return nC;
+  };
+  cornerCount () {
+    let nC = 0;
+    let i = 0;
+    while (i < this.n) {
+      if ( (this.tag[i]) == "CORNER" ) {
+        nC = nC + 1;
+      }
+      i = i + 1;
+    };
+    return nC;
+  };
+  optimize (opttolerance) {
+    if ( this.n < 3 ) {
+      return this;
+    }
+    if ( this.curveCount() < 2 ) {
+      return this;
+    }
+    let convc = [];
+    let areac = [];
+    let i = 0;
+    while (i < this.n) {
+      convc.push(0);
+      i = i + 1;
+    };
+    areac.push(0.0);
+    i = 0;
+    while (i < this.n) {
+      if ( (this.tag[i]) == "CURVE" ) {
+        const iPrev = EvgTraceCurve.modI((i - 1), this.n);
+        const iNext = EvgTraceCurve.modI((i + 1), this.n);
+        const para = EvgTraceCurve.dpara((this.vertex[iPrev]), (this.vertex[i]), (this.vertex[iNext]));
+        convc[i] = EvgTraceCurve.signD(para);
+      } else {
+        convc[i] = 0;
+      }
+      i = i + 1;
+    };
+    let area = 0.0;
+    const p0 = this.vertex[0];
+    i = 0;
+    while (i < this.n) {
+      const i1 = EvgTraceCurve.modI((i + 1), this.n);
+      if ( (this.tag[i1]) == "CURVE" ) {
+        const al = this.alpha[i1];
+        const d1 = EvgTraceCurve.dpara((this.c2[i]), (this.vertex[i1]), (this.c2[i1]));
+        area = area + (((0.3 * al) * (4.0 - al)) * (d1 / 2.0));
+        const d2 = EvgTraceCurve.dpara(p0, (this.c2[i]), (this.c2[i1]));
+        area = area + (d2 / 2.0);
+      }
+      areac.push(area);
+      i = i + 1;
+    };
+    let pt = [];
+    let pen = [];
+    let lenArr = [];
+    let optPen = [];
+    let optC0 = [];
+    let optC1 = [];
+    let optT = [];
+    let optS = [];
+    let optAlpha = [];
+    let optValid = [];
+    i = 0;
+    while (i <= this.n) {
+      pt.push(0 - 1);
+      pen.push(0.0);
+      lenArr.push(0);
+      optPen.push(0.0);
+      optC0.push(EvgTracePoint.of(0.0, 0.0));
+      optC1.push(EvgTracePoint.of(0.0, 0.0));
+      optT.push(0.0);
+      optS.push(0.0);
+      optAlpha.push(0.0);
+      optValid.push(0);
+      i = i + 1;
+    };
+    pt[0] = 0 - 1;
+    pen[0] = 0.0;
+    lenArr[0] = 0;
+    let j = 1;
+    while (j <= this.n) {
+      pt[j] = j - 1;
+      pen[j] = pen[(j - 1)];
+      lenArr[j] = (lenArr[(j - 1)]) + 1;
+      let iBack = j - 2;
+      while (iBack >= 0) {
+        const res = this.optiPenalty(iBack, EvgTraceCurve.modI(j, this.n), opttolerance, convc, areac);
+        if ( res.ok == false ) {
+          iBack = 0 - 1;
+        } else {
+          const lenJ = lenArr[j];
+          const lenI = lenArr[iBack];
+          const penJ = pen[j];
+          const penI = pen[iBack];
+          let better = false;
+          if ( lenJ > (lenI + 1) ) {
+            better = true;
+          }
+          if ( (lenJ == (lenI + 1)) && (penJ > (penI + res.pen)) ) {
+            better = true;
+          }
+          if ( better ) {
+            pt[j] = iBack;
+            pen[j] = penI + res.pen;
+            lenArr[j] = lenI + 1;
+            optPen[j] = res.pen;
+            const jc0 = res.c0;
+            const jc1 = res.c1;
+            optC0[j] = jc0;
+            optC1[j] = jc1;
+            optT[j] = res.t;
+            optS[j] = res.s;
+            optAlpha[j] = res.alpha;
+            optValid[j] = 1;
+          }
+          iBack = iBack - 1;
+        }
+      };
+      j = j + 1;
+    };
+    const om = lenArr[this.n];
+    if ( om >= this.n ) {
+      return this;
+    }
+    if ( om < 3 ) {
+      return this;
+    }
+    const ocurve = EvgTraceCurve.alloc(om);
+    let sArr = [];
+    let tArr = [];
+    i = 0;
+    while (i < om) {
+      sArr.push(1.0);
+      tArr.push(1.0);
+      i = i + 1;
+    };
+    j = this.n;
+    i = om - 1;
+    while (i >= 0) {
+      const prevJ = pt[j];
+      if ( prevJ == (j - 1) ) {
+        const idx = EvgTraceCurve.modI(j, this.n);
+        ocurve.tag[i] = this.tag[idx];
+        ocurve.c0[i] = this.c0[idx];
+        ocurve.c1[i] = this.c1[idx];
+        ocurve.c2[i] = this.c2[idx];
+        ocurve.vertex[i] = this.vertex[idx];
+        ocurve.alpha[i] = this.alpha[idx];
+        ocurve.alpha0[i] = this.alpha0[idx];
+        ocurve.beta[i] = this.beta[idx];
+        sArr[i] = 1.0;
+        tArr[i] = 1.0;
+      } else {
+        const idx2 = EvgTraceCurve.modI(j, this.n);
+        ocurve.tag[i] = "CURVE";
+        ocurve.c0[i] = optC0[j];
+        ocurve.c1[i] = optC1[j];
+        ocurve.c2[i] = this.c2[idx2];
+        const sVal = optS[j];
+        const newV = EvgTraceCurve.interval(sVal, (this.c2[idx2]), (this.vertex[idx2]));
+        ocurve.vertex[i] = newV;
+        ocurve.alpha[i] = optAlpha[j];
+        ocurve.alpha0[i] = optAlpha[j];
+        sArr[i] = optS[j];
+        tArr[i] = optT[j];
+      }
+      j = prevJ;
+      i = i - 1;
+    };
+    i = 0;
+    while (i < om) {
+      const i1_1 = EvgTraceCurve.modI((i + 1), om);
+      const s0 = sArr[i];
+      const t1 = tArr[i1_1];
+      const denom = s0 + t1;
+      if ( denom == 0.0 ) {
+        ocurve.beta[i] = 0.5;
+      } else {
+        ocurve.beta[i] = s0 / denom;
+      }
+      i = i + 1;
+    };
+    return ocurve;
+  };
+  optiPenalty (i, j, opttolerance, convc, areac) {
+    const res = new EvgTraceOpti();
+    res.ok = false;
+    if ( i == j ) {
+      return res;
+    }
+    const m = this.n;
+    let k = i;
+    const i1 = EvgTraceCurve.modI((i + 1), m);
+    let k1 = EvgTraceCurve.modI((k + 1), m);
+    const conv = convc[k1];
+    if ( conv == 0 ) {
+      return res;
+    }
+    const d = EvgTraceCurve.ddist((this.vertex[i]), (this.vertex[i1]));
+    k = k1;
+    while (k != j) {
+      k1 = EvgTraceCurve.modI((k + 1), m);
+      const k2 = EvgTraceCurve.modI((k + 2), m);
+      if ( (convc[k1]) != conv ) {
+        return res;
+      }
+      const cp = EvgTraceCurve.cprod((this.vertex[i]), (this.vertex[i1]), (this.vertex[k1]), (this.vertex[k2]));
+      if ( EvgTraceCurve.signD(cp) != conv ) {
+        return res;
+      }
+      const ip = EvgTraceCurve.iprod1((this.vertex[i]), (this.vertex[i1]), (this.vertex[k1]), (this.vertex[k2]));
+      const d2 = EvgTraceCurve.ddist((this.vertex[k1]), (this.vertex[k2]));
+      if ( ip < ((d * d2) * (0.0 - 0.999847695156)) ) {
+        return res;
+      }
+      k = k1;
+    };
+    const p0 = this.c2[EvgTraceCurve.modI(i, m)];
+    const p1 = this.vertex[EvgTraceCurve.modI((i + 1), m)];
+    const p2 = this.vertex[EvgTraceCurve.modI(j, m)];
+    const p3 = this.c2[EvgTraceCurve.modI(j, m)];
+    let area = (areac[j]) - (areac[i]);
+    const areaAdj = EvgTraceCurve.dpara((this.vertex[0]), (this.c2[i]), (this.c2[j]));
+    area = area - (areaAdj / 2.0);
+    if ( i >= j ) {
+      area = area + (areac[m]);
+    }
+    const A1 = EvgTraceCurve.dpara(p0, p1, p2);
+    const A2 = EvgTraceCurve.dpara(p0, p1, p3);
+    const A3 = EvgTraceCurve.dpara(p0, p2, p3);
+    const A4 = (A1 + A3) - A2;
+    if ( A2 == A1 ) {
+      return res;
+    }
+    const t = A3 / (A3 - A4);
+    const s = A2 / (A2 - A1);
+    const A = (A2 * t) / 2.0;
+    if ( A == 0.0 ) {
+      return res;
+    }
+    const R = area / A;
+    const inner = 4.0 - (R / 0.3);
+    if ( inner < 0.0 ) {
+      return res;
+    }
+    const joinAlpha = 2.0 - (Math.sqrt(inner));
+    res.c0 = EvgTraceCurve.interval((t * joinAlpha), p0, p1);
+    res.c1 = EvgTraceCurve.interval((s * joinAlpha), p3, p2);
+    res.alpha = joinAlpha;
+    res.t = t;
+    res.s = s;
+    res.pen = 0.0;
+    const q0 = p0;
+    const q1 = EvgTracePoint.of(res.c0.x, res.c0.y);
+    const q2 = EvgTracePoint.of(res.c1.x, res.c1.y);
+    const q3 = p3;
+    k = EvgTraceCurve.modI((i + 1), m);
+    while (k != j) {
+      k1 = EvgTraceCurve.modI((k + 1), m);
+      const vk = this.vertex[k];
+      const vk1 = this.vertex[k1];
+      const tv = EvgTraceCurve.tangent(q0, q1, q2, q3, vk, vk1);
+      if ( tv < (0.0 - 0.5) ) {
+        return res;
+      }
+      const bezPt = EvgTraceCurve.bezierAt(tv, q0, q1, q2, q3);
+      const dd = EvgTraceCurve.ddist(vk, vk1);
+      if ( dd == 0.0 ) {
+        return res;
+      }
+      let d1 = EvgTraceCurve.dpara(vk, vk1, bezPt);
+      d1 = d1 / dd;
+      if ( EvgTraceCurve.absD(d1) > opttolerance ) {
+        return res;
+      }
+      if ( EvgTraceCurve.iprod(vk, vk1, bezPt) < 0.0 ) {
+        return res;
+      }
+      if ( EvgTraceCurve.iprod(vk1, vk, bezPt) < 0.0 ) {
+        return res;
+      }
+      res.pen = res.pen + (d1 * d1);
+      k = k1;
+    };
+    k = i;
+    while (k != j) {
+      k1 = EvgTraceCurve.modI((k + 1), m);
+      const ck = this.c2[k];
+      const ck1 = this.c2[k1];
+      const tv2 = EvgTraceCurve.tangent(q0, q1, q2, q3, ck, ck1);
+      if ( tv2 < (0.0 - 0.5) ) {
+        return res;
+      }
+      const bezPt2 = EvgTraceCurve.bezierAt(tv2, q0, q1, q2, q3);
+      const dd2 = EvgTraceCurve.ddist(ck, ck1);
+      if ( dd2 == 0.0 ) {
+        return res;
+      }
+      let d1b = EvgTraceCurve.dpara(ck, ck1, bezPt2);
+      d1b = d1b / dd2;
+      const vk1b = this.vertex[k1];
+      let d2b = EvgTraceCurve.dpara(ck, ck1, vk1b);
+      d2b = d2b / dd2;
+      const ak1 = this.alpha[k1];
+      d2b = d2b * (0.75 * ak1);
+      if ( d2b < 0.0 ) {
+        d1b = 0.0 - d1b;
+        d2b = 0.0 - d2b;
+      }
+      if ( d1b < (d2b - opttolerance) ) {
+        return res;
+      }
+      if ( d1b < d2b ) {
+        const diff = d1b - d2b;
+        res.pen = res.pen + (diff * diff);
+      }
+      k = k1;
+    };
+    res.ok = true;
+    return res;
+  };
+  emit (out) {
+    if ( this.n < 3 ) {
+      return;
+    }
+    if ( this.curveCount() == 0 ) {
+      const v0 = this.vertex[0];
+      out.push(VectorShapes.moveTo(v0.x, v0.y));
+      let i = 1;
+      while (i < this.n) {
+        const v = this.vertex[i];
+        out.push(VectorShapes.lineTo(v.x, v.y));
+        i = i + 1;
+      };
+      out.push(VectorShapes.closePath());
+      return;
+    }
+    const start = this.c2[(this.n - 1)];
+    out.push(VectorShapes.moveTo(start.x, start.y));
+    let i2 = 0;
+    while (i2 < this.n) {
+      const tg = this.tag[i2];
+      const endP = this.c2[i2];
+      if ( tg == "CORNER" ) {
+        const corner = this.c1[i2];
+        out.push(VectorShapes.lineTo(corner.x, corner.y));
+        out.push(VectorShapes.lineTo(endP.x, endP.y));
+      } else {
+        const a = this.c0[i2];
+        const b = this.c1[i2];
+        out.push(VectorShapes.cubicTo(a.x, a.y, b.x, b.y, endP.x, endP.y));
+      }
+      i2 = i2 + 1;
+    };
+    out.push(VectorShapes.closePath());
+  };
+}
+EvgTraceCurve.alloc = function(n) {
+  const curve = new EvgTraceCurve();
+  curve.n = n;
+  let i = 0;
+  while (i < n) {
+    curve.tag.push("CURVE");
+    curve.vertex.push(EvgTracePoint.of(0.0, 0.0));
+    curve.c0.push(EvgTracePoint.of(0.0, 0.0));
+    curve.c1.push(EvgTracePoint.of(0.0, 0.0));
+    curve.c2.push(EvgTracePoint.of(0.0, 0.0));
+    curve.alpha.push(0.0);
+    curve.alpha0.push(0.0);
+    curve.beta.push(0.5);
+    i = i + 1;
+  };
+  return curve;
+};
+EvgTraceCurve.modI = function(a, n) {
+  if ( n <= 0 ) {
+    return 0;
+  }
+  let r = a - ((((a / n) | 0)) * n);
+  if ( r < 0 ) {
+    r = r + n;
+  }
+  return r;
+};
+EvgTraceCurve.absD = function(v) {
+  if ( v < 0.0 ) {
+    return 0.0 - v;
+  }
+  return v;
+};
+EvgTraceCurve.signD = function(v) {
+  if ( v > 0.0 ) {
+    return 1;
+  }
+  if ( v < 0.0 ) {
+    return 0 - 1;
+  }
+  return 0;
+};
+EvgTraceCurve.interval = function(lambda, a, b) {
+  return EvgTracePoint.of(((a.x * (1.0 - lambda)) + (b.x * lambda)), ((a.y * (1.0 - lambda)) + (b.y * lambda)));
+};
+EvgTraceCurve.dpara = function(p0, p1, p2) {
+  const x1 = p1.x - p0.x;
+  const y1 = p1.y - p0.y;
+  const x2 = p2.x - p0.x;
+  const y2 = p2.y - p0.y;
+  return (x1 * y2) - (y1 * x2);
+};
+EvgTraceCurve.cprod = function(p0, p1, p2, p3) {
+  const x1 = p1.x - p0.x;
+  const y1 = p1.y - p0.y;
+  const x2 = p3.x - p2.x;
+  const y2 = p3.y - p2.y;
+  return (x1 * y2) - (y1 * x2);
+};
+EvgTraceCurve.iprod = function(p0, p1, p2) {
+  const x1 = p1.x - p0.x;
+  const y1 = p1.y - p0.y;
+  const x2 = p2.x - p0.x;
+  const y2 = p2.y - p0.y;
+  return (x1 * x2) + (y1 * y2);
+};
+EvgTraceCurve.iprod1 = function(p0, p1, p2, p3) {
+  const x1 = p1.x - p0.x;
+  const y1 = p1.y - p0.y;
+  const x2 = p3.x - p2.x;
+  const y2 = p3.y - p2.y;
+  return (x1 * x2) + (y1 * y2);
+};
+EvgTraceCurve.ddist = function(p, q) {
+  const dx = p.x - q.x;
+  const dy = p.y - q.y;
+  return Math.sqrt(((dx * dx) + (dy * dy)));
+};
+EvgTraceCurve.ddenom = function(p0, p2) {
+  const ax = EvgTraceCurve.absD((p0.x - p2.x));
+  const ay = EvgTraceCurve.absD((p0.y - p2.y));
+  return ax + ay;
+};
+EvgTraceCurve.bezierAt = function(t, p0, p1, p2, p3) {
+  const s = 1.0 - t;
+  const s2 = s * s;
+  const t2 = t * t;
+  const x = (((s2 * s) * p0.x) + (((3.0 * s2) * t) * p1.x)) + ((((3.0 * t2) * s) * p2.x) + ((t2 * t) * p3.x));
+  const y = (((s2 * s) * p0.y) + (((3.0 * s2) * t) * p1.y)) + ((((3.0 * t2) * s) * p2.y) + ((t2 * t) * p3.y));
+  return EvgTracePoint.of(x, y);
+};
+EvgTraceCurve.tangent = function(p0, p1, p2, p3, q0, q1) {
+  const A = EvgTraceCurve.cprod(p0, p1, q0, q1);
+  const B = EvgTraceCurve.cprod(p1, p2, q0, q1);
+  const C = EvgTraceCurve.cprod(p2, p3, q0, q1);
+  const a = (A - (2.0 * B)) + C;
+  const b = (0.0 - (2.0 * A)) + (2.0 * B);
+  const c = A;
+  const disc = (b * b) - ((4.0 * a) * c);
+  if ( a == 0.0 ) {
+    return 0.0 - 1.0;
+  }
+  if ( disc < 0.0 ) {
+    return 0.0 - 1.0;
+  }
+  const s = Math.sqrt(disc);
+  const r1 = ((0.0 - b) + s) / (2.0 * a);
+  const r2 = ((0.0 - b) - s) / (2.0 * a);
+  if ( (r1 >= 0.0) && (r1 <= 1.0) ) {
+    return r1;
+  }
+  if ( (r2 >= 0.0) && (r2 <= 1.0) ) {
+    return r2;
+  }
+  return 0.0 - 1.0;
+};
+EvgTraceCurve.fromPolygon = function(poly, alphamax) {
+  const m = poly.length;
+  const curve = EvgTraceCurve.alloc(m);
+  if ( m < 3 ) {
+    return curve;
+  }
+  let i = 0;
+  while (i < m) {
+    curve.vertex[i] = poly[i];
+    i = i + 1;
+  };
+  i = 0;
+  while (i < m) {
+    const j = EvgTraceCurve.modI((i + 1), m);
+    const k = EvgTraceCurve.modI((i + 2), m);
+    const vi = curve.vertex[i];
+    const vj = curve.vertex[j];
+    const vk = curve.vertex[k];
+    const p4 = EvgTraceCurve.interval(0.5, vk, vj);
+    const denom = EvgTraceCurve.ddenom(vi, vk);
+    let alpha = 4.0 / 3.0;
+    if ( denom != 0.0 ) {
+      const para = EvgTraceCurve.dpara(vi, vj, vk);
+      const ratio = para / denom;
+      const dd = EvgTraceCurve.absD(ratio);
+      if ( dd > 1.0 ) {
+        alpha = 1.0 - (1.0 / dd);
+      } else {
+        alpha = 0.0;
+      }
+      alpha = alpha / 0.75;
+    }
+    curve.alpha0[j] = alpha;
+    if ( alpha >= alphamax ) {
+      curve.tag[j] = "CORNER";
+      curve.c1[j] = vj;
+      curve.c2[j] = p4;
+      curve.alpha[j] = alpha;
+    } else {
+      let a2 = alpha;
+      if ( a2 < 0.55 ) {
+        a2 = 0.55;
+      }
+      if ( a2 > 1.0 ) {
+        a2 = 1.0;
+      }
+      const p2 = EvgTraceCurve.interval((0.5 + (0.5 * a2)), vi, vj);
+      const p3 = EvgTraceCurve.interval((0.5 + (0.5 * a2)), vk, vj);
+      curve.tag[j] = "CURVE";
+      curve.c0[j] = p2;
+      curve.c1[j] = p3;
+      curve.c2[j] = p4;
+      curve.alpha[j] = a2;
+    }
+    curve.beta[j] = 0.5;
+    i = i + 1;
+  };
+  return curve;
+};
 class PathBuilder  {
   constructor() {
     this.commands = [];
@@ -1797,8 +2380,8 @@ class PathBuilder  {
     this.startX = 0.0;
     this.startY = 0.0;
     this.started = false;
-    let c = [];
-    this.commands = c;
+    let c_1 = [];
+    this.commands = c_1;
   }
   reset () {
     let c = [];
@@ -4799,8 +5382,8 @@ class EvgBitmapTracer  {
     this.bitmap = EvgBinaryBitmap.create(0, 0);
     let r = [];
     this.rings = r;
-    let c_1 = [];
-    this.commands = c_1;
+    let c_2 = [];
+    this.commands = c_2;
   }
   trace () {
     let emptyR = [];
@@ -5042,7 +5625,9 @@ class EvgBitmapTracer  {
       const n = poly.length;
       if ( n >= 3 ) {
         if ( this.options.optcurve ) {
-          this.appendSmooth(out, poly);
+          const curve = EvgTraceCurve.fromPolygon(poly, this.options.alphamax);
+          const opt = curve.optimize(this.options.opttolerance);
+          opt.emit(out);
         } else {
           this.appendPolygon(out, poly);
         }
@@ -5059,113 +5644,6 @@ class EvgBitmapTracer  {
     while (i < n) {
       const p = poly[i];
       out.push(VectorShapes.lineTo(p.x, p.y));
-      i = i + 1;
-    };
-    out.push(VectorShapes.closePath());
-  };
-  modI (a, n) {
-    let r = a - ((((a / n) | 0)) * n);
-    if ( r < 0 ) {
-      r = r + n;
-    }
-    return r;
-  };
-  interval (lambda, a, b) {
-    const x = (a.x * (1.0 - lambda)) + (b.x * lambda);
-    const y = (a.y * (1.0 - lambda)) + (b.y * lambda);
-    return EvgTracePoint.of(x, y);
-  };
-  dpara (p0, p1, p2) {
-    const x1 = p1.x - p0.x;
-    const y1 = p1.y - p0.y;
-    const x2 = p2.x - p0.x;
-    const y2 = p2.y - p0.y;
-    return (x1 * y2) - (y1 * x2);
-  };
-  ddenom (p0, p2) {
-    const ax = p0.x - p2.x;
-    const ay = p0.y - p2.y;
-    const r = EvgBitmapTracer.absD(ax);
-    const s = EvgBitmapTracer.absD(ay);
-    if ( s > r ) {
-      return r + s;
-    }
-    return r + s;
-  };
-  appendSmooth (out, poly) {
-    const m = poly.length;
-    if ( m < 3 ) {
-      return;
-    }
-    let tags = [];
-    let c0 = [];
-    let c1 = [];
-    let c2 = [];
-    let i = 0;
-    while (i < m) {
-      tags.push("CURVE");
-      c0.push(EvgTracePoint.of(0.0, 0.0));
-      c1.push(EvgTracePoint.of(0.0, 0.0));
-      c2.push(EvgTracePoint.of(0.0, 0.0));
-      i = i + 1;
-    };
-    i = 0;
-    while (i < m) {
-      const j = this.modI((i + 1), m);
-      const k = this.modI((i + 2), m);
-      const vi = poly[i];
-      const vj = poly[j];
-      const vk = poly[k];
-      const p4 = this.interval(0.5, vk, vj);
-      const denom = this.ddenom(vi, vk);
-      let alpha = 4.0 / 3.0;
-      if ( denom != 0.0 ) {
-        const para = this.dpara(vi, vj, vk);
-        const ratio = para / denom;
-        const dd = EvgBitmapTracer.absD(ratio);
-        if ( dd > 1.0 ) {
-          alpha = 1.0 - (1.0 / dd);
-        } else {
-          alpha = 0.0;
-        }
-        alpha = alpha / 0.75;
-      }
-      if ( alpha >= this.options.alphamax ) {
-        tags[j] = "CORNER";
-        c1[j] = vj;
-        c2[j] = p4;
-      } else {
-        let a2 = alpha;
-        if ( a2 < 0.55 ) {
-          a2 = 0.55;
-        }
-        if ( a2 > 1.0 ) {
-          a2 = 1.0;
-        }
-        const p2 = this.interval((0.5 + (0.5 * a2)), vi, vj);
-        const p3 = this.interval((0.5 + (0.5 * a2)), vk, vj);
-        tags[j] = "CURVE";
-        c0[j] = p2;
-        c1[j] = p3;
-        c2[j] = p4;
-      }
-      i = i + 1;
-    };
-    const start = c2[(m - 1)];
-    out.push(VectorShapes.moveTo(start.x, start.y));
-    i = 0;
-    while (i < m) {
-      const tag = tags[i];
-      const endP = c2[i];
-      if ( tag == "CORNER" ) {
-        const corner = c1[i];
-        out.push(VectorShapes.lineTo(corner.x, corner.y));
-        out.push(VectorShapes.lineTo(endP.x, endP.y));
-      } else {
-        const a = c0[i];
-        const b = c1[i];
-        out.push(VectorShapes.cubicTo(a.x, a.y, b.x, b.y, endP.x, endP.y));
-      }
       i = i + 1;
     };
     out.push(VectorShapes.closePath());
@@ -5511,6 +5989,21 @@ class EvgBitmapTracerTest  {
     t.eqInt("optimal rect: command budget", cmds.length, 5);
     t.ok("path data stays compact", (tr.getPathData().length) < 120);
   };
+  testCurveModeRectCompact (t) {
+    const bm = this.filledRect(40, 40, 8, 8, 20, 16);
+    const opts = EvgTraceOptions.defaults();
+    opts.optcurve = true;
+    opts.alphamax = 1.0;
+    opts.opttolerance = 0.2;
+    const tr = EvgBitmapTracer.fromBinary(bm, opts);
+    tr.trace();
+    const cmds = tr.getCommands();
+    t.eqInt("curve-mode rect: one moveto", this.countType(cmds, "M"), 1);
+    t.eqInt("curve-mode rect: three linetos", this.countType(cmds, "L"), 3);
+    t.eqInt("curve-mode rect: no cubics on a box", this.countType(cmds, "C"), 0);
+    t.eqInt("curve-mode rect: command budget", cmds.length, 5);
+    t.ok("curve-mode path stays compact", (tr.getPathData().length) < 120);
+  };
 }
 /* static JavaSript main routine at the end of the JS file */
 function __js_main() {
@@ -5524,6 +6017,7 @@ function __js_main() {
   test.testImageBuffer(t);
   test.testEVGElement(t);
   test.testOptimalRectPolygon(t);
+  test.testCurveModeRectCompact(t);
   t.summary();
 }
 __js_main();
