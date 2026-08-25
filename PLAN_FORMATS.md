@@ -5,7 +5,7 @@ them, in the order it should be built and with the reason each step comes
 where it does.
 
 It is a plan about **layers**, not about a format list. Forty readers bolted
-onto three applications is not an engine; the same forty converging on four
+onto three applications is not an engine; the same forty converging on a few
 internal models, over one container, one encoding layer and one scene, is.
 
 > **Read first:** [`gallery/ooxml/README.md`](gallery/ooxml/README.md) and
@@ -15,23 +15,58 @@ internal models, over one container, one encoding layer and one scene, is.
 
 ---
 
-## The two rules this plan is built on
+## The concrete goal: `.pptx` and `.odp` on one stack
+
+**Phase 1 is ODF, and ODP first within it.** Not because a presentation is the
+most wanted format — it is not; ODT is — but because **PPTX + ODP is the pair
+that proves or disproves this architecture**, and it should be run as an
+experiment before anything is built on the answer.
+
+The claim this whole document rests on is §3's: *two formats converge at the
+resolved scene, not at the document model.* ODP is the sharpest possible test
+of it:
+
+- It is the ODF format with the **least** in common with its OOXML twin. ODT
+  and `RichDocument` agree about almost everything; ODP and `PptxModel`
+  disagree about units, geometry vocabulary, colour, indirection and
+  inheritance — see the mapping table in Phase 1. If the architecture survives
+  ODP, ODT and ODS are downhill.
+- It is the one where the wrong answer is **cheap to reach and expensive to
+  leave**. Pointing an ODP reader at `PptxModel` looks like it works for a week.
+- It has a **finished twin to be measured against**. `.pptx` is at L2 with an
+  oracle dump, a writer verifier, visual shots and an accessibility tree. Every
+  step below can be checked by asking whether the deck reader still produces
+  exactly what it produced yesterday.
+
+So Phase 1 is a single deliverable with a single sentence for a definition of
+done:
+
+> **One viewer opens a `.pptx` and an `.odp`, draws both through one scene and
+> one painter, publishes one accessibility tree for both — and neither model
+> imports the other, and nothing about the deck reader's output changed.**
+
+Everything in Phase 1 that is not ODP is there because ODP needs it and because
+`.pptx` is its second caller. That is the rule in §2, applied.
+
+---
+
+## 1. The two rules this plan is built on
 
 Both were learned here, expensively, and both are quoted from the READMEs of
 the directories that learned them.
 
-**1. Merge the infrastructure, not the models.**
+**Rule 1 — merge the infrastructure, not the models.**
 
 > Don't merge Word, Excel and PowerPoint into one document model. Merge the
 > infrastructure underneath them.
 > — `gallery/ooxml/README.md`
 
 Adding ODF, PDF and HTML makes that rule more important, not less. A
-`UniversalDocument` that holds a paginated Word file, a spreadsheet, a slide
-deck, a PDF page's graphics and an HTML flow would be worse at all five.
+`UniversalDocument` holding a paginated Word file, a spreadsheet, a slide deck,
+a PDF page's graphics and an HTML flow would be worse at all five.
 
-**2. A shared module with one caller is how the old copy survives underneath
-it.**
+**Rule 2 — a shared module with one caller is how the old copy survives
+underneath it.**
 
 `OfficeId` was built, tested on two targets, and then deleted again because it
 had no callers. Every phase below therefore states **who its second caller
@@ -39,17 +74,16 @@ is**, and a phase that cannot name one is not scheduled.
 
 ---
 
-## 1. The layer stack
+## 2. The layer stack
 
-Every format this repository will ever read decomposes the same way. Naming
-the layers is what makes a new format an addition rather than a new
-application.
+Every format this repository will ever read decomposes the same way. Naming the
+layers is what makes a new format an addition rather than a new application.
 
 ```text
                 bytes
                   │
         ┌─────────▼─────────┐
-        │  container        │  ZIP · OCF · OLE2 · plain file · tar
+        │  container        │  ZIP · OPC · OCF · OLE2 · plain file
         └─────────┬─────────┘
                   │  named parts / one stream
         ┌─────────▼─────────┐
@@ -57,19 +91,19 @@ application.
         └─────────┬─────────┘
                   │  tags, attributes, spans — no semantics
         ┌─────────▼─────────┐
-        │  format reader    │  WordprocessingML · ODF · PDF objects · HTML
+        │  format reader    │  PresentationML · ODF · PDF objects · HTML
         └─────────┬─────────┘
                   │
         ┌─────────▼─────────┐
-        │  model            │  RichDocument · WorkbookModel · PptxModel ·
-        └─────────┬─────────┘  DataChunk · GraphModel
+        │  model            │  PptxModel · OdpModel · RichDocument ·
+        └─────────┬─────────┘  WorkbookModel · DataChunk · GraphModel
                   │
         ┌─────────▼─────────┐
-        │  resolve          │  styles, themes, inheritance, formulas
+        │  resolve          │  styles, masters, themes, inheritance, formulas
         └─────────┬─────────┘
                   │
         ┌─────────▼─────────┐
-        │  scene            │  OfficeScene → EVG display list
+        │  scene            │  OfficeScene → EVGDisplayList
         └─────────┬─────────┘
                   │
      ┌────────────┼────────────┬───────────┐
@@ -78,12 +112,12 @@ application.
 ```
 
 Today exactly **one** of those layers is shared: the container, as
-`gallery/ooxml/OpcPackage.rgr`. The encoding layer is written four times. That
-is the single fact that decides the order of everything below.
+`gallery/ooxml/OpcPackage.rgr`. The encoding layer is written four times, and
+the scene layer does not exist. Those two facts are Phase 1's work list.
 
 ---
 
-## 2. What exists today
+## 3. What exists today
 
 Written down because a roadmap that starts from a diagram instead of from the
 repository plans work that is already done, and skips work that is not.
@@ -96,6 +130,7 @@ repository plans work that is already done, and skips work that is not.
 | ZIP write | `gallery/zip/ZipWriter.rgr` | **STORED only** — `addFile` sets `compressionMethod = 0`; there is no deflate compressor in the tree |
 | second copy of both | `gallery/game_engine/v2/imaging/zip/` | a duplicate, imported by the PNG decoder |
 | OPC (parts, content types, relationships) | `gallery/ooxml/OpcPackage.rgr` (638 lines) | one reader, three formats, one invariant test |
+| OCF (`mimetype` + `META-INF/`) | — | does not exist; ODF and EPUB both need it |
 | OLE2 compound file | `gallery/datagrid/src/xlsx/XlsxOfficeCrypto.rgr` | detection + unwrap for encrypted `.xlsx` only |
 
 ### Encoding — four XML readers
@@ -114,22 +149,21 @@ XML layer, and two of three OOXML readers do not have one.
 
 JSON is in better shape: `lib/JSON.rgr` plus per-consumer readers
 (`gallery/vela/src/VlJson.rgr`, `gallery/game_engine/v2/model3d/GltfJson.rgr`).
-CSV does not exist at all — there are `.csv` files under `gallery/vela/web/data/`
-and nothing in the tree that reads one.
+CSV does not exist at all.
 
 ### Models
 
 | model | where | what it is |
 | --- | --- | --- |
-| `RichDocument` | `gallery/docx_viewer/src/RichDocument.rgr` | blocks, runs, tables, styles — a paginated rich document |
-| `WorkbookModel` / `SpreadsheetModel` | `gallery/datagrid/src/` | sheets, cells, formulas, styles |
 | `PptxModel` | `gallery/pptx/src/PptxModel.rgr` | slides, shapes, masters — DrawingML-shaped |
+| `RichDocument` | `gallery/docx_viewer/src/RichDocument.rgr` | blocks, runs, tables, styles |
+| `WorkbookModel` / `SpreadsheetModel` | `gallery/datagrid/src/` | sheets, cells, formulas, styles |
 | `DataChunk` / `ValueVector` | `gallery/rangerdb/src/DataChunk.rgr` | columnar, chunk at a time |
 | `GraphModel` | `gallery/rangerflow/core/GraphModel.rgr` | nodes and edges, with ERD/UML/flowchart domains on it |
 
 **Four of the five internal models already exist.** What does not exist is the
 resolved scene between them and EVG — `OfficeScene`, item 10 of the ooxml
-roadmap — which is why it turns up as a gate below rather than as a wish.
+roadmap — which is why Phase 1 builds it.
 
 ### Shared machinery already lifted
 
@@ -142,16 +176,20 @@ selectors, specificity, cascade — with two consumers already: EVG and
 ### Output side
 
 PDF **write** exists (`gallery/pdf_writer/EVGPDFRenderer.rgr`), as do HTML
-write (`EVGHTMLRenderer`), PNG write (`raster/PNGEncoder`), SVG write
-(`gallery/vela/src/VlSvg.rgr`) and JPEG encode. Reading is the thin side of
-this repository, which is what this plan is about.
+write (`EVGHTMLRenderer`), PNG write, SVG write (`gallery/vela/src/VlSvg.rgr`)
+and JPEG encode. Reading is the thin side of this repository, which is what
+this plan is about.
 
 ---
 
-## 3. The four internal models, and where a format lands
+## 4. Where a format lands
 
 ```text
-DOCX · ODT · EPUB · HTML · Markdown · RTF
+PPTX · ODP · SVG · PDF page graphics
+                    ↓
+              OfficeScene                  (resolved, paintable, hit-testable)
+
+DOCX · ODT · EPUB · HTML · Markdown
                     ↓
               RichDocument                 (paragraphs, runs, tables, floats)
 
@@ -159,46 +197,37 @@ XLSX · ODS · CSV · Arrow · Parquet · SQL
                     ↓
               DataChunk / WorkbookModel    (cells and columns)
 
-PPTX · ODP · SVG · PDF page graphics
-                    ↓
-              OfficeScene                  (resolved, paintable, hit-testable)
-
 DBML · GraphML · database metadata
                     ↓
               GraphModel                   (nodes and edges)
 ```
 
-Three consequences worth stating before any of it is built, because each one
-is a decision that is cheap now and expensive later.
+Three consequences worth stating before any of it is built, because each is
+cheap now and expensive later.
 
 **ODT joins `RichDocument`; ODP does not join `PptxModel`.** `RichDocument` is
 already close to neutral — `DocxA11y` builds the accessibility tree from its
 *blocks*, not from WordprocessingML — so an ODT reader targeting it is a
-reader, not a merge. `PptxModel` is not neutral: it holds DrawingML preset
-shape **names**, `p:ph` placeholder types and colour map overrides. ODP states
-all three differently. Pointing an ODP reader at `PptxModel` would either
-corrupt the model with a second vocabulary or lose the ODP file's meaning. ODP
-therefore gets its own reader and converges at `OfficeScene`, which is where
-two presentation formats genuinely have something in common: a page of
-resolved, positioned, painted things.
+reader, not a merge. `PptxModel` is not neutral, and the mapping table in Phase
+1 is the evidence.
 
-**PDF has no document model, only a scene**, and that is what makes it the
-right first customer for `OfficeScene`. A PDF content stream is graphics
-operators. There is no paragraph in it to recover — recovering one is a
-separate, lossy, later feature. So PDF read does not need a document model at
-all, and building one for it would be inventing the wrong thing.
+**PDF has no document model, only a scene.** A PDF content stream is graphics
+operators; there is no paragraph in it to recover, and recovering one is a
+separate, lossy, later feature. PDF is the third `OfficeScene` producer, and
+the one that proves the layer was not built for two presentation formats that
+happened to look alike.
 
 **`OfficeScene` must never grow back into a document model.** The ooxml README
-already calls this the hard rule. With PDF, ODP and SVG all landing on it the
-pressure to add "just a paragraph" will be constant, and every time it is
-answered the layer stops being paintable output.
+already calls this the hard rule. With ODP, PPTX, PDF and SVG all landing on
+it, the pressure to add "just a paragraph" will be constant, and every time it
+is answered the layer stops being paintable output.
 
 ---
 
-## 4. What "supported" means — four levels
+## 5. What "supported" means — four levels
 
-A format list without this column is how a roadmap lies. ODT at L0 is a
-week; ODT at L2 is a quarter, and it is the same row in the table.
+A format list without this column is how a roadmap lies. ODT at L0 is a week;
+ODT at L2 is a quarter, and it is the same row in the table.
 
 | | level | the contract | what it costs |
 | --- | --- | --- | --- |
@@ -207,65 +236,220 @@ week; ODT at L2 is a quarter, and it is the same row in the table.
 | **L2** | edit | opens, edits, saves — **and does not damage what it did not understand** | + source preservation, + writer, + round-trip corpus |
 | **L3** | author | creates one from scratch | + defaults, templates, a UI |
 
-L2 is the level that is not a bigger version of L1. It requires the encoding
-layer to carry spans, an opaque-node mechanism (`PptxOpaque`, `SheetOpaque`),
-and a resolver whose output can be recognised as *unchanged inheritance*
-rather than as a baked value — the signature mechanism described in the ooxml
-README. Where a phase below targets L2, it inherits that whole apparatus, and
-that is why the encoding layer comes first.
+L2 is not a bigger version of L1. It requires the encoding layer to carry
+spans, an opaque-node mechanism (`PptxOpaque`, `SheetOpaque`), and a resolver
+whose output can be recognised as *unchanged inheritance* rather than as a
+baked value — the signature mechanism described in the ooxml README.
 
 Where the existing three stand today: `.pptx` L2, `.xlsx` L2, `.docx` L1 with
 editing and a save that is not yet source-preserving.
 
----
-
-## 5. The phases
-
-Each phase names its **second caller** and its **gate**. A gate is what must be
-true before the next phase starts — not a wish, a test that runs.
+**Phase 1 targets ODP at L1.** L2 for ODP needs an opaque design of its own and
+is scheduled separately, after the architecture question has an answer.
 
 ---
 
-### Phase 0 — the encoding layer and the registry
+# Phase 1 — PPTX + ODP on one stack
 
-**Nothing user-visible ships in this phase.** It is here because every phase
-after it is twice the size without it, and because ODF alone would otherwise
-add a fifth, sixth and seventh XML reader to a tree that already has four.
+The concrete goal. Everything here is either ODP, or something ODP needs whose
+second caller is the deck reader that already exists.
 
-**0a. `gallery/xml/XmlCore.rgr` — one XML reader.**
+## 1.0 The two formats, side by side
+
+This table is the argument. It is what the work has to survive, and it is why
+the answer is a shared *scene* and separate *models*.
+
+| concept | PPTX | ODP |
+| --- | --- | --- |
+| package | OPC: `[Content_Types].xml`, `_rels` **relationship graph**, ids | OCF: `mimetype` first and stored, `META-INF/manifest.xml`, **no relationship graph** |
+| reference | `r:embed="rId3"` → part rels → part path | `xlink:href="Pictures/x.png"` — direct, relative to package root |
+| a slide | one `p:sld` **part** each | one `draw:page` element, all of them in one `content.xml` |
+| masters | `p:sldMaster` → `p:sldLayout` → slide (two levels) | `style:master-page` + `style:presentation-page-layout` |
+| placeholder | `p:ph type="title"` | `presentation:class="title"` |
+| shape | `p:sp` with `a:prstGeom prst="star5"` | `draw:custom-shape` with `draw:enhanced-geometry draw:type="star5"` |
+| geometry language | guides + path in `a:gdLst` / `a:custGeom` | `draw:equation` + `draw:enhanced-path` — same **idea**, different syntax |
+| units | EMU: integers, 914400 to the inch | length **strings**: `"2.54cm"`, `"0.5in"`, `"12pt"` |
+| transform | `a:xfrm` with `off`/`ext`/`rot`/`flipH` | `svg:x/y/width/height` + `draw:transform="rotate(…) translate(…)"` |
+| text | `a:p` → `a:r` → `a:rPr` | `text:p` → `text:span` → a named `style:style` |
+| inheritance | list level + placeholder + layout + master | `style:parent-style-name` chain, plus automatic styles per document |
+| colour | theme scheme + `tint`/`shade`/`lumMod` modifier chain | literal `#rrggbb`; **no scheme** at all in classic ODF |
+| notes | a separate `notesSlide` part | `presentation:notes` inside the `draw:page` |
+
+Read the rows in order and the shape of the answer appears: **the two formats
+differ most exactly where a shared model would have to choose one of them**
+(units, indirection, colour, inheritance) and agree exactly where a scene lives
+(a positioned, filled, stroked, text-bearing box on a page).
+
+Two practical notes that fall straight out of the table:
+
+- **`OfficeColor` will not carry ODP far.** Its value is the theme scheme and
+  the DrawingML modifier chain, and classic ODF has neither — colours are
+  literal. (LibreOffice's `loext:theme` is a recent extension and out of scope.)
+  Expect that entry in the shared-machinery list to *not* pay here, and do not
+  pretend otherwise in the code.
+- **`OfficeGeomFormula` might.** Its header already says "one evaluator, two
+  sources" — `prstGeom` and `custGeom`. ODF's `draw:equation` /
+  `draw:enhanced-path` is the same idea with different spelling. **Whether the
+  evaluator generalises or only the concept does is the first thing step 1.3
+  should measure**, and the answer decides whether the presets are shared or
+  twinned. It is a measurement, not an assumption.
+
+## 1.1 `gallery/xml/XmlCore.rgr` — one XML reader
 
 Modelled on `gallery/css/CssCore.rgr`: a leaf module in its own directory,
 shared by consumers that do completely different things with the result.
 
-Requirements, each one taken from a reader that needs it and does not have it:
+Requirements, each taken from a reader that needs it and does not have it:
 
-- **Source spans on every node**, as `PptxXml` has them. This is what L2 is
-  built on, and `.docx` and `.xlsx` cannot reach L2 without it.
+- **Source spans on every node**, as `PptxXml` has them. L2 is built on this,
+  and `.docx` and `.xlsx` cannot reach L2 without it.
 - **Real namespace handling.** `PptxXml` strips prefixes (`p:sp` → `sp`) and
-  that is survivable in OOXML. It is not survivable in ODF, where
-  `text:style-name`, `draw:style-name` and `style:name` are three different
-  attributes and `text:p` and `draw:p` are different elements.
+  that is survivable in OOXML. It is not survivable in ODF: `text:p` and
+  `draw:p` are different elements, and `style:name`, `draw:name` and
+  `text:style-name` are three different attributes.
 - **A scanning mode as well as a DOM mode.** `XmlLite` exists because a
   worksheet with a million cells must not become a million node objects. One
-  reader, two traversal APIs over the same tokenizer — not two readers.
+  reader, two traversal APIs over one tokenizer — not two readers.
 - **The XXE-safe entity policy** already in `OoxmlText`: the five predefined
   entities and numeric references, no external entities, ever.
 
-*Second caller:* three on day one — `PptxXml`, `WordXml` and `XmlLite` are
-retired onto it, in that order, `PptxXml` first because it is the reference
-shape.
+*Second caller:* `PptxXml` is retired onto it **in this step**, before ODP
+exists. That is Rule 2 satisfied at the moment the module is written rather
+than promised for later, and it is also the cheapest possible regression test —
+the deck reader has an oracle dump.
 
-*Not retired:* `gallery/evg/SvgParser.rgr`. `gallery/evg` may not import
-`gallery/office` or the office side of the gallery, and that boundary is worth
-more than removing one duplicate. If a consumer outside the office stack ever
-needs the core, that is the moment to move it to `lib/` under MIT — and the
-moment to decide, not now.
+*Not retired:* `gallery/evg/SvgParser.rgr`. `gallery/evg` may not import the
+office side of the gallery, and that boundary is worth more than removing one
+duplicate. If a consumer outside the office stack ever needs the core, that is
+the moment to move it to `lib/` under MIT — the moment to decide, not now.
+`XmlLite` and `WordXml` follow in Phase 2, where ODS and ODT need them.
 
-**0b. `DocumentFormatAdapter` — the registry.**
+**Gate.** `pptx` suites green on **both** JavaScript and C++ — the two targets
+that disagree about what a string is, which is how `OoxmlText` came to exist.
+`pptx_oracle_dump` byte-identical. `pptx:writer:verify` still resolves every
+reference in a written package. This step moves a walk; it must not change what
+anyone sees.
 
-Ooxml roadmap item 12, promoted to Phase 0 because from here on every phase is
-"register an adapter" and without it every phase is also "teach the shell about
-one more extension".
+## 1.2 `Ocf` and `OdfPackage` — the container ODF actually has
+
+Beside `OpcPackage`, not inside it. **ODF is not OPC** and an `OpcPackage` that
+learned to pretend would be worse at both:
+
+```text
+gallery/odf/
+    Ocf.rgr           mimetype, META-INF/, the convention EPUB shares
+    OdfPackage.rgr    manifest.xml → media types; xlink:href → member
+```
+
+There are no relationships and no ids. A reference is a package-relative path,
+which is *simpler* than OPC and is the thing most likely to be over-engineered
+by someone who has just finished reading `OpcPackage`.
+
+**Gate.** The invariant `OpcPackageTest` holds for OPC, restated for OCF: walk
+every entry in the manifest, resolve every `xlink:href` in every part, and
+require each answer to name a member the ZIP actually contains. One test, and
+it is the one none of the three hand-written OOXML readers could hold.
+
+## 1.3 `OdpModel` + `OdpParser` — the reader
+
+Its own model, in `gallery/odp/`, importing nothing from `gallery/pptx`.
+
+```text
+1.3a  pages          draw:page, draw:name, master-page-name, page-layout-name
+1.3b  frames         draw:frame + draw:text-box / draw:image / draw:object
+1.3c  shapes         draw:custom-shape, draw:rect, draw:ellipse, draw:line,
+                     draw:polygon, draw:path, draw:connector, draw:g
+1.3d  geometry       draw:enhanced-geometry — and the measurement above:
+                     does OfficeGeomFormula generalise, or only the idea
+1.3e  units          "2.54cm" / "0.5in" / "12pt" → one length type, once.
+                     PptxUnits is EMU-shaped; this is a second unit reader and
+                     it belongs in gallery/odf, not in either model
+1.3f  text           text:p, text:span, text:list, text:line-break, tabs
+1.3g  images         xlink:href → OfficeAsset (content identity, not path —
+                     the bug that store exists for is format-independent)
+1.3h  notes          presentation:notes
+```
+
+**Gate.** `OoxmlPackageTest` today reads *one sentence, identically, out of all
+three OOXML packages.* Add `.odp` to it. That single test is what proves the
+reader/model separation is real rather than drawn, and it is the cheapest test
+in this plan.
+
+## 1.4 `OdfStyles` — inheritance, through the tri-state
+
+Automatic styles (`office:automatic-styles`, per document), common styles
+(`office:styles` in `styles.xml`), master pages (`office:master-styles`), and
+the `style:parent-style-name` chain — resolved through **`OfficeStyle`** and
+its `applyOver`, because ODF has the identical *unset / inherited / explicitly
+false* problem that cost this repository three bugs in three formats.
+
+*Second caller:* `OfficeStyle` has three already. This step is the fourth, and
+it is the one that tests whether the carrier is OOXML-shaped or actually
+general. If ODF needs a fifth `StyleValue` variant, that is a finding worth
+writing down.
+
+**Gate.** The tri-state test, restated in ODF: a run explicitly not bold, under
+a parent style that is bold, comes back not bold — in the model, through the
+resolver, and in what is drawn.
+
+## 1.5 `OfficeScene` — the resolved slide, built here
+
+Built now, because now it has two callers that are not each other's refactor.
+
+```text
+SceneNode      bounds · transform · style · entityId · semanticRole
+  SceneText
+  SceneImage
+  ScenePath
+  SceneTable
+  SceneGroup
+```
+
+`OdpResolver` produces it. `PptxResolver` — which already produces a resolved
+`PptxPresentation` for exactly this purpose — is **migrated** to produce it.
+That migration is the risky half of Phase 1 and it has the best safety net in
+the repository: the deck reader's oracle dump, its visual shots and its writer
+verifier all have to come back unchanged.
+
+**The hard rule, restated because this is the step that will be tempted to
+break it:** `OfficeScene` is resolved, paintable, hit-testable output and
+nothing else. If ODP or PPTX needs something in it that a PDF page could not
+also produce, it belongs in that format's model.
+
+**Gate.** `pptx_oracle_dump` byte-identical after the migration. Not "close" —
+identical. Anything else means the scene lost something, and finding out which
+thing three phases later is how a rewrite happens.
+
+## 1.6 `SceneToEvg` — one painter
+
+`PptxToEvg` walks the resolved deck and emits EVG. After 1.5 it walks a scene
+instead, and ODP gets a painter without one being written for it.
+
+**Gate.** The `pptx` visual shots, unchanged. Then the same for `.odp`: a
+fixture deck rendered and looked at by a person, the way
+`npm run office:shapes:sheet` exists to be looked at — because no assertion
+answers *does this slide look like the slide.*
+
+## 1.7 `SceneA11y` — one accessibility tree
+
+`PptxA11y.build` currently walks `PptxPresentation` and produces an
+`EVGA11yTree`: the deck as a **list** of slides, reading order from shape
+order, titles from `p:ph type="title"`, alt text from `p:cNvPr/@descr`.
+
+Every one of those is a scene-level fact once `semanticRole` carries it, which
+is why `SceneNode` has that field in 1.5 and not later. ODP's
+`presentation:class="title"` and its own alt text land in the same slots, and
+the deck's tree keeps working.
+
+**Gate.** An `.odp` publishes "Slide 7 of 30" through `posInSet`/`setSize`, and
+the existing assertion that a tree built twice is identical passes for it. A
+screen reader cannot read a canvas; a viewer without this is not a degraded
+experience, it is a blank window.
+
+## 1.8 `DocumentFormatAdapter` — the registry
+
+Ooxml roadmap item 12, landed here because Phase 1's definition of done needs
+it: *one viewer opens both.*
 
 ```text
 DocumentFormatAdapter
@@ -276,79 +460,58 @@ DocumentFormatAdapter
     createEmpty()                   optional
 ```
 
-The point is the third line. `doc.capabilities.canEditShapes` replaces
-`fileExtension == ".pptx"`, and a new format stops being a change to the shell.
+`doc.capabilities.canEditShapes` replaces `fileExtension == ".pptx"`, and a new
+format stops being a change to the shell. Sniffing is content-first for a
+reason ODF makes concrete: a `.odp`'s first ZIP entry is a stored `mimetype`
+naming the format exactly, which is a better answer than any file extension.
 
-*Second caller:* the three existing apps, registered as three adapters.
+**Gate.** Grep: zero occurrences of `".pptx"` or `".odp"` compared against a
+filename above the adapter layer.
 
-**0c. The container, tidied.**
+## Phase 1 — the definition of done, as tests
 
-- **One `Inflate`.** `gallery/game_engine/v2/imaging/zip/` is a copy; retire it
-  onto `gallery/zip`.
-- **A deflate compressor** for `ZipWriter`. Today every package this repository
-  writes is stored uncompressed. That is defensible for a fixture and not for
-  a deck with photographs in it.
-- **First-entry and stored-entry control** in `ZipWriter`. ODF requires
-  `mimetype` to be the first entry, STORED, with no extra field. EPUB requires
-  exactly the same of its own `mimetype`. Two formats, one small API.
-- **`Ocf`**, the EPUB/ODF container convention (`META-INF/container.xml`), as a
-  thin layer beside `OpcPackage` rather than inside it. It is not OPC: no
-  content types part, no relationship graph.
+1. One sentence, read identically out of a `.pptx` and an `.odp`
+   (`OoxmlPackageTest`, extended).
+2. One viewer opens both, with no format check above the adapter.
+3. `gallery/odp` imports nothing from `gallery/pptx`, and the reverse. Grep.
+4. `pptx_oracle_dump` byte-identical from 1.1 through 1.8.
+5. `pptx` visual shots unchanged; `pptx:writer:verify` still green.
+6. An `.odp` publishes an accessibility tree, identical when built twice.
+7. All of it compiles and passes on **JavaScript and C++**.
+8. An ODP corpus: files from LibreOffice Impress, from Google Slides' export,
+   and from PowerPoint's own "save as ODP" — three producers, because a reader
+   tested against one writer's habits is tested against nothing.
 
-**Gate for Phase 0.**
-1. `pptx`, `docx`, `datagrid` suites green on **both** JavaScript and C++ — the
-   two targets that disagree about what a string is, which is how `OoxmlText`
-   came to exist in the first place.
-2. `pptx_oracle_dump`, `docx_oracle_dump`, `xlsx_oracle_dump` byte-identical
-   before and after. This phase moves a walk; it must not change what anyone
-   sees.
-3. `pptx:writer:verify` still resolves every reference in a written package.
-4. Grep proves it: no `<` scanning left in `pptx/src`, `docx_viewer/src` or
-   `datagrid/src/xlsx` outside the retired facades.
+**And the honest failure condition.** If `OfficeScene` cannot hold both without
+growing a format-shaped field, this document is wrong and the finding is worth
+more than the phase. Write it down in `gallery/odp/ISSUES.md` and re-plan —
+that is what running the experiment first was for.
 
 ---
 
-### Phase 1 — ODF: ODT, ODS, ODP
+# The phases after it
 
-First because it is the phase Phase 0 was built for, because three target
-models already exist, and because it is the difference between a Microsoft
-OOXML engine and an office engine.
+## Phase 2 — ODT and ODS
 
-ODF is ZIP + XML + styles + assets. The container is `Ocf`, the encoding is
-`XmlCore`, the styles resolve through `OfficeStyle`'s tri-state, colours
-through `OfficeColor`, fonts through `OfficeFont`, images through
-`OfficeAsset`. The reader is the only new part, which is the whole point of
-Phase 0.
+Cheap once Phase 1 is done: the container, the encoding layer, the style
+inheritance, the unit reader and the asset store are all built and proven.
 
-**1a. ODT → `RichDocument`.** Smallest jump: `office:text` is a flow of
-`text:p` / `text:h` with `text:span` runs, `text:list` and `table:table`, and
-`RichDocument` already holds all four. Target **L1**, then L2.
+- **ODT → `RichDocument`.** `office:text` is a flow of `text:p` / `text:h` with
+  `text:span` runs, `text:list` and `table:table`, and `RichDocument` holds all
+  four. Retire `WordXml` onto `XmlCore` in the same phase. Target L1, then L2.
+- **ODS → `WorkbookModel`.** `table:table-cell` with `office:value-type`;
+  `table:number-columns-repeated` is the one real surprise and it is a reader
+  detail. The formula language is not: ODF writes `of:=SUM([.A1:.A5])` where
+  SpreadsheetML writes `SUM(A1:A5)`. `FormulaEngine` must not learn a second
+  syntax — the ODS reader translates references at read time and the workbook
+  holds one language. Retire `XmlLite` onto `XmlCore` here.
 
-**1b. ODS → `WorkbookModel`.** `table:table-cell` with `office:value-type`,
-repeated columns and rows as `table:number-columns-repeated` — the compression
-scheme is the one real surprise, and it is a reader detail. The formula
-language is not: ODF writes `of:=SUM([.A1:.A5])` where SpreadsheetML writes
-`SUM(A1:A5)`. `FormulaEngine` should not learn a second syntax; the ODS reader
-translates references at read time and the workbook holds one language.
+**Gate.** The one-sentence test now spans **six** formats. And an `.odt` written
+by this repository opens in LibreOffice without a repair dialog — the ODF
+equivalent of `tools/check_preserve.py` opening our `.xlsx` files with
+openpyxl. A reader that has never seen our model is the only honest referee.
 
-**1c. ODP → its own model, converging at `OfficeScene`.** Explicitly last, and
-explicitly not pointed at `PptxModel`, for the reasons in §3. Target **L1** —
-L2 for ODP means an opaque-node design of its own and should be scheduled
-separately with evidence from real files.
-
-**Gate for Phase 1.** `OoxmlPackageTest` today reads *one sentence, identically,
-out of all three OOXML packages.* Extend it to six. That single test is what
-proves the reader/model separation is real rather than drawn, and it is the
-cheapest test in this plan.
-
-Plus: an ODF conformance corpus, and an `.odt` written by this repository that
-LibreOffice opens without a repair dialog — the ODF equivalent of
-`tools/check_preserve.py` opening our `.xlsx` files with openpyxl. A reader
-that has never seen our model is the only honest referee.
-
----
-
-### Phase 2 — PDF read, and `OfficeScene`
+## Phase 3 — PDF read, the third scene producer
 
 The largest single capability jump in this plan, and much cheaper than it
 looks, because **PDF's three hardest decoders are already in this repository**:
@@ -356,69 +519,56 @@ looks, because **PDF's three hardest decoders are already in this repository**:
 | PDF filter | what it needs | where it already is |
 | --- | --- | --- |
 | `FlateDecode` | raw DEFLATE | `gallery/zip/Inflate.rgr` |
-| `DCTDecode` | baseline + progressive JPEG | `gallery/pdf_writer/src/jpeg/JPEGDecoder.rgr`, `ProgressiveJPEGDecoder.rgr` |
-| embedded fonts | TrueType glyph outlines, `cmap`, metrics | `gallery/pdf_writer/src/fonts/TrueTypeFont.rgr` |
+| `DCTDecode` | baseline + progressive JPEG | `gallery/pdf_writer/src/jpeg/JPEGDecoder.rgr` |
+| embedded fonts | TrueType outlines, `cmap`, metrics | `gallery/pdf_writer/src/fonts/TrueTypeFont.rgr` |
 
-What is actually new is the object layer and the interpreter.
+What is new is the object layer and the interpreter:
 
 ```text
-2a  object layer     lexer, xref table AND xref streams, object streams,
-                     indirect references, streams, linearized files
-2b  filters          Flate ✓, DCT ✓, ASCIIHex, ASCII85, LZW, RunLength
-2c  content stream   the operator interpreter: graphics state stack, path
-                     construction and painting, text state, Tj/TJ/Tm,
-                     XObjects (Form and Image), inline images, colour spaces
-2d  fonts            standard 14 widths, embedded TrueType ✓, Type1/CFF,
-                     CID fonts and CMaps — this is where text extraction
-                     either works or produces mojibake
-2e  scene            content stream → OfficeScene → EVGDisplayList → viewer
-2f  on top           text extraction (L0), page thumbnails, AcroForm fields
+3a  object layer     lexer, xref table AND xref streams, object streams,
+                     indirect references, streams
+3b  filters          Flate ✓, DCT ✓, ASCIIHex, ASCII85, LZW, RunLength
+3c  content stream   graphics state stack, path construction and painting,
+                     text state, Tj/TJ/Tm, Form and Image XObjects, inline
+                     images, colour spaces
+3d  fonts            standard 14 widths, embedded TrueType ✓, Type1/CFF,
+                     CID fonts and CMaps — where text extraction either works
+                     or produces mojibake
+3e  scene            content stream → OfficeScene → EVGDisplayList → viewer
+3f  on top           text extraction (L0), thumbnails, AcroForm fields
 ```
 
-**`OfficeScene` is built here**, not before, because this is where it gets a
-caller that is not a refactor. `SceneText`, `SceneImage`, `ScenePath`,
-`SceneGroup`, each carrying `bounds`, `transform`, `style`, `entityId` and
-`semanticRole`. PDF produces it directly; `PptxResolver`'s resolved scene and
-DOCX's `LaidPage`/`LaidLine` move onto it after, one at a time, each with its
-oracle dump unchanged.
+This is also what settles ooxml roadmap item 11: hit testing, thumbnails,
+print, selection overlays and the accessibility tree stop being three walks,
+but only once a **third** producer proves the shape was not fitted to two.
 
-That ordering also settles ooxml roadmap item 11 — hit testing, thumbnails,
-print, selection overlays and the accessibility tree stop being three walks
-and become one, but only once there is a third producer to prove the shape.
+**Out of scope for the first landing, stated so it is not discovered later:**
+encrypted PDFs, JBIG2, JPX, CCITT G3/G4, tagged-PDF structure recovery, and
+JavaScript in forms.
 
-**Out of scope for the first landing, and stated so it is not discovered
-later:** encrypted PDFs, JBIG2, JPX/JPEG 2000, CCITT G3/G4, tagged-PDF
-structure recovery, and JavaScript in forms.
+**Gate.** A corpus of real PDFs compared against a reference renderer the way
+`gallery/vela` compares its scene against Vega's own SVG: flatten both and
+compare the geometry. Golden files pin what changed; they cannot say what was
+never right.
 
-**Gate for Phase 2.** A corpus of real PDFs rendered against a reference
-renderer, compared the way `gallery/vela` compares its scene against Vega's
-own SVG: flatten both and compare the geometry. Golden files pin what changed;
-they cannot say what was never right.
-
----
-
-### Phase 3 — HTML/CSS, Markdown, EPUB
+## Phase 4 — HTML/CSS, Markdown, EPUB
 
 One phase, because the second and third are small once the first exists.
 
-`CssCore` is already here with two consumers. `EVGLayout` already does block
-and flex layout, `EVGTextEngine` already does line breaking, `EVGDisplayList`
-already reaches every backend. What is missing is the **HTML tree builder** —
-tokenizer, implied tags, the small pile of parse-error recovery that makes
-real-world HTML readable — and the mapping from element + computed style to
-`EVGElement`.
+`CssCore` is here with two consumers. `EVGLayout` does block and flex layout,
+`EVGTextEngine` does line breaking, `EVGDisplayList` reaches every backend.
+What is missing is the **HTML tree builder** — tokenizer, implied tags, the
+pile of parse-error recovery that makes real-world HTML readable — and the
+mapping from element + computed style to `EVGElement`.
 
 ```text
-3a  HtmlParser     markup → element tree (error-tolerant)
-3b  CSS binding    CssCore cascade → EVGElement style, honestly reporting
-                   what is not supported (PptxCss.unsupported is the pattern)
-3c  Markdown       CommonMark subset → the same element tree, ~600 lines
-3d  EPUB           Ocf container → OPF spine → XHTML per chapter → paginate
-                   through EVG's existing page-break flow
+4a  HtmlParser     markup → element tree (error-tolerant)
+4b  CSS binding    CssCore cascade → EVGElement style, honestly reporting what
+                   is not supported (PptxCss.unsupported is the pattern)
+4c  Markdown       CommonMark subset → the same element tree
+4d  EPUB           Ocf (built in Phase 1) → OPF spine → XHTML per chapter →
+                   paginate through EVG's existing page-break flow
 ```
-
-The strategic argument is not EPUB. It is that this phase closes the loop in
-both directions at once:
 
 ```text
 HTML ─┐                      ┌─► HTML   (EVGHTMLRenderer, exists)
@@ -430,74 +580,59 @@ DOCX ─┘      + CssCore       ├─► PNG    (exists)
 
 Every arrow on the right already works. This phase adds three on the left.
 
-**Gate for Phase 3.** `DOCX → HTML` and `HTML → PDF` both go through this one
-path, and an EPUB paginates without EPUB knowing anything about pagination.
-If EPUB needs a special case in the layout engine, the mapping in 3b is wrong.
+**Gate.** `DOCX → HTML` and `HTML → PDF` both go through this one path, and an
+EPUB paginates without EPUB knowing anything about pagination. If EPUB needs a
+special case in the layout engine, the mapping in 4b is wrong.
 
----
+## Phase 5 — data: CSV, Arrow, Parquet
 
-### Phase 4 — data: CSV, Arrow, Parquet
+`DataChunk` and `ValueVector` are the target and they exist. The adapter shape
+mirrors 1.8: `DataSourceAdapter { sniff, open, schema, scan }` handing back
+chunks.
 
-`DataChunk` and `ValueVector` are the target and they already exist. The
-adapter shape mirrors Phase 0b: `DataSourceAdapter { sniff, open, schema,
-scan }` handing back chunks.
+- **CSV/TSV.** Cheap, immediately useful, consumer already built. The work is
+  dialect detection (delimiter, quoting, embedded newlines, BOM) and type
+  inference that can be overridden — and being honest about ambiguity rather
+  than guessing a date format silently.
+- **Arrow IPC.** Look carefully before writing: `ValueVector` is *close to*
+  Arrow and not the same.
 
-**4a. CSV/TSV.** Cheap, immediately useful, and the consumer is already
-built — DataGrid renders whatever `WorkbookModel` holds. The work is dialect
-detection (delimiter, quoting, embedded newlines, BOM), type inference that
-can be overridden, and being honest about ambiguity rather than guessing a
-date format silently.
+  | | `ValueVector` | Arrow |
+  | --- | --- | --- |
+  | nulls | `nulls:[boolean]` | validity **bitmap** |
+  | strings | `strings:[string]` | offsets buffer + one data buffer |
+  | layout | tagged struct-of-arrays | typed buffers, zero-copy |
 
-**4b. Arrow IPC.** The one to look at carefully before writing, because
-`ValueVector` is *close to* Arrow and not the same:
+  Converting is simpler and forfeits the zero-copy property that is the entire
+  reason Arrow exists. Recommended: convert first so both land, and revisit the
+  layout only when there is a measured scan the copy dominates.
+- **Parquet.** Large, and one dependency is missing: Parquet's usual codec is
+  **Snappy**, which is not in this tree — `Inflate` covers the GZIP codec only.
+  Snappy decompression is small (~200 lines) and must exist before Parquet
+  reads a file anyone else produced. The rest is thrift-encoded metadata,
+  dictionary pages, RLE/bit-packed hybrid encoding, and definition and
+  repetition levels.
 
-| | `ValueVector` | Arrow |
-| --- | --- | --- |
-| nulls | `nulls:[boolean]` | validity **bitmap** |
-| strings | `strings:[string]` | offsets buffer + one data buffer |
-| layout | tagged struct-of-arrays | typed buffers, zero-copy |
+**Gate.** The same table read from `.xlsx`, `.ods`, `.csv`, `.parquet` and an
+Arrow stream produces the same `DataChunk`, and the DataGrid cannot tell which
+one it got.
 
-The decision is whether Arrow is *converted into* `ValueVector` or whether
-`ValueVector` grows an Arrow-compatible buffer layout. Converting is simpler
-and forfeits the zero-copy property that is the entire reason Arrow exists.
-Recommended: convert first, so Parquet and Arrow both land; revisit the layout
-only when there is a measured scan that the copy dominates.
-
-**4c. Parquet.** Genuinely large, and one dependency is missing: Parquet's
-usual codec is **Snappy**, which is not in this tree. `Inflate` covers the GZIP
-codec only. Snappy decompression is small (~200 lines) and must be written
-before Parquet reads a file anyone else produced. The rest is thrift-encoded
-metadata, dictionary pages, RLE/bit-packed hybrid encoding, and definition and
-repetition levels for nested columns.
-
-**Gate for Phase 4.** The same table read from `.xlsx`, `.csv`, `.parquet` and
-an Arrow stream produces the same `DataChunk`, and the DataGrid cannot tell
-which one it got.
-
----
-
-### Phase 5 — SQLite as a file, and GeoPackage
+## Phase 6 — SQLite as a file, and GeoPackage
 
 `gallery/rangerdb` reaches SQLite through `host/driver_sqlite.cjs`, and that
 host is a Node process. The browser build of `rangerdbviewer` says so honestly
 on the page: pressing SQLite there reports that it needs a host.
 
 A **pure-Ranger SQLite file reader** — header, b-tree pages, the record format,
-`sqlite_schema` — removes that limit, and it compiles to every target Ranger
-has, so a static page can open a real database and a Swift or C++ build can
-too. Read-only first: reading a page format is a bounded problem, writing one
-with a rollback journal is not.
+`sqlite_schema` — removes that limit and compiles to every target Ranger has,
+so a static page can open a real database and a Swift or C++ build can too.
+Read-only first: reading a page format is a bounded problem, writing one with a
+rollback journal is not.
 
-**GeoPackage** is then close to free: it is SQLite with agreed table names and
-a binary geometry blob. That is Phase 7 work done in Phase 5's shadow.
+**GeoPackage** is then close to free: SQLite with agreed table names and a
+binary geometry blob.
 
-*Second caller:* `rangerdbviewer`'s browser build and `RangerDB`'s introspection
-tests, both of which exist and both of which currently stop at the host
-boundary.
-
----
-
-### Phase 6 — the shared decode surface, and raster assets
+## Phase 7 — the shared decode surface, and raster assets
 
 The office README names the blocker precisely: `RichDocument` imports the PDF
 writer's `ImageBuffer` directly, and lifting it "needs a shared decode surface
@@ -511,100 +646,108 @@ ImageCodec
 ```
 
 - **PNG** — `PNGDecoder` exists in `gallery/game_engine/v2/imaging/png/`; lift
-  it, and retire the second `Inflate` with it (Phase 0c did half of this).
+  it, and retire the second `Inflate` with it.
 - **JPEG** — exists, baseline and progressive, with EXIF orientation.
 - **WebP** — lossy is a VP8 intra decoder, lossless is a different format
   sharing a container. Two jobs, not one.
-- **AVIF** — an AV1 intra decoder. Honestly: this is the largest single item in
-  this document, larger than PDF read, and it should be a host codec or
-  nothing until something needs it.
-- **SVG in a document** — `gallery/evg/SvgParser.rgr` already produces resolved
-  vector items. What is missing is the bridge that lets a `.docx` or a slide
-  hold one, which is an `OfficeScene` producer and therefore waits for Phase 2.
+- **AVIF** — an AV1 intra decoder. Honestly: the largest single item in this
+  document, larger than PDF read. Host codec or nothing until something needs it.
+- **SVG in a document** — `SvgParser` already produces resolved vector items;
+  what is missing is the bridge that lets a slide or a `.docx` hold one, which
+  is an `OfficeScene` producer and therefore waits for Phase 3.
 
----
+## Phase 8 — the domain formats
 
-### Phase 7 — the domain formats
-
-Small, each one landing on a model that already exists. Order within the phase
-should follow whichever application asks first; none of them blocks another.
+Small, each landing on a model that already exists. Order within the phase
+follows whichever application asks first; none blocks another.
 
 | format | model | notes |
 | --- | --- | --- |
-| **GeoJSON** | scene / `GraphModel` | JSON is in; the work is projection and simplification, not parsing |
-| **iCalendar `.ics`** | domain | line unfolding, RRULE, and time zones — RRULE is the whole job |
+| **GeoJSON** | scene / `GraphModel` | JSON is in; the work is projection and simplification |
+| **iCalendar `.ics`** | domain | line unfolding, RRULE, time zones — RRULE is the whole job |
 | **vCard `.vcf`** | domain | same folding rules as ICS; write them once |
 | **DBML** | `GraphModel` | RangerFlow's ERD editor is the consumer, and it exists |
-| **GraphML** | `GraphModel` | XML on `XmlCore`; a day's work after Phase 0 |
-| **glTF / GLB** | 3D | `GltfJson.rgr` and `GlbImporter.rgr` already exist in `game_engine/v2/model3d/` |
-| **MusicXML** | scene | the best layout benchmark in the list — it is typography with rules |
+| **GraphML** | `GraphModel` | XML on `XmlCore`; a day's work |
+| **glTF / GLB** | 3D | `GltfJson.rgr` and `GlbImporter.rgr` already exist |
+| **MusicXML** | scene | the best layout benchmark in the list — typography with rules |
 | **WebVTT / SRT** | timed text | small; `gallery/evg_video` is the consumer |
-| **DXF** | scene | large, entity-by-entity, and only worth it with a CAD-shaped consumer |
+| **DXF** | scene | large, entity-by-entity, worth it only with a CAD-shaped consumer |
 | **TAR** | container | trivial beside ZIP, and it makes `.tar.gz` fixtures possible |
+
+## Housekeeping, to do when it hurts
+
+Not blocking Phase 1, which is read-only, but named so it is not rediscovered:
+
+- **One `Inflate`.** `gallery/game_engine/v2/imaging/zip/` is a copy.
+- **A deflate compressor** for `ZipWriter`. Every package this repository
+  writes is stored uncompressed today — defensible for a fixture, not for a
+  deck with photographs in it.
+- **First-entry and stored-entry control** in `ZipWriter`. ODF requires
+  `mimetype` first, STORED, no extra field; EPUB requires exactly the same.
+  Two formats, one small API — needed the day ODP writing starts.
 
 ---
 
-## 6. The whole table, in order
+## The whole table, in order
 
 | Phase | Format | Level target | Container | Encoding | Model | New work is |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0 | — | — | ZIP, OCF | `XmlCore` | — | the layers themselves |
-| 1 | ODT | L1 → L2 | OCF | XML | `RichDocument` | reader |
-| 1 | ODS | L1 → L2 | OCF | XML | `WorkbookModel` | reader + formula translation |
-| 1 | ODP | L1 | OCF | XML | own → `OfficeScene` | reader + scene |
-| 2 | PDF | L0 + L1 | plain | binary | `OfficeScene` | objects + interpreter + `OfficeScene` |
-| 3 | HTML/CSS | L1 | plain | markup | `EVGElement` | tree builder + CSS binding |
-| 3 | Markdown | L1 | plain | text | `EVGElement` | small parser |
-| 3 | EPUB | L1 | OCF | XHTML | `EVGElement` | spine + pagination |
-| 4 | CSV/TSV | L1 | plain | text | `DataChunk` | dialects + inference |
-| 4 | Arrow | L0 | plain | binary | `DataChunk` | IPC + layout bridge |
-| 4 | Parquet | L0 | plain | binary | `DataChunk` | thrift + encodings + **Snappy** |
-| 5 | SQLite | L0 | plain | pages | `DataChunk` | b-tree reader |
-| 5 | GeoPackage | L0 | SQLite | pages | `DataChunk` | geometry blob |
-| 6 | PNG/JPEG | L1 | plain | binary | `ImageBuffer` | lift + one surface |
-| 6 | SVG-in-doc | L1 | plain | XML | `OfficeScene` | bridge |
-| 6 | WebP/AVIF | L0 | plain | binary | `ImageBuffer` | large; host codec first |
-| 7 | the rest | L0/L1 | various | various | existing | one reader each |
+| **1** | **ODP** | **L1** | **OCF** | **`XmlCore`** | **`OdpModel` → `OfficeScene`** | **the stack itself, proven against `.pptx`** |
+| 2 | ODT | L1 → L2 | OCF | XML | `RichDocument` | reader |
+| 2 | ODS | L1 → L2 | OCF | XML | `WorkbookModel` | reader + formula translation |
+| 3 | PDF | L0 + L1 | plain | binary | `OfficeScene` | objects + interpreter |
+| 4 | HTML/CSS | L1 | plain | markup | `EVGElement` | tree builder + CSS binding |
+| 4 | Markdown | L1 | plain | text | `EVGElement` | small parser |
+| 4 | EPUB | L1 | OCF | XHTML | `EVGElement` | spine + pagination |
+| 5 | CSV/TSV | L1 | plain | text | `DataChunk` | dialects + inference |
+| 5 | Arrow | L0 | plain | binary | `DataChunk` | IPC + layout bridge |
+| 5 | Parquet | L0 | plain | binary | `DataChunk` | thrift + encodings + **Snappy** |
+| 6 | SQLite | L0 | plain | pages | `DataChunk` | b-tree reader |
+| 6 | GeoPackage | L0 | SQLite | pages | `DataChunk` | geometry blob |
+| 7 | PNG/JPEG | L1 | plain | binary | `ImageBuffer` | lift + one surface |
+| 7 | SVG-in-doc | L1 | plain | XML | `OfficeScene` | bridge |
+| 7 | WebP/AVIF | L0 | plain | binary | `ImageBuffer` | large; host codec first |
+| 8 | the rest | L0/L1 | various | various | existing | one reader each |
 
 ---
 
-## 7. What this plan refuses to do
+## What this plan refuses to do
 
 - **No universal document model.** Rule 1. The convergence points are
-  `RichDocument`, `WorkbookModel`, `OfficeScene`, `DataChunk` and `GraphModel`,
+  `OfficeScene`, `RichDocument`, `WorkbookModel`, `DataChunk` and `GraphModel`,
   and they stay five.
 - **No shared module without a second caller.** Rule 2. `OfficeId` was deleted
-  for this and the deletion was right.
+  for this and the deletion was right. `XmlCore` and `OfficeScene` each take
+  their second caller in the step that creates them, not in a later phase.
 - **No format without a consumer application.** A reader nobody opens a file
-  with is surface that rots. Every phase above names the app that will use it.
-- **No L2 without source preservation.** A writer that silently drops the parts
-  it did not understand is worse than no writer, because the damage is invisible
-  until someone else opens the file. `.xlsx` proved this: a plain save was
+  with is surface that rots.
+- **No L2 without source preservation.** A writer that silently drops what it
+  did not understand is worse than no writer, because the damage is invisible
+  until someone else opens the file. `.xlsx` proved it: a plain save was
   dropping the drawing, both media parts, the comments and three `docProps`
   parts.
-- **No fifth XML reader, no third Inflate, no second CSS parser.** The whole
-  reason Phase 0 comes first.
-- **No format-specific special case in the layout engine.** If EPUB needs one,
-  the HTML mapping is wrong; if ODP needs one, `OfficeScene` is wrong.
+- **No fifth XML reader, no third Inflate, no second CSS parser.**
+- **No format-specific special case in the layout engine or the scene.** If ODP
+  needs one, `OfficeScene` is wrong; if EPUB needs one, the HTML mapping is.
 
 ---
 
-## 8. Conformance, as an architecture component
+## Conformance, as an architecture component
 
-Ooxml roadmap item 15, and the thing that will decide whether this plan
-produced an engine or a feature list. Every format added above is measured the
-same way, and the measurements are the roadmap:
+Ooxml roadmap item 15, and what will decide whether this plan produced an
+engine or a feature list. Every format above is measured the same way, and the
+measurements are the roadmap:
 
 ```text
-corpus/     real files, from real producers
+corpus/     real files, from real producers — three per format, not one
 oracle/     what our reader says about them, dumped and diffed
-semantic/   the same sentence, the same table, the same shape,
-            read identically out of every format that can hold it
+semantic/   the same sentence, the same table, the same shape, read
+            identically out of every format that can hold it
 visual/     rendered against a reference renderer, geometry compared
 roundtrip/  open → edit → save → reopen, parts and elements counted
 ```
 
 Four numbers per format — **open fidelity, edit fidelity, save preservation,
 reopen fidelity** — steer this architecture far better than a checklist of
-forty names does. A format at L1 with a corpus behind it is worth more than
-three at L0 without one.
+forty names. A format at L1 with a corpus behind it is worth more than three at
+L0 without one.
