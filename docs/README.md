@@ -2,8 +2,13 @@
 
 The Ranger documentation, published at
 <https://terotests.github.io/Ranger/docs/>. The playground holds the site root
-and the games site holds `/games/`; one GitHub Pages deployment assembles all
-three (`.github/workflows/deploy-pages.yml`).
+and the games site holds `/games/`; one GitHub Pages deployment assembles
+them (`.github/workflows/deploy-pages.yml`).
+
+The Office applications (EVG, Word, Excel, PowerPoint, charts, diagrams) have
+their own site at [`/office/docs/`](https://terotests.github.io/Ranger/office/docs/),
+built from `gallery/office/docs/` because those pages quote AGPL sources. See
+[`gallery/office/docs/README.md`](../gallery/office/docs/README.md).
 
 Pages **Source** must be **GitHub Actions**. A branch/Jekyll source makes
 `pages-build-deployment` parse Astro `---` front matter as YAML and fail.

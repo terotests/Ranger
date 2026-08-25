@@ -251,7 +251,8 @@ ${STYLE}
   <p>${esc(description)}</p>
 </header>
 <nav class="top">
-  <a href="${root}office/reference/">Reference</a>
+  <a href="${root}office/docs/">Office documentation</a>
+  <a href="${root}office/reference/">API dump</a>
   <a href="${root}office/">Playground</a>
   <a href="${root}docs/">Ranger documentation</a>
   <a href="https://github.com/terotests/Ranger">Source</a>
@@ -273,17 +274,26 @@ ${notice(root)}
 function renderApi(api) {
   const body = [];
   const nav = [];
-  body.push(`<p>Installed as <code>${esc(api.package)}</code>.</p>`);
+  if (api.kind === "ranger") {
+    body.push(`<p>A Ranger API. There is no npm package yet. Import <code>${esc(api.package)}</code>.</p>`);
+  } else {
+    body.push(`<p>Installed as <code>${esc(api.package)}</code>.</p>`);
+  }
   body.push(`<p>${inline(api.summary)}</p>`);
   body.push('<p><em>Generated from the Ranger sources that declare the surface — '
     + api.entries.map((e) => `<code>${esc(e.file)}</code>`).join(" and ")
     + ' — so this page cannot describe a method that is not there.</em></p>');
+  body.push('<p>The same pages, with search and a sidebar, are in the <a href="../../../office/docs/">Office documentation</a>.</p>');
 
   for (const entry of api.entries) {
     const id = slug(entry.title);
     nav.push({ id, label: entry.title, group: true });
     body.push(`<h2 id="${id}">${esc(entry.title)}</h2>`);
-    body.push(`<pre><code>import { … } from "${esc(entry.import)}";</code></pre>`);
+    if (api.kind === "ranger" || entry.language === "ranger") {
+      body.push(`<pre><code>Import "${esc(entry.import)}"</code></pre>`);
+    } else {
+      body.push(`<pre><code>import { … } from "${esc(entry.import)}";</code></pre>`);
+    }
     if (entry.summary) body.push(`<p>${inline(entry.summary)}</p>`);
     if (entry.doc) {
       // The file's own banner says what the module is and why it is separate.
@@ -307,16 +317,17 @@ function renderIndex(registry) {
     `<tr><td><a href="${a.id}/">${esc(a.title)}</a></td>`
     + `<td><code>${esc(a.package)}</code></td><td>${inline(a.summary)}</td></tr>`);
   const body = [
-    "<p>Three document formats, three APIs, one shared infrastructure — the fonts,",
-    "the bidirectional text, the geometry and the renderers are common, and the",
-    "document models are not. Merging Word, Excel and PowerPoint into one model",
-    "is the mistake this gallery is built to avoid; merging what they run on is",
-    "the point of it.</p>",
+    "<p>The published APIs, generated from the Ranger facades. Word, Excel and",
+    "diagrams have editors and demos but no facade yet. Those guides live in the",
+    " <a href=\"../../office/docs/\">Office documentation</a>, together with EVG,",
+    "the layout engine every application paints through.</p>",
+    "<p>Prefer the <a href=\"../../office/docs/\">Office documentation</a> for reading.",
+    " This dump is the same model without the site around it.</p>",
     "<table><thead><tr><th>API</th><th>Package</th><th>What it does</th></tr></thead>",
     "<tbody>", ...rows, "</tbody></table>",
   ].join("\n");
   const nav = ["<ul>", ...registry.apis.map((a) => `<li><a href="${a.id}/">${esc(a.title)}</a></li>`), "</ul>"].join("\n");
-  return page("Office APIs", "Read and write Word, Excel and PowerPoint documents from JavaScript.", body, nav, "../../");
+  return page("Office APIs", "The published Office APIs, generated from the Ranger facades.", body, nav, "../../");
 }
 
 function main() {

@@ -6,6 +6,11 @@ They are the engines and reference applications built on the language — EVG,
 display lists, DataGrid / XLSX, DOCX, PPTX, PDF, and the rest of the advanced
 implementations.
 
+Documentation of the Office side — EVG, PowerPoint, charts, Word, Excel and
+diagrams — is at
+[`https://terotests.github.io/Ranger/office/docs/`](https://terotests.github.io/Ranger/office/docs/).
+The sources and the Starlight project live in [`office/docs`](office/docs).
+
 **License: AGPL-3.0-or-later** for Ranger-authored code under this directory,
 unless a file or subdirectory says otherwise. See [`LICENSE`](LICENSE) in
 this folder and [`../LICENSE-AGPL-3.0`](../LICENSE-AGPL-3.0) for the full

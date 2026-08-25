@@ -1,5 +1,5 @@
 {
-  "$comment": "Registry of the Ranger sources that declare a published API surface. gallery/office/docs/tools/extract-api.mjs reads this file and writes gallery/office/docs/.model/*-api.json; render-reference.mjs turns that into the pages published at /office/reference/. It lives here rather than under docs/ because the pages quote AGPL comments and the documentation site is MIT. A facade added to gallery/*/api/ and not listed here is documented nowhere, which check-api-coverage.mjs reports.",
+  "$comment": "Registry of the Ranger sources that declare a published API surface. gallery/office/docs/tools/extract-api.mjs reads this file and writes gallery/office/docs/.model/*-api.json. render-reference.mjs turns that into the HTML dump at /office/reference/; render-starlight.mjs turns it into the Starlight pages at /office/docs/reference/. It lives here rather than under docs/ because the pages quote AGPL comments and the language documentation is MIT. A facade added to gallery/*/api/ and not listed here is documented nowhere, which check-api-coverage.mjs reports.",
   "apis": [
     {
       "id": "pptx",
@@ -99,6 +99,32 @@
               ]
             },
             "wrapper": "gallery/pptx/api/js/chart.cjs"
+          }
+        }
+      ]
+    },
+    {
+      "id": "charts",
+      "title": "Charts",
+      "package": "Vela",
+      "kind": "ranger",
+      "summary": "Build a Vega-Lite chart by calling methods. The runtime draws the specification this API writes.",
+      "entries": [
+        {
+          "file": "gallery/vela/src/VlChart.rgr",
+          "import": "VlChart.rgr",
+          "title": "The chart API",
+          "summary": "A dataset, a view, and marks. Nothing here draws: toSpec() hands the specification to Vela.",
+          "language": "ranger",
+          "js": {
+            "$comment": "There is no npm wrapper. The live page at /evg/chart-api/ loads the compiled Ranger classes under these names. Coverage is skipped when wrapper is absent.",
+            "language": "ranger",
+            "classes": {
+              "VlDataset": "VlDataset",
+              "VlDataRow": "VlDataRow",
+              "VlChart": "VlChart",
+              "VlChartMark": "VlChartMark"
+            }
           }
         }
       ]

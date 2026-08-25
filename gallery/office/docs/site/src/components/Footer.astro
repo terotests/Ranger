@@ -1,0 +1,22 @@
+---
+/**
+ * The default Starlight footer, plus the licence of this site and the
+ * identity of the build.
+ *
+ * This documentation quotes sources under gallery/, which are AGPL. The
+ * Ranger language documentation at /docs/ is MIT. The two licences are
+ * different and this site follows the code it describes.
+ */
+import Default from "@astrojs/starlight/components/Footer.astro";
+
+const commit = (import.meta.env.RANGER_COMMIT ?? "").slice(0, 7);
+---
+
+<Default><slot /></Default>
+
+<p class="ranger-build">
+  Licence: AGPL-3.0-or-later
+  {commit ? ` · commit ${commit}` : ""}
+  {" · "}
+  <a href="/Ranger/docs/">Ranger language documentation</a> (MIT)
+</p>

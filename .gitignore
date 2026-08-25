@@ -133,6 +133,11 @@ gallery/pptx/api/js/dist/
 # docs/ because it quotes AGPL comments and the documentation site is MIT.
 gallery/office/docs/.model/
 gallery/office/docs/dist/
+gallery/office/docs/site/node_modules/
+gallery/office/docs/site/dist/
+gallery/office/docs/site/.astro/
+gallery/office/docs/site/src/content/docs/reference/*
+!gallery/office/docs/site/src/content/docs/reference/index.md
 
 # The playground build output.
 gallery/pptx/web/playground/dist/

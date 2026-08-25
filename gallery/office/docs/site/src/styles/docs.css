@@ -1,0 +1,35 @@
+/* Styles that the generated API reference needs. */
+
+.ranger-build {
+  font-size: 0.75rem;
+  color: var(--sl-color-gray-3);
+  margin-top: 0.5rem;
+}
+
+.ranger-source {
+  font-size: 0.8rem;
+  color: var(--sl-color-gray-3);
+  margin-top: 0.5rem;
+}
+
+/*
+ * Code in a heading.
+ *
+ * A signature is long, and at the full heading size it fills the line and
+ * pushes the words after it out of view. The smaller size keeps the heading a
+ * heading and lets the text after the signature stay readable.
+ */
+.sl-markdown-content h2 code,
+.sl-markdown-content h3 code,
+.sl-markdown-content h4 code {
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.ranger-table-wrap {
+  overflow-x: auto;
+}
+
+.ranger-module-note {
+  margin: 0 0 1.25rem 0;
+}

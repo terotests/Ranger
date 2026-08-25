@@ -188,7 +188,8 @@ function main() {
       e.classes.flatMap((c) =>
         c.methods.filter((m) => !m.doc && !m.internal).map((m) => `${c.name}.${m.name}`)));
     writeJson(path.join(DATA, `${api.id}-api.json`), {
-      id: api.id, title: api.title, package: api.package, summary: api.summary, entries,
+      id: api.id, title: api.title, package: api.package, kind: api.kind || "",
+      summary: api.summary, entries,
     });
     console.log(`  ${api.id}: ${classes} classes, ${methods} methods` +
       (undocumented.length ? `, ${undocumented.length} without a comment` : ""));
