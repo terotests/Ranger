@@ -24,7 +24,28 @@ class EvgBitmapTracerTest {
         test.testEVGElement(t)
         test.testOptimalRectPolygon(t)
         test.testCurveModeRectCompact(t)
+        test.testCheckerTopology(t)
         t.summary()
+    }
+
+    ; Build an n×n checkerboard with cell×cell tiles (black on even cells).
+    fn makeChecker:EvgBinaryBitmap (n:int cell:int) {
+        def bm:EvgBinaryBitmap (EvgBinaryBitmap.create(n n))
+        def y:int 0
+        while (y < n) {
+            def x:int 0
+            while (x < n) {
+                def cx:int (idiv x cell)
+                def cy:int (idiv y cell)
+                def cellSum:int (cx + cy)
+                if (((cellSum - ((idiv cellSum 2) * 2)) == 0)) {
+                    bm.setBit(x y true)
+                }
+                x = (x + 1)
+            }
+            y = (y + 1)
+        }
+        return bm
     }
 
     fn filledRect:EvgBinaryBitmap (w:int h:int x0:int y0:int rw:int rh:int) {
@@ -202,5 +223,23 @@ class EvgBitmapTracerTest {
         t.eqInt("curve-mode rect: no cubics on a box" (this.countType(cmds "C")) 0)
         t.eqInt("curve-mode rect: command budget" (array_length cmds) 5)
         t.ok("curve-mode path stays compact" ((strlen (tr.getPathData())) < 120))
+    }
+
+    ; Checker topology must match libpotrace pathlist length (not a mistaken
+    ; "always 2 subpaths" reading of the first SVG <path> only). Coarse 4×4
+    ; cells → 2 paths; the bench's 8×8 cells on 128² → 8 paths.
+    fn testCheckerTopology:void (t:RgTest) {
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        opts.turdsize = 2
+        opts.optcurve = true
+        def coarse:EvgBinaryBitmap (this.makeChecker(128 32))
+        def tr1:EvgBitmapTracer (EvgBitmapTracer.fromBinary(coarse opts))
+        tr1.trace()
+        t.eqInt("coarse checker (cell 32) → 2 rings" (tr1.ringCount()) 2)
+        def fine:EvgBinaryBitmap (this.makeChecker(128 8))
+        def tr2:EvgBitmapTracer (EvgBitmapTracer.fromBinary(fine opts))
+        tr2.trace()
+        t.eqInt("fine checker (cell 8) → 8 rings" (tr2.ringCount()) 8)
+        t.ok("fine checker path stays under fair CLI budget" ((strlen (tr2.getPathData())) < 5500))
     }
 }

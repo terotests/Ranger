@@ -52,7 +52,10 @@ fi
 
 echo
 echo "### comparison vs potrace (optional)"
-node gallery/evg/tools/bench_vs_potrace.mjs "$OUT" || true
+if ! node gallery/evg/tools/bench_vs_potrace.mjs "$OUT"; then
+  echo "  FAIL quality/topology vs CLI potrace"
+  status=1
+fi
 
 echo "=============================================================="
 if [ "$status" -eq 0 ]; then

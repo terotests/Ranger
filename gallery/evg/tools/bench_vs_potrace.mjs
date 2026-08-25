@@ -132,7 +132,8 @@ async function benchNpmPotrace(Potrace, c, data) {
   const t0 = performance.now();
   for (let i = 0; i < c.iters; i++) last = await runOnce();
   const ms = performance.now() - t0;
-  return { ms, svgChars: last.length, pathChars: (last.match(/ d="([^"]*)"/) || ["", ""])[1].length };
+  const summed = sumSvgPathChars(last);
+  return { ms, svgChars: last.length, pathChars: summed.pathChars, subpaths: summed.subpaths };
 }
 
 function encodeBmp(w, h, data) {
@@ -164,6 +165,18 @@ function encodeBmp(w, h, data) {
   return buf;
 }
 
+function sumSvgPathChars(svgText) {
+  // CLI SVG may emit several <path> elements (tree siblings). Comparing only
+  // the first `d` under-counts checkers and similar self-touching shapes.
+  let total = 0;
+  let subpaths = 0;
+  for (const m of svgText.matchAll(/\sd="([^"]*)"/g)) {
+    total += m[1].length;
+    subpaths += (m[1].match(/[Mm]/g) || []).length;
+  }
+  return { pathChars: total, subpaths };
+}
+
 function benchCliPotrace(c, data) {
   const which = spawnSync("which", ["potrace"], { encoding: "utf8" });
   if (which.status !== 0) return null;
@@ -182,8 +195,8 @@ function benchCliPotrace(c, data) {
   }
   const ms = performance.now() - t0;
   const text = readFileSync(svg, "utf8");
-  const m = text.match(/ d="([^"]*)"/);
-  return { ms, svgChars: text.length, pathChars: m ? m[1].length : 0 };
+  const summed = sumSvgPathChars(text);
+  return { ms, svgChars: text.length, pathChars: summed.pathChars, subpaths: summed.subpaths };
 }
 
 function parseRangerLog() {
@@ -211,7 +224,7 @@ async function main() {
     console.log("  npm potrace available");
   }
 
-  console.log("  name            ranger_cmds ranger_path  cli_path   ratio");
+  console.log("  name            ranger_cmds ranger_path  cli_path  rings/cli  ratio");
   let qualityFail = 0;
   for (const c of cases) {
     const data = makeBitmap(c);
@@ -235,17 +248,30 @@ async function main() {
       cliRes && r.pathChars
         ? (r.pathChars / cliRes.pathChars).toFixed(2) + "x"
         : "   n/a";
+    const topo =
+      cliRes && r.rings != null
+        ? `${r.rings}/${cliRes.subpaths}`
+        : "n/a";
     console.log(
-      `  ${c.name.padEnd(14)} ${fmt(r.commands)} ${fmt(r.pathChars)} ${fmt(cliRes && cliRes.pathChars)} ${String(ratio).padStart(7)}`
+      `  ${c.name.padEnd(14)} ${fmt(r.commands)} ${fmt(r.pathChars)} ${fmt(cliRes && cliRes.pathChars)} ${String(topo).padStart(9)} ${String(ratio).padStart(7)}`
     );
-    // Quality gate: rect/ring must stay within 1.5× CLI path size (or absolute slack).
-    if (cliRes && r.pathChars != null && (c.name.startsWith("rect_") || c.name.startsWith("ring_"))) {
+    // Quality gate: pathChars within 1.5× of the *full* CLI SVG path budget
+    // (all <path d> attributes). Rect/ring/checker all participate.
+    if (cliRes && r.pathChars != null) {
       const limit = Math.max(cliRes.pathChars * 1.5, cliRes.pathChars + 40);
       if (r.pathChars > limit) {
         console.log(`  FAIL quality ${c.name}: ranger pathChars ${r.pathChars} > limit ${limit.toFixed(0)} (cli ${cliRes.pathChars})`);
         qualityFail++;
       } else {
         console.log(`  PASS quality ${c.name}`);
+      }
+      // Topology: decomposed ring count must match CLI SVG subpath count
+      // (libpotrace pathlist length). Fine checkers are multi-path, not 2.
+      if (r.rings != null && r.rings !== cliRes.subpaths) {
+        console.log(`  FAIL topology ${c.name}: ranger rings ${r.rings} != cli subpaths ${cliRes.subpaths}`);
+        qualityFail++;
+      } else if (r.rings != null) {
+        console.log(`  PASS topology ${c.name}`);
       }
     }
   }
