@@ -25337,6 +25337,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     return "__self_rc.borrow_mut()";
                   }
                 }
+                if ( this.rust_recv_place_mut ) {
+                  return "__self_rc.borrow_mut()";
+                }
                 return "__self_rc.borrow()";
               }
               return this.thisName;
@@ -32157,6 +32160,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               return;
                             }
                             const bosFc = node.getFirst();
+                            if ( bosFc.vref == "if" ) {
+                              if ( (node.children.length) >= 2 ) {
+                                const bosCond = node.getSecond();
+                                if ( this.rustNodeIsLambda(bosCond) == false ) {
+                                  await this.rustExtractSelfCallConflicts(bosCond, ctx, wr);
+                                }
+                              }
+                              return;
+                            }
                             if ( this.rustIsMutatingOpName(bosFc.vref) == false ) {
                               return;
                             }
@@ -59708,26 +59720,32 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             }
                             return this.nodeDirectlyMutatesSelf((fn.fnBody));
                           };
+                          writeTargetIsSelf (target) {
+                            if ( (target.ns.length) > 0 ) {
+                              if ( (target.ns[0]) == "this" ) {
+                                return true;
+                              }
+                            }
+                            if ( target.hasParamDesc ) {
+                              const wtP = target.paramDesc;
+                              if ( wtP.is_class_variable ) {
+                                return true;
+                              }
+                            }
+                            return false;
+                          };
                           nodeDirectlyMutatesSelf (node) {
                             if ( node.expression ) {
                               if ( (node.children.length) >= 2 ) {
                                 const first = node.getFirst();
                                 if ( first.vref == "=" ) {
-                                  const lhs = node.getSecond();
-                                  if ( (lhs.ns.length) > 0 ) {
-                                    const firstPart = lhs.ns[0];
-                                    if ( firstPart == "this" ) {
-                                      return true;
-                                    }
+                                  if ( this.writeTargetIsSelf(node.getSecond()) ) {
+                                    return true;
                                   }
                                 }
                                 if ( this.isMutatingOperator(first.vref) ) {
-                                  const target = node.getSecond();
-                                  if ( (target.ns.length) > 0 ) {
-                                    const firstPart_1 = target.ns[0];
-                                    if ( firstPart_1 == "this" ) {
-                                      return true;
-                                    }
+                                  if ( this.writeTargetIsSelf(node.getSecond()) ) {
+                                    return true;
                                   }
                                 }
                               }
@@ -59849,6 +59867,35 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             param.rust_borrow_type = 2;
                                             if ( this.debug ) {
                                               console.log(((("StaticAnalysis: " + rootVarName) + " needs &mut (calls mutating method ") + methodName) + ")");
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            if ( node.has_call ) {
+                              if ( (node.children.length) >= 3 ) {
+                                const hcObj = node.getSecond();
+                                const hcMethod = node.getThird();
+                                let hcRoot = hcObj.vref;
+                                if ( (hcObj.ns.length) == 1 ) {
+                                  hcRoot = hcObj.ns[0];
+                                }
+                                if ( (hcRoot.length) > 0 ) {
+                                  if ( hcRoot != "this" ) {
+                                    const hcParam = fnCtx.getVariableDef(hcRoot);
+                                    if ( (hcParam.name.length) > 0 ) {
+                                      if ( hcParam.varType == 4 ) {
+                                        if ( (typeof(hcParam.nameNode) !== "undefined" && hcParam.nameNode != null )  ) {
+                                          const hcTypeNode = hcParam.nameNode;
+                                          if ( this.doesMethodMutate(hcTypeNode.type_name, hcMethod.vref) ) {
+                                            hcParam.needs_cpp_reference = true;
+                                            hcParam.rust_borrow_type = 2;
+                                            if ( this.debug ) {
+                                              console.log(("StaticAnalysis: " + hcRoot) + " needs &mut (calls mutating method through a call node)");
                                             }
                                           }
                                         }

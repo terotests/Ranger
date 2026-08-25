@@ -673,8 +673,61 @@ below this one).
 
 ### What is left
 
-21 warnings, no errors. They are the ordinary ones: `while true`, unused
-imports, one `unconditional_recursion`.
+22 warnings, no errors. They are the ordinary ones: `while true`, unused
+imports, `private_interfaces` on the trait families.
+
+### A method named after an operator arrives in the other node shape
+
+_Later in August 2026._ The ODF reader (`gallery/odp/`, `gallery/office/`)
+landed on master and brought 12 errors back with it, in two families that
+were one bug:
+
+    (__self_rc.borrow().strike).clear();   // E0596, ten of these
+    pub fn setIfStated(slot : &StyleText, …)  { (slot).set(…); }   // E0596, two
+
+`clear` and `set` are also the names of Lang.rgr operators, so the front end
+parses `family.clear()` into the `(call obj method args)` node it builds for
+a call on an EXPRESSION rather than the dotted `hasFnCall` node an ordinary
+`family.wipe()` gets. Two analyses only ever looked at the dotted shape:
+
+* the receiver's borrow through `this` — `rustThisPathPrefix` reads
+  `rust_path_head_mut`, which the dotted path sets and the call path does
+  not (it sets `rust_recv_place_mut` instead, which the Rc segments already
+  honoured). Now the head honours it too.
+* the parameter's borrow — `analyzeParamMethodCalls` now asks the same
+  question of the call node.
+
+Under the second sat a third, older bug worth naming on its own:
+`nodeDirectlyMutatesSelf` recognised `this.field = v` and not the bare
+`field = v` that a class written without `this.` uses. So
+`doesMethodMutate("StyleText", "set")` answered *no* for every class in that
+style, and a parameter called through kept `&T`. The field's own descriptor
+settles it now, which also means a local that shadows a field does not count
+as one.
+
+Worth noting for what it says about the shape of this work: the ODF reader is
+new code that nobody wrote with Rust in mind, and it cost two emitter rules
+and one analysis. The families are not endless, but they are not exhausted
+either — each new program finds the ones its style happens to reach.
+
+### An `if` condition is a statement position too
+
+The same merge brought a run-time panic that rustc, again, could not see:
+
+    if (toolbar.pressItem(toolbar.hot)) {
+
+The receiver takes `borrow_mut()` on the toolbar's cell while the argument
+still holds a `borrow()` of it — `already borrowed`, on the first pointer
+press. The call path hoists exactly this kind of argument, and the very next
+line, `def t (toolbar.at(toolbar.hot))`, was hoisted all along; the condition
+was not, because the hoist only ran at expression level 0 and a condition is
+walked deeper. `beforeOperatorStatement` now hoists an `if` condition's
+conflicting arguments before the `if`. Not a `while` condition: that runs
+again every turn and a temporary lifted out of it would not.
+
+The lesson holds from the first round. This one took a browser to find, and
+what found it was one page assertion out of 127 — the frame parity test
+passes either way, because parity never presses a button.
 
 A WASM *build* exists now too, at `gallery/pptx/web/wasm-rust/`: `bind.rs`
 beside it exports the editor over the C ABI and `host.mjs` presents the module

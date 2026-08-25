@@ -1377,6 +1377,14 @@ class RangerRustClassWriter {
           return "__self_rc.borrow_mut()"
         }
       }
+      ; The same field, reached the other way. A method whose name is also a
+      ; Lang.rgr operator — `clear`, `set` — is parsed into the
+      ; `(call obj method args)` shape, and that path marks the receiver
+      ; place rather than the call receiver: `family.clear()` inside a
+      ; receiverless method is still `&mut self.family`.
+      if rust_recv_place_mut {
+        return "__self_rc.borrow_mut()"
+      }
       return "__self_rc.borrow()"
     }
     return thisName
@@ -9731,6 +9739,25 @@ class RangerRustClassWriter {
       return
     }
     def bosFc:CodeNode (node.getFirst())
+    ; An `if` CONDITION is a statement position too — a `let` can be written
+    ; before the `if` — but it is WALKED at expression level, so the call
+    ; path's own hoist never runs there. `if (toolbar.pressItem(toolbar.hot))`
+    ; held a Ref on the toolbar's cell while the callee took `borrow_mut()` of
+    ; the same one: a run-time `already borrowed` that rustc cannot see,
+    ; because the borrows are of a RefCell and not of the struct. The same
+    ; call written `def t (toolbar.at(toolbar.hot))` was hoisted all along.
+    ;
+    ; `while` is deliberately not included. Its condition runs again every
+    ; turn and a temporary lifted out of it would not.
+    if (bosFc.vref == "if") {
+      if ((array_length node.children) >= 2) {
+        def bosCond:CodeNode (node.getSecond())
+        if ((this.rustNodeIsLambda(bosCond)) == false) {
+          this.rustExtractSelfCallConflicts(bosCond ctx wr)
+        }
+      }
+      return
+    }
     if ((this.rustIsMutatingOpName(bosFc.vref)) == false) {
       return
     }
